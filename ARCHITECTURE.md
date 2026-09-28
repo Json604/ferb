@@ -182,7 +182,8 @@ ferb/
       resolver.py       site → (browser, profile, identity, driver) selection (section 9.3)
       profiles.py       profile discovery from Local State + name → profile resolver (section 9.5)
       pairing.py        extension install ↔ browser profile pairing (section 9.6)
-      tools.py          browser.* capabilities over a BrowserDriver; policy kind from what the element does
+      tools.py          browser.* (owner) and ferb_browser.* (FERB) capabilities; policy kind from what the element does
+      accounts.py       per-site account extractors (Gmail, YouTube first) for the pre-action account check
       ext_bridge.py     driver via the FERB extension: owner profiles and the FERB identity profile (identity
                         comes from the pairing binding, never from the extension)
       ax_browser.py     Accessibility driver (fallback for any browser)
@@ -603,16 +604,22 @@ If the chosen profile has no paired extension → offer on-demand install (9.6) 
 If the site is available in several browsers and the task is action-heavy, prefer by `browser.prefer_for_actions`
 — but an explicitly named profile always wins over preference.
 After loading, the extension reports a login-state hint. Before a consequential action, verify the **account**
-(e.g. which Gmail address), not just "signed in". If signed out → stop and tell the owner. FERB never logs in as the owner.
+(e.g. which Gmail address), not just "signed in", with a per-site **account extractor** (Gmail and YouTube first):
+a mismatch with the resolved account refuses the action (safety test 12). On a site without an extractor the
+account can't be verified: FERB asks the owner once per site + profile and remembers the answer as learned trust
+(10.4), so it doesn't ask again. If signed out → stop and tell the owner. FERB never logs in as the owner.
 The `ax:*` fallback stops if it cannot establish which profile/account it is looking at.
 
 ### 9.4 Extension contract
 
-- Permissions (Chromium MV3): `tabs`, `scripting`, `debugger`, `nativeMessaging`, host access to all sites.
+- Permissions (Chromium MV3): `tabs`, `scripting`, `debugger`, `nativeMessaging`, `tabGroups` (the "FERB" group),
+  `alarms` (the 30 s reconnect), `storage` (install id, seen command ids), host access to all sites.
 - The extension **only executes** daemon commands and **reports** state; it holds no policy and no task logic.
 - Message protocol (JSON, versioned, validated on both sides):
   - daemon → ext: `open`, `close`, `list_tabs`, `snapshot`, `act`, `wait`, `screenshot`, `attach_debugger`, `detach_debugger`
-  - ext → daemon: `result`, `error`, `tab_event` (created/updated/activated/removed), `hello` (browser, version, profile)
+  - ext → daemon: `result`, `error`, `tab_event` (created/updated/activated/removed), `hello` (`install_id`,
+    extension/protocol version, owned resources). The extension can't know its profile folder: the daemon takes
+    browser + profile from the pairing binding of that `install_id` (9.6).
 - Two execution modes:
   - **Page mode (default):** snapshots, reading, navigation and simple actions via injected content scripts.
     No debugger banner, no browser-wide commands.
@@ -688,7 +695,8 @@ Problem this solves: browsers identify profiles by folder (`Default`, `Profile 3
     policy is **not** used (shows "managed by your organization", not removable).
   - On demand: a task needs an unpaired profile → FERB asks in chat → opens that profile on the install page →
     waits for pairing → continues the task.
-  - Development: load unpacked manually in the owner's profiles.
+  - Development (build step 6): load unpacked manually. An unlisted Chrome Web Store listing comes before the
+    owner's real profiles are paired (External Extensions needs it; spike 10).
 - **Pairing:** after install, FERB opens `--profile-directory=<folder>` on the extension's own pairing page
   (`chrome-extension://<id>/pair.html#token=…`, blank, closes itself), so only the extension in that profile can
   read the one-time token. The extension sends `{install_id, token}` to the daemon, and the daemon binds
@@ -710,9 +718,10 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
 ### 10.1 Identity (keeps the two account sets separate)
 
 - Every task declares `identity`.
-  - `FERB` tasks: the FERB profile (extension driver), `fill_secret`, FERB mailbox, `act/fs` inside FERB's workspace only.
+  - `FERB` tasks: the FERB profile (extension driver, tools `ferb_browser.*`), `fill_secret`, FERB mailbox,
+    `act/fs` inside FERB's workspace only.
     No shell, no AppleScript/Mac control, no access to owner browsers.
-  - `OWNER` tasks: owner browsers (`ext:*` / `ax:*`), Mac control, shell, files — subject to 10.2.
+  - `OWNER` tasks: owner browsers (`ext:*` / `ax:*`, tools `browser.*`), Mac control, shell, files — subject to 10.2.
     Never the FERB profile, FERB secrets or FERB mailbox.
   - A task cannot switch identity; the supervisor uses separate workers and passes typed fields between them.
 - Child workers never receive more authority than their parent task.
@@ -774,6 +783,8 @@ any change voids them.
   deletion) applies at every level.
 - Learned trust: when traces show the owner approved the same kind of action repeatedly, FERB offers to stop
   asking for that kind. Stored as an owner-stated preference; revocable.
+- Unverifiable accounts (9.3): approving the "can't verify the account on <site> in <profile>" question once is
+  remembered for that site + profile (config `[policy] trusted_accounts`, owner-only, revocable).
 
 ### 10.5 Emergency stop and owner priority
 

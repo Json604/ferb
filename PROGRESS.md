@@ -79,3 +79,5 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   messages, logs or errors along the extension path; written in step 6 with the path. Owner decision: the value is
   sealed for the extension (AES-GCM, key from pairing, fresh nonce per seal, fill command id + allowed origin as
   associated data; §10.1). Protects FERB's messages and logs, not against local malware.
+- **Before pairing the owner's real profiles (owner, 2026-09-29):** publish the extension as an unlisted Chrome Web
+  Store listing (External Extensions needs it; spike 10). 6a uses load unpacked in test profiles only.
