@@ -18,8 +18,8 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 
 ## Next
 
-Spike 12 — pairing end to end in two Chrome profiles + one Brave profile; unknown `install_id` blocked from acting
-(spike 11 skipped). Also settles native-host manifest locations for default profiles (spike 4/10 open item).
+Spike 12 — pairing end to end in Chrome only, profiles "FERB Test 1" and "FERB Test 2" (owner's rule: no Brave);
+unknown `install_id` blocked from acting (spike 11 skipped).
 
 ## Pinned external tools
 
@@ -43,8 +43,12 @@ Spike 12 — pairing end to end in two Chrome profiles + one Brave profile; unkn
 - Build step 6 (extension): register `runtime.onStartup` from the first version; `hello` carries the protocol
   version and the daemon refuses a mismatch; input-readiness probe before dispatched input; treat
   `executeScript` null/`error` results as failures; install `ferb-native-host` outside TCC-protected folders.
-- Spike 12: measure native-host manifest (and External Extensions) locations for the owner's *default* Chrome and
-  Brave data folders.
+- Spike 12 (Chrome only; owner's rule: Brave is the owner's main browser, never touch its profile): measure
+  native-host manifest location for the owner's *default* Chrome data folder.
+- **Before build step 6: short Brave pairing check** in ONE temporary Brave profile, created and deleted in the
+  same session (never the owner's own Brave profile). Ask the owner first so they can pick a moment when they're
+  not mid-work (it opens a Brave window and needs the unpacked extension loaded into that temporary profile).
+- Pending owner answer: the three spike 10 edits proposed for §9.5 / §9.6.
 
 - Build step 5: when porting spike 3's tests, use a local test login page for `fill_secret` tests instead of an
   external site (the practice site went down mid-spike).
