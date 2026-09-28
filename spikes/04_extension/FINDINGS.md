@@ -46,8 +46,19 @@ Run: `uv run --python 3.12 --no-project --with pytest pytest -q test_spike.py`
    Chrome 154 → `<user-data-dir>/NativeMessagingHosts`; Brave 151 → **Google Chrome's** default folder, not its
    own and not `<user-data-dir>`. Behaviour of the owner's *default* Brave profile is not tested here (spike 10).
 
+## "Being debugged" bar (Chrome 154, checked 2026-09-28 with window-only screenshots)
+
+- Attaching `chrome.debugger` to one **background** tab shows `"<extension name>" started debugging this browser`
+  with a **Cancel** button in **every window of that browser profile**: the window holding the tab (above an
+  unrelated active tab) and a second window with no involvement.
+- It is not per-tab: the text says "this browser".
+- After detach it **lingers ~5 s** (still full at 4 s, collapsing at 5 s, gone at 6 s).
+- **Cancel** detaches the debugger: the owner can end a trusted-input action from the bar — the daemon must
+  treat that detach as an interruption (action outcome `unknown` unless verified).
+- Consequence for owner browsers: every trusted-input action makes the bar appear across all windows of that
+  profile for its duration + ~5 s. Page mode (no debugger) shows nothing.
+
 ## Not verified
 
-- The "being debugged" infobar while `chrome.debugger` is attached to a background tab (headed, not inspected).
 - Default-profile manifest locations in the owner's real Chrome/Brave (spike 10).
 - Stale extension after an automatic update path (Web Store / External Extensions) — spike 10/13.
