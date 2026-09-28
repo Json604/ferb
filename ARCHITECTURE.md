@@ -979,8 +979,9 @@ nothing in Block 1 blocks it.
 
 Each test proves a promise in this file; all run in CI with fakes, and the marked ones also on the real machine.
 
-1. Gateway bypass (real, Claude and Codex): the model-visible tool list equals the runtime's declared allowlist;
-   native shell / file-write / web / subagent attempts fail; for a tool that cannot be removed (Codex
+1. Gateway bypass (real, Claude and Codex): the tool list FERB offers equals the runtime's declared allowlist,
+   and the model-visible list is within it (equal for Claude; a subset for Codex, which loads MCP tools on
+   demand); native shell / file-write / web / subagent attempts fail; for a tool that cannot be removed (Codex
    `apply_patch`), a write attempt fails under the enforced sandbox; reading a file outside the workspace and
    fetching a URL both return nothing.
 2. Revoked or expired run token cannot call any tool; `ferb stop` revokes all within one second (real).

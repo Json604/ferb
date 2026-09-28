@@ -64,7 +64,7 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   of this user can read it via the `security` tool without a prompt).
 - Codex worker is a stopgap (§19): pinned to `gpt-5.5`, ~25–40k tokens of overhead per run.
 - Codex loads MCP tools lazily (`tool_search`): the model-visible FERB tools are a subset of the offered list.
-  21.1 is tested as "offered == allowlist, seen ⊆ allowlist" for Codex (proposed §21.1 wording pending owner OK).
+  21.1 is tested as "offered == allowlist, seen ⊆ allowlist" for Codex (§21.1 wording approved and applied).
 - Build step 8: task tree is in memory until then; outcomes are journaled with `verified: false` (verification
   lands with step 8).
 - Upgrading Codex or the Claude SDK: rerun `pytest -m real tests/test_real_runtimes.py` (costs real model usage).
