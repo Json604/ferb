@@ -44,3 +44,18 @@ The native-host manifest exists in Chrome's default `NativeMessagingHosts` folde
    unless the browser is running; hand off without waiting on/killing the launcher.
 5. Loading the wrong unpacked folder is easy (spike 4's was loaded first): the daemon should report the extension
    id and version from `hello` so `doctor` can say which extension a profile actually has.
+
+## Brave pairing check (before build step 6, owner-scheduled, 2026-09-29)
+
+Brave 151.1.93.136, the owner's running Brave with its **default** data folder; one temporary profile
+"FERB Brave Check" (created by handing `--profile-directory` to the running Brave; deleted by the owner in Brave
+afterwards). The owner's own Brave profile untouched. `brave_check.py`, `brave_location.py`, `brave_check.log`.
+
+- **PASS:** spike 12's extension (loaded unpacked in the temp profile) paired via its own pairing page; the signed
+  ack was accepted and a daemon-opened background tab came back as a signed `tab_event` attributed to
+  `('brave', 'FERB Brave Check')`.
+- **Native-host manifest location:** Brave reads **Google Chrome's** `NativeMessagingHosts` folder, not
+  `BraveSoftware/Brave-Browser/NativeMessagingHosts`. Measured twice, in both orders, one location at a time:
+  Brave folder only → 0 hellos in 150 s (twice); Chrome folder only → hello within the retry window (1, then 3).
+  Same as spike 4's custom-data-folder result. So one manifest in Chrome's folder serves Chrome and Brave.
+- Both manifests and the relay were removed after each run.

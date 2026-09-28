@@ -1,0 +1,16 @@
+04:12:53 temporary profile folder: created
+04:12:53 manifest in brave folder (folder existed)
+04:12:53 READY: load spike 12's extension (spikes/12_pairing/ext) unpacked in the FERB Brave Check window
+04:15:15 extension seen in the temporary profile
+04:17:45 no hello in 150 s with the manifest in the brave folder
+04:17:45 manifest in chrome folder (folder existed)
+04:17:45 hello received with the manifest in the chrome folder: {"version":"0.0.1","paired":false}
+04:17:45 paired: binding ('brave', 'FERB Brave Check'), signed ack accepted=True
+04:17:45 signed tab event accepted=True, attributed to ('brave', 'FERB Brave Check')
+04:17:45 RESULT: PASS (Brave reads the native-host manifest from the chrome folder)
+04:17:45 cleanup: manifest removed, relay stopped; the temporary profile is left for the owner to delete in Brave
+04:18:09 manifest in chrome folder (folder existed)
+04:20:39 MEASURE: 3 hello(s) in 150 s with the manifest only in the chrome folder
+04:20:39 manifest in brave folder (folder existed)
+04:23:09 MEASURE: 0 hello(s) in 150 s with the manifest only in the brave folder
+04:23:09 cleanup: manifest removed, relay stopped

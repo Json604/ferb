@@ -27,8 +27,9 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 
 ## Next
 
-1. **Brave pairing check** (owner-scheduled, before step 6): one temporary Brave profile, created and deleted in
-   the same session, never the owner's own Brave profile. Waiting for the owner to pick a time.
+1. ~~Brave pairing check~~ — done 2026-09-29: PASS (pairing + signed, attributed tab event in a temporary
+   profile). Brave 151 reads Google Chrome's NativeMessagingHosts folder, not its own (`spikes/12_pairing/FINDINGS.md`).
+   Proposed §8 edit pending owner approval. Owner deletes the temporary "FERB Brave Check" profile in Brave.
 2. **Build step 6** — Chromium extension + native host + `ext_bridge` + profiles/pairing + site resolver, including
    the FERB identity profile (paired as FERB).
 
@@ -58,11 +59,6 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   `executeScript` null/`error` results as failures; install `ferb-native-host` outside TCC-protected folders.
 - Spike 12 (Chrome only; owner's rule: Brave is the owner's main browser, never touch its profile): measure
   native-host manifest location for the owner's *default* Chrome data folder.
-- **Before build step 6: short Brave pairing check** in ONE temporary Brave profile, created and deleted in the
-  same session (never the owner's own Brave profile). Ask the owner first so they can pick a moment when they're
-  not mid-work (it opens a Brave window and needs the unpacked extension loaded into that temporary profile).
-
-
 - FERB.app (later block): harden the Keychain item's ACL to FERB's signed binary once FERB.app exists (today any process
   of this user can read it via the `security` tool without a prompt).
 - Codex worker is a stopgap (§19): pinned to `gpt-5.5`, ~25–40k tokens of overhead per run.
