@@ -24,17 +24,13 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | **Build step 4** — runtimes (Codex exec, Claude Agent SDK) with native tools contained, `ferb mcp` shim, gateway, `act/fs`, `ferb chat` (reply/clarify, one worker) | 2026-09-28 | Done | 147 offline tests (3 runs green) + 6 real (`pytest -m real`: 21.1 for Codex and Claude, 123 s). Supervisor + worker = Codex (`[runtimes]` in config.toml); Claude fully built and tested, a config switch away. Codex supervisor: no FERB tools, read-only sandbox, gpt-5.5, chat history re-sent each turn (`--ephemeral`; resume would need recorded sessions in `~/.codex`). Tool-list check per run: Codex from its trace, Claude via a localhost proxy recording tool names only. Pasted/quoted chat content wrapped as untrusted data (§10.2). Time header per model turn, footer per tool result. Codex pinned in `~/.ferb/node`. |
 | Spike 16 — FERB identity via the extension in its original Chrome profile | 2026-09-29 | Works: session held 35 min, 8/8 rounds, webdriver false | `spikes/16_ext_identity/FINDINGS.md`. Replaces the copied-profile CDP path (ARCHITECTURE.md edits approved and applied). |
 | **Build step 5** — `identity/` layer: Keychain secrets, mailbox/OTP, identity-profile verification, `browser.*` tools + policy kinds (driver-independent) | 2026-09-29 | Done (closed as the identity layer; owner decision) | 165 offline tests (3 runs green): 21.3, 21.5 (password/code nowhere in results, db or logs), intent-gated submits, stale ids, per-task tabs, stop, local URLs refused before any driver, safety test 20 (profile must hold only FERB's account; cookie/password stores never opened). The copied-profile CDP driver was built, then removed: a copied profile loses its Google session within minutes (spike 16 shows the original profile via the extension holds it 35 min). FERB's browser itself arrives with the extension in step 6. |
+| **Build step 6a** — FERB extension (MV3), native host, pairing, `ext_bridge`, profile discovery + resolver, site resolver, owner `browser.*` tools, account extractors + ask-once trust | 2026-09-29 | Done | 180 offline tests (3 runs green): pairing + 21.16 (unpaired can't act/report; bad MAC, replay, reused/expired tokens refused), protocol-version refusal, native host refuses foreign extension ids and exits with the daemon, 21.15 (disconnect mid-command -> unknown -> reconciled done/failed, never resent), 21.13 (stale ids after navigation/reconnect), 21.12 (wrong / signed-out account refused), ask-once per site + profile remembered, resolver rules, FERB's identity profile never paired or routed as owner, wake page, 21.6 (extension CDP allowlist, run in node). Real (`-m real`, local pages): Chrome "FERB Test" 3/3 and a temporary Brave profile 3/3 — pairing, background tab never activated, snapshot sanitized in the page, trusted click/typing (`isTrusted`), cookies CDP refused, host killed -> reconnect -> stale ids refused. |
 
 ## Next
 
-1. ~~Brave pairing check~~ — done 2026-09-29: PASS (pairing + signed, attributed tab event in a temporary
-   profile). Brave 151 reads Google Chrome's NativeMessagingHosts folder, not its own (`spikes/12_pairing/FINDINGS.md`).
-   §8 edit approved and applied (manifest in Chrome's folder + a copy in Brave's). Temporary profile deleted by the owner.
-2. **Build step 6**, split by the owner (plan first, approval before building, like steps 1–4; each part built and
-   reported separately):
-   - **6a:** extension, native host, `ext_bridge`, profile discovery + resolver, pairing and site resolver for
-     owner profiles.
-   - **6b:** FERB identity profile on the extension, sealed secrets, step 5's carried-over real tests.
+**Build step 6b** — FERB identity profile on the extension (paired as FERB), sealed secrets (AES-GCM, pairing key,
+command id + origin as AD), step 5's carried-over real tests (session, owner-assisted OTP, 21.4, 21.21). Plan first,
+owner approval before building.
 
 ## Rules for build steps (owner)
 
@@ -81,3 +77,11 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   associated data; §10.1). Protects FERB's messages and logs, not against local malware.
 - **Before pairing the owner's real profiles (owner, 2026-09-29):** publish the extension as an unlisted Chrome Web
   Store listing (External Extensions needs it; spike 10). 6a uses load unpacked in test profiles only.
+- 6a notes: trusted (debugger) input works in the top frame only; iframes use page-mode events. The YouTube
+  extractor is unvalidated on a real signed-in page (it falls back to "couldn't read the account" -> refuse); Gmail's
+  is title/aria-label based. Validate both with a real signed-in account before relying on them (FERB's own account
+  is in its identity profile: ask the owner first). The "FERB" tab group isn't asserted in the real test.
+- 6a deferred (owner-approved): resolver rule 2 (trail history) -> step 9; data-flow labels from owner pages
+  (21.9) -> step 8; External Extensions + unlisted Web Store listing before pairing the owner's real profiles.
+- Test profiles: Chrome "FERB Test" (Profile 25) may be kept for 6b; the temporary Brave profile (folder "FERB Test",
+  shown as "Personal") is to be deleted by the owner.
