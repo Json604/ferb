@@ -12,11 +12,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 4 — Chromium extension in Brave + Chrome | 2026-09-28 | Works; background input needs focus emulation | `spikes/04_extension/FINDINGS.md`. Native messaging round trip, background tab + sanitized snapshot, trusted click/typing in a background tab (incl. Google Search, not flagged), extension-side CDP allowlist. Needs: focus emulation (site then sees `visible`; owner decision), input-readiness probe, `onStartup`, version check in `hello`, host outside TCC folders. §8/§9.2/§9.4 edits proposed. |
 | Spikes 5, 7, 11 — Safari | 2026-09-28 | **Skipped by the owner** (doesn't use Safari) | Safari control parked. Spike 5 work (built, not run against Safari) is on branch `spike-5-safari` with its FINDINGS.md. ARCHITECTURE.md edits for Safari watch-only proposed. |
 | Spike 6 — pyobjc probes + TCC checks | 2026-09-28 | Works; AXManualAccessibility gone | `spikes/06_pyobjc/FINDINGS.md`. Frontmost app, window titles without activating, no-prompt TCC checks (Automation via `ctypes`). Chrome 154/Brave 151 build the web AX tree on demand (first query may be empty ~0.2 s); `AXManualAccessibility` unsupported → §9.2 edit proposed. TCC grants belong to the responsible app, not FERB. |
+| Spike 8 — launchd agent + socket from CLI | 2026-09-28 | Works | `spikes/08_launchd/FINDINGS.md`. Start/ping/restart-after-crash/stop/stale socket, owner-only socket with peer-uid check. The launchd process has **none** of the terminal's TCC grants (they attach to the binary launchd runs); CLI must treat EOF as daemon-unavailable. |
 
 ## Next
 
-Spike 8 — launchd agent start/stop + socket from CLI (spike 7 skipped). Also: how TCC grants attach to the
-launchd-started process.
+Spike 9 — system audio (timeboxed ~1 h, throwaway script): `catap` per-app and system mix on speakers, wired
+headphones and AirPods; Audio Capture prompt; denial → silence; DRM playback.
 
 ## Pinned external tools
 
@@ -29,6 +30,9 @@ launchd-started process.
   project's `pyproject.toml` as an exact pin when build step 1 creates it.
 
 ## Open items carried forward
+
+- Build steps 1/3: the daemon's TCC identity is the executable launchd runs. Needs a stable executable so grants
+  survive Python upgrades / venv rebuilds (FERB.app is deferred) — owner decision before build step 3.
 
 - Build step 3: `ferb doctor` checks TCC for the launchd-started daemon, not the terminal (grants belong to the
   responsible app); Automation status only checkable while the target app runs.
