@@ -15,11 +15,11 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 8 — launchd agent + socket from CLI | 2026-09-28 | Works | `spikes/08_launchd/FINDINGS.md`. Start/ping/restart-after-crash/stop/stale socket, owner-only socket with peer-uid check. The launchd process has **none** of the terminal's TCC grants (they attach to the binary launchd runs); CLI must treat EOF as daemon-unavailable. |
 | Spike 9 — system audio | 2026-09-28 | **Skipped by the owner** | Deferred to the voice block (§17, §20). |
 | Spike 10 — profiles | 2026-09-28 | Works | `spikes/10_profiles/FINDINGS.md`. Local State discovery + §9.5 resolver (ambiguity never first-match). `--profile-directory` hands off to the running instance (real Chrome FERB profile too); unknown folder silently creates a profile → guard. External Extensions: every profile gets it disabled (8192) until accepted, Chrome and Brave (own data dir). `Local State` written lazily. |
+| Spike 12 — pairing end to end (Chrome only) | 2026-09-28 | Works | `spikes/12_pairing/FINDINGS.md`. Token via the extension's own pairing page; install_id→folder binding; signed + sequenced messages; unpaired install can't send events or receive actions (21.16). Found: native host must exit when the daemon drops; never start/kill the owner's browser implicitly (one harness-started Chrome was force-quit — fixed). |
 
 ## Next
 
-Spike 12 — pairing end to end in Chrome only, profiles "FERB Test 1" and "FERB Test 2" (owner's rule: no Brave);
-unknown `install_id` blocked from acting (spike 11 skipped).
+Spike 13 — MV3 service worker termination: kill it mid-command; confirm reconnect, generation bump, no replay.
 
 ## Pinned external tools
 
@@ -40,7 +40,8 @@ unknown `install_id` blocked from acting (spike 11 skipped).
   responsible app); Automation status only checkable while the target app runs.
 - Owner decision: notifications (section 10.2 "Sending… Undo") vs CLAUDE.md's CLI-only interface.
 
-- Build step 6 (extension): register `runtime.onStartup` from the first version; `hello` carries the protocol
+- Build step 6 (extension): native host exits when the daemon connection drops; extension queues outgoing
+  messages until reconnected; read `lastError` in `onDisconnect`; register `runtime.onStartup` from the first version; `hello` carries the protocol
   version and the daemon refuses a mismatch; input-readiness probe before dispatched input; treat
   `executeScript` null/`error` results as failures; install `ferb-native-host` outside TCC-protected folders.
 - Spike 12 (Chrome only; owner's rule: Brave is the owner's main browser, never touch its profile): measure

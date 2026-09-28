@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "FERB spike 12",
+  "version": "0.0.1",
+  "description": "Spike: pairing + authenticated messages. No policy, no decisions, no UI beyond the pairing page.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnBTlVh7feB7PEIBS/ZWDuUDMLRCYlJ282RHcwOUD8XCfW+UUvfJfzVxHClPNxkaZOg55j6ga55JEBSud5ybED8+yedulXSc4HBtVshiM+IRQWjV1DxEX23sZ1qa29hYgqluN4WtbhNVJvX0tGDI4QTChj3xJ38osAYdWOUJc28Qkm2z++pULiw45KLna2pRuWn3WeuCQmoLV1uM4m0uopDoLREUOtIgkZ/dghu4lVQaE94PTBFPkVuyrVR6bwK+Uee6QM6WqDTM9Jl4xBTT0dJIpJJ6jerHHh8gGyna97cYs9q5HAhyGWexzGsl788VN5bGd8JoEokvivzY7inyOwQIDAQAB",
+  "permissions": ["tabs", "storage", "nativeMessaging"],
+  "background": {"service_worker": "background.js"}
+}
