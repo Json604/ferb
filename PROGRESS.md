@@ -8,11 +8,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 |------|------|--------|-------|
 | Spike 1 — Codex exec + MCP, native tools off | 2026-09-28 | Works with a sandbox fallback | `spikes/01_codex_mcp/FINDINGS.md`. Codex can't remove `apply_patch`, and code-mode models keep `exec` + subagents, so workers are pinned to `gpt-5.5` and run under the read-only sandbox. §5, §7, §19 and test 21.1 updated to match. |
 | Spike 2 — Claude Agent SDK + MCP, native tools off | 2026-09-28 | Works cleanly (options only) | `spikes/02_claude_sdk/FINDINGS.md`. `tools=[]`, `dontAsk`, explicit `setting_sources=[]` (None loads user+project settings). Proxy on `ANTHROPIC_BASE_URL` shows the API receives only the MCP tool. Auth: subscription login. ~2k tokens overhead. |
-| Spike 3 — CDP pipe to `ferb-identity`; `fill_secret` | 2026-09-28 | Works; Google needs a seeded session | `spikes/03_cdp_identity/FINDINGS.md`. Pipe CDP + origin-bound `fill_secret` proven on a practice site (refusals incl. iframe, focus stealing). Google refuses automated sign-in (remote debugging sets `navigator.webdriver`); identity profile seeded from the owner's FERB-only Chrome profile and Gmail works over the pipe. §0/§8/§9.1/§19 edits proposed. |
+| Spike 3 — CDP pipe to `ferb-identity`; `fill_secret` | 2026-09-28 | Works; Google needs a seeded session | `spikes/03_cdp_identity/FINDINGS.md`. Pipe CDP + origin-bound `fill_secret` proven on a practice site (refusals incl. iframe, focus stealing). Google refuses automated sign-in (remote debugging sets `navigator.webdriver`); identity profile seeded from the owner's FERB-only Chrome profile and Gmail works over the pipe. §0, §8 (incl. `doctor` re-verify), §9.1, §10.1, §19, test 21.20 updated. |
 
 ## Next
 
-Spike 4 — Chromium extension in Brave and Chrome (after the owner approves the spike 3 ARCHITECTURE.md edits).
+Spike 4 — Chromium extension in Brave and Chrome: native messaging round trip, background tab, snapshot, trusted
+click + typing in a background tab via `chrome.debugger` on a bot-protected site.
 
 ## Pinned external tools
 
@@ -25,6 +26,9 @@ Spike 4 — Chromium extension in Brave and Chrome (after the owner approves the
   project's `pyproject.toml` as an exact pin when build step 1 creates it.
 
 ## Open items carried forward
+
+- Build step 5: when porting spike 3's tests, use a local test login page for `fill_secret` tests instead of an
+  external site (the practice site went down mid-spike).
 
 - Build step 4 (runtimes) must implement the tool-list allowlist check (§7). Claude: from the actual API request
   via a recording proxy (spike 2 `proxy.py`). Codex: from the trace log (spike 1 `tools_in_trace`, including

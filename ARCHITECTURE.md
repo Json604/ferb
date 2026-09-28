@@ -34,7 +34,9 @@ step 1; contradictions from revision 5 fixed (owner CDP, trail redaction order, 
 
 Decisions and defaults:
 - Python 3.12. Runtimes: Claude (Agent SDK) = orchestrator, Codex (`codex exec --json`) = workers; switchable in config.
-- FERB never reads, types, or stores the owner's credentials, and never reads browser cookie stores.
+- FERB never reads, types, or stores the owner's credentials. FERB never reads the owner's browser cookie stores;
+  seeding FERB's own identity profile from a profile containing only FERB's account is allowed at setup, after
+  verifying its accounts.
 - Low friction by default: the owner's instruction is the approval; security runs automatically in the
   background; explicit confirmation only for the narrow cases in section 10.3. Autonomy level: `balanced`.
 - Codex authenticated via ChatGPT login for testing.
@@ -476,7 +478,14 @@ a subset of it. A runtime that fails this check, or whose sandbox cannot be veri
    - Drop the External Extensions file so unticked profiles offer the extension the next time they are opened.
    - Install FERB.app; owner enables its Safari extension (per Safari profile) and grants website access; pair.
    - Profiles without the extension are watched read-only via AppleScript.
-   - Create the `ferb-identity` Chrome profile; store FERB credentials in Keychain; verify mailbox.
+   - Seed the `ferb-identity` Chrome profile. Google refuses sign-in from browsers under remote debugging, so the
+     owner signs FERB's Google account into a dedicated profile in their normal Chrome, holding no other accounts
+     or site logins. With Chrome quit, setup finds that profile in `Local State`, checks that its Chrome accounts
+     (`Local State` + `Preferences` → `account_info`) are exactly FERB's account, shows the profile to the owner
+     for confirmation, and copies it into `~/.ferb/chrome/identity/Default` (owner-only). Cookies and saved
+     passwords are never read. Setup then verifies the session over the pipe (the inbox loads as FERB's account).
+     `ferb doctor` re-verifies the seeded session and, if it is no longer valid, tells the owner to re-seed.
+     FERB credentials go to Keychain; their `SecretSpec`s go to the owner-only `config.toml`.
 4. Assign this Mac a stable `device_id` (generated once, stored in `~/.ferb/config.toml`). Scan device →
    `DeviceProfile` (apps, scriptability, AX support, browsers + driver availability); commit to git.
 5. Install launchd agent; start daemon; run the self-test **through the launchd-started process** (the one that
@@ -491,7 +500,7 @@ Watchers emit `device.changed` on app install/removal; profile rescans that app 
 
 | Mode | Browser | Identity | Driver | Credentials |
 |------|---------|----------|--------|-------------|
-| FERB browsing | FERB's own Chrome profile | `FERB` | `cdp_identity` (CDP over pipe) | FERB's, via Keychain + `fill_secret` |
+| FERB browsing | FERB's own Chrome profile | `FERB` | `cdp_identity` (CDP over pipe) | FERB's, via Keychain + `fill_secret`; for sites that refuse automated sign-in (Google), the session seeded at setup |
 | Act as owner | Owner's Chrome, Brave, Safari | `OWNER` | `ext:*` → `ax:*` fallback | None — existing sessions only |
 | Watch | Owner's Chrome, Brave, Safari | — | extension events; AppleScript/AX read if extension missing | None |
 
@@ -615,7 +624,8 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
 - Child workers never receive more authority than their parent task.
 - FERB credentials: Keychain only, described by `SecretSpec`. `fill_secret(target, ref)` runs inside the daemon,
   checks the target frame's origin against `allowed_origins` right before typing, and records `ref.key` only.
-- Owner credentials: never read, typed, stored, or requested. No cookie-store access.
+- Owner credentials: never read, typed, stored, or requested. No access to the owner's cookie stores (the only
+  exception is seeding FERB's identity profile at setup, section 8).
 
 ### 10.2 Automatic protections (never prompt the owner)
 
@@ -826,6 +836,9 @@ section 21 safety tests pass.
   full checkpoint/resume of tasks comes with the overrides block.
 - Global daily cost ceiling UI; trail retention/encryption (plaintext SQLite, rely on FileVault); provider outage modes.
 - Hand-editable markdown memory (two-way sync) deferred.
+- Remote debugging (pipe or port) sets `navigator.webdriver`; FERB never hides or fakes automation signals. Sites
+  that refuse automated sign-in (Google) rely on the session seeded at setup; when it expires, FERB stops and asks
+  the owner to re-seed. `fill_secret` refuses, never types, when a site rejects a directly set value.
 - The Codex worker runtime (`codex exec`) is a stopgap: it is pinned to `gpt-5.5` (the only non-code-mode model it
   can be locked down on) and carries ~25–40k tokens of Codex's own instructions per run. Planned replacement: a
   direct-API runtime (FERB's own agent loop) where the model sees only FERB's tools. When `gpt-5.5` is retired
@@ -894,3 +907,5 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
 17. Forgotten memory is not regenerated by distillation (sources purged) and is absent from FTS and exports.
 18. `actor == "ferb"` trail events never become owner preferences or resolver history.
 19. Timer claimed but unacknowledged before a crash is delivered exactly once to its consumer.
+20. Identity seeding refuses a profile whose Chrome accounts are not exactly FERB's account, and never reads
+    cookie or password stores.
