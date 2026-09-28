@@ -35,6 +35,11 @@ All spikes done or skipped (5, 7, 9, 11 skipped by the owner). Next: **build ste
   means rerunning the spike 2 tests first**, then bumping `SDK_VERSION` in `sdk_run.py`. Moves into the
   project's `pyproject.toml` as an exact pin when build step 1 creates it.
 
+## Rules for build steps (owner)
+
+- Use the spike findings and port their tests where relevant, but write production code fresh in `ferb/`;
+  never import from `spikes/`.
+
 ## Open items carried forward
 
 - Build step 7: mark every FERB input event; GUI actions check owner input before each step (per keystroke);

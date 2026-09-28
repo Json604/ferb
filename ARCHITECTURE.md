@@ -468,7 +468,8 @@ a subset of it. A runtime that fails this check, or whose sandbox cannot be veri
 
 `ferb setup` (idempotent; `ferb doctor` re-checks everything):
 
-1. TCC permissions: Accessibility, Screen Recording, Automation (per app); Full Disk Access optional.
+1. TCC permissions: Accessibility, Screen Recording, Automation (per app); Input Monitoring if Accessibility alone
+   doesn't allow the owner-input listen-only tap; Full Disk Access optional.
    FERB cannot grant these — it opens the right System Settings pane and polls until granted.
 2. Automation (per-app) permission: request for apps the owner selects at setup; any other app is asked on first use.
 3. Browsers (details in 9.5 and 9.6):
@@ -702,7 +703,10 @@ any change voids them.
 - `ferb stop` immediately revokes all run tokens, blocks new actions at the
   gateway, cancels workers, detaches debuggers and kills task-owned processes. `ferb resume-tasks` lifts it.
   (`ferb pause` is separate: it only stops monitoring.)
-- Owner input wins: the `owner_input` watcher pauses GUI actions while the owner is using mouse/keyboard.
+- Owner input wins: the `owner_input` watcher is a listen-only event tap; every input event FERB posts carries a
+  private marker, so unmarked events are the owner (the system idle timer can't be used — FERB's own input resets
+  it). GUI actions are made of small steps (one keystroke / one mouse event) and check before each; they yield
+  within one step and resume only after a quiet period (default 1.5 s). A yielded action reports where it stopped.
 
 ### 10.6 Sanitization pipeline (`sanitize/redact.py`)
 
