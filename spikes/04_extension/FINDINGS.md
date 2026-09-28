@@ -53,8 +53,9 @@ Run: `uv run --python 3.12 --no-project --with pytest pytest -q test_spike.py`
   unrelated active tab) and a second window with no involvement.
 - It is not per-tab: the text says "this browser".
 - After detach it **lingers ~5 s** (still full at 4 s, collapsing at 5 s, gone at 6 s).
-- **Cancel** detaches the debugger: the owner can end a trusted-input action from the bar — the daemon must
-  treat that detach as an interruption (action outcome `unknown` unless verified).
+- **Cancel** is documented to detach the debugger (not clicked in this check). If so, the owner can end a
+  trusted-input action from the bar; the daemon must treat that detach as an interruption (action outcome
+  `unknown` unless verified). To confirm in build step 6.
 - Consequence for owner browsers: every trusted-input action makes the bar appear across all windows of that
   profile for its duration + ~5 s. Page mode (no debugger) shows nothing.
 
