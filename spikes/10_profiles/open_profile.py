@@ -36,8 +36,15 @@ def open_in_profile(browser: str, folder: str, url: str, user_data_dir: str | No
     args = [BINARIES[browser], f"--profile-directory={folder}", url]
     if user_data_dir:
         args.insert(1, f"--user-data-dir={user_data_dir}")
+    elif running_pid(browser) is None:
+        # The launcher would become the owner's browser itself. Never start (or later kill) it.
+        raise RuntimeError(f"{browser} is not running; FERB never starts the owner's browser implicitly")
     t0 = time.monotonic()
-    subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    p = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    while p.poll() is None:  # a hand-off exits within ~0.2 s; never kill it (it might be the browser)
+        if time.monotonic() - t0 > 10:
+            raise RuntimeError("launcher did not hand off to a running instance (left running, not killed)")
+        time.sleep(0.05)
     return time.monotonic() - t0
 
 
