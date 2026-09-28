@@ -206,6 +206,8 @@ ferb/
     scan.py             setup + rescan: apps, scriptability, AX support, browsers, extension status
     permissions.py      TCC permission checks + open-settings helpers
     profile.py          DeviceProfile load/save/diff; method resolution
+    install.py          dedicated interpreter + venv (FERB installed as a copy), LaunchAgent install/update/uninstall
+    selftest.py         self-test run inside the daemon: AX read, event tap, one marked (harmless) input event
   identity/
     secrets.py          KeychainSecretStore (FERB identity only)
     mailbox.py          FERB's inbox (read OTPs); send requires approval
@@ -250,7 +252,10 @@ Runtime data in `~/.ferb/`:
   config.toml           runtimes, budgets, policy toggles, exclusion lists
   ferb.db               tasks, spans, events, trail, timers, journal, memory_items (SQLite, WAL)
   memory/               markdown export of memory_items (generated, read-only, no history)
-  device/<device_id>.json  device profile (one per device; only this Mac in Block 1), committed to git
+  device/<device_id>.json  device profile (one per device; only this Mac in Block 1), committed to a local git
+                        repo in ~/.ferb/device/ (history of the Mac's changes; never pushed anywhere)
+  python/ venv/ bin/    dedicated interpreter, FERB's venv (a copy of FERB, updated by `ferb setup --update`)
+  .ferb-home            marker written by setup; `ferb uninstall --purge` refuses a folder without it
   chrome/identity/      Chrome user-data-dir for FERB's own identity
   logs/                 rotated daemon + process logs
   run/ferb.sock         daemon socket
@@ -483,7 +488,11 @@ a subset of it. A runtime that fails this check, or whose sandbox cannot be veri
 
 ## 8. Setup and device profile
 
-`ferb setup` (idempotent; `ferb doctor` re-checks everything):
+`ferb setup` (idempotent; `ferb doctor` re-checks everything). Setup never quits or kills the owner's browsers —
+when a browser must be closed it asks the owner to quit it and waits — and it does not touch Brave (seeding uses
+Chrome only; the Brave pairing check is a separate, owner-scheduled step before build step 6). Build order: step 3
+builds permissions, device profile, interpreter, LaunchAgent, self-test, doctor and uninstall; the browser items
+below arrive with step 5 (identity seeding) and step 6 (native host, extension, pairing, External Extensions).
 
 1. TCC permissions: Accessibility, Screen Recording, Automation (per app); Input Monitoring if Accessibility alone
    doesn't allow the owner-input listen-only tap; Full Disk Access optional.
@@ -817,7 +826,8 @@ Rules:
 | `ferb chat` | Conversation with the orchestrator; approvals inline |
 | `ferb logs [--tasks --trail --tools --browsers --policy --actions]` | Live stream from the bus (redacted) |
 | `ferb trace <task-id>` | Span tree for one task |
-| `ferb setup` / `ferb doctor` | Onboarding / health, permissions, extension connectivity |
+| `ferb setup [--update]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent) / health, permissions, extension connectivity |
+| `ferb uninstall [--purge]` | Remove the LaunchAgent (and native-host files); `--purge` also deletes `~/.ferb` after confirmation |
 | `ferb device` / `ferb browsers` | Device profile / browser drivers + connection status |
 | `ferb timeline`, `ferb memory …` | Memory journey |
 | `ferb pause` / `ferb resume` | Stop / start monitoring |
