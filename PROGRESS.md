@@ -68,10 +68,10 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 - Build step 8: task tree is in memory until then; outcomes are journaled with `verified: false` (verification
   lands with step 8).
 - Upgrading Codex or the Claude SDK: rerun `pytest -m real tests/test_real_runtimes.py` (costs real model usage).
-- **Step 5 open:** FERB's browser now defaults to a real Chrome window started in the background (never
-  frontmost; owner decision 2026-09-29, recorded in ARCHITECTURE.md). After the owner re-seeded, the real session
-  test passed (signed in, never frontmost, Keychain item present), but 1-2 min later the OTP test's first feed read
-  got 401 again. Cause unknown; no further probes of the live session without the owner's OK (CLAUDE.md).
-  Pending: diagnosis plan, then `pytest -m real tests/test_identity_real.py tests/test_otp_real.py` with the owner.
+- **Step 5 open:** the copied-profile CDP path can't hold FERB's Google session (copy signed out twice; the
+  original stayed signed in). Spike 16 (2026-09-29): driving the ORIGINAL "FERB" Chrome profile through an
+  extension kept the session 35 min / 8 of 8 rounds, webdriver false. Proposed: replace the copied-profile CDP
+  path with an extension-driven identity profile (ARCHITECTURE.md edits pending owner approval). No building until
+  approved.
 - FERB's Chrome is started in its own session: if the daemon is killed (not stopped), Chrome may outlive it; the
   next launch then fails with "another copy using its profile". Handle on daemon start (step 8 reconciliation).

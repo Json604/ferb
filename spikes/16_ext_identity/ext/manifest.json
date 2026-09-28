@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "FERB identity experiment (spike 16)",
+  "version": "0.0.2",
+  "description": "Experiment: FERB's identity driven through its original Chrome profile. Opens background tabs, reads them, closes them.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6Y6K67QFvW56eFirG2thSNFxHf2RGveF0QVZx1MGxkkmNbXOzzEtdAsC9shEPJESv1Uwfl/UiSi4Js3pYk3+BuLOGiGqXUzDqwzzgy8/pDyLC9a5HHp3AgjvqtEt+gMyPlzT8/mznNtZJjN0zONRwM72hrM0fIBeJ2Lz+Nzi2IWlh2Z0AXWfZz/IKPtX9tNi32UMRCM39kHYJ+Lf9dNyYiiMQ+YMoYKNBGEJlq2DDbjKiUdk2IpDRey5CVEARvKlO3sTkUXyyGv8gi9OY5QEVGaWb17xuPMZvREmDmfcVsV3mvP4Ul93R4TkiayH5cIMjeNX4ztSHM8wDaJty8sMbwIDAQAB",
+  "permissions": ["tabs", "scripting", "nativeMessaging"],
+  "host_permissions": ["https://mail.google.com/*", "https://myaccount.google.com/*", "https://www.google.com/*",
+                       "https://accounts.google.com/*"],
+  "background": {"service_worker": "background.js"}
+}
