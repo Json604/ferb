@@ -472,7 +472,9 @@ a subset of it. A runtime that fails this check, or whose sandbox cannot be veri
 3. Browsers (details in 9.5 and 9.6):
    - Discover installed browsers and every profile in each (Chromium: `Local State`; Safari: its profiles list).
    - Install `ferb-native-host` and write its native-messaging manifest for each installed Chromium browser
-     (Chrome and Brave each have their own `NativeMessagingHosts` folder under Application Support).
+     (Chrome and Brave each have their own `NativeMessagingHosts` folder under Application Support). The host is
+     installed outside macOS-protected folders (`~/Desktop`, `~/Documents`, `~/Downloads`), e.g. `~/.ferb/bin`;
+     the browser cannot execute it there.
    - Owner ticks the profiles to enable now (default: most recently used). FERB opens each ticked profile on the
      extension install page, then runs pairing; waits for `browser.profile_paired`.
    - Drop the External Extensions file so unticked profiles offer the extension the next time they are opened.
@@ -516,7 +518,9 @@ Not used: Chrome's live-session CDP attach to owner browsers (it would bypass th
 boundary in section 2). If ever needed, it requires a separate, explicitly approved design.
 
 Known capability differences (drivers report these in `features`; planner and resolver read them):
-- Chromium extension: trusted input in background tabs, parallel actions across tabs, network/load events.
+- Chromium extension: trusted input in background tabs via `chrome.debugger` with focus emulation — while
+  attached, the page reports `visibilityState: "visible"` though the tab stays inactive; input starts only after a
+  readiness probe confirms the tab accepts it — plus parallel actions across tabs and network/load events.
 - Safari extension: DOM reading and background tabs expected to match Chromium (to be confirmed by spike 5);
   script-dispatched input is untrusted (some sites ignore it); trusted input needs the window in front; waits poll.
 - All features are **conditional until a spike confirms them** on this machine. Example: the ordinary extension
@@ -553,7 +557,8 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
     load/network waits. `chrome.debugger` attaches to one tab for those actions, then detaches
     (Chrome's "being debugged" bar shows only during that window).
 - **CDP allowlist lives in the extension**, not only the daemon, and is exact: named methods, allowed parameter
-  shapes, and filtered return fields (input dispatch, DOM/AX reads, page lifecycle events, screenshot).
+  shapes, and filtered return fields (input dispatch, DOM/AX reads, page lifecycle events, screenshot, and focus
+  emulation (`Emulation.setFocusEmulationEnabled`) for background input only).
   Never forwarded, even if the daemon asks: cookie and storage access (`Network.getAllCookies`, `Storage.*`),
   other targets (`Target.*`), and arbitrary script evaluation (`Runtime.evaluate` with free-form expressions).
   Allowlist changes require owner approval (section 16).
@@ -563,6 +568,9 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
   cancellable. Duplicate request ids are ignored. After a reconnect (e.g. the MV3 service worker was restarted),
   the extension re-announces state; pending commands from the old generation are never replayed — they become
   `unknown` in the ledger and are reconciled. Snapshot size is bounded (element and text caps).
+  The extension registers `runtime.onStartup` so it connects after a browser restart. `hello` carries the
+  extension/protocol version; the daemon refuses a mismatch (Chrome keeps running a stale unpacked extension
+  until it is reloaded).
 - Tabs FERB opens are background (`active: false`) and grouped in a "FERB" tab group; closed at task end unless kept.
 - Snapshots use one format for all drivers (`snapshot.py`): elements with stable ids, role, label, value, rect, visibility.
   Screenshots only when the snapshot is insufficient (canvas-heavy pages) or requested.
@@ -839,6 +847,9 @@ section 21 safety tests pass.
 - Remote debugging (pipe or port) sets `navigator.webdriver`; FERB never hides or fakes automation signals. Sites
   that refuse automated sign-in (Google) rely on the session seeded at setup; when it expires, FERB stops and asks
   the owner to re-seed. `fill_secret` refuses, never types, when a site rejects a directly set value.
+- Background input in owner browsers uses focus emulation, so the page believes it is visible during trusted-input
+  actions (only while the debugger is attached for them). This is a deliberate trade-off, not an automation-signal
+  change.
 - The Codex worker runtime (`codex exec`) is a stopgap: it is pinned to `gpt-5.5` (the only non-code-mode model it
   can be locked down on) and carries ~25–40k tokens of Codex's own instructions per run. Planned replacement: a
   direct-API runtime (FERB's own agent loop) where the model sees only FERB's tools. When `gpt-5.5` is retired
