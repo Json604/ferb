@@ -555,7 +555,8 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
     No debugger banner, no browser-wide commands.
   - **Debugger mode:** only for actions needing trusted input (clicks/typing on protected pages) or precise
     load/network waits. `chrome.debugger` attaches to one tab for those actions, then detaches
-    (Chrome's "being debugged" bar shows only during that window).
+    (Chrome shows "<extension> started debugging this browser" in every window of that profile while attached,
+    and for ~5 s after detach).
 - **CDP allowlist lives in the extension**, not only the daemon, and is exact: named methods, allowed parameter
   shapes, and filtered return fields (input dispatch, DOM/AX reads, page lifecycle events, screenshot, and focus
   emulation (`Emulation.setFocusEmulationEnabled`) for background input only).
