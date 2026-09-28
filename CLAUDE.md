@@ -35,3 +35,4 @@ other unit, go straight from the plan to building.
   out until the section 21 safety tests pass. Never put secrets in code, logs, or commits.
 - Ask before anything destructive or hard to undo outside the working tree.
 - After each commit, push to origin. Never force-push or rewrite history that's already pushed.
+- Build no graphical UI in this version: no windows, menus, menu-bar items, extension popups or options pages, or web dashboards. I'll design and build the UI myself later. The only user interface is the CLI (ferb chat, ferb logs, and the admin commands). Where something visual is technically required (the extension pairing page, FERB.app as the Safari extension's container), keep it to the bare functional minimum and tell me.
