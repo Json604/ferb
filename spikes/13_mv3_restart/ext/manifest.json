@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "FERB spike 13",
+  "version": "0.0.1",
+  "description": "Spike: worker restart, connection generations, no replay. No policy, no UI.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl2qAQ6ed/oSuY+cwJi+TwLoIZrmU6LqhNxIMUT9UBWnjI1PkkufrABsB67WMme4x4W2LUDke5eyK0e/T+oM/nw/4BYSWkdlNn+MGu8+wfwVmcxJ/3dtk3F3G8eNiGD5KNZNqcRIRIcgWUfu/D5NkKQUB9DYR55UnOSov7Grzy7zX8EnI989ucyruBBpSDDyVcqEs7HE/DjyPYO/KXJN5WRMyx1ge8hFS1YZoKSWiX851D6SxxFYAoVmZ/pCoEyv76qs8fmOZmtHStE82JWN4ayi8zXIrg35DQwQSFpJk2abNI8xDbwwbpj9QCZZoC4FguogTmTxiyq1LhZclybMK3wIDAQAB",
+  "permissions": ["tabs", "storage", "alarms", "nativeMessaging"],
+  "background": {"service_worker": "background.js"}
+}

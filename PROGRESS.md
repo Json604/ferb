@@ -16,10 +16,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 9 — system audio | 2026-09-28 | **Skipped by the owner** | Deferred to the voice block (§17, §20). |
 | Spike 10 — profiles | 2026-09-28 | Works | `spikes/10_profiles/FINDINGS.md`. Local State discovery + §9.5 resolver (ambiguity never first-match). `--profile-directory` hands off to the running instance (real Chrome FERB profile too); unknown folder silently creates a profile → guard. External Extensions: every profile gets it disabled (8192) until accepted, Chrome and Brave (own data dir). `Local State` written lazily. |
 | Spike 12 — pairing end to end (Chrome only) | 2026-09-28 | Works | `spikes/12_pairing/FINDINGS.md`. Token via the extension's own pairing page; install_id→folder binding; signed + sequenced messages; unpaired install can't send events or receive actions (21.16). Found: native host must exit when the daemon drops; never start/kill the owner's browser implicitly (one harness-started Chrome was force-quit — fixed). |
+| Spike 13 — MV3 worker restart | 2026-09-28 | Works | `spikes/13_mv3_restart/FINDINGS.md`. Worker killed after/before the effect → `unknown` → reconciled done/failed from the re-announced state; generation +1; old-gen commands refused; duplicate ids ignored even across restarts (`storage.session`). Reconnect: tab event ~0.1 s, alarm ≤30 s. Lab: spare Chrome, CDP only as test equipment. |
 
 ## Next
 
-Spike 13 — MV3 service worker termination: kill it mid-command; confirm reconnect, generation bump, no replay.
+Spike 14 — owner-input detection latency (how fast GUI actions yield when the owner touches the mouse). Last spike;
+then build step 1 (plan first, owner approval before building).
 
 ## Pinned external tools
 
@@ -40,7 +42,8 @@ Spike 13 — MV3 service worker termination: kill it mid-command; confirm reconn
   responsible app); Automation status only checkable while the target app runs.
 - Owner decision: notifications (section 10.2 "Sending… Undo") vs CLAUDE.md's CLI-only interface.
 
-- Build step 6 (extension): native host exits when the daemon connection drops; extension queues outgoing
+- Build step 6 (extension): record command id as seen before executing and tag created resources with it;
+  `hello` re-announces owned resources; alarm (30 s) + event reconnect; native host exits when the daemon connection drops; extension queues outgoing
   messages until reconnected; read `lastError` in `onDisconnect`; register `runtime.onStartup` from the first version; `hello` carries the protocol
   version and the daemon refuses a mismatch; input-readiness probe before dispatched input; treat
   `executeScript` null/`error` results as failures; install `ferb-native-host` outside TCC-protected folders.
