@@ -77,7 +77,6 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   tests (21.4 origin refusals: lookalike, scheme, cross-origin iframe; focus stealing; OOPIF; 21.13 stale refs)
   against the extension; real tests: session through the extension, owner-assisted OTP.
 - **Safety test 21.21 (owner, 2026-09-29):** the secret / code value never appears in native-host or extension
-  messages, logs or errors along the extension path. Written in step 6 with the path it tests. Open design
-  question for the owner: the fill command itself must carry the value to the extension, so either it is sealed
-  for the extension (e.g. AES-GCM with a key from pairing, so the native host relays only ciphertext) or the test
-  exempts that one message.
+  messages, logs or errors along the extension path; written in step 6 with the path. Owner decision: the value is
+  sealed for the extension (AES-GCM, key from pairing, fresh nonce per seal, fill command id + allowed origin as
+  associated data; §10.1). Protects FERB's messages and logs, not against local malware.

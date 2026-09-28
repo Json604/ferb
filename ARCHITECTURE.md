@@ -719,6 +719,11 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   Keychain → daemon → native host (relay only, signed messages) → extension → the isolated world of the checked
   frame, which re-checks `location.origin` in the same call that sets it on that exact element. The value is never
   logged or stored along the way; FERB records `ref.key` only.
+- The value travels **sealed**: AES-GCM with a key set up at pairing (per install), a fresh nonce per seal, and the
+  fill command's id and the allowed origin as associated data, so a sealed value can't be replayed into another
+  command or origin. Only the extension's fill call unseals it; the native host and every message and log carry
+  ciphertext (safety test 21). This protects FERB's own messages and logs, not against malware running as the
+  owner's user.
 - One-time codes: read from FERB's inbox (Gmail's Atom feed of unread mail, read through the FERB profile) and set
   straight into a field whose origin is allowed for that account's `SecretSpec`, along the same path — never
   shown to a model, logged or stored; refused when the newest message holds more than one candidate code.
@@ -1044,4 +1049,4 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
 20. The FERB identity profile is refused at pairing and flagged by `doctor` when its Chrome accounts are not
     exactly FERB's account; cookie and password stores are never read.
 21. Along the extension path, a secret or one-time code value never appears in native-host or extension messages,
-    logs or errors.
+    logs or errors (it travels sealed, 10.1); a sealed value is refused under another command id or origin.
