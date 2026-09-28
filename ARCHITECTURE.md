@@ -526,10 +526,12 @@ FERB profile) and External Extensions.
 3. Browsers (details in 9.5 and 9.6):
    - Discover installed browsers and every profile in each (Chromium: `Local State`). Safari: watched read-only via
      AppleScript (needs Automation permission for Safari); no profiles, no extension.
-   - Install `ferb-native-host` and write its native-messaging manifest for each installed Chromium browser
-     (Chrome and Brave each have their own `NativeMessagingHosts` folder under Application Support). The host is
-     installed outside macOS-protected folders (`~/Desktop`, `~/Documents`, `~/Downloads`), e.g. `~/.ferb/bin`;
-     the browser cannot execute it there.
+   - Install `ferb-native-host` and write its native-messaging manifest into Google Chrome's
+     `NativeMessagingHosts` folder, which both Chrome and Brave read (Brave 151 ignores its own folder; measured
+     before build step 6). Also write it into Brave's own folder: harmless today, and it keeps working if a Brave
+     update switches folders. `ferb doctor` checks that each paired browser actually reaches the host, so a change
+     shows up as a doctor failure rather than silently. The host is installed outside macOS-protected folders
+     (`~/Desktop`, `~/Documents`, `~/Downloads`) — a browser can't execute it from there — e.g. in `~/.ferb/bin`.
    - Owner ticks the profiles to enable now (default: most recently used). FERB opens each ticked profile on the
      extension install page, then runs pairing; waits for `browser.profile_paired`.
    - Drop the External Extensions file so unticked profiles offer the extension the next time they are opened.
@@ -935,7 +937,8 @@ Rules:
    and a single worker. Safety tests for gateway bypass pass before continuing.
 5. `identity/` layer: Keychain secrets, mailbox/OTP, identity profile verification, `browser.*` tools and their
    policy kinds (driver-independent).
-6. Chromium extension (page mode, sanitized snapshots, reliability semantics; then debugger mode + allowlist)
+6. Built and reported as **6a** then **6b** (owner decision; plan approved before each).
+   Chromium extension (page mode, sanitized snapshots, reliability semantics; then debugger mode + allowlist)
    + native host + `ext_bridge` + profile discovery/resolver + pairing + site resolver, **including the FERB
    identity profile** (paired as FERB; `fill_secret`/`fill_otp` along the extension path). Step 5's real tests
    (session, OTP, 21.4) run here against the extension.

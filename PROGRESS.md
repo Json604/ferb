@@ -29,9 +29,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 
 1. ~~Brave pairing check~~ — done 2026-09-29: PASS (pairing + signed, attributed tab event in a temporary
    profile). Brave 151 reads Google Chrome's NativeMessagingHosts folder, not its own (`spikes/12_pairing/FINDINGS.md`).
-   Proposed §8 edit pending owner approval. Owner deletes the temporary "FERB Brave Check" profile in Brave.
-2. **Build step 6** — Chromium extension + native host + `ext_bridge` + profiles/pairing + site resolver, including
-   the FERB identity profile (paired as FERB).
+   §8 edit approved and applied (manifest in Chrome's folder + a copy in Brave's). Temporary profile deleted by the owner.
+2. **Build step 6**, split by the owner (plan first, approval before building, like steps 1–4; each part built and
+   reported separately):
+   - **6a:** extension, native host, `ext_bridge`, profile discovery + resolver, pairing and site resolver for
+     owner profiles.
+   - **6b:** FERB identity profile on the extension, sealed secrets, step 5's carried-over real tests.
 
 ## Rules for build steps (owner)
 
