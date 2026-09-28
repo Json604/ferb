@@ -83,5 +83,7 @@ owner approval before building.
   is in its identity profile: ask the owner first). The "FERB" tab group isn't asserted in the real test.
 - 6a deferred (owner-approved): resolver rule 2 (trail history) -> step 9; data-flow labels from owner pages
   (21.9) -> step 8; External Extensions + unlisted Web Store listing before pairing the owner's real profiles.
-- Test profiles: Chrome "FERB Test" (Profile 25) may be kept for 6b; the temporary Brave profile (folder "FERB Test",
-  shown as "Personal") is to be deleted by the owner.
+- Test profiles (owner keeps both for future tests): Chrome "FERB Test" (Profile 25) and Brave folder "FERB Test"
+  (shown as "Personal"). No accounts in either.
+- 6b (owner, 2026-09-29): FERB's own Google account in the FERB profile may be used to validate the Gmail and
+  YouTube account extractors on real pages.

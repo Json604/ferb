@@ -989,6 +989,9 @@ section 21 safety tests pass.
   process.
 - The secret passes through more components than a CDP fill did (native host and extension); both are
   high-privilege, reviewed components.
+- Trusted (debugger-dispatched) input works in a page's top frame only; elements inside iframes get page-mode
+  (scripted) events, which some sites ignore. Extending trusted input to iframes needs frame-offset handling.
+  Secret fills are unaffected: they set the value on the exact element in its own frame.
 - Background input in owner browsers uses focus emulation, so the page believes it is visible during trusted-input
   actions (only while the debugger is attached for them). This is a deliberate trade-off, not an automation-signal
   change.
