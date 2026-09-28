@@ -68,10 +68,10 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 - Build step 8: task tree is in memory until then; outcomes are journaled with `verified: false` (verification
   lands with step 8).
 - Upgrading Codex or the Claude SDK: rerun `pytest -m real tests/test_real_runtimes.py` (costs real model usage).
-- **Step 5 open (owner):** FERB's Google session is signed out (atom feed 401; myaccount shows signed-out).
-  Likely cause: a headless visit to Gmail's web UI during step 5 probing (Google showed the account chooser, then
-  the session was gone). Needs a re-seed (`ferb setup --seed-identity`, Chrome quit) and the owner's choice of
-  headless vs. a real (off-screen/background) window for FERB's browser. Then run
-  `pytest -m real tests/test_identity_real.py` and an owner-assisted OTP check (an email with a code to FERB).
+- **Step 5 open:** FERB's browser now defaults to a real Chrome window started in the background (never
+  frontmost; owner decision 2026-09-29, recorded in ARCHITECTURE.md). After the owner re-seeded, the real session
+  test passed (signed in, never frontmost, Keychain item present), but 1-2 min later the OTP test's first feed read
+  got 401 again. Cause unknown; no further probes of the live session without the owner's OK (CLAUDE.md).
+  Pending: diagnosis plan, then `pytest -m real tests/test_identity_real.py tests/test_otp_real.py` with the owner.
 - FERB's Chrome is started in its own session: if the daemon is killed (not stopped), Chrome may outlive it; the
   next launch then fails with "another copy using its profile". Handle on daemon start (step 8 reconciliation).

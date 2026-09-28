@@ -185,7 +185,7 @@ class Daemon:
                                      workspace=str(workspace), on_violation=self._runtime_violation,
                                      on_task_end=self.identity_browser.release, facts=self._facts)
         self.identity_browser.device_id = device
-        self.identity_browser.headless = bool(self.config.get("identity_browser", "headless", True))
+        self.identity_browser.headless = bool(self.config.get("identity_browser", "headless", False))
         self.identity_browser.allow_local = bool(self.config.get("identity_browser", "allow_local", False))
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser",

@@ -9,6 +9,8 @@ and events on fd 4, NUL-delimited JSON. Payloads are never logged (they can carr
   is fetched, and again inside the same in-page call that sets it (isolated world). The value is set on that exact
   element, never typed into whatever has focus. Results carry only `ref.key`.
 - Only http(s) URLs open; loopback / private hosts only when allowed (tests, local tools).
+- Default is a real (headed) Chrome that never comes to the front: headless Chrome gets its Google session signed
+  out (step 5). Headless stays available for tests.
 """
 
 import asyncio
@@ -226,7 +228,7 @@ class CdpIdentityDriver:
                               dom_snapshot=True, screenshot_background=True)
 
     def __init__(self, user_data_dir: Path, device_id: str, secrets: KeychainSecretStore,
-                 add_secret_value: Callable[[str], None], chrome: str = CHROME, headless: bool = True,
+                 add_secret_value: Callable[[str], None], chrome: str = CHROME, headless: bool = False,
                  allow_local: bool = False, mailbox_address: Callable[[], str] = lambda: "",
                  feed_url: str | None = None) -> None:
         self.user_data_dir, self.device_id, self.secrets = user_data_dir, device_id, secrets
@@ -256,9 +258,11 @@ class CdpIdentityDriver:
                 raise Refused("FERB's browser profile isn't set up: run `ferb setup --seed-identity`")
             self._reset()
             args = [self.chrome, "--remote-debugging-pipe", f"--user-data-dir={self.user_data_dir}",
-                    "--no-first-run", "--no-default-browser-check", "--window-size=1280,900", "about:blank"]
-            if self.headless:
-                args.insert(1, "--headless=new")
+                    "--no-first-run", "--no-default-browser-check", "--window-size=1280,900"]
+            # Default: a real window, never brought to the front (Google signs out headless sessions). No startup
+            # window; each tab opens in its own background window (a background tab in a shared window would be
+            # hidden and throttled by the page).
+            args += ["--headless=new", "about:blank"] if self.headless else ["--no-startup-window"]
             try:
                 self.pipe = await Pipe.launch(args, self._event)
                 await self.pipe.send("Browser.getVersion", timeout=15)
@@ -353,7 +357,8 @@ class CdpIdentityDriver:
     async def open(self, url: str, background: bool = True) -> TabRef:
         check_url(url, self.allow_local)
         pipe = await self._ensure()
-        target = (await pipe.send("Target.createTarget", {"url": "about:blank", "background": background}))["targetId"]
+        target = (await pipe.send("Target.createTarget", {"url": "about:blank", "background": background,
+                                                          "newWindow": not self.headless}))["targetId"]
         session = (await pipe.send("Target.attachToTarget", {"targetId": target, "flatten": True}))["sessionId"]
         self._n += 1
         ref = TabRef(self.device_id, "chrome", "identity", self.generation, f"t{self._n}")

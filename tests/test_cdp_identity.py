@@ -31,7 +31,7 @@ def drv(loop: Loop, keychain: Path, site: dict[str, Any], tmp_path_factory: pyte
     store = KeychainSecretStore(lambda: specs, keychain)
 
     async def make() -> CdpIdentityDriver:
-        return CdpIdentityDriver(udd, "dev", store, scrubbed.append, allow_local=True,
+        return CdpIdentityDriver(udd, "dev", store, scrubbed.append, allow_local=True, headless=True,
                                  mailbox_address=lambda: "ferb@test.example", feed_url=f"{site['L']}/feed")
     d = loop.run(make())
     yield d, specs, scrubbed
@@ -251,7 +251,8 @@ from pathlib import Path
 from ferb.act.browser.cdp_identity import CdpIdentityDriver
 from ferb.identity.secrets import KeychainSecretStore
 async def main():
-    d = CdpIdentityDriver(Path({str(tmp_path)!r}), "dev", KeychainSecretStore(lambda: {{}}), lambda v: None)
+    d = CdpIdentityDriver(Path({str(tmp_path)!r}), "dev", KeychainSecretStore(lambda: {{}}), lambda v: None,
+                          headless=True)
     await d._ensure()
     print("version" if d.running else "down")
     await d.shutdown()
@@ -268,3 +269,19 @@ def test_a_failed_load_leaves_no_tab_and_chrome_stops_when_idle(loop: Loop, drv:
     assert loop.run(d.tabs()) == []
     loop.run(d.release("nobody"))
     assert not d.running
+
+
+def test_a_signed_out_inbox_is_reported_not_raised(loop: Loop, drv: Any, site: dict[str, Any]) -> None:
+    d, specs, _ = drv
+    allow(specs, site["L"])
+    tab = loop.run(d.open(f"{site['L']}/otp"))
+    s = loop.run(d.snapshot(tab))
+    d.feed_url = "http://localhost:1/feed"                               # the feed load is refused
+    try:
+        r = loop.run(d.fill_otp(d.element_ref(tab, find(s, secret=True)), REF, datetime.now(timezone.utc), None,
+                                timeout=0.5, poll=0.2))
+        assert loop.run(d.session_ok()) is False
+    finally:
+        d.feed_url = f"{site['L']}/feed"
+    assert not r.ok and "signed out" in r.detail
+    loop.run(d.close(tab))

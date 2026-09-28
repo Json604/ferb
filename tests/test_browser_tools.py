@@ -1,4 +1,4 @@
-"""browser.* tools through a real daemon + gateway + headless Chrome on local pages.
+"""browser.* tools through a real daemon + gateway + (headless, for tests) Chrome on local pages.
 
 Safety tests: 21.3 (identity separation of tool sets), 21.5 (a filled password appears nowhere FERB writes),
 intent gating of submits (10.2), tabs private to their task and closed with it, `ferb stop` closes FERB's browser.
@@ -28,7 +28,7 @@ FERB_SCOPES = {"identity:browse", "secrets:fill", "mailbox:read"}
 def bd(daemon: RunningDaemon, keychain: Any, site: dict[str, Any]) -> Iterator[RunningDaemon]:
     drv = daemon.daemon.identity_browser
     (drv.user_data_dir / "Default").mkdir(parents=True)
-    drv.allow_local = True
+    drv.allow_local, drv.headless = True, True                      # offline tests: no windows
     specs = {REF.key: SecretSpec(REF, [site["L"]], "test account")}
     drv.secrets = KeychainSecretStore(lambda: specs, keychain)
     yield daemon

@@ -63,15 +63,22 @@ class GmailFeedMailbox:
         self.fetch, self.address, self.feed_url = fetch, address.lower(), feed_url
         self.used: set[str] = set()              # message ids whose code was already filled (memory only)
 
-    async def signed_in(self) -> bool:
+    async def _feed(self) -> tuple[str, list[Message]] | None:
+        """None when the feed can't be read as FERB's inbox (signed out: 401, a sign-in page, bad XML)."""
         try:
-            title, _ = parse_feed(await self.fetch(self.feed_url))
-        except (ValueError, ET.ParseError):
-            return False
-        return self.address in title.lower()
+            return parse_feed(await self.fetch(self.feed_url))
+        except Exception:                        # load refused (e.g. 401) or not a feed: treat as signed out
+            return None
+
+    async def signed_in(self) -> bool:
+        feed = await self._feed()
+        return feed is not None and self.address in feed[0].lower()
 
     async def find_code(self, since: datetime, sender_contains: str | None = None) -> CodeResult:
-        title, msgs = parse_feed(await self.fetch(self.feed_url))
+        feed = await self._feed()
+        if feed is None:
+            return CodeResult(None, None, "not_signed_in")
+        title, msgs = feed
         if self.address not in title.lower():
             return CodeResult(None, None, "not_signed_in")
         fresh = [m for m in msgs if m.issued >= since and m.id not in self.used

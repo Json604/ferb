@@ -112,7 +112,9 @@ sanitize  ← imports core only; applied by the gateway and every writer (traces
 - **FERB.app** is reserved for later blocks and not built in Block 1: the future home of the Swift audio service
   (section 20), the stop hotkey, Keychain item access anchored to a signed app identity, and the Safari extension.
 - **CDP is used only for `ferb-identity`**, launched by the daemon with a custom `--user-data-dir` and
-  `--remote-debugging-pipe` (no open port). The owner's browsers are never relaunched or debugged via a port;
+  `--remote-debugging-pipe` (no open port). It runs as a real (headed) Chrome started in the background and never brought
+  to the front: no startup window, each FERB tab in its own background window. Headless is not used for the
+  identity profile, because Google ended FERB's seeded session after a headless visit (build step 5). The owner's browsers are never relaunched or debugged via a port;
   CDP access to owner tabs exists only through the extension's `chrome.debugger` with its allowlist (9.4).
 - **Socket authentication:** the daemon socket is owner-only (`0600`, in a `0700` directory). Every connection
   declares a role (`cli`, `mcp_shim`, `native_host`) and proves it: CLI by socket ownership,
@@ -444,7 +446,8 @@ worker       = "codex"
 prefer_for_actions = ["brave", "chrome"]   # order when a site is logged in in several
 
 [identity_browser]
-headless = true            # FERB's own Chrome (cdp_identity); private/loopback hosts refused unless allow_local
+headless = false           # FERB's own Chrome (cdp_identity): a real window, never brought to the front
+                           # (Google signs out headless sessions); private/loopback hosts refused unless allow_local
 
 [mailbox]
 provider = "gmail"
