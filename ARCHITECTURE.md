@@ -618,7 +618,8 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
 - Message protocol (JSON, versioned, validated on both sides):
   - daemon → ext: `open`, `navigate`, `close`, `list_tabs`, `snapshot`, `act`, `wait`, `screenshot`, `attach_debugger`,
     `detach_debugger`, `cdp` (allowlisted), `account` (run the site's account extractor, 9.3), `wake_close` (close
-    exactly the wake page); control: `welcome` (connection generation), `paired` (key), `refused` (e.g. protocol
+    exactly the wake page), `frame_origin` (a frame's origin, from its isolated world), `fill` (a sealed secret into
+    one element, 10.1), `read_source` (page source, refused for every URL except FERB's inbox feed); control: `welcome` (connection generation), `paired` (key), `refused` (e.g. protocol
     mismatch)
   - ext → daemon: `result`, `error`, `tab_event` (created/updated/activated/removed), `hello` (`install_id`,
     extension/protocol version, owned resources). The extension can't know its profile folder: the daemon takes
@@ -733,10 +734,12 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   Keychain → daemon → native host (relay only, signed messages) → extension → the isolated world of the checked
   frame, which re-checks `location.origin` in the same call that sets it on that exact element. The value is never
   logged or stored along the way; FERB records `ref.key` only.
-- The value travels **sealed**: AES-GCM with a key set up at pairing (per install), a fresh nonce per seal, and the
+- The value travels **sealed**: AES-GCM with a key set up at pairing (per install; derived on both sides with
+  HKDF-SHA256 from the pairing key, label "ferb seal v1", so it never crosses the wire), a fresh nonce per seal, and the
   fill command's id and the allowed origin as associated data, so a sealed value can't be replayed into another
   command or origin. Only the extension's fill call unseals it; the native host and every message and log carry
-  ciphertext (safety test 21). This protects FERB's own messages and logs, not against malware running as the
+  ciphertext (safety test 21). The inbox feed the daemon reads codes from travels sealed the same way, in the other
+  direction (extension → daemon, bound to its command id and the feed URL), so a code never crosses in clear. This protects FERB's own messages and logs, not against malware running as the
   owner's user.
 - One-time codes: read from FERB's inbox (Gmail's Atom feed of unread mail, read through the FERB profile) and set
   straight into a field whose origin is allowed for that account's `SecretSpec`, along the same path — never

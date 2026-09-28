@@ -53,9 +53,9 @@ class IdentityDriver(BrowserDriver, Protocol):
     def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None: ...
     def element_info(self, tab_id: str, element_id: str) -> PageElement | None: ...
     def element_ref(self, tab: TabRef, element_id: str) -> ElementRef: ...
-    async def fill_secret(self, el: ElementRef, ref: SecretRef) -> ActionResult: ...
-    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime,
-                       sender_contains: str | None) -> ActionResult: ...
+    async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult: ...
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
+                       intent_id: str = "") -> ActionResult: ...
     async def release(self, owner: str) -> None: ...
     async def shutdown(self) -> None: ...
 
@@ -316,7 +316,7 @@ class BrowserFillSecret(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         r = await self.driver.fill_secret(self.driver.element_ref(ref, str(getattr(args, "element"))),
-                                          SecretRef(str(getattr(args, "secret"))))
+                                          SecretRef(str(getattr(args, "secret"))), ctx.intent_id or "")
         return ToolResult({"ok": r.ok, "detail": r.detail}, is_error=not r.ok)
 
 
@@ -345,7 +345,7 @@ class BrowserFillOtp(_Base):
         since = datetime.now(timezone.utc) - OTP_LOOKBACK
         r = await self.driver.fill_otp(self.driver.element_ref(ref, str(getattr(args, "element"))),
                                        SecretRef(str(getattr(args, "secret"))), since,
-                                       getattr(args, "sender_contains"))
+                                       getattr(args, "sender_contains"), ctx.intent_id or "")
         return ToolResult({"ok": r.ok, "detail": r.detail}, is_error=not r.ok)
 
 

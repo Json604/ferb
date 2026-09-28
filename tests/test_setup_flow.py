@@ -49,7 +49,7 @@ class FakeClient:
                                   "connected": True, "version": "0.6.0", "refused": None}], "extension_ids": []}
         if method == "identity.check":
             return {"address": "ferb@test.example", "profile": "Profile 22", "profile_ok": True,
-                    "profile_name": "FERB", "error": None, "session": None,
+                    "profile_name": "FERB", "error": None, "session": True, "paired": True,
                     "secrets": [{"key": "ferb/email/password", "in_keychain": True}]}
         if method == "automation.request":
             self.d.automation_requests.append(params["bundle_ids"])

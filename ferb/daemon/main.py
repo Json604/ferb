@@ -20,8 +20,9 @@ from ferb.daemon.gateway import FsRoots, Gateway
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.tree import TaskTree
 from ferb.act.browser.tools import IdentityDriver
+from ferb.core.types import Identity
 from ferb.act.browser import profiles as browser_profiles
-from ferb.act.browser.ext_bridge import Hub, Router, WakeServer
+from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver, default_browser, last_used_profile
@@ -88,6 +89,8 @@ class Daemon:
         self.pairings: Pairings | None = None
         self.hub: Hub | None = None
         self.router: Router | None = None
+        self.ferb_identity: FerbIdentity | None = None
+        self.identity_allow_local = False                # tests only: FERB's tools may open local pages
         self.wake = WakeServer()
 
     @property
@@ -112,7 +115,8 @@ class Daemon:
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
                          ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
-                         ("browsers.pair", self._browsers_pair), ("browsers.unpair", self._browsers_unpair)):
+                         ("browsers.pair", self._browsers_pair), ("browsers.unpair", self._browsers_unpair),
+                         ("identity.pair", self._identity_pair)):
             self.server.unary[name] = fn
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
@@ -250,9 +254,56 @@ class Daemon:
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         add_owner_browsers(self.registry, self.router)
+        pairings = self.pairings
+        self.ferb_identity = FerbIdentity(self.hub, self._identity_profile, self.secrets, self._add_secret_value,
+                                          lambda: str(self.config.get("mailbox", "address", "") or ""),
+                                          lambda install_id: pairings.key(install_id), self._profiles,
+                                          self.wake, self.browser_launch)
+        self._attach_identity_if_paired()
         self.server.native = self.hub.serve
         self.server.extension_ids = lambda: frozenset(self.config.get("browser", "extension_ids",
                                                                       [FERB_EXTENSION_ID]))
+
+    def _attach_identity_if_paired(self) -> bool:
+        """FERB's tools exist only once its identity profile is paired as FERB (10.1)."""
+        prof = self._identity_profile()
+        b = self.pairings.for_profile(*prof) if (prof and self.pairings) else None
+        if b is None or b.identity is not Identity.FERB or self.ferb_identity is None:
+            return False
+        if self.identity_browser is None:
+            self.use_identity_browser(self.ferb_identity, self.identity_allow_local)
+        return True
+
+    async def _identity_pair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Pair FERB's identity profile as identity FERB: its Chrome accounts must be exactly FERB's (test 20);
+        re-pairing needs the owner's confirmation."""
+        from ferb.identity import seed
+        assert self.pairings
+        prof, address = self._identity_profile(), str(self.config.get("mailbox", "address", "") or "")
+        if not prof or not address:
+            raise FerbError("choose FERB's identity profile first: `ferb setup --identity`")
+        data = (self.browser_data_dirs or {}).get(prof[0])
+        try:
+            await asyncio.to_thread(seed.verify, address, prof[1], *([data] if data else []))
+        except seed.SeedError as e:
+            raise FerbError(f"refusing to pair: {e}") from None
+        current = self.pairings.for_profile(*prof)
+        if current is not None and not params.get("confirm"):
+            raise FerbError("FERB's identity profile is already paired; re-pairing needs your confirmation")
+        token = self.pairings.issue_token(prof[0], prof[1], Identity.FERB)
+        ext = sorted(self.server.extension_ids())[0]
+        kwargs = {"launch": self.browser_launch} if self.browser_launch else {}
+        browser_profiles.open_known_profile(prof[0], prof[1], f"chrome-extension://{ext}/pair.html#token={token}",
+                                            self._profiles(), **kwargs)
+        end = self.clock.monotonic() + float(params.get("timeout_s", 60))
+        while self.clock.monotonic() < end:
+            b = self.pairings.for_profile(*prof)
+            br = self.hub.bridges.get(prof) if self.hub else None
+            if b is not None and b.identity is Identity.FERB and b != current and br is not None and br.conn:
+                self._attach_identity_if_paired()
+                return {"paired": True, "profile": prof[1]}
+            await asyncio.sleep(0.2)
+        return {"paired": False, "profile": prof[1], "hint": "is the FERB extension loaded in FERB's profile?"}
 
     def _trusted_accounts(self) -> frozenset[str]:
         return frozenset(self.config.get("policy", "trusted_accounts", []))
@@ -484,6 +535,12 @@ class Daemon:
                 out["profile_ok"], out["profile_name"] = True, p.name
             except seed.SeedError as e:
                 out["error"] = str(e)
+        out["paired"] = self._attach_identity_if_paired()
+        if out["profile_ok"] and out["paired"] and self.ferb_identity is not None and params.get("session", True):
+            try:
+                out["session"] = await self.ferb_identity.session_ok()     # through the extension (wakes it)
+            except (FerbError, Exception) as e:
+                out["session"], out["error"] = False, f"{type(e).__name__}: {e}"
         return out
 
     async def _doctor_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

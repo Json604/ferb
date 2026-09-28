@@ -27,6 +27,9 @@ from ferb.act.browser.profiles import BrowserProfile, open_known_profile
 from ferb.act.browser.resolver import Resolver
 from ferb.act.browser.snapshot import element as page_element
 from ferb.act.browser.tools import Secrets
+from ferb.identity.mailbox import FEED_URL, REASONS, GmailFeedMailbox, wait_for_code
+from ferb.identity.seal import seal, seal_key, unseal
+from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
 from ferb.core.errors import DriverError, Refused, StaleRef
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, SecretSpec, TabRef, WaitCondition)
@@ -258,7 +261,7 @@ class WakeServer:
             self._server.close()
 
 
-# ---------- what the owner browser.* tools drive ----------
+# ---------- what the browser tools drive ----------
 
 class _NoSecrets:
     """Owner profiles never get FERB's secrets."""
@@ -285,31 +288,24 @@ class _Tab:
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
 
 
-class Router:
+class _TabDriver:
+    """Task-owned tabs with short aliases and generation-scoped element ids, over one or more bridges."""
     name = "ext"
-    identity = Identity.OWNER
     features = DriverFeatures(trusted_input_background=True, parallel_actions=True, network_events=False,
                               dom_snapshot=True, screenshot_background=True)
 
-    def __init__(self, hub: Hub, resolver: Resolver, profiles: Callable[[], list[BrowserProfile]],
-                 wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None) -> None:
-        self.hub, self.resolver, self.profiles, self.wake, self.launch = hub, resolver, profiles, wake, launch
-        self.secrets: Secrets = _NoSecrets()
+    def __init__(self, hub: Hub, profiles: Callable[[], list[BrowserProfile]], wake: WakeServer | None = None,
+                 launch: Callable[[list[str]], None] | None = None) -> None:
+        self.hub, self.profiles, self.wake, self.launch = hub, profiles, wake, launch
         self._tabs: dict[str, _Tab] = {}
         self._n = 0
 
-    # ----- connection -----
-
-    async def _bridge(self, browser: str, folder: str) -> Bridge:
-        br = self.hub.bridge(browser, folder)
-        if br is None:
-            raise Refused(f"{browser}/{folder} isn't paired with FERB")
-        if br.binding.identity is not Identity.OWNER:
-            raise Refused("that profile belongs to FERB's identity, not the owner")
+    async def _connected(self, br: Bridge) -> Bridge:
+        """Wake a sleeping extension with a unique local page in that profile, then close exactly that page."""
         if br.conn is None and self.wake is not None:
             url = self.wake.url()
             kwargs = {"launch": self.launch} if self.launch else {}
-            open_known_profile(browser, folder, url, self.profiles(), **kwargs)
+            open_known_profile(br.binding.browser, br.binding.folder, url, self.profiles(), **kwargs)
             try:
                 await asyncio.wait_for(br.connected.wait(), WAKE_TIMEOUT_S)
             except asyncio.TimeoutError:
@@ -322,19 +318,12 @@ class Router:
             raise DriverError(f"{br.name} isn't connected")
         return br
 
-    # ----- tabs -----
-
-    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
-        choice = self.resolver.choose(urlsplit(url).hostname, profile)
-        br = await self._bridge(choice.browser, choice.folder)
+    async def _open_in(self, br: Bridge, url: str, owner: str | None) -> TabRef:
         v = await br.call("open", {"url": url}, timeout=30)
         self._n += 1
-        ref = TabRef(br.device_id, choice.browser, choice.folder, br.gen, f"t{self._n}")
+        ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, str(v.get("url") or url))
         return ref
-
-    async def open(self, url: str, background: bool = True) -> TabRef:
-        return await self.open_for(url, owner="")
 
     async def navigate(self, tab: TabRef, url: str) -> None:
         t = self._tab(tab)
@@ -364,14 +353,15 @@ class Router:
                 eid = f"s{gen}e{len(elements) + 1}"
                 elements[eid] = (int(f["frame_id"]), gen, int(raw["id"]), page_element(eid, str(f["frame_id"]), raw))
             if f["frame_id"] == 0:
-                text, title, url, truncated = f.get("text", ""), f.get("title", ""), f.get("url", url), bool(f.get("truncated"))
+                text, title, url = f.get("text", ""), f.get("title", ""), f.get("url", url)
+                truncated = bool(f.get("truncated"))
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
         return PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated)
 
     async def act(self, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
         if action.kind == "type" and info.secret:
-            raise Refused("that's a password/code field; FERB never types into it for you")
+            raise Refused("that's a password/code field; FERB never types into it")
         v = await t.bridge.call("act", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
                                         "kind": action.kind, "text": action.text, "trusted": action.trusted},
                                 timeout=30, cid=intent_id or None)
@@ -393,18 +383,6 @@ class Router:
         t = self._tab(tab)
         return base64.b64decode((await t.bridge.call("screenshot", {"tab_id": t.chrome_id}))["data"])
 
-    async def check_account(self, tab: TabRef) -> None:
-        """Before a consequential action (9.3): the page's signed-in account must be the profile's."""
-        t = self._tab(tab)
-        host = urlsplit(t.url).hostname or ""
-        p = next((p for p in self.profiles() if (p.browser, p.folder) == (tab.browser, tab.profile)), None)
-        if p is None or accounts.unverified_key(host, tab.browser, tab.profile, p.email) is not None:
-            return                                            # can't be checked: policy asked once instead
-        result = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=10)
-        accounts.check(result, host, p.email, f"{tab.browser}/{p.display_name}")
-
-    # ----- ownership + sync lookups -----
-
     def claim(self, tab: TabRef, owner: str) -> None:
         self._tab(tab).owner = owner
 
@@ -417,14 +395,6 @@ class Router:
     def tab_url(self, tab_id: str) -> str | None:
         t = self._tabs.get(tab_id)
         return t.url if t else None
-
-    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
-        """(browser, folder, the profile's Chrome account) for the account-check decision in describe()."""
-        t = self._tabs.get(tab_id)
-        if t is None:
-            return None
-        p = next((p for p in self.profiles() if (p.browser, p.folder) == (t.ref.browser, t.ref.profile)), None)
-        return t.ref.browser, t.ref.profile, p.email if p else ""
 
     def element_info(self, tab_id: str, element_id: str) -> PageElement | None:
         t = self._tabs.get(tab_id)
@@ -453,15 +423,6 @@ class Router:
         frame, snap, local, info = hit
         return t, frame, snap, local, info
 
-    # ----- FERB-identity only (never for owner profiles) -----
-
-    async def fill_secret(self, el: ElementRef, ref: SecretRef) -> ActionResult:
-        raise Refused("FERB's secrets are never used in the owner's profiles")
-
-    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime,
-                       sender_contains: str | None) -> ActionResult:
-        raise Refused("FERB's inbox codes are never used in the owner's profiles")
-
     async def release(self, owner: str) -> None:
         for alias in [a for a, t in self._tabs.items() if t.owner == owner]:
             await self.close(self._tabs[alias].ref)
@@ -469,3 +430,162 @@ class Router:
     async def shutdown(self) -> None:
         for alias in list(self._tabs):
             await self.close(self._tabs[alias].ref)
+
+
+class Router(_TabDriver):
+    """The owner's paired profiles (`browser.*`): resolver-chosen profile, account check before consequential
+    actions (9.3). Never FERB's identity profile, never FERB's secrets."""
+    identity = Identity.OWNER
+
+    def __init__(self, hub: Hub, resolver: Resolver, profiles: Callable[[], list[BrowserProfile]],
+                 wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None) -> None:
+        super().__init__(hub, profiles, wake, launch)
+        self.resolver = resolver
+        self.secrets: Secrets = _NoSecrets()
+
+    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
+        choice = self.resolver.choose(urlsplit(url).hostname, profile)
+        br = self.hub.bridge(choice.browser, choice.folder)
+        if br is None:
+            raise Refused(f"{choice.browser}/{choice.folder} isn't paired with FERB")
+        if br.binding.identity is not Identity.OWNER:
+            raise Refused("that profile belongs to FERB's identity, not the owner")
+        return await self._open_in(await self._connected(br), url, owner)
+
+    async def open(self, url: str, background: bool = True) -> TabRef:
+        return await self.open_for(url, owner="")
+
+    async def check_account(self, tab: TabRef) -> None:
+        """Before a consequential action (9.3): the page's signed-in account must be the profile's."""
+        t = self._tab(tab)
+        host = urlsplit(t.url).hostname or ""
+        p = next((p for p in self.profiles() if (p.browser, p.folder) == (tab.browser, tab.profile)), None)
+        if p is None or accounts.unverified_key(host, tab.browser, tab.profile, p.email) is not None:
+            return                                            # can't be checked: policy asked once instead
+        result = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=10)
+        accounts.check(result, host, p.email, f"{tab.browser}/{p.display_name}")
+
+    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
+        """(browser, folder, the profile's Chrome account) for the account-check decision in describe()."""
+        t = self._tabs.get(tab_id)
+        if t is None:
+            return None
+        p = next((p for p in self.profiles() if (p.browser, p.folder) == (t.ref.browser, t.ref.profile)), None)
+        return t.ref.browser, t.ref.profile, p.email if p else ""
+
+    async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
+        raise Refused("FERB's secrets are never used in the owner's profiles")
+
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
+                       intent_id: str = "") -> ActionResult:
+        raise Refused("FERB's inbox codes are never used in the owner's profiles")
+
+
+class FerbIdentity(_TabDriver):
+    """FERB's own profile (`ferb_browser.*`, identity FERB), bound by pairing. Secrets and one-time codes reach a
+    field only sealed (10.1): the frame's origin is checked against the secret's allowed origins BEFORE the Keychain
+    is read, the value is sealed to this fill command and that origin, and the extension re-checks the origin in the
+    same in-page call that sets it on the exact element."""
+    identity = Identity.FERB
+
+    def __init__(self, hub: Hub, profile: Callable[[], tuple[str, str] | None], secrets: KeychainSecretStore,
+                 add_secret_value: Callable[[str], None], mailbox_address: Callable[[], str],
+                 pairing_key: Callable[[str], bytes | None], profiles: Callable[[], list[BrowserProfile]],
+                 wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None,
+                 feed_url: str = FEED_URL) -> None:
+        super().__init__(hub, profiles, wake, launch)
+        self.profile, self.add_secret_value = profile, add_secret_value
+        self.secrets: Secrets = secrets                       # names and specs only (tool descriptions, checks)
+        self._store = secrets                                 # the Keychain: read only inside _sealed fills
+        self.mailbox_address, self.pairing_key, self.feed_url = mailbox_address, pairing_key, feed_url
+        self.used_otps: set[str] = set()
+
+    async def _bridge(self) -> Bridge:
+        prof = self.profile()
+        br = self.hub.bridge(*prof) if prof else None
+        if br is None or br.binding.identity is not Identity.FERB:
+            raise Refused("FERB's identity profile isn't paired: run `ferb setup --identity`")
+        return await self._connected(br)
+
+    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
+        return await self._open_in(await self._bridge(), url, owner)
+
+    async def open(self, url: str, background: bool = True) -> TabRef:
+        return await self.open_for(url, owner="")
+
+    async def check_account(self, tab: TabRef) -> None:
+        return None                                           # FERB's own profile: FERB's own accounts
+
+    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
+        return None
+
+    async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
+        if not self.secrets.has(ref):
+            raise Refused(f"no secret {ref.key} is set up")
+        t, frame, snap, local, _ = self._resolve(el)
+        origin = await self._checked_origin(t, frame, ref)
+        try:
+            value = await self._store._reveal(ref)
+        except SecretUnavailable:
+            raise Refused(f"secret {ref.key} isn't in the Keychain") from None
+        self.add_secret_value(value)                          # scrub it if a page or error ever echoes it back
+        r = await self._sealed_fill(t, frame, snap, local, origin, value, intent_id)
+        del value
+        return ActionResult(r.ok, f"{r.detail} ({ref.key})")
+
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
+                       intent_id: str = "", timeout: float = 120.0, poll: float = 5.0) -> ActionResult:
+        if not self.secrets.has(ref):
+            raise Refused(f"no account {ref.key} is set up")
+        t, frame, snap, local, _ = self._resolve(el)
+        await self._checked_origin(t, frame, ref)
+        mailbox = GmailFeedMailbox(self._read_feed, self.mailbox_address(), self.feed_url)
+        mailbox.used = self.used_otps
+        found = await wait_for_code(mailbox, since, sender_contains, timeout, poll)
+        if not found.code:
+            return ActionResult(False, REASONS[found.reason])
+        self.add_secret_value(found.code)
+        t, frame, snap, local, _ = self._resolve(el)          # the page may have moved while we waited
+        origin = await self._checked_origin(t, frame, ref)
+        r = await self._sealed_fill(t, frame, snap, local, origin, found.code, intent_id)
+        if r.ok and found.message_id:
+            self.used_otps.add(found.message_id)
+        return ActionResult(r.ok, f"{r.detail} (code from FERB's inbox)")
+
+    async def _checked_origin(self, t: _Tab, frame: int, ref: SecretRef) -> str:
+        v = await t.bridge.call("frame_origin", {"tab_id": t.chrome_id, "frame_id": frame}, timeout=10)
+        origin = str(v.get("origin") or "")
+        if not origin_allowed(origin, self.secrets.spec(ref)):
+            raise Refused(f"refused: this field's page ({origin or 'unknown origin'}) isn't allowed for {ref.key}")
+        return normalize_origin(origin)
+
+    async def _sealed_fill(self, t: _Tab, frame: int, snap: int, local: int, origin: str, value: str,
+                           intent_id: str) -> ActionResult:
+        key = self.pairing_key(t.bridge.binding.install_id)
+        if key is None:
+            raise Refused("FERB's identity profile isn't paired")
+        cid = intent_id or "f-" + secrets.token_hex(8)
+        sealed = seal(seal_key(key), value, cid, origin)
+        v = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
+                                         "sealed": sealed, "origin": origin}, timeout=15, cid=cid)
+        if v.get("detail") == "stale":
+            raise StaleRef("the element is gone; take a new snapshot")
+        return ActionResult(bool(v.get("ok")), str(v.get("detail", "")))
+
+    async def _read_feed(self, url: str) -> str:
+        """FERB's inbox feed in a private background tab of FERB's profile (no task owns it)."""
+        br = await self._bridge()
+        key = self.pairing_key(br.binding.install_id)
+        if key is None:
+            raise Refused("FERB's identity profile isn't paired")
+        ref = await self._open_in(br, url, owner=None)
+        try:
+            t = self._tab(ref)
+            cid = "r-" + secrets.token_hex(8)
+            v = await br.call("read_source", {"tab_id": t.chrome_id}, timeout=20, cid=cid)
+            return unseal(seal_key(key), v["sealed"], cid, url)       # the feed travels sealed too (test 21)
+        finally:
+            await self.close(ref)
+
+    async def session_ok(self) -> bool:
+        return await GmailFeedMailbox(self._read_feed, self.mailbox_address(), self.feed_url).signed_in()

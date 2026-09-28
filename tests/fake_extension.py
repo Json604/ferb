@@ -25,6 +25,16 @@ ORIGIN = f"chrome-extension://{FERB_EXTENSION_ID}/"
 
 def page(url: str) -> dict[str, Any]:
     u = urlsplit(url)
+    if u.path == "/login":
+        return {"title": "Login", "text": "Sign in",
+                "elements": [{"role": "textbox", "label": "User", "form": "login"},
+                             {"role": "textbox", "label": "Password", "form": "login", "secret": True,
+                              "input_type": "password"},
+                             {"role": "button", "label": "Sign in", "form": "login"}]}
+    if u.path == "/framed":                               # the password field lives in a cross-origin iframe
+        return {"title": "Framed", "text": "",
+                "elements": [{"role": "textbox", "label": "Password", "secret": True, "input_type": "password",
+                              "frame": 1, "origin": "https://evil.example"}]}
     if u.hostname == "mail.google.com":
         return {"title": "Inbox - me@gmail.com - Gmail", "text": "Inbox",
                 "elements": [{"role": "button", "label": "Send", "form": "other"},
@@ -56,6 +66,10 @@ class FakeExtension:
         self._n = 100
         self.proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
+        self.wire: list[str] = []                        # every message, both directions, exactly as sent
+        self.values: dict[tuple[int, int], str] = {}      # (tab, element) -> value set by a fill
+        self.feed_xml = ""
+        self.fills: list[dict[str, Any]] = []
 
     # ----- transport (the real native host) -----
 
@@ -82,11 +96,14 @@ class FakeExtension:
             if len(head) < 4:
                 return
             (n,) = struct.unpack("<I", head)
-            self._on(json.loads(proc.stdout.read(n)))
+            raw = proc.stdout.read(n)
+            self.wire.append(raw.decode())
+            self._on(json.loads(raw))
 
     def post(self, msg: dict[str, Any]) -> None:
         assert self.proc and self.proc.stdin
         data = json.dumps(msg).encode()
+        self.wire.append(data.decode())
         with self._lock:
             self.proc.stdin.write(struct.pack("<I", len(data)) + data)
             self.proc.stdin.flush()
@@ -174,11 +191,44 @@ class FakeExtension:
     def op_snapshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         url = self.tabs[a["tab_id"]]
         p = page(url)
-        els = [{"id": i, "role": e["role"], "label": e["label"], "value": "", "rect": [0, 0, 10, 10],
-                "input_type": None, "href": e.get("href"), "form": e.get("form"), "secret": False}
-               for i, e in enumerate(p["elements"])]
-        return {"frames": [{"frame_id": 0, "gen": a["snap"], "url": url, "title": p["title"], "elements": els,
-                            "text": p["text"], "truncated": False}]}
+        frames: dict[int, list[dict[str, Any]]] = {}
+        for i, e in enumerate(p["elements"]):
+            filled = (a["tab_id"], i) in self.values
+            frames.setdefault(e.get("frame", 0), []).append(
+                {"id": i, "role": e["role"], "label": e["label"],
+                 "value": ("filled" if filled else "") if e.get("secret") else "", "rect": [0, 0, 10, 10],
+                 "input_type": e.get("input_type"), "href": e.get("href"), "form": e.get("form"),
+                 "secret": bool(e.get("secret"))})
+        return {"frames": [{"frame_id": f, "gen": a["snap"], "url": url, "title": p["title"], "elements": els,
+                            "text": p["text"], "truncated": False} for f, els in sorted(frames.items())]
+                or [{"frame_id": 0, "gen": a["snap"], "url": url, "title": p["title"], "elements": [],
+                     "text": p["text"], "truncated": False}]}
+
+    def op_frame_origin(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        url = self.tabs[a["tab_id"]]
+        framed = [e for e in page(url)["elements"] if e.get("frame") == a["frame_id"] and e.get("origin")]
+        u = urlsplit(url)
+        return {"origin": framed[0]["origin"] if framed else f"{u.scheme}://{u.netloc}"}
+
+    def op_fill(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """Like the real extension: open the seal for THIS command id and origin, or refuse; never echo the value."""
+        from ferb.identity.seal import seal_key, unseal
+        self.fills.append({"id": cid, "origin": a["origin"], "sealed": a["sealed"]})
+        try:
+            value = unseal(seal_key(self.key or b""), a["sealed"], cid, a["origin"])
+        except Exception:
+            return {"ok": False, "detail": "seal_refused"}
+        if self.op_frame_origin({"tab_id": a["tab_id"], "frame_id": a["frame_id"]}, cid)["origin"] != a["origin"]:
+            return {"ok": False, "detail": "origin_changed"}
+        self.values[(a["tab_id"], a["el"])] = value
+        return {"ok": True, "detail": "filled"}
+
+    def op_read_source(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        url = self.tabs[a["tab_id"]]
+        if url.split("?")[0] != "https://mail.google.com/mail/feed/atom":
+            raise RuntimeError("read_source is only for FERB's inbox feed")
+        from ferb.identity.seal import seal, seal_key
+        return {"sealed": seal(seal_key(self.key or b""), self.feed_xml, cid, "https://mail.google.com/mail/feed/atom")}
 
     def op_act(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.acts.append(a)

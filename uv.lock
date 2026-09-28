@@ -188,6 +188,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
+    { name = "cryptography" },
     { name = "httpx" },
     { name = "mcp" },
     { name = "pydantic" },
@@ -206,6 +207,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "claude-agent-sdk", specifier = "==0.2.160" },
+    { name = "cryptography", specifier = "==50.0.1" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mcp", specifier = "==2.2.0" },
     { name = "pydantic", specifier = ">=2,<3" },

@@ -62,6 +62,11 @@ class Pairings:
         rows = self.db.conn.execute("SELECT install_id FROM ext_installs ORDER BY browser, folder").fetchall()
         return [b for r in rows if (b := self.binding(r["install_id"])) is not None]
 
+    def key(self, install_id: str) -> bytes | None:
+        """Daemon-internal (sealing, 10.1). Never returned by any socket method, never logged."""
+        r = self.db.conn.execute("SELECT key FROM ext_installs WHERE install_id = ?", (install_id,)).fetchone()
+        return bytes(r["key"]) if r else None
+
     def unpair(self, browser: str, folder: str) -> bool:
         return self.db.conn.execute("DELETE FROM ext_installs WHERE browser = ? AND folder = ?",
                                     (browser, folder)).rowcount > 0

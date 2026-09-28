@@ -5,6 +5,7 @@ description = "FERB: personal agent runtime for macOS"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "claude-agent-sdk==0.2.160",
+    "cryptography==50.0.1",
     "httpx==0.28.1",
     "mcp==2.2.0",
     "pydantic>=2,<3",

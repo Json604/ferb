@@ -267,13 +267,20 @@ def doctor(env: Env) -> int:
                           if ident["profile_ok"] else str(ident["error"]),
                           "FERB's Chrome profile must hold only FERB's account; fix it in Chrome, or run "
                           "`ferb setup --identity`"))
+                if ident["profile_ok"]:
+                    add(Check("identity session", "ok" if ident.get("session") else
+                              ("fail" if ident.get("paired") else "warn"),
+                              f"signed in as {ident['address']} (through the extension)" if ident.get("session") else
+                              ("not signed in" if ident.get("paired") else "not paired"),
+                              "sign FERB's account into its Chrome profile" if ident.get("paired") else
+                              "run `ferb setup --identity`"))
             for s in ident["secrets"]:
                 add(Check(f"secret {s['key']}", "ok" if s["in_keychain"] else "warn",
                           "in Keychain" if s["in_keychain"] else "missing from Keychain",
                           f"in your own terminal: security add-generic-password -s ferb -a {s['key']} -w"))
-        for d in inst.native_hosts_dirs:
-            m = d / NATIVE_HOST_MANIFEST
-            add(Check(f"native host ({d.parent.name})", "ok" if m.exists() and inst.native_host_launcher.exists()
+        for hosts_dir in inst.native_hosts_dirs:
+            m = hosts_dir / NATIVE_HOST_MANIFEST
+            add(Check(f"native host ({hosts_dir.parent.name})", "ok" if m.exists() and inst.native_host_launcher.exists()
                       else "fail", str(m) if m.exists() else "missing", "run `ferb setup --update`"))
         try:
             c = env.connect()
@@ -331,7 +338,34 @@ def identity_setup(env: Env, name: str | None = None, chrome_data: Path = seed.C
         return 1
     config.set("identity", "browser", "chrome")
     config.set("identity", "profile", p.folder)
-    return 0 if _identity_status(env) else 1
+    return 0 if _identity_pair(env, p.name) and _identity_status(env) else 1
+
+
+def _identity_pair(env: Env, name: str) -> bool:
+    """Pair the extension in FERB's profile as identity FERB (section 9.6). Re-pairing asks the owner first."""
+    env.ask(f"     Load the FERB extension in the “{name}” profile (chrome://extensions → Developer mode → Load "
+            f"unpacked → {repo_root() / 'extensions' / 'chromium'}), then press Enter ")
+    confirm = False
+    for _ in range(2):
+        try:
+            c = env.connect()
+            r = c.call("identity.pair", {"confirm": confirm})
+            c.close()
+        except (NotRunning, FerbError) as e:
+            if "needs your confirmation" in str(e) and not confirm:
+                confirm = env.ask("     FERB's profile is already paired. Pair it again? [y/N] ").strip().lower() in ("y", "yes")
+                if confirm:
+                    continue
+                env.say("     Kept the existing pairing.")
+                return True
+            env.say(f"     Couldn't pair: {e}")
+            return False
+        if r["paired"]:
+            env.say(f"     Paired “{name}” as FERB's identity.")
+            return True
+        env.say(f"     Not paired: {r.get('hint', 'no answer from the extension')}")
+        return False
+    return False
 
 
 def _identity_status(env: Env) -> bool:
@@ -342,11 +376,18 @@ def _identity_status(env: Env) -> bool:
     except (NotRunning, FerbError) as e:
         env.say(f"     Couldn't check: {e}")
         return False
-    if r["profile_ok"]:
-        env.say(f"     Profile “{r.get('profile_name')}” holds only {r['address']}. The extension is paired there "
-                "and the session checked from build step 6.")
+    if not r["profile_ok"]:
+        env.say(f"     FERB's identity profile isn't usable: {r['error']}")
+        return False
+    if not r.get("paired"):
+        env.say(f"     Profile “{r.get('profile_name')}” holds only {r['address']}, but isn't paired yet: "
+                "`ferb setup --identity`.")
+        return False
+    if r.get("session"):
+        env.say(f"     Paired; signed in as {r['address']}.")
         return True
-    env.say(f"     FERB's identity profile isn't usable: {r['error']}")
+    env.say(f"     Paired, but not signed in as {r['address']}{' (' + r['error'] + ')' if r.get('error') else ''}: "
+            "sign FERB's account back into its Chrome profile.")
     return False
 
 

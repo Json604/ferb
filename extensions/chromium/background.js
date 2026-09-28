@@ -299,6 +299,31 @@ const commands = {
     if (!DEBUGGEE.has(tab_id)) throw new Error("debugger not attached");
     return cdp(tab_id, method, params);
   },
+  async frame_origin({ tab_id, frame_id }) {
+    return { origin: await inFrame(tab_id, frame_id, () => window.__ferb.origin(), []) };
+  },
+  // FERB identity only (the daemon never sends it to owner profiles). The value is opened here, for this command id
+  // and origin only, handed to that frame's isolated world, and never posted back or logged.
+  async fill({ tab_id, frame_id, snap, el, sealed, origin }, id) {
+    const st = await install();
+    if (!st.key) throw new Error("not paired");
+    let value;
+    try { value = await unseal(st.key, sealed, id, origin); }
+    catch (_) { return { ok: false, detail: "seal_refused" }; }            // another command or origin: nothing filled
+    const r = await inFrame(tab_id, frame_id, (g, i, o, v) => window.__ferb.fill(g, i, o, v), [snap, el, origin, value]);
+    value = null;
+    return { ok: !!r.ok, detail: String(r.detail || "") };
+  },
+  async read_source({ tab_id }, id) {
+    const t = await chrome.tabs.get(tab_id);
+    const u = new URL(t.url || "about:blank");
+    if (`${u.origin}${u.pathname}` !== FEED_URL) throw new Error("read_source is only for FERB's inbox feed");
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab_id },
+      func: () => (document.documentElement ? document.documentElement.outerHTML.slice(0, 500000) : "") });
+    const st = await install();
+    if (!st.key) throw new Error("not paired");
+    return { sealed: await seal(st.key, (r && r.result) || "", id, FEED_URL) };   // email content never in clear
+  },
   async wake_close({ url }) {            // close exactly the unique wake page (spike 13)
     const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || t.pendingUrl) === url);
     for (const t of tabs) await chrome.tabs.remove(t.id);

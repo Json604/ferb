@@ -69,9 +69,11 @@ class FakeInst:
 
 class FakeClient:
     def call(self, method: str, params: Any = None) -> dict[str, Any]:
+        if method == "identity.pair":
+            return {"paired": True, "profile": "Profile 22"}
         assert method == "identity.check"
         return {"address": ADDR, "profile": "Profile 22", "profile_ok": True, "profile_name": "FERB",
-                "error": None, "session": None, "secrets": []}
+                "error": None, "session": True, "paired": True, "secrets": []}
 
     def close(self) -> None:
         pass
@@ -85,9 +87,9 @@ def env(tmp_path: Path, answers: list[str]) -> tuple[Env, io.StringIO]:
 
 def test_identity_setup_confirms_and_records_the_profile_copying_nothing(tmp_path: Path) -> None:
     root = chrome_data(tmp_path, {"Default": ("Me", ["owner@gmail.com"]), "Profile 22": ("FERB", [ADDR])})
-    e, out = env(tmp_path, [ADDR, "y"])
+    e, out = env(tmp_path, [ADDR, "y", ""])                              # "" = Enter after loading the extension
     assert identity_setup(e, chrome_data=root) == 0
-    assert "“FERB” (folder Profile 22)" in out.getvalue()
+    assert "“FERB” (folder Profile 22)" in out.getvalue() and "Paired “FERB” as FERB's identity" in out.getvalue()
     cfg = Config(tmp_path / "home")
     assert cfg.get("identity", "profile") == "Profile 22" and cfg.get("mailbox", "address") == ADDR
     assert not (tmp_path / "home" / "chrome").exists()          # nothing copied

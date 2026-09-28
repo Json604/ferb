@@ -186,7 +186,18 @@
     try { return { supported: true, account: f() }; } catch (_) { return { supported: true, account: null }; }
   }
 
-  window.__ferb = { snapshot, act, rect: (g, i) => { const r = rect(g, i); if (r.focus) r.focus(); delete r.focus; return r; },
+  // Sealed fill (10.1): the value arrives already opened by the service worker, for this element only. Re-check this
+  // frame's origin in the same call that sets it; set it on that exact element (never typed into whatever has focus).
+  function fill(gen, id, expectedOrigin, value) {
+    if (location.origin !== expectedOrigin) return { ok: false, detail: "origin_changed" };
+    const { el, error } = element(gen, id);
+    if (error) return { ok: false, detail: error };
+    if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return { ok: false, detail: "not_a_text_field" };
+    setValue(el, value);
+    return { ok: true, detail: "filled" };
+  }
+
+  window.__ferb = { snapshot, act, fill, origin: () => location.origin, rect: (g, i) => { const r = rect(g, i); if (r.focus) r.focus(); delete r.focus; return r; },
                     probeArm, probeSeen: () => probeSeen, account,
                     text: () => (document.body ? document.body.innerText : ""), url: () => location.href,
                     ready: () => document.readyState };

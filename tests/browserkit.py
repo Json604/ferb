@@ -219,7 +219,7 @@ class FakeIdentityDriver:
     def _origin(self, t: _Tab, e: El) -> str:
         return normalize_origin(e.origin or t.url)
 
-    async def fill_secret(self, el: ElementRef, ref: SecretRef) -> ActionResult:
+    async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         if not self.secrets.has(ref):
             raise Refused(f"no secret {ref.key} is set up")
         t, e = self._resolve(el)
@@ -230,8 +230,8 @@ class FakeIdentityDriver:
         e.value = value
         return ActionResult(True, f"ok ({ref.key})")
 
-    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime,
-                       sender_contains: str | None) -> ActionResult:
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
+                       intent_id: str = "") -> ActionResult:
         if not self.secrets.has(ref):
             raise Refused(f"no account {ref.key} is set up")
         t, e = self._resolve(el)
