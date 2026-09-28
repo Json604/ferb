@@ -14,12 +14,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 6 — pyobjc probes + TCC checks | 2026-09-28 | Works; AXManualAccessibility gone | `spikes/06_pyobjc/FINDINGS.md`. Frontmost app, window titles without activating, no-prompt TCC checks (Automation via `ctypes`). Chrome 154/Brave 151 build the web AX tree on demand (first query may be empty ~0.2 s); `AXManualAccessibility` unsupported → §9.2 edit proposed. TCC grants belong to the responsible app, not FERB. |
 | Spike 8 — launchd agent + socket from CLI | 2026-09-28 | Works | `spikes/08_launchd/FINDINGS.md`. Start/ping/restart-after-crash/stop/stale socket, owner-only socket with peer-uid check. The launchd process has **none** of the terminal's TCC grants (they attach to the binary launchd runs); CLI must treat EOF as daemon-unavailable. |
 | Spike 9 — system audio | 2026-09-28 | **Skipped by the owner** | Deferred to the voice block (§17, §20). |
+| Spike 10 — profiles | 2026-09-28 | Works | `spikes/10_profiles/FINDINGS.md`. Local State discovery + §9.5 resolver (ambiguity never first-match). `--profile-directory` hands off to the running instance (real Chrome FERB profile too); unknown folder silently creates a profile → guard. External Extensions: every profile gets it disabled (8192) until accepted, Chrome and Brave (own data dir). `Local State` written lazily. |
 
 ## Next
 
-Spike 10 — Profiles: parse Chrome + Brave `Local State`; open a named profile via `--profile-directory` with the
-browser already running; External Extensions file → does every profile show the enable prompt; does Brave honor
-the same mechanism (and its folder path).
+Spike 12 — pairing end to end in two Chrome profiles + one Brave profile; unknown `install_id` blocked from acting
+(spike 11 skipped). Also settles native-host manifest locations for default profiles (spike 4/10 open item).
 
 ## Pinned external tools
 
@@ -43,7 +43,8 @@ the same mechanism (and its folder path).
 - Build step 6 (extension): register `runtime.onStartup` from the first version; `hello` carries the protocol
   version and the daemon refuses a mismatch; input-readiness probe before dispatched input; treat
   `executeScript` null/`error` results as failures; install `ferb-native-host` outside TCC-protected folders.
-- Spike 10: measure native-host manifest locations for the owner's *default* Chrome and Brave profiles.
+- Spike 12: measure native-host manifest (and External Extensions) locations for the owner's *default* Chrome and
+  Brave data folders.
 
 - Build step 5: when porting spike 3's tests, use a local test login page for `fill_secret` tests instead of an
   external site (the practice site went down mid-spike).
