@@ -1,6 +1,6 @@
 # Spike 3 — CDP over a pipe to `ferb-identity`; origin-bound `fill_secret`
 
-Status: stage 1 done (2026-09-28), 8/8 tests pass. Stage 2 (FERB's real email account) waiting on the owner.
+Status: stage 1 done (2026-09-28), 8/8 tests pass. Stage 2 blocked by Google's automation check — decision pending.
 
 Environment: Google Chrome 154.0.8037.57 (headless=new for tests), Python 3.12, macOS `security` CLI.
 
@@ -58,3 +58,17 @@ Create it in your own terminal (not through this chat):
 
 With `-w` last and no value, `security` prompts for the password without echo and it stays out of shell history.
 The email address and provider are not secret; they go in the `SecretSpec` (`account_hint`, `allowed_origins`).
+
+## Stage 2 result (2026-09-28): Google refuses automated sign-in
+
+- Config: `~/.ferb/config.toml` (0600, dir 0700) holds the spec: `allowed_origins = ["https://accounts.google.com"]`,
+  `account_hint = "ferb.kartikey@gmail.com"`. `ferb_config.py` refuses a config or directory readable/writable by
+  others (`test_config.py`, 5 tests). Keychain item `-s ferb -a ferb/email/password` present (checked without
+  reading the value).
+- `stage2_login.py` (headed, `~/.ferb/chrome/identity`): after the email step Google redirected to
+  `accounts.google.com/v3/signin/rejected` ("This browser or app may not be secure"). **The password page was
+  never reached, so no secret was revealed or sent.** One attempt only.
+- Cause: a CDP-controlled Chrome (pipe included) exposes `navigator.webdriver === true`; Google blocks sign-in
+  from automated browsers. Hiding it would be detection evasion (against Google's terms, an arms race) — not done.
+- Consequence: `fill_secret` can't be used for Google itself. It still applies to sites FERB signs into with
+  email + password. Options are in the report to the owner.

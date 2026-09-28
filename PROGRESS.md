@@ -13,8 +13,8 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 
 Spike 3 — CDP over `--remote-debugging-pipe` to `ferb-identity`; login + `fill_secret` on a real site.
 - Stage 1 done (2026-09-28): practice site + temporary keychain, 8/8 tests. `spikes/03_cdp_identity/FINDINGS.md`.
-- Stage 2 waiting on the owner: FERB email account + Keychain item `-s ferb -a ferb/email/password`
-  (owner creates it; the password never passes through chat).
+- Stage 2 (2026-09-28): config + Keychain item in place; Google refused automated sign-in
+  (`navigator.webdriver`), before the password page — nothing sent. Waiting on the owner's choice of path.
 
 ## Pinned external tools
 
