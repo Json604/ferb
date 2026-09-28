@@ -92,6 +92,9 @@ class ProfileStore:
         self.dir.chmod(0o700)
         if not (self.dir / ".git").exists():
             self._git("init", "--quiet")
+        old = self.load(profile.device_id)
+        if old is not None and _same_except_time(old, profile):
+            return False                     # only the scan time changed: no rewrite, no noise commit
         self.path(profile.device_id).write_text(profile.to_json() + "\n")
         self._git("add", "--", self.path(profile.device_id).name)
         if self._git("diff", "--cached", "--quiet", check=False).returncode == 0:
@@ -110,6 +113,10 @@ class ProfileStore:
         # Local identity only for this repo's commits; the owner's global git config is never touched.
         return subprocess.run(["git", "-C", str(self.dir), "-c", "user.name=FERB", "-c", "user.email=ferb@localhost",
                                "-c", "commit.gpgsign=false", *args], capture_output=True, text=True, check=check)
+
+
+def _same_except_time(a: DeviceProfile, b: DeviceProfile) -> bool:
+    return (a.device_id, a.os, a.os_version, a.apps, a.browsers) == (b.device_id, b.os, b.os_version, b.apps, b.browsers)
 
 
 def summarize(profile: DeviceProfile) -> dict[str, Any]:

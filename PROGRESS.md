@@ -21,12 +21,11 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | **Build step 1** — core, store, bus, clock, daemon + socket + auth, journal, `ferb logs`, `ferb trace` | 2026-09-28 | Done | 35 tests (3 runs green), `mypy --strict` clean on `ferb/core`. Span.task_id, bus event classes, 1 MiB message cap added to the contract first. Ported from spike 8: socket perms, stale socket, second daemon refused, EOF. Found: shutdown hung on open connections (fixed: server closes them). |
 | **Build step 2** — sanitize, policy (rules, intent, exposure, dataflow, autonomy, approvals, engine), ledger, `ferb stop` | 2026-09-28 | Done | 95 tests (3 runs green). Safety tests 21.3, 21.7, 21.8, 21.9, 21.10, 21.11 and partial 21.2/21.5. Contract first: intent derived only from the owner's message at plan time (10.2), internal-id redaction exemption (10.6), new critical topics (6), engine.py + config.py (3). Added: stop survives restart (10.5). |
 | **Build step 3** — device (scan, profile, permissions, install, selftest), `ferb setup [--update]`, `doctor`, `uninstall` | 2026-09-28 | Done, installed on this Mac | 118 tests (3 runs green) incl. a real launchd test. Spike 15 measured a launcher: section 8 step 6 kept. Real setup: dedicated Python 3.12.13 in `~/.ferb/python`, `com.ferb.daemon` running; owner granted Accessibility + Screen Recording (Input Monitoring granted too); `ferb doctor` all green after `--update`. Fixed after the first real run: self-test read the frontmost (Brave) window title → now reads the Dock. |
+| **Build step 4** — runtimes (Codex exec, Claude Agent SDK) with native tools contained, `ferb mcp` shim, gateway, `act/fs`, `ferb chat` (reply/clarify, one worker) | 2026-09-28 | Done | 147 offline tests (3 runs green) + 6 real (`pytest -m real`: 21.1 for Codex and Claude, 123 s). Supervisor + worker = Codex (`[runtimes]` in config.toml); Claude fully built and tested, a config switch away. Codex supervisor: no FERB tools, read-only sandbox, gpt-5.5, chat history re-sent each turn (`--ephemeral`; resume would need recorded sessions in `~/.codex`). Tool-list check per run: Codex from its trace, Claude via a localhost proxy recording tool names only. Pasted/quoted chat content wrapped as untrusted data (§10.2). Time header per model turn, footer per tool result. Codex pinned in `~/.ferb/node`. |
 
 ## Next
 
-**Build step 4** — runtimes with native tools disabled (Claude Agent SDK, Codex) + `ferb mcp` shim + gateway;
-`act/fs`; `ferb chat` with reply/clarify and a single worker. Safety tests for gateway bypass pass before continuing.
-Foundation step: plan first, owner approval before building.
+**Build step 5** — ARCHITECTURE.md §18 step 5 (not a foundation step: plan, then build).
 
 ## Rules for build steps (owner)
 
@@ -35,9 +34,7 @@ Foundation step: plan first, owner approval before building.
 
 ## Open items carried forward
 
-- Automation (Apple Events) not yet requested for any app: owner can run `uv run ferb setup` in a terminal to pick
-  apps, or each app is asked on first use.
-- `~/.ferb/spike8/` (spike 8's venv + logs) is still there for reruns of spike 8's tests; delete any time.
+- Automation (Apple Events): owner decision — ask on first use (no apps requested at setup).
 
 - Build step 7: mark every FERB input event; GUI actions check owner input before each step (per keystroke);
   listen-only tap needs Accessibility or Input Monitoring on the daemon's interpreter.
@@ -63,13 +60,11 @@ Foundation step: plan first, owner approval before building.
 - Build step 5: when porting spike 3's tests, use a local test login page for `fill_secret` tests instead of an
   external site (the practice site went down mid-spike).
 
-- Build step 4 (runtimes) must implement the tool-list allowlist check (§7). Claude: from the actual API request
-  via a recording proxy (spike 2 `proxy.py`). Codex: from the trace log (spike 1 `tools_in_trace`, including
-  `tool_search` outputs and nameless hosted tools).
-- Build step 4: launch the Claude runtime with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` and `DISABLE_TELEMETRY=1`
-  (both verified in CLI 0.2.160 to remove the built-in `telemetry` plugin; traffic to non-API hosts not observed
-  directly, so the verification is the plugin's absence).
 - Build step 5: harden the Keychain item's ACL to FERB's signed binary once FERB.app exists (today any process
   of this user can read it via the `security` tool without a prompt).
-- Build step 4: set runtime auth explicitly (an inherited `ANTHROPIC_API_KEY` would override the subscription login).
 - Codex worker is a stopgap (§19): pinned to `gpt-5.5`, ~25–40k tokens of overhead per run.
+- Codex loads MCP tools lazily (`tool_search`): the model-visible FERB tools are a subset of the offered list.
+  21.1 is tested as "offered == allowlist, seen ⊆ allowlist" for Codex (proposed §21.1 wording pending owner OK).
+- Build step 8: task tree is in memory until then; outcomes are journaled with `verified: false` (verification
+  lands with step 8).
+- Upgrading Codex or the Claude SDK: rerun `pytest -m real tests/test_real_runtimes.py` (costs real model usage).

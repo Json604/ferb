@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "FERB: personal agent runtime for macOS"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "claude-agent-sdk==0.2.160",
+    "httpx==0.28.1",
+    "mcp==2.2.0",
     "pydantic>=2,<3",
     "pyobjc-framework-applicationservices>=12.2.2",
     "pyobjc-framework-cocoa>=12.2.2",
@@ -26,6 +29,8 @@ packages = ["ferb"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not real'"
+markers = ["real: calls real models (Codex / Claude subscriptions); run with -m real — the gate before build step 5"]
 
 [tool.mypy]
 python_version = "3.12"

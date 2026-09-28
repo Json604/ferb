@@ -25,8 +25,9 @@ class Role(Enum):
 # Fixed method list per role. Later build steps add methods here, never per-connection.
 METHODS: dict[Role, frozenset[str]] = {
     Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift", "undo",
-                         "autonomy.get", "autonomy.set", "doctor.check", "automation.request"}),
-    Role.MCP_SHIM: frozenset({"ping"}),
+                         "autonomy.get", "autonomy.set", "doctor.check", "automation.request", "chat.send",
+                         "chat.approve"}),
+    Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
 }
 

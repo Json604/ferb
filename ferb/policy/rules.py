@@ -6,9 +6,11 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+
+__all__ = ["DataLabel", "Target"]  # re-exported: they live in core since build step 4
 from pathlib import PurePosixPath
 
-from ferb.core.types import Identity, Task
+from ferb.core.types import DataLabel, Identity, Target, Task
 
 
 # ---------- action vocabulary ----------
@@ -27,23 +29,6 @@ HARD_FLOOR = {Kind.PAY, Kind.DELETE_PERMANENT}                 # always ask, eve
 UNDO_WINDOW = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND}   # held ~10 s before executing
 OUTBOUND = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.FILL_FORM, Kind.SUBMIT, Kind.MAILBOX_SEND, Kind.WRITE_FILE,
             Kind.PAY}                                           # moves data somewhere (data-flow checks)
-
-
-@dataclass(frozen=True)
-class Target:
-    account: str | None = None               # e.g. "gmail:me@example.com"
-    site: str | None = None                  # origin/host, e.g. "mail.google.com"
-    recipients: tuple[str, ...] = ()
-    path: str | None = None
-    amount: float | None = None
-
-
-@dataclass(frozen=True)
-class DataLabel:
-    """Where a piece of data came from. Owner-account data may only flow to destinations the request involves."""
-    source: str                              # "owner_account" | "web" | "email" | "ferb" | ...
-    account: str | None = None
-    site: str | None = None
 
 
 @dataclass(frozen=True)

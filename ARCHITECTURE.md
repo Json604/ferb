@@ -149,8 +149,9 @@ ferb/
     stop.py             emergency stop: revoke tokens, block actions, cancel workers, kill owned processes
     prompts/            prompt templates (text only; no logic)
   runtimes/
-    claude_sdk.py       ClaudeRuntime (Agent SDK) — default orchestrator
-    codex_exec.py       CodexRuntime (codex exec --json) — default worker
+    claude_sdk.py       ClaudeRuntime (Agent SDK)
+    codex_exec.py       CodexRuntime (codex exec --json); supervisor and worker modes
+    proxy.py            localhost tool-list proxy for the Claude runtime (records tool names only)
   decide/
     decider.py          RuleDecider, LLMDecider, JevDecider, ShadowDecider
     questions.py        the typed questions FERB asks (section 12)
@@ -229,6 +230,7 @@ ferb/
   native_host/
     main.py             ferb-native-host: stdio native messaging ↔ daemon socket
   cli/
+    mcp.py              `ferb mcp`: stdio MCP shim, forwards tool calls to the gateway with the run token
     chat.py             `ferb chat`
     logs.py             `ferb logs`
     client.py           socket client shared by all commands (daemon-unavailable handling)
@@ -380,6 +382,7 @@ class Capability(Protocol):
     reversible: bool
     Input: type[BaseModel]
     async def run(self, args: BaseModel, ctx: "ToolContext") -> "ToolResult": ...
+    def describe(self, args: BaseModel) -> "ActionSpec": ...   # kind, target, content, data labels for policy
 
 class Watcher(Protocol):
     source: str
@@ -432,7 +435,7 @@ class ShellManager(Protocol):
 
 ```toml
 [runtimes]
-orchestrator = "claude"   # "claude" | "codex"
+orchestrator = "codex"    # "claude" | "codex" — owner's current choice: GPT for both (Claude fully built/tested)
 worker       = "codex"
 
 [browser]
@@ -485,7 +488,13 @@ pre-approved, and a pinned non-code-mode model (code-mode models expose a JS too
 that cannot be disabled); its non-removable `apply_patch` therefore cannot write. Each runtime declares the exact
 list of tools its model may see; the list actually sent to the model (from the runtime's request trace) must be
 a subset of it. A runtime that fails this check, or whose sandbox cannot be verified, is not registered
-(spikes 1–2, test 21.1).
+(spikes 1–2, test 21.1). The check runs on every run at no token cost: Codex from its request trace, Claude through
+a proxy bound to localhost, used only for FERB's Claude runtime, which records **only the tool names** of each
+request — never auth headers, prompts or replies. A run that shows a tool outside the allowlist is killed and the
+runtime unregistered.
+When Codex is the supervisor it gets no FERB tools, runs in the read-only sandbox (its non-removable `apply_patch`
+can't write) on the pinned `gpt-5.5`, and keeps conversation continuity by re-sending the chat history each turn
+(ephemeral: no FERB conversation is written into the owner's `~/.codex` session history).
 
 ## 8. Setup and device profile
 
@@ -699,6 +708,10 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   owner's message, at plan time, before any untrusted content is read**. It includes the action kinds the request
   clearly implies (e.g. "book a table" implies form fill and submit). It is recorded once per request and workers
   can never change it. An action kind not in it is blocked; a requested kind with a target outside it asks.
+  **Pasted or quoted content in the owner's chat message** (terminal bracketed paste, fenced code blocks, `>`
+  quotes) is wrapped as untrusted data — tags carrying a random id — before the supervisor sees it; the intent is
+  derived only from the owner's own words around it, and code checks that every intent target (recipient, site,
+  account, path) appears in those words.
 - **Exposure** (`policy/exposure.py`): a worker that has read untrusted content (web pages, emails, messages,
   downloaded files, anything not from a trusted source) is *exposed*. Exposed workers lose shell, AppleScript and
   file-write capabilities for the rest of their run. If those are needed, the supervisor starts a clean worker
@@ -783,7 +796,7 @@ All via `Decider`. Initially `ShadowDecider(primary=Rule/LLM, shadow=Jev)` logs 
 
 ## 13. Time
 
-- Header on every model call: now (weekday + tz), task start + elapsed, deadline + remaining, owner last active, last trail event age.
+- Header on every model turn (owner decision: per turn, not per API request): now (weekday + tz), task start + elapsed, deadline + remaining, owner last active, last trail event age.
 - Footer on every tool result: `[now 15:42:10 IST | task +11m | deadline in 18m]`.
 - Measured durations: median/p90 for similar past tasks from spans, when available.
 - Timers: `set_timer`, `remind_at`, `sleep_until`; SQLite-backed; survive restarts and sleep (overdue timers fire with `overdue_by`).

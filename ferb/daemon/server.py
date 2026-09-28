@@ -5,6 +5,7 @@ allowed. A handler returns a result, or (streaming methods) an async iterator of
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import socket
@@ -198,6 +199,8 @@ class Server:
         done, _ = await asyncio.wait({task, eof}, return_when=asyncio.FIRST_COMPLETED)
         if task in done:
             eof.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await eof                     # the reader must be free before the connection reads again
             exc = task.exception()
             if exc is None:
                 await self._send(writer, _result(req.id, {"ended": True}))

@@ -110,6 +110,15 @@ class Installer:
             shutil.rmtree(self.venv)                  # built on another interpreter: rebuild on FERB's own
         self._ok(["uv", "venv", "--quiet", "--python", str(interpreter), str(self.venv)], "creating FERB's venv")
 
+    def ensure_codex(self) -> None:
+        """Pinned Codex in ~/.ferb/node (the daemon never uses a global Codex). Skipped if already pinned."""
+        from ferb.runtimes.codex_exec import CODEX_VERSION, _NATIVE_BIN
+        binary = self.home / "node" / _NATIVE_BIN
+        if binary.exists() and self.run([str(binary), "--version"]).stdout.split()[-1:] == [CODEX_VERSION]:
+            return
+        self._ok(["npm", "install", "--prefix", str(self.home / "node"), "--save-exact", "--no-fund", "--no-audit",
+                  f"@openai/codex@{CODEX_VERSION}"], "installing the pinned Codex")
+
     def install_ferb(self, source: Path | None = None) -> None:
         """A copy (non-editable), reinstalled every time: that's what `--update` means."""
         self._ok(["uv", "pip", "install", "--quiet", "--python", str(self.venv_python), "--reinstall-package", "ferb",
@@ -170,11 +179,13 @@ class Installer:
             if not self.venv_python.exists():
                 raise InstallError("FERB isn't installed yet: run `ferb setup` first")
             self.install_ferb()
+            self.ensure_codex()
             self.restart() if self.loaded() else self.load()
             return
         interpreter = self.ensure_interpreter()
         self.ensure_venv(interpreter)
         self.install_ferb()
+        self.ensure_codex()
         changed = self.write_plist()
         if changed or not self.loaded():
             self.load()

@@ -113,3 +113,79 @@ class MemoryItem:
     origin: Literal["owner_stated", "observed", "inferred", "third_party"]
     status: Literal["proposed", "active", "retracted"]
 
+
+
+# ---------- actions (what a capability call means, for policy) ----------
+
+@dataclass(frozen=True)
+class Target:
+    account: str | None = None               # e.g. "gmail:me@example.com"
+    site: str | None = None                  # origin/host, e.g. "mail.google.com"
+    recipients: tuple[str, ...] = ()
+    path: str | None = None
+    amount: float | None = None
+
+
+@dataclass(frozen=True)
+class DataLabel:
+    """Where a piece of data came from. Owner-account data may only flow to destinations the request involves."""
+    source: str                              # "owner_account" | "web" | "email" | "download" | "ferb" | ...
+    account: str | None = None
+    site: str | None = None
+
+
+@dataclass(frozen=True)
+class ActionSpec:
+    """Capability.describe(args): what this call would do, in policy terms (section 16 step 6)."""
+    kind: str
+    target: Target = Target()
+    content: str | None = None
+    data_labels: frozenset[DataLabel] = frozenset()
+
+
+# ---------- runtimes (section 5 AgentRuntime) ----------
+
+@dataclass(frozen=True)
+class RuntimeFeatures:
+    live_messaging: bool
+    continuation: bool
+    per_call_hooks: bool
+    usage_visibility: bool
+    native_tools_contained: bool             # must be True to be registered (section 5, 7)
+
+
+@dataclass
+class RunHandle:
+    id: str
+    runtime: str
+    task_id: str
+    state: dict[str, Any]                    # runtime-private (process, session, ...)
+
+
+@dataclass(frozen=True)
+class RuntimeEvent:
+    kind: Literal["message", "tool_call", "usage", "final", "error", "violation"]
+    data: dict[str, Any]
+
+
+# ---------- tools (section 5 Capability) ----------
+
+@dataclass(frozen=True)
+class ToolContext:
+    task_id: str
+    worker_id: str
+    request_id: str
+    identity: Identity
+    scopes: frozenset[str]
+    device_id: str
+    span_id: str | None
+    workspace: str
+    owner_roots: tuple[str, ...]
+    untrusted_roots: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    content: dict[str, Any]
+    is_error: bool = False
+    read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) the call read: feeds exposure (10.2)

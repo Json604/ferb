@@ -26,8 +26,8 @@ class RunningDaemon:
     async def _make(home: Path, kwargs: dict[str, Any]) -> Daemon:
         return Daemon(home=home, **kwargs)
 
-    def run(self, coro: Any) -> Any:
-        return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=10)
+    def run(self, coro: Any, timeout: float = 10) -> Any:
+        return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout=timeout)
 
     def call_soon(self, fn: Callable[..., Any], *args: Any) -> None:
         """Run fn on the daemon's loop (the bus and the clock belong to it)."""
@@ -58,3 +58,17 @@ def daemon(home: Path) -> Iterator[RunningDaemon]:
     d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"))
     yield d
     d.stop()
+
+
+@pytest.fixture(autouse=True)
+def no_real_models(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline tests must never reach a real model (cost, flakiness): only `-m real` tests may."""
+    if request.node.get_closest_marker("real"):
+        return
+
+    async def refuse(*a: Any, **k: Any) -> None:
+        raise AssertionError("an offline test tried to start a real model runtime; mark it `real` or use a fake")
+    from ferb.runtimes.claude_sdk import ClaudeRuntime
+    from ferb.runtimes.codex_exec import CodexRuntime
+    monkeypatch.setattr(CodexRuntime, "start", refuse)
+    monkeypatch.setattr(ClaudeRuntime, "start", refuse)

@@ -74,7 +74,9 @@ def test_profile_history_is_a_local_repo_that_is_never_pushed(tmp_path: Path) ->
     store = ProfileStore(tmp_path / "home")
     p1 = scan("dev-1", [apps])
     assert store.save(p1, "first") is True
-    assert store.save(scan("dev-1", [apps]), "same apps") is False     # unchanged apps -> no new commit...
+    later = scan("dev-1", [apps])
+    later.scanned_at = "2099-01-01T00:00:00+00:00"                      # a later scan with the same apps
+    assert store.save(later, "same apps") is False                      # only the time differs: no commit
     make_app(apps, "Calc", "com.example.calc")
     assert store.save(scan("dev-1", [apps]), "calc installed") is True
     assert store.history() == ["calc installed", "first"]               # newest first; "same apps" made none

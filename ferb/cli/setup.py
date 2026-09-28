@@ -233,6 +233,18 @@ def doctor(env: Env) -> int:
                       f"grant it to {dedicated} (System Settings → Privacy & Security)" if level != "ok" else ""))
         for r in report["selftest"]:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
+        rs = report.get("runtimes", {})
+        for name in ("codex", "claude"):
+            if name in rs:
+                ok = not str(rs[name]).startswith("problem")
+                used = name in (rs.get("orchestrator"), rs.get("worker"))
+                add(Check(f"runtime {name}", "ok" if ok else ("fail" if used else "warn"), str(rs[name]),
+                          "run `ferb setup --update`" if not ok else ""))
+        if rs:
+            add(Check("roles", "ok", f"supervisor {rs.get('orchestrator')}, worker {rs.get('worker')}"))
+        for name, why in rs.get("unregistered", {}).items():
+            add(Check(f"runtime {name} unregistered", "fail", why, "a run showed a tool outside the allowlist; "
+                                                                   "restart the daemon after investigating"))
         if report["stopped"]:
             add(Check("emergency stop", "warn", "engaged", "`ferb resume-tasks` lifts it"))
     did = Config(inst.home).get("device", "id") if (inst.home / "config.toml").exists() else None

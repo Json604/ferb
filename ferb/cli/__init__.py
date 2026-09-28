@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = sub.add_parser("autonomy", help="show or set the autonomy level")
     ap.add_argument("level", nargs="?", choices=["careful", "balanced", "hands-off"])
 
+    sub.add_parser("chat", help="talk to FERB")
+    sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
     sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
     sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
@@ -45,6 +47,19 @@ def main(argv: list[str] | None = None) -> int:
         daemon_main()
         return 0
 
+    if args.cmd == "mcp":
+        from ferb.cli.mcp import main as mcp_main
+        mcp_main()
+        return 0
+    if args.cmd == "chat":
+        from ferb.cli.chat import main_chat
+        try:
+            return main_chat(lambda: Client(socket_path(), timeout=1800))
+        except NotRunning as e:
+            print(f"ferb: {e}", file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            return 130
     if args.cmd in ("setup", "doctor", "uninstall"):
         from ferb.cli import setup as setup_cmd
         from ferb.device.install import InstallError, Installer
