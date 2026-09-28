@@ -12,8 +12,8 @@ The native-host manifest exists in Chrome's default `NativeMessagingHosts` folde
 ## Design proven
 
 - The extension generates `install_id` once per profile (`chrome.storage.local`).
-- FERB issues a one-time token for a (browser, folder) and opens
-  `chrome://`-launcher `--profile-directory=<folder> chrome-extension://<id>/pair.html#token=…`. The pairing page is
+- FERB issues a one-time token for a (browser, folder) and hands the running Chrome
+  `--profile-directory=<folder> chrome-extension://<id>/pair.html#token=…`. The pairing page is
   the **extension's own page** (blank, closes itself — CLAUDE.md minimum), so only the extension in *that* profile
   can read the token; no web page or other extension sees it. Command-line navigation to it works.
 - Daemon binds `install_id → chrome/<folder>` and returns a per-install key; every later message carries
