@@ -1,0 +1,896 @@
+# FERB — Architecture Contract (Block 1)
+
+This file is the contract for anyone (human or coding agent) writing FERB code.
+Do not change module boundaries, interfaces, identity rules, or dependency rules without the owner's approval.
+
+Revision 2 changes: browser layer redesigned (FERB extension for Chrome/Brave/Safari, CDP only for FERB's own
+profile), owner vs FERB identity boundary, memory source of truth moved to SQLite with markdown as an exported view.
+Revision 3 changes: system-audio listening reserved (slot + spike only; built in the voice block, section 20).
+Revision 4 changes: browser profiles are first-class (discovery from `Local State`, deterministic profile resolver,
+extension install + pairing per profile), extension page/debugger modes and CDP method allowlist (sections 9.3–9.6).
+Revision 5 changes: device-neutral naming (`ComputerDriver`, Mac as first implementation), `device_id` on tasks,
+spans, trail events, device profiles and browser profiles; future "brain + nodes" direction recorded (section 19).
+Revision 6 changes: safety and reliability pass. Autonomy model where the owner's instruction is the approval and
+security runs in the background (section 10); exposure tracking + reader/actor split against prompt injection;
+runtime native tools disabled so the gateway cannot be bypassed; origin-bound secrets; sanitization pipeline;
+action ledger with "outcome unknown"; emergency stop and owner-input priority; resource locks; trail actor/id;
+memory trust levels and real forgetting; runtime feature flags; monotonic clock; direct-answer path; journal from
+step 1; contradictions from revision 5 fixed (owner CDP, trail redaction order, profile resolution); safety tests (section 21).
+
+## 0. Block 1 scope
+
+| # | Feature | In this block |
+|---|---------|---------------|
+| 1 | Mac control | Yes — AppleScript/CLI → Accessibility → screenshot+click, chosen per app from the device profile |
+| 2 | Browser control | Yes — FERB's own Chrome profile via CDP; owner's Chrome, Brave and Safari via the FERB browser extension; Accessibility fallback everywhere (section 9) |
+| 3 | FERB identity | Yes — own email + password, Keychain-backed, used only in FERB's own profile, never visible to models |
+| 4 | CLI | Yes — `ferb chat` (talk to orchestrator) and `ferb logs` (live log/trail viewer), plus admin commands |
+| 5 | Monitoring | Yes — event trail of Mac + browser activity; no continuous LLM watching; screenshots only on demand |
+| 6 | Time | Yes — time header per model call, timestamp footer on every tool result, durable timers |
+| 7 | Memory journey | Yes — everything from day one in SQLite; distilled memory items with provenance and trust levels; markdown exported as a read-only view |
+| – | Jev | Yes — behind `Decider`, shadow mode first |
+| – | System audio listening ("what is this song / what is it saying") | **Reserved** — slot + spike only; built with the voice block (section 20) |
+| – | Voice, phone, Linux/Windows, self-improving overrides, Dream loop, Universal Memory | **No** (later blocks; interfaces must not preclude them) |
+
+Decisions and defaults:
+- Python 3.12. Runtimes: Claude (Agent SDK) = orchestrator, Codex (`codex exec --json`) = workers; switchable in config.
+- FERB never reads, types, or stores the owner's credentials, and never reads browser cookie stores.
+- Low friction by default: the owner's instruction is the approval; security runs automatically in the
+  background; explicit confirmation only for the narrow cases in section 10.3. Autonomy level: `balanced`.
+- Codex authenticated via ChatGPT login for testing.
+
+## 1. Rules for writing code
+
+1. **Important behavior lives in code, not prompts.** Orchestration, policy, fallback, budgets, secrets, identity, time — all code.
+2. **One uniform shape for pluggable things.** Tools are `Capability`, watchers are `Watcher`, model backends are `AgentRuntime`, browsers are `BrowserDriver`.
+3. **Explicit registration.** Everything loaded is listed in `ferb/registry.py`. No auto-discovery, no import-time side effects.
+4. **Interfaces only at real boundaries**: runtimes, decider, memory, clock, secrets, drivers. Elsewhere: plain functions + dataclasses.
+5. **Composition over inheritance.** No class hierarchy deeper than Protocol → implementation.
+6. **Everything is traced.** Every task, worker, model call and tool call is a `Span` with IDs, times, inputs, outputs, cost.
+7. **Injected time, IDs and model calls** so any task can be replayed with `FakeClock` and recorded responses.
+8. **No secret ever enters a prompt, trace, log, or memory.** Only `SecretRef` handles.
+9. **Typed everything** (`pydantic` at process/tool/extension boundaries, dataclasses inside). `mypy --strict` on `ferb/core`.
+10. **Small files, one concept each.** If a file needs a table of contents, split it.
+11. **Extensions are hands, not brains.** Browser extensions execute commands and report state; every decision, policy check and trace happens in the daemon.
+12. **No path around the gateway.** Every action by a model goes through `ferb mcp` → gateway. Runtime-native tools
+    (shell, file edit, web fetch, subagents, plugins) are disabled and tested as disabled (section 21).
+13. **Sanitize before anything leaves the daemon.** Every snapshot, tool result, error and trace passes the
+    redaction pipeline (`sanitize/`) before it reaches a model, a log, the journal, or an export.
+14. **Failures are values, not exceptions,** across worker boundaries: a worker returns a typed failed/unknown
+    outcome; it never raises into the supervisor's task group.
+
+### Dependency rules
+
+```
+cli, native host, extensions ──► (socket / native messaging) ──► daemon
+core      ← imports nothing from ferb except core
+everything else ← may import core; never imports cli
+drivers (act/*) ← never import orchestrator
+runtimes  ← never import drivers (they reach tools only via MCP)
+policy    ← imports core only (Decider arrives as an injected interface); called by the gateway, never bypassed
+sanitize  ← imports core only; applied by the gateway and every writer (traces, journal, memory, export)
+```
+
+## 2. Process model
+
+```
+┌────────────┐  ┌────────────┐        Unix socket (JSON-RPC)
+│ ferb chat  │  │ ferb logs  │ ──────────────────────────────┐
+└────────────┘  └────────────┘                               ▼
+                                     ┌─────────────────────────────────────┐
+┌──────────────────────┐  stdio MCP  │ FERB daemon (launchd user agent)     │
+│ Claude (Agent SDK)   │◄──────────► │  orchestrator · policy · bus · clock │
+│ Codex (codex exec)   │  ferb mcp   │  watchers · timers · memory · traces │
+└──────────────────────┘  shim + run │  device profile · tool gateway       │
+                          token      │  GUI lock · browser resolver         │
+                                     └──┬───────────────┬──────────────┬───┘
+                           CDP over pipe│               │ socket       │ socket
+                                        ▼               ▼              ▼
+                          ┌─────────────────┐ ┌───────────────────┐ ┌──────────────────────┐
+                          │ Chrome:         │ │ ferb-native-host  │ │ FERB.app Safari      │
+                          │ ferb-identity   │ │ (per browser conn)│ │ extension handler    │
+                          │ (FERB's creds)  │ └─────────▲─────────┘ └──────────▲───────────┘
+                          └─────────────────┘           │ native messaging     │ native messaging
+                                              ┌─────────┴─────────┐ ┌──────────┴───────────┐
+                                              │ FERB extension in │ │ FERB extension in    │
+                                              │ owner's Chrome +  │ │ owner's Safari       │
+                                              │ Brave             │ │                      │
+                                              └───────────────────┘ └──────────────────────┘
+```
+
+- **Daemon** is the only long-lived process.
+- **`ferb mcp`** is a thin stdio MCP shim spawned by runtimes. It forwards tool calls to the daemon with a
+  **run token** (`FERB_RUN_TOKEN`) that identifies task/worker, so the daemon enforces that worker's scopes and identity.
+- **`ferb-native-host`** is the native-messaging host the Chromium browsers launch for the extension; it only
+  relays JSON messages to the daemon socket.
+- **FERB.app** is a minimal Mac app whose Block 1 job is to contain the Safari extension and relay its messages.
+  It is also the future home of the Swift audio service (section 20), so audio permission attaches to a stable, signed app identity.
+- **CDP is used only for `ferb-identity`**, launched by the daemon with a custom `--user-data-dir` and
+  `--remote-debugging-pipe` (no open port). The owner's browsers are never relaunched or debugged via a port;
+  CDP access to owner tabs exists only through the extension's `chrome.debugger` with its allowlist (9.4).
+- **Socket authentication:** the daemon socket is owner-only (`0600`, in a `0700` directory). Every connection
+  declares a role (`cli`, `mcp_shim`, `native_host`, `safari_handler`) and proves it: CLI by socket ownership,
+  shims by a run token, extensions by paired `install_id` + per-install key. Each role has a fixed method list.
+  Run tokens are scoped to one worker, expire with it, and are revoked by `ferb stop`.
+
+## 3. Directory layout
+
+```
+ferb/
+  core/                 pure types and interfaces; no I/O
+    types.py            Task, Outcome, Span, TrailEvent, SecretRef, RiskLevel, Identity
+    interfaces.py       all Protocols (section 5)
+    errors.py
+  daemon/
+    main.py             startup / shutdown lifecycle
+    server.py           socket JSON-RPC for CLI, native host, Safari handler
+    gateway.py          tool gateway: run token → scopes + identity → policy → capability → trace
+    auth.py             connection roles, run tokens (issue / expire / revoke), per-role method lists
+  registry.py           THE explicit list of capabilities, watchers, runtimes, deciders, drivers
+  bus.py                in-process event bus (typed events)
+  orchestrator/
+    supervisor.py       plans, spawns workers, merges, verifies, reports
+    worker.py           one task, scoped capabilities, budget, heartbeat
+    tree.py             task tree persistence
+    budgets.py          aggregate time / tokens / cost / steps per task tree; fan-out limits; cancellation
+    ledger.py           action ledger: intent → executing → done | failed | unknown; reconciliation
+    verify.py           supervisor-owned verification against the plan's success conditions
+    stop.py             emergency stop: revoke tokens, block actions, cancel workers, kill owned processes
+    prompts/            prompt templates (text only; no logic)
+  runtimes/
+    claude_sdk.py       ClaudeRuntime (Agent SDK) — default orchestrator
+    codex_exec.py       CodexRuntime (codex exec --json) — default worker
+  decide/
+    decider.py          RuleDecider, LLMDecider, JevDecider, ShadowDecider
+    questions.py        the typed questions FERB asks (section 12)
+  policy/
+    rules.py            scopes, identity rules, hard floor, destructive-pattern lists
+    intent.py           does this action match what the owner asked for? (section 10.2)
+    exposure.py         per-worker exposure to untrusted content; capability removal (10.2)
+    dataflow.py         owner data may only go to destinations the request involves (10.2)
+    autonomy.py         careful / balanced / hands-off levels + learned trust from traces (10.4)
+    approvals.py        single-use, expiring approvals bound to the exact action payload; undo windows
+  sanitize/
+    redact.py           one redaction pipeline: secrets, password/OTP fields, tokens in URLs, exclusions
+  act/
+    mac/
+      driver.py         MacComputerDriver (implements ComputerDriver): takes an action, resolves the method, calls the parts below
+      resolve.py        per-app method choice from DeviceProfile (AppleScript/CLI → AX → screenshot)
+      apps.py           launch, activate, hide, quit, list running apps
+      applescript.py    run AppleScript; read an app's scripting dictionary
+      accessibility.py  read AX tree, find elements, press / set value, AXManualAccessibility
+      input.py          real mouse + keyboard events (takes gui_lock)
+      screenshot.py     on-demand window / screen capture
+      snapshot.py       AX tree → shared element-list format (same as browser snapshots)
+    browser/
+      resolver.py       site → (browser, profile, identity, driver) selection (section 9.3)
+      profiles.py       profile discovery from Local State + name → profile resolver (section 9.5)
+      pairing.py        extension install ↔ browser profile pairing (section 9.6)
+      cdp_identity.py   CDP driver for FERB's own Chrome profile
+      ext_bridge.py     driver for owner browsers via the FERB extension
+      ax_browser.py     Accessibility driver (fallback for any browser)
+      snapshot.py       unified page snapshot format (DOM + AX → elements with ids, roles, labels, rects)
+      ext_protocol.py   extension message schema (pydantic); mirrored by extensions/chromium/protocol
+    fs/
+      files.py          read / write / edit / list inside allowed roots (replaces runtime-native file tools)
+    locks.py            resource locks: tab, account, file, app; fixed ordering; never held across model calls
+    shell/
+      manager.py        ShellManager: start / read / send / wait / kill / list; task ownership + cleanup
+      pty_proc.py       one process in a PTY: ring buffer + log file
+      guard.py          command pre-check helpers used by policy (destructive patterns, cwd jail)
+    gui_lock.py         single GUI actor at a time
+  sense/
+    watchers/
+      app_focus.py      frontmost app changes (NSWorkspace)
+      windows.py        focused window titles (Accessibility)
+      browser_tabs.py   extension tab_events + AppleScript read for unextended profiles
+      files.py          FSEvents on configured folders
+      idle.py           owner idle / active
+      owner_input.py    owner is using mouse/keyboard right now → GUI work yields
+      app_installs.py   app install / removal → device.changed
+    exclusions.py       exclusion list applied before any trail write
+    trail.py            append-only activity trail writer
+  device/
+    scan.py             setup + rescan: apps, scriptability, AX support, browsers, extension status
+    permissions.py      TCC permission checks + open-settings helpers
+    profile.py          DeviceProfile load/save/diff; method resolution
+  identity/
+    secrets.py          KeychainSecretStore (FERB identity only)
+    mailbox.py          FERB's inbox (read OTPs); send requires approval
+  clock/
+    clock.py            SystemClock, FakeClock
+    context.py          time header + tool footer builders
+    durations.py        measured duration stats from spans
+    timers.py           durable timers (SQLite) → bus events
+  memory/
+    journal.py          append-only episodic log
+    items.py            distilled memory items (source of truth)
+    distill.py          journal/trail → proposed items
+    recall.py           keyword (FTS5) retrieval; embeddings later behind the same function
+    export.py           items → markdown files (read-only view, regenerated; no history kept)
+  store/
+    db.py               single SQLite connection (WAL) + migrations
+    migrations/
+  native_host/
+    main.py             ferb-native-host: stdio native messaging ↔ daemon socket
+  cli/
+    chat.py             `ferb chat`
+    logs.py             `ferb logs`
+    admin.py            setup, doctor, trace, memory, timeline, device, pause, browsers
+extensions/
+  chromium/             one MV3 extension for Chrome + Brave
+    manifest.json
+    background.js       service worker: native messaging, tab control, chrome.debugger sessions
+    content.js          DOM snapshot + element lookup (no decisions)
+    protocol.ts|js      message schema (mirrors ferb/act/browser/ext_protocol)
+  safari/               Safari Web Extension target inside FERB.app (Xcode project)
+macapp/
+  FERB.xcodeproj        minimal container app + SafariWebExtensionHandler relaying to daemon
+    Audio/              RESERVED (empty in Block 1): Core Audio tap service → daemon socket
+tests/
+  fakes/                FakeClock, FakeRuntime, FakeBrowserDriver, recorded responses
+```
+
+Runtime data in `~/.ferb/`:
+
+```
+~/.ferb/
+  config.toml           runtimes, budgets, policy toggles, exclusion lists
+  ferb.db               tasks, spans, events, trail, timers, journal, memory_items (SQLite, WAL)
+  memory/               markdown export of memory_items (generated, read-only, no history)
+  device/<device_id>.json  device profile (one per device; only this Mac in Block 1), committed to git
+  chrome/identity/      Chrome user-data-dir for FERB's own identity
+  logs/                 rotated daemon + process logs
+  run/ferb.sock         daemon socket (see spike 7 for Safari sandbox location)
+```
+
+## 4. Core types (sketch)
+
+```python
+class Identity(Enum):
+    FERB = "ferb"           # FERB's own profile + credentials
+    OWNER = "owner"         # owner's logged-in browsers/apps; no credentials ever
+
+@dataclass(frozen=True)
+class SecretRef:
+    key: str                # e.g. "ferb/email/password"  (FERB identity only)
+
+@dataclass(frozen=True)
+class SecretSpec:           # stored beside the Keychain item; the binding is checked at fill time
+    ref: SecretRef
+    allowed_origins: list[str]    # e.g. ["https://accounts.example.com"]
+    account_hint: str             # which FERB account this belongs to
+
+class RiskLevel(Enum): LOW = 1; MEDIUM = 2; HIGH = 3
+
+@dataclass
+class Task:
+    id: str
+    parent_id: str | None
+    goal: str
+    device_id: str          # which device it acts on (only this Mac in Block 1)
+    identity: Identity      # every task declares who it acts as
+    scopes: set[str]        # e.g. {"browser:read", "browser:act", "mac:read", "shell"}; "audio" reserved
+    role: Literal["reader", "actor", "mixed"]
+    request_id: str         # the owner message this task serves (intent checks compare against it)
+    success_conditions: list[str]   # from the plan; supervisor verifies against these
+    deadline: datetime | None
+    budget: Budget
+
+@dataclass
+class Outcome:
+    task_id: str
+    status: Literal["done", "failed", "unknown", "cancelled", "needs_user"]
+    summary: str
+    artifacts: list[str]
+    evidence: list[str]     # span ids / snapshot refs the worker cites
+    # verification is NOT set by the worker; the supervisor records it separately (orchestrator/verify.py)
+
+@dataclass
+class ActionIntent:         # ledger row, written BEFORE a consequential action executes
+    id: str                 # also the idempotency key sent to drivers
+    task_id: str
+    capability: str
+    target: dict            # device, browser/profile/account, recipient, path ...
+    payload_hash: str
+    state: Literal["intended", "executing", "done", "failed", "unknown"]
+
+@dataclass
+class Span:
+    id: str; parent_id: str | None; kind: str
+    device_id: str | None   # device where a tool call ran (None for pure model calls)
+    started_at: datetime; ended_at: datetime | None
+    input: dict; output: dict | None; cost_usd: float | None; error: str | None
+
+@dataclass
+class TrailEvent:
+    id: str                 # assigned before persistence
+    at: datetime
+    device_id: str          # device that observed it
+    actor: Literal["owner", "ferb", "unknown"]   # FERB's own activity never counts as owner habit
+    task_id: str | None     # set when actor == "ferb"
+    source: str             # "app_focus" | "window" | "browser_tab" | "file" | "idle" | ...
+    data: dict              # redacted per exclusion list before write
+
+@dataclass
+class MemoryItem:
+    id: str
+    kind: Literal["fact", "preference", "person", "project", "env"]
+    subject: str            # e.g. "owner", "project:ferb", "person:<slug>"
+    content: str
+    source_ids: list[str]   # journal / span / trail ids it came from
+    observed_at: datetime
+    valid_from: datetime
+    valid_to: datetime | None     # set when superseded or no longer true
+    supersedes: str | None
+    confidence: float
+    origin: Literal["owner_stated", "observed", "inferred", "third_party"]
+    status: Literal["proposed", "active", "retracted"]
+```
+
+## 5. Interfaces
+
+```python
+class Clock(Protocol):
+    def now(self) -> datetime: ...              # timezone-aware wall time: timestamps, schedules
+    def monotonic(self) -> float: ...           # elapsed time + timeouts; unaffected by clock changes
+    async def sleep_until(self, t: datetime) -> None: ...
+
+class AgentRuntime(Protocol):
+    name: str
+    features: "RuntimeFeatures"   # live_messaging, continuation, per_call_hooks, usage_visibility,
+                                  # native_tools_contained (must be True to be registered: every native
+                                  # tool is removed or made inert by the sandbox, and the model-visible
+                                  # tool list ⊆ the runtime's declared allowlist)
+    async def start(self, task: Task, system: str, context: str, run_token: str) -> "RunHandle": ...
+    def events(self, run: "RunHandle") -> AsyncIterator["RuntimeEvent"]: ...
+    async def continue_(self, run: "RunHandle", message: str) -> None: ...   # raises Unsupported if no continuation
+    async def cancel(self, run: "RunHandle") -> None: ...
+    # Unsupported guarantees fail explicitly; nothing is approximated silently.
+
+class Decider(Protocol):
+    async def decide(self, question: "Question[T]", state: dict) -> "Decision[T]": ...
+    # Decision = value: T, confidence: float | None, backend: str
+
+class Capability(Protocol):
+    name: str
+    description: str
+    scopes: set[str]
+    identities: set[Identity]     # which identities may call it
+    risk: RiskLevel
+    reversible: bool
+    Input: type[BaseModel]
+    async def run(self, args: BaseModel, ctx: "ToolContext") -> "ToolResult": ...
+
+class Watcher(Protocol):
+    source: str
+    async def run(self, emit: Callable[[TrailEvent], None], stop: asyncio.Event) -> None: ...
+
+class SecretStore(Protocol):     # FERB identity only
+    def has(self, ref: SecretRef) -> bool: ...
+    def spec(self, ref: SecretRef) -> SecretSpec: ...
+    # No reveal method for callers. Filling happens inside cdp_identity.fill_secret(target, ref), which checks the
+    # target frame's origin against spec.allowed_origins immediately before typing. `caller` is audit only.
+
+class MemoryStore(Protocol):
+    async def recall(self, query: str, k: int = 8, at: datetime | None = None) -> list[MemoryItem]: ...
+    async def propose(self, item: MemoryItem) -> None: ...
+    async def commit(self, ids: list[str], reason: str) -> None: ...      # proposed → active; supersession handled here
+    async def retract(self, id: str, reason: str) -> None: ...
+
+class BrowserDriver(Protocol):
+    name: str                          # "cdp_identity" | "ext:chrome" | "ext:brave" | "ext:safari" | "ax:<browser>"
+    identity: Identity
+    features: "DriverFeatures"         # trusted_input_background, parallel_actions, network_events, dom_snapshot
+    async def tabs(self) -> list["TabRef"]: ...
+    async def open(self, url: str, background: bool = True) -> "TabRef": ...
+    async def snapshot(self, tab: "TabRef") -> "PageSnapshot": ...          # structured, sanitized, has a generation
+    async def act(self, el: "ElementRef", action: "BrowserAction", intent_id: str) -> "ActionResult": ...
+    async def wait(self, tab: "TabRef", until: "WaitCondition", timeout: float) -> bool: ...
+    async def screenshot(self, tab: "TabRef") -> bytes: ...                 # only if features.screenshot_background or tab visible
+    async def close(self, tab: "TabRef") -> None: ...
+    # TabRef = device, browser, profile folder, connection generation, tab id.
+    # ElementRef = TabRef + frame + snapshot generation + element id. Stale refs (navigation, reconnect) are rejected.
+
+class ComputerDriver(Protocol):     # OS-neutral; Block 1 implementation: act/mac/driver.py (MacComputerDriver)
+    device_id: str
+    os: Literal["macos", "windows", "linux"]
+    async def act(self, app: str, action: "ComputerAction") -> "ActionResult": ...   # method resolved via DeviceProfile
+
+class ShellManager(Protocol):
+    async def start(self, cmd: list[str], cwd: Path, owner_task: str, long_lived: bool = False) -> "ProcHandle": ...
+    async def read(self, h: "ProcHandle", since: int = 0) -> tuple[str, int]: ...
+    async def send(self, h: "ProcHandle", data: str) -> None: ...
+    async def wait(self, h: "ProcHandle", timeout: float) -> int | None: ...
+    async def kill(self, h: "ProcHandle") -> None: ...
+    def list(self) -> list["ProcInfo"]: ...
+```
+
+## 6. Registry and bus
+
+- `registry.py` builds a `Registry` at startup — one explicit line per capability, watcher, runtime, decider, driver.
+- Config selects runtimes per role:
+
+```toml
+[runtimes]
+orchestrator = "claude"   # "claude" | "codex"
+worker       = "codex"
+
+[browser]
+prefer_for_actions = ["brave", "chrome", "safari"]   # order when a site is logged in in several
+```
+
+- Stable bus events: `task.created`, `task.started`, `task.finished`, `tool.called`, `approval.requested`,
+  `approval.resolved`, `trail.event`, `device.changed`, `browser.connected`, `browser.disconnected`,
+  `browser.profiles_changed`, `browser.profile_paired`,
+  `timer.fired`, `memory.proposed`, `memory.committed`.
+
+## 7. Orchestrator flow
+
+1. `ferb chat` message → supervisor (orchestrator runtime, persistent session per chat).
+2. Supervisor returns one typed outcome: **`reply`** (just answer), **`clarify`** (ask one question), or **`plan`**.
+   Ordinary conversation never spawns workers.
+3. A plan lists subtasks with identity, role (reader / actor), scopes, dependencies (a DAG), deadlines and
+   **success conditions**. Code validates it: DAG has no cycles, identity rules, scopes ⊆ allowed, depth ≤ 2,
+   fan-out ≤ 6 per parent, aggregate budget set for the whole tree.
+4. **Reader/actor split:** readers open untrusted content and return typed fields to the supervisor; actors act
+   and only receive those fields, never raw pages, emails or messages (section 10.2).
+5. Workers run concurrently; each has a run token, heartbeat and cancellation. A worker failure is returned as a
+   typed `Outcome`, never raised, so independent siblings keep going; dependents are skipped.
+6. Tool calls → `ferb mcp` → gateway → auth → identity + scope → intent / exposure / dataflow checks →
+   resource locks → ledger intent → capability → sanitize → span → result + time footer.
+7. Locks: `gui_lock` for real mouse/keyboard, plus resource locks (tab, account, file, app) from `act/locks.py`,
+   acquired in a fixed order, held across observe → act → verify, never across model calls or approval waits.
+8. Supervisor **verifies** each outcome against the plan's success conditions using fresh reads; the worker's
+   own claim is evidence, not verification.
+9. Retries: definite failures retry per policy. `unknown` outcomes (e.g. Send clicked, connection lost) are
+   **reconciled first** (re-read the target: did it happen?) and never blindly retried.
+10. Budgets are aggregate per task tree: worker runs, retries and verification count; background distillation
+    and shadow decisions have their own separate budget.
+11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
+12. `ferb stop` (or the stop hotkey) halts everything immediately (section 10.5).
+
+Runtime-native tools: each runtime is launched with its own shell, file, web, subagent and plugin tools
+disabled wherever the runtime allows, and inherited user settings and rules ignored; FERB provides equivalents
+through MCP (`act/fs`, `act/shell`, browser). A native tool the runtime cannot remove must be made inert by the
+runtime's OS sandbox: Codex workers run with `--sandbox read-only`, `approval_policy = never`, MCP tools
+pre-approved, and a pinned non-code-mode model (code-mode models expose a JS tool runner and built-in subagents
+that cannot be disabled); its non-removable `apply_patch` therefore cannot write. Each runtime declares the exact
+list of tools its model may see; the list actually sent to the model (from the runtime's request trace) must be
+a subset of it. A runtime that fails this check, or whose sandbox cannot be verified, is not registered
+(spikes 1–2, test 21.1).
+
+## 8. Setup and device profile
+
+`ferb setup` (idempotent; `ferb doctor` re-checks everything):
+
+1. TCC permissions: Accessibility, Screen Recording, Automation (per app), Notifications; Full Disk Access optional.
+   FERB cannot grant these — it opens the right System Settings pane and polls until granted.
+2. Automation (per-app) permission: request for apps the owner selects at setup; any other app is asked on first use.
+3. Browsers (details in 9.5 and 9.6):
+   - Discover installed browsers and every profile in each (Chromium: `Local State`; Safari: its profiles list).
+   - Install `ferb-native-host` and write its native-messaging manifest for each installed Chromium browser
+     (Chrome and Brave each have their own `NativeMessagingHosts` folder under Application Support).
+   - Owner ticks the profiles to enable now (default: most recently used). FERB opens each ticked profile on the
+     extension install page, then runs pairing; waits for `browser.profile_paired`.
+   - Drop the External Extensions file so unticked profiles offer the extension the next time they are opened.
+   - Install FERB.app; owner enables its Safari extension (per Safari profile) and grants website access; pair.
+   - Profiles without the extension are watched read-only via AppleScript.
+   - Create the `ferb-identity` Chrome profile; store FERB credentials in Keychain; verify mailbox.
+4. Assign this Mac a stable `device_id` (generated once, stored in `~/.ferb/config.toml`). Scan device →
+   `DeviceProfile` (apps, scriptability, AX support, browsers + driver availability); commit to git.
+5. Install launchd agent; start daemon; run the self-test **through the launchd-started process** (the one that
+   will really act), not the setup process: AX read, one input event, background tab open/snapshot/close per browser.
+
+**Mac app method resolution:** AppleScript / CLI → Accessibility → screenshot + click.
+Watchers emit `device.changed` on app install/removal; profile rescans that app only.
+
+## 9. Browser layer
+
+### 9.1 Modes
+
+| Mode | Browser | Identity | Driver | Credentials |
+|------|---------|----------|--------|-------------|
+| FERB browsing | FERB's own Chrome profile | `FERB` | `cdp_identity` (CDP over pipe) | FERB's, via Keychain + `fill_secret` |
+| Act as owner | Owner's Chrome, Brave, Safari | `OWNER` | `ext:*` → `ax:*` fallback | None — existing sessions only |
+| Watch | Owner's Chrome, Brave, Safari | — | extension events; AppleScript/AX read if extension missing | None |
+
+### 9.2 Driver order per browser
+
+| Browser | Primary | Fallback 1 | Fallback 2 |
+|---------|---------|------------|------------|
+| Chrome, Brave | FERB extension: content-script snapshot + `chrome.debugger` for actions | Accessibility (set `AXManualAccessibility` on the app if the web AX tree is empty) | Screenshot + click |
+| Safari | FERB extension (Safari Web Extension): DOM snapshot + script actions | Accessibility + real input events (foreground, `gui_lock`) for trusted input | Screenshot + click |
+| FERB identity | CDP over pipe | — | — |
+
+Not used: Chrome's live-session CDP attach to owner browsers (it would bypass the extension's allowlist and the
+boundary in section 2). If ever needed, it requires a separate, explicitly approved design.
+
+Known capability differences (drivers report these in `features`; planner and resolver read them):
+- Chromium extension: trusted input in background tabs, parallel actions across tabs, network/load events.
+- Safari extension: DOM reading and background tabs expected to match Chromium (to be confirmed by spike 5);
+  script-dispatched input is untrusted (some sites ignore it); trusted input needs the window in front; waits poll.
+- All features are **conditional until a spike confirms them** on this machine. Example: the ordinary extension
+  screenshot API captures only the visible tab, so background screenshots need debugger mode or are unavailable.
+
+### 9.3 Resolver (site → browser + profile)
+
+The unit is **browser + profile** (e.g. `brave/Profile 3`), never just a browser.
+If the owner names a profile ("in my Kartikey profile"), resolve it first with 9.5 and restrict to it.
+For an `OWNER` task that names a site:
+1. A tab with that site is already open in some browser + profile → use it.
+2. Trail shows the owner uses that site in a browser + profile → use it (most recent / most frequent).
+3. Owner's default browser, last-used profile.
+4. Ask in chat.
+If the site is open in two profiles, ask which (and offer to remember the choice as an alias).
+If the chosen profile has no paired extension → offer on-demand install (9.6) or fall back to `ax:*`.
+If the site is available in several browsers and the task is action-heavy, prefer by `browser.prefer_for_actions`
+— but an explicitly named profile always wins over preference.
+After loading, the extension reports a login-state hint. Before a consequential action, verify the **account**
+(e.g. which Gmail address), not just "signed in". If signed out → stop and tell the owner. FERB never logs in as the owner.
+The `ax:*` fallback stops if it cannot establish which profile/account it is looking at.
+
+### 9.4 Extension contract
+
+- Permissions (Chromium MV3): `tabs`, `scripting`, `debugger`, `nativeMessaging`, host access to all sites.
+- The extension **only executes** daemon commands and **reports** state; it holds no policy and no task logic.
+- Message protocol (JSON, versioned, validated on both sides):
+  - daemon → ext: `open`, `close`, `list_tabs`, `snapshot`, `act`, `wait`, `screenshot`, `attach_debugger`, `detach_debugger`
+  - ext → daemon: `result`, `error`, `tab_event` (created/updated/activated/removed), `hello` (browser, version, profile)
+- Two execution modes:
+  - **Page mode (default):** snapshots, reading, navigation and simple actions via injected content scripts.
+    No debugger banner, no browser-wide commands.
+  - **Debugger mode:** only for actions needing trusted input (clicks/typing on protected pages) or precise
+    load/network waits. `chrome.debugger` attaches to one tab for those actions, then detaches
+    (Chrome's "being debugged" bar shows only during that window).
+- **CDP allowlist lives in the extension**, not only the daemon, and is exact: named methods, allowed parameter
+  shapes, and filtered return fields (input dispatch, DOM/AX reads, page lifecycle events, screenshot).
+  Never forwarded, even if the daemon asks: cookie and storage access (`Network.getAllCookies`, `Storage.*`),
+  other targets (`Target.*`), and arbitrary script evaluation (`Runtime.evaluate` with free-form expressions).
+  Allowlist changes require owner approval (section 16).
+- **Snapshots are sanitized in the extension before sending:** password and OTP field values, hidden inputs and
+  tokens in URLs are replaced with markers; the daemon's `sanitize/` pipeline runs again on arrival.
+- **Reliability semantics:** every command has a request id, the connection generation, a timeout and is
+  cancellable. Duplicate request ids are ignored. After a reconnect (e.g. the MV3 service worker was restarted),
+  the extension re-announces state; pending commands from the old generation are never replayed — they become
+  `unknown` in the ledger and are reconciled. Snapshot size is bounded (element and text caps).
+- Tabs FERB opens are background (`active: false`) and grouped in a "FERB" tab group; closed at task end unless kept.
+- Snapshots use one format for all drivers (`snapshot.py`): elements with stable ids, role, label, value, rect, visibility.
+  Screenshots only when the snapshot is insufficient (canvas-heavy pages) or requested.
+- Native host and daemon accept messages only from the FERB extension IDs listed in config.
+- Every message from an extension carries its `install_id` and is authenticated with its per-install key;
+  the daemon maps it to browser + profile (9.6).
+
+### 9.5 Profile discovery and name resolution
+
+Problem this solves: browsers identify profiles by folder (`Default`, `Profile 3`), while people use display names
+("Kartikey"). An agent guessing either one fails. Resolution is **deterministic code that runs before any model**.
+
+- **Discovery:** read each Chromium browser's `Local State` → `profile.info_cache`
+  (folder → display name, signed-in email, etc.). Read-only; never touch cookies or other profile data.
+  Re-read on startup and whenever the file changes (FSEvents) → `browser.profiles_changed`.
+  Safari profiles from Safari's own profile list (spike 11).
+- **Table:** `browser_profiles(device_id, browser, folder, display_name, email, install_id?, paired_at?, aliases[])`.
+- **Match order for a spoken name:**
+  1. exact display name (case-insensitive),
+  2. email or email local part,
+  3. saved alias (e.g. "work profile" → `brave/Profile 3`; stored as a memory item when the owner clarifies).
+  Any step that matches more than one profile → **ambiguous**, never first-match.
+  If deterministic steps end ambiguous or empty, `Decider` question `browser.profile_match` may **suggest** a
+  candidate, shown to the owner for one-tap confirmation; it never selects on its own.
+  No match → reply "no profile called X; found: …", never a guess.
+- **Open:** launch with `--profile-directory=<folder>` (works whether or not the browser is already running).
+- Renames are harmless: identity is the folder, display names refresh from `Local State`.
+
+### 9.6 Extension installation and pairing
+
+- **Chromium install paths:**
+  - Setup-selected profiles: FERB opens `--profile-directory=<folder>` on the extension's install page.
+  - Everything else: External Extensions JSON (macOS requires the extension to be on the Chrome Web Store,
+    unlisted is enough); each profile shows Chrome's enable prompt when next opened. Enterprise force-install
+    policy is **not** used (shows "managed by your organization", not removable).
+  - On demand: a task needs an unpaired profile → FERB asks in chat → opens that profile on the install page →
+    waits for pairing → continues the task.
+  - Development: load unpacked manually in the owner's profiles.
+- **Pairing:** after install, FERB opens `--profile-directory=<folder>` on a local pairing page carrying a one-time
+  token. The extension reads it, sends `{install_id, token}` to the daemon, and the daemon binds
+  `install_id → browser + folder`. Tokens expire in minutes and are single-use.
+- Extension generates `install_id` once and keeps it in extension-local storage (per profile).
+- A connection with an unknown `install_id` may only send pairing and health messages: no trail events, no actions.
+- Pairing also exchanges a per-install key used to authenticate every later message.
+
+## 10. Identity, secrets and safety
+
+Principle: **the owner's instruction is the approval; security runs in the background.** Explicit confirmations
+are rare (10.3). Everything else is enforced automatically by the gateway.
+
+### 10.1 Identity (keeps the two account sets separate)
+
+- Every task declares `identity`.
+  - `FERB` tasks: `cdp_identity`, `fill_secret`, FERB mailbox, `act/fs` inside FERB's workspace only.
+    No shell, no AppleScript/Mac control, no access to owner browsers.
+  - `OWNER` tasks: owner browsers (`ext:*` / `ax:*`), Mac control, shell, files — subject to 10.2.
+    Never `cdp_identity`, FERB secrets or FERB mailbox.
+  - A task cannot switch identity; the supervisor uses separate workers and passes typed fields between them.
+- Child workers never receive more authority than their parent task.
+- FERB credentials: Keychain only, described by `SecretSpec`. `fill_secret(target, ref)` runs inside the daemon,
+  checks the target frame's origin against `allowed_origins` right before typing, and records `ref.key` only.
+- Owner credentials: never read, typed, stored, or requested. No cookie-store access.
+
+### 10.2 Automatic protections (never prompt the owner)
+
+- **Intent match** (`policy/intent.py`): every consequential action is compared with the owner's request
+  (`Task.request_id`): recipient, target account/site, content, amount, path. Matches → proceeds.
+  Does not match (asked to summarize, worker tries to send / run a command / message someone new) → blocked
+  and logged. Deterministic checks first; Jev `action.matches_request` for fuzzy cases, which can only block.
+- **Exposure** (`policy/exposure.py`): a worker that has read untrusted content (web pages, emails, messages,
+  downloaded files, anything not from a trusted source) is *exposed*. Exposed workers lose shell, AppleScript and
+  file-write capabilities for the rest of their run. If those are needed, the supervisor starts a clean worker
+  and hands it only typed fields. Owner-marked trusted sources (own notes, chosen senders) do not expose.
+- **Reader/actor split** (section 7, step 4): raw untrusted text never reaches a worker that can act.
+- **Data flow** (`policy/dataflow.py`): data read from owner accounts may only go to destinations the request
+  involves. Pasting it into any other site, account or identity is blocked. Sending content to the model
+  providers themselves is inherent to the design and accepted.
+- **Undo windows**: sends/posts are held ~10 s with a "Sending… Undo" notification before executing.
+- **Reversible actions just run**: drafts, navigation, search, opening tabs, moving files to Trash.
+- **Injection signals**: content that tries to issue instructions (Jev `content.injection_suspected`) marks the
+  worker exposed immediately and is reported in `ferb logs`.
+
+### 10.3 When FERB asks (the only confirmations)
+
+Only when a mistake is costly **and** the action was not explicitly requested, or something looks wrong:
+- spending money / payments (always, every autonomy level),
+- permanent deletion (always, every autonomy level),
+- intent mismatch the owner may still want, surprising destination, or injection signals on the path.
+Approvals are single-use, expire in minutes, and are bound to the exact action (account, target, payload hash);
+any change voids them.
+
+### 10.4 Autonomy levels
+
+- `careful` / `balanced` (default) / `hands-off`, set with `ferb autonomy`. The hard floor (payments, permanent
+  deletion) applies at every level.
+- Learned trust: when traces show the owner approved the same kind of action repeatedly, FERB offers to stop
+  asking for that kind. Stored as an owner-stated preference; revocable.
+
+### 10.5 Emergency stop and owner priority
+
+- `ferb stop` (and a global hotkey via FERB.app) immediately revokes all run tokens, blocks new actions at the
+  gateway, cancels workers, detaches debuggers and kills task-owned processes. `ferb resume-tasks` lifts it.
+  (`ferb pause` is separate: it only stops monitoring.)
+- Owner input wins: the `owner_input` watcher pauses GUI actions while the owner is using mouse/keyboard.
+
+### 10.6 Sanitization pipeline (`sanitize/redact.py`)
+
+Runs before anything reaches a model, trace, log, exception message, journal, memory or export:
+password/OTP field values, secrets, auth tokens in URLs, exclusion-list apps/domains, shell output matching
+secret patterns, debugger events. Screenshots are never stored unless a task requires it, and are not sent
+to models when the frame contains a password or excluded site.
+
+## 11. Monitoring trail
+
+- Watchers: app focus (NSWorkspace), window titles (Accessibility), browser tabs (extension `tab_event`s;
+  AppleScript read-only when an extension is missing), file events (FSEvents on configured folders), idle time,
+  owner input, app installs.
+- Order of processing for every event (fixed):
+  1. deterministic exclusions + redaction (`sense/exclusions.py`, `sanitize/`) — nothing excluded goes further;
+  2. assign `id`, `actor` (owner / ferb / unknown; FERB's own tabs and actions are tagged with their `task_id`);
+  3. persist to the append-only `trail` table and publish `trail.event`;
+  4. only then: async Jev tagging (`trail.relevance`, `trail.sensitive`). A `sensitive` verdict triggers
+     *additional* redaction of the stored row; it is never the first line of protection.
+- `actor == "ferb"` events are excluded from habit-based resolution and from owner-preference distillation.
+- `ferb pause` stops all watchers. Screenshots: on demand, by a task with `screen` scope; not persisted unless required.
+- Consumers: resolver (site → browser + profile), distillation, `trail.query` capability.
+
+## 12. Jev placement
+
+All via `Decider`. Initially `ShadowDecider(primary=Rule/LLM, shadow=Jev)` logs both; switch per question after traces show agreement.
+
+| Question | Type |
+|----------|------|
+| `trail.relevance` | ignore / note / summarize |
+| `trail.sensitive` | yes / no — extra redaction after write; exclusions already ran before write |
+| `task.route` | browser / mac / shell / mixed |
+| `browser.login_state` | signed_in / signed_out / unknown (from snapshot) |
+| `browser.profile_match` | suggest one candidate / none — owner confirms; only after deterministic matching fails |
+| `action.matches_request` | yes / no / unsure — can only block or escalate, never approve on its own |
+| `content.injection_suspected` | yes / no — marks the reading worker exposed |
+| `loop.control` | continue / retry / escalate / stop |
+| `memory.worth_keeping` | yes / no + kind |
+| `action.risk` | low / medium / high — **may only raise** the level set by policy rules |
+
+## 13. Time
+
+- Header on every model call: now (weekday + tz), task start + elapsed, deadline + remaining, owner last active, last trail event age.
+- Footer on every tool result: `[now 15:42:10 IST | task +11m | deadline in 18m]`.
+- Measured durations: median/p90 for similar past tasks from spans, when available.
+- Timers: `set_timer`, `remind_at`, `sleep_until`; SQLite-backed; survive restarts and sleep (overdue timers fire with `overdue_by`).
+  Delivery: due → claimed (row lock) → delivered → acknowledged by its consumer. A claimed-but-unacknowledged timer
+  is re-delivered after restart with the same timer id; consumers ignore ids they already handled.
+- Elapsed time, timeouts, heartbeats and budgets use `Clock.monotonic()`; timestamps and schedules use `Clock.now()`.
+- `FakeClock` in all tests.
+
+## 14. Memory
+
+**Source of truth is SQLite. Markdown is a generated, read-only view.**
+
+| Layer | Store | Written by | Purpose |
+|-------|-------|-----------|---------|
+| Spans / tasks | SQLite | gateway, orchestrator | What FERB did |
+| Trail | SQLite | watchers | What the owner did |
+| Journal | SQLite (append-only) | daemon | Chats, outcomes, approvals, daily trail summaries — from first run |
+| Memory items | SQLite `memory_items` | `distill` proposals → `commit` | Distilled facts/preferences/people/projects/env with provenance and validity |
+| Markdown | `~/.ferb/memory/` folder | `export` only | Human-readable view, regenerated from SQLite (no git history kept) |
+
+Rules:
+- Every item links to its sources (`source_ids`). Updating a fact never overwrites: it sets `valid_to` on the old item
+  and creates a new one with `supersedes`. Recall defaults to items valid now; `at=` gives historical recall.
+- Retrieval: SQLite FTS5 keyword search first; embeddings later behind `recall()` without interface change.
+- **Trust and activation:** `owner_stated` items activate on commit. `observed` items need repeated evidence from
+  `actor == "owner"` trail events. `inferred` items stay proposed until the owner confirms. `third_party` content
+  (web pages, emails, messages) can become a fact *about the world* but never an owner preference or instruction.
+- Normal recall returns only `active` items valid now. Conflicting active items are both returned with sources
+  and flagged; the newer owner-stated one wins for decisions.
+- Owner edits via `ferb memory edit|retract|forget` → SQLite → re-export. Hand-editing markdown is not supported in Block 1.
+- **`forget` means purge, not hide:** delete the item, every derived item, and the source records that produced it
+  (journal entries, trail rows) unless the owner keeps them; rebuild the FTS index; SQLite `secure_delete` on;
+  regenerate the markdown export (no history). Backups outside FERB are out of scope and stated as such.
+- Retraction (`retract`) is the soft version: kept for history, never recalled.
+- `ferb timeline [--since …]` renders the journal; `ferb memory show <subject>` renders items with sources.
+
+## 15. CLI
+
+| Command | Purpose |
+|---------|---------|
+| `ferb chat` | Conversation with the orchestrator; approvals inline |
+| `ferb logs [--tasks --trail --tools --browsers]` | Live stream from the bus |
+| `ferb trace <task-id>` | Span tree for one task |
+| `ferb setup` / `ferb doctor` | Onboarding / health, permissions, extension connectivity |
+| `ferb device` / `ferb browsers` | Device profile / browser drivers + connection status |
+| `ferb timeline`, `ferb memory …` | Memory journey |
+| `ferb pause` / `ferb resume` | Stop / start monitoring |
+| `ferb stop` / `ferb resume-tasks` | Emergency stop of all actions / lift it |
+| `ferb autonomy [careful\|balanced\|hands-off]` | Show / set autonomy level |
+| `ferb ps` / `ferb kill <id>` | Background processes |
+
+## 16. Adding a feature (checklist)
+
+1. New file in the right module implementing the matching Protocol.
+2. Declare `scopes`, `identities`, `risk`, `reversible`.
+3. Add one line to `registry.py`.
+4. New events → add to section 6. New extension messages → add to 9.4 and bump protocol version on both sides.
+5. Test with fakes (`FakeClock`, `FakeBrowserDriver`, `FakeRuntime`) + one eval task.
+6. Consequential? Declare how its intent is described to `policy/intent.py` and whether it writes an `ActionIntent`.
+7. Output passes through `sanitize/` (automatic via gateway — do not bypass).
+8. Add or extend a safety test in section 21 if it touches accounts, secrets, files outside the workspace, or shell.
+9. Touches secrets or crosses identities → stop and ask the owner.
+
+## 17. Day-1 spikes (before building modules)
+
+1. `codex exec --json` calling a stdio MCP tool non-interactively without full sandbox bypass, **with Codex's own
+   shell and file tools disabled**; prove a shell attempt fails.
+2. Claude Agent SDK session with the `ferb mcp` shim as the only tool source: built-in tools, subagents, plugins and
+   inherited settings disabled; prove native Bash/Read/Write/WebFetch attempts fail. Confirm auth path.
+3. CDP over `--remote-debugging-pipe` to `ferb-identity`; login + `fill_secret` on a real site.
+4. Chromium extension in Brave and Chrome: native messaging round trip; background tab open; snapshot;
+   `chrome.debugger` trusted click + typing **in a background tab** on a site with bot protection.
+5. Safari extension in FERB.app: build, enable (unsigned-extension developer setting for local dev), DOM snapshot,
+   script click on a real site; AX + real input fallback on the same site.
+6. pyobjc: frontmost app, window title, AX tree of Chrome with and without `AXManualAccessibility`; TCC status checks.
+7. Safari extension handler → daemon socket from inside the app sandbox (may require the socket in a shared app-group container).
+8. launchd agent start/stop + socket from CLI.
+9. System audio (timeboxed, ~1 hour, throwaway script — not FERB code): with the `catap` Python package, record 10 s
+   of one app (browser playing YouTube) and of the whole system mix, on speakers, wired headphones and AirPods.
+   Confirm the Audio Capture prompt appears, that denial yields silence (so `doctor` must check for real signal),
+   and whether DRM playback (Apple Music, Netflix in Safari) comes through silent. Record results in section 20.
+10. Profiles: parse Chrome + Brave `Local State`; open a named profile via `--profile-directory` with the browser
+    already running; External Extensions file → confirm whether every profile shows the enable prompt, and whether
+    Brave honors the same mechanism (and its folder path).
+11. Safari profiles: list them; confirm the extension is enabled per Safari profile; pairing works per profile.
+12. Pairing flow end to end in two Chrome profiles + one Brave profile; unknown `install_id` blocked from acting.
+13. MV3 service worker termination: kill it mid-command; confirm reconnect, generation bump, no replay.
+14. Owner-input detection latency (how fast GUI actions yield when the owner touches the mouse).
+
+## 18. Build order inside Block 1
+
+1. `core`, `store`, `bus`, `clock` (wall + monotonic), daemon + socket + `auth`, **minimal journal**,
+   `ferb logs`, `ferb trace`.
+2. `sanitize/`, `policy/` (rules, intent, exposure, dataflow, autonomy, approvals), ledger, `ferb stop`.
+3. `device` (setup, permissions, profile) + `ferb setup/doctor`.
+4. `runtimes` with native tools disabled + `ferb mcp` shim + gateway; `act/fs`; `ferb chat` with reply/clarify
+   and a single worker. Safety tests for gateway bypass pass before continuing.
+5. `act/browser`: `cdp_identity` + `identity/` (Keychain, origin-bound fill, OTP).
+6. Chromium extension (page mode, sanitized snapshots, reliability semantics; then debugger mode + allowlist)
+   + native host + `ext_bridge` + profile discovery/resolver + pairing + site resolver.
+7. `act/mac` + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser`.
+8. Orchestrator multi-worker (DAG, reader/actor, budgets, verification, reconciliation).
+9. `sense` watchers + trail (fixed processing order, actor attribution) + exclusions.
+10. `memory` (items with trust levels, distill, recall, purge-forget, export) + timeline.
+11. Safari extension + FERB.app (+ stop hotkey).
+12. `decide` with Jev in shadow.
+
+**Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
+section 21 safety tests pass.
+
+## 19. Known gaps (not solved in Block 1)
+
+- Prompt injection: reduced by intent matching, exposure tracking, reader/actor split and data-flow limits
+  (section 10.2), not eliminated. Typed reader outputs narrow but do not close the channel.
+- Per-resource grants with process isolation for arbitrary code (needed for multi-user) — later.
+- Storage failure behavior: bus queues are bounded; telemetry may be dropped under pressure, but ledger, approval
+  and journal writes are never dropped — if they cannot be written, the gateway refuses the action.
+  Disk-full handling beyond that is later.
+- Safari trusted input requires foreground; Safari actions are serialized behind `gui_lock`.
+- The extension is a high-privilege component: pin extension IDs, no remote code, review every protocol change.
+- Captchas/bot checks: real browsers + trusted input reduce but do not eliminate them; FERB stops and asks when blocked.
+- Crash mid-task: the ledger marks in-flight consequential actions `unknown` and reconciles them on restart;
+  full checkpoint/resume of tasks comes with the overrides block.
+- Global daily cost ceiling UI; trail retention/encryption (plaintext SQLite, rely on FileVault); provider outage modes.
+- Hand-editable markdown memory (two-way sync) deferred.
+- The Codex worker runtime (`codex exec`) is a stopgap: it is pinned to `gpt-5.5` (the only non-code-mode model it
+  can be locked down on) and carries ~25–40k tokens of Codex's own instructions per run. Planned replacement: a
+  direct-API runtime (FERB's own agent loop) where the model sees only FERB's tools. When `gpt-5.5` is retired
+  the allowlist check fails and the Codex runtime stays unregistered until a new lockdown recipe or the
+  replacement exists.
+
+### Future direction: brain + nodes (do not build in Block 1; do not block it)
+
+When phone apps (iOS/Android) or other computers arrive, FERB splits into one **brain** and many **nodes**:
+- **Brain:** orchestrator, policy, gateway, memory, traces, timers, Jev. Runs in the daemon on the Mac today;
+  may move to a small server so it is reachable when the Mac sleeps (also the multi-user shape).
+- **Nodes:** each app = chat UI + that device's drivers and watchers. Mac node = today's drivers, watchers, FERB.app.
+  Android node (deep control via Accessibility service), iOS node (Shortcuts / App Intents, notifications).
+  Nodes are hands and eyes only — same rule as extensions — and pair with the brain the same way (one-time token).
+- **What changes then:** brain ↔ node transport becomes an authenticated, encrypted network connection; nodes
+  announce their capabilities on connect, so the registry lists capabilities per `device_id`.
+- **Rules for Block 1 code so this stays possible:** never assume a single device (always carry `device_id`);
+  OS-specific code only under `act/mac/`, `sense/watchers/`, `device/`, `macapp/`; brain modules never import
+  OS-specific modules directly — only interfaces (`ComputerDriver`, `BrowserDriver`, `Watcher`).
+
+## 20. Reserved: system audio listening (built in the voice block)
+
+Goal: FERB can hear what the Mac is playing — speakers, wired headphones or AirPods — to answer
+"what is this song?" or "what is this video saying?". Not built in Block 1; this section fixes its shape so
+nothing in Block 1 blocks it.
+
+- **Capture:** Core Audio process taps (macOS 14.2+), per app or global mix, FERB's own process excluded.
+  Taps capture the post-mix signal and follow the output route, so headphones need no special handling.
+  No virtual audio drivers (BlackHole etc.). ScreenCaptureKit audio only as a fallback.
+- **Where:** Swift service in `FERB.app` (`macapp/Audio/`), streaming PCM to the daemon over the socket.
+  Handles tap recreation on output-device change, sleep/wake and source-app restarts.
+- **Capabilities (planned):** `audio.listen(source: app | system, seconds, mode: song | speech | raw)`,
+  `audio.recent(seconds)` from an optional RAM-only rolling buffer (30–60 s; `ferb audio on|off`; never written to disk).
+- **Processing:** song ID via ShazamKit; speech via a transcription provider behind an interface
+  (on-device Apple speech or cloud — decided in the voice block); transcript goes to the orchestrator.
+- **Policy:** new `audio` scope; call apps (Zoom, FaceTime, Meet, etc.) excluded by default; trail records metadata only
+  ("audio from Brave 14:02–14:09"), never content.
+- **Setup/doctor:** Audio Capture permission added when built; `doctor` verifies a non-silent signal, not just tap creation.
+- **Shared with voice:** the same audio service will carry microphone input; the system-audio tap is what lets FERB
+  separate its own output and background media from the owner's voice.
+- **Spike results (fill in after spike 9):** route coverage, permission behavior, DRM behavior.
+
+## 21. Safety invariant tests (must pass before owner-account actions are enabled)
+
+Each test proves a promise in this file; all run in CI with fakes, and the marked ones also on the real machine.
+
+1. Gateway bypass (real, Claude and Codex): the model-visible tool list equals the runtime's declared allowlist;
+   native shell / file-write / web / subagent attempts fail; for a tool that cannot be removed (Codex
+   `apply_patch`), a write attempt fails under the enforced sandbox; reading a file outside the workspace and
+   fetching a URL both return nothing.
+2. Revoked or expired run token cannot call any tool; `ferb stop` revokes all within one second (real).
+3. `FERB` task cannot reach owner browsers, shell or AppleScript; `OWNER` task cannot use `fill_secret`/mailbox.
+4. `fill_secret` refuses when the target frame origin is not in `allowed_origins` (e.g. lookalike domain, iframe).
+5. Secrets and password/OTP values never appear in snapshots, spans, logs, journal, memory or exports.
+6. Extension refuses non-allowlisted CDP methods (`Network.getAllCookies`, `Runtime.evaluate`, `Target.*`).
+7. Intent mismatch is blocked: summarize-only task tries to send / run shell / message a new recipient.
+8. Exposed worker loses shell/AppleScript/file-write; injected page text cannot reach an actor worker.
+9. Data-flow: owner email content cannot be typed into an unrelated site.
+10. Approval bound to payload: changing recipient or amount after approval voids it.
+11. Lost acknowledgement after Send → ledger `unknown` → reconciliation, no duplicate send.
+12. Wrong profile / wrong account: action refused when the verified account differs from the resolved one.
+13. Stale `ElementRef` after navigation or reconnect is rejected.
+14. Competing workers on the same tab/file: resource locks serialize them; no deadlock.
+15. Disconnect/reconnect of the extension: no replay of old-generation commands.
+16. Unpaired extension cannot act or write trail events.
+17. Forgotten memory is not regenerated by distillation (sources purged) and is absent from FTS and exports.
+18. `actor == "ferb"` trail events never become owner preferences or resolver history.
+19. Timer claimed but unacknowledged before a crash is delivered exactly once to its consumer.
