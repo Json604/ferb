@@ -8,6 +8,7 @@ Build step 1: ping, trace.get, logs.subscribe. Build step 2: the redaction pipel
 import asyncio
 import os
 import signal
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
@@ -76,7 +77,8 @@ class Daemon:
         self.ledger = Ledger(self.db, self.clock, self.ids)
         for name, fn in (("ping", self._ping), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift), ("undo", self._undo), ("autonomy.get", self._autonomy_get),
-                         ("autonomy.set", self._autonomy_set)):
+                         ("autonomy.set", self._autonomy_set), ("doctor.check", self._doctor_check),
+                         ("automation.request", self._automation_request)):
             self.server.unary[name] = fn
         self.server.streams["logs.subscribe"] = self._logs
         await self.server.start()          # refuses to start if another daemon answers on the socket
@@ -194,6 +196,31 @@ class Daemon:
         self._autonomy = level
         self._journal().append("autonomy.set", {"level": level.value})
         return {"level": level.value}
+
+    async def _doctor_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Permissions and self-test as seen by *this* process — the one that will really act (section 8)."""
+        import ferb
+        from ferb.device import permissions, selftest
+        from ferb.device.install import code_hash
+
+        def run() -> dict[str, Any]:
+            results = selftest.run_all() if params.get("selftest", True) else []
+            return {"permissions": permissions.check_all(),
+                    "selftest": [{"name": r.name, "ok": r.ok, "detail": r.detail} for r in results]}
+        out = await asyncio.to_thread(run)
+        out.update({"pid": os.getpid(), "executable": os.path.realpath(sys.executable),
+                    "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
+                    "home": str(self.home), "stopped": self.engine.stopped})
+        return out
+
+    async def _automation_request(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Ask macOS for Apple Events permission to each app (shows the system prompt; must run in the daemon so
+        the grant attaches to FERB's interpreter). Apps that aren't running are asked on first use instead."""
+        from ferb.device import permissions
+        bundle_ids = [str(b) for b in params.get("bundle_ids", []) if b != "com.brave.Browser"]  # never Brave
+        results = await asyncio.to_thread(lambda: {b: permissions.automation(b, ask=True).value for b in bundle_ids})
+        self._journal().append("automation.requested", results)
+        return {"results": results}
 
     async def _logs(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         wanted = {LOG_FILTERS[f] for f in params.get("filters", []) if f in LOG_FILTERS} or None

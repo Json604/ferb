@@ -232,6 +232,7 @@ ferb/
     chat.py             `ferb chat`
     logs.py             `ferb logs`
     client.py           socket client shared by all commands (daemon-unavailable handling)
+    setup.py            `ferb setup [--update]`, `ferb doctor`, `ferb uninstall [--purge]` flows
     admin.py            setup, doctor, trace, memory, timeline, device, pause, browsers
 extensions/
   chromium/             one MV3 extension for Chrome + Brave

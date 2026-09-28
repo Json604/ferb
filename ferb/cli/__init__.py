@@ -1,4 +1,5 @@
-"""`ferb` command line (section 15). Steps 1-2: logs, trace, daemon run, stop, resume-tasks, undo, autonomy."""
+"""`ferb` command line (section 15): logs, trace, daemon run, stop, resume-tasks, undo, autonomy, setup, doctor,
+uninstall."""
 
 import argparse
 import sys
@@ -6,7 +7,7 @@ import sys
 from ferb.cli import admin, logs
 from ferb.cli.client import Client, RpcError
 from ferb.core.errors import NotRunning
-from ferb.paths import socket_path
+from ferb.paths import ferb_home, socket_path
 
 LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions")
 
@@ -32,11 +33,33 @@ def main(argv: list[str] | None = None) -> int:
     ap = sub.add_parser("autonomy", help="show or set the autonomy level")
     ap.add_argument("level", nargs="?", choices=["careful", "balanced", "hands-off"])
 
+    sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
+    sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
+    sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
+    xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
+    xp.add_argument("--purge", action="store_true")
+
     args = p.parse_args(argv)
     if args.cmd == "daemon":
         from ferb.daemon.main import main as daemon_main
         daemon_main()
         return 0
+
+    if args.cmd in ("setup", "doctor", "uninstall"):
+        from ferb.cli import setup as setup_cmd
+        from ferb.device.install import InstallError, Installer
+        env = setup_cmd.Env(Installer(ferb_home()), lambda: Client(socket_path()), input, sys.stdout)
+        try:
+            if args.cmd == "setup":
+                return setup_cmd.setup(env, update=args.update)
+            if args.cmd == "doctor":
+                return setup_cmd.doctor(env)
+            return setup_cmd.uninstall(env, purge=args.purge)
+        except (InstallError, NotRunning) as e:
+            print(f"ferb: {e}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            return 130
 
     try:
         client = Client(socket_path())
