@@ -1,7 +1,38 @@
+# Abandoned earlier approach — never part of this repo
 vibed/
+
+# OS / editor
 .DS_Store
+.idea/
+.vscode/
+
+# Python
 __pycache__/
-.pytest_cache/
-.venv/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.venv/
+
+# Node (pinned CLIs are installed from package.json / package-lock.json)
 node_modules/
+
+# Logs, traces, captured runs (can contain prompts, page content or tokens)
+*.log
+*.jsonl
+*.err
+*.trace
+logs/
+traces/
+calls.log
+
+# Secrets and local config
+.env
+.env.*
+*.local.toml
+*.local.json
+.claude/settings.local.json
+.ferb/
+*.keychain
+*.keychain-db
+*.pem
+*.key

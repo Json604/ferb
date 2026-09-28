@@ -34,3 +34,4 @@ other unit, go straight from the plan to building.
 - Use throwaway accounts and a spare browser profile for anything touching real sites; my real accounts stay
   out until the section 21 safety tests pass. Never put secrets in code, logs, or commits.
 - Ask before anything destructive or hard to undo outside the working tree.
+- After each commit, push to origin. Never force-push or rewrite history that's already pushed.
