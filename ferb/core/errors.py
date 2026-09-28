@@ -19,3 +19,15 @@ class NotRunning(FerbError):
 
 class AlreadyRunning(FerbError):
     """Another daemon is already answering on the socket."""
+
+
+class Refused(FerbError):
+    """A safety check said no. The message is safe to show a worker (never contains a secret)."""
+
+
+class StaleRef(Refused):
+    """A tab or element reference from an older snapshot, navigation or connection generation."""
+
+
+class DriverError(FerbError):
+    """A browser driver failed (connection lost, command error). Never carries command arguments."""

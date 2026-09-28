@@ -13,13 +13,14 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
-from ferb.act.browser.cdp_identity import CdpIdentityDriver
 from ferb.bus import DROPPED, Bus, Overflow
 from ferb.clock.clock import SystemClock
 from ferb.config import Config
 from ferb.daemon.gateway import FsRoots, Gateway
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.tree import TaskTree
+from ferb.act.browser.tools import IdentityDriver
+from ferb.registry import add_identity_browser
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core.errors import FerbError
@@ -68,10 +69,8 @@ class Daemon:
         self._release_task: asyncio.Task[None] | None = None
         self._autonomy = Level.BALANCED
         self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
-        self.identity_browser = CdpIdentityDriver(
-            self.home / "chrome" / "identity", "unknown-device", self.secrets, self._add_secret_value,
-            mailbox_address=lambda: str(self.config.get("mailbox", "address", "")))
-        self.registry = build_registry(self.identity_browser)
+        self.identity_browser: IdentityDriver | None = None    # the extension in Chrome's FERB profile (step 6)
+        self.registry = build_registry()
         self.tasks = TaskTree()
         self.gateway: Gateway | None = None
         self.supervisor: Supervisor | None = None
@@ -119,7 +118,8 @@ class Daemon:
             self.supervisor.cancel_all()
         if self._proxy:
             self._proxy.close()
-        await self.identity_browser.shutdown()
+        if self.identity_browser is not None:
+            await self.identity_browser.shutdown()
         await self.server.close()
         if self.journal:
             self.journal.append("daemon.stopped", {"pid": os.getpid()})
@@ -183,13 +183,22 @@ class Daemon:
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
                                      workspace=str(workspace), on_violation=self._runtime_violation,
-                                     on_task_end=self.identity_browser.release, facts=self._facts)
-        self.identity_browser.device_id = device
-        self.identity_browser.headless = bool(self.config.get("identity_browser", "headless", False))
-        self.identity_browser.allow_local = bool(self.config.get("identity_browser", "allow_local", False))
+                                     on_task_end=self._task_end, facts=self._facts)
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
-        self.stop_control.register("identity_browser",
-                                   lambda: asyncio.get_event_loop().create_task(self.identity_browser.shutdown()))
+        self.stop_control.register("identity_browser", self._stop_identity_browser)
+
+    def use_identity_browser(self, driver: IdentityDriver, allow_local: bool = False) -> None:
+        """Attach FERB's own browser: registers the browser.* tools; its tabs close with their task and on stop."""
+        self.identity_browser = driver
+        add_identity_browser(self.registry, driver, allow_local)
+
+    async def _task_end(self, task_id: str) -> None:
+        if self.identity_browser is not None:
+            await self.identity_browser.release(task_id)
+
+    def _stop_identity_browser(self) -> None:
+        if self.identity_browser is not None:
+            asyncio.get_event_loop().create_task(self.identity_browser.shutdown())
 
     def _add_secret_value(self, value: str) -> None:
         add = getattr(self.redact, "add_secret_value", None)
@@ -344,19 +353,24 @@ class Daemon:
         return {"level": level.value}
 
     async def _identity_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """Setup / doctor (section 8): is FERB's seeded browser session still signed in as FERB's address?"""
-        from ferb.act.browser.cdp_identity import CdpError, Refused
+        """Setup / doctor (section 8): FERB's Chrome profile holds exactly FERB's account (safety test 20), and each
+        secret is in the Keychain. The session itself is checked through the extension from build step 6."""
+        from ferb.identity import seed
         address = str(self.config.get("mailbox", "address", "") or "")
-        out: dict[str, Any] = {"seeded": (self.home / "chrome" / "identity" / "Default").is_dir(), "address": address,
-                               "signed_in": False, "error": None,
+        folder = str(self.config.get("identity", "profile", "") or "")
+        out: dict[str, Any] = {"address": address, "profile": folder, "profile_ok": False, "error": None,
+                               "session": None,
                                "secrets": [{"key": s.ref.key, "in_keychain": await self.secrets.present(s.ref)}
                                            for s in self.secrets.specs()]}
         if not address:
             out["error"] = "no [mailbox] address in config.toml"
-        elif out["seeded"]:
+        elif not folder:
+            out["error"] = "no [identity] profile in config.toml"
+        else:
             try:
-                out["signed_in"] = await self.identity_browser.session_ok()
-            except (Refused, CdpError) as e:
+                p = await asyncio.to_thread(seed.verify, address, folder)
+                out["profile_ok"], out["profile_name"] = True, p.name
+            except seed.SeedError as e:
                 out["error"] = str(e)
         return out
 

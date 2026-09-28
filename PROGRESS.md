@@ -8,7 +8,7 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 |------|------|--------|-------|
 | Spike 1 — Codex exec + MCP, native tools off | 2026-09-28 | Works with a sandbox fallback | `spikes/01_codex_mcp/FINDINGS.md`. Codex can't remove `apply_patch`, and code-mode models keep `exec` + subagents, so workers are pinned to `gpt-5.5` and run under the read-only sandbox. §5, §7, §19 and test 21.1 updated to match. |
 | Spike 2 — Claude Agent SDK + MCP, native tools off | 2026-09-28 | Works cleanly (options only) | `spikes/02_claude_sdk/FINDINGS.md`. `tools=[]`, `dontAsk`, explicit `setting_sources=[]` (None loads user+project settings). Proxy on `ANTHROPIC_BASE_URL` shows the API receives only the MCP tool. Auth: subscription login. ~2k tokens overhead. |
-| Spike 3 — CDP pipe to `ferb-identity`; `fill_secret` | 2026-09-28 | Works; Google needs a seeded session | `spikes/03_cdp_identity/FINDINGS.md`. Pipe CDP + origin-bound `fill_secret` proven on a practice site (refusals incl. iframe, focus stealing). Google refuses automated sign-in (remote debugging sets `navigator.webdriver`); identity profile seeded from the owner's FERB-only Chrome profile and Gmail works over the pipe. §0, §8 (incl. `doctor` re-verify), §9.1, §10.1, §19, test 21.20 updated. |
+| Spike 3 — CDP pipe to `ferb-identity`; `fill_secret` | 2026-09-28 | Works; Google needs a seeded session. **Superseded by spike 16** (a copied profile loses its Google session) | `spikes/03_cdp_identity/FINDINGS.md`. Pipe CDP + origin-bound `fill_secret` proven on a practice site (refusals incl. iframe, focus stealing). Google refuses automated sign-in (remote debugging sets `navigator.webdriver`); identity profile seeded from the owner's FERB-only Chrome profile and Gmail works over the pipe. §0, §8 (incl. `doctor` re-verify), §9.1, §10.1, §19, test 21.20 updated. |
 | Spike 4 — Chromium extension in Brave + Chrome | 2026-09-28 | Works; background input needs focus emulation | `spikes/04_extension/FINDINGS.md`. Native messaging round trip, background tab + sanitized snapshot, trusted click/typing in a background tab (incl. Google Search, not flagged), extension-side CDP allowlist. Needs: focus emulation (site then sees `visible`; owner decision), input-readiness probe, `onStartup`, version check in `hello`, host outside TCC folders. §8/§9.2/§9.4 edits proposed. |
 | Spikes 5, 7, 11 — Safari | 2026-09-28 | **Skipped by the owner** (doesn't use Safari) | Safari control parked. Spike 5 work (built, not run against Safari) is on branch `spike-5-safari` with its FINDINGS.md. ARCHITECTURE.md edits for Safari watch-only proposed. |
 | Spike 6 — pyobjc probes + TCC checks | 2026-09-28 | Works; AXManualAccessibility gone | `spikes/06_pyobjc/FINDINGS.md`. Frontmost app, window titles without activating, no-prompt TCC checks (Automation via `ctypes`). Chrome 154/Brave 151 build the web AX tree on demand (first query may be empty ~0.2 s); `AXManualAccessibility` unsupported → §9.2 edit proposed. TCC grants belong to the responsible app, not FERB. |
@@ -22,12 +22,15 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | **Build step 2** — sanitize, policy (rules, intent, exposure, dataflow, autonomy, approvals, engine), ledger, `ferb stop` | 2026-09-28 | Done | 95 tests (3 runs green). Safety tests 21.3, 21.7, 21.8, 21.9, 21.10, 21.11 and partial 21.2/21.5. Contract first: intent derived only from the owner's message at plan time (10.2), internal-id redaction exemption (10.6), new critical topics (6), engine.py + config.py (3). Added: stop survives restart (10.5). |
 | **Build step 3** — device (scan, profile, permissions, install, selftest), `ferb setup [--update]`, `doctor`, `uninstall` | 2026-09-28 | Done, installed on this Mac | 118 tests (3 runs green) incl. a real launchd test. Spike 15 measured a launcher: section 8 step 6 kept. Real setup: dedicated Python 3.12.13 in `~/.ferb/python`, `com.ferb.daemon` running; owner granted Accessibility + Screen Recording (Input Monitoring granted too); `ferb doctor` all green after `--update`. Fixed after the first real run: self-test read the frontmost (Brave) window title → now reads the Dock. |
 | **Build step 4** — runtimes (Codex exec, Claude Agent SDK) with native tools contained, `ferb mcp` shim, gateway, `act/fs`, `ferb chat` (reply/clarify, one worker) | 2026-09-28 | Done | 147 offline tests (3 runs green) + 6 real (`pytest -m real`: 21.1 for Codex and Claude, 123 s). Supervisor + worker = Codex (`[runtimes]` in config.toml); Claude fully built and tested, a config switch away. Codex supervisor: no FERB tools, read-only sandbox, gpt-5.5, chat history re-sent each turn (`--ephemeral`; resume would need recorded sessions in `~/.codex`). Tool-list check per run: Codex from its trace, Claude via a localhost proxy recording tool names only. Pasted/quoted chat content wrapped as untrusted data (§10.2). Time header per model turn, footer per tool result. Codex pinned in `~/.ferb/node`. |
-| **Build step 5** — `act/browser`: `cdp_identity` + `identity/` (Keychain, origin-bound fill, OTP), identity seeding in `ferb setup`, doctor session check | 2026-09-29 | Done except the real session check (blocked: FERB's Google session is signed out, needs a re-seed) | 176 offline tests (3 runs green) incl. real headless Chrome on local pages + a temporary keychain: pipe only (no TCP port), 21.3, 21.4 (lookalike, scheme, cross-origin iframe, focus stealing), 21.5 (password nowhere in results/db/logs after a real sign-in), 21.13 (stale refs), intent-gated submits, per-task tabs, `ferb stop` closes FERB's browser. Real chat via the installed daemon: Codex → `browser.open`/`snapshot` on example.com → done (24 s). OTPs from Gmail's Atom feed, filled straight into the field (never shown to a model). |
+| Spike 16 — FERB identity via the extension in its original Chrome profile | 2026-09-29 | Works: session held 35 min, 8/8 rounds, webdriver false | `spikes/16_ext_identity/FINDINGS.md`. Replaces the copied-profile CDP path (ARCHITECTURE.md edits approved and applied). |
+| **Build step 5** — `identity/` layer: Keychain secrets, mailbox/OTP, identity-profile verification, `browser.*` tools + policy kinds (driver-independent) | 2026-09-29 | Done (closed as the identity layer; owner decision) | 165 offline tests (3 runs green): 21.3, 21.5 (password/code nowhere in results, db or logs), intent-gated submits, stale ids, per-task tabs, stop, local URLs refused before any driver, safety test 20 (profile must hold only FERB's account; cookie/password stores never opened). The copied-profile CDP driver was built, then removed: a copied profile loses its Google session within minutes (spike 16 shows the original profile via the extension holds it 35 min). FERB's browser itself arrives with the extension in step 6. |
 
 ## Next
 
-**Build step 6** — Chromium extension + native host + `ext_bridge` + profiles/pairing + site resolver.
-**Before it:** the Brave pairing check (ask the owner for a moment first), and the step 5 items below.
+1. **Brave pairing check** (owner-scheduled, before step 6): one temporary Brave profile, created and deleted in
+   the same session, never the owner's own Brave profile. Waiting for the owner to pick a time.
+2. **Build step 6** — Chromium extension + native host + `ext_bridge` + profiles/pairing + site resolver, including
+   the FERB identity profile (paired as FERB).
 
 ## Rules for build steps (owner)
 
@@ -68,10 +71,13 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 - Build step 8: task tree is in memory until then; outcomes are journaled with `verified: false` (verification
   lands with step 8).
 - Upgrading Codex or the Claude SDK: rerun `pytest -m real tests/test_real_runtimes.py` (costs real model usage).
-- **Step 5 open:** the copied-profile CDP path can't hold FERB's Google session (copy signed out twice; the
-  original stayed signed in). Spike 16 (2026-09-29): driving the ORIGINAL "FERB" Chrome profile through an
-  extension kept the session 35 min / 8 of 8 rounds, webdriver false. Proposed: replace the copied-profile CDP
-  path with an extension-driven identity profile (ARCHITECTURE.md edits pending owner approval). No building until
-  approved.
-- FERB's Chrome is started in its own session: if the daemon is killed (not stopped), Chrome may outlive it; the
-  next launch then fails with "another copy using its profile". Handle on daemon start (step 8 reconciliation).
+- **Step 6 carries from step 5:** FERB identity via the extension in Chrome's "FERB" profile (`[identity]` config;
+  owner runs `ferb setup --identity` to choose it); `ext_bridge` implements `IdentityDriver`
+  (`ferb/act/browser/tools.py`) and is attached with `Daemon.use_identity_browser`; re-port the removed real-Chrome
+  tests (21.4 origin refusals: lookalike, scheme, cross-origin iframe; focus stealing; OOPIF; 21.13 stale refs)
+  against the extension; real tests: session through the extension, owner-assisted OTP.
+- **Safety test 21.21 (owner, 2026-09-29):** the secret / code value never appears in native-host or extension
+  messages, logs or errors along the extension path. Written in step 6 with the path it tests. Open design
+  question for the owner: the fill command itself must carry the value to the extension, so either it is sealed
+  for the extension (e.g. AES-GCM with a key from pairing, so the native host relays only ciphertext) or the test
+  exempts that one message.

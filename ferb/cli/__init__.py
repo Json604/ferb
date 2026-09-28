@@ -37,9 +37,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
     sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
-    sp.add_argument("--seed-identity", action="store_true",
-                    help="copy FERB's dedicated Chrome profile (its Google account) into ~/.ferb (Chrome must be quit)")
-    sp.add_argument("--profile", help="with --seed-identity: the Chrome profile's name, if several hold FERB's account")
+    sp.add_argument("--identity", action="store_true",
+                    help="choose FERB's identity profile in your Chrome (it must hold only FERB's account)")
+    sp.add_argument("--profile", help="with --identity: the Chrome profile's name, if several hold FERB's account")
     sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
     xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
     xp.add_argument("--purge", action="store_true")
@@ -68,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         from ferb.device.install import InstallError, Installer
         env = setup_cmd.Env(Installer(ferb_home()), lambda: Client(socket_path()), input, sys.stdout)
         try:
-            if args.cmd == "setup" and args.seed_identity:
-                return setup_cmd.seed_identity(env, args.profile)
+            if args.cmd == "setup" and args.identity:
+                return setup_cmd.identity_setup(env, args.profile)
             if args.cmd == "setup":
                 return setup_cmd.setup(env, update=args.update)
             if args.cmd == "doctor":

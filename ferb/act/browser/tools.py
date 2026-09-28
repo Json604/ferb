@@ -1,29 +1,73 @@
-"""browser.* capabilities (section 5 Capability) over a BrowserDriver.
+"""browser.* capabilities (section 5 Capability) over a browser driver.
 
-Block 1 step 5: FERB-identity tasks only, on `cdp_identity` (owner browsers arrive with the extension, step 6).
-A task sees and uses only the tabs it opened; its tabs close when it ends.
+FERB-identity tasks only for now: the driver is the extension in Chrome's "FERB" profile (build step 6); owner
+profiles arrive with the same extension. A task sees and uses only the tabs it opened; its tabs close when it ends.
+Only http(s) URLs to public hosts are opened (checked here, before any driver sees them).
 
 Policy kinds (describe) come from what the element would do, read from the last snapshot: following a link is
 `navigate`; typing into / submitting a search form is `search`; other form input is `fill_form`; pressing a
 button or Enter elsewhere is `submit` (so it must be in the request's intent); secrets are `fill_secret`.
 """
 
+import ipaddress
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
-from ferb.act.browser.cdp_identity import CdpError, CdpIdentityDriver, Refused
 from ferb.act.browser.snapshot import for_model
-from ferb.core.types import (ActionSpec, BrowserAction, Identity, PageElement, RiskLevel, SecretRef, Target,
-                             ToolContext, ToolResult, WaitCondition)
+from ferb.core.errors import DriverError, Refused
+from ferb.core.interfaces import BrowserDriver
+from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, Identity, PageElement, RiskLevel,
+                             SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
 from ferb.policy.rules import Kind
 
 BROWSE, FILL, MAILBOX = "identity:browse", "secrets:fill", "mailbox:read"
 FORM_ROLES = {"checkbox", "radio", "switch", "option", "combobox", "textbox", "searchbox", "listbox", "slider",
               "menuitemcheckbox", "menuitemradio"}
 OTP_LOOKBACK = timedelta(minutes=10)
+
+
+class Secrets(Protocol):
+    def specs(self) -> list[SecretSpec]: ...
+    def spec(self, ref: SecretRef) -> SecretSpec: ...
+    def has(self, ref: SecretRef) -> bool: ...
+
+
+class IdentityDriver(BrowserDriver, Protocol):
+    """What the browser.* tools need beyond BrowserDriver: task-owned tabs, sync lookups from the last snapshot
+    (describe() is sync), navigation, and the origin-bound fills (section 10.1)."""
+    secrets: Secrets
+
+    async def navigate(self, tab: TabRef, url: str) -> None: ...
+    def claim(self, tab: TabRef, owner: str) -> None: ...
+    def owned_by(self, tab_id: str, owner: str) -> TabRef: ...
+    def tab_url(self, tab_id: str) -> str | None: ...
+    def element_info(self, tab_id: str, element_id: str) -> PageElement | None: ...
+    def element_ref(self, tab: TabRef, element_id: str) -> ElementRef: ...
+    async def fill_secret(self, el: ElementRef, ref: SecretRef) -> ActionResult: ...
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime,
+                       sender_contains: str | None) -> ActionResult: ...
+    async def release(self, owner: str) -> None: ...
+    async def shutdown(self) -> None: ...
+
+
+def check_url(url: str, allow_local: bool) -> None:
+    u = urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise Refused(f"only http(s) URLs can be opened, not {u.scheme or 'this'}")
+    if allow_local:
+        return
+    host = u.hostname
+    if host == "localhost" or host.endswith(".localhost") or host.endswith(".local"):
+        raise Refused("FERB's browser doesn't open local addresses")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+        raise Refused("FERB's browser doesn't open local or private addresses")
 
 
 def _err(msg: str) -> ToolResult:
@@ -38,15 +82,15 @@ class _Base:
     identities = {Identity.FERB}
     risk, reversible = RiskLevel.LOW, True
 
-    def __init__(self, driver: CdpIdentityDriver) -> None:
-        self.driver = driver
+    def __init__(self, driver: IdentityDriver, allow_local: bool = False) -> None:
+        self.driver, self.allow_local = driver, allow_local
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
             return await self._run(args, ctx)
         except Refused as e:
             return _err(str(e))
-        except CdpError as e:
+        except DriverError as e:
             return _err(f"browser error: {e}")
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
@@ -80,6 +124,7 @@ class BrowserOpen(_Base):
         return ActionSpec(Kind.OPEN_TAB, Target(site=_host(getattr(args, "url"))))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        check_url(str(getattr(args, "url")), self.allow_local)
         tab = await self.driver.open(str(getattr(args, "url")))
         self.driver.claim(tab, ctx.task_id)
         return ToolResult({"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)})
@@ -96,6 +141,7 @@ class BrowserNavigate(_Base):
         return ActionSpec(Kind.NAVIGATE, Target(site=_host(getattr(args, "url"))))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        check_url(str(getattr(args, "url")), self.allow_local)
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         await self.driver.navigate(ref, str(getattr(args, "url")))
         return ToolResult({"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)})
@@ -250,7 +296,7 @@ class BrowserFillOtp(_Base):
         return ToolResult({"ok": r.ok, "detail": r.detail}, is_error=not r.ok)
 
 
-def _accounts(driver: CdpIdentityDriver) -> str:
+def _accounts(driver: IdentityDriver) -> str:
     specs = driver.secrets.specs()
     if not specs:
         return "No FERB secrets are set up."
@@ -258,7 +304,7 @@ def _accounts(driver: CdpIdentityDriver) -> str:
                                      for s in specs)
 
 
-def _account(driver: CdpIdentityDriver, args: BaseModel) -> str | None:
+def _account(driver: IdentityDriver, args: BaseModel) -> str | None:
     key = str(getattr(args, "secret", ""))
     return driver.secrets.spec(SecretRef(key)).account_hint if driver.secrets.has(SecretRef(key)) else None
 

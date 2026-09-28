@@ -3,9 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from ferb.act.browser.cdp_identity import CdpIdentityDriver
 from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
-                                   BrowserOpen, BrowserSnapshot, BrowserWait)
+                                   BrowserOpen, BrowserSnapshot, BrowserWait, IdentityDriver)
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.core.interfaces import Capability
 
@@ -22,7 +21,7 @@ class Registry:
         self.capabilities[cap.name] = cap
 
 
-def build(identity_browser: CdpIdentityDriver | None = None) -> Registry:
+def build() -> Registry:
     r = Registry()
     # capabilities — one line each
     r.add(FsList())
@@ -30,16 +29,19 @@ def build(identity_browser: CdpIdentityDriver | None = None) -> Registry:
     r.add(FsWrite())
     r.add(FsEdit())
     r.add(FsTrash())
-    if identity_browser is not None:                                  # FERB's own browser (identity FERB only)
-        r.add(BrowserOpen(identity_browser))
-        r.add(BrowserNavigate(identity_browser))
-        r.add(BrowserSnapshot(identity_browser))
-        r.add(BrowserAct(identity_browser))
-        r.add(BrowserWait(identity_browser))
-        r.add(BrowserClose(identity_browser))
-        r.add(BrowserFillSecret(identity_browser))
-        r.add(BrowserFillOtp(identity_browser))
     # runtimes — one line each (section 5 AgentRuntime); config chooses per role
     r.runtimes["codex"] = "ferb.runtimes.codex_exec"
     r.runtimes["claude"] = "ferb.runtimes.claude_sdk"
     return r
+
+
+def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool = False) -> None:
+    """FERB's own browser (identity FERB only): the extension in Chrome's "FERB" profile, from build step 6."""
+    r.add(BrowserOpen(driver, allow_local))
+    r.add(BrowserNavigate(driver, allow_local))
+    r.add(BrowserSnapshot(driver))
+    r.add(BrowserAct(driver))
+    r.add(BrowserWait(driver))
+    r.add(BrowserClose(driver))
+    r.add(BrowserFillSecret(driver))
+    r.add(BrowserFillOtp(driver))

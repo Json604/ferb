@@ -48,12 +48,13 @@ class Capability(Protocol):
 class SecretStore(Protocol):                    # FERB identity only
     def has(self, ref: SecretRef) -> bool: ...
     def spec(self, ref: SecretRef) -> SecretSpec: ...
-    # No reveal method for callers. Filling happens inside cdp_identity.fill_secret(target, ref), which checks the
-    # target frame's origin against spec.allowed_origins immediately before typing. `caller` is audit only.
+    # No reveal method for callers. Filling happens in the extension of the FERB profile: the daemon checks the
+    # target frame's origin (as the extension reports it) against spec.allowed_origins, then the extension re-checks
+    # location.origin in the same call that sets the value on that exact element, and forgets the value.
 
 
 class BrowserDriver(Protocol):
-    name: str                                   # "cdp_identity" | "ext:chrome" | "ext:brave" | "ax:<browser>"
+    name: str                                   # "ext:chrome" | "ext:brave" | "ax:<browser>"
     identity: Identity
     features: DriverFeatures
     async def tabs(self) -> list[TabRef]: ...

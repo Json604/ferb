@@ -38,9 +38,8 @@ Keychain locking). Undo window shown in the CLI only (no system notifications in
 
 Decisions and defaults:
 - Python 3.12. Runtimes: Claude (Agent SDK) = orchestrator, Codex (`codex exec --json`) = workers; switchable in config.
-- FERB never reads, types, or stores the owner's credentials. FERB never reads the owner's browser cookie stores;
-  seeding FERB's own identity profile from a profile containing only FERB's account is allowed at setup, after
-  verifying its accounts.
+- FERB never reads, types, or stores the owner's credentials. FERB never reads any browser cookie stores. FERB's
+  own identity is a dedicated Chrome profile holding only FERB's account, verified at setup and never copied.
 - Low friction by default: the owner's instruction is the approval; security runs automatically in the
   background; explicit confirmation only for the narrow cases in section 10.3. Autonomy level: `balanced`.
 - Codex authenticated via ChatGPT login for testing.
@@ -89,19 +88,20 @@ sanitize  ← imports core only; applied by the gateway and every writer (traces
 │ Codex (codex exec)   │  ferb mcp   │  watchers · timers · memory · traces │
 └──────────────────────┘  shim + run │  device profile · tool gateway       │
                           token      │  GUI lock · browser resolver         │
-                                     └──┬───────────────┬──────────────────┘
-                           CDP over pipe│               │ socket
-                                        ▼               ▼
-                          ┌─────────────────┐ ┌───────────────────┐
-                          │ Chrome:         │ │ ferb-native-host  │
-                          │ ferb-identity   │ │ (per browser conn)│
-                          │ (FERB's creds)  │ └─────────▲─────────┘
-                          └─────────────────┘           │ native messaging
-                                              ┌─────────┴─────────┐
-                                              │ FERB extension in │
-                                              │ owner's Chrome +  │
-                                              │ Brave             │
-                                              └───────────────────┘
+                                     └──────────────────┬──────────────────┘
+                                                        │ socket
+                                                        ▼
+                                              ┌───────────────────┐
+                                              │ ferb-native-host  │
+                                              │ (per browser conn)│
+                                              └─────────▲─────────┘
+                                                        │ native messaging
+                                              ┌─────────┴──────────────────────┐
+                                              │ FERB extension in the owner's  │
+                                              │ Chrome + Brave profiles (OWNER)│
+                                              │ and in Chrome's "FERB" profile │
+                                              │ (identity FERB, FERB's creds)  │
+                                              └────────────────────────────────┘
 ```
 
 - **Daemon** is the only long-lived process.
@@ -111,11 +111,12 @@ sanitize  ← imports core only; applied by the gateway and every writer (traces
   relays JSON messages to the daemon socket.
 - **FERB.app** is reserved for later blocks and not built in Block 1: the future home of the Swift audio service
   (section 20), the stop hotkey, Keychain item access anchored to a signed app identity, and the Safari extension.
-- **CDP is used only for `ferb-identity`**, launched by the daemon with a custom `--user-data-dir` and
-  `--remote-debugging-pipe` (no open port). It runs as a real (headed) Chrome started in the background and never brought
-  to the front: no startup window, each FERB tab in its own background window. Headless is not used for the
-  identity profile, because Google ended FERB's seeded session after a headless visit (build step 5). The owner's browsers are never relaunched or debugged via a port;
-  CDP access to owner tabs exists only through the extension's `chrome.debugger` with its allowlist (9.4).
+- **FERB's identity is a dedicated "FERB" profile in the owner's normal Chrome**, running the same FERB extension.
+  The daemon binds that profile to identity `FERB` at pairing (9.6); the extension itself never decides identity.
+  No profile copies: a copied profile loses its Google session within minutes, while the original keeps it
+  (build step 5, spike 16).
+- **FERB never launches a browser under CDP or remote debugging** (no `--remote-debugging-pipe`/`port`). All browser
+  control goes through the extension; CDP exists only as the extension's `chrome.debugger` with its allowlist (9.4).
 - **Socket authentication:** the daemon socket is owner-only (`0600`, in a `0700` directory). Every connection
   declares a role (`cli`, `mcp_shim`, `native_host`) and proves it: CLI by socket ownership,
   shims by a run token, extensions by paired `install_id` + per-install key. Each role has a fixed method list.
@@ -181,9 +182,9 @@ ferb/
       resolver.py       site → (browser, profile, identity, driver) selection (section 9.3)
       profiles.py       profile discovery from Local State + name → profile resolver (section 9.5)
       pairing.py        extension install ↔ browser profile pairing (section 9.6)
-      cdp_identity.py   CDP driver for FERB's own Chrome profile
       tools.py          browser.* capabilities over a BrowserDriver; policy kind from what the element does
-      ext_bridge.py     driver for owner browsers via the FERB extension
+      ext_bridge.py     driver via the FERB extension: owner profiles and the FERB identity profile (identity
+                        comes from the pairing binding, never from the extension)
       ax_browser.py     Accessibility driver (fallback for any browser)
       snapshot.py       unified page snapshot format (DOM + AX → elements with ids, roles, labels, rects)
       ext_protocol.py   extension message schema (pydantic); mirrored by extensions/chromium/protocol
@@ -215,7 +216,7 @@ ferb/
   identity/
     secrets.py          KeychainSecretStore (FERB identity only)
     mailbox.py          FERB's inbox (read OTPs); send requires approval
-    seed.py             find + copy FERB's dedicated Chrome profile at setup (section 8 step 3)
+    seed.py             verify FERB's Chrome profile holds exactly FERB's account (section 8 step 3); copies nothing
   clock/
     clock.py            SystemClock, FakeClock
     context.py          time header + tool footer builders
@@ -395,8 +396,9 @@ class Watcher(Protocol):
 class SecretStore(Protocol):     # FERB identity only
     def has(self, ref: SecretRef) -> bool: ...
     def spec(self, ref: SecretRef) -> SecretSpec: ...
-    # No reveal method for callers. Filling happens inside cdp_identity.fill_secret(target, ref), which checks the
-    # target frame's origin against spec.allowed_origins immediately before typing. `caller` is audit only.
+    # No reveal method for callers. Filling happens in the extension of the FERB profile: the daemon checks the
+    # target frame's origin (as the extension reports it) against spec.allowed_origins, then the extension re-checks
+    # location.origin in the same call that sets the value on that exact element, and forgets the value.
 
 class MemoryStore(Protocol):
     async def recall(self, query: str, k: int = 8, at: datetime | None = None) -> list[MemoryItem]: ...
@@ -405,7 +407,7 @@ class MemoryStore(Protocol):
     async def retract(self, id: str, reason: str) -> None: ...
 
 class BrowserDriver(Protocol):
-    name: str                          # "cdp_identity" | "ext:chrome" | "ext:brave" | "ax:<browser>"
+    name: str                          # "ext:chrome" | "ext:brave" | "ax:<browser>"
     identity: Identity
     features: "DriverFeatures"         # trusted_input_background, parallel_actions, network_events, dom_snapshot
     async def tabs(self) -> list["TabRef"]: ...
@@ -445,13 +447,13 @@ worker       = "codex"
 [browser]
 prefer_for_actions = ["brave", "chrome"]   # order when a site is logged in in several
 
-[identity_browser]
-headless = false           # FERB's own Chrome (cdp_identity): a real window, never brought to the front
-                           # (Google signs out headless sessions); private/loopback hosts refused unless allow_local
+[identity]
+browser = "chrome"
+profile = "Profile 22"     # the owner's Chrome profile folder bound to identity FERB at pairing
 
 [mailbox]
 provider = "gmail"
-address  = "ferb@example.com"   # FERB's own address; seeding checks the profile holds exactly this account
+address  = "ferb@example.com"   # FERB's own address; setup checks the FERB profile holds exactly this account
 ```
 
 - Stable bus events: `task.created`, `task.started`, `task.finished`, `tool.called`, `approval.requested`,
@@ -511,10 +513,11 @@ can't write) on the pinned `gpt-5.5`, and keeps conversation continuity by re-se
 ## 8. Setup and device profile
 
 `ferb setup` (idempotent; `ferb doctor` re-checks everything). Setup never quits or kills the owner's browsers —
-when a browser must be closed it asks the owner to quit it and waits — and it does not touch Brave (seeding uses
-Chrome only; the Brave pairing check is a separate, owner-scheduled step before build step 6). Build order: step 3
-builds permissions, device profile, interpreter, LaunchAgent, self-test, doctor and uninstall; the browser items
-below arrive with step 5 (identity seeding) and step 6 (native host, extension, pairing, External Extensions).
+when a browser must be closed it asks the owner to quit it and waits — and it does not touch Brave (FERB's
+identity profile is in Chrome only; the Brave pairing check is a separate, owner-scheduled step before build
+step 6). Build order: step 3 builds permissions, device profile, interpreter, LaunchAgent, self-test, doctor and
+uninstall; step 5 the identity-profile account check; step 6 the native host, extension, pairing (including the
+FERB profile) and External Extensions.
 
 1. TCC permissions: Accessibility, Screen Recording, Automation (per app); Input Monitoring if Accessibility alone
    doesn't allow the owner-input listen-only tap; Full Disk Access optional.
@@ -531,13 +534,13 @@ below arrive with step 5 (identity seeding) and step 6 (native host, extension, 
      extension install page, then runs pairing; waits for `browser.profile_paired`.
    - Drop the External Extensions file so unticked profiles offer the extension the next time they are opened.
    - Profiles without the extension are watched read-only via AppleScript.
-   - Seed the `ferb-identity` Chrome profile. Google refuses sign-in from browsers under remote debugging, so the
-     owner signs FERB's Google account into a dedicated profile in their normal Chrome, holding no other accounts
-     or site logins. With Chrome quit, setup finds that profile in `Local State`, checks that its Chrome accounts
-     (`Local State` + `Preferences` → `account_info`) are exactly FERB's account, shows the profile to the owner
-     for confirmation, and copies it into `~/.ferb/chrome/identity/Default` (owner-only). Cookies and saved
-     passwords are never read. Setup then verifies the session over the pipe (the inbox loads as FERB's account).
-     `ferb doctor` re-verifies the seeded session and, if it is no longer valid, tells the owner to re-seed.
+   - Set up FERB's identity profile. The owner creates a dedicated "FERB" profile in their normal Chrome and signs
+     FERB's Google account into it, holding no other accounts or site logins. Setup finds it in `Local State`,
+     checks that its Chrome accounts (`Local State` + `Preferences` → `account_info`) are exactly FERB's account,
+     shows it to the owner for confirmation, installs the extension there and pairs it as identity **FERB**. Nothing
+     is copied, Chrome is never quit, and cookies and saved passwords are never read. Setup then verifies the
+     session through the extension (the inbox loads as FERB's account); `ferb doctor` re-verifies it and, if the
+     session or the account check fails, tells the owner what to fix.
      FERB credentials go to Keychain; their `SecretSpec`s go to the owner-only `config.toml`.
 4. Assign this Mac a stable `device_id` (generated once, stored in `~/.ferb/config.toml`). Scan device →
    `DeviceProfile` (apps, scriptability, AX support, browsers + driver availability); commit to git.
@@ -560,7 +563,7 @@ Watchers emit `device.changed` on app install/removal; profile rescans that app 
 
 | Mode | Browser | Identity | Driver | Credentials |
 |------|---------|----------|--------|-------------|
-| FERB browsing | FERB's own Chrome profile | `FERB` | `cdp_identity` (CDP over pipe) | FERB's, via Keychain + `fill_secret`; for sites that refuse automated sign-in (Google), the session seeded at setup |
+| FERB browsing | Chrome's "FERB" profile (owner's normal Chrome) | `FERB` | `ext:chrome`, bound to identity FERB at pairing | FERB's, via Keychain + `fill_secret`; the profile's own sessions (e.g. Google, signed in by the owner) |
 | Act as owner | Owner's Chrome, Brave | `OWNER` | `ext:*` → `ax:*` fallback | None — existing sessions only |
 | Watch | Owner's Chrome, Brave, Safari | — | Chrome, Brave: extension events, AppleScript/AX read if extension missing; Safari: AppleScript read of tabs and URLs | None |
 
@@ -569,7 +572,9 @@ Watchers emit `device.changed` on app install/removal; profile rescans that app 
 | Browser | Primary | Fallback 1 | Fallback 2 |
 |---------|---------|------------|------------|
 | Chrome, Brave | FERB extension: content-script snapshot + `chrome.debugger` for actions | Accessibility (the web AX tree is built on demand; if the first query returns it empty, re-query for up to ~2 s. `AXManualAccessibility` is unsupported since at least Chrome 154 / Brave 151) | Screenshot + click |
-| FERB identity | CDP over pipe | — | — |
+
+The FERB profile is opened like any paired profile: FERB may start Chrome detached if it isn't running, never
+quits or kills it, and wakes a disconnected extension with its blank local page (9.4).
 
 Not used: Chrome's live-session CDP attach to owner browsers (it would bypass the extension's allowlist and the
 boundary in section 2). If ever needed, it requires a separate, explicitly approved design.
@@ -690,6 +695,10 @@ Problem this solves: browsers identify profiles by folder (`Default`, `Profile 3
 - A connection with an unknown `install_id` may only send pairing and health messages: no trail events, no actions.
 - Pairing also exchanges a per-install key used to authenticate every later message: each carries a strictly
   increasing `seq` and an HMAC with that key.
+- Every binding carries an identity: `OWNER` for the owner's profiles, `FERB` for the profile named in `[identity]`.
+  The resolver never routes an `OWNER` task to the FERB profile, nor a `FERB` task to an owner profile. Pairing
+  or re-pairing the FERB profile needs the owner's confirmation, and is refused unless the profile's Chrome
+  accounts are exactly FERB's account.
 
 ## 10. Identity, secrets and safety
 
@@ -699,19 +708,21 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
 ### 10.1 Identity (keeps the two account sets separate)
 
 - Every task declares `identity`.
-  - `FERB` tasks: `cdp_identity`, `fill_secret`, FERB mailbox, `act/fs` inside FERB's workspace only.
+  - `FERB` tasks: the FERB profile (extension driver), `fill_secret`, FERB mailbox, `act/fs` inside FERB's workspace only.
     No shell, no AppleScript/Mac control, no access to owner browsers.
   - `OWNER` tasks: owner browsers (`ext:*` / `ax:*`), Mac control, shell, files — subject to 10.2.
-    Never `cdp_identity`, FERB secrets or FERB mailbox.
+    Never the FERB profile, FERB secrets or FERB mailbox.
   - A task cannot switch identity; the supervisor uses separate workers and passes typed fields between them.
 - Child workers never receive more authority than their parent task.
-- FERB credentials: Keychain only, described by `SecretSpec`. `fill_secret(target, ref)` runs inside the daemon,
-  checks the target frame's origin against `allowed_origins` right before typing, and records `ref.key` only.
-- One-time codes: read from FERB's inbox (Gmail's Atom feed of unread mail, loaded in FERB's browser with the seeded
-  session) and set straight into a field whose origin is allowed for that account's `SecretSpec` — never shown to
-  a model, logged or stored; refused when the newest message holds more than one candidate code.
-- Owner credentials: never read, typed, stored, or requested. No access to the owner's cookie stores (the only
-  exception is seeding FERB's identity profile at setup, section 8).
+- FERB credentials: Keychain only, described by `SecretSpec`. `fill_secret(target, ref)`: the daemon checks the
+  target frame's origin (reported by the extension) against `allowed_origins`, then sends the value along
+  Keychain → daemon → native host (relay only, signed messages) → extension → the isolated world of the checked
+  frame, which re-checks `location.origin` in the same call that sets it on that exact element. The value is never
+  logged or stored along the way; FERB records `ref.key` only.
+- One-time codes: read from FERB's inbox (Gmail's Atom feed of unread mail, read through the FERB profile) and set
+  straight into a field whose origin is allowed for that account's `SecretSpec`, along the same path — never
+  shown to a model, logged or stored; refused when the newest message holds more than one candidate code.
+- Owner credentials: never read, typed, stored, or requested. No access to the owner's cookie stores.
 
 ### 10.2 Automatic protections (never prompt the owner)
 
@@ -883,7 +894,9 @@ Rules:
    shell and file tools disabled**; prove a shell attempt fails.
 2. Claude Agent SDK session with the `ferb mcp` shim as the only tool source: built-in tools, subagents, plugins and
    inherited settings disabled; prove native Bash/Read/Write/WebFetch attempts fail. Confirm auth path.
-3. CDP over `--remote-debugging-pipe` to `ferb-identity`; login + `fill_secret` on a real site.
+3. *Superseded by spike 16.* CDP over `--remote-debugging-pipe` to `ferb-identity`; login + `fill_secret` on a
+   real site. (A copied profile lost its Google session; spike 16 kept it 35 min via the extension in the original
+   "FERB" profile.)
 4. Chromium extension in Brave and Chrome: native messaging round trip; background tab open; snapshot;
    `chrome.debugger` trusted click + typing **in a background tab** on a site with bot protection.
 5. *Skipped — Safari control deferred to a later block.* Safari extension in FERB.app: build, enable (unsigned-extension developer setting for local dev), DOM snapshot,
@@ -902,6 +915,8 @@ Rules:
 12. Pairing flow end to end in two Chrome profiles + one Brave profile; unknown `install_id` blocked from acting.
 13. MV3 service worker termination: kill it mid-command; confirm reconnect, generation bump, no replay.
 14. Owner-input detection latency (how fast GUI actions yield when the owner touches the mouse).
+15. TCC grant on a stable launcher vs the interpreter (build step 3).
+16. FERB identity through the extension in its original Chrome profile: Google session survives 30+ min of use.
 
 ## 18. Build order inside Block 1
 
@@ -913,9 +928,12 @@ Rules:
    including how ad-hoc signing affects that; record the result (section 8, step 6 stays the plan).
 4. `runtimes` with native tools disabled + `ferb mcp` shim + gateway; `act/fs`; `ferb chat` with reply/clarify
    and a single worker. Safety tests for gateway bypass pass before continuing.
-5. `act/browser`: `cdp_identity` + `identity/` (Keychain, origin-bound fill, OTP).
+5. `identity/` layer: Keychain secrets, mailbox/OTP, identity profile verification, `browser.*` tools and their
+   policy kinds (driver-independent).
 6. Chromium extension (page mode, sanitized snapshots, reliability semantics; then debugger mode + allowlist)
-   + native host + `ext_bridge` + profile discovery/resolver + pairing + site resolver.
+   + native host + `ext_bridge` + profile discovery/resolver + pairing + site resolver, **including the FERB
+   identity profile** (paired as FERB; `fill_secret`/`fill_otp` along the extension path). Step 5's real tests
+   (session, OTP, 21.4) run here against the extension.
 7. `act/mac` + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser`.
 8. Orchestrator multi-worker (DAG, reader/actor, budgets, verification, reconciliation).
 9. `sense` watchers + trail (fixed processing order, actor attribution) + exclusions.
@@ -942,9 +960,13 @@ section 21 safety tests pass.
   full checkpoint/resume of tasks comes with the overrides block.
 - Global daily cost ceiling UI; trail retention/encryption (plaintext SQLite, rely on FileVault); provider outage modes.
 - Hand-editable markdown memory (two-way sync) deferred.
-- Remote debugging (pipe or port) sets `navigator.webdriver`; FERB never hides or fakes automation signals. Sites
-  that refuse automated sign-in (Google) rely on the session seeded at setup; when it expires, FERB stops and asks
-  the owner to re-seed. `fill_secret` refuses, never types, when a site rejects a directly set value.
+- FERB never hides or fakes automation signals (it uses no remote debugging, so none is set by launch).
+  `fill_secret` refuses, never types, when a site rejects a directly set value.
+- FERB's identity needs the owner's Chrome running with the FERB profile loaded; FERB may open it (9.2).
+- The FERB profile shares the owner's Chrome process: separate cookies and storage, not a separate browser
+  process.
+- The secret passes through more components than a CDP fill did (native host and extension); both are
+  high-privilege, reviewed components.
 - Background input in owner browsers uses focus emulation, so the page believes it is visible during trusted-input
   actions (only while the debugger is attached for them). This is a deliberate trade-off, not an automation-signal
   change.
@@ -1000,8 +1022,10 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
    `apply_patch`), a write attempt fails under the enforced sandbox; reading a file outside the workspace and
    fetching a URL both return nothing.
 2. Revoked or expired run token cannot call any tool; `ferb stop` revokes all within one second (real).
-3. `FERB` task cannot reach owner browsers, shell or AppleScript; `OWNER` task cannot use `fill_secret`/mailbox.
-4. `fill_secret` refuses when the target frame origin is not in `allowed_origins` (e.g. lookalike domain, iframe).
+3. `FERB` task cannot reach owner profiles, shell or AppleScript; `OWNER` task cannot reach the FERB profile or
+   use `fill_secret`/mailbox.
+4. `fill_secret` (through the extension) refuses when the target frame origin is not in `allowed_origins` (e.g.
+   lookalike domain, iframe).
 5. Secrets and password/OTP values never appear in snapshots, spans, logs, journal, memory or exports.
 6. Extension refuses non-allowlisted CDP methods (`Network.getAllCookies`, `Runtime.evaluate`, `Target.*`).
 7. Intent mismatch is blocked: summarize-only task tries to send / run shell / message a new recipient.
@@ -1017,5 +1041,7 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
 17. Forgotten memory is not regenerated by distillation (sources purged) and is absent from FTS and exports.
 18. `actor == "ferb"` trail events never become owner preferences or resolver history.
 19. Timer claimed but unacknowledged before a crash is delivered exactly once to its consumer.
-20. Identity seeding refuses a profile whose Chrome accounts are not exactly FERB's account, and never reads
-    cookie or password stores.
+20. The FERB identity profile is refused at pairing and flagged by `doctor` when its Chrome accounts are not
+    exactly FERB's account; cookie and password stores are never read.
+21. Along the extension path, a secret or one-time code value never appears in native-host or extension messages,
+    logs or errors.

@@ -198,7 +198,7 @@ class ToolResult:
 class TabRef:
     device_id: str
     browser: str                             # "chrome" | "brave" | ...
-    profile: str                             # profile folder ("identity" for cdp_identity)
+    profile: str                             # profile folder, e.g. "Profile 22"
     generation: int                          # connection generation: a reconnect makes older refs stale
     tab_id: str
 

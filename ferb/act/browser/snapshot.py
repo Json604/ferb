@@ -11,8 +11,8 @@ from ferb.core.types import PageElement, PageSnapshot
 
 MAX_ELEMENTS, MAX_TEXT, MAX_LABEL, MAX_VALUE = 400, 8000, 120, 200
 
-# Returns the visible interactive elements of the frame's document, as an array (kept by reference: the driver maps
-# each to Chrome's backend node id, which a page can't forge or move).
+# Returns the visible interactive elements of the frame's document, as an array kept by reference in the
+# extension's isolated world, where the page can't see, forge or move the element ids it assigns.
 WALKER = """(() => {
   const SEL = 'a[href],button,input,select,textarea,summary,[role],[contenteditable=""],[contenteditable="true"]';
   const ROLES = new Set(['button','link','checkbox','radio','tab','menuitem','option','combobox','textbox',

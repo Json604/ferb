@@ -6,11 +6,18 @@ seeded session — no extra credentials. The code goes straight from here into a
 only a digit code is taken from it, and only when exactly one candidate is present.
 """
 
+import asyncio
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Awaitable, Callable
+
+# What a worker is told when no code was filled (never the code itself).
+REASONS = {"no_new_message": "no new code arrived in FERB's inbox",
+           "no_code": "the newest email has no code in it",
+           "ambiguous": "the newest email has more than one code; refusing to guess",
+           "not_signed_in": "FERB's inbox is signed out"}
 
 FEED_URL = "https://mail.google.com/mail/feed/atom"
 NS = {"a": "http://purl.org/atom/ns#"}
@@ -93,3 +100,15 @@ class GmailFeedMailbox:
             return CodeResult(None, newest.id, "ambiguous")
         assert isinstance(code, str)
         return CodeResult(code, newest.id, "ok")
+
+
+async def wait_for_code(mailbox: GmailFeedMailbox, since: datetime, sender_contains: str | None,
+                        timeout: float = 120.0, poll: float = 5.0) -> CodeResult:
+    """Poll the inbox until a fresh code arrives; stop early on a signed-out inbox or an ambiguous message."""
+    loop = asyncio.get_running_loop()
+    end = loop.time() + timeout
+    while True:
+        found = await mailbox.find_code(since, sender_contains)
+        if found.code or found.reason in ("ambiguous", "not_signed_in") or loop.time() >= end:
+            return found
+        await asyncio.sleep(poll)

@@ -120,11 +120,11 @@ def setup(env: Env, update: bool = False) -> int:
     ok = _print_selftest(env, client.call("doctor.check"))
     client.close()
 
-    env.say("7/7  FERB's own browser profile (its Google account)")
-    if (inst.home / "chrome" / "identity" / "Default").is_dir():
+    env.say("7/7  FERB's identity profile (its Google account, in your Chrome)")
+    if Config(inst.home).get("identity", "profile"):
         ok = _identity_status(env) and ok
     else:
-        ok = seed_identity(env) == 0 and ok
+        ok = identity_setup(env) == 0 and ok
     env.say("Setup complete." if ok else "Setup finished with problems — `ferb doctor` shows what to fix.")
     return 0 if ok else 1
 
@@ -259,13 +259,14 @@ def doctor(env: Env) -> int:
         except (NotRunning, FerbError):
             ident = None
         if ident:
-            reseed = "sign FERB's account into its Chrome profile, quit Chrome, run `ferb setup --seed-identity`"
-            if not ident["seeded"]:
-                add(Check("identity browser", "warn", "not seeded", "run `ferb setup --seed-identity`"))
+            if not ident["profile"]:
+                add(Check("identity profile", "warn", "not set up", "run `ferb setup --identity`"))
             else:
-                add(Check("identity session", "ok" if ident["signed_in"] else "fail",
-                          f"signed in as {ident['address']}" if ident["signed_in"] else
-                          f"not signed in{' (' + ident['error'] + ')' if ident.get('error') else ''}", reseed))
+                add(Check("identity profile", "ok" if ident["profile_ok"] else "fail",
+                          f"{ident.get('profile_name')} ({ident['profile']}) holds only {ident['address']}"
+                          if ident["profile_ok"] else str(ident["error"]),
+                          "FERB's Chrome profile must hold only FERB's account; fix it in Chrome, or run "
+                          "`ferb setup --identity`"))
             for s in ident["secrets"]:
                 add(Check(f"secret {s['key']}", "ok" if s["in_keychain"] else "warn",
                           "in Keychain" if s["in_keychain"] else "missing from Keychain",
@@ -289,8 +290,9 @@ def doctor(env: Env) -> int:
 
 # ---------- FERB's identity browser (section 8 step 3) ----------
 
-def seed_identity(env: Env, name: str | None = None, chrome_data: Path = seed.CHROME_DATA,
-                  running: Callable[[Path], tuple[bool, bool]] = seed.running_chromes) -> int:
+def identity_setup(env: Env, name: str | None = None, chrome_data: Path = seed.CHROME_DATA) -> int:
+    """Find the Chrome profile holding exactly FERB's account, confirm it with the owner, record it. Nothing is
+    copied and Chrome is never quit; the extension is installed and paired there in build step 6."""
     config = Config(env.inst.home)
     address = str(config.get("mailbox", "address", "") or "")
     if not address:
@@ -300,34 +302,21 @@ def seed_identity(env: Env, name: str | None = None, chrome_data: Path = seed.CH
             return 1
         config.set("mailbox", "provider", "gmail")
         config.set("mailbox", "address", address)
-    identity = env.inst.home / "chrome" / "identity"
-    owner_running, ferb_running = running(identity)
-    if ferb_running:
-        env.say("     FERB's own browser is in use right now; run this again when its tasks finish.")
-        return 1
-    if owner_running:
-        env.say("     Please quit Google Chrome (⌘Q) — FERB won't quit it for you — then run "
-                "`ferb setup --seed-identity`.")
-        return 1
     try:
         p = seed.choose(seed.profiles(chrome_data), address, name)
     except seed.SeedError as e:
         env.say(f"     {e}")
         return 1
     env.say(f"     Chrome profile “{p.name}” (folder {p.folder}); Chrome accounts: {', '.join(p.accounts)}")
-    if (identity / "Default").exists():
-        env.say("     This replaces FERB's current browser profile (the old one is moved aside, not deleted).")
-    if env.ask("     Copy it into ~/.ferb/chrome/identity for FERB? [y/N] ").strip().lower() not in ("y", "yes"):
-        env.say("     Not copied.")
+    if env.ask("     Use it as FERB's identity profile? [y/N] ").strip().lower() not in ("y", "yes"):
+        env.say("     Not recorded.")
         return 1
-    moved = seed.copy_profile(p, identity, chrome_data)
-    if moved:
-        env.say(f"     Previous profile kept at {moved}")
+    config.set("identity", "browser", "chrome")
+    config.set("identity", "profile", p.folder)
     return 0 if _identity_status(env) else 1
 
 
 def _identity_status(env: Env) -> bool:
-    env.say("     Checking the session in FERB's own browser…")
     try:
         c = env.connect()
         r = c.call("identity.check")
@@ -335,11 +324,11 @@ def _identity_status(env: Env) -> bool:
     except (NotRunning, FerbError) as e:
         env.say(f"     Couldn't check: {e}")
         return False
-    if r["signed_in"]:
-        env.say(f"     Signed in as {r['address']}.")
+    if r["profile_ok"]:
+        env.say(f"     Profile “{r.get('profile_name')}” holds only {r['address']}. The extension is paired there "
+                "and the session checked from build step 6.")
         return True
-    env.say(f"     Not signed in as {r['address'] or 'FERB'}{' (' + r['error'] + ')' if r.get('error') else ''}: sign "
-            "FERB's account into its Chrome profile again, quit Chrome, run `ferb setup --seed-identity`.")
+    env.say(f"     FERB's identity profile isn't usable: {r['error']}")
     return False
 
 

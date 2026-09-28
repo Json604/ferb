@@ -4,13 +4,15 @@ Keychain item: generic password, service "ferb", account = SecretRef.key (e.g. "
 owner creates it in their own terminal (`security add-generic-password -s ferb -a <key> -w`), never through chat.
 Its SecretSpec (allowed origins, account hint) is not secret and lives in the owner-only config.toml.
 
-There is no public reveal: `_reveal` is called only by cdp_identity's origin-bound fill, right before the value is
-set on an element in a verified frame. Errors never carry the value, stdout or stderr.
+There is no public reveal: `_reveal` is called only by the identity browser driver's origin-bound fill, right
+before the value is sent to be set on an element in a verified frame. Errors never carry the value, stdout or
+stderr.
 """
 
 import asyncio
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from ferb.core.types import SecretRef, SecretSpec
 
@@ -19,6 +21,18 @@ SERVICE = "ferb"
 
 class SecretUnavailable(Exception):
     pass
+
+
+def normalize_origin(origin: str) -> str:
+    """scheme://host[:non-default port], lowercased host — the form allowed_origins are compared in."""
+    u = urlsplit(origin)
+    default = {"http": 80, "https": 443}.get(u.scheme)
+    port = u.port
+    return f"{u.scheme}://{u.hostname or ''}" + (f":{port}" if port and port != default else "")
+
+
+def origin_allowed(origin: str, spec: SecretSpec) -> bool:
+    return bool(origin) and normalize_origin(origin) in {normalize_origin(o) for o in spec.allowed_origins}
 
 
 def specs_from_config(section: dict[str, Any] | None) -> dict[str, SecretSpec]:

@@ -1,37 +1,38 @@
-"""browser.* tools through a real daemon + gateway + (headless, for tests) Chrome on local pages.
+"""browser.* tools through a real daemon + gateway, on the in-memory identity driver (tests/browserkit.py).
 
-Safety tests: 21.3 (identity separation of tool sets), 21.5 (a filled password appears nowhere FERB writes),
-intent gating of submits (10.2), tabs private to their task and closed with it, `ferb stop` closes FERB's browser.
+Safety tests: 21.3 (identity separation of tool sets), 21.5 (a filled password or code appears nowhere FERB
+writes, and never in a worker's results), intent gating of submits (10.2), tabs private to their task and closed
+with it, `ferb stop` closes FERB's browser, local/private URLs refused before any driver sees them.
 """
 
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
 
 import pytest
 
-from ferb.act.browser.tools import act_kind
+from ferb.act.browser.tools import act_kind, check_url
 from ferb.cli.client import Client
+from ferb.core.errors import Refused
 from ferb.core.types import Budget, Identity, PageElement, SecretSpec, Task
-from ferb.identity.secrets import KeychainSecretStore
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.intent import RequestIntent, site_matches
 from ferb.policy.rules import Kind
-from tests.browserkit import PASSWORD, REF
+from tests.browserkit import PASSWORD, REF, FakeIdentityDriver, fake_driver, feed
 from tests.conftest import RunningDaemon
 
 FERB_SCOPES = {"identity:browse", "secrets:fill", "mailbox:read"}
+SITE = "https://login.example.com"
 
 
 @pytest.fixture
-def bd(daemon: RunningDaemon, keychain: Any, site: dict[str, Any]) -> Iterator[RunningDaemon]:
-    drv = daemon.daemon.identity_browser
-    (drv.user_data_dir / "Default").mkdir(parents=True)
-    drv.allow_local, drv.headless = True, True                      # offline tests: no windows
-    specs = {REF.key: SecretSpec(REF, [site["L"]], "test account")}
-    drv.secrets = KeychainSecretStore(lambda: specs, keychain)
-    yield daemon
+def bd(daemon: RunningDaemon, keychain: Any) -> Iterator[tuple[RunningDaemon, FakeIdentityDriver]]:
+    specs = {REF.key: SecretSpec(REF, [SITE], "test account")}
+    drv = fake_driver(keychain, specs, [])
+    drv.add_secret_value = daemon.daemon._add_secret_value                   # the daemon's redactor learns it
+    daemon.daemon.use_identity_browser(drv)
+    yield daemon, drv
 
 
 def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], intent: RequestIntent | None) -> Any:
@@ -49,7 +50,7 @@ def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], inten
 
 
 def call(d: RunningDaemon, grant: Any, name: str, **args: Any) -> dict[str, Any]:
-    return d.run(d.daemon.gateway.call(grant, name, args), timeout=60)          # type: ignore[no-any-return]
+    return d.run(d.daemon.gateway.call(grant, name, args), timeout=30)          # type: ignore[no-any-return]
 
 
 def el(snapshot: dict[str, Any], **match: Any) -> str:
@@ -59,96 +60,145 @@ def el(snapshot: dict[str, Any], **match: Any) -> str:
     raise AssertionError(f"no {match} in {snapshot['elements']}")
 
 
-def test_identity_separates_tool_sets(bd: RunningDaemon) -> None:
+def test_identity_separates_tool_sets(bd: Any) -> None:
     """21.3: FERB tasks get FERB's browser/secrets/mailbox; OWNER tasks never do (and can't call them)."""
-    ferb = task(bd, "a", Identity.FERB, FERB_SCOPES, None)
-    owner = task(bd, "b", Identity.OWNER, {"browser:read", "browser:act", "fs:read"}, None)
-    ferb_tools = {t["name"] for t in bd.daemon.gateway.tools_for(ferb)}
+    d, _ = bd
+    ferb = task(d, "a", Identity.FERB, FERB_SCOPES, None)
+    owner = task(d, "b", Identity.OWNER, {"browser:read", "browser:act", "fs:read"}, None)
+    ferb_tools = {t["name"] for t in d.daemon.gateway.tools_for(ferb)}
     assert {"browser.open", "browser.fill_secret", "browser.fill_otp"} <= ferb_tools
-    assert not {n for n in (t["name"] for t in bd.daemon.gateway.tools_for(owner)) if n.startswith("browser.")}
-    r = call(bd, owner, "browser.fill_secret", tab="t1", element="s1e1", secret=REF.key)
+    assert not {n for n in (t["name"] for t in d.daemon.gateway.tools_for(owner)) if n.startswith("browser.")}
+    r = call(d, owner, "browser.fill_secret", tab="t1", element="s1e1", secret=REF.key)
     assert r["is_error"] and "not available" in r["content"]["error"]
-    browse_only = task(bd, "c", Identity.FERB, {"identity:browse"}, None)
-    assert "browser.fill_secret" not in {t["name"] for t in bd.daemon.gateway.tools_for(browse_only)}
-    assert REF.key in next(t["description"] for t in bd.daemon.gateway.tools_for(ferb)
-                           if t["name"] == "browser.fill_secret")          # names, never values
+    browse_only = task(d, "c", Identity.FERB, {"identity:browse"}, None)
+    assert "browser.fill_secret" not in {t["name"] for t in d.daemon.gateway.tools_for(browse_only)}
+    desc = next(t["description"] for t in d.daemon.gateway.tools_for(ferb) if t["name"] == "browser.fill_secret")
+    assert REF.key in desc and PASSWORD not in desc                          # names, never values
 
 
-def test_sign_in_through_the_gateway_and_the_password_is_nowhere(bd: RunningDaemon, site: dict[str, Any]) -> None:
-    """21.5: after a real sign-in, the password is in no tool result, span, journal row, ledger row or log."""
-    g = task(bd, "s", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-s", {"sign_in"}))
-    results = [call(bd, g, "browser.open", url=f"{site['L']}/login")]
+def test_no_browser_tools_until_a_driver_is_attached(daemon: RunningDaemon) -> None:
+    g = task(daemon, "n", Identity.FERB, FERB_SCOPES, None)
+    assert not [t for t in daemon.daemon.gateway.tools_for(g) if t["name"].startswith("browser.")]
+
+
+def test_sign_in_through_the_gateway_and_the_password_is_nowhere(bd: Any) -> None:
+    """21.5: after a sign-in, the password is in no tool result, span, journal row, ledger row or log."""
+    d, drv = bd
+    g = task(d, "s", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-s", {"sign_in"}))
+    results = [call(d, g, "browser.open", url=f"{SITE}/login")]
     tab = results[0]["content"]["tab"]
-    results.append(call(bd, g, "browser.snapshot", tab=tab))
+    results.append(call(d, g, "browser.snapshot", tab=tab))
     snap = results[-1]["content"]
-    results.append(call(bd, g, "browser.act", tab=tab, element=el(snap, role="textbox", label=""), action="type",
-                        text="ferb-test"))
-    results.append(call(bd, g, "browser.fill_secret", tab=tab, element=el(snap, type="password"), secret=REF.key))
-    results.append(call(bd, g, "browser.snapshot", tab=tab))
+    results.append(call(d, g, "browser.act", tab=tab, element=el(snap, role="textbox", form="login"),
+                        action="type", text="ferb-test"))
+    results.append(call(d, g, "browser.fill_secret", tab=tab, element=el(snap, type="password"), secret=REF.key))
+    results.append(call(d, g, "browser.snapshot", tab=tab))
     snap2 = results[-1]["content"]
     assert el(snap2, type="password", sensitive=True, filled=True)
-    results.append(call(bd, g, "browser.act", tab=tab, element=el(snap2, role="button"), action="click"))
-    results.append(call(bd, g, "browser.wait", tab=tab, until="text", value="Welcome back"))
+    results.append(call(d, g, "browser.act", tab=tab, element=el(snap2, role="button"), action="click"))
+    results.append(call(d, g, "browser.wait", tab=tab, until="text", value="Welcome back"))
     assert all(not r["is_error"] for r in results), [r for r in results if r["is_error"]]
     assert results[-1]["content"]["met"] is True
-    assert PASSWORD in site["posted"][-1]                                    # the site got it...
+    assert PASSWORD in drv.posted[-1].values()                               # the site got it...
     assert PASSWORD not in json.dumps(results)                               # ...the worker never did
-    bd.run(bd.daemon.identity_browser.release("s"))
-    db = bd.daemon.home / "ferb.db"
-    for f in (db, db.with_name("ferb.db-wal")):
-        if f.exists():
-            assert PASSWORD.encode() not in f.read_bytes(), f.name          # spans, journal, ledger
-    for line in (bd.daemon.home / "logs").glob("*") if (bd.daemon.home / "logs").exists() else []:
-        assert PASSWORD not in line.read_text(errors="ignore")
+    _nowhere(d, PASSWORD)
 
 
-def test_submits_need_the_intent_but_searches_do_not(bd: RunningDaemon, site: dict[str, Any]) -> None:
-    g = task(bd, "r", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-r", {"research"}))
-    tab = call(bd, g, "browser.open", url=f"{site['L']}/search")["content"]["tab"]
-    snap = call(bd, g, "browser.snapshot", tab=tab)["content"]
-    q = el(snap, form="search")
-    assert not call(bd, g, "browser.act", tab=tab, element=q, action="type", text="weather")["is_error"]
-    assert not call(bd, g, "browser.act", tab=tab, element=q, action="press", text="Enter")["is_error"]
-    call(bd, g, "browser.navigate", tab=tab, url=f"{site['L']}/login")
-    snap = call(bd, g, "browser.snapshot", tab=tab)["content"]
-    r = call(bd, g, "browser.act", tab=tab, element=el(snap, role="button"), action="click")
+def test_fill_otp_code_goes_to_the_field_never_to_the_worker(bd: Any) -> None:
+    d, drv = bd
+    now = datetime.now(timezone.utc)
+    drv.feed_xml = feed([("noreply@login.example.com", "Your code", "Your sign-in code is 482913.", now)])
+    g = task(d, "o", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-o", {"sign_in"}))
+    tab = call(d, g, "browser.open", url=f"{SITE}/otp")["content"]["tab"]
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    r = call(d, g, "browser.fill_otp", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
+    assert not r["is_error"] and "482913" not in json.dumps(r)
+    assert drv.value(tab, 0) == "482913"
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    again = call(d, g, "browser.fill_otp", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
+    assert again["is_error"] and "no new code" in again["content"]["detail"]  # a used message is never reused
+    _nowhere(d, "482913")
+
+
+def test_fill_refused_on_a_page_the_secret_isnt_for(bd: Any) -> None:
+    d, drv = bd
+    g = task(d, "f", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-f", {"sign_in"}))
+    tab = call(d, g, "browser.open", url=f"{SITE}/framed")["content"]["tab"]
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    r = call(d, g, "browser.fill_secret", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
+    assert r["is_error"] and "isn't allowed" in r["content"]["error"] and drv.value(tab, 0) == ""
+
+
+def test_submits_need_the_intent_but_searches_do_not(bd: Any) -> None:
+    d, drv = bd
+    g = task(d, "r", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-r", {"research"}))
+    tab = call(d, g, "browser.open", url=f"{SITE}/search")["content"]["tab"]
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    q = el(snap, form="search", role="searchbox")
+    assert not call(d, g, "browser.act", tab=tab, element=q, action="type", text="weather")["is_error"]
+    assert not call(d, g, "browser.act", tab=tab, element=q, action="press", text="Enter")["is_error"]
+    call(d, g, "browser.navigate", tab=tab, url=f"{SITE}/search")
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    r = call(d, g, "browser.act", tab=tab, element=el(snap, label="Join"), action="click")
     assert r["is_error"] and "'submit' was not requested" in r["content"]["error"]
-    r = call(bd, g, "browser.fill_secret", tab=tab, element=el(snap, type="password"), secret=REF.key)
+    call(d, g, "browser.navigate", tab=tab, url=f"{SITE}/login")
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    r = call(d, g, "browser.fill_secret", tab=tab, element=el(snap, type="password"), secret=REF.key)
     assert r["is_error"] and "'fill_secret' was not requested" in r["content"]["error"]
-    assert site["posted"] == [] or "weather" not in site["posted"][-1]
+    assert [p for p in drv.posted if "Join" in p] == []
 
 
-def test_tabs_are_private_to_their_task_and_close_with_it(bd: RunningDaemon, site: dict[str, Any]) -> None:
-    a = task(bd, "ta", Identity.FERB, {"identity:browse"}, None)
-    b = task(bd, "tb", Identity.FERB, {"identity:browse"}, None)
-    tab = call(bd, a, "browser.open", url=f"{site['L']}/login")["content"]["tab"]
-    r = call(bd, b, "browser.snapshot", tab=tab)
+def test_stale_element_ids_are_refused(bd: Any) -> None:
+    d, _ = bd
+    # With a "research" intent the old id is already blocked (an unknown element counts as a submit); allow submits
+    # so the call reaches the driver, which must refuse the stale id.
+    g = task(d, "st", Identity.FERB, {"identity:browse"}, RequestIntent.from_plan("req-st", {"sign_in"}))
+    tab = call(d, g, "browser.open", url=f"{SITE}/login")["content"]["tab"]
+    old = call(d, g, "browser.snapshot", tab=tab)["content"]
+    call(d, g, "browser.snapshot", tab=tab)
+    r = call(d, g, "browser.act", tab=tab, element=el(old, role="link"), action="click")
+    assert r["is_error"] and "older snapshot" in r["content"]["error"]
+
+
+def test_tabs_are_private_to_their_task_and_close_with_it(bd: Any) -> None:
+    d, drv = bd
+    a = task(d, "ta", Identity.FERB, {"identity:browse"}, None)
+    b = task(d, "tb", Identity.FERB, {"identity:browse"}, None)
+    tab = call(d, a, "browser.open", url=f"{SITE}/login")["content"]["tab"]
+    r = call(d, b, "browser.snapshot", tab=tab)
     assert r["is_error"] and "no tab" in r["content"]["error"]
-    bd.run(bd.daemon.identity_browser.release("ta"))
-    assert not bd.daemon.identity_browser.running                            # nothing left open: Chrome stopped
-    assert call(bd, a, "browser.snapshot", tab=tab)["is_error"]
+    d.run(d.daemon._task_end("ta"))
+    assert not drv.running and call(d, a, "browser.snapshot", tab=tab)["is_error"]
 
 
-def test_stop_closes_ferbs_browser(bd: RunningDaemon, site: dict[str, Any]) -> None:
-    g = task(bd, "st", Identity.FERB, {"identity:browse"}, None)
-    call(bd, g, "browser.open", url=f"{site['L']}/login")
-    assert bd.daemon.identity_browser.running
-    c = Client(bd.sock)
+def test_stop_closes_ferbs_browser(bd: Any) -> None:
+    d, drv = bd
+    g = task(d, "sp", Identity.FERB, {"identity:browse"}, None)
+    call(d, g, "browser.open", url=f"{SITE}/login")
+    assert drv.running
+    c = Client(d.sock)
     try:
         c.call("stop.engage")
-        end = time.monotonic() + 10
-        while bd.daemon.identity_browser.running and time.monotonic() < end:
-            time.sleep(0.1)
-        assert not bd.daemon.identity_browser.running
+        end = time.monotonic() + 5
+        while drv.running and time.monotonic() < end:
+            time.sleep(0.05)
+        assert not drv.running
     finally:
         c.call("stop.lift")
         c.close()
 
 
-def test_private_addresses_refused_in_the_real_config(daemon: RunningDaemon) -> None:
-    g = task(daemon, "p", Identity.FERB, {"identity:browse"}, None)
-    r = call(daemon, g, "browser.open", url="http://127.0.0.1:9/")
-    assert r["is_error"] and "local" in r["content"]["error"]
+def test_local_and_non_http_urls_refused_before_the_driver(bd: Any) -> None:
+    d, drv = bd
+    g = task(d, "p", Identity.FERB, {"identity:browse"}, None)
+    for url in ("http://127.0.0.1:9/", "file:///etc/passwd", "http://router.local/"):
+        r = call(d, g, "browser.open", url=url)
+        assert r["is_error"] and ("local" in r["content"]["error"] or "http" in r["content"]["error"])
+    assert not drv.running                                                  # the driver never saw them
+    for local in ("http://localhost:8080/", "http://192.168.1.1/", "http://10.0.0.2", "http://[::1]/"):
+        with pytest.raises(Refused):
+            check_url(local, allow_local=False)
+    check_url("https://accounts.google.com/", allow_local=False)
 
 
 def test_site_matching_covers_subdomains_only() -> None:
@@ -171,3 +221,13 @@ def test_action_kinds_follow_what_the_element_does() -> None:
     assert act_kind("press", "Enter", e("textbox", "other")) == Kind.SUBMIT
     assert act_kind("press", "Tab", e("textbox", "other")) == Kind.READ
     assert act_kind("click", None, None) == Kind.SUBMIT                     # unknown element: strictest
+
+
+def _nowhere(d: RunningDaemon, value: str) -> None:
+    db = d.daemon.home / "ferb.db"
+    for f in (db, db.with_name("ferb.db-wal")):
+        if f.exists():
+            assert value.encode() not in f.read_bytes(), f.name             # spans, journal, ledger
+    logs = d.daemon.home / "logs"
+    for f in logs.glob("*") if logs.exists() else []:
+        assert value not in f.read_text(errors="ignore")
