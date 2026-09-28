@@ -12,6 +12,13 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 
 Spike 2 — Claude Agent SDK session with the `ferb mcp` shim as the only tool source.
 
+## Pinned external tools
+
+- **Codex CLI 0.157.1**, installed repo-locally by `npm install` (root `package.json`, exact version); FERB runs
+  `node_modules/.bin/codex`, never the global one. **Upgrading Codex means rerunning the spike 1 tests first**
+  (`spikes/01_codex_mcp`, command in its FINDINGS.md) and only then bumping the pin in both `package.json` and
+  `CODEX_VERSION` in `codex_run.py`. The tests refuse to run on any other version.
+
 ## Open items carried forward
 
 - Build step 4 (runtimes) must implement the tool-list allowlist check from the request trace (§7); the spike's

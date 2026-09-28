@@ -6,6 +6,7 @@ Environment: codex-cli 0.157.1 (ChatGPT login), mcp Python SDK 2.x, Python 3.12.
 
 Run the tests (real Codex runs, costs tokens):
 
+    npm install   # once, at repo root: pinned Codex
     uv run --python 3.12 --no-project --with pytest --with pytest-xdist pytest -n 6 -q test_spike.py
 
 ## Result

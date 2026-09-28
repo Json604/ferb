@@ -13,6 +13,15 @@ from pathlib import Path
 
 SERVER = Path(__file__).with_name("server.py")
 
+# Pinned in the repo's package.json; upgrading means rerunning these tests first.
+CODEX = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "codex"
+CODEX_VERSION = "0.157.1"
+
+
+def codex_version() -> str:
+    out = subprocess.run([str(CODEX), "--version"], capture_output=True, text=True, check=True).stdout
+    return out.split()[-1]
+
 # Non-code-mode model: no `exec` (JS tool runner) and no `collaboration.*` subagents.
 # All gpt-5.6/6 catalog entries are code_mode_only with built-in multi-agent v2.
 WORKER_MODEL = "gpt-5.5"
@@ -61,7 +70,7 @@ def run_codex(prompt: str, workspace: Path, *, nonce: str, call_log: Path,
                 if not (shell_enabled and f in ("shell_tool", "unified_exec"))]
     env_toml = "{" + f'SPIKE_NONCE="{nonce}",SPIKE_CALL_LOG="{call_log}"' + "}"
     cmd = [
-        "codex", "exec", "--json", "--ephemeral", "--skip-git-repo-check",
+        str(CODEX), "exec", "--json", "--ephemeral", "--skip-git-repo-check",
         "--ignore-user-config", "--ignore-rules", "--strict-config",
         "-s", sandbox, "-C", str(workspace), "-m", WORKER_MODEL,
         "-c", 'approval_policy="never"',

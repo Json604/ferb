@@ -10,7 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from codex_run import ALLOWED_TOOLS, CodexRun, run_codex
+from codex_run import ALLOWED_TOOLS, CODEX_VERSION, CodexRun, codex_version, run_codex
+
+
+@pytest.fixture(autouse=True, scope="session")
+def pinned_codex():
+    assert codex_version() == CODEX_VERSION, "Codex changed: re-verify the lockdown before updating the pin"
 
 SHELL_LIKE = {"shell", "exec_command", "unified_exec", "local_shell", "write_stdin", "exec",
               "container.exec", "functions.exec", "web_search", "spawn_agent",
