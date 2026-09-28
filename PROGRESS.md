@@ -20,12 +20,13 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 14 — owner-input detection | 2026-09-28 | Works | `spikes/14_owner_input/FINDINGS.md`. Listen-only event tap + private marker on FERB's own events (idle timer unusable: FERB's input resets it). Detection ~0.6 ms median; yield ≤ one action step (20 ms steps → ≤25 ms). |
 | **Build step 1** — core, store, bus, clock, daemon + socket + auth, journal, `ferb logs`, `ferb trace` | 2026-09-28 | Done | 35 tests (3 runs green), `mypy --strict` clean on `ferb/core`. Span.task_id, bus event classes, 1 MiB message cap added to the contract first. Ported from spike 8: socket perms, stale socket, second daemon refused, EOF. Found: shutdown hung on open connections (fixed: server closes them). |
 | **Build step 2** — sanitize, policy (rules, intent, exposure, dataflow, autonomy, approvals, engine), ledger, `ferb stop` | 2026-09-28 | Done | 95 tests (3 runs green). Safety tests 21.3, 21.7, 21.8, 21.9, 21.10, 21.11 and partial 21.2/21.5. Contract first: intent derived only from the owner's message at plan time (10.2), internal-id redaction exemption (10.6), new critical topics (6), engine.py + config.py (3). Added: stop survives restart (10.5). |
+| **Build step 3** — device (scan, profile, permissions, install, selftest), `ferb setup [--update]`, `doctor`, `uninstall` | 2026-09-28 | Done, installed on this Mac | 118 tests (3 runs green) incl. a real launchd test. Spike 15 measured a launcher: section 8 step 6 kept. Real setup: dedicated Python 3.12.13 in `~/.ferb/python`, `com.ferb.daemon` running; owner granted Accessibility + Screen Recording (Input Monitoring granted too); `ferb doctor` all green after `--update`. Fixed after the first real run: self-test read the frontmost (Brave) window title → now reads the Dock. |
 
 ## Next
 
-**Build step 3** — `device` (setup, permissions, profile) + `ferb setup/doctor`. Foundation step: plan first,
-owner approval before building. Includes: dedicated interpreter under `~/.ferb` (§8 step 6), launcher-executable
-measurement (§18 step 3), launchd install, TCC checks from inside the daemon, identity-profile seeding (§8 step 3).
+**Build step 4** — runtimes with native tools disabled (Claude Agent SDK, Codex) + `ferb mcp` shim + gateway;
+`act/fs`; `ferb chat` with reply/clarify and a single worker. Safety tests for gateway bypass pass before continuing.
+Foundation step: plan first, owner approval before building.
 
 ## Rules for build steps (owner)
 
@@ -33,6 +34,10 @@ measurement (§18 step 3), launchd install, TCC checks from inside the daemon, i
   never import from `spikes/`.
 
 ## Open items carried forward
+
+- Automation (Apple Events) not yet requested for any app: owner can run `uv run ferb setup` in a terminal to pick
+  apps, or each app is asked on first use.
+- `~/.ferb/spike8/` (spike 8's venv + logs) is still there for reruns of spike 8's tests; delete any time.
 
 - Build step 7: mark every FERB input event; GUI actions check owner input before each step (per keystroke);
   listen-only tap needs Accessibility or Input Monitoring on the daemon's interpreter.

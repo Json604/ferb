@@ -139,6 +139,9 @@ def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str
     text = out.getvalue()
     assert rc == 1
     assert "✗ permission accessibility: denied" in text and "✓ agent loaded" in text
+    ok_lines = [l for l in text.splitlines() if l.startswith("✓")]
+    assert ok_lines and not any("→" in l for l in ok_lines)            # hints only on problems
+    assert "permission full_disk_access (optional)" in text
     world["daemon"].perms.update(accessibility="granted", screen_recording="granted")
     S.device_id(__import__("ferb.config", fromlist=["Config"]).Config(world["home"]))
     from ferb.device.profile import ProfileStore

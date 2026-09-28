@@ -228,7 +228,8 @@ def doctor(env: Env) -> int:
         for perm, status in report["permissions"].items():
             level = "fail" if perm in REQUIRED_PERMISSIONS and status != "granted" else (
                 "ok" if status == "granted" else "warn")
-            add(Check(f"permission {perm}", level, status,
+            optional = " (optional)" if perm == "full_disk_access" else ""
+            add(Check(f"permission {perm}{optional}", level, status,
                       f"grant it to {dedicated} (System Settings → Privacy & Security)" if level != "ok" else ""))
         for r in report["selftest"]:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
@@ -245,7 +246,7 @@ def doctor(env: Env) -> int:
                                                "changed since last scan", "" if d.empty else "run `ferb setup`"))
     mark = {"ok": "✓", "warn": "!", "fail": "✗"}
     for ch in checks:
-        env.say(f"{mark[ch.status]} {ch.name}: {ch.detail}" + (f"  → {ch.hint}" if ch.hint else ""))
+        env.say(f"{mark[ch.status]} {ch.name}: {ch.detail}" + (f"  → {ch.hint}" if ch.hint and ch.status != "ok" else ""))
     return 1 if any(ch.status == "fail" for ch in checks) else 0
 
 

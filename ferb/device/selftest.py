@@ -1,6 +1,6 @@
 """Self-test run inside the daemon (section 8 step 5): the process that will really act proves it can.
 
-- AX read: the frontmost app's focused-window title.
+- AX read: the Dock's accessibility tree (a system process; never the owner's frontmost app).
 - Event tap: a listen-only tap can be created (owner-input watcher, section 10.5).
 - One input event: a *marked* mouse-moved to where the pointer already is (no visible effect), seen by our tap.
 Browser self-tests arrive with build steps 5 and 6.
@@ -12,10 +12,8 @@ from dataclasses import dataclass
 
 import ApplicationServices as AX
 import Quartz
-from AppKit import NSWorkspace
 
 FERB_EVENT_MARK = 0x46455242          # "FERB" in kCGEventSourceUserData: FERB's own input events (section 10.5)
-_AX_NO_VALUE = -25212                 # kAXErrorNoValue: attribute exists but has no value (e.g. no window)
 
 
 @dataclass(frozen=True)
@@ -26,17 +24,17 @@ class Result:
 
 
 def ax_read() -> Result:
-    app = NSWorkspace.sharedWorkspace().frontmostApplication()
-    if app is None:
-        return Result("ax_read", False, "no frontmost app")
-    el = AX.AXUIElementCreateApplication(app.processIdentifier())
-    err, win = AX.AXUIElementCopyAttributeValue(el, "AXFocusedWindow", None)
-    if err == _AX_NO_VALUE:
-        return Result("ax_read", True, f"{app.localizedName()}: no focused window")
+    """Read the Dock's AX tree: a system process that's always running and holds none of the owner's content.
+    Never the frontmost app (that would read whatever the owner is working in — and could be Brave)."""
+    from AppKit import NSRunningApplication
+    apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.dock")
+    if not apps:
+        return Result("ax_read", False, "Dock not running")
+    el = AX.AXUIElementCreateApplication(apps[0].processIdentifier())
+    err, children = AX.AXUIElementCopyAttributeValue(el, "AXChildren", None)
     if err != 0:
-        return Result("ax_read", False, f"AX error {err} reading {app.localizedName()}")
-    err, title = AX.AXUIElementCopyAttributeValue(win, "AXTitle", None)
-    return Result("ax_read", err in (0, _AX_NO_VALUE), f"{app.localizedName()}: window title readable")
+        return Result("ax_read", False, f"AX error {err} reading the Dock")
+    return Result("ax_read", True, f"Dock accessibility tree readable ({len(children or [])} top-level elements)")
 
 
 class _Tap:
