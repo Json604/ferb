@@ -43,6 +43,10 @@ class FakeClient:
                 {"name": "input_event", "ok": True, "detail": "seen"}]
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid}
+        if method == "browsers.list":
+            return {"profiles": [{"browser": "chrome", "name": "Work", "folder": "Profile 1", "email": "",
+                                  "ferb_identity": False, "paired": True, "identity": "owner",
+                                  "connected": True, "version": "0.6.0", "refused": None}], "extension_ids": []}
         if method == "identity.check":
             return {"address": "ferb@test.example", "profile": "Profile 22", "profile_ok": True,
                     "profile_name": "FERB", "error": None, "session": None,

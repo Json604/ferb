@@ -30,11 +30,14 @@ class Verdict:
 class PolicyEngine:
     def __init__(self, clock: Clock, ferb_workspace: str, level: Callable[[], Level] = lambda: Level.BALANCED,
                  trusted_kinds: Callable[[], frozenset[str]] = lambda: frozenset(),
-                 fuzzy: Fuzzy | None = None, undo_window_s: float = 10.0) -> None:
+                 fuzzy: Fuzzy | None = None, undo_window_s: float = 10.0,
+                 trusted_accounts: Callable[[], frozenset[str]] = lambda: frozenset(),
+                 remember_account: Callable[[str], None] = lambda key: None) -> None:
         self.clock = clock
         self.ferb_workspace = ferb_workspace
         self.level = level
         self.trusted_kinds = trusted_kinds
+        self.trusted_accounts, self.remember_account = trusted_accounts, remember_account
         self.fuzzy = fuzzy
         self.intents = IntentRegistry()
         self.exposure = ExposureTracker()
@@ -64,7 +67,15 @@ class PolicyEngine:
         injected = any(r.startswith("injection signal") for r in st.reasons)
         reason = ask_reason(a, self.level(), im.reason if im.decision == "ask" else None, injected,
                             self.trusted_kinds())
-        if reason and self.approvals.consume(a) is None:
+        account_q = None
+        if a.unverified_account and a.unverified_account not in self.trusted_accounts():
+            account_q = (f"FERB can't check which account is signed in on {a.unverified_account}; approve once "
+                         "and FERB won't ask again for this site and profile")
+            reason = reason or account_q
+        consumed = self.approvals.consume(a) if reason else None
+        if consumed is not None and account_q is not None and consumed.reason == account_q:
+            self.remember_account(a.unverified_account or "")        # learned trust (10.4), revocable
+        if reason and consumed is None:
             ap = self.approvals.request(a, reason)
             return Verdict("ask", reason, "approval", approval_id=ap.id,
                            events=[("approval.requested", {"approval_id": ap.id, "capability": a.capability,

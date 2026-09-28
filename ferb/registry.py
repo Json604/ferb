@@ -1,10 +1,11 @@
 """THE explicit list of what FERB loads (section 6, rule 3). No auto-discovery, no import-time side effects."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
-                                   BrowserOpen, BrowserSnapshot, BrowserWait, IdentityDriver)
+                                   BrowserOpen, BrowserSnapshot, BrowserWait, FERB_BROWSER, IdentityDriver,
+                                   OWNER_BROWSER)
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.core.interfaces import Capability
 
@@ -36,12 +37,24 @@ def build() -> Registry:
 
 
 def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool = False) -> None:
-    """FERB's own browser (identity FERB only): the extension in Chrome's "FERB" profile, from build step 6."""
-    r.add(BrowserOpen(driver, allow_local))
-    r.add(BrowserNavigate(driver, allow_local))
-    r.add(BrowserSnapshot(driver))
-    r.add(BrowserAct(driver))
-    r.add(BrowserWait(driver))
-    r.add(BrowserClose(driver))
-    r.add(BrowserFillSecret(driver))
-    r.add(BrowserFillOtp(driver))
+    """FERB's own browser (identity FERB only): the extension in Chrome's "FERB" profile (build step 6b)."""
+    f = replace(FERB_BROWSER, allow_local=allow_local)
+    r.add(BrowserOpen(driver, f))
+    r.add(BrowserNavigate(driver, f))
+    r.add(BrowserSnapshot(driver, f))
+    r.add(BrowserAct(driver, f))
+    r.add(BrowserWait(driver, f))
+    r.add(BrowserClose(driver, f))
+    r.add(BrowserFillSecret(driver, f))
+    r.add(BrowserFillOtp(driver, f))
+
+
+def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = False) -> None:
+    """The owner's paired Chrome/Brave profiles through the extension (identity OWNER only; build step 6a)."""
+    f = replace(OWNER_BROWSER, allow_local=allow_local)
+    r.add(BrowserOpen(router, f))
+    r.add(BrowserNavigate(router, f))
+    r.add(BrowserSnapshot(router, f))
+    r.add(BrowserAct(router, f))
+    r.add(BrowserWait(router, f))
+    r.add(BrowserClose(router, f))

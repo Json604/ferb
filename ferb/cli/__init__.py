@@ -33,6 +33,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = sub.add_parser("autonomy", help="show or set the autonomy level")
     ap.add_argument("level", nargs="?", choices=["careful", "balanced", "hands-off"])
 
+    bp = sub.add_parser("browsers", help="browser profiles, pairing and connection status")
+    bsub = bp.add_subparsers(dest="bcmd")
+    for name, help_ in (("pair", "connect a profile (the FERB extension must be loaded there)"),
+                        ("unpair", "forget a profile's pairing")):
+        x = bsub.add_parser(name, help=help_)
+        x.add_argument("profile", help="the profile's name as shown in the browser (or its email)")
+        x.add_argument("--browser", choices=["chrome", "brave"])
+
     sub.add_parser("chat", help="talk to FERB")
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
@@ -65,8 +73,10 @@ def main(argv: list[str] | None = None) -> int:
             return 130
     if args.cmd in ("setup", "doctor", "uninstall"):
         from ferb.cli import setup as setup_cmd
-        from ferb.device.install import InstallError, Installer
-        env = setup_cmd.Env(Installer(ferb_home()), lambda: Client(socket_path()), input, sys.stdout)
+        from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+        from ferb.device.install import NATIVE_HOSTS_DIRS, InstallError, Installer
+        inst = Installer(ferb_home(), native_hosts_dirs=NATIVE_HOSTS_DIRS, extension_ids=(FERB_EXTENSION_ID,))
+        env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout)
         try:
             if args.cmd == "setup" and args.identity:
                 return setup_cmd.identity_setup(env, args.profile)
@@ -95,6 +105,9 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.resume(client, sys.stdout)
             if args.cmd == "undo":
                 return admin.undo(client, args.hold_id, sys.stdout)
+            if args.cmd == "browsers":
+                return admin.browsers(client, args.bcmd, getattr(args, "profile", None), getattr(args, "browser", None),
+                                      sys.stdout)
             return admin.autonomy(client, args.level, sys.stdout)
         finally:
             client.close()

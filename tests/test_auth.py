@@ -3,7 +3,7 @@
 import pytest
 
 from ferb.clock.clock import FakeClock
-from ferb.core.errors import AuthError, Unsupported
+from ferb.core.errors import AuthError
 from ferb.core.types import Identity
 from ferb.daemon.auth import METHODS, Role, RunTokens, allowed, check_cli_peer, check_native_host
 
@@ -21,9 +21,14 @@ def test_cli_requires_the_owner_uid() -> None:
         check_cli_peer(502, 501)
 
 
-def test_native_host_fails_explicitly_until_pairing_exists() -> None:
-    with pytest.raises(Unsupported):
-        check_native_host()
+def test_native_host_needs_the_owner_uid_and_a_known_extension_origin() -> None:
+    ids = frozenset({"jaclnphefmmgmpofnabffahdkbjjompm"})
+    check_native_host(501, 501, "chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/", ids)
+    for uid, origin in ((502, "chrome-extension://jaclnphefmmgmpofnabffahdkbjjompm/"),
+                        (501, "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"),
+                        (501, "https://jaclnphefmmgmpofnabffahdkbjjompm/"), (501, "")):
+        with pytest.raises(AuthError):
+            check_native_host(uid, 501, origin, ids)
 
 
 def test_run_token_lifecycle_expire_and_revoke() -> None:

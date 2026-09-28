@@ -45,6 +45,7 @@ class ActionRequest:
     target: Target = Target()
     content: str | None = None
     data_labels: frozenset[DataLabel] = field(default_factory=frozenset)
+    unverified_account: str | None = None    # "site @ browser/folder" whose signed-in account FERB can't check (9.3)
 
 
 def payload_hash(a: ActionRequest) -> str:

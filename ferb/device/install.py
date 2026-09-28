@@ -7,6 +7,7 @@
 """
 
 import hashlib
+import json
 import os
 import plistlib
 import shutil
@@ -22,6 +23,12 @@ from ferb.core.errors import FerbError
 LABEL = "com.ferb.daemon"
 PYTHON_VERSION = "3.12"
 MARKER = ".ferb-home"
+NATIVE_HOST_NAME = "com.ferb.native_host"            # extensions/chromium/protocol.js FERB_HOST
+NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
+_SUPPORT = Path.home() / "Library" / "Application Support"
+# Chrome's folder is read by Chrome and Brave (measured before build step 6); Brave's own is a harmless extra copy.
+NATIVE_HOSTS_DIRS = (_SUPPORT / "Google" / "Chrome" / "NativeMessagingHosts",
+                     _SUPPORT / "BraveSoftware" / "Brave-Browser" / "NativeMessagingHosts")
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
@@ -54,6 +61,8 @@ class Installer:
     label: str = LABEL
     run: Runner = default_runner
     launch_agents: Path = Path.home() / "Library" / "LaunchAgents"
+    native_hosts_dirs: tuple[Path, ...] = ()      # where the native-host manifest goes (the CLI passes the real ones)
+    extension_ids: tuple[str, ...] = ()
 
     # ---------- paths ----------
 
@@ -180,17 +189,44 @@ class Installer:
                 raise InstallError("FERB isn't installed yet: run `ferb setup` first")
             self.install_ferb()
             self.ensure_codex()
+            self.write_native_host()
             self.restart() if self.loaded() else self.load()
             return
         interpreter = self.ensure_interpreter()
         self.ensure_venv(interpreter)
         self.install_ferb()
         self.ensure_codex()
+        self.write_native_host()
         changed = self.write_plist()
         if changed or not self.loaded():
             self.load()
         else:
             self.restart()
+
+    # ---------- native host (section 8 step 3) ----------
+
+    @property
+    def native_host_launcher(self) -> Path:
+        return self.home / "bin" / "ferb-native-host"        # outside macOS-protected folders
+
+    def write_native_host(self) -> list[Path]:
+        """Launcher + manifest in each folder: Chrome's (read by Chrome and Brave) and Brave's own (in case a Brave
+        update switches folders)."""
+        if not self.native_hosts_dirs:
+            return []
+        launcher = self.native_host_launcher
+        launcher.parent.mkdir(parents=True, exist_ok=True)
+        launcher.write_text(f'#!/bin/sh\nFERB_HOME="{self.home}" exec "{self.venv_python}" -m ferb.native_host.main "$@"\n')
+        launcher.chmod(0o700)
+        manifest = json.dumps({"name": NATIVE_HOST_NAME, "description": "FERB native messaging host",
+                               "path": str(launcher), "type": "stdio",
+                               "allowed_origins": [f"chrome-extension://{i}/" for i in self.extension_ids]}, indent=2)
+        written = []
+        for d in self.native_hosts_dirs:
+            d.mkdir(parents=True, exist_ok=True)
+            (d / NATIVE_HOST_MANIFEST).write_text(manifest)
+            written.append(d / NATIVE_HOST_MANIFEST)
+        return written
 
     # ---------- uninstall ----------
 
@@ -204,6 +240,11 @@ class Installer:
         if self.plist_path.exists():
             self.plist_path.unlink()
             removed.append(str(self.plist_path))
+        for d in self.native_hosts_dirs:
+            m = d / NATIVE_HOST_MANIFEST
+            if m.exists():
+                m.unlink()
+                removed.append(str(m))
         if purge:
             self._check_purge_target()
             shutil.rmtree(self.home)

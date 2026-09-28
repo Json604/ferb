@@ -1,6 +1,7 @@
 """Installer (section 8 steps 5-6) with a fake command runner: plist content, idempotent install, --update,
 uninstall and the purge safety rules. Nothing real is installed here (see test_launchd_real.py)."""
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -126,3 +127,19 @@ def test_code_hash_changes_with_code(tmp_path: Path) -> None:
     assert code_hash(pkg) == h1                                  # caches don't count
     (pkg / "a.py").write_text("x = 2\n")
     assert code_hash(pkg) != h1
+
+
+def test_native_host_manifest_goes_to_every_listed_folder_and_uninstall_removes_it(tmp_path: Path) -> None:
+    """Section 8: Chrome's folder (read by Chrome and Brave) plus Brave's own; the launcher lives under ~/.ferb."""
+    from ferb.device.install import NATIVE_HOST_MANIFEST
+    dirs = (tmp_path / "Chrome" / "NativeMessagingHosts", tmp_path / "Brave" / "NativeMessagingHosts")
+    inst = Installer(tmp_path / ".ferb", label="com.ferb.test", run=FakeRunner(tmp_path / ".ferb"),
+                     launch_agents=tmp_path / "LA", native_hosts_dirs=dirs, extension_ids=("abc",))
+    written = inst.write_native_host()
+    assert [w.parent for w in written] == list(dirs)
+    m = json.loads(written[0].read_text())
+    assert m["allowed_origins"] == ["chrome-extension://abc/"] and m["path"] == str(inst.native_host_launcher)
+    assert str(tmp_path / ".ferb") in str(inst.native_host_launcher)          # never a protected folder
+    inst.uninstall()
+    assert not any((d / NATIVE_HOST_MANIFEST).exists() for d in dirs)
+    assert Installer(tmp_path / "x").write_native_host() == []               # no folders given: writes nothing

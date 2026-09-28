@@ -37,6 +37,7 @@ class Request(BaseModel):
 class Hello(BaseModel):
     role: Role
     token: str | None = None
+    origin: str | None = None             # native_host: the caller extension's origin
 
 
 @dataclass
@@ -46,6 +47,7 @@ class Session:
 
 
 Unary = Callable[[Session, dict[str, Any]], Awaitable[dict[str, Any]]]
+Channel = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]
 Stream = Callable[[Session, dict[str, Any]], AsyncIterator[dict[str, Any]]]
 
 
@@ -76,6 +78,8 @@ class Server:
         self.owner_uid = os.getuid() if owner_uid is None else owner_uid
         self.unary: dict[str, Unary] = {}
         self.streams: dict[str, Stream] = {}
+        self.native: Channel | None = None               # extension message channel (build step 6a)
+        self.extension_ids: Callable[[], frozenset[str]] = lambda: frozenset()
         self._server: asyncio.base_events.Server | None = None
         self._writers: set[asyncio.StreamWriter] = set()
 
@@ -127,6 +131,9 @@ class Server:
                     session = await self._hello(req, uid, writer)
                     if session is None:
                         return
+                    if session.role is Role.NATIVE_HOST and self.native is not None:
+                        await self.native(reader, writer)   # the rest of the connection is extension messages
+                        return
                     continue
                 await self._dispatch(session, req, reader, writer)
         except (ConnectionResetError, BrokenPipeError):
@@ -147,8 +154,10 @@ class Server:
             elif hello.role is Role.MCP_SHIM:
                 session = Session(Role.MCP_SHIM, self.tokens.validate(hello.token or ""))
             else:
-                check_native_host()
-                return None
+                if self.native is None:
+                    raise Unsupported("FERB's browser bridge isn't running")
+                check_native_host(uid, self.owner_uid, hello.origin or "", self.extension_ids())
+                session = Session(Role.NATIVE_HOST)
         except ValidationError as e:
             await self._send(writer, _error(req.id, INVALID_REQUEST, str(e.errors()[0]["msg"])))
             return None

@@ -17,7 +17,7 @@ from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning
 from ferb.device import permissions
-from ferb.device.install import MARKER, InstallError, Installer, code_hash, repo_root
+from ferb.device.install import MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, code_hash, repo_root
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
 from ferb.identity import seed
@@ -271,6 +271,24 @@ def doctor(env: Env) -> int:
                 add(Check(f"secret {s['key']}", "ok" if s["in_keychain"] else "warn",
                           "in Keychain" if s["in_keychain"] else "missing from Keychain",
                           f"in your own terminal: security add-generic-password -s ferb -a {s['key']} -w"))
+        for d in inst.native_hosts_dirs:
+            m = d / NATIVE_HOST_MANIFEST
+            add(Check(f"native host ({d.parent.name})", "ok" if m.exists() and inst.native_host_launcher.exists()
+                      else "fail", str(m) if m.exists() else "missing", "run `ferb setup --update`"))
+        try:
+            c = env.connect()
+            profiles = c.call("browsers.list")["profiles"]
+            c.close()
+        except (NotRunning, FerbError):
+            profiles = []
+        for p in (p for p in profiles if p["paired"]):
+            name = f"browser {p['browser']}/{p['name']}"
+            if p["refused"]:
+                add(Check(name, "fail", p["refused"], "reload the FERB extension in that profile"))
+            else:
+                add(Check(name, "ok" if p["connected"] else "warn",
+                          f"connected, extension {p['version']}" if p["connected"] else "paired, not connected",
+                          "open that profile; FERB reconnects within 30 s"))
         if report["stopped"]:
             add(Check("emergency stop", "warn", "engaged", "`ferb resume-tasks` lifts it"))
     did = Config(inst.home).get("device", "id") if (inst.home / "config.toml").exists() else None

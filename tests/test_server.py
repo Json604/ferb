@@ -13,7 +13,7 @@ from ferb.clock.clock import FakeClock
 from ferb.core.errors import AlreadyRunning, NotRunning
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
-from ferb.daemon.server import MAX_MESSAGE, TOO_LARGE, UNAUTHORIZED, UNSUPPORTED
+from ferb.daemon.server import MAX_MESSAGE, TOO_LARGE, UNAUTHORIZED
 from tests.conftest import RunningDaemon
 
 
@@ -95,10 +95,10 @@ def test_mcp_shim_needs_a_valid_token_and_loses_access_when_revoked(home: Path) 
         d.stop()
 
 
-def test_native_host_role_fails_explicitly(daemon: RunningDaemon) -> None:
+def test_native_host_role_refuses_an_unknown_extension_origin(daemon: RunningDaemon) -> None:
     with pytest.raises(RpcError) as e:
-        Client(daemon.sock, role="native_host")
-    assert e.value.code == UNSUPPORTED
+        Client(daemon.sock, role="native_host")                  # no origin: not a FERB extension
+    assert e.value.code == UNAUTHORIZED
 
 
 def test_stale_socket_file_is_replaced(home: Path) -> None:                     # spike 8

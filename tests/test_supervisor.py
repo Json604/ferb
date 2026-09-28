@@ -137,6 +137,6 @@ def test_runtime_violation_unregisters_the_runtime(daemon: RunningDaemon) -> Non
 
 def test_plan_validation_rejects_scopes_beyond_identity_and_unbuilt_capabilities(daemon: RunningDaemon) -> None:
     install(daemon, [sup("plan", "x", plan(scopes=["shell"])), sup("plan", "x", plan(identity="owner",
-                                                                                   scopes=["browser:act"]))])
+                                                                                   scopes=["shell"]))])
     assert "can't have shell" in chat(daemon, "create todo.md with milk")[0]["text"]
-    assert "can't do browser:act yet" in chat(daemon, "create todo.md with milk")[0]["text"]
+    assert "can't do shell yet" in chat(daemon, "create todo.md with milk")[0]["text"]

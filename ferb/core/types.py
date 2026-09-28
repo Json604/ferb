@@ -141,6 +141,7 @@ class ActionSpec:
     target: Target = Target()
     content: str | None = None
     data_labels: frozenset[DataLabel] = frozenset()
+    unverified_account: str | None = None      # owner-browser site whose signed-in account can't be checked (9.3)
 
 
 # ---------- runtimes (section 5 AgentRuntime) ----------
@@ -223,7 +224,8 @@ class DriverFeatures:
 @dataclass(frozen=True)
 class BrowserAction:
     kind: Literal["click", "type", "select", "press", "scroll"]
-    text: str | None = None                  # text to type; select: option label or value; press: key; scroll: up|down
+    text: str | None = None
+    trusted: bool = False                    # real (debugger-dispatched) input instead of page-script events                  # text to type; select: option label or value; press: key; scroll: up|down
 
 
 @dataclass(frozen=True)

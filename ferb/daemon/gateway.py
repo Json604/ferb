@@ -82,7 +82,7 @@ class Gateway:
         action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity, scopes=frozenset(cap.scopes),
                                task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                                task_scopes=grant.scopes, target=spec.target, content=spec.content,
-                               data_labels=spec.data_labels)
+                               data_labels=spec.data_labels, unverified_account=spec.unverified_account)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": name, "args": arguments})
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id})

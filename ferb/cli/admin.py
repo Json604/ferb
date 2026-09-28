@@ -74,3 +74,33 @@ def autonomy(client: Client, level: str | None, out: TextIO) -> int:
     r = client.call("autonomy.get") if level is None else client.call("autonomy.set", {"level": level})
     print(f"autonomy: {r['level']}", file=out)
     return 0
+
+
+def browsers(client: Client, cmd: str | None, profile: str | None, browser: str | None, out: TextIO) -> int:
+    """`ferb browsers [pair|unpair <profile>]` (section 15)."""
+    if cmd == "pair":
+        print(f"Opening the FERB pairing page in {profile}… (the extension must be loaded there)", file=out)
+        r = client.call("browsers.pair", {"profile": profile, "browser": browser})
+        if r["paired"]:
+            print(f"Paired {r['browser']} profile “{r['name']}” ({r['folder']}).", file=out)
+            return 0
+        print(f"Not paired: {r.get('hint', 'no answer from the extension')}", file=out)
+        return 1
+    if cmd == "unpair":
+        r = client.call("browsers.unpair", {"profile": profile, "browser": browser})
+        print("Unpaired." if r["unpaired"] else "That profile wasn't paired.", file=out)
+        return 0
+    r = client.call("browsers.list")
+    for p in r["profiles"]:
+        if p["ferb_identity"]:
+            state = "FERB's identity profile (build step 6b)"
+        elif not p["paired"]:
+            state = "not paired"
+        elif p["refused"]:
+            state = f"refused: {p['refused']}"
+        else:
+            state = f"paired, {'connected' if p['connected'] else 'not connected'}" + \
+                    (f", extension {p['version']}" if p["version"] else "")
+        email = f" <{p['email']}>" if p["email"] else ""
+        print(f"{p['browser']:<7} {p['name']}{email} ({p['folder']}): {state}", file=out)
+    return 0

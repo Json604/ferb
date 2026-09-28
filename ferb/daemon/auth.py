@@ -2,7 +2,9 @@
 
 - cli: proven by socket ownership — the peer's uid must be the owner's.
 - mcp_shim: proven by a run token (scoped to one worker, expiring, revocable; only its hash is kept).
-- native_host: declared, but refused until pairing exists (build step 6) — fails explicitly.
+- native_host: the relay a browser launches for the FERB extension. The socket peer must be the owner's uid and
+  the caller origin one of FERB's extension ids; after that the connection is a message channel whose every
+  message is authenticated by pairing (install_id + HMAC + seq, section 9.6), not by method lists.
 """
 
 import hashlib
@@ -11,7 +13,7 @@ import secrets
 from dataclasses import dataclass
 from enum import Enum
 
-from ferb.core.errors import AuthError, Unsupported
+from ferb.core.errors import AuthError
 from ferb.core.interfaces import Clock
 from ferb.core.types import Identity
 
@@ -26,7 +28,8 @@ class Role(Enum):
 METHODS: dict[Role, frozenset[str]] = {
     Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift", "undo",
                          "autonomy.get", "autonomy.set", "doctor.check", "automation.request", "chat.send",
-                         "chat.approve", "identity.check"}),
+                         "chat.approve", "identity.check", "browsers.list", "browsers.pair",
+                         "browsers.unpair"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
 }
@@ -99,5 +102,9 @@ class RunTokens:
         return n
 
 
-def check_native_host() -> None:
-    raise Unsupported("native_host role needs extension pairing (build step 6)")
+def check_native_host(peer_uid: int, owner_uid: int, origin: str, extension_ids: frozenset[str]) -> None:
+    if peer_uid != owner_uid:
+        raise AuthError("native_host role requires the owner's uid")
+    ext = origin.removeprefix("chrome-extension://").rstrip("/")
+    if not origin.startswith("chrome-extension://") or ext not in extension_ids:
+        raise AuthError("unknown extension origin")

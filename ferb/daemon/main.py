@@ -20,7 +20,12 @@ from ferb.daemon.gateway import FsRoots, Gateway
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.tree import TaskTree
 from ferb.act.browser.tools import IdentityDriver
-from ferb.registry import add_identity_browser
+from ferb.act.browser import profiles as browser_profiles
+from ferb.act.browser.ext_bridge import Hub, Router, WakeServer
+from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+from ferb.act.browser.pairing import Pairings
+from ferb.act.browser.resolver import Resolver, default_browser, last_used_profile
+from ferb.registry import add_identity_browser, add_owner_browsers
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core.errors import FerbError
@@ -60,7 +65,8 @@ class Daemon:
         self.tokens = RunTokens(self.clock)
         self.server = Server(socket_path(self.home), self.tokens, owner_uid)
         self.engine = PolicyEngine(self.clock, str(self.home / "workspace"), level=self._level,
-                                   trusted_kinds=self._trusted_kinds, undo_window_s=undo_window_s)
+                                   trusted_kinds=self._trusted_kinds, undo_window_s=undo_window_s,
+                                   trusted_accounts=self._trusted_accounts, remember_account=self._remember_account)
         self.stop_control = StopControl(self.tokens.revoke_all, self._set_blocked, self.engine.holds.undo_all)
         self.db: Database | None = None
         self.journal: Journal | None = None
@@ -75,6 +81,14 @@ class Daemon:
         self.gateway: Gateway | None = None
         self.supervisor: Supervisor | None = None
         self._proxy: ToolListProxy | None = None
+        # Owner browser profiles through the extension (build step 6a). Tests override the data dirs and the launcher.
+        self.browser_data_dirs: dict[str, Path] | None = None
+        self.browser_launch: Callable[[list[str]], None] | None = None
+        self.browser_default: Callable[[], str | None] = default_browser
+        self.pairings: Pairings | None = None
+        self.hub: Hub | None = None
+        self.router: Router | None = None
+        self.wake = WakeServer()
 
     @property
     def stop_marker(self) -> Path:
@@ -90,13 +104,15 @@ class Daemon:
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.ledger = Ledger(self.db, self.clock, self.ids)
+        await self._build_browsers()
         self._build_agents()
         for name, fn in (("ping", self._ping), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift), ("undo", self._undo), ("autonomy.get", self._autonomy_get),
                          ("autonomy.set", self._autonomy_set), ("doctor.check", self._doctor_check),
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
-                         ("identity.check", self._identity_check)):
+                         ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
+                         ("browsers.pair", self._browsers_pair), ("browsers.unpair", self._browsers_unpair)):
             self.server.unary[name] = fn
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
@@ -120,6 +136,9 @@ class Daemon:
             self._proxy.close()
         if self.identity_browser is not None:
             await self.identity_browser.shutdown()
+        if self.router is not None:
+            await self.router.shutdown()
+        await self.wake.close()
         await self.server.close()
         if self.journal:
             self.journal.append("daemon.stopped", {"pid": os.getpid()})
@@ -193,12 +212,105 @@ class Daemon:
         add_identity_browser(self.registry, driver, allow_local)
 
     async def _task_end(self, task_id: str) -> None:
-        if self.identity_browser is not None:
-            await self.identity_browser.release(task_id)
+        for drv in (self.identity_browser, self.router):
+            if drv is not None:
+                await drv.release(task_id)
 
     def _stop_identity_browser(self) -> None:
-        if self.identity_browser is not None:
-            asyncio.get_event_loop().create_task(self.identity_browser.shutdown())
+        for drv in (self.identity_browser, self.router):
+            if drv is not None:
+                asyncio.get_event_loop().create_task(drv.shutdown())
+
+    # ---------- owner browsers (build step 6a) ----------
+
+    def _profiles(self) -> list[browser_profiles.BrowserProfile]:
+        return browser_profiles.discover_all(self.browser_data_dirs)
+
+    def _identity_profile(self) -> tuple[str, str] | None:
+        folder = self.config.get("identity", "profile")
+        return (str(self.config.get("identity", "browser", "chrome")), str(folder)) if folder else None
+
+    def _open_hosts(self) -> list[tuple[str, str, str]]:
+        if self.hub is None:
+            return []
+        return [(b.binding.browser, b.binding.folder, host) for b in self.hub.bridges.values() if b.conn
+                for host, _active in b.tabs.values()]
+
+    async def _build_browsers(self) -> None:
+        assert self.db and self.ledger
+        self.pairings = Pairings(self.db, self.clock)
+        self.hub = Hub(self.pairings, self.ledger, self._publish,
+                       lambda: str(self.config.get("device", "id", "unknown-device")))
+        def data(b: str) -> Path | None:
+            return (self.browser_data_dirs or {}).get(b)
+        resolver = Resolver(self._profiles, self.pairings.all, self._open_hosts, self._identity_profile,
+                            prefer=lambda: list(self.config.get("browser", "prefer_for_actions", ["brave", "chrome"])),
+                            default_browser=lambda: self.browser_default(),
+                            last_used=lambda b: last_used_profile(b, data(b)))
+        await self.wake.start()
+        self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
+        add_owner_browsers(self.registry, self.router)
+        self.server.native = self.hub.serve
+        self.server.extension_ids = lambda: frozenset(self.config.get("browser", "extension_ids",
+                                                                      [FERB_EXTENSION_ID]))
+
+    def _trusted_accounts(self) -> frozenset[str]:
+        return frozenset(self.config.get("policy", "trusted_accounts", []))
+
+    def _remember_account(self, key: str) -> None:
+        keys = sorted(self._trusted_accounts() | {key})
+        self.config.set("policy", "trusted_accounts", keys)
+        self._journal().append("policy.account_trusted", {"site_profile": key})
+
+    async def _browsers_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.pairings and self.hub
+        ferb = self._identity_profile()
+        paired = {(b.browser, b.folder): b for b in self.pairings.all()}
+        out = []
+        for p in self._profiles():
+            b = paired.get((p.browser, p.folder))
+            br = self.hub.bridges.get((p.browser, p.folder))
+            out.append({"browser": p.browser, "folder": p.folder, "name": p.display_name, "email": p.email,
+                        "ferb_identity": (p.browser, p.folder) == ferb,
+                        "paired": b is not None, "identity": b.identity.value if b else None,
+                        "connected": bool(br and br.conn), "version": br.version if br else "",
+                        "refused": self.hub.refused.get(b.install_id) if b else None})
+        return {"profiles": out, "extension_ids": sorted(self.server.extension_ids())}
+
+    async def _browsers_pair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Open the extension's own pairing page in that profile with a one-time token; wait for the pairing."""
+        assert self.pairings
+        known = self._profiles()
+        name, browser = str(params.get("profile", "")), params.get("browser")
+        r = browser_profiles.resolve(name, known, browser=browser)
+        if r.kind != "one":
+            raise FerbError(r.message(name, known))
+        p = r.candidates[0]
+        if (p.browser, p.folder) == self._identity_profile():
+            raise FerbError(f"{p.display_name} is FERB's identity profile; it's paired as FERB (build step 6b)")
+        token = self.pairings.issue_token(p.browser, p.folder)
+        ext = sorted(self.server.extension_ids())[0]
+        kwargs = {"launch": self.browser_launch} if self.browser_launch else {}
+        browser_profiles.open_known_profile(p.browser, p.folder, f"chrome-extension://{ext}/pair.html#token={token}",
+                                            known, **kwargs)
+        timeout = float(params.get("timeout_s", 60))
+        end = self.clock.monotonic() + timeout
+        while self.clock.monotonic() < end:
+            b = self.pairings.for_profile(p.browser, p.folder)
+            if b is not None and self.hub and (br := self.hub.bridges.get((p.browser, p.folder))) and br.conn:
+                return {"paired": True, "browser": p.browser, "folder": p.folder, "name": p.display_name}
+            await asyncio.sleep(0.2)
+        return {"paired": False, "browser": p.browser, "folder": p.folder, "name": p.display_name,
+                "hint": "is the FERB extension loaded and enabled in that profile?"}
+
+    async def _browsers_unpair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.pairings
+        known = self._profiles()
+        r = browser_profiles.resolve(str(params.get("profile", "")), known, browser=params.get("browser"))
+        if r.kind != "one":
+            raise FerbError(r.message(str(params.get("profile", "")), known))
+        p = r.candidates[0]
+        return {"unpaired": self.pairings.unpair(p.browser, p.folder)}
 
     def _add_secret_value(self, value: str) -> None:
         add = getattr(self.redact, "add_secret_value", None)

@@ -616,7 +616,10 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
   `alarms` (the 30 s reconnect), `storage` (install id, seen command ids), host access to all sites.
 - The extension **only executes** daemon commands and **reports** state; it holds no policy and no task logic.
 - Message protocol (JSON, versioned, validated on both sides):
-  - daemon → ext: `open`, `close`, `list_tabs`, `snapshot`, `act`, `wait`, `screenshot`, `attach_debugger`, `detach_debugger`
+  - daemon → ext: `open`, `navigate`, `close`, `list_tabs`, `snapshot`, `act`, `wait`, `screenshot`, `attach_debugger`,
+    `detach_debugger`, `cdp` (allowlisted), `account` (run the site's account extractor, 9.3), `wake_close` (close
+    exactly the wake page); control: `welcome` (connection generation), `paired` (key), `refused` (e.g. protocol
+    mismatch)
   - ext → daemon: `result`, `error`, `tab_event` (created/updated/activated/removed), `hello` (`install_id`,
     extension/protocol version, owned resources). The extension can't know its profile folder: the daemon takes
     browser + profile from the pairing binding of that `install_id` (9.6).

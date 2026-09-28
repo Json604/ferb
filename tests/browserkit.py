@@ -127,6 +127,17 @@ class FakeIdentityDriver:
         self._tabs[ref.tab_id] = t
         return ref
 
+    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
+        ref = await self.open(url)
+        self.claim(ref, owner)
+        return ref
+
+    async def check_account(self, tab: TabRef) -> None:
+        return None                                              # FERB's own profile: its own accounts
+
+    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
+        return None
+
     async def navigate(self, tab: TabRef, url: str) -> None:
         self._load(self._tab(tab), url)
 
