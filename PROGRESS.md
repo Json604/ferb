@@ -49,7 +49,6 @@ Spike 13 — MV3 service worker termination: kill it mid-command; confirm reconn
 - **Before build step 6: short Brave pairing check** in ONE temporary Brave profile, created and deleted in the
   same session (never the owner's own Brave profile). Ask the owner first so they can pick a moment when they're
   not mid-work (it opens a Brave window and needs the unpacked extension loaded into that temporary profile).
-- Pending owner answer: the three spike 10 edits proposed for §9.5 / §9.6.
 
 - Build step 5: when porting spike 3's tests, use a local test login page for `fill_secret` tests instead of an
   external site (the practice site went down mid-spike).

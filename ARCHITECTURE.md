@@ -578,7 +578,8 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
   `unknown` in the ledger and are reconciled. Snapshot size is bounded (element and text caps).
   The extension registers `runtime.onStartup` so it connects after a browser restart. `hello` carries the
   extension/protocol version; the daemon refuses a mismatch (Chrome keeps running a stale unpacked extension
-  until it is reloaded).
+  until it is reloaded). The native host exits as soon as its daemon connection drops, and the extension queues
+  outgoing messages until reconnected.
 - Tabs FERB opens are background (`active: false`) and grouped in a "FERB" tab group; closed at task end unless kept.
 - Snapshots use one format for all drivers (`snapshot.py`): elements with stable ids, role, label, value, rect, visibility.
   Screenshots only when the snapshot is insufficient (canvas-heavy pages) or requested.
@@ -593,7 +594,9 @@ Problem this solves: browsers identify profiles by folder (`Default`, `Profile 3
 
 - **Discovery:** read each Chromium browser's `Local State` → `profile.info_cache`
   (folder → display name, signed-in email, etc.). Read-only; never touch cookies or other profile data.
-  Re-read on startup and whenever the file changes (FSEvents) → `browser.profiles_changed`.
+  Re-read on startup and whenever the file changes (FSEvents) → `browser.profiles_changed`. Browsers write
+  `Local State` lazily, so a new profile may appear only after the browser writes it (e.g. on quit); the FSEvents
+  re-read picks it up.
 - **Table:** `browser_profiles(device_id, browser, folder, display_name, email, install_id?, paired_at?, aliases[])`.
 - **Match order for a spoken name:**
   1. exact display name (case-insensitive),
@@ -603,7 +606,11 @@ Problem this solves: browsers identify profiles by folder (`Default`, `Profile 3
   If deterministic steps end ambiguous or empty, `Decider` question `browser.profile_match` may **suggest** a
   candidate, shown to the owner for one-tap confirmation; it never selects on its own.
   No match → reply "no profile called X; found: …", never a guess.
-- **Open:** launch with `--profile-directory=<folder>` (works whether or not the browser is already running).
+- **Open:** launch with `--profile-directory=<folder>`; a running browser takes over the request. If the browser
+  isn't running, FERB may start it, detached (never as its own child with a timeout), and FERB never quits or kills
+  the owner's browser. Only folders returned by discovery are ever passed to `--profile-directory` (an unknown
+  folder silently creates a new profile). Profiles are identified by folder or paired `install_id`, never by
+  window title.
 - Renames are harmless: identity is the folder, display names refresh from `Local State`.
 
 ### 9.6 Extension installation and pairing
@@ -611,17 +618,21 @@ Problem this solves: browsers identify profiles by folder (`Default`, `Profile 3
 - **Chromium install paths:**
   - Setup-selected profiles: FERB opens `--profile-directory=<folder>` on the extension's install page.
   - Everything else: External Extensions JSON (macOS requires the extension to be on the Chrome Web Store,
-    unlisted is enough); each profile shows Chrome's enable prompt when next opened. Enterprise force-install
+    unlisted is enough); each profile shows Chrome's enable prompt when next opened: the extension is installed
+    disabled until the owner accepts it. Brave uses the same mechanism in its own data folder (spike 10).
+    Enterprise force-install
     policy is **not** used (shows "managed by your organization", not removable).
   - On demand: a task needs an unpaired profile → FERB asks in chat → opens that profile on the install page →
     waits for pairing → continues the task.
   - Development: load unpacked manually in the owner's profiles.
-- **Pairing:** after install, FERB opens `--profile-directory=<folder>` on a local pairing page carrying a one-time
-  token. The extension reads it, sends `{install_id, token}` to the daemon, and the daemon binds
+- **Pairing:** after install, FERB opens `--profile-directory=<folder>` on the extension's own pairing page
+  (`chrome-extension://<id>/pair.html#token=…`, blank, closes itself), so only the extension in that profile can
+  read the one-time token. The extension sends `{install_id, token}` to the daemon, and the daemon binds
   `install_id → browser + folder`. Tokens expire in minutes and are single-use.
 - Extension generates `install_id` once and keeps it in extension-local storage (per profile).
 - A connection with an unknown `install_id` may only send pairing and health messages: no trail events, no actions.
-- Pairing also exchanges a per-install key used to authenticate every later message.
+- Pairing also exchanges a per-install key used to authenticate every later message: each carries a strictly
+  increasing `seq` and an HMAC with that key.
 
 ## 10. Identity, secrets and safety
 
