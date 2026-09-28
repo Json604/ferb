@@ -17,11 +17,13 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 10 — profiles | 2026-09-28 | Works | `spikes/10_profiles/FINDINGS.md`. Local State discovery + §9.5 resolver (ambiguity never first-match). `--profile-directory` hands off to the running instance (real Chrome FERB profile too); unknown folder silently creates a profile → guard. External Extensions: every profile gets it disabled (8192) until accepted, Chrome and Brave (own data dir). `Local State` written lazily. |
 | Spike 12 — pairing end to end (Chrome only) | 2026-09-28 | Works | `spikes/12_pairing/FINDINGS.md`. Token via the extension's own pairing page; install_id→folder binding; signed + sequenced messages; unpaired install can't send events or receive actions (21.16). Found: native host must exit when the daemon drops; never start/kill the owner's browser implicitly (one harness-started Chrome was force-quit — fixed). |
 | Spike 13 — MV3 worker restart | 2026-09-28 | Works | `spikes/13_mv3_restart/FINDINGS.md`. Worker killed after/before the effect → `unknown` → reconciled done/failed from the re-announced state; generation +1; old-gen commands refused; duplicate ids ignored even across restarts (`storage.session`). Reconnect: tab event ~0.1 s, alarm ≤30 s. Lab: spare Chrome, CDP only as test equipment. |
+| Spike 14 — owner-input detection | 2026-09-28 | Works | `spikes/14_owner_input/FINDINGS.md`. Listen-only event tap + private marker on FERB's own events (idle timer unusable: FERB's input resets it). Detection ~0.6 ms median; yield ≤ one action step (20 ms steps → ≤25 ms). |
 
 ## Next
 
-Spike 14 — owner-input detection latency (how fast GUI actions yield when the owner touches the mouse). Last spike;
-then build step 1 (plan first, owner approval before building).
+All spikes done or skipped (5, 7, 9, 11 skipped by the owner). Next: **build step 1** — `core`, `store`, `bus`,
+`clock`, daemon + socket + `auth`, minimal journal, `ferb logs`, `ferb trace`. Foundation step: show the plan
+(files, key types and functions, tests) and wait for the owner's approval before building.
 
 ## Pinned external tools
 
@@ -34,6 +36,9 @@ then build step 1 (plan first, owner approval before building).
   project's `pyproject.toml` as an exact pin when build step 1 creates it.
 
 ## Open items carried forward
+
+- Build step 7: mark every FERB input event; GUI actions check owner input before each step (per keystroke);
+  listen-only tap needs Accessibility or Input Monitoring on the daemon's interpreter.
 
 - Build steps 1/3: daemon runs on a dedicated Python under `~/.ferb` (owner decision, §8 step 6); build step 3
   first measures a stable launcher executable (§18 step 3).
