@@ -580,6 +580,14 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
   extension/protocol version; the daemon refuses a mismatch (Chrome keeps running a stale unpacked extension
   until it is reloaded). The native host exits as soon as its daemon connection drops, and the extension queues
   outgoing messages until reconnected.
+  The extension records each command id as seen before executing it (in `chrome.storage.session`, which survives
+  worker restarts) and tags what it creates with that id; `hello` re-announces owned resources, and the daemon
+  reconciles `unknown` from them, never resending. After a worker death the extension reconnects on the next tab
+  event or a 30 s `chrome.alarms` tick; until then the daemon treats that browser as temporarily unavailable.
+  When a task needs a temporarily unavailable paired browser, the daemon wakes the extension immediately by opening
+  a unique blank local page in that profile (`--profile-directory`, e.g. `http://127.0.0.1:<port>/wake/<token>`;
+  not `about:blank`, whose fragment is dropped so it couldn't be told apart from the owner's tabs), and closes
+  exactly that page after the reconnect (spike 13).
 - Tabs FERB opens are background (`active: false`) and grouped in a "FERB" tab group; closed at task end unless kept.
 - Snapshots use one format for all drivers (`snapshot.py`): elements with stable ids, role, label, value, rect, visibility.
   Screenshots only when the snapshot is insufficient (canvas-heavy pages) or requested.

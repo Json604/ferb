@@ -95,3 +95,42 @@ def test_reconnect_without_any_event_via_alarm(lab):
     hello = lab.daemon.wait(lambda m: m["type"] == "hello", 45)
     assert time.monotonic() - t0 <= 40
     assert hello["gen"] == lab.daemon.gen
+
+
+def test_daemon_wakes_extension_by_opening_a_blank_page_in_that_profile(lab):
+    """Owner decision: don't wait for the alarm — hand the running browser a unique blank page for that profile
+    (--profile-directory), wait for the reconnect, then close exactly that page."""
+    import http.server
+    import subprocess
+    import threading
+
+    class Blank(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("content-type", "text/html")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Blank)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    lab.kill_worker()
+    lab.daemon.wait(lambda m: m["type"] == "_disconnected", 10)
+    # A *unique* blank local page (about:blank#fragment arrives as plain about:blank and can't be told apart
+    # from the owner's own blank tabs, so it couldn't be closed safely).
+    wake = f"http://127.0.0.1:{srv.server_port}/wake/{secrets.token_hex(8)}"
+    t0 = time.monotonic()
+    p = subprocess.Popen(["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                          f"--user-data-dir={lab.run / 'profile'}", "--profile-directory=Default", wake],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    lab.daemon.wait(lambda m: m["type"] == "hello", 10)
+    took = time.monotonic() - t0
+    assert took < 5, f"wake took {took:.1f}s"
+    assert p.wait(timeout=10) == 0                            # handed off to the running browser
+    assert wait_until(lambda: count(lab, wake) == 1, 5)
+    e = lab.daemon.send("close_url", {"url": wake})
+    lab.daemon.wait(lambda m: m["type"] == "result" and m["id"] == e.id, 10)
+    assert e.result == {"closed": 1}
+    assert wait_until(lambda: count(lab, wake) == 0, 5)
+    srv.shutdown()

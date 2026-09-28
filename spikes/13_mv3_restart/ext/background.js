@@ -46,6 +46,11 @@ const commands = {
     return commands.open({ url }, id);
   },
   async list_tabs() { return { tabs: await ownedTabs() }; },
+  async close_url({ url }) {                      // close exactly the wake-up page(s) with this unique URL
+    const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || t.pendingUrl) === url);
+    for (const t of tabs) await chrome.tabs.remove(t.id);
+    return { closed: tabs.length };
+  },
   async close({ tabId }) { await chrome.tabs.remove(tabId); return {}; },
 };
 

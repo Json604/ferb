@@ -1,6 +1,6 @@
 # Spike 13 — MV3 service worker killed mid-command: reconnect, generation bump, no replay
 
-Status: done (2026-09-28). 5/5 pass, 3 runs in a row. Chrome 154.
+Status: done (2026-09-28). 6/6 pass, 3 runs in a row. Chrome 154.
 
 Run: `uv run --python 3.12 --no-project --with pytest pytest -q test_spike.py` (~45 s; one test waits for the
 30-second alarm).
@@ -28,6 +28,10 @@ Native-host manifest in the spare profile's own folder: nothing written to the o
 4. **Duplicate command id** → `duplicate`, executed once — also **across a worker restart**, because seen ids and
    owned tabs live in `chrome.storage.session` (survives worker restarts within the browser session).
 5. Reconnect with no stimulus via the alarm within 40 s.
+6. **Immediate wake-up (owner decision):** handing the running browser a unique blank local page for that profile
+   (`--profile-directory`) reconnects the worker in under 5 s; the extension then closes exactly that page
+   (`close_url`). `about:blank#<token>` does not work: Chrome drops the fragment, so the page couldn't be told
+   apart from the owner's own blank tabs.
 
 ## Requirements for build step 6
 
