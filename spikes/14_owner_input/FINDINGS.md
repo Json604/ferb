@@ -29,7 +29,7 @@ the pointer's current position. The tap records event type + timestamps only —
   the dedicated interpreter's grant (section 8 step 6). If the tap is disabled by timeout/user input, re-enable it
   (handled in the callback).
 
-## Not measured
+## Real hardware (owner moved the mouse, 2026-09-28)
 
-- Real hardware events (only synthetic "owner" events): the latency path is the same tap, but a short optional
-  run with the owner moving the mouse would confirm it (event timestamp → callback).
+10 s of real input: 1,150 events (1,062 mouse-moved, 88 scroll). Event timestamp → tap callback: median 0.33 ms,
+p90 0.45 ms, p99 0.72 ms, max 1.56 ms — faster than the synthetic path. 0 real events classified as FERB's.

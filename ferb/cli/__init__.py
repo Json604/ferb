@@ -6,6 +6,7 @@ import sys
 from ferb.cli import admin, logs
 from ferb.cli.client import Client, RpcError
 from ferb.core.errors import NotRunning
+from ferb.paths import socket_path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,9 +29,8 @@ def main(argv: list[str] | None = None) -> int:
         daemon_main()
         return 0
 
-    from ferb.daemon.main import ferb_home
     try:
-        client = Client(ferb_home() / "run" / "ferb.sock")
+        client = Client(socket_path())
         try:
             if args.cmd == "logs":
                 filters = [f for f in ("tasks", "trail", "tools", "browsers") if getattr(args, f)]

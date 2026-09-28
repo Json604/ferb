@@ -136,6 +136,7 @@ ferb/
     gateway.py          tool gateway: run token → scopes + identity → policy → capability → trace
     auth.py             connection roles, run tokens (issue / expire / revoke), per-role method lists
   registry.py           THE explicit list of capabilities, watchers, runtimes, deciders, drivers
+  paths.py              runtime locations (~/.ferb or $FERB_HOME, socket path): shared by daemon and CLI
   bus.py                in-process event bus (typed events)
   orchestrator/
     supervisor.py       plans, spawns workers, merges, verifies, reports

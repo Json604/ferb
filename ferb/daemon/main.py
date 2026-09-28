@@ -15,14 +15,11 @@ from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
+from ferb.paths import ferb_home, socket_path
 from ferb.store.db import Database
 from ferb.store.spans import SpanNode, SpanStore
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
-
-
-def ferb_home() -> Path:
-    return Path(os.environ.get("FERB_HOME", Path.home() / ".ferb"))
 
 
 def passthrough_redact(data: dict[str, Any]) -> dict[str, Any]:
@@ -43,7 +40,7 @@ class Daemon:
         self.redact = redact
         self.bus = Bus(self.clock)
         self.tokens = RunTokens(self.clock)
-        self.server = Server(self.home / "run" / "ferb.sock", self.tokens, owner_uid)
+        self.server = Server(socket_path(self.home), self.tokens, owner_uid)
         self.db: Database | None = None
         self.journal: Journal | None = None
         self.spans: SpanStore | None = None
