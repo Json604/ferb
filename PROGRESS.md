@@ -18,22 +18,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 12 — pairing end to end (Chrome only) | 2026-09-28 | Works | `spikes/12_pairing/FINDINGS.md`. Token via the extension's own pairing page; install_id→folder binding; signed + sequenced messages; unpaired install can't send events or receive actions (21.16). Found: native host must exit when the daemon drops; never start/kill the owner's browser implicitly (one harness-started Chrome was force-quit — fixed). |
 | Spike 13 — MV3 worker restart | 2026-09-28 | Works | `spikes/13_mv3_restart/FINDINGS.md`. Worker killed after/before the effect → `unknown` → reconciled done/failed from the re-announced state; generation +1; old-gen commands refused; duplicate ids ignored even across restarts (`storage.session`). Reconnect: tab event ~0.1 s, alarm ≤30 s. Lab: spare Chrome, CDP only as test equipment. |
 | Spike 14 — owner-input detection | 2026-09-28 | Works | `spikes/14_owner_input/FINDINGS.md`. Listen-only event tap + private marker on FERB's own events (idle timer unusable: FERB's input resets it). Detection ~0.6 ms median; yield ≤ one action step (20 ms steps → ≤25 ms). |
+| **Build step 1** — core, store, bus, clock, daemon + socket + auth, journal, `ferb logs`, `ferb trace` | 2026-09-28 | Done | 35 tests (3 runs green), `mypy --strict` clean on `ferb/core`. Span.task_id, bus event classes, 1 MiB message cap added to the contract first. Ported from spike 8: socket perms, stale socket, second daemon refused, EOF. Found: shutdown hung on open connections (fixed: server closes them). |
 
 ## Next
 
-All spikes done or skipped (5, 7, 9, 11 skipped by the owner). Next: **build step 1** — `core`, `store`, `bus`,
-`clock`, daemon + socket + `auth`, minimal journal, `ferb logs`, `ferb trace`. Foundation step: show the plan
-(files, key types and functions, tests) and wait for the owner's approval before building.
-
-## Pinned external tools
-
-- **Codex CLI 0.157.1**, installed repo-locally by `npm install` (root `package.json`, exact version); FERB runs
-  `node_modules/.bin/codex`, never the global one. **Upgrading Codex means rerunning the spike 1 tests first**
-  (`spikes/01_codex_mcp`, command in its FINDINGS.md) and only then bumping the pin in both `package.json` and
-  `CODEX_VERSION` in `codex_run.py`. The tests refuse to run on any other version.
-- **claude-agent-sdk 0.2.160** (bundles the Claude Code CLI, so this pins the CLI too). Same rule: **upgrading
-  means rerunning the spike 2 tests first**, then bumping `SDK_VERSION` in `sdk_run.py`. Moves into the
-  project's `pyproject.toml` as an exact pin when build step 1 creates it.
+**Build step 2** — `sanitize/`, `policy/` (rules, intent, exposure, dataflow, autonomy, approvals), ledger,
+`ferb stop`. Foundation step: plan first, owner approval before building.
 
 ## Rules for build steps (owner)
 

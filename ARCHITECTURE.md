@@ -117,7 +117,9 @@ sanitize  ← imports core only; applied by the gateway and every writer (traces
 - **Socket authentication:** the daemon socket is owner-only (`0600`, in a `0700` directory). Every connection
   declares a role (`cli`, `mcp_shim`, `native_host`) and proves it: CLI by socket ownership,
   shims by a run token, extensions by paired `install_id` + per-install key. Each role has a fixed method list.
-  Run tokens are scoped to one worker, expire with it, and are revoked by `ferb stop`.
+  Run tokens are scoped to one worker, expire with it, and are revoked by `ferb stop`. Messages are
+  newline-delimited JSON-RPC 2.0 with a maximum size of 1 MiB; a larger message is answered with an error and
+  the connection is closed.
 
 ## 3. Directory layout
 
@@ -127,6 +129,7 @@ ferb/
     types.py            Task, Outcome, Span, TrailEvent, SecretRef, RiskLevel, Identity
     interfaces.py       all Protocols (section 5)
     errors.py
+    ids.py              IdSource implementations (random; deterministic for tests)
   daemon/
     main.py             startup / shutdown lifecycle
     server.py           socket JSON-RPC for CLI, native host
@@ -216,12 +219,14 @@ ferb/
     export.py           items → markdown files (read-only view, regenerated; no history kept)
   store/
     db.py               single SQLite connection (WAL) + migrations
+    spans.py            span writer (through the redaction seam) + span tree query for `ferb trace`
     migrations/
   native_host/
     main.py             ferb-native-host: stdio native messaging ↔ daemon socket
   cli/
     chat.py             `ferb chat`
     logs.py             `ferb logs`
+    client.py           socket client shared by all commands (daemon-unavailable handling)
     admin.py            setup, doctor, trace, memory, timeline, device, pause, browsers
 extensions/
   chromium/             one MV3 extension for Chrome + Brave
@@ -302,6 +307,7 @@ class ActionIntent:         # ledger row, written BEFORE a consequential action 
 @dataclass
 class Span:
     id: str; parent_id: str | None; kind: str
+    task_id: str | None     # the task this span belongs to (None for daemon-level spans); `ferb trace` queries it
     device_id: str | None   # device where a tool call ran (None for pure model calls)
     started_at: datetime; ended_at: datetime | None
     input: dict; output: dict | None; cost_usd: float | None; error: str | None
@@ -428,6 +434,13 @@ prefer_for_actions = ["brave", "chrome"]   # order when a site is logged in in s
   `approval.resolved`, `trail.event`, `device.changed`, `browser.connected`, `browser.disconnected`,
   `browser.profiles_changed`, `browser.profile_paired`,
   `timer.fired`, `memory.proposed`, `memory.committed`.
+- Every bus event has a class. **Critical** (never dropped): `task.*`, `approval.*`, `device.changed`,
+  `browser.profile_paired`, `timer.fired`, `memory.committed`. **Telemetry** (may be dropped under pressure):
+  `tool.called`, `trail.event`, `browser.connected`, `browser.disconnected`, `browser.profiles_changed`,
+  `memory.proposed`. Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
+  oldest telemetry is dropped and the subscriber is told how many; if a queue is full of critical events, that
+  subscriber is disconnected with an explicit overflow error (it must resubscribe and re-read state) rather
+  than silently losing one.
 
 ## 7. Orchestrator flow
 
