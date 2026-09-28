@@ -11,11 +11,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 3 — CDP pipe to `ferb-identity`; `fill_secret` | 2026-09-28 | Works; Google needs a seeded session | `spikes/03_cdp_identity/FINDINGS.md`. Pipe CDP + origin-bound `fill_secret` proven on a practice site (refusals incl. iframe, focus stealing). Google refuses automated sign-in (remote debugging sets `navigator.webdriver`); identity profile seeded from the owner's FERB-only Chrome profile and Gmail works over the pipe. §0, §8 (incl. `doctor` re-verify), §9.1, §10.1, §19, test 21.20 updated. |
 | Spike 4 — Chromium extension in Brave + Chrome | 2026-09-28 | Works; background input needs focus emulation | `spikes/04_extension/FINDINGS.md`. Native messaging round trip, background tab + sanitized snapshot, trusted click/typing in a background tab (incl. Google Search, not flagged), extension-side CDP allowlist. Needs: focus emulation (site then sees `visible`; owner decision), input-readiness probe, `onStartup`, version check in `hello`, host outside TCC folders. §8/§9.2/§9.4 edits proposed. |
 | Spikes 5, 7, 11 — Safari | 2026-09-28 | **Skipped by the owner** (doesn't use Safari) | Safari control parked. Spike 5 work (built, not run against Safari) is on branch `spike-5-safari` with its FINDINGS.md. ARCHITECTURE.md edits for Safari watch-only proposed. |
+| Spike 6 — pyobjc probes + TCC checks | 2026-09-28 | Works; AXManualAccessibility gone | `spikes/06_pyobjc/FINDINGS.md`. Frontmost app, window titles without activating, no-prompt TCC checks (Automation via `ctypes`). Chrome 154/Brave 151 build the web AX tree on demand (first query may be empty ~0.2 s); `AXManualAccessibility` unsupported → §9.2 edit proposed. TCC grants belong to the responsible app, not FERB. |
 
 ## Next
 
-Spike 6 — pyobjc: frontmost app, window title, AX tree of Chrome with and without `AXManualAccessibility`;
-TCC status checks.
+Spike 8 — launchd agent start/stop + socket from CLI (spike 7 skipped). Also: how TCC grants attach to the
+launchd-started process.
 
 ## Pinned external tools
 
@@ -28,6 +29,10 @@ TCC status checks.
   project's `pyproject.toml` as an exact pin when build step 1 creates it.
 
 ## Open items carried forward
+
+- Build step 3: `ferb doctor` checks TCC for the launchd-started daemon, not the terminal (grants belong to the
+  responsible app); Automation status only checkable while the target app runs.
+- Owner decision: notifications (section 10.2 "Sending… Undo") vs CLAUDE.md's CLI-only interface.
 
 - Build step 6 (extension): register `runtime.onStartup` from the first version; `hello` carries the protocol
   version and the daemon refuses a mismatch; input-readiness probe before dispatched input; treat
