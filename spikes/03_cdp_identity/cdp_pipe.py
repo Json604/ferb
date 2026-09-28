@@ -20,7 +20,8 @@ class CdpError(Exception):
 
 
 class ChromePipe:
-    def __init__(self, user_data_dir: Path, headless: bool = True) -> None:
+    def __init__(self, user_data_dir: Path, headless: bool = True, start_url: str = "about:blank",
+                 extra_args: list[str] | None = None) -> None:
         to_chrome_r, self._to_chrome = os.pipe()
         self._from_chrome, from_chrome_w = os.pipe()
 
@@ -29,7 +30,7 @@ class ChromePipe:
             os.dup2(from_chrome_w, 4)
 
         args = [CHROME, "--remote-debugging-pipe", f"--user-data-dir={user_data_dir}",
-                "--no-first-run", "--no-default-browser-check", "about:blank"]
+                "--no-first-run", "--no-default-browser-check", *(extra_args or []), start_url]
         if headless:
             args.insert(1, "--headless=new")
         self.proc = subprocess.Popen(args, preexec_fn=child_fds, pass_fds=(3, 4),  # preexec runs before fd cleanup: keep the dup2 targets

@@ -8,13 +8,11 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 |------|------|--------|-------|
 | Spike 1 — Codex exec + MCP, native tools off | 2026-09-28 | Works with a sandbox fallback | `spikes/01_codex_mcp/FINDINGS.md`. Codex can't remove `apply_patch`, and code-mode models keep `exec` + subagents, so workers are pinned to `gpt-5.5` and run under the read-only sandbox. §5, §7, §19 and test 21.1 updated to match. |
 | Spike 2 — Claude Agent SDK + MCP, native tools off | 2026-09-28 | Works cleanly (options only) | `spikes/02_claude_sdk/FINDINGS.md`. `tools=[]`, `dontAsk`, explicit `setting_sources=[]` (None loads user+project settings). Proxy on `ANTHROPIC_BASE_URL` shows the API receives only the MCP tool. Auth: subscription login. ~2k tokens overhead. |
+| Spike 3 — CDP pipe to `ferb-identity`; `fill_secret` | 2026-09-28 | Works; Google needs a seeded session | `spikes/03_cdp_identity/FINDINGS.md`. Pipe CDP + origin-bound `fill_secret` proven on a practice site (refusals incl. iframe, focus stealing). Google refuses automated sign-in (remote debugging sets `navigator.webdriver`); identity profile seeded from the owner's FERB-only Chrome profile and Gmail works over the pipe. §0/§8/§9.1/§19 edits proposed. |
 
-## In progress
+## Next
 
-Spike 3 — CDP over `--remote-debugging-pipe` to `ferb-identity`; login + `fill_secret` on a real site.
-- Stage 1 done (2026-09-28): practice site + temporary keychain, 8/8 tests. `spikes/03_cdp_identity/FINDINGS.md`.
-- Stage 2 (2026-09-28): config + Keychain item in place; Google refused automated sign-in
-  (`navigator.webdriver`), before the password page — nothing sent. Waiting on the owner's choice of path.
+Spike 4 — Chromium extension in Brave and Chrome (after the owner approves the spike 3 ARCHITECTURE.md edits).
 
 ## Pinned external tools
 

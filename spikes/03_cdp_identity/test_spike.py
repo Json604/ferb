@@ -9,6 +9,8 @@ import secrets
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -107,6 +109,17 @@ def value(page: Page, selector: str, session: str | None = None) -> str:
     return page.eval(f"document.querySelector('{selector}').value", session)
 
 
+@pytest.fixture
+def practice_up():
+    """External dependency: skip (with the reason) rather than fail when the practice site is down."""
+    try:
+        status = urllib.request.urlopen(f"{PRACTICE}/login", timeout=15).status
+    except (urllib.error.URLError, TimeoutError) as e:
+        pytest.skip(f"practice site unavailable: {e}")
+    if status != 200:
+        pytest.skip(f"practice site unavailable: HTTP {status}")
+
+
 # ---------- tests ----------
 
 def test_cdp_is_over_pipe_with_no_port(chrome, tmp_path_factory):
@@ -119,7 +132,7 @@ def test_cdp_is_over_pipe_with_no_port(chrome, tmp_path_factory):
     assert listening == ""
 
 
-def test_login_on_practice_site(page, keychain, chrome):
+def test_login_on_practice_site(practice_up, page, keychain, chrome):
     page.goto(f"{PRACTICE}/login")
     page.eval(f"document.querySelector('#username').value = '{PRACTICE_USER}'")
     r = fill_secret(page, FillTarget(main_frame(page), "#password"), REF, store_for(keychain, PRACTICE))

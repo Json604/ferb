@@ -1,6 +1,7 @@
 # Spike 3 — CDP over a pipe to `ferb-identity`; origin-bound `fill_secret`
 
-Status: stage 1 done (2026-09-28), 8/8 tests pass. Stage 2 blocked by Google's automation check — decision pending.
+Status: done (2026-09-28). Stage 1: 8/8 (practice-login test skips with a reason when the external site is down).
+Stage 2: automated Google sign-in refused; seeded session works over the pipe. ARCHITECTURE.md edits proposed.
 
 Environment: Google Chrome 154.0.8037.57 (headless=new for tests), Python 3.12, macOS `security` CLI.
 
@@ -72,3 +73,27 @@ The email address and provider are not secret; they go in the `SecretSpec` (`acc
   from automated browsers. Hiding it would be detection evasion (against Google's terms, an arms race) — not done.
 - Consequence: `fill_secret` can't be used for Google itself. It still applies to sites FERB signs into with
   email + password. Options are in the report to the owner.
+
+## Stage 2, continued: seeding the identity profile (owner-approved)
+
+- Owner's Chrome quit; `Local State` → `Profile 22` (renamed "FERB" by the owner) is the only profile with
+  `ferb.kartikey@gmail.com`, and its only Chrome account (`Preferences` → `account_info`). Cookies and saved
+  passwords were not read. Owner confirmed the profile holds no other site logins.
+- Seeded with `rsync -a "Profile 22/" ~/.ferb/chrome/identity/Default/` (owner-only dirs). The earlier empty
+  profile from the failed sign-in was moved aside, not deleted.
+- **`navigator.webdriver` experiment** (`webdriver_probe.py`, value read by a local page, not via CDP):
+
+  | Launch | webdriver |
+  |--------|-----------|
+  | no debugging flags | false |
+  | `--enable-automation` (control) | true |
+  | `--remote-debugging-port=0 --remote-debugging-address=127.0.0.1` | true |
+  | `--remote-debugging-pipe`, no CDP commands | true |
+  | `--remote-debugging-pipe`, CDP attached + reload | true |
+
+  On Chrome 154, remote debugging itself (pipe or port) sets it; no opt-in automation flag was in use, so there
+  was nothing to drop. Pipe and port expose the same signal.
+- **Gmail over the pipe** (`gmail_session_check.py`, read-only): inbox loads, verified as
+  `ferb.kartikey@gmail.com`, with `webdriver=true` (twice). Google refuses new automated sign-ins but accepts an
+  existing session. The port variant was not needed and not tested.
+- Cookie decryption works in the copy because it's the same macOS user and Chrome's Keychain "Safe Storage" key.
