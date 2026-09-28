@@ -494,6 +494,13 @@ a subset of it. A runtime that fails this check, or whose sandbox cannot be veri
    `DeviceProfile` (apps, scriptability, AX support, browsers + driver availability); commit to git.
 5. Install launchd agent; start daemon; run the self-test **through the launchd-started process** (the one that
    will really act), not the setup process: AX read, one input event, background tab open/snapshot/close per browser.
+6. **Daemon interpreter and permissions.** TCC grants attach to the executable launchd runs, not to FERB or the
+   terminal (spike 8). The daemon therefore runs on a **dedicated Python interpreter installed under `~/.ferb`**
+   (e.g. `uv python install` into a fixed path), used only by FERB; FERB's venv is built on it and nothing else
+   uses it, so the Accessibility and Screen Recording grants don't extend to any other Python on the Mac. It changes
+   only when FERB is upgraded. `ferb setup` asks the owner to grant that interpreter; `ferb doctor` checks the
+   permissions **from inside the daemon** (never from the CLI's process) and tells the owner to re-grant when an
+   upgrade has invalidated them.
 
 **Mac app method resolution:** AppleScript / CLI → Accessibility → screenshot + click.
 Watchers emit `device.changed` on app install/removal; profile rescans that app only.
@@ -798,7 +805,7 @@ Rules:
 6. pyobjc: frontmost app, window title, AX tree of Chrome with and without `AXManualAccessibility`; TCC status checks.
 7. *Skipped — Safari control deferred to a later block.* Safari extension handler → daemon socket from inside the app sandbox (may require the socket in a shared app-group container).
 8. launchd agent start/stop + socket from CLI.
-9. System audio (timeboxed, ~1 hour, throwaway script — not FERB code): with the `catap` Python package, record 10 s
+9. *Skipped — deferred to the voice block.* System audio (timeboxed, ~1 hour, throwaway script — not FERB code): with the `catap` Python package, record 10 s
    of one app (browser playing YouTube) and of the whole system mix, on speakers, wired headphones and AirPods.
    Confirm the Audio Capture prompt appears, that denial yields silence (so `doctor` must check for real signal),
    and whether DRM playback (Apple Music, Netflix in Safari) comes through silent. Record results in section 20.
@@ -815,7 +822,9 @@ Rules:
 1. `core`, `store`, `bus`, `clock` (wall + monotonic), daemon + socket + `auth`, **minimal journal**,
    `ferb logs`, `ferb trace`.
 2. `sanitize/`, `policy/` (rules, intent, exposure, dataflow, autonomy, approvals), ledger, `ferb stop`.
-3. `device` (setup, permissions, profile) + `ferb setup/doctor`.
+3. `device` (setup, permissions, profile) + `ferb setup/doctor`. Measure first whether a small stable launcher
+   executable in `~/.ferb/bin` (spawning Python as a child) would keep TCC grants across interpreter upgrades,
+   including how ad-hoc signing affects that; record the result (section 8, step 6 stays the plan).
 4. `runtimes` with native tools disabled + `ferb mcp` shim + gateway; `act/fs`; `ferb chat` with reply/clarify
    and a single worker. Safety tests for gateway bypass pass before continuing.
 5. `act/browser`: `cdp_identity` + `identity/` (Keychain, origin-bound fill, OTP).
@@ -893,7 +902,7 @@ nothing in Block 1 blocks it.
 - **Setup/doctor:** Audio Capture permission added when built; `doctor` verifies a non-silent signal, not just tap creation.
 - **Shared with voice:** the same audio service will carry microphone input; the system-audio tap is what lets FERB
   separate its own output and background media from the owner's voice.
-- **Spike results (fill in after spike 9):** route coverage, permission behavior, DRM behavior.
+- **Spike results (fill in after spike 9, deferred to the voice block):** route coverage, permission behavior, DRM behavior.
 
 ## 21. Safety invariant tests (must pass before owner-account actions are enabled)
 

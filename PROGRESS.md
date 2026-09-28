@@ -13,11 +13,13 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spikes 5, 7, 11 — Safari | 2026-09-28 | **Skipped by the owner** (doesn't use Safari) | Safari control parked. Spike 5 work (built, not run against Safari) is on branch `spike-5-safari` with its FINDINGS.md. ARCHITECTURE.md edits for Safari watch-only proposed. |
 | Spike 6 — pyobjc probes + TCC checks | 2026-09-28 | Works; AXManualAccessibility gone | `spikes/06_pyobjc/FINDINGS.md`. Frontmost app, window titles without activating, no-prompt TCC checks (Automation via `ctypes`). Chrome 154/Brave 151 build the web AX tree on demand (first query may be empty ~0.2 s); `AXManualAccessibility` unsupported → §9.2 edit proposed. TCC grants belong to the responsible app, not FERB. |
 | Spike 8 — launchd agent + socket from CLI | 2026-09-28 | Works | `spikes/08_launchd/FINDINGS.md`. Start/ping/restart-after-crash/stop/stale socket, owner-only socket with peer-uid check. The launchd process has **none** of the terminal's TCC grants (they attach to the binary launchd runs); CLI must treat EOF as daemon-unavailable. |
+| Spike 9 — system audio | 2026-09-28 | **Skipped by the owner** | Deferred to the voice block (§17, §20). |
 
 ## Next
 
-Spike 9 — system audio (timeboxed ~1 h, throwaway script): `catap` per-app and system mix on speakers, wired
-headphones and AirPods; Audio Capture prompt; denial → silence; DRM playback.
+Spike 10 — Profiles: parse Chrome + Brave `Local State`; open a named profile via `--profile-directory` with the
+browser already running; External Extensions file → does every profile show the enable prompt; does Brave honor
+the same mechanism (and its folder path).
 
 ## Pinned external tools
 
@@ -31,8 +33,8 @@ headphones and AirPods; Audio Capture prompt; denial → silence; DRM playback.
 
 ## Open items carried forward
 
-- Build steps 1/3: the daemon's TCC identity is the executable launchd runs. Needs a stable executable so grants
-  survive Python upgrades / venv rebuilds (FERB.app is deferred) — owner decision before build step 3.
+- Build steps 1/3: daemon runs on a dedicated Python under `~/.ferb` (owner decision, §8 step 6); build step 3
+  first measures a stable launcher executable (§18 step 3).
 
 - Build step 3: `ferb doctor` checks TCC for the launchd-started daemon, not the terminal (grants belong to the
   responsible app); Automation status only checkable while the target app runs.
