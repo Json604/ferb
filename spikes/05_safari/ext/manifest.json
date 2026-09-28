@@ -1,0 +1,8 @@
+{
+  "manifest_version": 2,
+  "name": "FERB spike 5",
+  "version": "0.0.1",
+  "description": "Spike: executes harness commands and reports state. No policy, no decisions, no UI.",
+  "permissions": ["tabs", "<all_urls>", "http://127.0.0.1/*"],
+  "background": {"scripts": ["background.js"], "persistent": true}
+}
