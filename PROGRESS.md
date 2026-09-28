@@ -9,11 +9,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 1 — Codex exec + MCP, native tools off | 2026-09-28 | Works with a sandbox fallback | `spikes/01_codex_mcp/FINDINGS.md`. Codex can't remove `apply_patch`, and code-mode models keep `exec` + subagents, so workers are pinned to `gpt-5.5` and run under the read-only sandbox. §5, §7, §19 and test 21.1 updated to match. |
 | Spike 2 — Claude Agent SDK + MCP, native tools off | 2026-09-28 | Works cleanly (options only) | `spikes/02_claude_sdk/FINDINGS.md`. `tools=[]`, `dontAsk`, explicit `setting_sources=[]` (None loads user+project settings). Proxy on `ANTHROPIC_BASE_URL` shows the API receives only the MCP tool. Auth: subscription login. ~2k tokens overhead. |
 | Spike 3 — CDP pipe to `ferb-identity`; `fill_secret` | 2026-09-28 | Works; Google needs a seeded session | `spikes/03_cdp_identity/FINDINGS.md`. Pipe CDP + origin-bound `fill_secret` proven on a practice site (refusals incl. iframe, focus stealing). Google refuses automated sign-in (remote debugging sets `navigator.webdriver`); identity profile seeded from the owner's FERB-only Chrome profile and Gmail works over the pipe. §0, §8 (incl. `doctor` re-verify), §9.1, §10.1, §19, test 21.20 updated. |
+| Spike 4 — Chromium extension in Brave + Chrome | 2026-09-28 | Works; background input needs focus emulation | `spikes/04_extension/FINDINGS.md`. Native messaging round trip, background tab + sanitized snapshot, trusted click/typing in a background tab (incl. Google Search, not flagged), extension-side CDP allowlist. Needs: focus emulation (site then sees `visible`; owner decision), input-readiness probe, `onStartup`, version check in `hello`, host outside TCC folders. §8/§9.2/§9.4 edits proposed. |
 
 ## Next
 
-Spike 4 — Chromium extension in Brave and Chrome: native messaging round trip, background tab, snapshot, trusted
-click + typing in a background tab via `chrome.debugger` on a bot-protected site.
+Spike 5 — Safari extension in FERB.app (after the owner's decisions on spike 4). Per CLAUDE.md, FERB.app stays a
+bare functional container (no UI).
 
 ## Pinned external tools
 
@@ -26,6 +27,11 @@ click + typing in a background tab via `chrome.debugger` on a bot-protected site
   project's `pyproject.toml` as an exact pin when build step 1 creates it.
 
 ## Open items carried forward
+
+- Build step 6 (extension): register `runtime.onStartup` from the first version; `hello` carries the protocol
+  version and the daemon refuses a mismatch; input-readiness probe before dispatched input; treat
+  `executeScript` null/`error` results as failures; install `ferb-native-host` outside TCC-protected folders.
+- Spike 10: measure native-host manifest locations for the owner's *default* Chrome and Brave profiles.
 
 - Build step 5: when porting spike 3's tests, use a local test login page for `fill_secret` tests instead of an
   external site (the practice site went down mid-spike).

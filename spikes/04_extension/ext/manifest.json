@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "FERB spike 4",
+  "version": "0.0.2",
+  "description": "Spike: executes daemon commands and reports state. No policy, no decisions.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7V/STdszNUQP909lImmI6FtAh2Ly/t1tPRgwZteXzvxK53e2wuJzW3mL8f/JxTJ537xfIvWcYhJYOr+PztWnY+NDBqxZQNa4z+LVBRYj1JpKc0ji2W86dDO2XHugP+IiadmNClBxPNK7/gPV2Yt5Fgi+4MQUTZp2rJUDzhOZDBICBDPH0OIDzVDls7wEi3bqu1DgXvfKsBR/lqYx0WSRBlSUXnDtzj8BnATlDlSJM1DYxVcZbi5ofY38Hv8Kc9bI2ZvyhD7zWgcmARqlgQC/KUSGg7MzrRJ8fP0qouonbmGxEV/hLYzKM6QVfcXmUD8nSIY5uofRWMO/9a0swesW4wIDAQAB",
+  "permissions": ["tabs", "scripting", "debugger", "nativeMessaging"],
+  "host_permissions": ["<all_urls>"],
+  "background": {"service_worker": "background.js"}
+}
