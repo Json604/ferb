@@ -137,6 +137,7 @@ ferb/
     auth.py             connection roles, run tokens (issue / expire / revoke), per-role method lists
   registry.py           THE explicit list of capabilities, watchers, runtimes, deciders, drivers
   paths.py              runtime locations (~/.ferb or $FERB_HOME, socket path): shared by daemon and CLI
+  config.py             config.toml load/save (tomlkit; atomic temp-file + rename; stays 0600; refuses loose perms)
   bus.py                in-process event bus (typed events)
   orchestrator/
     supervisor.py       plans, spawns workers, merges, verifies, reports
@@ -160,6 +161,7 @@ ferb/
     dataflow.py         owner data may only go to destinations the request involves (10.2)
     autonomy.py         careful / balanced / hands-off levels + learned trust from traces (10.4)
     approvals.py        single-use, expiring approvals bound to the exact action payload; undo windows
+    engine.py           fixed evaluation order over the checks above -> ALLOW / HOLD / ASK / BLOCK with reason
   sanitize/
     redact.py           one redaction pipeline: secrets, password/OTP fields, tokens in URLs, exclusions
   act/
@@ -438,7 +440,8 @@ prefer_for_actions = ["brave", "chrome"]   # order when a site is logged in in s
 - Every bus event has a class. **Critical** (never dropped): `task.*`, `approval.*`, `device.changed`,
   `browser.profile_paired`, `timer.fired`, `memory.committed`. **Telemetry** (may be dropped under pressure):
   `tool.called`, `trail.event`, `browser.connected`, `browser.disconnected`, `browser.profiles_changed`,
-  `memory.proposed`. Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
+  `memory.proposed`. Also critical: `policy.blocked`, `worker.exposed`, `action.held` (undo countdown),
+  `action.released`, `action.undone`, `stop.engaged`, `stop.lifted`. Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
   oldest telemetry is dropped and the subscriber is told how many; if a queue is full of critical events, that
   subscriber is disconnected with an explicit overflow error (it must resubscribe and re-read state) rather
   than silently losing one.
@@ -682,6 +685,10 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   (`Task.request_id`): recipient, target account/site, content, amount, path. Matches → proceeds.
   Does not match (asked to summarize, worker tries to send / run a command / message someone new) → blocked
   and logged. Deterministic checks first; Jev `action.matches_request` for fuzzy cases, which can only block.
+  The typed intent (allowed action kinds, recipients, sites/accounts, paths, amounts) is derived **only from the
+  owner's message, at plan time, before any untrusted content is read**. It includes the action kinds the request
+  clearly implies (e.g. "book a table" implies form fill and submit). It is recorded once per request and workers
+  can never change it. An action kind not in it is blocked; a requested kind with a target outside it asks.
 - **Exposure** (`policy/exposure.py`): a worker that has read untrusted content (web pages, emails, messages,
   downloaded files, anything not from a trusted source) is *exposed*. Exposed workers lose shell, AppleScript and
   file-write capabilities for the rest of their run. If those are needed, the supervisor starts a clean worker
@@ -716,6 +723,7 @@ any change voids them.
 
 - `ferb stop` immediately revokes all run tokens, blocks new actions at the
   gateway, cancels workers, detaches debuggers and kills task-owned processes. `ferb resume-tasks` lifts it.
+  The stop survives a daemon crash/restart (a `STOPPED` marker in `~/.ferb`) until the owner lifts it.
   (`ferb pause` is separate: it only stops monitoring.)
 - Owner input wins: the `owner_input` watcher is a listen-only event tap; every input event FERB posts carries a
   private marker, so unmarked events are the owner (the system idle timer can't be used — FERB's own input resets
@@ -726,7 +734,9 @@ any change voids them.
 
 Runs before anything reaches a model, trace, log, exception message, journal, memory or export:
 password/OTP field values, secrets, auth tokens in URLs, exclusion-list apps/domains, shell output matching
-secret patterns, debugger events. Screenshots are never stored unless a task requires it, and are not sent
+secret patterns, debugger events. Key-name redaction exempts FERB's own internal id fields (`task_id`,
+`span_id`, `session_id`, `run_token_id` — ids, never token values); their values are still scanned for secret
+patterns. Screenshots are never stored unless a task requires it, and are not sent
 to models when the frame contains a password or excluded site.
 
 ## 11. Monitoring trail
@@ -805,7 +815,7 @@ Rules:
 | Command | Purpose |
 |---------|---------|
 | `ferb chat` | Conversation with the orchestrator; approvals inline |
-| `ferb logs [--tasks --trail --tools --browsers]` | Live stream from the bus |
+| `ferb logs [--tasks --trail --tools --browsers --policy --actions]` | Live stream from the bus (redacted) |
 | `ferb trace <task-id>` | Span tree for one task |
 | `ferb setup` / `ferb doctor` | Onboarding / health, permissions, extension connectivity |
 | `ferb device` / `ferb browsers` | Device profile / browser drivers + connection status |

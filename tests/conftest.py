@@ -40,7 +40,7 @@ class RunningDaemon:
         return self.daemon.server.path
 
     def stop(self) -> None:
-        self.run(self.daemon.stop())
+        self.run(self.daemon.shutdown())
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.thread.join(5)
 

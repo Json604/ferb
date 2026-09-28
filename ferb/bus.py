@@ -20,7 +20,9 @@ class EventClass(Enum):
 
 
 CRITICAL = {"task.created", "task.started", "task.finished", "approval.requested", "approval.resolved",
-            "device.changed", "browser.profile_paired", "timer.fired", "memory.committed"}
+            "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
+            "policy.blocked", "worker.exposed", "action.held", "action.released", "action.undone",
+            "stop.engaged", "stop.lifted"}
 TELEMETRY = {"tool.called", "trail.event", "browser.connected", "browser.disconnected", "browser.profiles_changed",
              "memory.proposed"}
 STABLE_TOPICS = CRITICAL | TELEMETRY

@@ -21,12 +21,14 @@ def db(tmp_path: Path) -> Database:
 
 
 def test_migrations_apply_once_and_rerun_is_a_no_op(tmp_path: Path) -> None:
+    from ferb.store.db import MIGRATIONS
+    expected = sorted(int(f.name[:4]) for f in MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
     d = Database(tmp_path / "ferb.db")
-    assert d.migrate() == [1]
+    assert d.migrate() == expected
     assert d.migrate() == []
-    assert d.schema_version() == 1
+    assert d.schema_version() == expected[-1]
     tables = {r[0] for r in d.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert {"spans", "journal", "schema_version"} <= tables
+    assert {"spans", "journal", "action_ledger", "schema_version"} <= tables
 
 
 def test_wal_secure_delete_foreign_keys_and_owner_only_file(db: Database) -> None:

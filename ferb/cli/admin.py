@@ -38,3 +38,39 @@ def trace(client: Client, task_id: str, out: TextIO) -> int:
     for line in render_trace(client.call("trace.get", {"task_id": task_id})):
         print(line, file=out)
     return 0
+
+
+def stop(client: Client, out: TextIO) -> int:
+    r = client.call("stop.engage")
+    print(f"FERB stopped: {r['tokens_revoked']} run token(s) revoked, {r['holds_undone']} pending send(s) cancelled. "
+          "`ferb resume-tasks` lifts it.", file=out)
+    for name, err in r.get("hook_errors", {}).items():
+        print(f"  warning: stop hook {name} failed ({err})", file=out)
+    return 0
+
+
+def resume(client: Client, out: TextIO) -> int:
+    client.call("stop.lift")
+    print("FERB resumed: actions are allowed again.", file=out)
+    return 0
+
+
+def undo(client: Client, hold_id: str | None, out: TextIO) -> int:
+    r = client.call("undo", {} if hold_id is None else {"hold_id": hold_id})
+    if r.get("undone"):
+        print(f"undone: {r['undone']}", file=out)
+        return 0
+    pending = r.get("pending", [])
+    if not pending:
+        print("nothing pending to undo", file=out)
+        return 1
+    print("several sends are pending; name one:", file=out)
+    for h in pending:
+        print(f"  {h['hold_id']}  {h['kind']} via {h['capability']}", file=out)
+    return 1
+
+
+def autonomy(client: Client, level: str | None, out: TextIO) -> int:
+    r = client.call("autonomy.get") if level is None else client.call("autonomy.set", {"level": level})
+    print(f"autonomy: {r['level']}", file=out)
+    return 0
