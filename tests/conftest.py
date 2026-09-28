@@ -11,6 +11,8 @@ from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
 from ferb.daemon.main import Daemon
 
+pytest_plugins = ["tests.browserkit"]           # browser fixtures: local pages, temporary keychain
+
 
 class RunningDaemon:
     """A real Daemon on its own event loop in a background thread (the tests talk to it over the socket)."""

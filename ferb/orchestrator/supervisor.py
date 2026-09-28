@@ -13,7 +13,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from pydantic import ValidationError
 
@@ -55,13 +55,20 @@ class RuntimeViolation(Exception):
 class Supervisor:
     def __init__(self, *, make_runtime: MakeRuntime, gateway: Gateway, engine: PolicyEngine, tokens: RunTokens,
                  tasks: TaskTree, spans: SpanStore, journal: Journal, publish: Publish, clock: Clock, ids: IdSource,
-                 device_id: str, workspace: str, on_violation: Callable[[str, str], None]) -> None:
+                 device_id: str, workspace: str, on_violation: Callable[[str, str], None],
+                 on_task_end: Callable[[str], Awaitable[None]] | None = None,
+                 facts: Callable[[], str] = lambda: "") -> None:
         self.make_runtime, self.gateway, self.engine, self.tokens = make_runtime, gateway, engine, tokens
         self.tasks, self.spans, self.journal, self.publish = tasks, spans, journal, publish
         self.clock, self.ids, self.device_id, self.workspace = clock, ids, device_id, workspace
         self.on_violation = on_violation
+        self.on_task_end, self.facts = on_task_end, facts
         self.sessions: dict[str, ChatSession] = {}
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
+
+    def _system(self, name: str) -> str:
+        facts = self.facts()
+        return (PROMPTS / name).read_text() + (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
 
     def cancel_all(self) -> None:
         """Stop hook (section 10.5): cancel every running supervisor/worker run."""
@@ -117,7 +124,7 @@ class Supervisor:
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
                          [], None, Budget())
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id})
-        final = await self._run(rt, chat_task, (PROMPTS / "supervisor.md").read_text(), ctx, "", span.id)
+        final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id)
         self.spans.finish(span, output={"text": final[:2000]})
         return SupervisorOutcome.model_validate_json(final)
 
@@ -178,7 +185,7 @@ class Supervisor:
         self.publish("task.started", {"task_id": task.id, "worker_id": worker_id})
         outcome: Outcome
         try:
-            final = await self._run(rt, task, (PROMPTS / "worker.md").read_text(), ctx, token, root.id)
+            final = await self._run(rt, task, self._system("worker.md"), ctx, token, root.id)
             w = WorkerOutcome.model_validate_json(final)
             outcome = Outcome(task.id, w.status, w.summary, w.artifacts, w.evidence)
         except RuntimeViolation as e:
@@ -187,6 +194,11 @@ class Supervisor:
             outcome = Outcome(task.id, "failed", f"worker's report wasn't usable ({type(e).__name__})", [], [])
         finally:
             self.tokens.revoke_worker(worker_id)
+            if self.on_task_end is not None:
+                try:
+                    await self.on_task_end(task.id)          # e.g. close the task's browser tabs
+                except Exception:
+                    pass
         self.spans.finish(root, output={"status": outcome.status, "summary": outcome.summary[:2000]})
         self.journal.append("task.outcome", {"task_id": task.id, "status": outcome.status, "summary": outcome.summary,
                                              "artifacts": outcome.artifacts, "verified": False})

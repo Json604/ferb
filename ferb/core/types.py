@@ -1,6 +1,6 @@
 """Core types (ARCHITECTURE.md section 4). Pure data: no I/O, imports nothing from ferb except core."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
@@ -182,6 +182,7 @@ class ToolContext:
     workspace: str
     owner_roots: tuple[str, ...]
     untrusted_roots: tuple[str, ...]
+    intent_id: str | None = None             # ledger row of this call when consequential (drivers tag with it)
 
 
 @dataclass(frozen=True)
@@ -189,3 +190,76 @@ class ToolResult:
     content: dict[str, Any]
     is_error: bool = False
     read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) the call read: feeds exposure (10.2)
+
+
+# ---------- browsers (section 5 BrowserDriver) ----------
+
+@dataclass(frozen=True)
+class TabRef:
+    device_id: str
+    browser: str                             # "chrome" | "brave" | ...
+    profile: str                             # profile folder ("identity" for cdp_identity)
+    generation: int                          # connection generation: a reconnect makes older refs stale
+    tab_id: str
+
+
+@dataclass(frozen=True)
+class ElementRef:
+    tab: TabRef
+    frame_id: str
+    snapshot_gen: int                        # the snapshot the id came from; stale after navigation / newer snapshot
+    element_id: str
+
+
+@dataclass(frozen=True)
+class DriverFeatures:
+    trusted_input_background: bool
+    parallel_actions: bool
+    network_events: bool
+    dom_snapshot: bool
+    screenshot_background: bool
+
+
+@dataclass(frozen=True)
+class BrowserAction:
+    kind: Literal["click", "type", "select", "press", "scroll"]
+    text: str | None = None                  # text to type; select: option label or value; press: key; scroll: up|down
+
+
+@dataclass(frozen=True)
+class WaitCondition:
+    kind: Literal["load", "text", "url"]
+    value: str | None = None
+
+
+@dataclass(frozen=True)
+class ActionResult:
+    ok: bool
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class PageElement:
+    id: str
+    frame_id: str
+    role: str
+    label: str
+    value: str | None
+    rect: tuple[float, float, float, float]  # x, y, width, height (viewport of its frame)
+    visible: bool
+    input_type: str | None = None
+    href: str | None = None
+    form: str | None = None                  # "search" | "login" | "other" | None: what submitting it would do
+    secret: bool = False                     # password / OTP field: value never leaves the driver
+
+
+@dataclass(frozen=True)
+class PageSnapshot:
+    tab: TabRef
+    generation: int
+    url: str
+    title: str
+    elements: list[PageElement] = field(default_factory=list)
+    text: str = ""
+    truncated: bool = False
+    dialogs: list[str] = field(default_factory=list)   # JS dialogs dismissed since the last snapshot

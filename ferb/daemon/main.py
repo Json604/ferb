@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
+from ferb.act.browser.cdp_identity import CdpIdentityDriver
 from ferb.bus import DROPPED, Bus, Overflow
 from ferb.clock.clock import SystemClock
 from ferb.config import Config
@@ -32,6 +33,7 @@ from ferb.orchestrator.stop import StopControl
 from ferb.paths import ferb_home, socket_path
 from ferb.policy.autonomy import Level
 from ferb.policy.engine import PolicyEngine, Verdict
+from ferb.identity.secrets import KeychainSecretStore, specs_from_config
 from ferb.sanitize.redact import Redactor
 from ferb.store.db import Database
 from ferb.store.spans import SpanNode, SpanStore
@@ -65,7 +67,11 @@ class Daemon:
         self.ledger: Ledger | None = None
         self._release_task: asyncio.Task[None] | None = None
         self._autonomy = Level.BALANCED
-        self.registry = build_registry()
+        self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
+        self.identity_browser = CdpIdentityDriver(
+            self.home / "chrome" / "identity", "unknown-device", self.secrets, self._add_secret_value,
+            mailbox_address=lambda: str(self.config.get("mailbox", "address", "")))
+        self.registry = build_registry(self.identity_browser)
         self.tasks = TaskTree()
         self.gateway: Gateway | None = None
         self.supervisor: Supervisor | None = None
@@ -90,7 +96,8 @@ class Daemon:
                          ("stop.lift", self._stop_lift), ("undo", self._undo), ("autonomy.get", self._autonomy_get),
                          ("autonomy.set", self._autonomy_set), ("doctor.check", self._doctor_check),
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
-                         ("tools.call", self._tools_call), ("chat.approve", self._chat_approve)):
+                         ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
+                         ("identity.check", self._identity_check)):
             self.server.unary[name] = fn
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
@@ -112,6 +119,7 @@ class Daemon:
             self.supervisor.cancel_all()
         if self._proxy:
             self._proxy.close()
+        await self.identity_browser.shutdown()
         await self.server.close()
         if self.journal:
             self.journal.append("daemon.stopped", {"pid": os.getpid()})
@@ -174,8 +182,27 @@ class Daemon:
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, engine=self.engine,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
-                                     workspace=str(workspace), on_violation=self._runtime_violation)
+                                     workspace=str(workspace), on_violation=self._runtime_violation,
+                                     on_task_end=self.identity_browser.release, facts=self._facts)
+        self.identity_browser.device_id = device
+        self.identity_browser.headless = bool(self.config.get("identity_browser", "headless", True))
+        self.identity_browser.allow_local = bool(self.config.get("identity_browser", "allow_local", False))
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
+        self.stop_control.register("identity_browser",
+                                   lambda: asyncio.get_event_loop().create_task(self.identity_browser.shutdown()))
+
+    def _add_secret_value(self, value: str) -> None:
+        add = getattr(self.redact, "add_secret_value", None)
+        if add is not None:
+            add(value)
+
+    def _facts(self) -> str:
+        address = self.config.get("mailbox", "address", "")
+        lines = [f"- FERB's own email (its identity, never the owner's): {address}" if address else
+                 "- FERB has no email account set up."]
+        lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
+                  for s in self.secrets.specs()]
+        return "\n".join(lines)
 
     def _publish(self, topic: str, data: dict[str, Any]) -> None:
         self.bus.publish(topic, self.redact(data))
@@ -315,6 +342,23 @@ class Daemon:
         self._autonomy = level
         self._journal().append("autonomy.set", {"level": level.value})
         return {"level": level.value}
+
+    async def _identity_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Setup / doctor (section 8): is FERB's seeded browser session still signed in as FERB's address?"""
+        from ferb.act.browser.cdp_identity import CdpError, Refused
+        address = str(self.config.get("mailbox", "address", "") or "")
+        out: dict[str, Any] = {"seeded": (self.home / "chrome" / "identity" / "Default").is_dir(), "address": address,
+                               "signed_in": False, "error": None,
+                               "secrets": [{"key": s.ref.key, "in_keychain": await self.secrets.present(s.ref)}
+                                           for s in self.secrets.specs()]}
+        if not address:
+            out["error"] = "no [mailbox] address in config.toml"
+        elif out["seeded"]:
+            try:
+                out["signed_in"] = await self.identity_browser.session_ok()
+            except (Refused, CdpError) as e:
+                out["error"] = str(e)
+        return out
 
     async def _doctor_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Permissions and self-test as seen by *this* process — the one that will really act (section 8)."""

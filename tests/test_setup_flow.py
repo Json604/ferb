@@ -42,6 +42,9 @@ class FakeClient:
                 {"name": "input_event", "ok": True, "detail": "seen"}]
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid}
+        if method == "identity.check":
+            return {"seeded": True, "address": "ferb@test.example", "signed_in": True, "error": None,
+                    "secrets": [{"key": "ferb/email/password", "in_keychain": True}]}
         if method == "automation.request":
             self.d.automation_requests.append(params["bundle_ids"])
             return {"results": {b: "granted" for b in params["bundle_ids"]}}
@@ -59,6 +62,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     make_app(apps, "Brave Browser", "com.brave.Browser", NSAppleScriptEnabled=True)
     monkeypatch.setattr(S, "scan", lambda did: __import__("ferb.device.scan", fromlist=["scan"]).scan(did, [apps]))
     home = tmp_path / ".ferb"
+    (home / "chrome" / "identity" / "Default").mkdir(parents=True)     # FERB's browser profile already seeded
     runner = FakeRunner(home)
     inst = Installer(home, label="com.ferb.test", run=runner, launch_agents=tmp_path / "LA")
     daemon = FakeDaemon()
@@ -110,7 +114,7 @@ def test_full_setup_walks_permissions_restarts_for_screen_recording_and_skips_br
     assert world["panes"][:2] == ["accessibility", "screen_recording"]
     assert d.perms["accessibility"] == d.perms["screen_recording"] == "granted"
     text = out.getvalue()
-    assert "Brave" not in text.split("5/6")[1].split("6/6")[0]          # never offered for Automation
+    assert "Brave" not in text.split("5/7")[1].split("6/7")[0]          # never offered for Automation
     assert d.automation_requests and all("com.brave.Browser" not in r for r in d.automation_requests)
     assert "Setup complete." in text
     assert (world["home"] / "device").is_dir()

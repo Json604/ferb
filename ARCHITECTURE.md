@@ -180,6 +180,7 @@ ferb/
       profiles.py       profile discovery from Local State + name → profile resolver (section 9.5)
       pairing.py        extension install ↔ browser profile pairing (section 9.6)
       cdp_identity.py   CDP driver for FERB's own Chrome profile
+      tools.py          browser.* capabilities over a BrowserDriver; policy kind from what the element does
       ext_bridge.py     driver for owner browsers via the FERB extension
       ax_browser.py     Accessibility driver (fallback for any browser)
       snapshot.py       unified page snapshot format (DOM + AX → elements with ids, roles, labels, rects)
@@ -212,6 +213,7 @@ ferb/
   identity/
     secrets.py          KeychainSecretStore (FERB identity only)
     mailbox.py          FERB's inbox (read OTPs); send requires approval
+    seed.py             find + copy FERB's dedicated Chrome profile at setup (section 8 step 3)
   clock/
     clock.py            SystemClock, FakeClock
     context.py          time header + tool footer builders
@@ -440,6 +442,13 @@ worker       = "codex"
 
 [browser]
 prefer_for_actions = ["brave", "chrome"]   # order when a site is logged in in several
+
+[identity_browser]
+headless = true            # FERB's own Chrome (cdp_identity); private/loopback hosts refused unless allow_local
+
+[mailbox]
+provider = "gmail"
+address  = "ferb@example.com"   # FERB's own address; seeding checks the profile holds exactly this account
 ```
 
 - Stable bus events: `task.created`, `task.started`, `task.finished`, `tool.called`, `approval.requested`,
@@ -695,6 +704,9 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
 - Child workers never receive more authority than their parent task.
 - FERB credentials: Keychain only, described by `SecretSpec`. `fill_secret(target, ref)` runs inside the daemon,
   checks the target frame's origin against `allowed_origins` right before typing, and records `ref.key` only.
+- One-time codes: read from FERB's inbox (Gmail's Atom feed of unread mail, loaded in FERB's browser with the seeded
+  session) and set straight into a field whose origin is allowed for that account's `SecretSpec` — never shown to
+  a model, logged or stored; refused when the newest message holds more than one candidate code.
 - Owner credentials: never read, typed, stored, or requested. No access to the owner's cookie stores (the only
   exception is seeding FERB's identity profile at setup, section 8).
 

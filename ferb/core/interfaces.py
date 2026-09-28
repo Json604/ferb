@@ -8,8 +8,9 @@ from typing import AsyncIterator, Protocol
 
 from pydantic import BaseModel
 
-from ferb.core.types import (ActionSpec, Identity, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, Task,
-                             ToolContext, ToolResult)
+from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, DriverFeatures, ElementRef, Identity,
+                             PageSnapshot, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, SecretRef, SecretSpec,
+                             TabRef, Task, ToolContext, ToolResult, WaitCondition)
 
 
 class Clock(Protocol):
@@ -42,3 +43,23 @@ class Capability(Protocol):
     Input: type[BaseModel]
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult: ...
     def describe(self, args: BaseModel) -> ActionSpec: ...   # kind, target, content, data labels for policy
+
+
+class SecretStore(Protocol):                    # FERB identity only
+    def has(self, ref: SecretRef) -> bool: ...
+    def spec(self, ref: SecretRef) -> SecretSpec: ...
+    # No reveal method for callers. Filling happens inside cdp_identity.fill_secret(target, ref), which checks the
+    # target frame's origin against spec.allowed_origins immediately before typing. `caller` is audit only.
+
+
+class BrowserDriver(Protocol):
+    name: str                                   # "cdp_identity" | "ext:chrome" | "ext:brave" | "ax:<browser>"
+    identity: Identity
+    features: DriverFeatures
+    async def tabs(self) -> list[TabRef]: ...
+    async def open(self, url: str, background: bool = True) -> TabRef: ...
+    async def snapshot(self, tab: TabRef) -> PageSnapshot: ...            # structured, sanitized, has a generation
+    async def act(self, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult: ...
+    async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool: ...
+    async def screenshot(self, tab: TabRef) -> bytes: ...
+    async def close(self, tab: TabRef) -> None: ...

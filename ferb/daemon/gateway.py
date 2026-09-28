@@ -115,7 +115,7 @@ class Gateway:
         ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                           identity=grant.identity, scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                           workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
-                          untrusted_roots=self.roots.untrusted_roots)
+                          untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id)
         try:
             result = await cap.run(args, ctx)
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly

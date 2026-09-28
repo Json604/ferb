@@ -21,6 +21,7 @@ IMPLIES: dict[str, frozenset[str]] = {
     "fill_form": frozenset({Kind.NAVIGATE, Kind.FILL_FORM, Kind.SUBMIT}),
     "edit_file": frozenset({Kind.READ, Kind.WRITE_FILE}),
     "run_command": frozenset({Kind.RUN_SHELL}),
+    "sign_in": frozenset({Kind.NAVIGATE, Kind.OPEN_TAB, Kind.FILL_FORM, Kind.SUBMIT, Kind.FILL_SECRET}),
 }
 
 
@@ -73,6 +74,16 @@ class IntentResult:
 Fuzzy = Callable[[ActionRequest, RequestIntent], Literal["yes", "no", "unsure"]]
 
 
+def site_matches(host: str, sites: frozenset[str]) -> bool:
+    """"example.com" in the request covers example.com and its subdomains (accounts.example.com), nothing else."""
+    host = host.lower().rstrip(".")
+    for s in sites:
+        s = s.lower().split("://")[-1].split("/")[0].split(":")[0].removeprefix("www.").rstrip(".")
+        if s and (host == s or host.endswith("." + s) or host == "www." + s):
+            return True
+    return False
+
+
 def check(a: ActionRequest, intent: RequestIntent | None, fuzzy: Fuzzy | None = None) -> IntentResult:
     if a.kind in REVERSIBLE:
         return IntentResult("match")
@@ -84,7 +95,7 @@ def check(a: ActionRequest, intent: RequestIntent | None, fuzzy: Fuzzy | None = 
     if t.recipients and not set(t.recipients) <= intent.recipients:
         new = sorted(set(t.recipients) - intent.recipients)
         return IntentResult("ask", f"surprising recipient(s): {', '.join(new)}")
-    if t.site and intent.sites and t.site not in intent.sites:
+    if t.site and intent.sites and not site_matches(t.site, intent.sites):
         return IntentResult("ask", f"surprising site: {t.site}")
     if t.account and intent.accounts and t.account not in intent.accounts:
         return IntentResult("ask", f"surprising account: {t.account}")
