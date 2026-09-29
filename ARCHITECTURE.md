@@ -226,7 +226,8 @@ ferb/
     selftest.py         self-test run inside the daemon: AX read, event tap, one marked (harmless) input event
   identity/
     secrets.py          KeychainSecretStore (FERB identity only)
-    mailbox.py          FERB's inbox (read OTPs); send requires approval
+    mailbox.py          FERB's inbox (read OTPs) and sending from it: normal autonomy rules — requested sends go
+                        with the undo window, unrequested ones ask
     seed.py             verify FERB's Chrome profile holds exactly FERB's account (section 8 step 3); copies nothing
   clock/
     clock.py            SystemClock, FakeClock
@@ -1112,6 +1113,10 @@ Build step 11 specifics (owner decisions):
 11. `memory` (items with trust levels, distill, recall, purge-forget, export) + timeline.
 12. Deferred: Safari control and FERB.app (later block).
 13. `decide` with Jev in shadow.
+14. Time and small gaps (owner-added, 2026-09-30): durable timers — `set_timer`, `remind_at`, `sleep_until`,
+    SQLite-backed, surviving restarts and sleep (overdue timers fire with `overdue_by`), delivered exactly once
+    (safety test 19); `clock/durations.py` (measured task durations in the time header); sending from FERB's mailbox
+    (normal autonomy: in the request → the 10 s undo window; not requested → asks); `ferb device`; the §0 table fix.
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.

@@ -79,14 +79,16 @@ with `ferb decide enable` once `ferb decide stats` shows agreement.
   messages, logs or errors along the extension path; written in step 6 with the path. Owner decision: the value is
   sealed for the extension (AES-GCM, key from pairing, fresh nonce per seal, fill command id + allowed origin as
   associated data; §10.1). Protects FERB's messages and logs, not against local malware.
-- **Before pairing the owner's real profiles (owner, 2026-09-29):** publish the extension as an unlisted Chrome Web
-  Store listing (External Extensions needs it; spike 10). 6a uses load unpacked in test profiles only.
+- **Pairing the owner's real profiles (owner, 2026-09-30, replaces the 2026-09-29 note):** the unlisted Web Store
+  listing is skipped for now (the owner buys the Chrome developer account later). The owner's real Brave profile is
+  paired with the unpacked extension once all 24 §21 tests pass. The listing (and External Extensions, spike 10)
+  comes later.
 - 6a notes: trusted (debugger) input works in the top frame only; iframes use page-mode events. The YouTube
   extractor is unvalidated on a real signed-in page (it falls back to "couldn't read the account" -> refuse); Gmail's
   is title/aria-label based. Validate both with a real signed-in account before relying on them (FERB's own account
   is in its identity profile: ask the owner first). The "FERB" tab group isn't asserted in the real test.
 - 6a deferred (owner-approved): resolver rule 2 (trail history) -> step 10; data-flow labels from owner pages
-  (21.9) -> step 8; External Extensions + unlisted Web Store listing before pairing the owner's real profiles.
+  (21.9) -> step 8; External Extensions + unlisted Web Store listing: later (see the 2026-09-30 note above).
 - Test profiles (owner keeps both for future tests): Chrome "FERB Test" (Profile 25) and Brave folder "FERB Test"
   (shown as "Personal"). No accounts in either.
 - 6b (owner, 2026-09-29): FERB's own Google account in the FERB profile may be used to validate the Gmail and
