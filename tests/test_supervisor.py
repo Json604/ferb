@@ -169,12 +169,18 @@ def test_runtime_violation_unregisters_the_runtime(daemon: RunningDaemon) -> Non
     (plan([sub("a")], paths=("todo.md",), budget={"max_workers": 99}), "budget's workers"),
     (plan([sub("a"), sub("b")], paths=("todo.md",), budget={"max_workers": 2}), "plus verification"),
     (plan([sub("a", scopes=("shell",))], paths=("todo.md",)), "can't have shell"),
-    (plan([sub("a", identity="owner", scopes=("screen",))], paths=("todo.md",)), "can't do screen yet"),
 ])
 def test_plan_validation(daemon: RunningDaemon, p: dict[str, Any], why: str) -> None:
     install(daemon, [sup("plan", "x", p)])
     evs = chat(daemon, "create todo.md with milk")
     assert evs[0]["type"] == "clarify" and why in evs[0]["text"], evs
+
+
+def test_a_scope_no_capability_provides_is_refused() -> None:
+    from ferb.orchestrator import dag
+    from ferb.orchestrator.schemas import Plan
+    p = Plan.model_validate(plan([sub("a", identity="owner", scopes=("screen",))], paths=("todo.md",)))
+    assert any("can't do screen yet" in x for x in dag.validate(p, "create todo.md", {"fs:read"}, dag.Limits()))
 
 
 def test_targets_only_in_pasted_content_are_refused_before_any_worker(daemon: RunningDaemon) -> None:

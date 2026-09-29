@@ -69,10 +69,14 @@ def click_steps(x: float, y: float) -> list[Step]:
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
     pt = (x, y)
 
-    def ev(kind: int) -> Callable[[], None]:
-        return lambda: _post(Quartz.CGEventCreateMouseEvent(src, kind, pt, Quartz.kCGMouseButtonLeft))
-    return [Step("move", ev(Quartz.kCGEventMouseMoved)), Step("press", ev(Quartz.kCGEventLeftMouseDown)),
-            Step("release", ev(Quartz.kCGEventLeftMouseUp))]
+    def ev(*kinds: int) -> Callable[[], None]:
+        def post() -> None:
+            for kind in kinds:
+                _post(Quartz.CGEventCreateMouseEvent(src, kind, pt, Quartz.kCGMouseButtonLeft))
+        return post
+    # down + up are one step: a yield or a failed check never leaves the button held down
+    return [Step("move", ev(Quartz.kCGEventMouseMoved)),
+            Step("click", ev(Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp))]
 
 
 def type_steps(text: str) -> list[Step]:

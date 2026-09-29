@@ -116,6 +116,7 @@ class Daemon:
         self.home.mkdir(parents=True, exist_ok=True)
         os.chmod(self.home, 0o700)
         ensure_socket_free(self.server.path)   # refuse before touching the database if another daemon runs
+        self.config.ensure_privacy_defaults()
         self._load_config()
         self.db = Database(self.home / "ferb.db")
         self.db.migrate()
@@ -206,8 +207,7 @@ class Daemon:
     def _load_config(self) -> None:
         self._autonomy = Level(self.config.get("policy", "autonomy", Level.BALANCED.value))
         if self._redact_override is None:
-            self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])),
-                                   set(self.config.get("privacy", "exclude_apps", [])))
+            self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps()))
 
     async def _release_loop(self) -> None:
         """Undo windows: publish releases as holds come due (the gateway executes them from build step 4)."""
@@ -263,7 +263,7 @@ class Daemon:
             if self.supervisor is not None:
                 self.supervisor.activity.waiting(holder, on)
         self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait),
-                                     excluded=lambda: set(self.config.get("privacy", "exclude_apps", [])))
+                                     excluded=self.config.exclude_apps)
         add_mac(self.registry, self.mac, self._device_profile)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)

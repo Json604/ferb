@@ -16,6 +16,11 @@ from tomlkit.toml_document import TOMLDocument
 from ferb.core.errors import FerbError
 
 
+# [privacy] exclude_apps starts with password managers only; the owner may edit or empty it (an empty list is kept).
+DEFAULT_EXCLUDE_APPS = ["com.1password.1password", "com.agilebits.onepassword7", "com.bitwarden.desktop",
+                        "com.apple.Passwords", "com.apple.keychainaccess"]
+
+
 class InsecureConfig(FerbError):
     pass
 
@@ -66,3 +71,11 @@ class Config:
             doc[section] = tomlkit.table()
         doc[section][key] = value              # type: ignore[index]
         self.save(doc)
+
+    def exclude_apps(self) -> frozenset[str]:
+        return frozenset(self.get("privacy", "exclude_apps", DEFAULT_EXCLUDE_APPS))
+
+    def ensure_privacy_defaults(self) -> None:
+        """Write the default exclusion list into config.toml once, so the owner sees and edits it there."""
+        if self.get("privacy", "exclude_apps") is None:
+            self.set("privacy", "exclude_apps", list(DEFAULT_EXCLUDE_APPS))

@@ -48,6 +48,7 @@ class ClaudeRuntime:
             setting_sources=[],
             strict_mcp_config=True, plugins=[], agents=None, skills=None, mcp_servers=mcp, env=env,
             model=self.model, max_turns=self.max_turns,
+            extra_args={"no-session-persistence": None},   # no transcript (tool results, screenshots) on disk
             output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)
 
     async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle:

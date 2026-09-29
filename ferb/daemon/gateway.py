@@ -6,6 +6,7 @@ result, never an exception.
 """
 
 import asyncio
+import base64
 import dataclasses
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -168,7 +169,10 @@ class Gateway:
                                                 "reason": f"read {kind}: {source_id}"})
         content = self.redact(result.content)
         self.spans.finish(span, output=content, error=content.get("error") if result.is_error else None)
-        return reply(content, result.is_error)
+        out = reply(content, result.is_error)
+        if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
+            out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
+        return out
 
     async def _wait_hold(self, hold_id: str) -> str:
         while True:

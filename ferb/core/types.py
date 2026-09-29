@@ -191,6 +191,7 @@ class ToolResult:
     content: dict[str, Any]
     is_error: bool = False
     read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) the call read: feeds exposure (10.2)
+    image: bytes | None = None                        # JPEG for the model only: never redacted text, logged or stored
 
 
 # ---------- browsers (section 5 BrowserDriver) ----------

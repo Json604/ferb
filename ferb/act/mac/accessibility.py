@@ -65,6 +65,62 @@ def app_window(pid: int) -> Any:
     return _attr(app, "AXFocusedWindow") or _attr(app, "AXMainWindow") or next(iter(_attr(app, "AXWindows") or []), None)
 
 
+def frame(win: Any) -> tuple[float, float, float, float] | None:
+    import ApplicationServices as AX
+    if win is None:
+        return None
+    x, y = _point(_attr(win, "AXPosition"), AX.kAXValueCGPointType)
+    w, h = _point(_attr(win, "AXSize"), AX.kAXValueCGSizeType)
+    return (x, y, w, h) if w and h else None
+
+
+def window_with_frame(pid: int, bounds: tuple[float, float, float, float]) -> Any:
+    """The app's Accessibility window at these screen bounds (the captured window), or None."""
+    import ApplicationServices as AX
+    for win in _attr(AX.AXUIElementCreateApplication(pid), "AXWindows") or []:
+        f = frame(win)
+        if f is not None and all(abs(a - b) <= 2 for a, b in zip(f, bounds)):
+            return win
+    return None
+
+
+def hit(x: float, y: float) -> tuple[int, tuple[float, float, float, float] | None] | None:
+    """What a click at this screen point would reach: (pid, frame of its window), or None if Accessibility can't
+    tell. Uses the system's own hit test, so click-through overlays (screen tools, the Dock's layer) don't count."""
+    import ApplicationServices as AX
+    err, el = AX.AXUIElementCopyElementAtPosition(AX.AXUIElementCreateSystemWide(), x, y, None)
+    if err != 0 or el is None:
+        return None
+    err, pid = AX.AXUIElementGetPid(el, None)
+    if err != 0:
+        return None
+    win = el if _attr(el, "AXRole") == "AXWindow" else _attr(el, "AXWindow")
+    return int(pid), frame(win)
+
+
+SECURE_SCAN_MAX = 5000
+
+
+def has_secure_field(win: Any) -> bool | None:
+    """True if the window holds a password field (AXSecureTextField role or subrole), False if a full walk found
+    none, None if it couldn't tell (no window, or too large to walk)."""
+    if win is None:
+        return None
+    seen, stack = 0, [(win, 0)]
+    while stack:
+        el, depth = stack.pop()
+        seen += 1
+        if seen > SECURE_SCAN_MAX:
+            return None
+        if "AXSecureTextField" in (str(_attr(el, "AXRole") or ""), str(_attr(el, "AXSubrole") or "")):
+            return True
+        if depth < MAX_DEPTH:
+            stack.extend((c, depth + 1) for c in (_attr(el, "AXChildren") or []))
+        elif _attr(el, "AXChildren"):
+            return None
+    return False
+
+
 def read_tree(pid: int, browser: bool = False) -> AxTree:
     tree = AxTree()
     deadline = time.monotonic() + (2.0 if browser else 0.0)

@@ -8,7 +8,7 @@ from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, Br
                                    OWNER_BROWSER)
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.act.mac.driver import MacComputerDriver
-from ferb.act.mac.tools import MacApps, MacAct, MacAppleScript, MacOpen, MacSnapshot
+from ferb.act.mac.tools import MacApps, MacAct, MacAppleScript, MacClick, MacOpen, MacScreenshot, MacSnapshot
 from ferb.act.shell.manager import ShellManager
 from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRun, ShellSend
 from ferb.core.interfaces import Capability
@@ -71,6 +71,8 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any) -> None
     r.add(MacSnapshot(driver, device_profile))
     r.add(MacAct(driver, device_profile))
     r.add(MacAppleScript(driver, device_profile))
+    r.add(MacScreenshot(driver, device_profile))
+    r.add(MacClick(driver, device_profile))
 
 
 def add_shell(r: Registry, shells: ShellManager) -> None:

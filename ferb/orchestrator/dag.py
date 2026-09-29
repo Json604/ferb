@@ -17,7 +17,7 @@ from ferb.core.types import Identity
 from ferb.sanitize.untrusted import targets_in_own_words
 
 MAX_FANOUT, MAX_DEPTH, MAX_DEADLINE_MIN = 6, 2, 120
-READ_SCOPES = frozenset({"fs:read", "browser:read", "mac:read", "identity:browse", "mailbox:read"})
+READ_SCOPES = frozenset({"fs:read", "browser:read", "mac:read", "screen", "identity:browse", "mailbox:read"})
 ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 

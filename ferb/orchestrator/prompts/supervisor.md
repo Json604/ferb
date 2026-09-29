@@ -27,7 +27,7 @@ Rules for a plan:
   - role "reader": reads (web pages, email, files, app windows) and returns typed output_fields (name, type:
     string / number / boolean / string_list / email / url, a short description; max_chars null = 500, raise it only
     when a field needs more, at most 2000). Readers get only read scopes (fs:read, browser:read, mac:read,
-    identity:browse, mailbox:read) and never change anything.
+    screen, identity:browse, mailbox:read) and never change anything.
   - role "actor": acts, and receives only the reader fields it lists in inputs ({"from": reader id, "field": name});
     it must depend_on that reader. An actor never reads the raw page/email itself when a reader can.
   - A task with nothing untrusted to read (e.g. writing a file the owner described) is a single actor.

@@ -178,9 +178,9 @@ ferb/
       applescript.py    run AppleScript; read an app's scripting dictionary
       accessibility.py  read AX tree, find elements, press / set value
       input.py          real mouse + keyboard events (takes gui_lock)
-      screenshot.py     on-demand window / screen capture
+      screenshot.py     on-demand capture of one app window (never the screen), in memory only
       snapshot.py       AX tree → shared element-list format (same as browser snapshots)
-      tools.py          mac.* capabilities (apps, open, snapshot, act, applescript); OWNER only
+      tools.py          mac.* capabilities (apps, open, snapshot, act, applescript, screenshot, click); OWNER only
     browser/
       resolver.py       site → (browser, profile, identity, driver) selection (section 9.3)
       profiles.py       profile discovery from Local State + name → profile resolver (section 9.5)
@@ -459,6 +459,12 @@ profile = "Profile 22"     # the owner's Chrome profile folder bound to identity
 [mailbox]
 provider = "gmail"
 address  = "ferb@example.com"   # FERB's own address; setup checks the FERB profile holds exactly this account
+
+[privacy]
+# Apps FERB never reads, acts on or captures. Written on first start with password managers only; the owner may
+# edit or empty it (an empty list stays empty).
+exclude_apps = ["com.1password.1password", "com.agilebits.onepassword7", "com.bitwarden.desktop",
+                "com.apple.Passwords", "com.apple.keychainaccess"]
 ```
 
 - Stable bus events: `task.created`, `task.started`, `task.finished`, `tool.called`, `approval.requested`,
@@ -828,8 +834,9 @@ Runs before anything reaches a model, trace, log, exception message, journal, me
 password/OTP field values, secrets, auth tokens in URLs, exclusion-list apps/domains, shell output matching
 secret patterns, debugger events. Key-name redaction exempts FERB's own internal id fields (`task_id`,
 `span_id`, `session_id`, `run_token_id` — ids, never token values); their values are still scanned for secret
-patterns. Screenshots are never stored unless a task requires it, and are not sent
-to models when the frame contains a password or excluded site.
+patterns. Screenshots are never stored (saving one for a task that needs it is future work) and are not captured
+for apps on `[privacy] exclude_apps` or when the window's Accessibility tree shows a password field (build step 9).
+Runtimes keep no transcript on disk (Codex `--ephemeral`, Claude `--no-session-persistence`).
 
 ## 11. Monitoring trail
 
@@ -980,9 +987,14 @@ Rules:
    (session, OTP, 21.4) run here against the extension.
 7. `act/mac` + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser`.
 8. Orchestrator multi-worker (DAG, reader/actor, budgets, verification, reconciliation).
-9. Screenshot + click (vision) for apps with poor Accessibility support: on-demand window capture
-   (`act/mac/screenshot.py`), image results that reach the model, clicks by coordinates through the same marked,
-   yielding real input, and the frame never stored or sent when it shows a password field or an excluded app (10.6).
+9. Screenshot + click (vision) for apps with poor Accessibility support: on-demand capture of the app's front window
+   only (`act/mac/screenshot.py`, ScreenCaptureKit's single-window filter: never the rest of the screen, never windows
+   on top), image results that reach the model and nothing else (not spans, journal, logs or files; saving a
+   screenshot is out of this step), clicks by image coordinates through the same marked, yielding real input. The
+   only refusals: apps on `[privacy] exclude_apps`, and a window whose Accessibility tree shows a password field
+   (checked before and after capture; the frame is dropped). When the tree can't tell, the capture goes ahead.
+   Before each click event: the window hasn't moved and the system's hit test (Accessibility) says the click reaches
+   it; if Accessibility can't answer, the topmost normal window there must be it.
 10. `sense` watchers + trail (fixed processing order, actor attribution) + exclusions.
 11. `memory` (items with trust levels, distill, recall, purge-forget, export) + timeline.
 12. Deferred: Safari control and FERB.app (later block).
@@ -1025,6 +1037,11 @@ section 21 safety tests pass.
   that reappears verbatim in an action's content carries its label. A paraphrase, summary, translation or
   reformatting of that data doesn't match and isn't caught; the reader/actor split and intent matching remain the
   other defenses.
+- Screenshot + click has no built-in refusals beyond `[privacy] exclude_apps` and a password field the Accessibility
+  tree shows (owner's choice): a window whose tree can't be read is captured, and browsers can be captured and
+  clicked through the Mac layer. Clicking a browser this way skips the extension's profile and account checks
+  (9.3); the policy engine still gates it as `mac_input`. A screenshot of a browser exposes the worker (web
+  content), as does one of a mail or messaging app.
 - Trusted (debugger-dispatched) input works in a page's top frame only; elements inside iframes get page-mode
   (scripted) events, which some sites ignore. Extending trusted input to iframes needs frame-offset handling.
   Secret fills are unaffected: they set the value on the exact element in its own frame.
@@ -1106,3 +1123,7 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
     exactly FERB's account; cookie and password stores are never read.
 21. Along the extension path, a secret or one-time code value never appears in native-host or extension messages,
     logs or errors (it travels sealed, 10.1); a sealed value is refused under another command id or origin.
+22. A screenshot contains only the target window (not the screen, not windows on top); apps on `[privacy]
+    exclude_apps` and windows whose Accessibility tree shows a password field are never captured; the frame reaches
+    the model and no span, journal, log or file; a click lands only when the system's hit test says it reaches the
+    captured window, and yields to the owner like all real input.

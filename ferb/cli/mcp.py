@@ -55,7 +55,11 @@ class Shim:
         except (RpcError, NotRunning) as e:
             return t.CallToolResult(content=[t.TextContent(type="text", text=f"FERB refused: {e}")], is_error=True)
         text = json.dumps(r["content"], ensure_ascii=False) + "\n" + r["footer"]
-        return t.CallToolResult(content=[t.TextContent(type="text", text=text)], is_error=bool(r["is_error"]))
+        parts: list[t.TextContent | t.ImageContent | t.AudioContent | t.ResourceLink | t.EmbeddedResource] = [
+            t.TextContent(type="text", text=text)]
+        if r.get("image"):
+            parts.append(t.ImageContent(type="image", data=r["image"]["data"], mime_type=r["image"]["mime"]))
+        return t.CallToolResult(content=parts, is_error=bool(r["is_error"]))
 
 
 async def serve() -> None:
