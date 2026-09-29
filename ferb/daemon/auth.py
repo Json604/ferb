@@ -29,7 +29,7 @@ METHODS: dict[Role, frozenset[str]] = {
     Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift", "undo",
                          "autonomy.get", "autonomy.set", "doctor.check", "automation.request", "chat.send",
                          "chat.approve", "identity.check", "identity.pair", "browsers.list", "browsers.pair",
-                         "browsers.unpair", "ps.list", "ps.kill"}),
+                         "browsers.unpair", "ps.list", "ps.kill", "sense.pause", "sense.resume", "sense.status"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
 }

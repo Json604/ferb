@@ -371,7 +371,7 @@ async function tabEvent(event, tab) {
   const st = await install();
   if (!st.key) return;
   await send("tab_event", { event, tab_id: tab.id, url: tab.url ? maskUrl(tab.url) : null, title: tab.title || null,
-                            active: tab.active ?? null });
+                            active: tab.active ?? null, incognito: tab.incognito ?? null });
 }
 chrome.tabs.onCreated.addListener((t) => tabEvent("created", t));
 chrome.tabs.onUpdated.addListener((id, info, t) => { if (info.status === "complete") { ensurePort(); tabEvent("updated", t); } });

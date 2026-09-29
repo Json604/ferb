@@ -305,6 +305,20 @@ def doctor(env: Env) -> int:
                           "open that profile; FERB reconnects within 30 s"))
         if report["stopped"]:
             add(Check("emergency stop", "warn", "engaged", "`ferb resume-tasks` lifts it"))
+        try:
+            c = env.connect()
+            sense = c.call("sense.status")
+            c.close()
+        except (NotRunning, FerbError):
+            sense = None
+        if sense is not None:
+            if sense["paused"]:
+                add(Check("watchers", "warn", "paused: nothing is recorded, no real mouse / keyboard input",
+                          "`ferb resume`"))
+            else:
+                add(Check("watchers", "ok", ", ".join(sense["watchers"]) or "none running"))
+            for problem in sense["folder_problems"]:
+                add(Check("watch folder", "warn", problem, "fix [sense] watch_folders in ~/.ferb/config.toml"))
     did = Config(inst.home).get("device", "id") if (inst.home / "config.toml").exists() else None
     stored = ProfileStore(inst.home).load(str(did)) if did else None
     if stored is None:

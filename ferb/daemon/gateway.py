@@ -59,6 +59,7 @@ class Gateway:
         self.locks = ResourceLocks()
         self.taint = Taint()
         self.observer: Observer = Observer()
+        self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution (build step 10)
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -153,6 +154,8 @@ class Gateway:
                           identity=grant.identity, scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                           workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                           untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id)
+        if spec.target.path is not None:
+            self.on_path(spec.target.path, grant.task_id)              # file events it causes are FERB's
         try:
             result = await cap.run(args, ctx)
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly

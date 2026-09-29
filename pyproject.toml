@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2,<3",
     "pyobjc-framework-applicationservices>=12.2.2",
     "pyobjc-framework-cocoa>=12.2.2",
+    "pyobjc-framework-fsevents>=12.2.2",
     "pyobjc-framework-quartz>=12.2.2",
     "pyobjc-framework-screencapturekit>=12.2.2",
     "tomlkit>=0.15.1",

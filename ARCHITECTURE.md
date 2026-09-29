@@ -203,15 +203,18 @@ ferb/
     gui_lock.py         single GUI actor at a time
   sense/
     watchers/
-      app_focus.py      frontmost app changes (NSWorkspace)
-      windows.py        focused window titles (Accessibility)
+      base.py           Watcher shape, focused app (Accessibility, read fresh), FSEvents stream thread
+      app_focus.py      frontmost app changes (app name + bundle id)
+      windows.py        focused window titles (Accessibility; not browsers; `[sense] window_titles` switch)
       browser_tabs.py   extension tab_events; AppleScript read for Safari and for unextended profiles
       files.py          FSEvents on configured folders
       idle.py           owner idle / active
       owner_input.py    owner is using mouse/keyboard right now → GUI work yields
       app_installs.py   app install / removal → device.changed
-    exclusions.py       exclusion list applied before any trail write
-    trail.py            append-only activity trail writer
+    exclusions.py       exclusion list applied before any trail write, bus event or tag
+    trail.py            the pipeline (exclude → redact → id + actor → persist → publish → tag), attribution,
+                        resolver history, the retention purge
+    manager.py          starts / stops every watcher; `ferb pause` / `ferb resume` (survives restarts)
   device/
     scan.py             setup + rescan: apps, scriptability, AX support, browsers, extension status
     permissions.py      TCC permission checks + open-settings helpers
@@ -461,10 +464,18 @@ provider = "gmail"
 address  = "ferb@example.com"   # FERB's own address; setup checks the FERB profile holds exactly this account
 
 [privacy]
-# Apps FERB never reads, acts on or captures. Written on first start with password managers only; the owner may
-# edit or empty it (an empty list stays empty).
+# Written on first start; the owner may edit or empty any list (an empty list stays empty).
+# Apps FERB never reads, acts on, captures or records: password managers only by default.
 exclude_apps = ["com.1password.1password", "com.agilebits.onepassword7", "com.bitwarden.desktop",
                 "com.apple.Passwords", "com.apple.keychainaccess"]
+exclude_domains = []                                  # never recorded (a domain covers its subdomains)
+exclude_paths = ["~/.ssh", "~/Library/Keychains", "~/.ferb"]   # never recorded, even inside a watched folder
+
+[sense]
+window_titles = true           # record focused window titles (redacted); false: app names only
+watch_folders = []             # the only folders whose file events are recorded (under the home folder)
+idle_after_s = 120
+trail_retention_days = 30      # raw trail kept this long once each day is summarized (section 14)
 ```
 
 - Stable bus events: `task.created`, `task.started`, `task.finished`, `tool.called`, `approval.requested`,
@@ -475,7 +486,8 @@ exclude_apps = ["com.1password.1password", "com.agilebits.onepassword7", "com.bi
   `browser.profile_paired`, `timer.fired`, `memory.committed`. **Telemetry** (may be dropped under pressure):
   `tool.called`, `trail.event`, `browser.connected`, `browser.disconnected`, `browser.profiles_changed`,
   `memory.proposed`. Also critical: `policy.blocked`, `worker.exposed`, `action.held` (undo countdown),
-  `action.released`, `action.undone`, `stop.engaged`, `stop.lifted`. Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
+  `action.released`, `action.undone`, `stop.engaged`, `stop.lifted`, `sense.paused`, `sense.resumed`,
+  `sense.watcher_failed`. Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
   oldest telemetry is dropped and the subscriber is told how many; if a queue is full of critical events, that
   subscriber is disconnected with an explicit overflow error (it must resubscribe and re-read state) rather
   than silently losing one.
@@ -583,7 +595,8 @@ FERB profile) and External Extensions.
    upgrade has invalidated them.
 
 **Mac app method resolution:** AppleScript / CLI → Accessibility → screenshot + click.
-Watchers emit `device.changed` on app install/removal; profile rescans that app only.
+Watchers emit `device.changed` on app install/removal (FSEvents on /Applications, /Applications/Utilities,
+~/Applications); the profile rescans that app only, and the change is recorded in the trail (actor unknown).
 
 ## 9. Browser layer
 
@@ -847,17 +860,33 @@ Runtimes keep no transcript on disk (Codex `--ephemeral`, Claude `--no-session-p
 
 ## 11. Monitoring trail
 
-- Watchers: app focus (NSWorkspace), window titles (Accessibility), browser tabs (extension `tab_event`s;
-  AppleScript read-only when an extension is missing), file events (FSEvents on configured folders), idle time,
-  owner input, app installs.
+- Watchers: app focus (Accessibility's focused application), window titles (Accessibility; browsers left to the
+  tab watcher, where domain exclusions can apply), browser tabs (extension `tab_event`s: page loads and tab
+  switches; for Safari, and Chrome / Brave with no connected profile, an AppleScript read of the front tab while
+  that browser is frontmost, only if the owner already granted Automation — never asked for), file events
+  (FSEvents, only in `[sense] watch_folders`), idle / active transitions, owner input, app installs.
+- **Metadata only:** app names, window titles, tab host / masked URL / title, file path + kind of change, idle state.
+  Never keystrokes, clipboard, file contents or screen content.
 - Order of processing for every event (fixed):
-  1. deterministic exclusions + redaction (`sense/exclusions.py`, `sanitize/`) — nothing excluded goes further;
-  2. assign `id`, `actor` (owner / ferb / unknown; FERB's own tabs and actions are tagged with their `task_id`);
+  1. deterministic exclusions + redaction (`sense/exclusions.py`, `sanitize/`) — an excluded event is dropped
+     completely (no row, no bus event, no tag, no count; private / incognito tabs likewise);
+  2. assign `id`, `actor` (owner / ferb / unknown; FERB's own tabs and actions are tagged with their `task_id`).
+     FERB reports its own acts as they happen: the Mac driver's app switches (and putting the owner's app back),
+     paths its file tools touch, tabs it opened, everything in its identity profile. File changes under a running
+     FERB shell command's folder are `unknown`. The table refuses a row without an actor;
   3. persist to the append-only `trail` table and publish `trail.event`;
   4. only then: async Jev tagging (`trail.relevance`, `trail.sensitive`). A `sensitive` verdict triggers
      *additional* redaction of the stored row; it is never the first line of protection.
 - `actor == "ferb"` events are excluded from habit-based resolution and from owner-preference distillation.
-- `ferb pause` stops all watchers. Screenshots: on demand, by a task with `screen` scope; not persisted unless required.
+- `ferb pause` stops all watchers, the owner-input tap included; nothing is recorded, what FERB knew about the owner's
+  open tabs is dropped (only tabs FERB owns stay tracked), and real mouse / keyboard input is refused (FERB can't
+  yield without the tap; Accessibility actions still work) until `ferb resume`. The pause survives restarts.
+  Screenshots: on demand, by a task with `screen` scope; not persisted.
+- Rows are append-only (a trigger refuses changes to what / when / who; only data, relevance and sensitive may be
+  updated by later tagging).
+- **Retention:** 30 days of raw trail (`[sense] trail_retention_days`) plus a permanent daily summary per day in the
+  journal (section 14), so the full journey is kept. The purge deletes a day only once its summary exists and
+  refuses any day not yet summarized; summaries are written from build step 11, so nothing is purged before then.
 - Consumers: resolver (site → browser + profile), distillation, `trail.query` capability.
 
 ## 12. Jev placement
@@ -896,11 +925,14 @@ All via `Decider`. Initially `ShadowDecider(primary=Rule/LLM, shadow=Jev)` logs 
 |-------|-------|-----------|---------|
 | Spans / tasks | SQLite | gateway, orchestrator | What FERB did |
 | Trail | SQLite | watchers | What the owner did |
-| Journal | SQLite (append-only) | daemon | Chats, outcomes, approvals, daily trail summaries — from first run |
+| Journal | SQLite (append-only) | daemon | Chats, outcomes, approvals, daily trail summaries (permanent) — from first run |
 | Memory items | SQLite `memory_items` | `distill` proposals → `commit` | Distilled facts/preferences/people/projects/env with provenance and validity |
 | Markdown | `~/.ferb/memory/` folder | `export` only | Human-readable view, regenerated from SQLite (no git history kept) |
 
 Rules:
+- **Trail retention (owner decision):** raw trail rows are kept 30 days; each day gets a permanent summary in the
+  journal (`trail.day_summary`, written by distillation from build step 11), so the whole journey survives. The
+  purge refuses any day without its summary. `forget` still purges a summary's sources when asked.
 - Every item links to its sources (`source_ids`). Updating a fact never overwrites: it sets `valid_to` on the old item
   and creates a new one with `supersedes`. Recall defaults to items valid now; `at=` gives historical recall.
 - Retrieval: SQLite FTS5 keyword search first; embeddings later behind `recall()` without interface change.
@@ -1026,7 +1058,9 @@ section 21 safety tests pass.
 - Captchas/bot checks: real browsers + trusted input reduce but do not eliminate them; FERB stops and asks when blocked.
 - Crash mid-task: the ledger marks in-flight consequential actions `unknown` and reconciles them on restart;
   full checkpoint/resume of tasks comes with the overrides block.
-- Global daily cost ceiling UI; trail retention/encryption (plaintext SQLite, rely on FileVault); provider outage modes.
+- Global daily cost ceiling UI; trail encryption (plaintext SQLite, rely on FileVault); provider outage modes.
+- Tab events from the extension carry page loads and tab switches; a tab that changes only its title isn't recorded.
+  Browser window titles are left out of the window watcher (their domains can't be checked).
 - Hand-editable markdown memory (two-way sync) deferred.
 - FERB never hides or fakes automation signals (it uses no remote debugging, so none is set by launch).
   `fill_secret` refuses, never types, when a site rejects a directly set value.
@@ -1130,7 +1164,8 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
 15. Disconnect/reconnect of the extension: no replay of old-generation commands.
 16. Unpaired extension cannot act or write trail events.
 17. Forgotten memory is not regenerated by distillation (sources purged) and is absent from FTS and exports.
-18. `actor == "ferb"` trail events never become owner preferences or resolver history.
+18. `actor == "ferb"` trail events never become owner preferences or resolver history (resolver rule 2 reads only
+    `actor == "owner"` tab events; FERB's tabs and its identity profile are `ferb`).
 19. Timer claimed but unacknowledged before a crash is delivered exactly once to its consumer.
 20. The FERB identity profile is refused at pairing and flagged by `doctor` when its Chrome accounts are not
     exactly FERB's account; cookie and password stores are never read.
@@ -1140,3 +1175,6 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
     exclude_apps` and windows whose Accessibility tree shows a password field are never captured; the frame reaches
     the model and no span, journal, log or file; a click lands only when the system's hit test says it reaches the
     captured window, and yields to the owner like all real input.
+23. Exclusions run before anything else: an excluded app, domain, path or private tab reaches no trail row, bus
+    event or tag; every stored event has an actor; `ferb pause` stops every watcher and the owner-input tap and
+    records nothing (surviving a restart); the purge never deletes a day without its journal summary.

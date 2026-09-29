@@ -3,7 +3,8 @@
 The unit is browser + profile. A profile the owner names wins (resolved with 9.5). Otherwise:
 1. a paired profile already has that site open -> use it (several in one browser -> ask; several browsers ->
    `browser.prefer_for_actions`),
-2. (trail history: build step 10),
+2. the trail: the paired profile where the OWNER most recently used that site (FERB's own activity never counts,
+   safety test 18),
 3. the default browser's last-used profile, if paired,
 4. ask, listing the paired profiles.
 Never routes to FERB's identity profile or any install bound to identity FERB (10.1).
@@ -42,6 +43,7 @@ class Resolver:
     default_browser: Callable[[], str | None] = lambda: None
     last_used: Callable[[str], str | None] = lambda browser: None
     aliases: Callable[[], dict[str, tuple[str, str]]] = lambda: {}
+    history: Callable[[str], tuple[str, str] | None] = lambda site: None     # trail: owner's last use of a site
 
     def owner_paired(self) -> list[Binding]:
         ferb = self.identity_profile()
@@ -74,6 +76,10 @@ class Resolver:
                     return Choice(*top[0], f"{site} is open in several browsers; preferred {order[0]}")
                 raise NeedsOwner(f"{site} is open in several profiles: " + ", ".join(
                     self._name(b, f) for b, f in top) + ". Which one?")
+        if site:
+            seen = self.history(site)
+            if seen is not None and seen in paired and seen != ferb:
+                return Choice(*seen, f"you last used {site} there")
         default = self.default_browser()
         if default:
             folder = self.last_used(default)

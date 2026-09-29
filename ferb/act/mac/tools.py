@@ -136,7 +136,7 @@ class MacAct(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         r = await self.driver.act(str(getattr(args, "app")),
                                   ComputerAction(getattr(args, "action"), getattr(args, "element"),
-                                                 getattr(args, "text")), holder=ctx.worker_id)
+                                                 getattr(args, "text")), holder=ctx.worker_id, task=ctx.task_id)
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new snapshot to see the result"},
                           is_error=not r.ok)
 
@@ -190,7 +190,8 @@ class MacClick(_Base):
         if why := self._extension_first(args):
             return _err(why)
         r = await self.driver.click_at(str(getattr(args, "app")), str(getattr(args, "shot")),
-                                       float(getattr(args, "x")), float(getattr(args, "y")), holder=ctx.worker_id)
+                                       float(getattr(args, "x")), float(getattr(args, "y")), holder=ctx.worker_id,
+                                       task=ctx.task_id)
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new screenshot to see the result"},
                           is_error=not r.ok)
 

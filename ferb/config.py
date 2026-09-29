@@ -76,6 +76,13 @@ class Config:
         return frozenset(self.get("privacy", "exclude_apps", DEFAULT_EXCLUDE_APPS))
 
     def ensure_privacy_defaults(self) -> None:
-        """Write the default exclusion list into config.toml once, so the owner sees and edits it there."""
-        if self.get("privacy", "exclude_apps") is None:
-            self.set("privacy", "exclude_apps", list(DEFAULT_EXCLUDE_APPS))
+        """Write the defaults into config.toml once, so the owner sees and edits them there; a value the owner set
+        (an emptied list included) is never replaced."""
+        from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS
+        for section, key, value in (("privacy", "exclude_apps", list(DEFAULT_EXCLUDE_APPS)),
+                                    ("privacy", "exclude_domains", []),
+                                    ("privacy", "exclude_paths", list(DEFAULT_EXCLUDE_PATHS)),
+                                    ("sense", "window_titles", True), ("sense", "watch_folders", []),
+                                    ("sense", "idle_after_s", 120), ("sense", "trail_retention_days", 30)):
+            if self.get(section, key) is None:
+                self.set(section, key, value)

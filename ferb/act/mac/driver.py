@@ -52,6 +52,7 @@ class MacComputerDriver:
                  ) -> None:
         self.device_id, self.input, self.excluded, self.ax, self.apps = device_id, real_input, excluded, ax, apps
         self.shots, self.web_password = shots, web_password     # web_password: the extension's check (9.4)
+        self.on_activate: Callable[[str, str | None], None] = lambda bundle, task: None   # the trail's attribution
         self._state: dict[str, _AppState] = {}
 
     def app(self, name_or_bundle: str) -> Any:
@@ -125,7 +126,8 @@ class MacComputerDriver:
         st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height))
         return a, st.shot, jpeg
 
-    async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "") -> ActionResult:
+    async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
+                       task: str | None = None) -> ActionResult:
         """A click at (x, y) in the app's latest screenshot (image px), as marked real input that yields to the owner.
         Before each event: the window is where it was when captured and a click at that point would reach it."""
         a = self.app(name_or_bundle)
@@ -156,17 +158,17 @@ class MacComputerDriver:
                                    "screenshot")
                 step.post()
             return Step(step.what, post)
-        r = await self._real(a, [guarded(s) for s in click_steps(px, py)], holder, "click")
+        r = await self._real(a, [guarded(s) for s in click_steps(px, py)], holder, "click", task)
         return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id}; {r.detail}")
 
-    async def act(self, app: str, action: ComputerAction, holder: str = "") -> ActionResult:
+    async def act(self, app: str, action: ComputerAction, holder: str = "", task: str | None = None) -> ActionResult:
         a = self.app(app)
         if is_browser(a.bundle_id):
             raise Refused(ACT_REFUSED)
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
                 raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, cmd+s)")
-            return await self._real(a, key_steps(action.text), holder, action.text)
+            return await self._real(a, key_steps(action.text), holder, action.text, task)
         if action.element is None:
             raise Refused("this action needs an element id from a snapshot")
         n = self.node(a.bundle_id, action.element)
@@ -175,31 +177,36 @@ class MacComputerDriver:
         if action.kind == "press":
             if await asyncio.to_thread(self.ax.press, n.ref):
                 return ActionResult(True, "pressed")
-            return await self._real(a, click_steps(*self.ax.center(n)), holder, "click")
+            return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
         if action.kind == "click":
-            return await self._real(a, click_steps(*self.ax.center(n)), holder, "click")
+            return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
         if action.kind == "focus":
             return ActionResult(await asyncio.to_thread(self.ax.focus, n.ref), "focused")
         if action.kind == "set_value":
             if await asyncio.to_thread(self.ax.set_value, n.ref, action.text or ""):
                 return ActionResult(True, "value set")
             await asyncio.to_thread(self.ax.focus, n.ref)
-            return await self._real(a, type_steps(action.text or ""), holder, "typing")
+            return await self._real(a, type_steps(action.text or ""), holder, "typing", task)
         if action.kind == "type":
             await asyncio.to_thread(self.ax.focus, n.ref)
-            return await self._real(a, type_steps(action.text or ""), holder, "typing")
+            return await self._real(a, type_steps(action.text or ""), holder, "typing", task)
         raise Refused(f"unknown action {action.kind}")
 
-    async def _real(self, a: Any, steps: list[Any], holder: str, what: str) -> ActionResult:
-        """Real input goes to the frontmost app: bring this one forward, act, then put the owner's app back."""
+    async def _real(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None = None) -> ActionResult:
+        """Real input goes to the frontmost app: bring this one forward, act, then put the owner's app back. Both
+        switches are FERB's (the trail attributes them to the task)."""
+        if not self.input.available():
+            return ActionResult(False, "FERB is paused (`ferb resume`): no real mouse / keyboard input")
         before = self.apps.frontmost()
         if before is None or before.bundle_id != a.bundle_id:
+            self.on_activate(a.bundle_id, task)
             self.apps.activate(a.bundle_id)
             await asyncio.sleep(0.3)
         try:
             n = await self.input.run(steps, holder, what)
         finally:
             if before is not None and before.bundle_id != a.bundle_id:
+                self.on_activate(before.bundle_id, task)
                 self.apps.activate(before.bundle_id)
         return ActionResult(True, f"{what} ({n} steps, real input)")
 

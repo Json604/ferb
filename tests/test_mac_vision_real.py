@@ -262,3 +262,11 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd:
             rd.run(close_probe_tabs(), timeout=30)
     finally:
         srv.shutdown()
+
+    async def tab_rows() -> list[Any]:                                  # the same tabs, in the trail (build step 10)
+        import json as _j
+        return [_j.loads(r["data_json"]) | {"actor": r["actor"]} for r in d.db.conn.execute(  # type: ignore[union-attr]
+            "SELECT * FROM trail WHERE source = 'browser_tab'").fetchall()]
+    loads = [r for r in rd.run(tab_rows()) if r["host"] == "127.0.0.1"]
+    assert loads and all(r["actor"] == "owner" and r["profile"] == p.folder and r["browser"] == "chrome"
+                         for r in loads), loads

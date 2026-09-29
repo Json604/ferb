@@ -28,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("stop", help="emergency stop: revoke tokens, block all actions, cancel held sends")
     sub.add_parser("resume-tasks", help="lift the emergency stop")
+    sub.add_parser("pause", help="stop every watcher: nothing is recorded until `ferb resume`")
+    sub.add_parser("resume", help="start the watchers again after `ferb pause`")
     up = sub.add_parser("undo", help="cancel a pending send/post during its undo window")
     up.add_argument("hold_id", nargs="?")
     ap = sub.add_parser("autonomy", help="show or set the autonomy level")
@@ -107,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":
                 return admin.resume(client, sys.stdout)
+            if args.cmd == "pause":
+                return admin.pause(client, sys.stdout)
+            if args.cmd == "resume":
+                return admin.sense_resume(client, sys.stdout)
             if args.cmd == "undo":
                 return admin.undo(client, args.hold_id, sys.stdout)
             if args.cmd == "ps":

@@ -40,6 +40,7 @@ class WorkerRuns:
     ids: Any
     device_id: str
     activity: Any
+    signals: Any
     on_violation: Any
     heartbeat_poll_s: float
     stall_s: float
@@ -70,7 +71,7 @@ class WorkerRuns:
         tools = [t["name"] for t in self.gateway.tools_for(self.tokens.validate(token))]
         rt = self.make_runtime("worker", mode="worker", tool_names=tools, schema=schema)
         names = ", ".join(n.replace(".", "_") for n in tools) or "none"
-        full_ctx = (f"{context.header(self.clock.now(), started, task.deadline)}\n\n{ctx}\n\n"
+        full_ctx = (f"{context.header(self.clock.now(), started, task.deadline, *self.signals())}\n\n{ctx}\n\n"
                     f"Your FERB tools (MCP server `ferb`): {names}")
         self.publish("task.started", {"task_id": task.id, "worker_id": worker_id})
         self.activity.start(worker_id)

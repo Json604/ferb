@@ -194,6 +194,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyobjc-framework-applicationservices" },
     { name = "pyobjc-framework-cocoa" },
+    { name = "pyobjc-framework-fsevents" },
     { name = "pyobjc-framework-quartz" },
     { name = "pyobjc-framework-screencapturekit" },
     { name = "tomlkit" },
@@ -214,6 +215,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "pyobjc-framework-applicationservices", specifier = ">=12.2.2" },
     { name = "pyobjc-framework-cocoa", specifier = ">=12.2.2" },
+    { name = "pyobjc-framework-fsevents", specifier = ">=12.2.2" },
     { name = "pyobjc-framework-quartz", specifier = ">=12.2.2" },
     { name = "pyobjc-framework-screencapturekit", specifier = ">=12.2.2" },
     { name = "tomlkit", specifier = ">=0.15.1" },
@@ -615,6 +617,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/6d/66/405006d3502ffcd3bc69e0b7249ab7c05a5b43a07fa3959ce6b2a84f3278/pyobjc_framework_coretext-12.2.2.tar.gz", hash = "sha256:64ddc02303217028e32e22c7cc00b5112d84e9d9a67c37d00c2e54f9172284ab", size = 97658, upload-time = "2026-08-11T19:44:17.207Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1c/88/e85a9268285fc0c28284dbdc869a27f5d3f2e436d2838221a6704b4f8eee/pyobjc_framework_coretext-12.2.2-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:a69611de569d92776e6391ca25492a5bbb4a05ba744006349e377a4fc5f7c8a5", size = 30120, upload-time = "2026-08-11T19:34:41.94Z" },
+]
+
+[[package]]
+name = "pyobjc-framework-fsevents"
+version = "12.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/57/d3/769d666f81b303e64a42ffe02f5d92cd5d0d05b9613ddf09e455878ffc34/pyobjc_framework_fsevents-12.2.2.tar.gz", hash = "sha256:85230473b0007a9f9654e08eb1215b5632f36a83b0b431a562f193384695388d", size = 27302, upload-time = "2026-08-11T19:44:31.145Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/44/648f08c6dbc63fb1514aec5f59e363a86f5cce92ad9ae0b12e3b93f0c818/pyobjc_framework_fsevents-12.2.2-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:cd12259660a74bc703c73c3802e1dc19e276dff77241c30ad6df17b26eb982ff", size = 13161, upload-time = "2026-08-11T19:35:46.864Z" },
 ]
 
 [[package]]

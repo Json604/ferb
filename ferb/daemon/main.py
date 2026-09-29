@@ -6,6 +6,7 @@ Build step 1: ping, trace.get, logs.subscribe. Build step 2: the redaction pipel
 """
 
 import asyncio
+from datetime import datetime
 import os
 import signal
 import sys
@@ -34,6 +35,9 @@ from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
 from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell
 from ferb.sense.watchers.owner_input import OwnerInput
+from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
+from ferb.sense.manager import Sense
+from ferb.sense.trail import Attribution, Trail
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core.errors import FerbError
@@ -63,7 +67,7 @@ RELEASE_TICK_S = 0.2
 class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None, undo_window_s: float = 10.0,
-                 watch_owner_input: bool = True) -> None:
+                 watch_owner_input: bool = True, watchers: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -107,6 +111,13 @@ class Daemon:
         self.gui = GuiLock()
         self.mac: MacComputerDriver | None = None
         self.shells: ShellManager | None = None
+        # Watchers + trail (build step 10). Tests turn the real watchers off (the pipeline still runs).
+        self.run_watchers = watchers
+        self.trail: Trail | None = None
+        self.sense: Sense | None = None
+        self.attribution = Attribution()
+        self.watch_problems: list[str] = []
+        self._excl: tuple[float, Exclusions] | None = None
 
     @property
     def stop_marker(self) -> Path:
@@ -130,7 +141,9 @@ class Daemon:
         await self._build_browsers()
         self._build_mac_and_shell()
         self._build_agents()
-        for name, fn in (("ping", self._ping), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
+        await self._build_sense()
+        for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
+                         ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift), ("undo", self._undo), ("autonomy.get", self._autonomy_get),
                          ("autonomy.set", self._autonomy_set), ("doctor.check", self._doctor_check),
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
@@ -166,6 +179,8 @@ class Daemon:
             await self.router.shutdown()
         if self.shells is not None:
             await self.shells.kill_all()
+        if self.sense is not None:
+            await self.sense.stop()
         if self.owner_input.running:
             self.owner_input.stop()
         await self.wake.close()
@@ -276,17 +291,156 @@ class Daemon:
         return None
 
     def _build_mac_and_shell(self) -> None:
-        if self.watch_owner_input and not self.owner_input.start():
-            self._journal().append("owner_input.unavailable", {"why": "no event tap (Accessibility / Input Monitoring)"})
         device = str(self.config.get("device", "id", "unknown-device"))
         def owner_wait(holder: str, on: bool) -> None:          # the owner's time never counts as a stall
             if self.supervisor is not None:
                 self.supervisor.activity.waiting(holder, on)
-        self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait),
+        def available() -> bool:                                  # paused: no owner-input tap, so no real input
+            return not (self.sense is not None and self.sense.paused)
+        self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait,
+                                                       available=available),
                                      excluded=self.config.exclude_apps, web_password=self._web_password)
         add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)
+
+    # ---------- watchers + trail (build step 10) ----------
+
+    def _exclusions(self) -> Exclusions:
+        """[privacy] lists, re-read when config.toml changes (the owner may edit it while FERB runs)."""
+        try:
+            mtime = self.config.path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        if self._excl is None or self._excl[0] != mtime:
+            self._excl = (mtime, Exclusions.build(self.config.exclude_apps(),
+                                                  self.config.get("privacy", "exclude_domains", []),
+                                                  self.config.get("privacy", "exclude_paths", DEFAULT_EXCLUDE_PATHS)))
+        return self._excl[1]
+
+    def _watch_folders(self) -> list[Path]:
+        from ferb.sense.watchers.files import valid_folders
+        ok, self.watch_problems = valid_folders(list(self.config.get("sense", "watch_folders", [])), self._exclusions())
+        for problem in self.watch_problems:
+            self._journal().append("sense.folder_skipped", {"why": problem})
+        return ok
+
+    async def _build_sense(self) -> None:
+        from ferb.sense.watchers.app_focus import AppFocusWatcher
+        from ferb.sense.watchers.app_installs import AppInstallsWatcher
+        from ferb.sense.watchers.browser_tabs import ScriptedTabsWatcher
+        from ferb.sense.watchers.files import FilesWatcher
+        from ferb.sense.watchers.idle import IdleWatcher
+        from ferb.sense.watchers.windows import WindowTitleWatcher
+        assert self.db is not None
+        a = self.attribution
+        a.shell_cwds = lambda: [(p.cwd, p.owner_task) for p in (self.shells.list() if self.shells else [])
+                                if p.running]
+        self.trail = Trail(self.db, self.clock, self.ids, self.redact, self._exclusions, self._publish,
+                           lambda: str(self.config.get("device", "id", "unknown-device")),
+                           lambda: self.sense is not None and self.sense.paused, a)
+        if self.mac is not None:
+            self.mac.on_activate = a.ferb_activated
+        if self.gateway is not None:
+            self.gateway.on_path = a.ferb_touched
+        if self.hub is not None:
+            self.hub.on_tab = self._on_tab
+            self.hub.paused = lambda: self.sense is not None and self.sense.paused
+            self.hub.owned = lambda br, tab_id: self._tab_task(br, tab_id) is not None
+        if self.router is not None:
+            self.router.resolver.history = self.trail.owner_site_profile
+        if self.supervisor is not None:
+            self.supervisor.signals = self.signals
+        watchers: list[Any] = []
+        if self.run_watchers:
+            watchers = [AppFocusWatcher(), WindowTitleWatcher(lambda: bool(self.config.get("sense", "window_titles",
+                                                                                           True))),
+                        IdleWatcher(lambda: self.owner_input.last_owner_wall, lambda: self.owner_input.running,
+                                    float(self.config.get("sense", "idle_after_s", 120))),
+                        FilesWatcher(self._watch_folders), AppInstallsWatcher(self._app_changed),
+                        ScriptedTabsWatcher(self._automation_granted, self._any_extension_connected)]
+        self.sense = Sense(self.home, self.trail, watchers, self.owner_input if self.watch_owner_input else None,
+                           on_pause=self._on_pause)
+        await self.sense.start()
+        if self.sense.paused:
+            self._journal().append("sense.still_paused", {})
+        elif self.watch_owner_input and not self.owner_input.running:
+            self._journal().append("owner_input.unavailable", {"why": "no event tap (Accessibility / Input Monitoring)"})
+
+    def _tab_task(self, br: Any, tab_id: int) -> str | None:
+        for driver in (self.router, self.ferb_identity):
+            owner = driver.owner_of(br, tab_id) if driver is not None else None
+            if owner is not None:
+                return owner
+        return None
+
+    def _on_tab(self, br: Any, e: Any) -> None:
+        from ferb.sense.watchers.browser_tabs import tab_observation
+        if self.trail is None:
+            return
+        o = tab_observation(br.binding.browser, br.binding.folder, br.binding.identity is Identity.FERB, e.event,
+                            e.url, e.title, e.incognito, self._tab_task(br, e.tab_id))
+        if o is not None:
+            self.trail.record(o)
+
+    def _on_pause(self, paused: bool) -> None:
+        if paused and self.hub is not None:
+            self.hub.forget_owner_tabs()
+        self._journal().append("sense.paused" if paused else "sense.resumed", {})
+        self._publish("sense.paused" if paused else "sense.resumed", {})
+
+    def _any_extension_connected(self, browser: str) -> bool:
+        return self.hub is not None and any(br.conn is not None and br.binding.browser == browser
+                                            for br in self.hub.bridges.values())
+
+    _automation_cache: dict[str, tuple[float, bool]] = {}
+
+    def _automation_granted(self, bundle_id: str) -> bool:
+        """Already granted by the owner; never asks (the prompt would appear out of nowhere)."""
+        import time as _t
+        from ferb.device import permissions
+        hit = self._automation_cache.get(bundle_id)
+        if hit and _t.monotonic() - hit[0] < 60:
+            return hit[1]
+        ok = permissions.automation(bundle_id, ask=False) is permissions.Status.GRANTED
+        self._automation_cache[bundle_id] = (_t.monotonic(), ok)
+        return ok
+
+    def _app_changed(self, change: str, info: Any, path: str) -> None:
+        """An app appeared or disappeared: rescan that app only (Info.plist) into the device profile."""
+        from ferb.device.profile import ProfileStore
+        did = str(self.config.get("device", "id", "") or "")
+        store = ProfileStore(self.home)
+        profile = store.load(did) if did else None
+        if profile is not None:
+            apps = [x for x in profile.apps if x.path != path and (info is None or x.bundle_id != info.bundle_id)]
+            if info is not None:
+                apps.append(info)
+            profile.apps = sorted(apps, key=lambda x: x.bundle_id)
+            store.save(profile, f"app {change}: {info.bundle_id if info else Path(path).name}")
+        self._publish("device.changed", {"change": change, "path": path,
+                                         "bundle_id": info.bundle_id if info else None})
+
+    def signals(self) -> tuple[datetime | None, datetime | None]:
+        """For the time header: owner last active (owner-input tap), last trail event."""
+        last = self.owner_input.last_owner_wall
+        owner = datetime.fromtimestamp(last).astimezone() if last else None
+        return owner, self.trail.last_event_at if self.trail else None
+
+    async def _sense_pause(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.sense is not None
+        await self.sense.pause()
+        return {"paused": True}
+
+    async def _sense_resume(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.sense is not None
+        await self.sense.resume()
+        return {"paused": False, "watchers": self.sense.running}
+
+    async def _sense_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        s = self.sense
+        return {"paused": bool(s and s.paused), "watchers": s.running if s else [],
+                "owner_input": self.owner_input.running, "folder_problems": self.watch_problems}
 
     def _device_profile(self) -> Any:
         from ferb.device.profile import ProfileStore

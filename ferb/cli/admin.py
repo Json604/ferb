@@ -55,6 +55,19 @@ def resume(client: Client, out: TextIO) -> int:
     return 0
 
 
+def pause(client: Client, out: TextIO) -> int:
+    client.call("sense.pause")
+    print("FERB paused: every watcher is stopped and nothing is recorded; FERB won't use the real mouse / keyboard "
+          "until `ferb resume`.", file=out)
+    return 0
+
+
+def sense_resume(client: Client, out: TextIO) -> int:
+    r = client.call("sense.resume")
+    print(f"FERB is watching again ({', '.join(r['watchers']) or 'no watchers running'}).", file=out)
+    return 0
+
+
 def undo(client: Client, hold_id: str | None, out: TextIO) -> int:
     r = client.call("undo", {} if hold_id is None else {"hold_id": hold_id})
     if r.get("undone"):

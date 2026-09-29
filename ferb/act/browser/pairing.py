@@ -109,7 +109,7 @@ class Pairings:
                   "VALUES (?, ?, ?, ?, ?, 0, ?)",
                   (m.install_id, browser, folder, identity.value, key, self.clock.now().isoformat()))
         c.execute("COMMIT")
-        self.paired.add(token)
+        self.paired.add(str(token))
         return Verdict(True, "paired", reply={"type": "paired", "key": base64.b64encode(key).decode()},
                        binding=Binding(m.install_id, browser, folder, identity))
 

@@ -140,6 +140,16 @@ class Hub:
         self.pairings, self.ledger, self.publish, self.device_id = pairings, ledger, publish, device_id
         self.bridges: dict[tuple[str, str], Bridge] = {}
         self.refused: dict[str, str] = {}                    # install_id -> why (e.g. protocol mismatch)
+        # The trail (build step 10): every tab event goes to on_tab; while paused, only tabs FERB owns are tracked.
+        self.on_tab: Callable[["Bridge", TabEvent], None] = lambda br, e: None
+        self.paused: Callable[[], bool] = lambda: False
+        self.owned: Callable[["Bridge", int], bool] = lambda br, tab_id: False
+
+    def forget_owner_tabs(self) -> None:
+        """On pause: drop what's known about tabs FERB doesn't own (only FERB's own stay tracked)."""
+        for br in self.bridges.values():
+            for tab_id in [t for t in br.tabs if not self.owned(br, t)]:
+                br.tabs.pop(tab_id, None)
 
     def bridge(self, browser: str, folder: str) -> Bridge | None:
         b = self.pairings.for_profile(browser, folder)
@@ -226,6 +236,9 @@ class Hub:
                 e = TabEvent.model_validate(body)
             except ValueError:
                 return
+            if self.paused() and not self.owned(br, e.tab_id):
+                return                                       # paused: the owner's tabs aren't watched at all
+            self.on_tab(br, e)
             if e.event == "removed":
                 br.tabs.pop(e.tab_id, None)
             else:
@@ -334,6 +347,10 @@ class _TabDriver:
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, str(v.get("url") or url))
         return ref
+
+    def owner_of(self, br: Bridge, chrome_id: int) -> str | None:
+        """The task that opened this tab, if FERB did."""
+        return next((t.owner for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id), None)
 
     async def navigate(self, tab: TabRef, url: str) -> None:
         t = self._tab(tab)

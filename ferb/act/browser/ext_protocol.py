@@ -60,6 +60,7 @@ class TabEvent(BaseModel):
     url: str | None = None
     title: str | None = None
     active: bool | None = None
+    incognito: bool | None = None
 
 
 def mac_text(install_id: str, seq: int, mtype: str, body_json: str) -> bytes:

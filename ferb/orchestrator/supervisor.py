@@ -17,7 +17,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -104,6 +104,8 @@ class Supervisor(WorkerRuns):
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
         self.activity = Activity(clock.monotonic)
+        # (owner last active, last trail event) for the time header; the daemon supplies them (build step 10)
+        self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
 
@@ -160,7 +162,7 @@ class Supervisor(WorkerRuns):
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
         history = "\n".join(f"{'Owner' if who == 'owner' else 'FERB'}: {t}"
                             for who, t in session.history[-2 * HISTORY_TURNS:])
-        ctx = (f"{context.header(self.clock.now())}\n\nConversation so far:\n{history or '(none)'}\n\n"
+        ctx = (f"{context.header(self.clock.now(), None, None, *self.signals())}\n\nConversation so far:\n{history or '(none)'}\n\n"
                f"Owner's new message:\n{message}")
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
                          [], None, Budget())

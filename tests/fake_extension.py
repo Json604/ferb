@@ -169,8 +169,10 @@ class FakeExtension:
         self.seen[m["id"]] = "done"
         self.send("result", body)
 
-    def tab_event(self, event: str, tab_id: int, url: str | None = None) -> None:
-        self.send("tab_event", {"event": event, "tab_id": tab_id, "url": url, "active": False})
+    def tab_event(self, event: str, tab_id: int, url: str | None = None, title: str | None = None,
+                  incognito: bool | None = None) -> None:
+        self.send("tab_event", {"event": event, "tab_id": tab_id, "url": url, "active": False, "title": title,
+                                "incognito": incognito})
 
     def op_open(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self._n += 1
