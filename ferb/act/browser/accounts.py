@@ -11,6 +11,9 @@ content.js); this is the daemon's side of the decision.
 from ferb.core.errors import Refused
 
 EXTRACTOR_SITES = frozenset({"mail.google.com", "www.youtube.com"})     # keep in step with content.js ACCOUNT
+# Sites that show the signed-in address only on a dedicated page: read it there (a short-lived background tab in
+# the same profile) when the current page can only say "signed in".
+ACCOUNT_PAGES = {"www.youtube.com": "https://www.youtube.com/account"}
 
 
 def trust_key(host: str, browser: str, folder: str) -> str:

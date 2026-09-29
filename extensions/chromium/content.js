@@ -173,11 +173,13 @@
       const m = a && a.getAttribute("aria-label").match(EMAIL);
       return m ? m[0].toLowerCase() : null;
     },
+    // YouTube shows the address only on its account page ("Signed in as ..."); elsewhere just the avatar.
     "www.youtube.com": () => {
-      const a = document.querySelector('a[href*="accounts.google.com"][aria-label*="@"], [aria-label*="@"]#avatar-btn');
-      const m = a && a.getAttribute("aria-label").match(EMAIL);
-      if (m) return m[0].toLowerCase();
-      return document.querySelector("#avatar-btn") ? "signed_in_unknown" : null;
+      if (location.pathname.startsWith("/account")) {
+        const m = (document.body ? document.body.innerText : "").match(/Signed in as\s+([^\s]+@[^\s]+)/);
+        if (m && EMAIL.test(m[1])) return m[1].toLowerCase();
+      }
+      return document.querySelector("#avatar-btn, button[aria-label='Account menu']") ? "signed_in_unknown" : null;
     },
   };
   function account() {

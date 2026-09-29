@@ -463,6 +463,17 @@ class Router(_TabDriver):
         if p is None or accounts.unverified_key(host, tab.browser, tab.profile, p.email) is not None:
             return                                            # can't be checked: policy asked once instead
         result = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=10)
+        if result.get("account") == "signed_in_unknown" and host in accounts.ACCOUNT_PAGES:
+            helper = await self._open_in(t.bridge, accounts.ACCOUNT_PAGES[host], owner=None)
+            try:
+                h = self._tab(helper)
+                await t.bridge.call("wait", {"tab_id": h.chrome_id, "until": "text", "value": "Signed in as"},
+                                    timeout=10)
+                result = await t.bridge.call("account", {"tab_id": h.chrome_id}, timeout=10)
+            except DriverError:
+                pass                                          # still "unknown": refused below, never guessed
+            finally:
+                await self.close(helper)
         accounts.check(result, host, p.email, f"{tab.browser}/{p.display_name}")
 
     def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:

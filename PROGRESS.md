@@ -25,12 +25,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | Spike 16 — FERB identity via the extension in its original Chrome profile | 2026-09-29 | Works: session held 35 min, 8/8 rounds, webdriver false | `spikes/16_ext_identity/FINDINGS.md`. Replaces the copied-profile CDP path (ARCHITECTURE.md edits approved and applied). |
 | **Build step 5** — `identity/` layer: Keychain secrets, mailbox/OTP, identity-profile verification, `browser.*` tools + policy kinds (driver-independent) | 2026-09-29 | Done (closed as the identity layer; owner decision) | 165 offline tests (3 runs green): 21.3, 21.5 (password/code nowhere in results, db or logs), intent-gated submits, stale ids, per-task tabs, stop, local URLs refused before any driver, safety test 20 (profile must hold only FERB's account; cookie/password stores never opened). The copied-profile CDP driver was built, then removed: a copied profile loses its Google session within minutes (spike 16 shows the original profile via the extension holds it 35 min). FERB's browser itself arrives with the extension in step 6. |
 | **Build step 6a** — FERB extension (MV3), native host, pairing, `ext_bridge`, profile discovery + resolver, site resolver, owner `browser.*` tools, account extractors + ask-once trust | 2026-09-29 | Done | 180 offline tests (3 runs green): pairing + 21.16 (unpaired can't act/report; bad MAC, replay, reused/expired tokens refused), protocol-version refusal, native host refuses foreign extension ids and exits with the daemon, 21.15 (disconnect mid-command -> unknown -> reconciled done/failed, never resent), 21.13 (stale ids after navigation/reconnect), 21.12 (wrong / signed-out account refused), ask-once per site + profile remembered, resolver rules, FERB's identity profile never paired or routed as owner, wake page, 21.6 (extension CDP allowlist, run in node). Real (`-m real`, local pages): Chrome "FERB Test" 3/3 and a temporary Brave profile 3/3 — pairing, background tab never activated, snapshot sanitized in the page, trusted click/typing (`isTrusted`), cookies CDP refused, host killed -> reconnect -> stale ids refused. |
+| **Build step 6b** — FERB identity profile on the extension (paired as FERB), sealed secrets and inbox feed, step 5's carried-over real tests | 2026-09-29 | Done | 187 offline tests (green on 11 of 12 runs; one unreproduced fixture error, see notes): pairing as FERB needs exactly FERB's account (test 20) + confirmation to re-pair; 21.21 (secret and code never on the wire in clear, captured both directions; replayed seal refused; WebCrypto <-> Python seal checked in node); origin checked before the Keychain is read; 21.3/21.5. Real (`-m real`): stand-in identity in Chrome "FERB Test" 3/3 — 21.4 re-ported (lookalike, scheme, cross-origin iframe refused before the Keychain read; allowed iframe works; focus stealing can't redirect), 21.21 on the real wire, real extension refuses a replayed seal, read_source refuses non-feed pages. FERB's own profile 5/5 after instrumenting (2 earlier start-of-run flakes, see notes): paired as FERB, session through the extension, Gmail + YouTube account extractors read FERB's address on real pages; owner-assisted OTP filled sealed and submitted exactly the emailed code. Protocol v2 (extension 0.6.1). |
 
 ## Next
 
-**Build step 6b** — FERB identity profile on the extension (paired as FERB), sealed secrets (AES-GCM, pairing key,
-command id + origin as AD), step 5's carried-over real tests (session, owner-assisted OTP, 21.4, 21.21). Plan first,
-owner approval before building.
+**Build step 7** — `act/mac` + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser`.
+Not a foundation step: plan, then build (unless the owner asks for plan approval as for step 6).
 
 ## Rules for build steps (owner)
 
@@ -87,3 +87,11 @@ owner approval before building.
   (shown as "Personal"). No accounts in either.
 - 6b (owner, 2026-09-29): FERB's own Google account in the FERB profile may be used to validate the Gmail and
   YouTube account extractors on real pages.
+- **Owner action (after 6b):** run `ferb setup --identity` once to pair FERB's profile with the installed daemon
+  (the real tests paired it with test daemons only); doctor shows "identity session: not paired" until then.
+- 6b notes: YouTube shows the address only on youtube.com/account ("Signed in as ..."), so the pre-action check
+  reads it in a short-lived background tab in the same profile, then closes it. The inbox feed travels sealed
+  extension -> daemon too (added so an emailed code never crosses in clear; §10.1). Test-harness flakiness: the
+  FERB-profile real test failed twice at start-up (pairing / connection not ready) while the harness swapped
+  daemons under the live extension; 5/5 after instrumenting, not reproduced. One offline-suite fixture error
+  right after a real run; 11 clean runs since.

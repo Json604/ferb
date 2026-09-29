@@ -83,6 +83,17 @@ def daemon_on_launcher() -> Iterator[RunningDaemon]:
     base = Path(tempfile.mkdtemp(prefix="ferbr-"))
     original = LAUNCHER.read_text()
     d = RunningDaemon(base / "home", clock=SystemClock())
+    t0, events = time.monotonic(), []                                     # browser.* events, shown on failure
+    publish = d.daemon._publish
+
+    def record(topic: str, data: dict[str, Any]) -> None:
+        if topic.startswith("browser."):
+            events.append((round(time.monotonic() - t0, 1), topic, data.get("profile") or data.get("folder")))
+        publish(topic, data)
+    d.daemon._publish = record                                            # type: ignore[method-assign]
+    assert d.daemon.hub is not None
+    d.daemon.hub.publish = record
+    d.events = events                                                     # type: ignore[attr-defined]
     LAUNCHER.write_text(original.replace(f'FERB_HOME="{Path.home() / ".ferb"}"', f'FERB_HOME="{d.daemon.home}"'))
     restart_hosts()
     try:
@@ -116,6 +127,7 @@ def tee(d: RunningDaemon) -> list[str]:
                 await writer.drain()
         await serve(R(), W())                                                   # type: ignore[arg-type]
     d.daemon.server.native = tapped
+    restart_hosts()                            # connections made before the tap would go uncaptured
     return wire
 
 
@@ -232,7 +244,7 @@ async def _part1(d: Any, site: Site, specs: dict[str, SecretSpec], scrubbed: lis
     sealed = seal(seal_key(key), "not-the-password", "the-original-command", site.L)
     frame, snap, local, _ = next(v for v in t.elements.values() if v[3].label == "Password")
     r = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
-                                     "sealed": sealed, "origin": site.L}, cid="a-different-command")
+                                     "sealed": sealed, "origin": site.L}, cid="replay-" + os.urandom(4).hex())
     out["replay"] = r.get("detail")
     try:
         await t.bridge.call("read_source", {"tab_id": t.chrome_id})
@@ -283,12 +295,12 @@ def test_ferb_profile_pairs_signs_in_and_account_extractors_read_ferbs_address(f
     c = Client(d.sock, timeout=120)
     try:
         r = c.call("identity.pair", {"timeout_s": 60})
-        assert r["paired"], r
+        assert r["paired"], (r, d.events)                                  # type: ignore[attr-defined]
         check = c.call("identity.check")
     finally:
         c.close()
     address = str(d.daemon.config.get("mailbox", "address")).lower()
-    assert check["profile_ok"] and check["session"] is True, check              # signed in, via the extension
+    assert check["profile_ok"] and check["session"] is True, (check, d.events)   # type: ignore[attr-defined]
     accounts = d.run(_accounts(d.daemon), timeout=120)
     assert accounts["mail.google.com"] == {"supported": True, "account": address}, accounts
     assert accounts["www.youtube.com"]["supported"] and accounts["www.youtube.com"]["account"] in (address,), accounts
@@ -305,7 +317,7 @@ def test_ferb_profile_pairs_signs_in_and_account_extractors_read_ferbs_address(f
 
 async def _accounts(d: Any) -> dict[str, Any]:
     fi, out = d.ferb_identity, {}
-    for url in ("https://mail.google.com/mail/u/0/#inbox", "https://www.youtube.com/"):
+    for url in ("https://mail.google.com/mail/u/0/#inbox", "https://www.youtube.com/account"):
         tab = await fi.open_for(url, "acct")
         await asyncio.sleep(4)                                                  # let the app render its header
         t = fi._tab(tab)

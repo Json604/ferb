@@ -39,6 +39,8 @@ def page(url: str) -> dict[str, Any]:
         return {"title": "Inbox - me@gmail.com - Gmail", "text": "Inbox",
                 "elements": [{"role": "button", "label": "Send", "form": "other"},
                              {"role": "textbox", "label": "To", "form": "other"}]}
+    if u.hostname == "www.youtube.com":
+        return {"title": "YouTube", "text": "video", "elements": [{"role": "button", "label": "Subscribe", "form": None}]}
     if u.path == "/form":
         return {"title": "Form", "text": "a form",
                 "elements": [{"role": "textbox", "label": "Name", "form": "other"},
@@ -244,6 +246,8 @@ class FakeExtension:
         host = urlsplit(self.tabs[a["tab_id"]]).hostname or ""
         if host not in ("mail.google.com", "www.youtube.com"):
             return {"supported": False}
+        if host == "www.youtube.com" and not urlsplit(self.tabs[a["tab_id"]]).path.startswith("/account"):
+            return {"supported": True, "account": "signed_in_unknown" if self.accounts.get(host) else None}
         return {"supported": True, "account": self.accounts.get(host)}
 
     def op_wake_close(self, a: dict[str, Any], cid: str) -> dict[str, Any]:

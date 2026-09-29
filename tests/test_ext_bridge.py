@@ -397,3 +397,20 @@ def test_a_sleeping_profile_is_woken_with_a_unique_local_page_then_it_is_closed(
 
 async def _start_wake(d: RunningDaemon) -> None:
     d.daemon.router.wake = d.daemon.wake                                        # type: ignore[union-attr]
+
+
+def test_youtube_account_is_read_from_its_account_page_in_a_closed_helper_tab(bd: Any) -> None:
+    d, launched = bd
+    ext = pair(d, launched, "Personal")                                          # profile account me@gmail.com
+    ext.wait_for(lambda: ext.gen is not None)
+    g = task(d, "y", OWNER, {"fill_form"}, sites=frozenset({"www.youtube.com"}))
+    tab = call(d, g, "browser.open", url="https://www.youtube.com/watch?v=x", profile="Personal")["content"]["tab"]
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    ext.accounts["www.youtube.com"] = "someone.else@gmail.com"
+    before = set(ext.tabs)
+    r = call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")
+    assert r["is_error"] and "wrong account" in r["content"]["error"] and not ext.acts
+    assert set(ext.tabs) == before                                             # the helper tab was closed
+    ext.accounts["www.youtube.com"] = "me@gmail.com"
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    assert not call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")["is_error"]
