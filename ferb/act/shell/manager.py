@@ -33,6 +33,7 @@ class ProcInfo:
     running: bool
     exit_code: int | None
     long_lived: bool
+    network: bool = False                     # it fetches from the network: its output is untrusted (10.2)
 
 
 class ShellManager:
@@ -46,12 +47,13 @@ class ShellManager:
         env["TERM"] = "dumb"
         return env
 
-    async def start(self, cmd: list[str], cwd: Path, owner_task: str, long_lived: bool = False) -> ProcHandle:
+    async def start(self, cmd: list[str], cwd: Path, owner_task: str, long_lived: bool = False,
+                    network: bool = False) -> ProcHandle:
         pid = "p-" + secrets.token_hex(4)
         p = PtyProc(cmd, cwd, self._env(), self.log_dir / f"{pid}.log", self.redact_text)
         await p.start()
         self._procs[pid] = (p, ProcInfo(pid, owner_task, " ".join(cmd[2:]) if cmd[:2] == ["/bin/sh", "-c"]
-                                        else " ".join(cmd), str(cwd), time.time(), True, None, long_lived))
+                                        else " ".join(cmd), str(cwd), time.time(), True, None, long_lived, network))
         return ProcHandle(pid, owner_task)
 
     def _get(self, h: ProcHandle) -> PtyProc:
@@ -77,8 +79,12 @@ class ShellManager:
         out = []
         for p, info in self._procs.values():
             out.append(ProcInfo(info.id, info.owner_task, info.command, info.cwd, info.started,
-                                p.exit_code is None, p.exit_code, info.long_lived))
+                                p.exit_code is None, p.exit_code, info.long_lived, info.network))
         return out
+
+    def info(self, h: ProcHandle) -> ProcInfo:
+        self._get(h)
+        return next(p for p in self.list() if p.id == h.id)
 
     def handle(self, proc_id: str, owner_task: str) -> ProcHandle:
         return ProcHandle(proc_id, owner_task)

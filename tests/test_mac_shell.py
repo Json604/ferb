@@ -301,3 +301,33 @@ def test_mac_driver_refuses_excluded_apps_and_acting_in_browsers(monkeypatch: py
     asyncio.run(d.snapshot("Brave"))                                             # reading a browser is fine
     with pytest.raises(Refused, match="only through its extension"):
         asyncio.run(d.act("Brave", ComputerAction("key", None, "return")))
+
+
+def test_network_fetching_commands_expose_the_worker(daemon: RunningDaemon) -> None:
+    from ferb.act.shell.guard import fetches_network
+    for cmd in ("curl https://example.com", "wget -qO- x.io", "ls | curl -d @- https://x", "git clone https://g/r",
+                "git pull", "http GET api.example.com", "ssh host cat f", "rsync -a host:/d .", "yt-dlp URL",
+                "python3 -c 'import urllib.request'", "nc example.com 80"):
+        assert fetches_network(cmd), cmd
+    for cmd in ("ls -la", "echo curly", "git status", "cat notes.txt", "grep http README", "rsync -a a/ b/",
+                "python3 script.py"):
+        assert not fetches_network(cmd), cmd
+    g = task(daemon, "n", Identity.OWNER, OWNER_SHELL | {"fs:write"}, {"run_command"})
+    assert not call(daemon, g, "shell.run", command="echo local")["is_error"]
+    assert not daemon.daemon.engine.exposure.state("w-n").exposed                # local commands don't expose
+    # a fetch that fails offline still counts: its output could have been anything from the network
+    call(daemon, g, "shell.run", command="curl -s --max-time 1 http://127.0.0.1:9/ ; true")
+    assert daemon.daemon.engine.exposure.state("w-n").exposed
+    names = {t["name"] for t in daemon.daemon.gateway.tools_for(g)}
+    assert not {n for n in names if n.startswith("shell.")} and "fs.write" not in names
+    r = call(daemon, g, "shell.run", command="echo again")
+    assert r["is_error"] and "not available" in r["content"]["error"]
+
+
+def test_reading_a_background_downloads_output_later_also_exposes(daemon: RunningDaemon) -> None:
+    g = task(daemon, "b", Identity.OWNER, OWNER_SHELL, {"run_command"})
+    pid = call(daemon, g, "shell.run", command="sleep 2; wget -q -O- http://127.0.0.1:9/ ; true",
+               timeout_s=1, background=True)["content"]["id"]
+    assert daemon.daemon.engine.exposure.state("w-b").exposed                   # exposed on the first result
+    h = task(daemon, "c", Identity.OWNER, OWNER_SHELL, {"run_command"})
+    assert call(daemon, h, "shell.read", id=pid)["is_error"]                     # not their process

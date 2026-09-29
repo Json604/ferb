@@ -12,6 +12,11 @@ from ferb.policy.rules import Kind
 TAIL = 8000
 
 
+def _untrusted(network: bool, command: str) -> tuple[tuple[str, str], ...]:
+    """Network-fetching commands bring in untrusted content: reading their output exposes the worker (10.2)."""
+    return (("web", f"shell: {command[:200]}"),) if network else ()
+
+
 def _err(msg: str) -> ToolResult:
     return ToolResult({"error": msg}, is_error=True)
 
@@ -54,13 +59,15 @@ class ShellRun(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         cmd = str(getattr(args, "command"))
         cwd = guard.check(cmd, getattr(args, "cwd"), ctx)
-        h = await self.shells.start(["/bin/sh", "-c", cmd], cwd, ctx.task_id, bool(getattr(args, "background")))
+        network = guard.fetches_network(cmd)
+        h = await self.shells.start(["/bin/sh", "-c", cmd], cwd, ctx.task_id, bool(getattr(args, "background")),
+                                    network)
         code = await self.shells.wait(h, float(getattr(args, "timeout_s")))
         text, offset = await self.shells.read(h)
         out = {"id": h.id, "running": code is None, "exit_code": code, "output": text[-TAIL:], "offset": offset}
         if len(text) > TAIL:
             out["output_truncated"] = True
-        return ToolResult(out, is_error=code not in (None, 0))
+        return ToolResult(out, is_error=code not in (None, 0), read_sources=_untrusted(network, cmd))
 
 
 class ShellRead(_Base):
@@ -77,7 +84,9 @@ class ShellRead(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = self.shells.handle(str(getattr(args, "id")), ctx.task_id)
         text, offset = await self.shells.read(h, int(getattr(args, "since")))
-        return ToolResult({"output": text[-TAIL:], "offset": offset})
+        info = self.shells.info(h)
+        return ToolResult({"output": text[-TAIL:], "offset": offset},
+                          read_sources=_untrusted(info.network, info.command))
 
 
 class ShellSend(_Base):
