@@ -245,9 +245,13 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd:
     br = d.hub.bridges[(browser, p.folder)]
 
     async def close_probe_tabs() -> None:
+        from ferb.core.errors import FerbError
         for t in (await br.call("list_tabs", {}))["tabs"]:
             if t["host"] == "127.0.0.1":
-                await br.call("close", {"tab_id": t["tab_id"]})
+                try:
+                    await br.call("close", {"tab_id": t["tab_id"]})
+                except FerbError:
+                    return                  # the last tab closed its window and unloaded the profile: done
     try:
         for path, refused in (("/login", True), ("/plain", False)):
             open_known_profile(browser, p.folder, f"http://127.0.0.1:{srv.server_port}{path}", known)
@@ -259,7 +263,6 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd:
                     rd.run(d.mac.screenshot("com.google.Chrome"), timeout=30)
             else:
                 rd.run(d.mac.screenshot("com.google.Chrome"), timeout=30)
-            rd.run(close_probe_tabs(), timeout=30)
     finally:
         srv.shutdown()
 
@@ -268,5 +271,6 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd:
         return [_j.loads(r["data_json"]) | {"actor": r["actor"]} for r in d.db.conn.execute(  # type: ignore[union-attr]
             "SELECT * FROM trail WHERE source = 'browser_tab'").fetchall()]
     loads = [r for r in rd.run(tab_rows()) if r["host"] == "127.0.0.1"]
+    rd.run(close_probe_tabs(), timeout=30)
     assert loads and all(r["actor"] == "owner" and r["profile"] == p.folder and r["browser"] == "chrome"
                          for r in loads), loads

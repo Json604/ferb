@@ -124,14 +124,15 @@ permanent daily trail summaries (`trail.day_summary`) that let the 30-day purge 
   prefer the extension: with a paired owner profile of that browser connected, `mac.screenshot` / `mac.click` need a
   recorded `fallback_reason` (§9.2). Approved and built: extension 0.6.3 `window_password` (the profile whose window
   has the captured bounds says whether its active tab has a password field, any frame), asked before and after
-  capture. Offline tested; the real test (`tests/test_mac_vision_real.py`, spare profile) runs after the owner
-  reloads the extension.
+  capture. Real (spare profile, after the owner's reload): a local login page in Chrome's front window is refused,
+  a page without a password field is captured, and both page loads are in the trail as the owner's, with the
+  pairing's profile: 2/2.
 - **Build step 10:** the frontmost app is read from Accessibility's system-wide focused application (NSWorkspace's
   cached state goes stale in a daemon with no AppKit run loop). FSEvents flags are cumulative per file, so a write to
   a file already seen is reported "modified". The owner-input tap's stop could segfault (its callback re-enabled a
   cleared tap); fixed. Test daemons run without the real watchers unless a test asks. Not built as planned: the
   app-install watcher didn't exist yet (the plan said it did); built here. Extension 0.6.3 also sends `incognito`
-  on tab events (dropped). The trail tab check in `test_mac_vision_real.py` runs with the extension reload.
+  on tab events (dropped).
 - **Extension 0.6.2:** sends and the "paired" reply read-modify-wrote the stored {key, seq} concurrently: a tab event
   racing the reply could write the old key back (every later message failed its MAC; the profile paired but never
   connected) and two sends could share a seq. Now serialized, messages posted in seq order; a node test runs the real
