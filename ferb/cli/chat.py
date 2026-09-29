@@ -36,12 +36,21 @@ def render(ev: dict[str, Any]) -> str | None:
     if t == "clarify":
         return f"ferb? {ev['text']}"
     if t == "plan":
-        conds = "".join(f"\n        - {c}" for c in ev.get("success_conditions", []))
-        return f"ferb: {ev['text']}  [task {ev['task_id']}]{conds}"
+        subs = "".join(f"\n        {s['id']} ({s['role']}{', after ' + ', '.join(s['depends_on']) if s['depends_on'] else ''})"
+                       f": {s['goal']}" for s in ev.get("subtasks", []))
+        return f"ferb: {ev['text']}  [task {ev['task_id']}]{subs}"
+    if t == "subtask":
+        if ev["status"] == "started":
+            return f"   ▸ {ev['id']} started"
+        return f"   {'✓' if ev['status'] == 'done' else '↻' if ev['status'] == 'retrying' else '✗'} {ev['id']} " \
+               f"{ev['status']}: {ev.get('summary', '')}"
+    if t == "verification":
+        return "\n".join(f"   {'✓' if r['met'] else '?' if r['met'] is None else '✗'} {r['condition']}  "
+                         f"[{r['path']}: {r['evidence']}]" for r in ev["results"])
     if t == "outcome":
         arts = f"\n      files: {', '.join(ev['artifacts'])}" if ev.get("artifacts") else ""
-        return (f"ferb: {ev['status']} — {ev['summary']}{arts}\n"
-                f"      (the worker's own report; independent verification arrives with build step 8)")
+        check = "verified" if ev.get("verified") else "NOT verified"
+        return f"ferb: {ev['status']} ({check}) — {ev['summary']}{arts}"
     if t == "error":
         return f"ferb! {ev['text']}"
     if t == "event":

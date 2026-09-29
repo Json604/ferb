@@ -45,6 +45,7 @@ def bd(daemon: RunningDaemon) -> Iterator[tuple[RunningDaemon, list[list[str]]]]
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
     d.browser_launch = launched.append
     d.browser_default = lambda: "chrome"                                      # last used in the fake: Profile 1
+    d.pair_load_wait_s = 0.0
     d.router.launch = launched.append                                         # type: ignore[union-attr]
     d.router.wake = None                                                      # type: ignore[union-attr]
     d.config.set("identity", "browser", "chrome")
@@ -381,7 +382,7 @@ def test_a_sleeping_profile_is_woken_with_a_unique_local_page_then_it_is_closed(
     ext.kill()                                                                  # worker asleep / disconnected
     d.run(_start_wake(d))
     closed: list[str] = []
-    ext.op_wake_close = lambda a, cid: (closed.append(a["url"]), {"closed": 1})[1]   # type: ignore[method-assign]
+    ext.op_wake_close = lambda a, cid: (closed.append(a["url"]) if ext.tabs else None, {"closed": 1})[1]  # type: ignore[method-assign]
 
     def on_launch(args: list[str]) -> None:
         launched.append(args)
@@ -393,6 +394,7 @@ def test_a_sleeping_profile_is_woken_with_a_unique_local_page_then_it_is_closed(
     wake = launched[-1][-1]
     assert launched[-1][1] == "--profile-directory=Profile 1" and "/wake/" in wake and wake.startswith("http://127.0.0.1:")
     assert closed == [wake]                                                     # exactly that page, nothing else
+    assert list(ext.tabs.values())[-1] == "https://example.com/"               # ...after FERB's own tab was open
 
 
 async def _start_wake(d: RunningDaemon) -> None:

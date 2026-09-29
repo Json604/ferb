@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from ferb.act.fs.files import normalize_path
 from ferb.act.locks import ResourceLocks
+from ferb.policy.taint import Taint
 from ferb.clock import context
 from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext
@@ -36,6 +37,17 @@ class FsRoots:
     untrusted_roots: tuple[str, ...]
 
 
+class Observer:
+    """What the orchestrator watches through the gateway: tool calls (budget, liveness) and waits on the owner
+    (which pause the stall timer). No-ops until the supervisor installs its own."""
+
+    def tool_call(self, grant: RunGrant, done: bool) -> None:
+        pass
+
+    def waiting(self, worker: str, on: bool) -> None:
+        pass
+
+
 class Gateway:
     def __init__(self, capabilities: dict[str, Capability], engine: PolicyEngine, ledger: Ledger, spans: SpanStore,
                  tasks: TaskTree, clock: Clock, redact: Redact, publish: Publish, roots: FsRoots,
@@ -44,6 +56,8 @@ class Gateway:
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
         self.locks = ResourceLocks()
+        self.taint = Taint()
+        self.observer: Observer = Observer()
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -78,6 +92,11 @@ class Gateway:
             return reply({"error": "invalid arguments", "details": e.errors(include_url=False)}, True)
 
         spec = cap.describe(args)
+        if rec.task.role == "reader" and spec.kind not in REVERSIBLE:      # readers read; they never act (7.4)
+            return reply({"error": f"blocked by FERB policy: a reader subtask can't {spec.kind}"}, True)
+        labels = self.taint.labels_for(rec.tree_id, spec.content)          # owner data inside this content (10.2)
+        if labels:
+            spec = dataclasses.replace(spec, data_labels=spec.data_labels | labels)
         if spec.target.path is not None:                 # the same path form the intent was recorded in
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
@@ -100,14 +119,22 @@ class Gateway:
                           "next": "The owner has been asked in `ferb chat`. Retry the exact same call after they "
                                   "approve; don't change it."}, True)
         if verdict.decision == "hold":
-            state = await self._wait_hold(verdict.hold_id or "")
+            self.observer.waiting(grant.worker_id, True)                  # the undo window is the owner's time
+            try:
+                state = await self._wait_hold(verdict.hold_id or "")
+            finally:
+                self.observer.waiting(grant.worker_id, False)
             if state != "released":
                 self.spans.finish(span, error="cancelled by the owner during the undo window")
                 return reply({"error": "cancelled by the owner (undo)"}, True)
 
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
-        async with self.locks.hold(lock_keys, grant.worker_id):            # after policy, never across model calls
-            return await self._execute(cap, name, args, spec, action, grant, rec, span, reply)
+        self.observer.tool_call(grant, done=False)
+        try:
+            async with self.locks.hold(lock_keys, grant.worker_id):        # after policy, never across model calls
+                return await self._execute(cap, name, args, spec, action, grant, rec, span, reply)
+        finally:
+            self.observer.tool_call(grant, done=True)
 
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[[dict[str, Any], bool], dict[str, Any]]) \
@@ -135,6 +162,7 @@ class Gateway:
         if intent_id:
             self.ledger.mark(intent_id, "failed" if result.is_error else "done", [span.id])
         for kind, source_id in result.read_sources:
+            self.taint.read(grant.worker_id, kind, source_id)
             if self.engine.exposure.read(grant.worker_id, kind, source_id):
                 self.publish("worker.exposed", {"worker_id": grant.worker_id, "task_id": grant.task_id,
                                                 "reason": f"read {kind}: {source_id}"})

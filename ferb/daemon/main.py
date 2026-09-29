@@ -17,7 +17,9 @@ from ferb.bus import DROPPED, Bus, Overflow
 from ferb.clock.clock import SystemClock
 from ferb.config import Config
 from ferb.daemon.gateway import FsRoots, Gateway
+from ferb.orchestrator.dag import Limits
 from ferb.orchestrator.supervisor import Supervisor
+from ferb.orchestrator.verify import Checks
 from ferb.orchestrator.tree import TaskTree
 from ferb.act.browser.tools import IdentityDriver
 from ferb.core.types import Identity
@@ -92,6 +94,7 @@ class Daemon:
         self.browser_data_dirs: dict[str, Path] | None = None
         self.browser_launch: Callable[[list[str]], None] | None = None
         self.browser_default: Callable[[], str | None] = default_browser
+        self.pair_load_wait_s = 2.0                          # a profile opened just to pair gets this long to load
         self.pairings: Pairings | None = None
         self.hub: Hub | None = None
         self.router: Router | None = None
@@ -119,6 +122,10 @@ class Daemon:
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.ledger = Ledger(self.db, self.clock, self.ids)
+        self.tasks.attach(self.db)
+        interrupted = self.tasks.interrupt_running()          # a restart: what was running didn't finish
+        if interrupted:
+            self.journal.append("tasks.interrupted_after_restart", {"task_ids": interrupted})
         await self._build_browsers()
         self._build_mac_and_shell()
         self._build_agents()
@@ -224,7 +231,8 @@ class Daemon:
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
                                      workspace=str(workspace), on_violation=self._runtime_violation,
-                                     on_task_end=self._task_end, facts=self._facts)
+                                     on_task_end=self._task_end, facts=self._facts, limits=self._limits,
+                                     checks=Checks(self.ledger, self._urls_of, self._account_of), roots=roots)
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
 
@@ -251,7 +259,10 @@ class Daemon:
         if self.watch_owner_input and not self.owner_input.start():
             self._journal().append("owner_input.unavailable", {"why": "no event tap (Accessibility / Input Monitoring)"})
         device = str(self.config.get("device", "id", "unknown-device"))
-        self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui),
+        def owner_wait(holder: str, on: bool) -> None:          # the owner's time never counts as a stall
+            if self.supervisor is not None:
+                self.supervisor.activity.waiting(holder, on)
+        self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait),
                                      excluded=lambda: set(self.config.get("privacy", "exclude_apps", [])))
         add_mac(self.registry, self.mac, self._device_profile)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
@@ -340,19 +351,40 @@ class Daemon:
         if current is not None and not params.get("confirm"):
             raise FerbError("FERB's identity profile is already paired; re-pairing needs your confirmation")
         token = self.pairings.issue_token(prof[0], prof[1], Identity.FERB)
-        ext = sorted(self.server.extension_ids())[0]
-        kwargs = {"launch": self.browser_launch} if self.browser_launch else {}
-        browser_profiles.open_known_profile(prof[0], prof[1], f"chrome-extension://{ext}/pair.html#token={token}",
-                                            self._profiles(), **kwargs)
+        wake = await self._open_pairing(prof[0], prof[1], token)
         end = self.clock.monotonic() + float(params.get("timeout_s", 60))
         while self.clock.monotonic() < end:
             b = self.pairings.for_profile(*prof)
             br = self.hub.bridges.get(prof) if self.hub else None
             if b is not None and b.identity is Identity.FERB and b != current and br is not None and br.conn:
+                await self._close_wake(br, wake)
                 self._attach_identity_if_paired()
                 return {"paired": True, "profile": prof[1]}
             await asyncio.sleep(0.2)
         return {"paired": False, "profile": prof[1], "hint": "is the FERB extension loaded in FERB's profile?"}
+
+    async def _open_pairing(self, browser: str, folder: str, token: str) -> str | None:
+        """Open the extension's pairing page in that profile. A profile with no window isn't loaded, and a pairing
+        page handed to it can go unanswered: load it first with a blank local page (closed after pairing)."""
+        known, kwargs = self._profiles(), ({"launch": self.browser_launch} if self.browser_launch else {})
+        wake = None
+        br = self.hub.bridges.get((browser, folder)) if self.hub else None
+        if br is None or br.conn is None:
+            wake = self.wake.url()
+            browser_profiles.open_known_profile(browser, folder, wake, known, **kwargs)
+            await asyncio.sleep(self.pair_load_wait_s)
+        ext = sorted(self.server.extension_ids())[0]
+        browser_profiles.open_known_profile(browser, folder, f"chrome-extension://{ext}/pair.html#token={token}",
+                                            known, **kwargs)
+        return wake
+
+    @staticmethod
+    async def _close_wake(br: Any, wake: str | None) -> None:
+        if wake:
+            try:
+                await br.call("wake_close", {"url": wake}, timeout=5)
+            except FerbError:
+                pass
 
     def _trusted_accounts(self) -> frozenset[str]:
         return frozenset(self.config.get("policy", "trusted_accounts", []))
@@ -389,15 +421,13 @@ class Daemon:
         if (p.browser, p.folder) == self._identity_profile():
             raise FerbError(f"{p.display_name} is FERB's identity profile; it's paired as FERB (build step 6b)")
         token = self.pairings.issue_token(p.browser, p.folder)
-        ext = sorted(self.server.extension_ids())[0]
-        kwargs = {"launch": self.browser_launch} if self.browser_launch else {}
-        browser_profiles.open_known_profile(p.browser, p.folder, f"chrome-extension://{ext}/pair.html#token={token}",
-                                            known, **kwargs)
+        wake = await self._open_pairing(p.browser, p.folder, token)
         timeout = float(params.get("timeout_s", 60))
         end = self.clock.monotonic() + timeout
         while self.clock.monotonic() < end:
             b = self.pairings.for_profile(p.browser, p.folder)
             if b is not None and self.hub and (br := self.hub.bridges.get((p.browser, p.folder))) and br.conn:
+                await self._close_wake(br, wake)
                 return {"paired": True, "browser": p.browser, "folder": p.folder, "name": p.display_name}
             await asyncio.sleep(0.2)
         return {"paired": False, "browser": p.browser, "folder": p.folder, "name": p.display_name,
@@ -411,6 +441,23 @@ class Daemon:
             raise FerbError(r.message(str(params.get("profile", "")), known))
         p = r.candidates[0]
         return {"unpaired": self.pairings.unpair(p.browser, p.folder)}
+
+    def _limits(self) -> Limits:
+        b, d = self.config.load().get("budget") or {}, Limits()
+        return Limits(int(b.get("max_minutes", d.max_minutes)), int(b.get("max_tokens", d.max_tokens)),
+                      float(b.get("max_cost_usd", d.max_cost_usd)), int(b.get("max_tool_calls", d.max_tool_calls)),
+                      int(b.get("max_workers", d.max_workers)))
+
+    def _urls_of(self, task_id: str) -> list[str]:
+        return [u for drv in (self.router, self.ferb_identity) if drv is not None for u in drv.urls_of(task_id)]
+
+    async def _account_of(self, task_id: str, site: str) -> str | None:
+        for drv in (self.router, self.ferb_identity):
+            if drv is not None:
+                acct = await drv.account_of(task_id, site)
+                if acct:
+                    return acct
+        return None
 
     def _add_secret_value(self, value: str) -> None:
         add = getattr(self.redact, "add_secret_value", None)

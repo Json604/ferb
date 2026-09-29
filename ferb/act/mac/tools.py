@@ -18,8 +18,11 @@ def _err(msg: str) -> ToolResult:
     return ToolResult({"error": msg}, is_error=True)
 
 
-def _source(bundle_id: str) -> tuple[str, str]:
-    return (UNTRUSTED_APPS.get(bundle_id, "app"), bundle_id)     # messages/email are untrusted content (10.2)
+def _sources(bundle_id: str) -> tuple[tuple[str, str], ...]:
+    """Messages / email are untrusted content and the owner's account data (10.2)."""
+    if bundle_id in UNTRUSTED_APPS:
+        return ((UNTRUSTED_APPS[bundle_id], bundle_id), ("owner_account", f"{bundle_id}|"))
+    return (("app", bundle_id),)
 
 
 class _Base:
@@ -95,7 +98,7 @@ class MacSnapshot(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a, out = await self.driver.snapshot(str(getattr(args, "app")))
-        return ToolResult(out, read_sources=(_source(a.bundle_id),))
+        return ToolResult(out, read_sources=_sources(a.bundle_id))
 
 
 class MacAct(_Base):
@@ -146,4 +149,4 @@ class MacAppleScript(_Base):
         if not scriptable(a.bundle_id, self.device_profile()):
             return _err(f"{a.name} isn't scriptable; use mac_snapshot / mac_act")
         ok, out = await applescript.run(a.bundle_id, str(getattr(args, "script")))
-        return ToolResult({"ok": ok, "result": out}, is_error=not ok, read_sources=(_source(a.bundle_id),))
+        return ToolResult({"ok": ok, "result": out}, is_error=not ok, read_sources=_sources(a.bundle_id))

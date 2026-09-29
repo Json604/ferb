@@ -26,6 +26,7 @@ Connect = Callable[[], Client]
 Ask = Callable[[str], str]
 REQUIRED_PERMISSIONS = ("accessibility", "screen_recording")
 BRAVE = "com.brave.Browser"
+IDENTITY_CHECK_S = 90.0
 
 
 @dataclass
@@ -254,10 +255,13 @@ def doctor(env: Env) -> int:
                                                                    "restart the daemon after investigating"))
         try:
             c = env.connect()
+            if hasattr(c, "set_timeout"):
+                c.set_timeout(IDENTITY_CHECK_S)                 # it may wake FERB's browser profile first
             ident = c.call("identity.check")
             c.close()
-        except (NotRunning, FerbError):
+        except (NotRunning, FerbError) as e:
             ident = None
+            add(Check("identity session", "warn", f"couldn't check: {e}", "run `ferb doctor` again"))
         if ident:
             if not ident["profile"]:
                 add(Check("identity profile", "warn", "not set up", "run `ferb setup --identity`"))
@@ -267,7 +271,10 @@ def doctor(env: Env) -> int:
                           if ident["profile_ok"] else str(ident["error"]),
                           "FERB's Chrome profile must hold only FERB's account; fix it in Chrome, or run "
                           "`ferb setup --identity`"))
-                if ident["profile_ok"]:
+                if ident["profile_ok"] and ident.get("paired") and ident.get("error"):
+                    add(Check("identity session", "warn", f"couldn't check: {ident['error']}",
+                              "open FERB's Chrome profile (FERB reconnects within 30 s) and run doctor again"))
+                elif ident["profile_ok"]:
                     add(Check("identity session", "ok" if ident.get("session") else
                               ("fail" if ident.get("paired") else "warn"),
                               f"signed in as {ident['address']} (through the extension)" if ident.get("session") else
@@ -371,6 +378,8 @@ def _identity_pair(env: Env, name: str) -> bool:
 def _identity_status(env: Env) -> bool:
     try:
         c = env.connect()
+        if hasattr(c, "set_timeout"):
+            c.set_timeout(IDENTITY_CHECK_S)
         r = c.call("identity.check")
         c.close()
     except (NotRunning, FerbError) as e:

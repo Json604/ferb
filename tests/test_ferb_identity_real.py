@@ -6,13 +6,16 @@ native-host launcher is pointed at it for the run and restored afterwards):
    the allowed iframe works; focus stealing can't redirect the value), 21.21 (every line through the native host
    captured: the password never appears; a replayed seal is refused by the real extension), read_source refuses any
    page but FERB's inbox feed.
-2. `FERB_REAL_IDENTITY=1` — FERB's own profile (owner-approved): pairing as FERB (its account check), the session
+2. `FERB_REAL_IDENTITY=1` — FERB's own profile (owner-approved). It re-pairs that profile's extension with the
+   test daemon, which replaces the key it shares with the installed daemon: afterwards the owner runs
+   `ferb setup --identity` (confirming the re-pair) to give it back to FERB. The rest: pairing as FERB (its account check), the session
    checked through the extension, the Gmail and YouTube account extractors on real pages; with `FERB_OTP_CODE` +
    `FERB_OTP_SINCE`, a code the owner emailed to FERB is filled into a local page, sealed, never returned.
 """
 
 import asyncio
 import http.server
+import re
 import os
 import tempfile
 import threading
@@ -94,7 +97,8 @@ def daemon_on_launcher() -> Iterator[RunningDaemon]:
     assert d.daemon.hub is not None
     d.daemon.hub.publish = record
     d.events = events                                                     # type: ignore[attr-defined]
-    LAUNCHER.write_text(original.replace(f'FERB_HOME="{Path.home() / ".ferb"}"', f'FERB_HOME="{d.daemon.home}"'))
+    # whatever home the launcher points at now (another test daemon may have it): ours for this run, then back
+    LAUNCHER.write_text(re.sub(r'FERB_HOME="[^"]*"', f'FERB_HOME="{d.daemon.home}"', original))
     restart_hosts()
     try:
         yield d

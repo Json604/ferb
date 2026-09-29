@@ -44,15 +44,12 @@ def mark(message: str) -> Marked:
             pos = m.end()
         split += _quotes(text[pos:])
 
-    tag = "untrusted-data"
     out, own, bad = [], [], []
     for untrusted, text in split:
         if not text:
             continue
         if untrusted:
-            uid = secrets.token_hex(6)
-            body = text.replace(f"</{tag}", f"<\\/{tag}")        # can't close our tag from inside
-            out.append(f'\n<{tag} id="{uid}">\n{body}\n</{tag} id="{uid}">\n')
+            out.append(f"\n{wrap_untrusted(text)}\n")
             bad.append(text)
         else:
             out.append(text)
@@ -85,6 +82,13 @@ def _quotes(text: str) -> list[tuple[bool, str]]:
     flush_block()
     flush_normal()
     return out
+
+
+def wrap_untrusted(text: str) -> str:
+    """Data, not instructions: in tags with a random id; a forged closing tag inside can't end ours."""
+    tag, uid = "untrusted-data", secrets.token_hex(6)
+    body = text.replace(f"</{tag}", f"<\\/{tag}")
+    return f'<{tag} id="{uid}">\n{body}\n</{tag} id="{uid}">'
 
 
 def targets_in_own_words(targets: list[str], own_words: str) -> list[str]:

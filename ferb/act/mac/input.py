@@ -32,19 +32,25 @@ class Step:
 
 class RealInput:
     def __init__(self, owner_active: Callable[[], bool], gui: GuiLock, yield_after_s: float = 30.0,
-                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, poll_s: float = 0.05) -> None:
+                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, poll_s: float = 0.05,
+                 on_wait: Callable[[str, bool], None] = lambda holder, on: None) -> None:
         self.owner_active, self.gui, self.yield_after_s = owner_active, gui, yield_after_s
-        self.sleep, self.poll_s = sleep, poll_s
+        self.sleep, self.poll_s, self.on_wait = sleep, poll_s, on_wait     # on_wait: the owner's time isn't a stall
 
     async def run(self, steps: list[Step], holder: str, what: str) -> int:
         async with self.gui.hold(holder):
             for i, step in enumerate(steps):
                 waited = 0.0
-                while self.owner_active():                   # the owner wins: wait for them to be quiet
-                    if waited >= self.yield_after_s:
-                        raise Yielded(i, len(steps), what)
-                    await self.sleep(self.poll_s)
-                    waited += self.poll_s
+                if self.owner_active():
+                    self.on_wait(holder, True)
+                    try:
+                        while self.owner_active():           # the owner wins: wait for them to be quiet
+                            if waited >= self.yield_after_s:
+                                raise Yielded(i, len(steps), what)
+                            await self.sleep(self.poll_s)
+                            waited += self.poll_s
+                    finally:
+                        self.on_wait(holder, False)
                 step.post()
                 await self.sleep(STEP_S)
         return len(steps)

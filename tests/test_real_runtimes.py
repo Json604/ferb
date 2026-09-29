@@ -150,5 +150,30 @@ def test_full_chat_turn_writes_a_file(rt_daemon) -> None:
     finally:
         c.close()
     assert evs[0]["type"] == "plan", evs
-    assert evs[-1]["type"] == "outcome" and evs[-1]["status"] == "done", evs[-1]
+    out = next(e for e in evs if e["type"] == "outcome")
+    assert out["status"] == "done" and out["verified"] is True, out
     assert (d.daemon.home / "workspace" / "notes" / "real.md").read_text().strip() == "hello"
+
+
+def test_reader_then_actor_then_verified(rt_daemon) -> None:
+    """Build step 8 with real models: a reader reads a file, an actor gets only its typed field, code verifies."""
+    runtime, d, _ = rt_daemon
+    notes = d.daemon.home / "workspace" / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "a.md").write_text("alpha beta gamma\nsecond line\n")
+    c = Client(d.sock, timeout=900)
+    try:
+        evs = list(c.stream("chat.send", {"session_id": "s", "text":
+                                          "Read notes/a.md in your workspace and write its first line, exactly, into "
+                                          "notes/b.md in your workspace"}))
+    finally:
+        c.close()
+    plan = evs[0]
+    assert plan["type"] == "plan", evs
+    out = next(e for e in evs if e["type"] == "outcome")
+    assert out["status"] == "done", out
+    assert (notes / "b.md").read_text().strip() == "alpha beta gamma"
+    roles = {s["role"] for s in plan["subtasks"]}
+    ver = [r for e in evs if e["type"] == "verification" for r in e["results"]]
+    print(f"\n[{runtime}] roles={sorted(roles)} verified={out['verified']} "
+          f"paths={[r['path'] for r in ver]}")

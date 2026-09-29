@@ -62,6 +62,7 @@ class Bridge:
     version: str = ""
     pending: dict[str, asyncio.Future[Result]] = field(default_factory=dict)
     lost: set[str] = field(default_factory=set)             # ledger ids in flight when a connection dropped
+    wake_url: str | None = None                              # the wake page, closed once FERB's own tab is open
     tabs: dict[int, tuple[str, bool]] = field(default_factory=dict)   # chrome tab id -> (host, active)
     navs: dict[int, int] = field(default_factory=dict)      # chrome tab id -> loads seen (stale-ref detection)
     connected: asyncio.Event = field(default_factory=asyncio.Event)
@@ -244,12 +245,16 @@ class WakeServer:
 
     async def start(self) -> None:
         async def handle(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
-            await r.readline()
-            body = b"<!doctype html><title>FERB</title>"
-            w.write(b"HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: %d\r\nconnection: close\r\n\r\n"
-                    % len(body) + body)
-            await w.drain()
-            w.close()
+            try:
+                await asyncio.wait_for(r.readline(), 5)          # a browser may open a connection and send nothing
+                body = b"<!doctype html><title>FERB</title>"
+                w.write(b"HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: %d\r\nconnection: close"
+                        b"\r\n\r\n" % len(body) + body)
+                await w.drain()
+            except (asyncio.TimeoutError, ConnectionError):
+                pass
+            finally:
+                w.close()
         self._server = await asyncio.start_server(handle, "127.0.0.1", 0)
         self.port = self._server.sockets[0].getsockname()[1]
 
@@ -301,7 +306,9 @@ class _TabDriver:
         self._n = 0
 
     async def _connected(self, br: Bridge) -> Bridge:
-        """Wake a sleeping extension with a unique local page in that profile, then close exactly that page."""
+        """Wake a sleeping extension with a unique local page in that profile. The page stays open until FERB's own
+        tab is open there (`_open_in`): if it were the profile's only window, closing it first would unload the
+        profile and drop the connection before any work started."""
         if br.conn is None and self.wake is not None:
             url = self.wake.url()
             kwargs = {"launch": self.launch} if self.launch else {}
@@ -310,16 +317,19 @@ class _TabDriver:
                 await asyncio.wait_for(br.connected.wait(), WAKE_TIMEOUT_S)
             except asyncio.TimeoutError:
                 raise DriverError(f"{br.name} didn't connect (is the FERB extension enabled there?)") from None
-            try:
-                await br.call("wake_close", {"url": url}, timeout=5)
-            except DriverError:
-                pass
+            br.wake_url = url
         if br.conn is None:
             raise DriverError(f"{br.name} isn't connected")
         return br
 
     async def _open_in(self, br: Bridge, url: str, owner: str | None) -> TabRef:
         v = await br.call("open", {"url": url}, timeout=30)
+        if br.wake_url is not None:                           # FERB's own tab is open now: the wake page can go
+            wake, br.wake_url = br.wake_url, None
+            try:
+                await br.call("wake_close", {"url": wake}, timeout=5)
+            except DriverError:
+                pass
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, str(v.get("url") or url))
@@ -422,6 +432,19 @@ class _TabDriver:
             raise StaleRef("the page changed since the snapshot; take a new one")
         frame, snap, local, info = hit
         return t, frame, snap, local, info
+
+    def urls_of(self, owner: str) -> list[str]:
+        """Last known URLs of a task's tabs (verification, section 7 step 8)."""
+        return [t.url for t in self._tabs.values() if t.owner == owner]
+
+    async def account_of(self, owner: str, site: str) -> str | None:
+        """The signed-in account on a task's tab for that site, from the site's account extractor (or None)."""
+        for t in self._tabs.values():
+            if t.owner == owner and (urlsplit(t.url).hostname or "").endswith(site):
+                v = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=10)
+                acct = v.get("account") if v.get("supported") else None
+                return str(acct) if acct and acct != "signed_in_unknown" else None
+        return None
 
     async def release(self, owner: str) -> None:
         for alias in [a for a, t in self._tabs.items() if t.owner == owner]:
@@ -599,4 +622,6 @@ class FerbIdentity(_TabDriver):
             await self.close(ref)
 
     async def session_ok(self) -> bool:
+        """Signed in as FERB? Can't reach FERB's profile -> raises (that isn't "signed out")."""
+        await self._bridge()
         return await GmailFeedMailbox(self._read_feed, self.mailbox_address(), self.feed_url).signed_in()

@@ -147,6 +147,8 @@ ferb/
     worker.py           one task, scoped capabilities, budget, heartbeat
     tree.py             task tree persistence
     budgets.py          aggregate time / tokens / cost / steps per task tree; fan-out limits; cancellation
+    dag.py              plan validation (cycles, fan-out, depth, identity/scopes, own-words targets) + graph order
+    schemas.py          typed plan / worker / reader / verifier / reconciliation outputs (strict JSON schemas)
     ledger.py           action ledger: intent → executing → done | failed | unknown; reconciliation
     verify.py           supervisor-owned verification against the plan's success conditions
     stop.py             emergency stop: revoke tokens, block actions, cancel workers, kill owned processes
@@ -496,6 +498,21 @@ address  = "ferb@example.com"   # FERB's own address; setup checks the FERB prof
     and shadow decisions have their own separate budget.
 11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
 12. `ferb stop` (or the stop hotkey) halts everything immediately (section 10.5).
+
+Build step 8 specifics:
+- Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
+  start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
+- Reader output is typed fields (string / number / boolean / string list / email / URL); strings default to 500
+  characters and the plan may raise a field to at most 2,000. Actors get them wrapped as untrusted data.
+- Verification: each success condition is checked by code where its form allows (file exists / contains, the
+  subtask's ledger rows done, a tab's URL, the signed-in account) and by a read-only verifier worker only where it
+  needs judgment; the path taken and the evidence are recorded per condition.
+- Retries: a definite actor failure is retried once within budget; `unknown` is reconciled by a read-only worker
+  (happened → done, didn't → failed, unclear → the owner decides), never retried; readers aren't retried.
+- Budget defaults per tree (config `[budget]`, the plan may only lower them): 120 min, 1M tokens, $2 where cost is
+  reported, 200 tool calls, 12 worker runs. A worker with no sign of life for 180 s is stalled and cancelled; time
+  waiting on the owner (undo windows, real input pausing for the owner) doesn't count.
+- The task tree is persisted in SQLite; after a restart, subtasks that were running become `interrupted`.
 
 Runtime-native tools: each runtime is launched with its own shell, file, web, subagent and plugin tools
 disabled wherever the runtime allows, and inherited user settings and rules ignored; FERB provides equivalents
@@ -1004,6 +1021,10 @@ section 21 safety tests pass.
   matched on each pipeline segment's command word): running or reading one exposes the worker. Other commands'
   output is trusted, so a program that fetches content some other way isn't caught; reader/actor splits (step 8)
   are the further mitigation.
+- Data-flow labels (safety test 9) use substring matching: a value read from an owner account (≥ 8 characters)
+  that reappears verbatim in an action's content carries its label. A paraphrase, summary, translation or
+  reformatting of that data doesn't match and isn't caught; the reader/actor split and intent matching remain the
+  other defenses.
 - Trusted (debugger-dispatched) input works in a page's top frame only; elements inside iframes get page-mode
   (scripted) events, which some sites ignore. Extending trusted input to iframes needs frame-offset handling.
   Secret fills are unaffected: they set the value on the exact element in its own frame.

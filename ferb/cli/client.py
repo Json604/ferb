@@ -49,6 +49,10 @@ class Client:
         msg: dict[str, Any] = json.loads(line)
         return msg
 
+    def set_timeout(self, seconds: float) -> None:
+        """For calls known to take long (e.g. waking FERB's browser profile)."""
+        self._sock.settimeout(seconds)
+
     def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         rid = self._send(method, params or {})
         while True:

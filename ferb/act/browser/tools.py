@@ -212,7 +212,10 @@ class BrowserSnapshot(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         s = await self.driver.snapshot(ref)
-        return ToolResult(for_model(s), read_sources=(("web", s.url),))
+        sources: tuple[tuple[str, str], ...] = (("web", s.url),)
+        if self.family.identity is Identity.OWNER:                   # the owner's signed-in pages: owner data (10.2)
+            sources += (("owner_account", f"{_host(s.url) or ''}|"),)
+        return ToolResult(for_model(s), read_sources=sources)
 
 
 class BrowserAct(_Base):

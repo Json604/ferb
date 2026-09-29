@@ -12,6 +12,7 @@ old element ids refused (21.13); the extension refuses non-allowlisted CDP (21.6
 
 import asyncio
 import http.server
+import re
 import json
 import os
 import subprocess
@@ -58,7 +59,7 @@ def rd(target: tuple[str, str]) -> Iterator[RunningDaemon]:
     base = Path(tempfile.mkdtemp(prefix="ferbr-"))
     original = LAUNCHER.read_text()
     d = RunningDaemon(base / "home", clock=SystemClock())
-    LAUNCHER.write_text(original.replace(f'FERB_HOME="{Path.home() / ".ferb"}"', f'FERB_HOME="{d.daemon.home}"'))
+    LAUNCHER.write_text(re.sub(r'FERB_HOME="[^"]*"', f'FERB_HOME="{d.daemon.home}"', original))
     restart_hosts()                    # an extension already connected keeps its old host (and daemon) otherwise
     try:
         yield d
@@ -96,6 +97,12 @@ def test_real_extension_end_to_end(rd: RunningDaemon, target: tuple[str, str], s
     d = rd.daemon
     assert any(p.display_name == name and p.browser == browser for p in discover_all()), \
         f"{browser} profile {name!r} isn't in Local State yet (the browser writes it lazily)"
+    # the owner has a window of that profile open (a blank local page), as when they use it; FERB's tab must stay
+    # in the background of it
+    from ferb.act.browser.profiles import open_known_profile
+    p = next(p for p in discover_all() if p.display_name == name and p.browser == browser)
+    open_known_profile(browser, p.folder, f"{site}/owner-window", discover_all())
+    time.sleep(2)
     c = Client(rd.sock, timeout=90)
     r = c.call("browsers.pair", {"profile": name, "browser": browser, "timeout_s": 60})
     c.close()

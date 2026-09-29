@@ -1,10 +1,14 @@
-"""Task tree (section 3). Build step 4: the running tasks the gateway needs (request id, start, deadline, span).
-Persistence and the DAG arrive with the multi-worker orchestrator (build step 8)."""
+"""Task tree (section 3, section 7): what's running, for the gateway (request id, deadline, span, role, tree) and,
+persisted in SQLite, for `ferb trace` and restarts: a daemon that restarts marks subtasks that were running as
+`interrupted` (their consequential actions are already `unknown` in the ledger and get reconciled)."""
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from ferb.core.types import Task
+from ferb.store.db import Database
 
 
 @dataclass
@@ -12,17 +16,52 @@ class TaskRecord:
     task: Task
     started_at: datetime
     span_id: str                   # the task's root span: tool spans hang under it
+    tree_id: str | None = None     # the request's root task (None: the task is its own tree)
 
 
 class TaskTree:
     def __init__(self) -> None:
         self._tasks: dict[str, TaskRecord] = {}
+        self.db: Database | None = None
 
-    def add(self, rec: TaskRecord) -> None:
+    def attach(self, db: Database) -> None:
+        self.db = db
+
+    def add(self, rec: TaskRecord, depends_on: list[str] | None = None, status: str = "running") -> None:
         self._tasks[rec.task.id] = rec
+        if self.db is None:
+            return
+        t, now = rec.task, rec.started_at.isoformat()
+        self.db.conn.execute(
+            "INSERT OR REPLACE INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, "
+            "depends_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (t.id, rec.tree_id or t.id, t.parent_id, t.request_id, t.goal, t.identity.value, t.role,
+             json.dumps(sorted(t.scopes)), json.dumps(depends_on or []), status, now, now))
 
     def get(self, task_id: str) -> TaskRecord | None:
         return self._tasks.get(task_id)
 
+    def set_status(self, task_id: str, status: str, outcome: dict[str, Any] | None = None, at: str = "") -> None:
+        if self.db is None:
+            return
+        self.db.conn.execute("UPDATE tasks SET status = ?, outcome_json = COALESCE(?, outcome_json), updated_at = ? "
+                             "WHERE id = ?", (status, json.dumps(outcome) if outcome is not None else None,
+                                              at or datetime.now().astimezone().isoformat(), task_id))
+
     def remove(self, task_id: str) -> None:
         self._tasks.pop(task_id, None)
+
+    def rows(self, tree_id: str) -> list[dict[str, Any]]:
+        if self.db is None:
+            return []
+        return [dict(r) for r in self.db.conn.execute("SELECT * FROM tasks WHERE tree_id = ? ORDER BY created_at",
+                                                      (tree_id,)).fetchall()]
+
+    def interrupt_running(self) -> list[str]:
+        """After a restart: whatever was running or planned didn't finish."""
+        if self.db is None:
+            return []
+        ids = [r["id"] for r in self.db.conn.execute(
+            "SELECT id FROM tasks WHERE status IN ('running', 'planned')").fetchall()]
+        self.db.conn.execute("UPDATE tasks SET status = 'interrupted' WHERE status IN ('running', 'planned')")
+        return ids

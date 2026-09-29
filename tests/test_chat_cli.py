@@ -15,8 +15,14 @@ def test_a_multi_line_paste_is_one_message() -> None:
 
 def test_render() -> None:
     assert render({"type": "reply", "text": "hi"}) == "ferb> hi"
-    out = render({"type": "outcome", "status": "done", "summary": "wrote it", "artifacts": ["a.md"]})
-    assert "done — wrote it" in out and "a.md" in out and "verification" in out
+    out = render({"type": "outcome", "status": "done", "summary": "wrote it", "artifacts": ["a.md"], "verified": True})
+    assert "done (verified) — wrote it" in out and "a.md" in out
+    assert "NOT verified" in render({"type": "outcome", "status": "failed", "summary": "x", "verified": False})
+    ver = render({"type": "verification", "results": [
+        {"condition": "a.md exists", "met": True, "path": "code", "evidence": "exists"},
+        {"condition": "friendly", "met": False, "path": "verifier", "evidence": "curt"}]})
+    assert "✓ a.md exists  [code: exists]" in ver and "✗ friendly  [verifier: curt]" in ver
+    assert "▸ r started" in render({"type": "subtask", "id": "r", "status": "started"})
     assert "blocked (intent)" in render({"type": "event", "topic": "policy.blocked",
                                          "data": {"step": "intent", "reason": "x"}})
     assert "ferb undo hold-1" in render({"type": "event", "topic": "action.held",

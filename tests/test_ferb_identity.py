@@ -37,6 +37,7 @@ def fd(daemon: RunningDaemon, keychain: Path) -> Iterator[tuple[RunningDaemon, l
     launched: list[list[str]] = []
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
     d.browser_launch = launched.append
+    d.pair_load_wait_s = 0.0
     for drv in (d.router, d.ferb_identity):
         drv.launch, drv.wake = launched.append, None                               # type: ignore[union-attr]
     d.config.set("identity", "browser", "chrome")

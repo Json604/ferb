@@ -86,6 +86,10 @@ class Ledger:
         return [self._row(r) for r in self._db.conn.execute(
             "SELECT * FROM action_ledger WHERE state = 'unknown' ORDER BY created_at").fetchall()]
 
+    def for_task(self, task_id: str) -> list[LedgerRow]:
+        return [self._row(r) for r in self._db.conn.execute(
+            "SELECT * FROM action_ledger WHERE task_id = ? ORDER BY created_at", (task_id,)).fetchall()]
+
     def get(self, intent_id: str) -> LedgerRow:
         r = self._db.conn.execute("SELECT * FROM action_ledger WHERE id = ?", (intent_id,)).fetchone()
         if r is None:
