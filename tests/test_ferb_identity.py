@@ -17,7 +17,7 @@ from typing import Any, Iterator
 import pytest
 
 from ferb.cli.client import Client, RpcError
-from ferb.core.types import Budget, Identity, SecretSpec, Task
+from ferb.core.types import Identity, SecretSpec, Task
 from ferb.identity.seal import seal, seal_key
 from ferb.identity.secrets import KeychainSecretStore
 from ferb.orchestrator.tree import TaskRecord
@@ -81,7 +81,7 @@ def pair_identity(d: RunningDaemon, launched: list[list[str]], confirm: bool = F
 
 def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], verbs: set[str] | None) -> Any:
     t = Task(tid, None, "g", "dev", identity, scopes, "actor", f"req-{tid}", [],
-             d.daemon.clock.now() + timedelta(minutes=10), Budget())
+             d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})

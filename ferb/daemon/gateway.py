@@ -39,11 +39,14 @@ class FsRoots:
 
 
 class Observer:
-    """What the orchestrator watches through the gateway: tool calls (budget, liveness) and waits on the owner
+    """What the orchestrator watches through the gateway: tool calls (runaway guards, liveness) and waits on the owner
     (which pause the stall timer). No-ops until the supervisor installs its own."""
 
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         pass
+
+    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool) -> None:
+        """Every answered call (runaway guards: the same failing action, loops)."""
 
     def waiting(self, worker: str, on: bool) -> None:
         pass
@@ -75,6 +78,13 @@ class Gateway:
         return out
 
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        r = await self._call(grant, name, arguments)
+        content = r.get("content") or {}
+        waiting_on_owner = isinstance(content, dict) and "needs_owner_approval" in content   # not a failure
+        self.observer.result(grant, name, arguments, bool(r.get("is_error")) and not waiting_on_owner)
+        return r
+
+    async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         rec = self.tasks.get(grant.task_id)
         started = rec.started_at if rec else None
         deadline = rec.task.deadline if rec else None

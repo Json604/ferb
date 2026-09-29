@@ -1,7 +1,7 @@
 """Supervisor + task graph (section 7) with scripted fake runtimes in a real daemon (real gateway, policy, ledger).
 
 reply / clarify; plan validation; readers -> typed fields -> actors (untrusted-marked), readers can't act (21.8);
-concurrency and skipped dependents; tree budgets; verification by code where possible and by a verifier otherwise
+concurrency and skipped dependents; runaway guards (no budgets); verification by code where possible and by a verifier otherwise
 (path recorded); reconciliation of unknown actions, never retried (21.11); one retry of a definite failure; stall
 detection that doesn't count waits on the owner; owner data typed into an unrelated site is blocked (21.9);
 history re-sent; runtime violations unregister the runtime; restarts mark running subtasks interrupted.
@@ -38,16 +38,14 @@ def sub(sid: str, role: str = "actor", identity: str = "ferb", scopes: tuple[str
     return {"id": sid, "goal": f"do {sid}", "identity": identity, "role": role, "scopes": list(scopes),
             "depends_on": list(deps), "inputs": [{"from": f, "field": n} for f, n in inputs],
             "output_fields": [{"name": n, "type": t, "description": n, "max_chars": max_chars} for n, t in fields],
-            "success_conditions": list(conds), "deadline_minutes": 5}
+            "success_conditions": list(conds)}
 
 
 def plan(subs: list[dict[str, Any]], verbs: tuple[str, ...] = ("edit_file",), paths: tuple[str, ...] = (),
-         recipients: tuple[str, ...] = (), sites: tuple[str, ...] = (), extra: tuple[str, ...] = (),
-         budget: dict[str, Any] | None = None) -> dict[str, Any]:
+         recipients: tuple[str, ...] = (), sites: tuple[str, ...] = (), extra: tuple[str, ...] = ()) -> dict[str, Any]:
     return {"goal": "the goal", "intent": {"verbs": list(verbs), "extra_kinds": list(extra), "recipients": list(recipients),
                                            "sites": list(sites), "accounts": [], "paths": list(paths), "max_amount": None},
-            "subtasks": subs, "budget": {"max_minutes": None, "max_tokens": None, "max_cost_usd": None,
-                                         "max_tool_calls": None, "max_workers": None, **(budget or {})}}
+            "subtasks": subs}
 
 
 def sup(kind: str, text: str, p: dict[str, Any] | None = None) -> str:
@@ -166,8 +164,6 @@ def test_runtime_violation_unregisters_the_runtime(daemon: RunningDaemon) -> Non
            sub("a", inputs=(("r", "x"),))], paths=("todo.md",)), "must come from a subtask it depends on"),
     (plan([sub("r", role="reader", fields=(("x", "string"),), scopes=("fs:read",), max_chars=3000)],
           paths=("todo.md",)), "at most 2000 characters"),
-    (plan([sub("a")], paths=("todo.md",), budget={"max_workers": 99}), "budget's workers"),
-    (plan([sub("a"), sub("b")], paths=("todo.md",), budget={"max_workers": 2}), "plus verification"),
     (plan([sub("a", scopes=("shell",))], paths=("todo.md",)), "can't have shell"),
 ])
 def test_plan_validation(daemon: RunningDaemon, p: dict[str, Any], why: str) -> None:
@@ -180,7 +176,7 @@ def test_a_scope_no_capability_provides_is_refused() -> None:
     from ferb.orchestrator import dag
     from ferb.orchestrator.schemas import Plan
     p = Plan.model_validate(plan([sub("a", identity="owner", scopes=("screen",))], paths=("todo.md",)))
-    assert any("can't do screen yet" in x for x in dag.validate(p, "create todo.md", {"fs:read"}, dag.Limits()))
+    assert any("can't do screen yet" in x for x in dag.validate(p, "create todo.md", {"fs:read"}))
 
 
 def test_targets_only_in_pasted_content_are_refused_before_any_worker(daemon: RunningDaemon) -> None:
@@ -335,15 +331,59 @@ def test_independent_subtasks_run_together_and_failed_dependencies_skip(daemon: 
     assert [k for _, k, *_ in script.contexts].count("c") == 2                     # retried once, not more
 
 
-def test_tree_budget_stops_the_tree(daemon: RunningDaemon) -> None:
+def test_the_same_failing_action_three_times_stops_the_worker_without_a_retry(daemon: RunningDaemon) -> None:
+    calls: list[str] = []
+
+    def stuck(token: str) -> str:
+        for _ in range(6):
+            r = tool(daemon.sock, token, "fs.read", path="missing.md")
+            calls.append(str(r.get("is_error")))
+        return done()
+    install(daemon, [sup("plan", "x", plan([sub("a")], paths=("missing.md",)))], {"a": [stuck, stuck]})
+    out = outcome(chat(daemon, "read missing.md"))
+    assert out["status"] == "failed" and "kept repeating the same failing action (fs.read)" in out["summary"], out
+    assert "guard against stuck tasks" in out["summary"]
+    assert "retrying" not in json.dumps(out) and len(calls) <= 6                     # stopped, never retried
+
+
+def test_a_loop_between_steps_stops_but_polling_one_read_doesnt(daemon: RunningDaemon) -> None:
+    def looping(token: str) -> str:
+        for _ in range(8):
+            tool(daemon.sock, token, "fs.write", path="a.md", content="x", overwrite=True)
+            tool(daemon.sock, token, "fs.read", path="a.md")
+        return done()
+
+    def polling(token: str) -> str:
+        tool(daemon.sock, token, "fs.write", path="a.md", content="x", overwrite=True)
+        for _ in range(12):
+            tool(daemon.sock, token, "fs.read", path="a.md")
+        return done()
+    install(daemon, [sup("plan", "x", plan([sub("a")], paths=("a.md",)))], {"a": [looping, looping]})
+    out = outcome(chat(daemon, "write a.md"))
+    assert out["status"] == "failed" and "going round in a loop" in out["summary"], out
+    install(daemon, [sup("plan", "x", plan([sub("a")], paths=("a.md",)))], {"a": polling})
+    assert outcome(chat(daemon, "write a.md"))["status"] == "done"
+
+
+def test_a_generous_tree_cap_stops_a_runaway_tree(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.orchestrator import guards
+    monkeypatch.setattr(guards, "MAX_TOOL_CALLS", 3)                               # stands in for 1,000
+
     def busy(token: str) -> str:
-        for i in range(4):
+        for i in range(6):
             tool(daemon.sock, token, "fs.write", path=f"f{i}.md", content="x", overwrite=True)
         return done()
-    p = plan([sub("a")], paths=("f0.md", "f1.md", "f2.md", "f3.md"), budget={"max_tool_calls": 2})
+    p = plan([sub("a")], paths=tuple(f"f{i}.md" for i in range(6)))
     install(daemon, [sup("plan", "x", p)], {"a": [busy, busy]})
-    out = outcome(chat(daemon, "write f0.md f1.md f2.md f3.md"))
-    assert out["status"] == "failed" and "tool-call budget" in out["summary"]
+    out = outcome(chat(daemon, "write f0.md f1.md f2.md f3.md f4.md f5.md"))
+    assert out["status"] == "failed" and "Stopped: it made over 3 tool calls" in out["summary"], out
+
+
+def test_no_budget_anywhere_the_model_or_owner_sees() -> None:
+    from ferb.orchestrator import schemas
+    from ferb.orchestrator.supervisor import PROMPTS
+    text = json.dumps(schemas.SUPERVISOR_SCHEMA) + "".join(p.read_text() for p in PROMPTS.glob("*.md"))
+    assert "budget" not in text.lower() and "cost" not in text.lower() and "deadline_minutes" not in text
 
 
 def test_judgment_conditions_go_to_a_read_only_verifier(daemon: RunningDaemon) -> None:

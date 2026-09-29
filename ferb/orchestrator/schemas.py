@@ -57,14 +57,10 @@ SUBTASK_SCHEMA = _obj({
         "name": {"type": "string"}, "type": {"type": "string", "enum": FIELD_TYPES}, "description": {"type": "string"},
         "max_chars": _nullable("integer")})},
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA},
-    "deadline_minutes": {"type": "integer"},
 })
-BUDGET_SCHEMA = _obj({"max_minutes": _nullable("integer"), "max_tokens": _nullable("integer"),
-                      "max_cost_usd": _nullable("number"), "max_tool_calls": _nullable("integer"),
-                      "max_workers": _nullable("integer")})
 PLAN_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"}, "intent": INTENT_SCHEMA,
-    "subtasks": {"type": "array", "items": SUBTASK_SCHEMA}, "budget": BUDGET_SCHEMA,
+    "subtasks": {"type": "array", "items": SUBTASK_SCHEMA},
 })
 
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
@@ -138,22 +134,12 @@ class Subtask(BaseModel):
     inputs: list[InputRef]
     output_fields: list[OutputField]
     success_conditions: list[Condition]
-    deadline_minutes: int
-
-
-class PlanBudget(BaseModel):
-    max_minutes: int | None
-    max_tokens: int | None
-    max_cost_usd: float | None
-    max_tool_calls: int | None
-    max_workers: int | None
 
 
 class Plan(BaseModel):
     goal: str
     intent: Intent
     subtasks: list[Subtask]
-    budget: PlanBudget
 
 
 class SupervisorOutcome(BaseModel):

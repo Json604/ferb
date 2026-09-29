@@ -20,7 +20,7 @@ from ferb.act.mac.apps import RunningApp
 from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.input import RealInput, Step, Yielded
 from ferb.core.errors import Refused, StaleRef
-from ferb.core.types import Budget, ComputerAction, Identity, Task
+from ferb.core.types import ComputerAction, Identity, Task
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.intent import RequestIntent
 from tests.conftest import RunningDaemon
@@ -99,7 +99,7 @@ def test_gui_lock_allows_one_actor_at_a_time() -> None:
 def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], verbs: set[str] | None,
          extra: set[str] | None = None) -> Any:
     t = Task(tid, None, "g", "dev", identity, scopes, "actor", f"req-{tid}", [],
-             d.daemon.clock.now() + timedelta(minutes=10), Budget())
+             d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})

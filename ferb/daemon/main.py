@@ -18,7 +18,6 @@ from ferb.bus import DROPPED, Bus, Overflow
 from ferb.clock.clock import SystemClock
 from ferb.config import Config
 from ferb.daemon.gateway import FsRoots, Gateway
-from ferb.orchestrator.dag import Limits
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.verify import Checks
 from ferb.orchestrator.tree import TaskTree
@@ -246,7 +245,7 @@ class Daemon:
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
                                      workspace=str(workspace), on_violation=self._runtime_violation,
-                                     on_task_end=self._task_end, facts=self._facts, limits=self._limits,
+                                     on_task_end=self._task_end, facts=self._facts,
                                      checks=Checks(self.ledger, self._urls_of, self._account_of), roots=roots)
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
@@ -620,12 +619,6 @@ class Daemon:
             raise FerbError(r.message(str(params.get("profile", "")), known))
         p = r.candidates[0]
         return {"unpaired": self.pairings.unpair(p.browser, p.folder)}
-
-    def _limits(self) -> Limits:
-        b, d = self.config.load().get("budget") or {}, Limits()
-        return Limits(int(b.get("max_minutes", d.max_minutes)), int(b.get("max_tokens", d.max_tokens)),
-                      float(b.get("max_cost_usd", d.max_cost_usd)), int(b.get("max_tool_calls", d.max_tool_calls)),
-                      int(b.get("max_workers", d.max_workers)))
 
     def _urls_of(self, task_id: str) -> list[str]:
         return [u for drv in (self.router, self.ferb_identity) if drv is not None for u in drv.urls_of(task_id)]

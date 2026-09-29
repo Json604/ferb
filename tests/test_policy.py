@@ -6,7 +6,7 @@ import dataclasses
 import pytest
 
 from ferb.clock.clock import FakeClock
-from ferb.core.types import Budget, Identity, Task
+from ferb.core.types import Identity, Task
 from ferb.policy import dataflow, intent as intent_mod
 from ferb.policy.approvals import Approvals
 from ferb.policy.autonomy import Level
@@ -61,13 +61,14 @@ def test_worker_scopes_must_be_granted_to_its_task() -> None:
 
 
 def test_child_never_gets_more_authority_than_parent() -> None:
-    parent = Task("p", None, "g", "mac", Identity.OWNER, {"fs:read", "browser:read"}, "mixed", "r", [], None,
-                  Budget(max_cost_usd=1.0))
-    ok = dataclasses.replace(parent, id="c", scopes={"fs:read"}, budget=Budget(max_cost_usd=0.5))
+    from datetime import datetime, timedelta, timezone
+    end = datetime(2026, 9, 29, 12, tzinfo=timezone.utc)
+    parent = Task("p", None, "g", "mac", Identity.OWNER, {"fs:read", "browser:read"}, "mixed", "r", [], end)
+    ok = dataclasses.replace(parent, id="c", scopes={"fs:read"}, deadline=end - timedelta(minutes=5))
     assert check_child_authority(parent, ok) is None
     assert check_child_authority(parent, dataclasses.replace(ok, scopes={"fs:read", "shell"}))
-    assert check_child_authority(parent, dataclasses.replace(ok, budget=Budget(max_cost_usd=2.0)))
-    assert check_child_authority(parent, dataclasses.replace(ok, budget=Budget()))     # unlimited > limited
+    assert check_child_authority(parent, dataclasses.replace(ok, deadline=end + timedelta(minutes=1)))
+    assert check_child_authority(parent, dataclasses.replace(ok, deadline=None))     # no limit > limited
 
 
 def test_destructive_shell_patterns() -> None:

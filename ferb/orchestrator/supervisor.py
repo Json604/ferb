@@ -3,12 +3,12 @@
 - The owner's pasted/quoted content is marked untrusted before the supervisor sees it (section 10.2).
 - The supervisor has no FERB tools; the typed intent comes from its plan at plan time and is recorded write-once.
   Code checks the plan (dag.py): every intent target in the owner's own words, identity/scope rules, no cycles,
-  fan-out <= 6, depth <= 2, budget within limits.
+  fan-out <= 6, depth <= 2.
 - Continuity: the chat history is re-sent each turn (the Codex supervisor is ephemeral).
 - The graph (section 7 steps 4-10): independent subtasks run concurrently; a failure is a typed Outcome and its
   dependents are skipped. Readers return typed fields; actors receive only those fields, marked as untrusted data,
   never raw pages or messages. `unknown` actions are reconciled (re-read), never retried; a definite actor failure
-  is retried once within budget. The whole tree shares one budget; a stalled worker (no sign of life for 180 s,
+  is retried once (not after a runaway guard stopped it). Runaway guards watch the whole tree; a stalled worker (no sign of life for 180 s,
   not counting waits on the owner) is cancelled. After the actors, every success condition is verified with fresh
   reads — by code where the condition allows, by a read-only verifier worker where it needs judgment.
 """
@@ -26,12 +26,12 @@ from pydantic import ValidationError
 from ferb.act.fs.files import normalize_path
 from ferb.clock import context
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
-from ferb.core.types import Budget, Identity, Outcome, RunHandle, Task, ToolContext
+from ferb.core.types import Identity, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal
 from ferb.orchestrator import dag
-from ferb.orchestrator.budgets import STALL_S, Activity, TreeBudget
+from ferb.orchestrator.guards import GUARD_NOTE, MAX_MINUTES, STALL_S, Activity, TreeGuard
 from ferb.orchestrator.schemas import (RECONCILE_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA, WORKER_SCHEMA,
                                        Condition, OutputField, Plan, ReconcileOutcome, Subtask, SupervisorOutcome,
                                        VerifierOutcome, WorkerOutcome, reader_schema)
@@ -62,7 +62,7 @@ class ChatSession:
 class _Tree:
     id: str
     plan: Plan
-    budget: TreeBudget
+    guard: TreeGuard
     tasks: dict[str, Task] = field(default_factory=dict)             # subtask id -> Task
     outcomes: dict[str, Outcome] = field(default_factory=dict)
     fields: dict[str, dict[str, Any]] = field(default_factory=dict)  # reader subtask id -> typed fields
@@ -71,17 +71,22 @@ class _Tree:
 
 
 class _Watch(Observer):
-    """The gateway's view for the supervisor: tool calls count against their tree's budget and are signs of life;
-    waits on the owner pause the stall timer."""
+    """The gateway's view for the supervisor: tool calls are signs of life and feed the runaway guards; waits on the
+    owner pause the stall timer."""
 
     def __init__(self, sup: "Supervisor") -> None:
         self.sup = sup
 
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         self.sup.activity.beat(grant.worker_id)
+
+    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool) -> None:
         tree = self.sup._tree_of.get(grant.task_id)
-        if tree is not None and not done:
-            tree.budget.used_calls += 1
+        if tree is None:
+            return
+        reason = tree.guard.call(grant.worker_id, tool, args, failed)
+        if reason is not None:
+            self.sup.stop_worker(grant.worker_id, reason)
 
     def waiting(self, worker: str, on: bool) -> None:
         self.sup.activity.waiting(worker, on)
@@ -92,17 +97,19 @@ class Supervisor(WorkerRuns):
                  tasks: TaskTree, spans: SpanStore, journal: Journal, publish: Publish, clock: Clock, ids: IdSource,
                  device_id: str, workspace: str, on_violation: Callable[[str, str], None],
                  on_task_end: Callable[[str], Awaitable[None]] | None = None,
-                 facts: Callable[[], str] = lambda: "", limits: Callable[[], dag.Limits] = dag.Limits,
+                 facts: Callable[[], str] = lambda: "",
                  checks: Checks | None = None, roots: FsRoots | None = None) -> None:
         self.make_runtime, self.gateway, self.engine, self.tokens = make_runtime, gateway, engine, tokens
         self.tasks, self.spans, self.journal, self.publish = tasks, spans, journal, publish
         self.clock, self.ids, self.device_id, self.workspace = clock, ids, device_id, workspace
-        self.on_violation, self.on_task_end, self.facts, self.limits = on_violation, on_task_end, facts, limits
+        self.on_violation, self.on_task_end, self.facts = on_violation, on_task_end, facts
         self.checks, self.roots = checks, roots or FsRoots(workspace, (), ())
         self.sessions: dict[str, ChatSession] = {}
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
+        self._guarded: dict[str, str] = {}                              # worker id -> why a runaway guard stopped it
+        self._worker_runs: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self.activity = Activity(clock.monotonic)
         # (owner last active, last trail event) for the time header; the daemon supplies them (build step 10)
         self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
@@ -112,6 +119,13 @@ class Supervisor(WorkerRuns):
     def _system(self, name: str) -> str:
         facts = self.facts()
         return (PROMPTS / name).read_text() + (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
+
+    def stop_worker(self, worker_id: str, reason: str) -> None:
+        """A runaway guard tripped for this worker: cancel its run; its outcome says why."""
+        self._guarded.setdefault(worker_id, reason)
+        hit = self._worker_runs.get(worker_id)
+        if hit is not None:
+            asyncio.get_event_loop().create_task(hit[0].cancel(hit[1]))
 
     def cancel_all(self) -> None:
         """Stop hook (section 10.5): cancel every running supervisor/worker run."""
@@ -143,7 +157,7 @@ class Supervisor(WorkerRuns):
             yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": out.text}
             return
         available = set().union(*(c.scopes for c in self.gateway.caps.values()))
-        problems = dag.validate(out.plan, m.own_words, available, self.limits())
+        problems = dag.validate(out.plan, m.own_words, available)
         if problems:
             question = "Before I do that: " + "; ".join(problems)
             session.history.append(("ferb", question))
@@ -165,7 +179,7 @@ class Supervisor(WorkerRuns):
         ctx = (f"{context.header(self.clock.now(), None, None, *self.signals())}\n\nConversation so far:\n{history or '(none)'}\n\n"
                f"Owner's new message:\n{message}")
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
-                         [], None, Budget())
+                         [], None)
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id})
         final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "")
         self.spans.finish(span, output={"text": final[:2000]})
@@ -182,18 +196,17 @@ class Supervisor(WorkerRuns):
 
     async def run_tree(self, plan: Plan, text: str, request_id: str) -> AsyncIterator[dict[str, Any]]:
         tree_id = self.ids.new_id()
-        tree = _Tree(tree_id, plan, TreeBudget.from_plan(plan.budget, self.limits(), self.clock.monotonic()))
+        tree = _Tree(tree_id, plan, TreeGuard(self.clock.monotonic()))
         now = self.clock.now()
-        root = Task(tree_id, None, plan.goal, self.device_id, Identity.OWNER, set(), "mixed", request_id, [],
-                    now + timedelta(minutes=tree.budget.minutes), Budget(max_seconds=tree.budget.minutes * 60))
+        limit = now + timedelta(minutes=MAX_MINUTES)                          # the runaway time limit, shared
+        root = Task(tree_id, None, plan.goal, self.device_id, Identity.OWNER, set(), "mixed", request_id, [], limit)
         root_span = self.spans.start("task", task_id=tree_id, device_id=self.device_id,
                                      input={"goal": plan.goal, "subtasks": [s.id for s in plan.subtasks]})
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self._tree_of[tree_id] = tree
         for s in plan.subtasks:
             t = Task(f"{tree_id}.{s.id}", tree_id, s.goal, self.device_id, Identity(s.identity), set(s.scopes), s.role,
-                     request_id, [c.text for c in s.success_conditions],
-                     now + timedelta(minutes=s.deadline_minutes), Budget(max_seconds=s.deadline_minutes * 60.0))
+                     request_id, [c.text for c in s.success_conditions], limit)
             tree.tasks[s.id] = t
             self._tree_of[t.id] = tree
             self.tasks.add(TaskRecord(t, now, root_span.id, tree_id), s.depends_on, status="planned")
@@ -258,7 +271,7 @@ class Supervisor(WorkerRuns):
                     out = running.pop(sid).result()
                     s = subtasks[sid]
                     if (out.status == "failed" and s.role == "actor" and sid not in retried and not tree.stop
-                            and tree.budget.can_start_worker() and not out.summary.startswith("stalled")
+                            and tree.guard.can_start_worker() and not out.summary.startswith(("stalled", "Stopped"))
                             and not self.checks_unknown(tree.tasks[sid].id)):
                         retried.add(sid)                                  # a definite failure: one more try
                         await queue.put({"type": "subtask", "id": sid, "task_id": tree.tasks[sid].id,
@@ -269,9 +282,9 @@ class Supervisor(WorkerRuns):
                     finished.add(sid)
                     self.tasks.set_status(tree.tasks[sid].id, out.status, {"summary": out.summary})
                     await queue.put(self._subtask_event(tree, s, out))
-                over = tree.budget.over(self.clock.monotonic())
+                over = tree.guard.over(self.clock.monotonic())
                 if over and not tree.stop:
-                    tree.stop = over
+                    tree.stop = f"Stopped: {over} ({GUARD_NOTE})"
                     self.cancel_tree(tree)
         finally:
             await queue.put({"type": "_done"})
@@ -384,7 +397,7 @@ class Supervisor(WorkerRuns):
                    f"{json.dumps(row.intent.target)} (the connection was lost before FERB got an answer). Re-read the "
                    f"target and say whether it happened: yes, no, or unclear — with the evidence you saw.")
             rtask = Task(f"{task.id}.reconcile", task.id, "reconcile", self.device_id, task.identity,
-                         set(task.scopes) & dag.READ_SCOPES, "reader", task.request_id, [], task.deadline, Budget())
+                         set(task.scopes) & dag.READ_SCOPES, "reader", task.request_id, [], task.deadline)
             raw, _ = await self.run_worker(tree, rtask, "reader.md", ctx, RECONCILE_SCHEMA, span)
             if isinstance(raw, Outcome):
                 settled.append("unclear")
@@ -440,7 +453,7 @@ class Supervisor(WorkerRuns):
                f"FERB's workspace: {self.workspace}")
         vtask = Task(f"{task.id}.verify", task.id, "verify", self.device_id, task.identity,
                      (set(task.scopes) & dag.READ_SCOPES) | ({"fs:read"} if "fs:write" in task.scopes else set()),
-                     "reader", task.request_id, [], task.deadline, Budget())
+                     "reader", task.request_id, [], task.deadline)
         raw, _ = await self.run_worker(tree, vtask, "reader.md", ctx, VERIFIER_SCHEMA, span)
         if isinstance(raw, Outcome):
             return [ConditionResult(i, c.text, None, "verifier", f"verifier failed: {raw.summary}") for i, c in judged]

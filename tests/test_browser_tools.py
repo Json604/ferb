@@ -15,7 +15,7 @@ import pytest
 from ferb.act.browser.tools import act_kind, check_url
 from ferb.cli.client import Client
 from ferb.core.errors import Refused
-from ferb.core.types import Budget, Identity, PageElement, SecretSpec, Task
+from ferb.core.types import Identity, PageElement, SecretSpec, Task
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.intent import RequestIntent, site_matches
 from ferb.policy.rules import Kind
@@ -37,7 +37,7 @@ def bd(daemon: RunningDaemon, keychain: Any) -> Iterator[tuple[RunningDaemon, Fa
 
 def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], intent: RequestIntent | None) -> Any:
     t = Task(tid, None, "g", "dev", identity, scopes, "actor", f"req-{tid}", [],
-             d.daemon.clock.now() + timedelta(minutes=10), Budget())
+             d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})

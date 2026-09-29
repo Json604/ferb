@@ -18,7 +18,7 @@ from tests.conftest import RunningDaemon
 
 GOLDEN_TRACE = """\
 task t1
-└─ task [id-000002] 5.000s $0.0120 {"goal":"demo"}
+└─ task [id-000002] 5.000s {"goal":"demo"}
    ├─ tool.call [id-000003] 1.500s {"tool":"fs.read"}
    └─ tool.call [id-000004] 0.000s ERROR denied {"tool":"shell"}"""   # id-000001: daemon.started entry
 

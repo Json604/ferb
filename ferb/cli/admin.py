@@ -19,11 +19,10 @@ def render_trace(result: dict[str, Any]) -> list[str]:
         else:
             dur = "running"
         status = f" ERROR {node['error']}" if node["error"] else ""
-        cost = f" ${node['cost_usd']:.4f}" if node["cost_usd"] is not None else ""
         args = json.dumps(node["input"], separators=(",", ":"), ensure_ascii=False)
         if len(args) > 60:
             args = args[:57] + "..."
-        lines.append(f"{prefix}{'└─' if last else '├─'} {node['kind']} [{node['id']}] {dur}{cost}{status} {args}")
+        lines.append(f"{prefix}{'└─' if last else '├─'} {node['kind']} [{node['id']}] {dur}{status} {args}")
         kids = node["children"]
         for i, child in enumerate(kids):
             walk(child, prefix + ("   " if last else "│  "), i == len(kids) - 1)

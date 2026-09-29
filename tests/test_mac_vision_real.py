@@ -31,7 +31,7 @@ from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.input import RealInput
 from ferb.clock.clock import SystemClock
 from ferb.core.errors import StaleRef
-from ferb.core.types import Budget, Identity, Task
+from ferb.core.types import Identity, Task
 from ferb.orchestrator.schemas import WORKER_SCHEMA, WorkerOutcome
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.intent import RequestIntent
@@ -174,7 +174,7 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
     mac.screenshot = recording                                             # type: ignore[method-assign]
     started = time.time()
     task = Task("t-v", None, "look", "dev", Identity.OWNER, {"screen"}, "reader", "r-v", [],
-                SystemClock().now() + timedelta(minutes=10), Budget(max_seconds=600))
+                SystemClock().now() + timedelta(minutes=10))
 
     async def setup() -> str:
         root = d.daemon.spans.start("task", task_id=task.id, input={})

@@ -21,7 +21,7 @@ import pytest
 
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
-from ferb.core.types import Budget, Identity, Task
+from ferb.core.types import Identity, Task
 from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, WORKER_SCHEMA, SupervisorOutcome, WorkerOutcome
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.intent import RequestIntent
@@ -54,7 +54,7 @@ async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[
                      token: str = "", task: Task | None = None) -> dict:
     rt = d.daemon._make_runtime("worker" if mode == "worker" else "orchestrator", mode=mode,
                                 tool_names=tool_names, schema=schema)
-    task = task or Task("t-sup", None, "chat", "dev", Identity.OWNER, set(), "mixed", "r-sup", [], None, Budget())
+    task = task or Task("t-sup", None, "chat", "dev", Identity.OWNER, set(), "mixed", "r-sup", [], None)
     run = await rt.start(task, "", prompt, token)
     out: dict = {"events": []}
     try:
@@ -101,7 +101,7 @@ def test_worker_tools_equal_allowlist_and_every_native_path_fails(rt_daemon) -> 
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     task = Task("t-w", None, "probe", "dev", Identity.OWNER, {"fs:read", "fs:write"}, "actor", "r-w", [],
-                SystemClock().now() + timedelta(minutes=10), Budget(max_seconds=600))
+                SystemClock().now() + timedelta(minutes=10))
 
     async def setup_task() -> str:
         root = d.daemon.spans.start("task", task_id=task.id, input={})

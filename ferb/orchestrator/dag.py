@@ -3,12 +3,11 @@
 Checks: ids unique; dependencies and inputs name earlier subtasks; no cycles; fan-out <= 6 (subtasks under the
 request); depth <= 2 (request -> subtask -> the verification / reconciliation workers under it; workers can't start
 workers); identity + scope rules per subtask; readers ask only for read scopes and declare typed output fields;
-actors' inputs exist on the reader they come from; every intent target appears in the owner's own words; the tree
-budget stays within the configured maximums.
+actors' inputs exist on the reader they come from; every intent target appears in the owner's own words. No budgets:
+runaway guards (guards.py) catch stuck trees instead.
 """
 
 import re
-from dataclasses import dataclass
 
 from ferb.orchestrator.schemas import KINDS, MAX_FIELD_CHARS, Plan, Subtask
 from ferb.policy.intent import IMPLIES
@@ -16,37 +15,12 @@ from ferb.policy.rules import SCOPES_BY_IDENTITY
 from ferb.core.types import Identity
 from ferb.sanitize.untrusted import targets_in_own_words
 
-MAX_FANOUT, MAX_DEPTH, MAX_DEADLINE_MIN = 6, 2, 120
+MAX_FANOUT, MAX_DEPTH = 6, 2
 READ_SCOPES = frozenset({"fs:read", "browser:read", "mac:read", "screen", "identity:browse", "mailbox:read"})
 ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
-@dataclass(frozen=True)
-class Limits:
-    """Tree budget maximums (config [budget]); a plan may lower them, never raise them."""
-    max_minutes: int = 120
-    max_tokens: int = 1_000_000
-    max_cost_usd: float = 2.0
-    max_tool_calls: int = 200
-    max_workers: int = 12
-
-
-DEFAULT_DEADLINE_MIN = 10
-
-
-def normalize(plan: Plan, limits: Limits) -> None:
-    """A model's formatting slip isn't the owner's question: an out-of-range subtask deadline becomes the default
-    (none given) or the cap (too long)."""
-    cap = min(MAX_DEADLINE_MIN, limits.max_minutes)
-    for s in plan.subtasks:
-        if s.deadline_minutes < 1:
-            s.deadline_minutes = min(DEFAULT_DEADLINE_MIN, cap)
-        elif s.deadline_minutes > cap:
-            s.deadline_minutes = cap
-
-
-def validate(plan: Plan, own_words: str, available_scopes: set[str], limits: Limits) -> list[str]:
-    normalize(plan, limits)
+def validate(plan: Plan, own_words: str, available_scopes: set[str]) -> list[str]:
     p: list[str] = []
     i = plan.intent
     if set(i.verbs) - set(IMPLIES):
@@ -65,23 +39,13 @@ def validate(plan: Plan, own_words: str, available_scopes: set[str], limits: Lim
         p.append("subtask ids must be unique short names")
     by_id = {s.id: s for s in plan.subtasks}
     for s in plan.subtasks:
-        p += _subtask(s, by_id, available_scopes, limits)
+        p += _subtask(s, by_id, available_scopes)
     if not p and _cycle(plan.subtasks):
         p.append("the subtasks depend on each other in a circle")
-    b = plan.budget
-    for name, value, cap in (("minutes", b.max_minutes, limits.max_minutes), ("tokens", b.max_tokens, limits.max_tokens),
-                             ("cost", b.max_cost_usd, limits.max_cost_usd),
-                             ("tool calls", b.max_tool_calls, limits.max_tool_calls),
-                             ("workers", b.max_workers, limits.max_workers)):
-        if value is not None and (value <= 0 or value > cap):
-            p.append(f"the budget's {name} must be between 1 and {cap}")
-    if b.max_workers is not None and b.max_workers < len(plan.subtasks) + 1:
-        p.append(f"the budget's workers ({b.max_workers}) can't cover {len(plan.subtasks)} subtasks plus "
-                 "verification")
     return p
 
 
-def _subtask(s: Subtask, by_id: dict[str, Subtask], available: set[str], limits: Limits) -> list[str]:
+def _subtask(s: Subtask, by_id: dict[str, Subtask], available: set[str]) -> list[str]:
     p = []
     identity = Identity(s.identity)
     extra = set(s.scopes) - SCOPES_BY_IDENTITY[identity]
@@ -111,8 +75,6 @@ def _subtask(s: Subtask, by_id: dict[str, Subtask], available: set[str], limits:
             p.append(f"subtask {s.id}: input {ref.from_}.{ref.field} must come from a subtask it depends on")
         elif src.role != "reader" or ref.field not in {f.name for f in src.output_fields}:
             p.append(f"subtask {s.id}: {ref.from_} doesn't return a field {ref.field}")
-    if not 1 <= s.deadline_minutes <= min(MAX_DEADLINE_MIN, limits.max_minutes):
-        p.append(f"subtask {s.id}: the deadline must be 1-{min(MAX_DEADLINE_MIN, limits.max_minutes)} minutes")
     return p
 
 

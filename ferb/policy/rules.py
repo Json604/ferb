@@ -93,14 +93,13 @@ def check_scopes(a: ActionRequest) -> str | None:
 
 
 def check_child_authority(parent: Task, child: Task) -> str | None:
-    """A child never gets more authority than its parent (scopes and budget). Identity is plan validation's job."""
+    """A child never gets more authority than its parent (scopes, and no later deadline). Identity is plan
+    validation's job."""
     extra = child.scopes - parent.scopes
     if extra:
         return f"child asks for scopes its parent lacks: {', '.join(sorted(extra))}"
-    for axis in ("max_seconds", "max_tokens", "max_cost_usd", "max_steps"):
-        pv, cv = getattr(parent.budget, axis), getattr(child.budget, axis)
-        if pv is not None and (cv is None or cv > pv):
-            return f"child budget {axis} exceeds parent's"
+    if parent.deadline is not None and (child.deadline is None or child.deadline > parent.deadline):
+        return "child runs past its parent's time limit"
     return None
 
 

@@ -10,7 +10,7 @@ import anyio
 import pytest
 from pydantic import BaseModel
 
-from ferb.core.types import ActionSpec, Budget, Identity, RiskLevel, Target, Task, ToolContext, ToolResult
+from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, Task, ToolContext, ToolResult
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.intent import RequestIntent
 from tests.conftest import RunningDaemon
@@ -43,7 +43,7 @@ def setup(d: RunningDaemon, scopes: set[str], intent: RequestIntent | None, caps
     for c in caps:
         d.daemon.registry.capabilities[c.name] = c
     task = Task("task-1", None, "g", "dev", Identity.OWNER, scopes, "actor", "req-1", [],
-                d.daemon.clock.now() + timedelta(minutes=10), Budget())
+                d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go():
         root = d.daemon.spans.start("task", task_id=task.id, input={})

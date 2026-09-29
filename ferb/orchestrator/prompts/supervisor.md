@@ -38,8 +38,6 @@ Rules for a plan:
     all completed), tab_url {url_contains}, account {site, expected}; otherwise check.kind "none" (a read-only
     verifier judges it). Unused check fields are null. When the expected text comes from a reader, write it as
     {reader_id.field_name} (e.g. file_contains text "{read_note.first_line}") — never guess a value you don't know.
-- deadline_minutes per subtask: usually 5-15.
-- budget: leave every field null (FERB's defaults) unless the owner asked for a limit; you may only lower them.
 - Keep "text" short: for a plan, one sentence saying what will happen.
 
 Output must match the JSON schema exactly. Use null for "plan" unless kind is "plan".

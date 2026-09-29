@@ -1,5 +1,5 @@
 """One worker run (section 7 step 5): a run token scoped to the task, `ferb mcp` as its only tool source, a typed
-result; heartbeat + budget watched while it runs (a stalled worker — no sign of life for STALL_S, not counting
+result; heartbeat + runaway guards watched while it runs (a stalled worker — no sign of life for STALL_S, not counting
 waits on the owner — is cancelled); usage counted against its tree. Mixed into the Supervisor."""
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from ferb.clock import context
 from ferb.core.interfaces import AgentRuntime
 from ferb.core.types import Outcome, RunHandle, Task
+from ferb.orchestrator.guards import GUARD_NOTE, MAX_WORKER_RUNS
 from ferb.orchestrator.tree import TaskRecord
 
 if TYPE_CHECKING:
@@ -47,6 +48,8 @@ class WorkerRuns:
     _active: dict[str, tuple[AgentRuntime, RunHandle]]
     _tree_of: dict[str, Any]
     _stalled: set[str]
+    _guarded: dict[str, str]
+    _worker_runs: dict[str, tuple[AgentRuntime, RunHandle]]
 
     _system: Callable[[str], str]
     cancel_tree: Callable[["_Tree"], None]
@@ -56,9 +59,10 @@ class WorkerRuns:
                          span: str) -> tuple[dict[str, Any] | Outcome, str]:
         """Run one worker; returns its parsed JSON (or a failed Outcome) and its worker id."""
         worker_id = "w-" + self.ids.new_id()
-        if not tree.budget.can_start_worker():
-            return Outcome(task.id, "failed", "worker budget used up", [], []), worker_id
-        tree.budget.used_workers += 1
+        if not tree.guard.can_start_worker():
+            return Outcome(task.id, "failed", f"Stopped: it started over {MAX_WORKER_RUNS} worker runs ({GUARD_NOTE})",
+                           [], []), worker_id
+        tree.guard.worker_runs += 1
         self._tree_of[task.id] = tree
         started = self.clock.now()
         wspan = self.spans.start("worker", task_id=task.id, parent_id=span, device_id=self.device_id,
@@ -83,7 +87,9 @@ class WorkerRuns:
         except RuntimeViolation as e:
             result = Outcome(task.id, "failed", f"worker runtime stopped: {e}", [], [])
         except (ValidationError, ValueError, Stalled) as e:
-            if worker_id in self._stalled:
+            if worker_id in self._guarded:
+                result = Outcome(task.id, "failed", f"Stopped: {self._guarded[worker_id]} ({GUARD_NOTE})", [], [])
+            elif worker_id in self._stalled:
                 result = Outcome(task.id, "failed", "stalled: no sign of life for 180 s (not counting waits on the "
                                                     "owner)", [], [])
             else:
@@ -91,6 +97,7 @@ class WorkerRuns:
                                  tree.stop or f"worker's report wasn't usable ({type(e).__name__})", [], [])
         finally:
             self._stalled.discard(worker_id)
+            self._guarded.pop(worker_id, None)
             self.activity.end(worker_id)
             self.tokens.revoke_worker(worker_id)
         self.spans.finish(wspan, output={"result": (result.summary if isinstance(result, Outcome)
@@ -103,6 +110,8 @@ class WorkerRuns:
                    tree: "_Tree" | None, worker_id: str) -> str:
         run = await rt.start(task, system, ctx, token)
         self._active[run.id] = (rt, run)
+        if worker_id:
+            self._worker_runs[worker_id] = (rt, run)
         final = ""
         watchdog = asyncio.create_task(self._watch(rt, run, worker_id, tree)) if worker_id else None
         try:
@@ -112,10 +121,7 @@ class WorkerRuns:
                 if ev.kind == "usage":
                     s = self.spans.start("model.usage", task_id=task.id if task.id != task.request_id else None,
                                          parent_id=parent_span, input={"runtime": rt.name})
-                    self.spans.finish(s, output=dict(ev.data), cost_usd=ev.data.get("cost_usd"))
-                    if tree is not None:
-                        tree.budget.usage(int(ev.data.get("input_tokens") or 0) + int(ev.data.get("output_tokens") or 0),
-                                          float(ev.data.get("cost_usd") or 0.0))
+                    self.spans.finish(s, output=dict(ev.data))            # traced, never limited
                 elif ev.kind == "violation":
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
@@ -127,22 +133,23 @@ class WorkerRuns:
             if watchdog is not None:
                 watchdog.cancel()
             self._active.pop(run.id, None)
+            self._worker_runs.pop(worker_id, None)
             await rt.cancel(run)
-        if worker_id in self._stalled:
+        if worker_id in self._stalled or worker_id in self._guarded:
             raise Stalled()
         if not final:
             raise ValueError("runtime finished without an answer")
         return final
 
     async def _watch(self, rt: AgentRuntime, run: RunHandle, worker_id: str, tree: "_Tree" | None) -> None:
-        """Heartbeat + budget while a worker runs: stalled -> cancel it; tree over budget -> stop the tree."""
+        """Heartbeat + runaway guards while a worker runs: stalled -> cancel it; a tree cap reached -> stop the tree."""
         while True:
             await asyncio.sleep(self.heartbeat_poll_s)
             if self.activity.stalled(worker_id, self.stall_s):
                 self._stalled.add(worker_id)
                 await rt.cancel(run)
                 return
-            over = tree.budget.over(self.clock.monotonic()) if tree is not None else None
+            over = tree.guard.over(self.clock.monotonic()) if tree is not None else None
             if over and tree is not None and not tree.stop:
-                tree.stop = over
+                tree.stop = f"Stopped: {over} ({GUARD_NOTE})"
                 self.cancel_tree(tree)

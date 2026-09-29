@@ -20,7 +20,7 @@ from ferb.act.browser.pairing import Binding
 from ferb.act.browser.profiles import BrowserProfile, discover, open_known_profile, resolve
 from ferb.act.browser.resolver import NeedsOwner, Resolver
 from ferb.cli.client import Client
-from ferb.core.types import Budget, Identity, Task
+from ferb.core.types import Identity, Task
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.intent import RequestIntent
 from tests.conftest import RunningDaemon
@@ -75,7 +75,7 @@ def pair(d: RunningDaemon, launched: list[list[str]], name: str) -> FakeExtensio
 
 def task(d: RunningDaemon, tid: str, scopes: set[str], verbs: set[str] | None = None, sites: frozenset[str] = frozenset()) -> Any:
     t = Task(tid, None, "g", "dev", Identity.OWNER, scopes, "actor", f"req-{tid}", [],
-             d.daemon.clock.now() + timedelta(minutes=10), Budget())
+             d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})

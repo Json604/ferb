@@ -46,7 +46,7 @@ Decisions and defaults:
 
 ## 1. Rules for writing code
 
-1. **Important behavior lives in code, not prompts.** Orchestration, policy, fallback, budgets, secrets, identity, time — all code.
+1. **Important behavior lives in code, not prompts.** Orchestration, policy, fallback, runaway guards, secrets, identity, time — all code.
 2. **One uniform shape for pluggable things.** Tools are `Capability`, watchers are `Watcher`, model backends are `AgentRuntime`, browsers are `BrowserDriver`.
 3. **Explicit registration.** Everything loaded is listed in `ferb/registry.py`. No auto-discovery, no import-time side effects.
 4. **Interfaces only at real boundaries**: runtimes, decider, memory, clock, secrets, drivers. Elsewhere: plain functions + dataclasses.
@@ -144,9 +144,10 @@ ferb/
   bus.py                in-process event bus (typed events)
   orchestrator/
     supervisor.py       plans, spawns workers, merges, verifies, reports
-    worker.py           one task, scoped capabilities, budget, heartbeat
+    worker.py           one task, scoped capabilities, heartbeat, runaway guards
     tree.py             task tree persistence
-    budgets.py          aggregate time / tokens / cost / steps per task tree; fan-out limits; cancellation
+    guards.py           runaway guards per task tree (repeated failing action, loops, generous time / worker-run /
+                        tool-call caps) and worker heartbeats; no token or dollar budgets
     dag.py              plan validation (cycles, fan-out, depth, identity/scopes, own-words targets) + graph order
     schemas.py          typed plan / worker / reader / verifier / reconciliation outputs (strict JSON schemas)
     ledger.py           action ledger: intent → executing → done | failed | unknown; reconciliation
@@ -265,7 +266,7 @@ Runtime data in `~/.ferb/`:
 
 ```
 ~/.ferb/
-  config.toml           runtimes, budgets, policy toggles, exclusion lists
+  config.toml           runtimes, policy toggles, exclusion lists
   ferb.db               tasks, spans, events, trail, timers, journal, memory_items (SQLite, WAL)
   memory/               markdown export of memory_items (generated, read-only, no history)
   device/<device_id>.json  device profile (one per device; only this Mac in Block 1), committed to a local git
@@ -307,8 +308,7 @@ class Task:
     role: Literal["reader", "actor", "mixed"]
     request_id: str         # the owner message this task serves (intent checks compare against it)
     success_conditions: list[str]   # from the plan; supervisor verifies against these
-    deadline: datetime | None
-    budget: Budget
+    deadline: datetime | None     # the tree's runaway time limit (4 h); no token or dollar budgets
 
 @dataclass
 class Outcome:
@@ -497,9 +497,9 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
 1. `ferb chat` message → supervisor (orchestrator runtime, persistent session per chat).
 2. Supervisor returns one typed outcome: **`reply`** (just answer), **`clarify`** (ask one question), or **`plan`**.
    Ordinary conversation never spawns workers.
-3. A plan lists subtasks with identity, role (reader / actor), scopes, dependencies (a DAG), deadlines and
+3. A plan lists subtasks with identity, role (reader / actor), scopes, dependencies (a DAG) and
    **success conditions**. Code validates it: DAG has no cycles, identity rules, scopes ⊆ allowed, depth ≤ 2,
-   fan-out ≤ 6 per parent, aggregate budget set for the whole tree.
+   fan-out ≤ 6 per parent.
 4. **Reader/actor split:** readers open untrusted content and return typed fields to the supervisor; actors act
    and only receive those fields, never raw pages, emails or messages (section 10.2).
 5. Workers run concurrently; each has a run token, heartbeat and cancellation. A worker failure is returned as a
@@ -512,8 +512,11 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
    own claim is evidence, not verification.
 9. Retries: definite failures retry per policy. `unknown` outcomes (e.g. Send clicked, connection lost) are
    **reconciled first** (re-read the target: did it happen?) and never blindly retried.
-10. Budgets are aggregate per task tree: worker runs, retries and verification count; background distillation
-    and shadow decisions have their own separate budget.
+10. **No token or dollar budgets anywhere** (owner decision: they don't matter for the owner's experience). Only
+    invisible runaway guards per task tree, there to catch stuck tasks: the same failing action repeated 3 times,
+    a loop between steps (the same 2–4 calls repeated 5 times), a stalled worker (no sign of life for 180 s, not counting waits on
+    the owner), and generous caps — 4 hours, 50 worker runs, 1,000 tool calls. The owner hears about a guard only
+    when it actually stops something. Distillation and shadow decisions run unmetered.
 11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
 12. `ferb stop` (or the stop hotkey) halts everything immediately (section 10.5).
 
@@ -525,11 +528,11 @@ Build step 8 specifics:
 - Verification: each success condition is checked by code where its form allows (file exists / contains, the
   subtask's ledger rows done, a tab's URL, the signed-in account) and by a read-only verifier worker only where it
   needs judgment; the path taken and the evidence are recorded per condition.
-- Retries: a definite actor failure is retried once within budget; `unknown` is reconciled by a read-only worker
+- Retries: a definite actor failure is retried once (not after a guard stopped it); `unknown` is reconciled by a read-only worker
   (happened → done, didn't → failed, unclear → the owner decides), never retried; readers aren't retried.
-- Budget defaults per tree (config `[budget]`, the plan may only lower them): 120 min, 1M tokens, $2 where cost is
-  reported, 200 tool calls, 12 worker runs. A worker with no sign of life for 180 s is stalled and cancelled; time
-  waiting on the owner (undo windows, real input pausing for the owner) doesn't count.
+- Runaway guards (step 10 above) replace budgets; plans carry no budget and no per-subtask deadline (every subtask
+  shares the tree's 4-hour limit). A worker with no sign of life for 180 s is stalled and cancelled; time waiting
+  on the owner (undo windows, real input pausing for the owner) doesn't count.
 - The task tree is persisted in SQLite; after a restart, subtasks that were running become `interrupted`.
 
 Runtime-native tools: each runtime is launched with its own shell, file, web, subagent and plugin tools
@@ -914,7 +917,7 @@ All via `Decider`. Initially `ShadowDecider(primary=Rule/LLM, shadow=Jev)` logs 
 - Timers: `set_timer`, `remind_at`, `sleep_until`; SQLite-backed; survive restarts and sleep (overdue timers fire with `overdue_by`).
   Delivery: due → claimed (row lock) → delivered → acknowledged by its consumer. A claimed-but-unacknowledged timer
   is re-delivered after restart with the same timer id; consumers ignore ids they already handled.
-- Elapsed time, timeouts, heartbeats and budgets use `Clock.monotonic()`; timestamps and schedules use `Clock.now()`.
+- Elapsed time, timeouts, heartbeats and guards use `Clock.monotonic()`; timestamps and schedules use `Clock.now()`.
 - `FakeClock` in all tests.
 
 ## 14. Memory
@@ -1025,7 +1028,7 @@ Rules:
    identity profile** (paired as FERB; `fill_secret`/`fill_otp` along the extension path). Step 5's real tests
    (session, OTP, 21.4) run here against the extension.
 7. `act/mac` + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser`.
-8. Orchestrator multi-worker (DAG, reader/actor, budgets, verification, reconciliation).
+8. Orchestrator multi-worker (DAG, reader/actor, runaway guards, verification, reconciliation).
 9. Screenshot + click (vision) for apps with poor Accessibility support: on-demand capture of the app's front window
    only (`act/mac/screenshot.py`, ScreenCaptureKit's single-window filter: never the rest of the screen, never windows
    on top), image results that reach the model and nothing else (not spans, journal, logs or files; saving a
@@ -1058,7 +1061,7 @@ section 21 safety tests pass.
 - Captchas/bot checks: real browsers + trusted input reduce but do not eliminate them; FERB stops and asks when blocked.
 - Crash mid-task: the ledger marks in-flight consequential actions `unknown` and reconciles them on restart;
   full checkpoint/resume of tasks comes with the overrides block.
-- Global daily cost ceiling UI; trail encryption (plaintext SQLite, rely on FileVault); provider outage modes.
+- Trail encryption (plaintext SQLite, rely on FileVault); provider outage modes.
 - Tab events from the extension carry page loads and tab switches; a tab that changes only its title isn't recorded.
   Browser window titles are left out of the window watcher (their domains can't be checked).
 - Hand-editable markdown memory (two-way sync) deferred.

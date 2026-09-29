@@ -29,15 +29,6 @@ class RiskLevel(Enum):
     HIGH = 3
 
 
-@dataclass(frozen=True)
-class Budget:
-    """Aggregate limits for a task tree (section 7 step 10). None = no limit on that axis."""
-    max_seconds: float | None = None
-    max_tokens: int | None = None
-    max_cost_usd: float | None = None
-    max_steps: int | None = None
-
-
 @dataclass
 class Task:
     id: str
@@ -49,8 +40,7 @@ class Task:
     role: Literal["reader", "actor", "mixed"]
     request_id: str
     success_conditions: list[str]
-    deadline: datetime | None
-    budget: Budget
+    deadline: datetime | None                # the tree's runaway time limit (section 7 step 10)
 
 
 @dataclass
