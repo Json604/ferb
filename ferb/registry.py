@@ -1,7 +1,7 @@
 """THE explicit list of what FERB loads (section 6, rule 3). No auto-discovery, no import-time side effects."""
 
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Callable
 
 from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
                                    BrowserOpen, BrowserSnapshot, BrowserWait, FERB_BROWSER, IdentityDriver,
@@ -64,15 +64,16 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
     r.add(BrowserClose(router, f))
 
 
-def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any) -> None:
-    """The owner's Mac (identity OWNER only; build step 7)."""
+def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
+            extension_ready: Callable[[str], bool] = lambda browser: False) -> None:
+    """The owner's Mac (identity OWNER only; build steps 7 and 9)."""
     r.add(MacApps(driver, device_profile))
     r.add(MacOpen(driver, device_profile))
     r.add(MacSnapshot(driver, device_profile))
     r.add(MacAct(driver, device_profile))
     r.add(MacAppleScript(driver, device_profile))
-    r.add(MacScreenshot(driver, device_profile))
-    r.add(MacClick(driver, device_profile))
+    r.add(MacScreenshot(driver, device_profile, extension_ready))
+    r.add(MacClick(driver, device_profile, extension_ready))
 
 
 def add_shell(r: Registry, shells: ShellManager) -> None:

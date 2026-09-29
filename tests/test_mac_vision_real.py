@@ -201,3 +201,4 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
             except OSError:
                 continue
             assert raw not in data and marker.encode() not in data, f"the frame is on disk: {p}"
+

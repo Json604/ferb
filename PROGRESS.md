@@ -116,6 +116,12 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   `--no-session-persistence` (its transcripts in `~/.claude/projects` would have held tool results, screenshots
   included); Codex already ran `--ephemeral`. `mac.snapshot` of a browser window now exposes the worker (web
   content; it was counted as a trusted app). New dependency: `pyobjc-framework-screencapturekit` (12.2.2).
+- **Step 9 follow-up (owner):** the password check waits up to ~2 s for a browser's web content. Measured on a local
+  login page in "FERB Test": Chrome exposes no web area to Accessibility at all (both `AXManualAccessibility` and
+  `AXEnhancedUserInterface` refused), so web password fields read as "can't tell" and are captured (§19). Browsers
+  prefer the extension: with a paired owner profile of that browser connected, `mac.screenshot` / `mac.click` need a
+  recorded `fallback_reason` (§9.2). Proposed: ask the extension whether the captured window's tab has a password
+  field (match by window bounds) — awaiting the owner. A leftover local login tab may remain in "FERB Test".
 - **Extension 0.6.2:** sends and the "paired" reply read-modify-wrote the stored {key, seq} concurrently: a tab event
   racing the reply could write the old key back (every later message failed its MAC; the profile paired but never
   connected) and two sends could share a seq. Now serialized, messages posted in seq order; a node test runs the real

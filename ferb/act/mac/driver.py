@@ -98,13 +98,14 @@ class MacComputerDriver:
             w = self.shots.front_window(a.pid, self.ax.frame(self.ax.app_window(a.pid)))
             if w is None:
                 raise Refused(f"{a.name} has no window on screen")
-            if self.ax.has_secure_field(self.ax.window_with_frame(a.pid, w.bounds)):
+            browser = is_browser(a.bundle_id)
+            if self.ax.has_secure_field(self.ax.window_with_frame(a.pid, w.bounds), browser):
                 raise Refused(PASSWORD_REFUSED)
             try:
                 jpeg, width, height = self.shots.capture(w)
             except (LookupError, RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
-            if self.ax.has_secure_field(self.ax.window_with_frame(a.pid, w.bounds)):
+            if self.ax.has_secure_field(self.ax.window_with_frame(a.pid, w.bounds), browser):
                 raise Refused(PASSWORD_REFUSED)                  # appeared while capturing
             return w, jpeg, width, height
         w, jpeg, width, height = await asyncio.to_thread(grab)

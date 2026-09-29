@@ -73,7 +73,7 @@ class VisionAx(FakeAx):
     def hit(self, x: float, y: float) -> Any:
         return self.hit_answer
 
-    def has_secure_field(self, win: Any) -> bool | None:
+    def has_secure_field(self, win: Any, browser: bool = False) -> bool | None:
         return self.secure.pop(0) if self.secure else False
 
 
@@ -235,3 +235,30 @@ def test_screenshots_of_browsers_and_messages_expose_the_worker(daemon: RunningD
 
 async def _checkpoint(d: RunningDaemon) -> None:
     d.daemon.db.conn.execute("PRAGMA wal_checkpoint(FULL)")
+
+
+def test_browsers_go_through_the_extension_first(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """9.2: with a paired owner profile of that browser connected, the Mac layer needs a stated reason (recorded);
+    without one connected, or for other apps, it's used directly."""
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    shots.top = 120                                                      # Brave's window (pid 12) is on top
+    connected = {"brave"}
+    for cap in ("mac.screenshot", "mac.click"):
+        daemon.daemon.gateway.caps[cap].extension_ready = lambda b: b in connected     # type: ignore[attr-defined]
+    g = task(daemon, "e", Identity.OWNER, {"screen", "mac:act"}, {"use_app"})
+    r = call(daemon, g, "mac.screenshot", app="Brave")
+    assert r["is_error"] and "browser_* tools" in r["content"]["error"]
+    r = call(daemon, g, "mac.screenshot", app="Brave", fallback_reason="the permission prompt is browser UI")
+    assert not r["is_error"], r
+    assert call(daemon, g, "mac.click", app="Brave", shot="shot1", x=5, y=5)["is_error"]
+    r = call(daemon, g, "mac.click", app="Brave", shot="shot1", x=5, y=5, fallback_reason="browser UI")
+    assert not r["is_error"], r
+    assert not call(daemon, g, "mac.screenshot", app="Notes")["is_error"]              # not a browser
+    connected.clear()
+    assert not call(daemon, g, "mac.screenshot", app="Brave")["is_error"]              # no extension to prefer
+    spans = daemon.run(_span_inputs(daemon))
+    assert any("the permission prompt is browser UI" in s for s in spans)            # the reason is on record
+
+
+async def _span_inputs(d: RunningDaemon) -> list[str]:
+    return [str(r[0]) for r in d.daemon.db.conn.execute("SELECT input_json FROM spans").fetchall()]

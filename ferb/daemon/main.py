@@ -255,6 +255,11 @@ class Daemon:
         if self.shells is not None:
             asyncio.get_event_loop().create_task(self.shells.kill_all())   # 10.5: kills task-owned processes
 
+    def _owner_extension_connected(self, browser: str) -> bool:
+        """A paired owner profile of this browser is connected: browser work goes through the extension (9.2)."""
+        return self.hub is not None and any(br.conn is not None and br.binding.browser == browser
+                                            and br.binding.identity is Identity.OWNER for br in self.hub.bridges.values())
+
     def _build_mac_and_shell(self) -> None:
         if self.watch_owner_input and not self.owner_input.start():
             self._journal().append("owner_input.unavailable", {"why": "no event tap (Accessibility / Input Monitoring)"})
@@ -264,7 +269,7 @@ class Daemon:
                 self.supervisor.activity.waiting(holder, on)
         self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait),
                                      excluded=self.config.exclude_apps)
-        add_mac(self.registry, self.mac, self._device_profile)
+        add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)
 

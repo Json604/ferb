@@ -601,6 +601,11 @@ Watchers emit `device.changed` on app install/removal; profile rescans that app 
 |---------|---------|------------|------------|
 | Chrome, Brave | FERB extension: content-script snapshot + `chrome.debugger` for actions | Accessibility (the web AX tree is built on demand; if the first query returns it empty, re-query for up to ~2 s. `AXManualAccessibility` is unsupported since at least Chrome 154 / Brave 151) | Screenshot + click |
 
+Browsers prefer the extension: `mac.screenshot` / `mac.click` (screenshot + click) are the fallback for what the
+extension can't do (browser UI such as permission prompts, canvas-only pages). While a paired owner profile of that
+browser is connected, those tools need a stated `fallback_reason`, recorded with the call; with none connected (or
+for Safari) they're used directly.
+
 The FERB profile is opened like any paired profile: FERB may start Chrome detached if it isn't running, never
 quits or kills it, and wakes a disconnected extension with its blank local page (9.4).
 
@@ -992,7 +997,8 @@ Rules:
    on top), image results that reach the model and nothing else (not spans, journal, logs or files; saving a
    screenshot is out of this step), clicks by image coordinates through the same marked, yielding real input. The
    only refusals: apps on `[privacy] exclude_apps`, and a window whose Accessibility tree shows a password field
-   (checked before and after capture; the frame is dropped). When the tree can't tell, the capture goes ahead.
+   (checked before and after capture; the frame is dropped). A browser's web tree is built on demand, so the check
+   waits up to ~2 s for web content before deciding. When the tree can't tell, the capture goes ahead.
    Before each click event: the window hasn't moved and the system's hit test (Accessibility) says the click reaches
    it; if Accessibility can't answer, the topmost normal window there must be it.
 10. `sense` watchers + trail (fixed processing order, actor attribution) + exclusions.
@@ -1041,7 +1047,9 @@ section 21 safety tests pass.
   tree shows (owner's choice): a window whose tree can't be read is captured, and browsers can be captured and
   clicked through the Mac layer. Clicking a browser this way skips the extension's profile and account checks
   (9.3); the policy engine still gates it as `mac_input`. A screenshot of a browser exposes the worker (web
-  content), as does one of a mail or messaging app.
+  content), as does one of a mail or messaging app. Chrome and Brave expose no web content to Accessibility unless
+  an assistive technology (e.g. VoiceOver) has enabled it (`AXManualAccessibility` / `AXEnhancedUserInterface` are
+  refused), so a password field on a web page is usually "can't tell" and the frame is captured; Safari exposes it.
 - Trusted (debugger-dispatched) input works in a page's top frame only; elements inside iframes get page-mode
   (scripted) events, which some sites ignore. Extending trusted input to iframes needs frame-offset handling.
   Secret fills are unaffected: they set the value on the exact element in its own frame.

@@ -101,24 +101,38 @@ def hit(x: float, y: float) -> tuple[int, tuple[float, float, float, float] | No
 SECURE_SCAN_MAX = 5000
 
 
-def has_secure_field(win: Any) -> bool | None:
+def has_secure_field(win: Any, browser: bool = False) -> bool | None:
     """True if the window holds a password field (AXSecureTextField role or subrole), False if a full walk found
-    none, None if it couldn't tell (no window, or too large to walk)."""
+    none, None if it couldn't tell (no window, or too large to walk). A browser builds its web AX tree on demand: until
+    a web area shows up, walk again for up to ~2 s (9.2); still none, it can't tell."""
+    deadline = time.monotonic() + (2.0 if browser else 0.0)
+    while True:
+        found, web = _scan_secure(win)
+        if found is not False or not browser or web:
+            return found
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.25)
+
+
+def _scan_secure(win: Any) -> tuple[bool | None, bool]:
     if win is None:
-        return None
-    seen, stack = 0, [(win, 0)]
+        return None, False
+    seen, web, stack = 0, False, [(win, 0)]
     while stack:
         el, depth = stack.pop()
         seen += 1
         if seen > SECURE_SCAN_MAX:
-            return None
-        if "AXSecureTextField" in (str(_attr(el, "AXRole") or ""), str(_attr(el, "AXSubrole") or "")):
-            return True
+            return None, web
+        role = str(_attr(el, "AXRole") or "")
+        web = web or role == "AXWebArea"
+        if "AXSecureTextField" in (role, str(_attr(el, "AXSubrole") or "")):
+            return True, web
         if depth < MAX_DEPTH:
             stack.extend((c, depth + 1) for c in (_attr(el, "AXChildren") or []))
         elif _attr(el, "AXChildren"):
-            return None
-    return False
+            return None, web
+    return False, web
 
 
 def read_tree(pid: int, browser: bool = False) -> AxTree:
