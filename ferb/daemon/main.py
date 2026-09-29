@@ -13,7 +13,7 @@ import signal
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable
 
 from ferb.bus import DROPPED, Bus, Overflow
 from ferb.clock.clock import SystemClock
@@ -33,7 +33,7 @@ from ferb.act.gui_lock import GuiLock
 from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
-from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell, add_trail
+from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
@@ -60,14 +60,15 @@ Redact = Callable[[Any], Any]
 
 # `ferb logs` filter flags -> bus topic patterns
 LOG_FILTERS = {"tasks": "task.*", "trail": "trail.event", "tools": "tool.called", "browsers": "browser.*",
-               "policy": "policy.*", "actions": "action.*"}
+               "policy": "policy.*", "actions": "action.*", "timers": "timer.*"}
 RELEASE_TICK_S = 0.2
 
 
 class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None, undo_window_s: float = 10.0,
-                 watch_owner_input: bool = True, watchers: bool = True, distill: bool = True) -> None:
+                 watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
+                 notifications: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -126,6 +127,11 @@ class Daemon:
         # Jev in shadow mode (build step 13): None until a key is in the Keychain
         self.jev: Any = None
         self.jev_post: Any = None                        # tests: a fake Jev endpoint
+        # Timers (build step 14)
+        self.timers: Any = None
+        self._timer_task: asyncio.Task[None] | None = None
+        self._sleepers: dict[str, asyncio.Event] = {}
+        self.notify: Callable[[str, str], Awaitable[None]] = self._osascript_notify if notifications else _no_notify
 
     @property
     def stop_marker(self) -> Path:
@@ -152,7 +158,10 @@ class Daemon:
         await self._build_sense()
         self._build_memory()
         await self._build_jev()
+        self._build_timers()
         for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
+                         ("reminders.list", self._reminders_list), ("reminders.cancel", self._reminders_cancel),
+                         ("reminders.unseen", self._reminders_unseen),
                          ("memory.list", self._memory_list), ("memory.show", self._memory_show),
                          ("memory.add", self._memory_add), ("memory.confirm", self._memory_confirm),
                          ("memory.edit", self._memory_edit), ("memory.retract", self._memory_retract),
@@ -199,6 +208,8 @@ class Daemon:
             self._distill_task.cancel()
         if self.jev is not None:
             self.jev.close()
+        if self._timer_task is not None:
+            self._timer_task.cancel()
         if self.sense is not None:
             await self.sense.stop()
         if self.owner_input.running:
@@ -324,6 +335,8 @@ class Daemon:
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)
         add_trail(self.registry, lambda: self.trail)
+        add_time(self.registry, lambda: self.timers, self.clock.now, lambda: self._sleep_until,
+                 lambda task_id: (rec.task.deadline if (rec := self.tasks.get(task_id)) else None))
 
     # ---------- watchers + trail (build step 10) ----------
 
@@ -584,6 +597,95 @@ class Daemon:
         since = datetime.fromisoformat(params["since"]).astimezone() if params.get("since") else None
         rows = self._journal().entries(since)
         return {"entries": [{"at": e.at.isoformat(), "kind": e.kind, "data": e.data} for e in rows][-500:]}
+
+    # ---------- timers (build step 14) ----------
+
+    def _build_timers(self) -> None:
+        from ferb.clock.timers import Timers
+        assert self.db is not None
+        self.timers = Timers(self.db, self.clock, self.ids, self._timer_fired)
+        self.timers.cancel_all_sleeps()
+        if self.supervisor is not None:
+            self.supervisor.timers = self.timers
+            self.supervisor.sleep_until = self._sleep_until
+        self._timer_task = asyncio.get_running_loop().create_task(self.timers.run())
+
+    async def _timer_fired(self, t: Any) -> None:
+        """The consumer. Sleeps wake their worker; reminders reach the owner once (notification, chat, logs,
+        journal), even if a crash made the timer fire again."""
+        from ferb.clock.timers import mark_handled
+        if t.kind == "sleep":
+            ev = self._sleepers.get(t.id)
+            if ev is not None:
+                ev.set()
+            return
+        assert self.db is not None
+        c = self.db.conn
+        c.execute("BEGIN")
+        try:
+            if not mark_handled(self.db, t.id, self.clock.now()):
+                c.execute("COMMIT")
+                return                                               # already delivered before a crash
+            self._journal().append("timer.delivered", {"timer_id": t.id, "kind": t.kind, "message": t.message,
+                                                       "overdue_s": round(t.overdue_s or 0)})
+            c.execute("COMMIT")
+        except Exception:
+            c.execute("ROLLBACK")
+            raise
+        late = f" (due {round((t.overdue_s or 0) / 60)} min ago)" if (t.overdue_s or 0) >= 60 else ""
+        self._publish("timer.fired", {"timer_id": t.id, "kind": t.kind, "message": t.message,
+                                      "overdue_by": round(t.overdue_s or 0)})
+        try:
+            await self.notify("FERB reminder" if t.kind == "reminder" else "FERB timer", f"{t.message}{late}")
+        except Exception:
+            pass                                                     # chat, logs and the journal still have it
+
+    async def _osascript_notify(self, title: str, text: str) -> None:
+        """A macOS notification (the OS's own, not FERB UI). Text is redacted and quoted for AppleScript."""
+        def q(v: str) -> str:
+            return '"' + str(self._redact_text(v))[:240].replace("\\", "\\\\").replace('"', '\\"') + '"'
+        proc = await asyncio.create_subprocess_exec("osascript", "-e", f"display notification {q(text)} with title "
+                                                    f"{q(title)}", stdout=asyncio.subprocess.DEVNULL,
+                                                    stderr=asyncio.subprocess.DEVNULL)
+        await asyncio.wait_for(proc.wait(), 10)
+
+    async def _sleep_until(self, worker_id: str, task_id: str, at: datetime) -> str:
+        """time.sleep_until: a durable sleep timer; waiting on it is the owner's kind of wait (not a stall)."""
+        assert self.timers is not None
+        t = self.timers.add("sleep", at, "", task_id=task_id)
+        ev = self._sleepers[t.id] = asyncio.Event()
+        if self.supervisor is not None:
+            self.supervisor.activity.waiting(worker_id, True)
+        try:
+            await ev.wait()
+            return str(t.id)
+        finally:
+            self._sleepers.pop(t.id, None)
+            if self.supervisor is not None:
+                self.supervisor.activity.waiting(worker_id, False)
+            self.timers.cancel(t.id)
+
+    async def _reminders_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.timers is not None
+        return {"pending": [{"id": t.id, "kind": t.kind, "at": t.fire_at.isoformat(), "message": t.message}
+                            for t in self.timers.pending()]}
+
+    async def _reminders_cancel(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.timers is not None
+        t = self.timers.get(str(params["id"]))
+        if t is None or t.kind == "sleep" or not self.timers.cancel(t.id):
+            raise FerbError(f"no pending reminder {params['id']}")
+        return {"cancelled": t.id}
+
+    async def _reminders_unseen(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """For `ferb chat`: reminders delivered but not shown in chat yet (then marked shown)."""
+        assert self.db is not None
+        rows = self.db.conn.execute("SELECT id, message, overdue_s, delivered_at FROM timers WHERE state = 'delivered' "
+                                    "AND kind != 'sleep' AND chat_shown = 0 ORDER BY fire_at").fetchall()
+        for r in rows:
+            self.db.conn.execute("UPDATE timers SET chat_shown = 1 WHERE id = ?", (r["id"],))
+        return {"reminders": [{"id": r["id"], "message": self._redact_text(r["message"]),
+                               "overdue_s": r["overdue_s"]} for r in rows]}
 
     # ---------- Jev (build step 13) ----------
 
@@ -1148,6 +1250,10 @@ class Daemon:
                    "data": {"message": "fell behind on critical events; restart `ferb logs`"}}
         finally:
             sub.close()
+
+
+async def _no_notify(title: str, text: str) -> None:
+    return None
 
 
 def _node_json(node: SpanNode) -> dict[str, Any]:

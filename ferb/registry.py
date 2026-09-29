@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
                                    BrowserOpen, BrowserSnapshot, BrowserWait, FERB_BROWSER, IdentityDriver,
-                                   OWNER_BROWSER)
+                                   MailboxSend, OWNER_BROWSER)
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.tools import MacApps, MacAct, MacAppleScript, MacClick, MacOpen, MacScreenshot, MacSnapshot
@@ -51,6 +51,7 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool 
     r.add(BrowserClose(driver, f))
     r.add(BrowserFillSecret(driver, f))
     r.add(BrowserFillOtp(driver, f))
+    r.add(MailboxSend(driver))
 
 
 def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = False) -> None:
@@ -80,6 +81,15 @@ def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
     """The owner's recorded activity (identity OWNER only; build step 11)."""
     from ferb.sense.tools import TrailQuery
     r.add(TrailQuery(trail))
+
+
+def add_time(r: Registry, timers: Callable[[], Any], now: Callable[[], Any], sleep: Callable[[], Any],
+             limit: Callable[[str], Any]) -> None:
+    """Reminders for the owner and a worker's durable sleep (build step 14)."""
+    from ferb.clock.tools import TimeRemindAt, TimeSetTimer, TimeSleepUntil
+    r.add(TimeRemindAt(timers, now))
+    r.add(TimeSetTimer(timers, now))
+    r.add(TimeSleepUntil(timers, now, sleep, limit))
 
 
 def add_shell(r: Registry, shells: ShellManager) -> None:

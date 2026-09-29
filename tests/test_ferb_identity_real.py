@@ -374,3 +374,29 @@ async def _otp(d: Any, site: Site, since: datetime) -> bool:
         await asyncio.sleep(1)
     await fi.close(tab)
     return r.ok
+
+
+
+def test_ferb_sends_from_its_own_mailbox_to_itself(ferb_profile: RunningDaemon) -> None:
+    """Build step 14: FERB's compose page, a real click on Send, Gmail's confirmation; the mail arrives in FERB's inbox.
+    Sent to FERB's own address only (the owner's is never used)."""
+    import secrets as _s
+    d = ferb_profile
+    c = Client(d.sock, timeout=120)
+    try:
+        if not c.call("identity.check", {"session": False}).get("paired"):
+            assert c.call("identity.pair", {"timeout_s": 60, "confirm": True})["paired"]
+    finally:
+        c.close()
+    address = str(d.daemon.config.get("mailbox", "address"))
+    subject = f"FERB self-test {_s.token_hex(3)}"
+    assert d.run(d.daemon.ferb_identity.send_mail([address], subject, "Sent by FERB's real test.", "mail-test"),
+                 timeout=120) == "sent"
+    from ferb.identity.mailbox import FEED_URL
+    end = time.monotonic() + 120
+    while time.monotonic() < end:
+        feed = d.run(d.daemon.ferb_identity._read_feed(FEED_URL), timeout=60)
+        if subject in feed:
+            return
+        time.sleep(5)
+    raise AssertionError("the mail didn't arrive in FERB's inbox")

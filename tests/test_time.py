@@ -1,0 +1,258 @@
+"""Build step 14, offline: durable timers (restart, sleep / overdue, cancel), safety test 19 (a claim left by a crash
+is delivered exactly once), reminders from the owner's own words, the time.* tools (sleep isn't a stall; it ends with
+the task), measured durations in the header, sending from FERB's mailbox under the normal autonomy rules, and
+`ferb device`.
+"""
+
+import asyncio
+import io
+import json
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from ferb.act.browser.ext_bridge import OutcomeUnknown
+from ferb.act.browser.tools import MailboxSend
+from ferb.clock.durations import typical
+from ferb.clock.timers import Timers
+from ferb.core.types import Identity
+from ferb.policy.intent import RequestIntent
+from ferb.store.db import Database
+from tests.conftest import RunningDaemon
+from tests.test_mac_shell import call, task
+from tests.test_supervisor import chat, install
+
+
+def run(d: RunningDaemon, fn: Any) -> Any:
+    async def go() -> Any:
+        return fn()
+    return d.run(go())
+
+
+class Notes:
+    def __init__(self) -> None:
+        self.shown: list[tuple[str, str]] = []
+
+    async def __call__(self, title: str, text: str) -> None:
+        self.shown.append((title, text))
+
+
+def setup_notes(d: RunningDaemon) -> Notes:
+    n = Notes()
+    d.daemon.notify = n
+    return n
+
+
+def deliveries(d: RunningDaemon) -> list[dict[str, Any]]:
+    return [e.data for e in run(d, lambda: d.daemon._journal().entries()) if e.kind == "timer.delivered"]
+
+
+# ---------- timers ----------
+
+def test_a_reminder_fires_once_when_due_everywhere_it_should(daemon: RunningDaemon) -> None:
+    notes, t = setup_notes(daemon), daemon.daemon.timers
+    tm = run(daemon, lambda: t.add("reminder", daemon.daemon.clock.now() + timedelta(minutes=5), "call Mom"))
+    assert daemon.run(t.tick()) == 0                                     # not yet
+    daemon.call_soon(daemon.daemon.clock.advance, 301)
+    assert daemon.run(t.tick()) == 1 and daemon.run(t.tick()) == 0     # once
+    assert notes.shown == [("FERB reminder", "call Mom")]
+    assert [x["timer_id"] for x in deliveries(daemon)] == [tm.id]
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        assert [r["message"] for r in c.call("reminders.unseen")["reminders"]] == ["call Mom"]
+        assert c.call("reminders.unseen")["reminders"] == []           # shown once in chat
+    finally:
+        c.close()
+
+
+def test_timers_survive_a_restart_and_fire_late_with_overdue(tmp_path: Path) -> None:
+    from ferb.clock.clock import FakeClock
+    from ferb.core.ids import SequentialIds
+    db = Database(tmp_path / "f.db")
+    db.migrate()
+    clock = FakeClock()
+    fired: list[Any] = []
+
+    async def consume(t: Any) -> None:
+        fired.append(t)
+    t1 = Timers(db, clock, SequentialIds(), consume)
+    t1.add("reminder", clock.now() + timedelta(minutes=10), "stretch")
+    gone = t1.add("reminder", clock.now() + timedelta(minutes=10), "cancelled")
+    t1.cancel(gone.id)
+    db.close()
+    clock.advance(3600)                                                  # FERB down / the Mac asleep for an hour
+    db2 = Database(tmp_path / "f.db")
+    t2 = Timers(db2, clock, SequentialIds(), consume)
+    assert asyncio.run(t2.tick()) == 1
+    assert [f.message for f in fired] == ["stretch"] and round(fired[0].overdue_s) == 3000
+
+
+def test_19_a_claim_left_by_a_crash_is_delivered_exactly_once(daemon: RunningDaemon) -> None:
+    """Safety test 19: crash after the claim (redelivered), and crash after the consumer acted (not again)."""
+    notes, t, db = setup_notes(daemon), daemon.daemon.timers, daemon.daemon.db
+    a = run(daemon, lambda: t.add("reminder", daemon.daemon.clock.now() + timedelta(seconds=1), "a"))
+    b = run(daemon, lambda: t.add("reminder", daemon.daemon.clock.now() + timedelta(seconds=1), "b"))
+    daemon.call_soon(daemon.daemon.clock.advance, 5)
+
+    def crash_states() -> None:
+        c = db.conn                                                      # type: ignore[union-attr]
+        c.execute("UPDATE timers SET state = 'claimed', claim_token = 'dead' WHERE id IN (?, ?)", (a.id, b.id))
+        c.execute("INSERT INTO timer_deliveries (timer_id, at) VALUES (?, '2026-01-01')", (b.id,))   # b was handled
+    run(daemon, crash_states)
+    assert daemon.run(t.tick()) == 2                                     # both handed over again...
+    assert [x["timer_id"] for x in deliveries(daemon)] == [a.id]        # ...a delivered once, b not again
+    assert notes.shown == [("FERB reminder", "a")]
+    assert daemon.run(t.tick()) == 0
+    assert {run(daemon, lambda: t.get(x)).state for x in (a.id, b.id)} == {"delivered"}
+
+
+def test_reminders_from_chat_need_the_owners_own_words_and_a_future_time(daemon: RunningDaemon) -> None:
+    now = daemon.daemon.clock.now()
+    ok = {"at": (now + timedelta(hours=2)).isoformat(), "message": "call Mom", "quote": "remind me in two hours"}
+    pasted = {"at": (now + timedelta(hours=2)).isoformat(), "message": "wire money", "quote": "remind me to wire"}
+    past = {"at": (now - timedelta(hours=2)).isoformat(), "message": "late", "quote": "remind me in two hours"}
+    install(daemon, [json.dumps({"kind": "reply", "text": "Will do.", "plan": None, "remember": [],
+                                 "timers": [ok, pasted, past]})])
+    evs = chat(daemon, 'remind me in two hours to call Mom ```remind me to wire money```')
+    notes = [e["text"] for e in evs if e["type"] == "timer"]
+    assert len(notes) == 1 and "call Mom" in notes[0]
+    assert [t.message for t in run(daemon, daemon.daemon.timers.pending)] == ["call Mom"]
+
+
+# ---------- tools ----------
+
+def test_time_tools_set_reminders_and_sleep_without_counting_as_stuck(daemon: RunningDaemon) -> None:
+    setup_notes(daemon)
+    g = task(daemon, "tt", Identity.OWNER, {"time"}, {"research"})
+    at = (daemon.daemon.clock.now() + timedelta(hours=1)).isoformat()
+    r = call(daemon, g, "time.remind_at", at=at, message="check the oven")
+    assert not r["is_error"] and r["content"]["timer"].startswith("tm-")
+    assert not call(daemon, g, "time.set_timer", minutes=20, message="tea")["is_error"]
+    assert call(daemon, g, "time.remind_at", at="2020-01-01T00:00:00+00:00", message="x")["is_error"]
+    assert call(daemon, g, "time.sleep_until", at=(daemon.daemon.clock.now() + timedelta(days=1)).isoformat())["is_error"]
+    waits: list[bool] = []
+    sup = daemon.daemon.supervisor
+    real = sup.activity.waiting
+    sup.activity.waiting = lambda w, on: waits.append(on) or real(w, on)   # type: ignore[method-assign]
+    wake = (daemon.daemon.clock.now() + timedelta(minutes=5)).isoformat()
+
+    async def sleep_then_fire() -> dict[str, Any]:
+        job = asyncio.create_task(daemon.daemon.gateway.call(g, "time.sleep_until", {"at": wake}))
+        await asyncio.sleep(0.05)
+        daemon.daemon.clock.advance(301)
+        await daemon.daemon.timers.tick()
+        return await asyncio.wait_for(job, 5)
+    r = daemon.run(sleep_then_fire())
+    assert not r["is_error"] and "woke_at" in r["content"] and waits == [True, False]
+
+
+def test_a_tasks_sleep_ends_with_the_task_but_its_reminders_stay(daemon: RunningDaemon) -> None:
+    t = daemon.daemon.timers
+    now = daemon.daemon.clock.now()
+    s = run(daemon, lambda: t.add("sleep", now + timedelta(minutes=5), task_id="x1"))
+    r = run(daemon, lambda: t.add("reminder", now + timedelta(minutes=5), "keep", task_id="x1"))
+    run(daemon, lambda: t.cancel_task("x1"))
+    assert run(daemon, lambda: t.get(s.id)).state == "cancelled" and run(daemon, lambda: t.get(r.id)).state == "pending"
+
+
+# ---------- durations ----------
+
+def test_measured_durations_show_once_there_are_enough_samples(daemon: RunningDaemon) -> None:
+    db, spans, clock = daemon.daemon.db, daemon.daemon.spans, daemon.daemon.clock
+
+    def seed(n: int) -> None:
+        for i in range(n):
+            s = spans.start("worker", input={"role": "actor", "scopes": ["browser:read", "browser:act"]})
+            clock.advance(60 * (i + 1))
+            spans.finish(s, output={})
+    run(daemon, lambda: seed(4))
+    assert run(daemon, lambda: typical(db, {"browser:act"}, "actor")) is None
+    run(daemon, lambda: seed(2))
+    line = run(daemon, lambda: typical(db, {"browser:read"}, "actor"))
+    assert line.startswith("similar tasks (browser, actor) took median") and "n=6" in line
+    assert run(daemon, lambda: typical(db, {"shell"}, "actor")) is None
+
+
+# ---------- mailbox send ----------
+
+class FakeMail:
+    def __init__(self) -> None:
+        self.sent: list[tuple[list[str], str, str]] = []
+        self.unknown = False
+
+    async def send_mail(self, to: list[str], subject: str, body: str, owner: str, intent_id: str = "") -> str:
+        if self.unknown:
+            raise OutcomeUnknown("clicked Send but Gmail didn't confirm")
+        self.sent.append((to, subject, body))
+        return "sent"
+
+
+def ferb_task(d: RunningDaemon, tid: str, verbs: set[str], recipients: frozenset[str] = frozenset()) -> Any:
+    g = task(d, tid, Identity.FERB, {"mailbox:send"}, None)
+
+    async def rec() -> None:
+        d.daemon.engine.intents.record(RequestIntent.from_plan(f"req-{tid}", verbs, recipients=recipients))
+    d.run(rec())
+    return g
+
+
+def test_mailbox_send_follows_the_normal_autonomy_rules(daemon: RunningDaemon) -> None:
+    mail = FakeMail()
+    daemon.daemon.registry.capabilities["mailbox.send"] = MailboxSend(mail)
+    g = ferb_task(daemon, "m1", {"email"}, frozenset({"alice@x.com"}))
+
+    async def send(to: str, advance: float = 11) -> dict[str, Any]:
+        job = asyncio.create_task(daemon.daemon.gateway.call(g, "mailbox.send", {"to": [to], "subject": "Hi",
+                                                                                  "body": "Lunch?"}))
+        await asyncio.sleep(0.1)
+        daemon.daemon.clock.advance(advance)                             # the undo window passes
+        return await asyncio.wait_for(job, 5)
+    r = daemon.run(send("alice@x.com"))
+    assert not r["is_error"] and mail.sent == [(["alice@x.com"], "Hi", "Lunch?")]      # held, then sent
+    r = daemon.run(send("eve@evil.example"))
+    assert "needs_owner_approval" in r["content"] and len(mail.sent) == 1              # not named: asks
+    g2 = ferb_task(daemon, "m2", {"summarize"})
+    r = call(daemon, g2, "mailbox.send", to=["alice@x.com"], subject="Hi", body="x")
+    assert r["is_error"] and "blocked" in r["content"]["error"] and len(mail.sent) == 1   # not requested: blocked
+    owner = task(daemon, "o1", Identity.OWNER, {"shell"}, {"email"})
+    assert "mailbox.send" not in {t["name"] for t in daemon.daemon.gateway.tools_for(owner)}   # FERB's only
+
+
+def test_an_unconfirmed_send_is_unknown_and_never_retried_blindly(daemon: RunningDaemon) -> None:
+    mail = FakeMail()
+    mail.unknown = True
+    daemon.daemon.registry.capabilities["mailbox.send"] = MailboxSend(mail)
+    g = ferb_task(daemon, "m3", {"email"}, frozenset({"alice@x.com"}))
+
+    async def send() -> dict[str, Any]:
+        job = asyncio.create_task(daemon.daemon.gateway.call(g, "mailbox.send", {"to": ["alice@x.com"],
+                                                                                  "subject": "Hi", "body": "x"}))
+        await asyncio.sleep(0.1)
+        daemon.daemon.clock.advance(11)
+        return await asyncio.wait_for(job, 5)
+    r = daemon.run(send())
+    assert r["is_error"] and "outcome unknown" in r["content"]["error"]
+    states = run(daemon, lambda: [x.intent.state for x in daemon.daemon.ledger.for_task("m3")])
+    assert states == ["unknown"]
+
+
+# ---------- ferb device ----------
+
+def test_ferb_device_shows_the_profile_with_current_driver_status(tmp_path: Path) -> None:
+    from ferb.cli.admin import device
+    from ferb.config import Config
+    from ferb.device.profile import ProfileStore
+    from ferb.device.scan import scan
+    home = tmp_path / "h"
+    Config(home).set("device", "id", "dev1")
+    ProfileStore(home).save(scan("dev1"), "test")
+    out = io.StringIO()
+
+    def no_daemon() -> Any:
+        raise ConnectionError
+    assert device(home, "show", no_daemon, out) == 0
+    text = out.getvalue()
+    assert "apps" in text and "not built yet" not in text

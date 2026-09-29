@@ -247,3 +247,65 @@ def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
     r = client.call("jev.enable", {"question": args.question, "on": on})
     print(f"Enabled questions: {', '.join(r['enabled']) or 'none (all in shadow mode)'}", file=out)
     return 0
+
+
+# ---------- reminders, device (build step 14) ----------
+
+def reminders(client: Client, action: str, rid: str | None, out: TextIO) -> int:
+    if action == "cancel":
+        if not rid:
+            print("usage: ferb reminders cancel <id>", file=out)
+            return 2
+        client.call("reminders.cancel", {"id": rid})
+        print(f"Cancelled {rid}.", file=out)
+        return 0
+    from datetime import datetime
+    pending = client.call("reminders.list")["pending"]
+    for t in pending:
+        at = datetime.fromisoformat(t["at"]).astimezone()
+        print(f"  {t['id']}  {at:%a %d %b %H:%M}  {t['kind']:<8} {t['message']}", file=out)
+    if not pending:
+        print("  (no pending reminders)", file=out)
+    return 0
+
+
+def device(home: Any, action: str, connect: Any, out: TextIO) -> int:
+    """The device profile (read locally), with live browser status from the daemon when it runs."""
+    from ferb.config import Config
+    from ferb.device.profile import ProfileStore, diff
+    from ferb.device.scan import scan
+    did = Config(home).get("device", "id")
+    if not did:
+        print("No device profile yet: run `ferb setup`.", file=out)
+        return 1
+    store = ProfileStore(home)
+    if action == "scan":
+        changed = store.save(scan(str(did)), "ferb device scan")
+        print("Rescanned: " + ("the profile changed (committed)." if changed else "no changes."), file=out)
+    p = store.load(str(did))
+    if p is None:
+        print("No device profile yet: run `ferb setup`.", file=out)
+        return 1
+    print(f"{p.os} {p.os_version} · scanned {p.scanned_at} · {len(p.apps)} apps, "
+          f"{sum(a.scriptable for a in p.apps)} scriptable", file=out)
+    d = diff(p, scan(p.device_id)) if action != "scan" else None
+    if d is not None and not d.empty:
+        print(f"  since then: {len(d.added)} added, {len(d.removed)} removed, {len(d.changed)} changed "
+              "(`ferb device scan`)", file=out)
+    live: dict[str, list[str]] = {}
+    try:
+        c = connect()
+        for pr in c.call("browsers.list")["profiles"]:
+            if pr["paired"]:
+                state = "connected" if pr["connected"] else "paired, not connected"
+                who = "FERB's identity" if pr.get("ferb_identity") else "owner"
+                live.setdefault(pr["browser"], []).append(f"{pr['name']} ({who}, {state})")
+        c.close()
+    except Exception:
+        pass
+    print("Browsers:", file=out)
+    for b in p.browsers:
+        print(f"  {b.name}: " + "; ".join(f"{k} — {v}" for k, v in b.drivers.items()), file=out)
+        for line in live.get(b.name, []):
+            print(f"      {line}", file=out)
+    return 0

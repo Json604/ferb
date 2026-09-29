@@ -13,7 +13,8 @@ def _span(seconds: float) -> str:
 
 
 def header(now: datetime, task_started: datetime | None = None, deadline: datetime | None = None,
-           owner_last_active: datetime | None = None, last_trail_event: datetime | None = None) -> str:
+           owner_last_active: datetime | None = None, last_trail_event: datetime | None = None,
+           typical: str | None = None) -> str:
     """For the start of every model turn. Unknown values say so (owner activity + trail arrive with build step 10)."""
     parts = [f"now {now.strftime('%A %Y-%m-%d %H:%M:%S')} {now.strftime('%Z') or now.strftime('%z')}"]
     if task_started:
@@ -26,6 +27,8 @@ def header(now: datetime, task_started: datetime | None = None, deadline: dateti
                                          if owner_last_active else "unknown"))
     parts.append("last trail event " + (_span((now - last_trail_event).total_seconds()) + " ago"
                                         if last_trail_event else "unknown"))
+    if typical:
+        parts.append(typical)                                     # measured durations (build step 14)
     return "[" + " | ".join(parts) + "]"
 
 

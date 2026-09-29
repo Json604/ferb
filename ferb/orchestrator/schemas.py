@@ -68,11 +68,13 @@ REMEMBER_SCHEMA = _obj({
     "subject": {"type": "string"}, "key": {"type": "string"}, "content": {"type": "string"},
     "quote": {"type": "string"},
 })
+TIMER_SCHEMA = _obj({"at": {"type": "string"}, "message": {"type": "string"}, "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "plan"]},
     "text": {"type": "string"},
     "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
     "remember": {"type": "array", "items": REMEMBER_SCHEMA},
+    "timers": {"type": "array", "items": TIMER_SCHEMA},
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({
@@ -162,6 +164,17 @@ class SupervisorOutcome(BaseModel):
     text: str
     plan: Plan | None
     remember: list[Remember] = []
+    timers: list["TimerRequest"] = []
+
+
+class TimerRequest(BaseModel):
+    """A reminder the owner asked for: when (ISO 8601 with offset), what to say, the owner's exact words."""
+    at: str
+    message: str
+    quote: str
+
+
+SupervisorOutcome.model_rebuild()
 
 
 class WorkerOutcome(BaseModel):

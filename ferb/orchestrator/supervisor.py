@@ -55,11 +55,7 @@ Publish = Callable[[str, dict[str, Any]], None]
 LOOP_CHECK_EVERY = 25                          # loop.control: a checkpoint every 25 tool calls of a worker
 
 
-def route_of(scopes: set[str]) -> str:
-    """task.route baseline: what the subtask's scopes say."""
-    kinds = {("browser" if s.startswith(("browser:", "identity:")) else "shell" if s == "shell" else
-              "mac" if s.startswith(("mac:", "applescript", "screen")) else "") for s in scopes} - {""}
-    return kinds.pop() if len(kinds) == 1 else "mixed"
+from ferb.clock.durations import route_of  # noqa: E402  (task.route baseline: what the subtask's scopes say)
 
 
 @dataclass
@@ -133,6 +129,8 @@ class Supervisor(WorkerRuns):
         # confirmations shown to the owner)
         self.recall: Callable[[str], str] = lambda words: ""
         self.jev: Any = None                     # decide.ShadowDecider (build step 13)
+        self.timers: Any = None                  # clock.timers.Timers (build step 14)
+        self.sleep_until: Any = None
         self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
@@ -140,6 +138,28 @@ class Supervisor(WorkerRuns):
     def _system(self, name: str) -> str:
         facts = self.facts()
         return (PROMPTS / name).read_text() + (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
+
+    def _set_timers(self, items: list[Any], own_words: str, request_id: str) -> list[str]:
+        """Reminders the owner asked for in chat: kept only when the quote is the owner's own words and the time is
+        in the future (within a year)."""
+        if self.timers is None:
+            return []
+        norm = " ".join(own_words.lower().split())
+        out = []
+        for it in items:
+            quote = " ".join(str(it.quote).lower().split())
+            try:
+                at = datetime.fromisoformat(it.at)
+                if len(quote) < 3 or quote not in norm:
+                    raise ValueError("the reminder isn't in the owner's own words")
+                if at.tzinfo is None or at <= self.clock.now():
+                    raise ValueError("the time is in the past or has no time zone")
+                t = self.timers.add("reminder", at, it.message, request_id=request_id)
+            except ValueError as e:
+                self.journal.append("timer.refused", {"why": str(e)})
+                continue
+            out.append(f"⏰ reminder {t.id} set for {t.fire_at.astimezone():%a %d %b %H:%M}: {t.message}")
+        return out
 
     async def _jev_route(self, plan: Plan, request_id: str) -> None:
         from ferb.decide.decider import Ask
@@ -196,6 +216,8 @@ class Supervisor(WorkerRuns):
         session.history.append(("owner", m.for_model))
         for saved in self.remember(out.remember, m.own_words, entry.id):          # the owner's words, quote-checked
             yield {"type": "memory", "text": saved}
+        for note in self._set_timers(out.timers, m.own_words, request_id):
+            yield {"type": "timer", "text": note}
         if out.kind in ("reply", "clarify") or out.plan is None:
             session.history.append(("ferb", out.text))
             self.journal.append(f"chat.{out.kind}", {"session": session_id, "text": out.text})

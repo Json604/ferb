@@ -9,7 +9,7 @@ from ferb.cli.client import Client, RpcError
 from ferb.core.errors import NotRunning
 from ferb.paths import ferb_home, socket_path
 
-LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions")
+LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,6 +57,11 @@ def main(argv: list[str] | None = None) -> int:
                         ("disable", "back to shadow mode for one question")):
         x = dsub.add_parser(name, help=help_)
         x.add_argument("question")
+    rp = sub.add_parser("reminders", help="pending reminders and timers (cancel <id> to cancel one)")
+    rp.add_argument("action", nargs="?", choices=["list", "cancel"], default="list")
+    rp.add_argument("id", nargs="?")
+    dvp = sub.add_parser("device", help="this Mac's device profile (apps, scriptable apps, browsers); scan rescans")
+    dvp.add_argument("action", nargs="?", choices=["show", "scan"], default="show")
     tl = sub.add_parser("timeline", help="the journal: chats, task outcomes, daily summaries")
     tl.add_argument("--since", help="YYYY-MM-DD")
     sub.add_parser("pause", help="stop every watcher: nothing is recorded until `ferb resume`")
@@ -131,6 +136,10 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             return 130
 
+    if args.cmd == "device":
+        from ferb.cli.admin import device
+        return device(ferb_home(), args.action, lambda: Client(socket_path()), sys.stdout)
+
     try:
         client = Client(socket_path())
         try:
@@ -145,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.resume(client, sys.stdout)
             if args.cmd == "memory":
                 return admin.memory(client, args, input, sys.stdout)
+            if args.cmd == "reminders":
+                return admin.reminders(client, args.action, args.id, sys.stdout)
             if args.cmd == "decide":
                 return admin.decide(client, args, input, sys.stdout)
             if args.cmd == "timeline":

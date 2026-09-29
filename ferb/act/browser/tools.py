@@ -15,7 +15,7 @@ snapshot): following a link is `navigate`; typing into / submitting a search for
 import ipaddress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
@@ -367,3 +367,39 @@ def _accounts(driver: IdentityDriver) -> str:
 def _account(driver: IdentityDriver, args: BaseModel) -> str | None:
     key = str(getattr(args, "secret", ""))
     return driver.secrets.spec(SecretRef(key)).account_hint if driver.secrets.has(SecretRef(key)) else None
+
+
+class MailboxSend:
+    """Send an email from FERB's own mailbox (identity FERB only; build step 14). Normal autonomy: sending in the
+    owner's request, to a recipient they named -> held ~10 s for undo, then sent; another recipient -> asks; a send
+    the request didn't include -> blocked. The content is checked for owner data like any outbound action."""
+    name = "mailbox.send"
+    description = ("Send an email from FERB's own address (not the owner's). Only to recipients the owner named; "
+                   "it's held briefly so the owner can undo it.")
+    scopes = {"mailbox:send"}
+    identities = {Identity.FERB}
+    risk, reversible = RiskLevel.MEDIUM, False
+
+    class Input(BaseModel):
+        to: list[str] = Field(min_length=1, max_length=10)
+        subject: str = Field(max_length=200)
+        body: str = Field(max_length=5000)
+
+    def __init__(self, driver: Any) -> None:
+        self.driver = driver
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        a: Any = args
+        return ActionSpec(Kind.MAILBOX_SEND, Target(recipients=tuple(t.strip().lower() for t in a.to)),
+                          content=f"{a.subject}\n{a.body}")
+
+    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        a: Any = args
+        if any("@" not in t or " " in t.strip() for t in a.to):
+            return ToolResult({"error": "each recipient must be an email address"}, is_error=True)
+        try:
+            await self.driver.send_mail([t.strip() for t in a.to], a.subject, a.body, ctx.task_id,
+                                        ctx.intent_id or "")
+        except Refused as e:
+            return ToolResult({"error": str(e)}, is_error=True)
+        return ToolResult({"sent": True, "to": a.to, "from": "FERB's own address"})

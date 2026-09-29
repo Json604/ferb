@@ -21,10 +21,11 @@ class Kind:
     PAY, DELETE_PERMANENT, TRASH = "pay", "delete_permanent", "trash"
     WRITE_FILE, RUN_SHELL, APPLESCRIPT, MAC_INPUT = "write_file", "run_shell", "applescript", "mac_input"
     FILL_SECRET, MAILBOX_READ, MAILBOX_SEND = "fill_secret", "mailbox_read", "mailbox_send"
+    TIMER = "timer"                                       # a reminder / timer for the owner (cancelable)
 
 
 # Reversible actions just run (section 10.2) once identity/scope/exposure pass.
-REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH}
+REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER}
 HARD_FLOOR = {Kind.PAY, Kind.DELETE_PERMANENT}                 # always ask, every autonomy level
 UNDO_WINDOW = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND}   # held ~10 s before executing
 OUTBOUND = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.FILL_FORM, Kind.SUBMIT, Kind.MAILBOX_SEND, Kind.WRITE_FILE,
@@ -62,10 +63,10 @@ def payload_hash(a: ActionRequest) -> str:
 SCOPES_BY_IDENTITY: dict[Identity, frozenset[str]] = {
     # FERB tasks: FERB's own browser profile, its secrets, its mailbox, files in FERB's workspace only.
     Identity.FERB: frozenset({"identity:browse", "secrets:fill", "mailbox:read", "mailbox:send",
-                              "fs:read", "fs:write"}),
+                              "fs:read", "fs:write", "time"}),
     # OWNER tasks: owner browsers, Mac control, shell, files. Never FERB's browser, secrets or mailbox.
     Identity.OWNER: frozenset({"browser:read", "browser:act", "mac:read", "mac:act", "applescript", "shell",
-                               "fs:read", "fs:write", "screen", "trail:read"}),
+                               "fs:read", "fs:write", "screen", "trail:read", "time"}),
 }
 
 

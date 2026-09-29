@@ -48,7 +48,7 @@ def test_first_root_wins_and_browsers_are_detected_by_bundle_only(tmp_path: Path
     assert p.app("com.google.Chrome").version == "154"
     assert [b.name for b in p.browsers] == ["brave", "chrome"]
     brave = next(b for b in p.browsers if b.name == "brave")
-    assert all("not built yet" in s for s in brave.drivers.values())
+    assert "ext:brave" in brave.drivers and not any("not built" in s for s in brave.drivers.values())
 
 
 def test_profile_round_trip_diff_and_methods(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ untrusted data (section 10.2).
 """
 
 import secrets
+import threading
 import sys
 from typing import Any, Callable, TextIO
 
@@ -37,6 +38,8 @@ def render(ev: dict[str, Any]) -> str | None:
         return f"ferb? {ev['text']}"
     if t == "memory":
         return f"   ✎ {ev['text']}"
+    if t == "timer":
+        return f"   {ev['text']}"
     if t == "plan":
         subs = "".join(f"\n        {s['id']} ({s['role']}{', after ' + ', '.join(s['depends_on']) if s['depends_on'] else ''})"
                        f": {s['goal']}" for s in ev.get("subtasks", []))
@@ -79,6 +82,8 @@ def run(connect: Callable[[], Client], inp: TextIO, out: TextIO, ask: Callable[[
     if tty:
         out.write(PASTE_ON)
     print("FERB chat — /quit to leave. Pasted text is treated as data, not instructions.", file=out)
+    reminders(connect, out)                                   # what fired while chat was closed
+    threading.Thread(target=_live_reminders, args=(connect, out), daemon=True).start()
     try:
         while True:
             print("you> ", end="", file=out, flush=True)
@@ -110,6 +115,30 @@ def run(connect: Callable[[], Client], inp: TextIO, out: TextIO, ask: Callable[[
         if tty:
             out.write(PASTE_OFF)
             out.flush()
+
+
+def reminders(connect: Callable[[], Client], out: TextIO) -> None:
+    """Delivered reminders not shown in chat yet (the daemon marks them shown)."""
+    try:
+        c = connect()
+        try:
+            for r in c.call("reminders.unseen")["reminders"]:
+                late = f" (due {round(r['overdue_s'] / 60)} min ago)" if (r.get("overdue_s") or 0) >= 60 else ""
+                print(f"\n   ⏰ reminder: {r['message']}{late}", file=out, flush=True)
+        finally:
+            c.close()
+    except Exception:
+        pass                                                  # never break the chat over a reminder
+
+
+def _live_reminders(connect: Callable[[], Client], out: TextIO) -> None:
+    try:
+        c = connect()
+        for ev in c.stream("logs.subscribe", {"filters": ["timers"]}):
+            if ev.get("topic") == "timer.fired":
+                reminders(connect, out)
+    except Exception:
+        return
 
 
 def main_chat(connect: Callable[[], Client]) -> int:

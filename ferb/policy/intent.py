@@ -13,7 +13,7 @@ from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind
 IMPLIES: dict[str, frozenset[str]] = {
     "book": frozenset({Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.FILL_FORM, Kind.SUBMIT}),
     "buy": frozenset({Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.FILL_FORM, Kind.SUBMIT, Kind.PAY}),
-    "email": frozenset({Kind.DRAFT, Kind.SEND}),
+    "email": frozenset({Kind.DRAFT, Kind.SEND, Kind.MAILBOX_SEND}),   # MAILBOX_SEND: from FERB's own mailbox
     "reply": frozenset({Kind.READ, Kind.DRAFT, Kind.REPLY}),
     "post": frozenset({Kind.DRAFT, Kind.POST}),
     "summarize": frozenset({Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB}),

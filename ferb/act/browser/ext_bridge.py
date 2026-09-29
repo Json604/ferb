@@ -589,6 +589,35 @@ class FerbIdentity(_TabDriver):
     async def check_account(self, tab: TabRef) -> None:
         return None                                           # FERB's own profile: FERB's own accounts
 
+    async def send_mail(self, to: list[str], subject: str, body: str, owner: str, intent_id: str = "",
+                        poll_s: float = 0.5, tries: int = 30) -> str:
+        """Send from FERB's own Gmail (build step 14): its compose page in FERB's profile, a real click on Send, and
+        Gmail's "Message sent" as the confirmation. No confirmation after the click: outcome unknown (the ledger
+        reconciles from FERB's Sent folder; never sent twice)."""
+        from urllib.parse import urlencode
+        url = "https://mail.google.com/mail/?view=cm&fs=1&" + urlencode({"to": ",".join(to), "su": subject,
+                                                                          "body": body})
+        tab = await self.open_for(url, owner)
+        try:
+            send = None
+            for _ in range(tries):
+                snap = await self.snapshot(tab)
+                send = next((e for e in snap.elements if e.role == "button" and e.label.startswith("Send")), None)
+                if send is not None:
+                    break
+                await asyncio.sleep(poll_s)
+            if send is None:
+                raise Refused("Gmail's compose page didn't load in FERB's profile (is FERB's inbox signed in?)")
+            await self.act(self.element_ref(tab, send.id), BrowserAction("click", trusted=True), intent_id)
+            for _ in range(tries * 4):                        # "Sending..." can take a while (measured up to ~20 s)
+                snap = await self.snapshot(tab)
+                if "Message sent" in snap.text:
+                    return "sent"
+                await asyncio.sleep(poll_s)
+            raise OutcomeUnknown("clicked Send but Gmail didn't confirm; check FERB's Sent folder")
+        finally:
+            await self.close(tab)
+
     def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
         return None
 

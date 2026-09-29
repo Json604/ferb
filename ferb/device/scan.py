@@ -15,9 +15,11 @@ APP_ROOTS = [Path("/Applications"), Path("/Applications/Utilities"), Path("/Syst
              Path("/System/Applications/Utilities"), Path.home() / "Applications"]
 
 BROWSERS = {
-    "com.google.Chrome": ("chrome", {"ext:chrome": "not built yet (build step 6)"}),
-    "com.brave.Browser": ("brave", {"ext:brave": "not built yet (build step 6; owner-scheduled check first)"}),
-    "com.apple.Safari": ("safari", {"applescript_read": "watch-only (Block 1)"}),
+    "com.google.Chrome": ("chrome", {"ext:chrome": "FERB extension, per paired profile (`ferb browsers`)",
+                                     "ax:chrome": "Accessibility read fallback"}),
+    "com.brave.Browser": ("brave", {"ext:brave": "FERB extension, per paired profile (`ferb browsers`)",
+                                    "ax:brave": "Accessibility read fallback"}),
+    "com.apple.Safari": ("safari", {"applescript_read": "watch-only (Block 1), when Automation is granted"}),
 }
 
 

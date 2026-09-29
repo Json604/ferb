@@ -1038,11 +1038,12 @@ Build step 11 specifics (owner decisions):
 | Command | Purpose |
 |---------|---------|
 | `ferb chat` | Conversation with the orchestrator; approvals inline |
-| `ferb logs [--tasks --trail --tools --browsers --policy --actions]` | Live stream from the bus (redacted) |
+| `ferb logs [--tasks --trail --tools --browsers --policy --actions --timers]` | Live stream from the bus (redacted) |
 | `ferb trace <task-id>` | Span tree for one task |
 | `ferb setup [--update]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent) / health, permissions, extension connectivity |
 | `ferb uninstall [--purge]` | Remove the LaunchAgent (and native-host files); `--purge` also deletes `~/.ferb` after confirmation |
-| `ferb device` / `ferb browsers` | Device profile / browser drivers + connection status |
+| `ferb device [scan]` / `ferb browsers` | Device profile (apps, scriptable apps, browsers with live pairing status; `scan` rescans) / browser drivers + connection status |
+| `ferb reminders [cancel <id>]` | Pending reminders and timers; cancel one |
 | `ferb timeline`, `ferb memory list [--proposed\|--all] \| show \| add \| confirm \| edit \| retract \| forget` | Memory journey |
 | `ferb pause` / `ferb resume` | Stop / start monitoring |
 | `ferb decide stats \| enable <q> \| disable <q>` / `ferb setup --jev` | Jev's answers next to FERB's (shadow mode); enabling a question; the Jev key into the Keychain |
