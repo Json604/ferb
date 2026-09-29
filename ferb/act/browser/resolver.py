@@ -3,7 +3,7 @@
 The unit is browser + profile. A profile the owner names wins (resolved with 9.5). Otherwise:
 1. a paired profile already has that site open -> use it (several in one browser -> ask; several browsers ->
    `browser.prefer_for_actions`),
-2. (trail history: build step 9),
+2. (trail history: build step 10),
 3. the default browser's last-used profile, if paired,
 4. ask, listing the paired profiles.
 Never routes to FERB's identity profile or any install bound to identity FERB (10.1).

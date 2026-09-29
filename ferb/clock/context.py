@@ -14,7 +14,7 @@ def _span(seconds: float) -> str:
 
 def header(now: datetime, task_started: datetime | None = None, deadline: datetime | None = None,
            owner_last_active: datetime | None = None, last_trail_event: datetime | None = None) -> str:
-    """For the start of every model turn. Unknown values say so (owner activity + trail arrive with step 9)."""
+    """For the start of every model turn. Unknown values say so (owner activity + trail arrive with build step 10)."""
     parts = [f"now {now.strftime('%A %Y-%m-%d %H:%M:%S')} {now.strftime('%Z') or now.strftime('%z')}"]
     if task_started:
         parts.append(f"task started {task_started.strftime('%H:%M:%S')} (+{_span((now - task_started).total_seconds())})")

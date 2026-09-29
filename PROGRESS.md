@@ -79,7 +79,7 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   extractor is unvalidated on a real signed-in page (it falls back to "couldn't read the account" -> refuse); Gmail's
   is title/aria-label based. Validate both with a real signed-in account before relying on them (FERB's own account
   is in its identity profile: ask the owner first). The "FERB" tab group isn't asserted in the real test.
-- 6a deferred (owner-approved): resolver rule 2 (trail history) -> step 9; data-flow labels from owner pages
+- 6a deferred (owner-approved): resolver rule 2 (trail history) -> step 10; data-flow labels from owner pages
   (21.9) -> step 8; External Extensions + unlisted Web Store listing before pairing the owner's real profiles.
 - Test profiles (owner keeps both for future tests): Chrome "FERB Test" (Profile 25) and Brave folder "FERB Test"
   (shown as "Personal"). No accounts in either.
@@ -93,8 +93,9 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   FERB-profile real test failed twice at start-up (pairing / connection not ready) while the harness swapped
   daemons under the live extension; 5/5 after instrumenting, not reproduced. One offline-suite fixture error
   right after a real run; 11 clean runs since.
-- 7 notes: screenshot + click (vision) not built (needs image results to reach the model); the AX browser
-  fallback is read-only; shell output isn't marked untrusted (step 8's reader/actor split is the mitigation);
+- 7 notes: screenshot + click (vision) is its own build step 9, after step 8 (owner, 2026-09-29; §18 renumbered:
+  sense/trail -> 10, memory -> 11, Safari/FERB.app -> 12, decide -> 13); the AX browser fallback is read-only;
+  network-fetching shell commands' output is untrusted and exposes the worker (owner, 2026-09-29);
   new verb `use_app` (READ, MAC_INPUT, APPLESCRIPT). No real test drives real input into an app (it would take
   focus on the owner's screen); the yield logic is tested with an injected poster.
 - Doctor showed "device profile: 1 changed since last scan" (an app update); `ferb setup` rescans.

@@ -963,10 +963,13 @@ Rules:
    (session, OTP, 21.4) run here against the extension.
 7. `act/mac` + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser`.
 8. Orchestrator multi-worker (DAG, reader/actor, budgets, verification, reconciliation).
-9. `sense` watchers + trail (fixed processing order, actor attribution) + exclusions.
-10. `memory` (items with trust levels, distill, recall, purge-forget, export) + timeline.
-11. Deferred: Safari control and FERB.app (later block).
-12. `decide` with Jev in shadow.
+9. Screenshot + click (vision) for apps with poor Accessibility support: on-demand window capture
+   (`act/mac/screenshot.py`), image results that reach the model, clicks by coordinates through the same marked,
+   yielding real input, and the frame never stored or sent when it shows a password field or an excluded app (10.6).
+10. `sense` watchers + trail (fixed processing order, actor attribution) + exclusions.
+11. `memory` (items with trust levels, distill, recall, purge-forget, export) + timeline.
+12. Deferred: Safari control and FERB.app (later block).
+13. `decide` with Jev in shadow.
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.
@@ -995,10 +998,12 @@ section 21 safety tests pass.
 - The secret passes through more components than a CDP fill did (native host and extension); both are
   high-privilege, reviewed components.
 - Mac control in Block 1 build step 7: AppleScript (scriptable apps, one app per script) and Accessibility, with
-  real mouse/keyboard only as the fallback. Screenshot + click (vision) is not built yet: it needs image results
+  real mouse/keyboard only as the fallback. Screenshot + click (vision) is build step 9: it needs image results
   to reach the model. The Accessibility browser fallback reads only; acting in a browser needs the extension.
-- Shell output is not treated as untrusted content (it would expose the worker after its first command); a command
-  that fetches web content brings that content in unmarked. Reader/actor splits (step 8) are the mitigation.
+- Shell output is untrusted only for commands that fetch from the network (curl, wget, ssh, git clone/pull, …,
+  matched on each pipeline segment's command word): running or reading one exposes the worker. Other commands'
+  output is trusted, so a program that fetches content some other way isn't caught; reader/actor splits (step 8)
+  are the further mitigation.
 - Trusted (debugger-dispatched) input works in a page's top frame only; elements inside iframes get page-mode
   (scripted) events, which some sites ignore. Extending trusted input to iframes needs frame-offset handling.
   Secret fills are unaffected: they set the value on the exact element in its own frame.

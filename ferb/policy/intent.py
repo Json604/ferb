@@ -70,7 +70,7 @@ class IntentResult:
     reason: str = ""
 
 
-# Optional fuzzy checker (Jev action.matches_request, step 12): "yes" | "no" | "unsure". It can only make things
+# Optional fuzzy checker (Jev action.matches_request, build step 13): "yes" | "no" | "unsure". It can only make things
 # stricter: it's consulted only after a deterministic match and can turn it into block/ask, never the reverse.
 Fuzzy = Callable[[ActionRequest, RequestIntent], Literal["yes", "no", "unsure"]]
 
