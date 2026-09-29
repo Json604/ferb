@@ -53,9 +53,11 @@ def fd(daemon: RunningDaemon, keychain: Path) -> Iterator[tuple[RunningDaemon, l
     yield daemon, launched, scrubbed
 
 
-def pair_identity(d: RunningDaemon, launched: list[list[str]], confirm: bool = False) -> tuple[FakeExtension, dict[str, Any]]:
-    ext = FakeExtension(d.daemon.home)
-    ext.connect()
+def pair_identity(d: RunningDaemon, launched: list[list[str]], confirm: bool = False,
+                  ext: FakeExtension | None = None) -> tuple[FakeExtension, dict[str, Any]]:
+    if ext is None:
+        ext = FakeExtension(d.daemon.home)
+        ext.connect()
     out: dict[str, Any] = {}
     c = Client(d.sock, timeout=30)
 
@@ -123,6 +125,8 @@ def test_pairing_needs_exactly_ferbs_account_and_confirmation_to_repair(fd: Any)
     assert {"ferb_browser.open", "ferb_browser.fill_secret", "ferb_browser.fill_otp"} <= names
     _, again = pair_identity(d, launched)
     assert "needs your confirmation" in again.get("error", "")
+    _, again = pair_identity(d, launched, confirm=True, ext=ext)       # the same install again: an identical binding
+    assert again.get("paired") is True, again
     owner = task(d, "o", Identity.OWNER, {"browser:read", "browser:act"}, {"research"})
     r = call(d, owner, "browser.open", url="https://x.example/", profile="FERB")
     assert r["is_error"]                                                       # 21.3: never an owner profile

@@ -106,7 +106,9 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   overlapped on the native-host launcher (likely the 6b start-up flakes).
 - **The FERB-profile real test** (`FERB_REAL_IDENTITY=1`) needs the installed daemon running (skips otherwise, before
   touching anything) and hands FERB's profile back to it afterwards (the installed daemon re-pairs it and its session
-  is checked); the owner no longer re-pairs after a run.
+  is checked); the owner no longer re-pairs after a run. Passed 2/2 with the hand-back after fixing `identity.pair`:
+  re-pairing the same extension install gives an identical binding, so "binding changed" never fired; it now waits
+  for its own token's pairing and a connection attached after it.
 - **Extension 0.6.2:** sends and the "paired" reply read-modify-wrote the stored {key, seq} concurrently: a tab event
   racing the reply could write the old key back (every later message failed its MAC; the profile paired but never
   connected) and two sends could share a seq. Now serialized, messages posted in seq order; a node test runs the real

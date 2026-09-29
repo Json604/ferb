@@ -42,6 +42,7 @@ class Pairings:
     def __init__(self, db: Database, clock: Clock) -> None:
         self.db, self.clock = db, clock
         self._tokens: dict[str, tuple[str, str, Identity, float]] = {}
+        self.paired: set[str] = set()                        # tokens that completed a pairing
 
     def issue_token(self, browser: str, folder: str, identity: Identity = Identity.OWNER) -> str:
         token = secrets.token_urlsafe(24)
@@ -108,6 +109,7 @@ class Pairings:
                   "VALUES (?, ?, ?, ?, ?, 0, ?)",
                   (m.install_id, browser, folder, identity.value, key, self.clock.now().isoformat()))
         c.execute("COMMIT")
+        self.paired.add(token)
         return Verdict(True, "paired", reply={"type": "paired", "key": base64.b64encode(key).decode()},
                        binding=Binding(m.install_id, browser, folder, identity))
 
