@@ -475,7 +475,8 @@ class Daemon:
         from ferb.memory.items import Memory
         from ferb.memory.recall import context_block
         assert self.db is not None and self.journal is not None
-        self.memory = Memory(self.db, self.clock, self.ids, self._publish, on_change=self._export_memory)
+        self.memory = Memory(self.db, self.clock, self.ids, self._publish, on_change=self._export_memory,
+                             redact=self._redact_text)
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,

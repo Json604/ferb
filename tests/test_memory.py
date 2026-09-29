@@ -290,3 +290,22 @@ def test_trail_query_is_owner_only_and_titles_expose_the_worker(daemon: RunningD
     r = call(daemon, g, "trail.query", since_hours=24 * 30)
     assert not r["is_error"] and r["content"]["count"] >= 1
     assert daemon.daemon.engine.exposure.state("w-q").exposed                   # page titles are web content
+
+
+def test_secrets_never_reach_memory_or_its_export(daemon: RunningDaemon) -> None:
+    """Safety test 5 for memory: whatever the owner or a model puts in an item goes through the redactor."""
+    m, home = mem(daemon), daemon.daemon.home
+    secret = "sk-ant-abcdefghijklmnopqrstuvwxyz0123"
+    daemon.daemon.redact.add_secret_value("hunter2-Zq9")                  # a value FERB filled somewhere
+    src = journal(daemon, "memory.added", {"content": "x"})
+    run(daemon, lambda: m.propose("env", "owner", "api_key", f"The API key is {secret}", "owner_stated",
+                                  [("journal", src)], 1.0))
+    run(daemon, lambda: m.propose("fact", "owner", "wifi", "Wifi password is hunter2-Zq9", "owner_stated",
+                                  [("journal", src)], 1.0))
+
+    async def dump() -> bytes:
+        daemon.daemon.db.conn.execute("PRAGMA wal_checkpoint(FULL)")      # type: ignore[union-attr]
+        return b"".join(p.read_bytes() for p in home.rglob("*") if p.is_file() and not p.is_socket())
+    everything = daemon.run(dump())
+    assert secret.encode() not in everything and b"hunter2-Zq9" not in everything
+    assert "[redacted]" in (home / "memory" / "owner.md").read_text()

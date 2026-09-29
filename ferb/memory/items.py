@@ -81,8 +81,9 @@ class ForgetPlan:
 
 class Memory:
     def __init__(self, db: Database, clock: Clock, ids: IdSource, publish: Callable[[str, dict[str, Any]], None],
-                 on_change: Callable[[], None] = lambda: None) -> None:
+                 on_change: Callable[[], None] = lambda: None, redact: Callable[[str], str] = lambda s: s) -> None:
         self.db, self.clock, self.ids, self.publish, self.on_change = db, clock, ids, publish, on_change
+        self.redact = redact                         # secrets never reach memory or its export (safety test 5)
         self.rebuild_summary: Callable[[str], bool] = lambda day: False   # summary.py (True: rebuilt)
 
     # ---------- reads ----------
@@ -155,7 +156,8 @@ class Memory:
     def propose(self, kind: str, subject: str, key: str, content: str, origin: str, sources: Iterable[Source],
                 confidence: float = 0.7) -> MemoryItem:
         """Every item enters here. Enforces the origin rules; observed evidence accumulates on one proposal."""
-        kind, subject, key, content = kind.strip(), subject.strip() or "owner", slug(key), content.strip()
+        kind, subject, key = kind.strip(), self.redact(subject.strip()) or "owner", slug(self.redact(key))
+        content = self.redact(content.strip())
         srcs = list(dict.fromkeys(sources))
         self._check(kind, subject, key, content, origin, srcs)
         now = self.clock.now()
