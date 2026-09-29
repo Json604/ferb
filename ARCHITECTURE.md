@@ -25,11 +25,11 @@ Keychain locking). Undo window shown in the CLI only (no system notifications in
 | # | Feature | In this block |
 |---|---------|---------------|
 | 1 | Mac control | Yes — AppleScript/CLI → Accessibility → screenshot+click, chosen per app from the device profile |
-| 2 | Browser control | Yes — FERB's own Chrome profile via CDP; owner's Chrome and Brave via the FERB browser extension, Accessibility fallback; Safari watch-only (AppleScript read of tabs and URLs) (section 9) |
-| 3 | FERB identity | Yes — own email + password, Keychain-backed, used only in FERB's own profile, never visible to models |
+| 2 | Browser control | Yes — FERB's own Chrome profile via the FERB extension (paired as identity FERB); owner's Chrome and Brave via the same extension, Accessibility read fallback, screenshot + click as the last fallback; Safari watch-only (AppleScript read of tabs and URLs, when the owner has granted Automation) (section 9) |
+| 3 | FERB identity | Yes — own email + password (Keychain) and one-time codes from its inbox, filled sealed into origin-checked fields in FERB's own profile, never visible to models; sending email from its own mailbox under the normal autonomy rules |
 | 4 | CLI | Yes — `ferb chat` (talk to orchestrator) and `ferb logs` (live log/trail viewer), plus admin commands |
 | 5 | Monitoring | Yes — event trail of Mac + browser activity; no continuous LLM watching; screenshots only on demand |
-| 6 | Time | Yes — time header per model call, timestamp footer on every tool result, durable timers |
+| 6 | Time | Yes — time header per model turn (with measured task durations), timestamp footer on every tool result, durable timers and reminders (delivered exactly once, as macOS notifications and in the CLI) |
 | 7 | Memory journey | Yes — everything from day one in SQLite; distilled memory items with provenance and trust levels; markdown exported as a read-only view |
 | – | Jev | Yes — behind `Decider`, shadow mode first |
 | – | Safari control (extension, acting in Safari) | **No** — later block; Safari is watch-only in Block 1 |
@@ -227,13 +227,14 @@ ferb/
   identity/
     secrets.py          KeychainSecretStore (FERB identity only)
     mailbox.py          FERB's inbox (read OTPs) and sending from it: normal autonomy rules — requested sends go
-                        with the undo window, unrequested ones ask
+                        with the undo window, an unnamed recipient asks, a send outside the request is blocked
     seed.py             verify FERB's Chrome profile holds exactly FERB's account (section 8 step 3); copies nothing
   clock/
     clock.py            SystemClock, FakeClock
     context.py          time header + tool footer builders
-    durations.py        measured duration stats from spans
-    timers.py           durable timers (SQLite) → bus events
+    durations.py        measured task durations (per route + role, median / p90) for the time header
+    timers.py           durable timers (SQLite): claim → deliver → acknowledge, overdue after sleep / restart; tools
+                        time.set_timer / time.remind_at / time.sleep_until
   memory/
     journal.py          append-only episodic log
     items.py            distilled memory items (source of truth): origin rules, versions, conflicts, forget = purge
@@ -959,6 +960,18 @@ Earlier sketch of the questions (kept for reference):
 - Footer on every tool result: `[now 15:42:10 IST | task +11m | deadline in 18m]`.
 - Measured durations: median/p90 for similar past tasks from spans, when available.
 - Timers: `set_timer`, `remind_at`, `sleep_until`; SQLite-backed; survive restarts and sleep (overdue timers fire with `overdue_by`).
+  Build step 14 specifics:
+  - Due times are checked against the wall clock at least every 30 s (the monotonic clock stops while the Mac sleeps).
+  - Exactly once (safety test 19): a due timer is claimed, delivered, then acknowledged; a claimed-but-unacknowledged
+    timer is delivered again after a crash, and its consumer skips a timer id it already handled.
+  - Reminders come from the owner's own words in chat (the supervisor returns them with a quote that code checks
+    against the owner's own words; the time must be in the future and within a year) or from a task's
+    `time.set_timer` / `time.remind_at`. Delivery: a macOS notification (osascript; the OS's, not FERB UI), `ferb chat`
+    (live while open, otherwise shown the next time it opens), `ferb logs`, and the journal. `ferb reminders`
+    lists / cancels them.
+  - `time.sleep_until` pauses a worker within the task's time limit (not a stall); a restart interrupts the task and
+    cancels its sleep.
+  - A timer never starts work on its own; scheduled and recurring tasks are build step 15.
   Delivery: due → claimed (row lock) → delivered → acknowledged by its consumer. A claimed-but-unacknowledged timer
   is re-delivered after restart with the same timer id; consumers ignore ids they already handled.
 - Elapsed time, timeouts, heartbeats and guards use `Clock.monotonic()`; timestamps and schedules use `Clock.now()`.
@@ -1116,7 +1129,11 @@ Build step 11 specifics (owner decisions):
 14. Time and small gaps (owner-added, 2026-09-30): durable timers — `set_timer`, `remind_at`, `sleep_until`,
     SQLite-backed, surviving restarts and sleep (overdue timers fire with `overdue_by`), delivered exactly once
     (safety test 19); `clock/durations.py` (measured task durations in the time header); sending from FERB's mailbox
-    (normal autonomy: in the request → the 10 s undo window; not requested → asks); `ferb device`; the §0 table fix.
+    (normal autonomy: in the request → the 10 s undo window; a recipient the owner didn't name → asks; a send the
+    request didn't include → blocked, owner decision); `ferb device`; the §0 table fix.
+15. Scheduled and recurring tasks (owner-added, 2026-09-30): "every morning at 9, summarize my unread email", "check this
+    price tomorrow and email me". The intent is recorded from the owner's words when the task is scheduled and each run
+    is held to that intent; `ferb schedules` lists and cancels them. Plan shown before building.
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.
