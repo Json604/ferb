@@ -63,10 +63,16 @@ PLAN_SCHEMA: dict[str, Any] = _obj({
     "subtasks": {"type": "array", "items": SUBTASK_SCHEMA},
 })
 
+REMEMBER_SCHEMA = _obj({
+    "kind": {"type": "string", "enum": ["fact", "preference", "person", "project", "env"]},
+    "subject": {"type": "string"}, "key": {"type": "string"}, "content": {"type": "string"},
+    "quote": {"type": "string"},
+})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "plan"]},
     "text": {"type": "string"},
     "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
+    "remember": {"type": "array", "items": REMEMBER_SCHEMA},
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({
@@ -142,10 +148,20 @@ class Plan(BaseModel):
     subtasks: list[Subtask]
 
 
+class Remember(BaseModel):
+    """Something the owner stated about themselves or asked FERB to remember, with the exact words it rests on."""
+    kind: Literal["fact", "preference", "person", "project", "env"]
+    subject: str
+    key: str
+    content: str
+    quote: str
+
+
 class SupervisorOutcome(BaseModel):
     kind: Literal["reply", "clarify", "plan"]
     text: str
     plan: Plan | None
+    remember: list[Remember] = []
 
 
 class WorkerOutcome(BaseModel):

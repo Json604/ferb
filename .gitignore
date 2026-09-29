@@ -36,3 +36,4 @@ calls.log
 *.keychain-db
 *.pem
 *.key
+tests/.distill_usage.json

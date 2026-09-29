@@ -28,6 +28,30 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("stop", help="emergency stop: revoke tokens, block all actions, cancel held sends")
     sub.add_parser("resume-tasks", help="lift the emergency stop")
+    mp = sub.add_parser("memory", help="what FERB remembers: list, show, add, confirm, edit, retract, forget")
+    msub = mp.add_subparsers(dest="mcmd", required=True)
+    ml = msub.add_parser("list", help="active items (--proposed: waiting for you; --all: everything)")
+    ml.add_argument("--proposed", action="store_true")
+    ml.add_argument("--all", action="store_true")
+    ms = msub.add_parser("show", help="every item about a subject, with its history and sources")
+    ms.add_argument("subject", nargs="?", default="owner")
+    ma = msub.add_parser("add", help="remember something you state")
+    ma.add_argument("content")
+    ma.add_argument("--kind", default="fact", choices=["fact", "preference", "person", "project", "env"])
+    ma.add_argument("--subject", default="owner")
+    ma.add_argument("--key")
+    for name, help_ in (("confirm", "activate an inferred item"), ("retract", "stop using an item (kept as history)")):
+        x = msub.add_parser(name, help=help_)
+        x.add_argument("id")
+    me = msub.add_parser("edit", help="correct an item (a new version; the old one stays as history)")
+    me.add_argument("id")
+    me.add_argument("content")
+    mf = msub.add_parser("forget", help="purge an item, its versions and its sources (asks first)")
+    mf.add_argument("id")
+    mf.add_argument("--keep-sources", action="store_true")
+    mf.add_argument("--yes", action="store_true")
+    tl = sub.add_parser("timeline", help="the journal: chats, task outcomes, daily summaries")
+    tl.add_argument("--since", help="YYYY-MM-DD")
     sub.add_parser("pause", help="stop every watcher: nothing is recorded until `ferb resume`")
     sub.add_parser("resume", help="start the watchers again after `ferb pause`")
     up = sub.add_parser("undo", help="cancel a pending send/post during its undo window")
@@ -109,6 +133,10 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":
                 return admin.resume(client, sys.stdout)
+            if args.cmd == "memory":
+                return admin.memory(client, args, input, sys.stdout)
+            if args.cmd == "timeline":
+                return admin.timeline(client, args.since, sys.stdout)
             if args.cmd == "pause":
                 return admin.pause(client, sys.stdout)
             if args.cmd == "resume":

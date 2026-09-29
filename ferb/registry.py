@@ -76,6 +76,12 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
     r.add(MacClick(driver, device_profile, extension_ready))
 
 
+def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
+    """The owner's recorded activity (identity OWNER only; build step 11)."""
+    from ferb.sense.tools import TrailQuery
+    r.add(TrailQuery(trail))
+
+
 def add_shell(r: Registry, shells: ShellManager) -> None:
     """Shell commands (identity OWNER only, lost when exposed; build step 7)."""
     r.add(ShellRun(shells))

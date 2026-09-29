@@ -13,9 +13,12 @@ from ferb.sense.watchers.base import Watcher
 
 class Sense:
     def __init__(self, home: Path, trail: Trail, watchers: list[Watcher], owner_input: Any = None,
-                 on_pause: Callable[[bool], None] = lambda paused: None) -> None:
+                 on_pause: Callable[[bool], None] = lambda paused: None,
+                 on_fail: Callable[[str, str], None] = lambda source, error: None) -> None:
         self.marker = home / "PAUSED"
         self.trail, self.watchers, self.owner_input, self.on_pause = trail, watchers, owner_input, on_pause
+        self.on_fail = on_fail
+        self.failed: dict[str, str] = {}                          # source -> why it stopped (doctor shows it)
         self._stop: asyncio.Event | None = None
         self._tasks: list[asyncio.Task[None]] = []
 
@@ -45,7 +48,10 @@ class Sense:
         except asyncio.CancelledError:
             raise
         except Exception as e:                                  # one broken watcher never stops the others
-            self.trail.publish("sense.watcher_failed", {"source": w.source, "error": f"{type(e).__name__}: {e}"})
+            why = f"{type(e).__name__}: {e}"[:300]
+            self.failed[w.source] = why
+            self.trail.publish("sense.watcher_failed", {"source": w.source, "error": why})
+            self.on_fail(w.source, why)
 
     async def stop(self) -> None:
         if self._stop is not None:

@@ -35,6 +35,8 @@ def render(ev: dict[str, Any]) -> str | None:
         return f"ferb> {ev['text']}"
     if t == "clarify":
         return f"ferb? {ev['text']}"
+    if t == "memory":
+        return f"   ✎ {ev['text']}"
     if t == "plan":
         subs = "".join(f"\n        {s['id']} ({s['role']}{', after ' + ', '.join(s['depends_on']) if s['depends_on'] else ''})"
                        f": {s['goal']}" for s in ev.get("subtasks", []))

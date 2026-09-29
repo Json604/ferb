@@ -93,6 +93,7 @@ class MemoryItem:
     id: str
     kind: Literal["fact", "preference", "person", "project", "env"]
     subject: str
+    key: str                                  # what it's about ("dentist"): versions of one fact share it
     content: str
     source_ids: list[str]
     observed_at: datetime

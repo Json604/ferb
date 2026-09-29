@@ -32,7 +32,7 @@ from ferb.act.gui_lock import GuiLock
 from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
-from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell
+from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
@@ -66,7 +66,7 @@ RELEASE_TICK_S = 0.2
 class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None, undo_window_s: float = 10.0,
-                 watch_owner_input: bool = True, watchers: bool = True) -> None:
+                 watch_owner_input: bool = True, watchers: bool = True, distill: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -117,6 +117,11 @@ class Daemon:
         self.attribution = Attribution()
         self.watch_problems: list[str] = []
         self._excl: tuple[float, Exclusions] | None = None
+        # Memory (build step 11). Tests turn the daily distillation loop off (it calls a model).
+        self.run_distill = distill
+        self.memory: Any = None
+        self.distiller: Any = None
+        self._distill_task: asyncio.Task[None] | None = None
 
     @property
     def stop_marker(self) -> Path:
@@ -141,7 +146,13 @@ class Daemon:
         self._build_mac_and_shell()
         self._build_agents()
         await self._build_sense()
+        self._build_memory()
         for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
+                         ("memory.list", self._memory_list), ("memory.show", self._memory_show),
+                         ("memory.add", self._memory_add), ("memory.confirm", self._memory_confirm),
+                         ("memory.edit", self._memory_edit), ("memory.retract", self._memory_retract),
+                         ("memory.forget", self._memory_forget), ("memory.distill", self._memory_distill),
+                         ("timeline.get", self._timeline),
                          ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift), ("undo", self._undo), ("autonomy.get", self._autonomy_get),
                          ("autonomy.set", self._autonomy_set), ("doctor.check", self._doctor_check),
@@ -178,6 +189,8 @@ class Daemon:
             await self.router.shutdown()
         if self.shells is not None:
             await self.shells.kill_all()
+        if self._distill_task is not None:
+            self._distill_task.cancel()
         if self.sense is not None:
             await self.sense.stop()
         if self.owner_input.running:
@@ -302,6 +315,7 @@ class Daemon:
         add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)
+        add_trail(self.registry, lambda: self.trail)
 
     # ---------- watchers + trail (build step 10) ----------
 
@@ -359,7 +373,8 @@ class Daemon:
                         FilesWatcher(self._watch_folders), AppInstallsWatcher(self._app_changed),
                         ScriptedTabsWatcher(self._automation_granted, self._any_extension_connected)]
         self.sense = Sense(self.home, self.trail, watchers, self.owner_input if self.watch_owner_input else None,
-                           on_pause=self._on_pause)
+                           on_pause=self._on_pause, on_fail=lambda source, why: self._journal().append(
+                               "sense.watcher_failed", {"source": source, "error": why}))
         await self.sense.start()
         if self.sense.paused:
             self._journal().append("sense.still_paused", {})
@@ -439,7 +454,125 @@ class Daemon:
     async def _sense_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         s = self.sense
         return {"paused": bool(s and s.paused), "watchers": s.running if s else [],
+                "failed": dict(s.failed) if s else {},
                 "owner_input": self.owner_input.running, "folder_problems": self.watch_problems}
+
+    # ---------- memory (build step 11) ----------
+
+    def _build_memory(self) -> None:
+        from ferb.memory import summary
+        from ferb.memory.distill import Distiller
+        from ferb.memory.items import Memory
+        from ferb.memory.recall import context_block
+        assert self.db is not None and self.journal is not None
+        self.memory = Memory(self.db, self.clock, self.ids, self._publish, on_change=self._export_memory)
+        journal = self.journal
+        self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
+        self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
+                                   purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")))
+        if self.supervisor is not None:
+            self.supervisor.recall = lambda words: context_block(self.memory, words)
+            self.supervisor.remember = self._remember
+        if self.run_distill:
+            self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
+
+    def _purge_trail(self) -> Any:
+        if self.trail is None:
+            return None
+        purged, refused = self.trail.purge(int(self.config.get("sense", "trail_retention_days", 30)))
+        if purged:
+            self._journal().append("trail.purged", {"days": purged})
+        return purged, refused
+
+    async def _distill_loop(self) -> None:
+        """Hourly: summarize and distill every past day not done yet, then purge (summarized days only)."""
+        while True:
+            try:
+                assert self.distiller is not None
+                await self.distiller.catch_up()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:                             # never takes the daemon down; tried again next hour
+                self._journal().append("memory.distill_failed", {"error": f"{type(e).__name__}: {e}"[:300]})
+            await asyncio.sleep(3600)
+
+    def _export_memory(self) -> None:
+        from ferb.memory.export import export
+        if self.memory is not None:
+            export(self.memory, self.home / "memory")
+
+    def _remember(self, items: list[Any], own_words: str, source_id: str) -> list[str]:
+        """Chat capture (owner_stated): only when the quote is really the owner's own words (not pasted text)."""
+        norm = " ".join(own_words.lower().split())
+        saved = []
+        for it in items:
+            quote = " ".join(str(it.quote).lower().split())
+            if len(quote) < 3 or quote not in norm:
+                self._journal().append("memory.capture_refused", {"key": it.key, "why": "quote not in the owner's words"})
+                continue
+            try:
+                m = self.memory.propose(it.kind, it.subject, it.key, it.content, "owner_stated",
+                                        [("journal", source_id)], 1.0)
+            except FerbError as e:
+                self._journal().append("memory.capture_refused", {"key": it.key, "why": str(e)})
+                continue
+            saved.append(f"remembered ({m.id}): {m.content}")
+        return saved
+
+    def _item_dict(self, it: Any, conflict: bool = False) -> dict[str, Any]:
+        return {"id": it.id, "kind": it.kind, "subject": it.subject, "key": it.key, "content": it.content,
+                "origin": it.origin, "status": it.status, "valid_from": it.valid_from.isoformat(),
+                "valid_to": it.valid_to.isoformat() if it.valid_to else None, "supersedes": it.supersedes,
+                "sources": it.source_ids, "evidence_days": self.memory.evidence_days(it.id), "conflict": conflict}
+
+    async def _memory_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        status = params.get("status", "active")
+        items = self.memory.items(None if status == "all" else status, params.get("subject"),
+                                  valid_now=not params.get("history"))
+        return {"items": [self._item_dict(i) for i in items]}
+
+    async def _memory_show(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        subject = str(params["subject"])
+        items = self.memory.items(None, subject, valid_now=False)
+        return {"subject": subject, "items": [self._item_dict(i) for i in items]}
+
+    async def _memory_add(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        from ferb.memory.items import slug
+        content = str(params["content"]).strip()
+        entry = self._journal().append("memory.added", {"content": content})
+        it = self.memory.propose(str(params.get("kind") or "fact"), str(params.get("subject") or "owner"),
+                                 str(params.get("key") or slug(content, 30)), content, "owner_stated",
+                                 [("journal", entry.id)], 1.0)
+        return self._item_dict(it)
+
+    async def _memory_confirm(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        return self._item_dict(self.memory.confirm(str(params["id"])))
+
+    async def _memory_edit(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        entry = self._journal().append("memory.edited", {"id": params["id"], "content": params["content"]})
+        return self._item_dict(self.memory.edit(str(params["id"]), str(params["content"]), ("journal", entry.id)))
+
+    async def _memory_retract(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        self.memory.retract(str(params["id"]), str(params.get("reason", "the owner")))
+        return {"retracted": params["id"]}
+
+    async def _memory_forget(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        keep = bool(params.get("keep_sources"))
+        if not params.get("confirm"):
+            plan = self.memory.plan_forget(str(params["id"]), keep)
+            return {"confirmed": False, "will_delete": plan.describe(self.db)}
+        plan = self.memory.forget(str(params["id"]), keep)
+        return {"confirmed": True, "deleted": plan.describe(self.db)}
+
+    async def _memory_distill(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Distill one day now (owner / tests); normally the hourly loop does it."""
+        assert self.distiller is not None
+        return dict(await self.distiller.run_day(str(params["day"])))
+
+    async def _timeline(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        since = datetime.fromisoformat(params["since"]).astimezone() if params.get("since") else None
+        rows = self._journal().entries(since)
+        return {"entries": [{"at": e.at.isoformat(), "kind": e.kind, "data": e.data} for e in rows][-500:]}
 
     def _device_profile(self) -> Any:
         from ferb.device.profile import ProfileStore

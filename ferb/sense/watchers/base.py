@@ -51,10 +51,21 @@ def focused_title(pid: int) -> str | None:
     return str(t) if t else None
 
 
+MAX_FAILED_READS = 20
+
+
 async def poll(interval_s: float, stop: asyncio.Event, step: Callable[[], Any]) -> None:
-    """Run `step` in a thread every interval until stopped."""
+    """Run `step` in a thread every interval until stopped. One failed read (an app answering Accessibility badly)
+    is skipped; only a run of MAX_FAILED_READS failures stops the watcher (and doctor shows why)."""
+    failures = 0
     while not stop.is_set():
-        await asyncio.to_thread(step)
+        try:
+            await asyncio.to_thread(step)
+            failures = 0
+        except Exception:
+            failures += 1
+            if failures >= MAX_FAILED_READS:
+                raise
         try:
             await asyncio.wait_for(stop.wait(), interval_s)
         except asyncio.TimeoutError:

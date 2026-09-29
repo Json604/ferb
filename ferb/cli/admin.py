@@ -134,3 +134,73 @@ def kill(client: Client, proc_id: str, out: TextIO) -> int:
     ok = client.call("ps.kill", {"id": proc_id})["killed"]
     print("Stopped." if ok else f"No process {proc_id}.", file=out)
     return 0 if ok else 1
+
+
+# ---------- memory (build step 11) ----------
+
+ORIGIN = {"owner_stated": "you said", "observed": "observed", "inferred": "inferred", "third_party": "third-party"}
+
+
+def _item_line(i: dict[str, Any]) -> str:
+    extra = ""
+    if i["status"] == "proposed" and i["origin"] == "observed":
+        extra = f" — seen on {i['evidence_days']} of 3 days"
+    elif i["status"] == "proposed":
+        extra = f" — `ferb memory confirm {i['id']}` to use it"
+    until = f" (until {i['valid_to'][:10]})" if i.get("valid_to") else ""
+    return (f"  {i['id']}  [{i['kind']} · {i['subject']} · {i['key']}] {i['content']}  "
+            f"({ORIGIN[i['origin']]}, {i['status']}{until}){extra}")
+
+
+def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
+    c = args.mcmd
+    if c == "list":
+        status = "all" if args.all else "proposed" if args.proposed else "active"
+        items = client.call("memory.list", {"status": status})["items"]
+        print("\n".join(_item_line(i) for i in items) or "  (nothing)", file=out)
+    elif c == "show":
+        r = client.call("memory.show", {"subject": args.subject})
+        print(f"{r['subject']}:", file=out)
+        for i in r["items"]:
+            print(_item_line(i), file=out)
+            print(f"      sources: {', '.join(i['sources']) or '-'}", file=out)
+    elif c == "add":
+        i = client.call("memory.add", {"content": args.content, "kind": args.kind, "subject": args.subject,
+                                       "key": args.key})
+        print("Remembered:\n" + _item_line(i), file=out)
+    elif c == "confirm":
+        print("Confirmed:\n" + _item_line(client.call("memory.confirm", {"id": args.id})), file=out)
+    elif c == "edit":
+        print("Updated (the old version stays as history):\n" +
+              _item_line(client.call("memory.edit", {"id": args.id, "content": args.content})), file=out)
+    elif c == "retract":
+        client.call("memory.retract", {"id": args.id})
+        print(f"Retracted {args.id}: kept as history, never used.", file=out)
+    elif c == "forget":
+        p = {"id": args.id, "keep_sources": args.keep_sources}
+        plan = client.call("memory.forget", p)["will_delete"]
+        print("This permanently deletes:\n" + "\n".join(f"  - {x}" for x in plan), file=out)
+        if not args.yes and ask("Forget it? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("Nothing deleted.", file=out)
+            return 1
+        client.call("memory.forget", p | {"confirm": True})
+        print("Forgotten.", file=out)
+    return 0
+
+
+def timeline(client: Client, since: str | None, out: TextIO) -> int:
+    for e in client.call("timeline.get", {"since": since} if since else {})["entries"]:
+        d = e["data"]
+        if e["kind"] == "trail.day_summary":
+            text = (f"day {d.get('day')}: {d.get('events', 0)} events; apps "
+                    + ", ".join(f"{k} {v}m" for k, v in list(d.get("apps_min", {}).items())[:5]))
+        elif e["kind"] == "trail.day_narrative":
+            text = f"day {d.get('day')}: {d.get('text', '')}"
+        elif e["kind"] in ("chat.message", "chat.reply"):
+            text = str(d.get("text", ""))[:160]
+        elif e["kind"] == "task.outcome":
+            text = f"{d.get('status')}: {str(d.get('summary', ''))[:160]}"
+        else:
+            text = ", ".join(f"{k}={v}" for k, v in d.items())[:160]
+        print(f"{e['at'][:16].replace('T', ' ')}  {e['kind']:<22} {text}", file=out)
+    return 0

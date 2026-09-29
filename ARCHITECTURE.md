@@ -213,6 +213,7 @@ ferb/
       owner_input.py    owner is using mouse/keyboard right now → GUI work yields
       app_installs.py   app install / removal → device.changed
     exclusions.py       exclusion list applied before any trail write, bus event or tag
+    tools.py            trail.query (OWNER, `trail:read`; browser / window rows expose the reader)
     trail.py            the pipeline (exclude → redact → id + actor → persist → publish → tag), attribution,
                         resolver history, the retention purge
     manager.py          starts / stops every watcher; `ferb pause` / `ferb resume` (survives restarts)
@@ -233,8 +234,10 @@ ferb/
     timers.py           durable timers (SQLite) → bus events
   memory/
     journal.py          append-only episodic log
-    items.py            distilled memory items (source of truth)
-    distill.py          journal/trail → proposed items
+    items.py            distilled memory items (source of truth): origin rules, versions, conflicts, forget = purge
+    summary.py          the permanent daily summary, by code (no model), and distillation's evidence handles
+    distill.py          daily: summary first, then one model run (narrative + proposals checked in code), then purge
+    distill.md          the distiller's prompt
     recall.py           keyword (FTS5) retrieval; embeddings later behind the same function
     export.py           items → markdown files (read-only view, regenerated; no history kept)
   store/
@@ -351,6 +354,7 @@ class MemoryItem:
     id: str
     kind: Literal["fact", "preference", "person", "project", "env"]
     subject: str            # e.g. "owner", "project:ferb", "person:<slug>"
+    key: str                # what it's about (e.g. "dentist"): versions of one fact share kind + subject + key
     content: str
     source_ids: list[str]   # journal / span / trail ids it came from
     observed_at: datetime
@@ -951,6 +955,31 @@ Rules:
 - Retraction (`retract`) is the soft version: kept for history, never recalled.
 - `ferb timeline [--since …]` renders the journal; `ferb memory show <subject>` renders items with sources.
 
+Build step 11 specifics (owner decisions):
+- **Origins in code.** `owner_stated`: `ferb memory add` / `edit`, or chat capture — the supervisor returns what the
+  owner stated with the owner's exact words, and code keeps it only if that quote is in the owner's own words (not
+  pasted text); active at once and supersedes any earlier version. `observed`: sources must all be trail rows with
+  actor owner; active once they span 3 separate days. `inferred`: proposed until `ferb memory confirm`.
+  `third_party`: never a preference, never about the owner. Nothing about the owner or their preferences may rest on
+  FERB's own activity (trail rows with actor ferb, FERB's task outcomes) — safety test 18.
+- **Versions.** kind + subject + key name one fact; a newer version closes the old (`valid_to`) and links it
+  (`supersedes`). Only the owner's statement supersedes something the owner stated; otherwise both stay active and
+  recall flags the conflict, the owner-stated one first.
+- **Daily job (hourly catch-up, no budget).** For each past day not done: (1) the summary (`trail.day_summary`), built
+  by code from the day's trail and journal — always written, needs no model; (2) one model run on the worker runtime
+  from config (no tools, typed output): a narrative (`trail.day_narrative`) and proposals citing evidence handles
+  (E owner activity, C owner's words, P pasted third-party text, F FERB's own activity), checked in code before
+  `propose`; a failure is retried on later runs (3 attempts per day), the summary stays; (3) the purge, which only
+  deletes days that have their summary. Measured on a fixture day: Codex ≈ 10k input + 150 output tokens per day,
+  Claude ≈ 2k (mostly cached) + 500.
+- **Forget.** Lists what it will delete and asks. Deletes the item, all its versions, items built on the same
+  sources, the sources (journal entries, trail rows) unless `--keep-sources`; days whose rows went get their summary
+  rebuilt from what remains (the narrative is dropped), or deleted if no rows remain; a summary that was itself a
+  source is deleted. Then the FTS index is rebuilt, the WAL checkpointed (truncate), the export regenerated. A
+  one-way fingerprint (hash of kind, subject, key, content) stops distillation proposing it again; the owner may
+  state it again.
+- Recall for a supervisor turn: up to 8 active items matching the owner's own words, labeled by origin.
+
 ## 15. CLI
 
 | Command | Purpose |
@@ -961,7 +990,7 @@ Rules:
 | `ferb setup [--update]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent) / health, permissions, extension connectivity |
 | `ferb uninstall [--purge]` | Remove the LaunchAgent (and native-host files); `--purge` also deletes `~/.ferb` after confirmation |
 | `ferb device` / `ferb browsers` | Device profile / browser drivers + connection status |
-| `ferb timeline`, `ferb memory …` | Memory journey |
+| `ferb timeline`, `ferb memory list [--proposed\|--all] \| show \| add \| confirm \| edit \| retract \| forget` | Memory journey |
 | `ferb pause` / `ferb resume` | Stop / start monitoring |
 | `ferb stop` / `ferb resume-tasks` | Emergency stop of all actions / lift it |
 | `ferb undo` | Cancel a pending send/post during its undo window (section 10.2) |

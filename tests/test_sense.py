@@ -359,3 +359,26 @@ def test_defaults_are_written_once_and_owner_values_stay(tmp_path: Path) -> None
     c.set("privacy", "exclude_paths", [])
     c.ensure_privacy_defaults()
     assert c.get("sense", "window_titles") is False and c.get("privacy", "exclude_paths") == []
+
+
+def test_a_polling_watcher_survives_a_bad_read_but_not_a_broken_source() -> None:
+    from ferb.sense.watchers.base import MAX_FAILED_READS, poll
+    calls = [0]
+
+    def flaky() -> None:
+        calls[0] += 1
+        if calls[0] in (2, 3):
+            raise RuntimeError("an app answered badly")
+
+    async def go(step: Any) -> None:
+        stop = asyncio.Event()
+        asyncio.get_running_loop().call_later(0.2, stop.set)
+        await poll(0.0, stop, step)
+    asyncio.run(go(flaky))
+    assert calls[0] > 3                                                  # kept going after the bad reads
+
+    def broken() -> None:
+        raise RuntimeError("gone")
+    with pytest.raises(RuntimeError):
+        asyncio.run(go(broken))
+    assert MAX_FAILED_READS == 20

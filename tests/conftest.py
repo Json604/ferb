@@ -27,6 +27,7 @@ class RunningDaemon:
     @staticmethod
     async def _make(home: Path, kwargs: dict[str, Any]) -> Daemon:
         kwargs.setdefault("watchers", False)            # the owner's real activity stays out of test trails
+        kwargs.setdefault("distill", False)             # the daily distillation calls a model
         return Daemon(home=home, **kwargs)
 
     def run(self, coro: Any, timeout: float = 10) -> Any:

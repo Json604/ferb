@@ -317,6 +317,8 @@ def doctor(env: Env) -> int:
                           "`ferb resume`"))
             else:
                 add(Check("watchers", "ok", ", ".join(sense["watchers"]) or "none running"))
+            for source, why in sense.get("failed", {}).items():
+                add(Check(f"watcher {source}", "warn", f"stopped: {why}", "restart FERB (`ferb setup --update`)"))
             for problem in sense["folder_problems"]:
                 add(Check("watch folder", "warn", problem, "fix [sense] watch_folders in ~/.ferb/config.toml"))
     did = Config(inst.home).get("device", "id") if (inst.home / "config.toml").exists() else None

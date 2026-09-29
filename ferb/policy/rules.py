@@ -65,7 +65,7 @@ SCOPES_BY_IDENTITY: dict[Identity, frozenset[str]] = {
                               "fs:read", "fs:write"}),
     # OWNER tasks: owner browsers, Mac control, shell, files. Never FERB's browser, secrets or mailbox.
     Identity.OWNER: frozenset({"browser:read", "browser:act", "mac:read", "mac:act", "applescript", "shell",
-                               "fs:read", "fs:write", "screen"}),
+                               "fs:read", "fs:write", "screen", "trail:read"}),
 }
 
 

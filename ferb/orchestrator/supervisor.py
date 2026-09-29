@@ -113,6 +113,10 @@ class Supervisor(WorkerRuns):
         self.activity = Activity(clock.monotonic)
         # (owner last active, last trail event) for the time header; the daemon supplies them (build step 10)
         self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
+        # Memory (build step 11), supplied by the daemon: recall for a turn; save what the owner stated (returns the
+        # confirmations shown to the owner)
+        self.recall: Callable[[str], str] = lambda words: ""
+        self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
 
@@ -140,10 +144,10 @@ class Supervisor(WorkerRuns):
         session = self.sessions.setdefault(session_id, ChatSession(session_id))
         m = mark(text)
         request_id = self.ids.new_id()
-        self.journal.append("chat.message", {"session": session_id, "request_id": request_id, "text": m.for_model,
-                                             "untrusted_parts": len(m.untrusted)})
+        entry = self.journal.append("chat.message", {"session": session_id, "request_id": request_id,
+                                                     "text": m.for_model, "untrusted_parts": len(m.untrusted)})
         try:
-            out = await self._supervise(session, m.for_model, request_id)
+            out = await self._supervise(session, m.for_model, request_id, self.recall(m.own_words))
         except RuntimeViolation as e:
             yield {"type": "error", "text": f"The supervisor runtime was stopped: {e}"}
             return
@@ -151,6 +155,8 @@ class Supervisor(WorkerRuns):
             yield {"type": "error", "text": f"The supervisor's answer wasn't usable ({type(e).__name__})."}
             return
         session.history.append(("owner", m.for_model))
+        for saved in self.remember(out.remember, m.own_words, entry.id):          # the owner's words, quote-checked
+            yield {"type": "memory", "text": saved}
         if out.kind in ("reply", "clarify") or out.plan is None:
             session.history.append(("ferb", out.text))
             self.journal.append(f"chat.{out.kind}", {"session": session_id, "text": out.text})
@@ -172,12 +178,13 @@ class Supervisor(WorkerRuns):
         session.history.append(("ferb", f"[task {final.get('task_id')} {final.get('status')}"
                                          f"{', verified' if final.get('verified') else ''}] {final.get('summary', '')}"))
 
-    async def _supervise(self, session: ChatSession, message: str, request_id: str) -> SupervisorOutcome:
+    async def _supervise(self, session: ChatSession, message: str, request_id: str,
+                         remembered: str = "") -> SupervisorOutcome:
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
         history = "\n".join(f"{'Owner' if who == 'owner' else 'FERB'}: {t}"
                             for who, t in session.history[-2 * HISTORY_TURNS:])
         ctx = (f"{context.header(self.clock.now(), None, None, *self.signals())}\n\nConversation so far:\n{history or '(none)'}\n\n"
-               f"Owner's new message:\n{message}")
+               + (f"{remembered}\n\n" if remembered else "") + f"Owner's new message:\n{message}")
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
                          [], None)
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id})
