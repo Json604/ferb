@@ -61,8 +61,9 @@ def pair(d: RunningDaemon, launched: list[list[str]], name: str) -> FakeExtensio
         import threading
         out: dict[str, Any] = {}
         t = threading.Thread(target=lambda: out.update(c.call("browsers.pair", {"profile": name, "timeout_s": 10})))
+        n = len(launched)
         t.start()
-        ext.wait_for(lambda: launched and "pair.html#token=" in launched[-1][-1])
+        ext.wait_for(lambda: len(launched) > n and "pair.html#token=" in launched[-1][-1])
         ext.pair(launched[-1][-1].split("#token=")[1])
         t.join(15)
     finally:
@@ -468,3 +469,17 @@ def test_worker_keeps_the_new_key_and_orders_seqs_when_sends_race_the_paired_rep
     after = out["after_pairing"]
     assert after and all(m["new_key"] for m in after), after
     assert [m["seq"] for m in after] == list(range(1, len(after) + 1)), after
+
+
+def test_the_profile_that_owns_a_window_says_whether_its_tab_has_a_password_field(bd: Any) -> None:
+    """Step 9 screenshot check (9.4 window_password): every connected profile of that browser is asked; only the
+    one whose window has exactly those bounds answers; nobody matching means "can't tell"."""
+    d, launched = bd
+    work, personal = pair(d, launched, "Work"), pair(d, launched, "Personal")
+    personal.windows[(10, 20, 800, 600)] = True
+    work.windows[(0, 0, 500, 400)] = False
+    ask = d.daemon._web_password
+    assert d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0))) is True
+    assert d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0))) is False
+    assert d.run(ask("chrome", (1.0, 1.0, 5.0, 5.0))) is None
+    assert d.run(ask("brave", (10.0, 20.0, 800.0, 600.0))) is None

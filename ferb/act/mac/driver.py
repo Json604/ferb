@@ -9,12 +9,12 @@ browsers are read-only here (ax_browser).
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, Callable, Collection, Literal
+from typing import Any, Awaitable, Callable, Collection, Literal
 
 from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
-from ferb.act.mac.ax_browser import ACT_REFUSED, is_browser
+from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
 from ferb.act.mac.input import RealInput, Step, click_steps, key_steps, type_steps, valid_combo
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
@@ -47,9 +47,11 @@ class MacComputerDriver:
     os: Literal["macos", "windows", "linux"] = "macos"
 
     def __init__(self, device_id: str, real_input: RealInput, excluded: Callable[[], Collection[str]] = frozenset,
-                 ax: Any = axm, apps: Any = appsm, shots: Any = shotm) -> None:
+                 ax: Any = axm, apps: Any = appsm, shots: Any = shotm,
+                 web_password: Callable[[str, tuple[float, float, float, float]], Awaitable[bool | None]] | None = None,
+                 ) -> None:
         self.device_id, self.input, self.excluded, self.ax, self.apps = device_id, real_input, excluded, ax, apps
-        self.shots = shots
+        self.shots, self.web_password = shots, web_password     # web_password: the extension's check (9.4)
         self._state: dict[str, _AppState] = {}
 
     def app(self, name_or_bundle: str) -> Any:
@@ -90,25 +92,34 @@ class MacComputerDriver:
         return n
 
     async def screenshot(self, name_or_bundle: str) -> tuple[Any, Shot, bytes]:
-        """The app's front window only, in memory. A password field the Accessibility tree shows, before or after the
-        capture, drops the frame; when the tree can't tell (no AX window, too large), the capture goes ahead."""
+        """The app's front window only, in memory. A password field the Accessibility tree shows (or, for a browser,
+        the extension reports in the tab on screen), before or after the capture, drops the frame; when neither can
+        tell, the capture goes ahead."""
         a = self.app(name_or_bundle)
+        browser = BROWSER_BUNDLES.get(a.bundle_id)
 
-        def grab() -> tuple[Any, bytes, int, int]:
+        def find() -> Any:
             w = self.shots.front_window(a.pid, self.ax.frame(self.ax.app_window(a.pid)))
             if w is None:
                 raise Refused(f"{a.name} has no window on screen")
-            browser = is_browser(a.bundle_id)
-            if self.ax.has_secure_field(self.ax.window_with_frame(a.pid, w.bounds), browser):
+            return w
+
+        async def check(w: Any) -> None:
+            win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds)
+            if await asyncio.to_thread(self.ax.has_secure_field, win, browser is not None):
                 raise Refused(PASSWORD_REFUSED)
+            if browser and self.web_password is not None and await self.web_password(browser, w.bounds):
+                raise Refused(PASSWORD_REFUSED)
+
+        def grab(w: Any) -> tuple[bytes, int, int]:
             try:
-                jpeg, width, height = self.shots.capture(w)
+                return self.shots.capture(w)                  # type: ignore[no-any-return]
             except (LookupError, RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
-            if self.ax.has_secure_field(self.ax.window_with_frame(a.pid, w.bounds), browser):
-                raise Refused(PASSWORD_REFUSED)                  # appeared while capturing
-            return w, jpeg, width, height
-        w, jpeg, width, height = await asyncio.to_thread(grab)
+        w = await asyncio.to_thread(find)
+        await check(w)
+        jpeg, width, height = await asyncio.to_thread(grab, w)
+        await check(w)                                        # appeared while capturing: the frame is dropped
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
         st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height))

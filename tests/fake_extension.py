@@ -72,6 +72,7 @@ class FakeExtension:
         self.values: dict[tuple[int, int], str] = {}      # (tab, element) -> value set by a fill
         self.feed_xml = ""
         self.fills: list[dict[str, Any]] = []
+        self.windows: dict[tuple[int, int, int, int], bool | None] = {}   # window bounds -> active tab has a password
 
     # ----- transport (the real native host) -----
 
@@ -205,6 +206,12 @@ class FakeExtension:
                             "text": p["text"], "truncated": False} for f, els in sorted(frames.items())]
                 or [{"frame_id": 0, "gen": a["snap"], "url": url, "title": p["title"], "elements": [],
                      "text": p["text"], "truncated": False}]}
+
+    def op_window_password(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        b = tuple(int(v) for v in a["bounds"])
+        if b not in self.windows:
+            return {"matched": False, "password": None}
+        return {"matched": True, "password": self.windows[b]}
 
     def op_frame_origin(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         url = self.tabs[a["tab_id"]]

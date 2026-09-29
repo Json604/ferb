@@ -260,6 +260,21 @@ class Daemon:
         return self.hub is not None and any(br.conn is not None and br.binding.browser == browser
                                             and br.binding.identity is Identity.OWNER for br in self.hub.bridges.values())
 
+    async def _web_password(self, browser: str, bounds: tuple[float, float, float, float]) -> bool | None:
+        """Ask each connected profile of this browser whether its window at these bounds shows a password field in
+        its active tab; the profile that owns the window answers. None: no profile could tell."""
+        for br in list(self.hub.bridges.values()) if self.hub else []:
+            if br.conn is None or br.binding.browser != browser:
+                continue
+            try:
+                r = await br.call("window_password", {"bounds": list(bounds)}, timeout=4)
+            except FerbError:
+                continue
+            if isinstance(r, dict) and r.get("matched"):
+                p = r.get("password")
+                return p if isinstance(p, bool) else None
+        return None
+
     def _build_mac_and_shell(self) -> None:
         if self.watch_owner_input and not self.owner_input.start():
             self._journal().append("owner_input.unavailable", {"why": "no event tap (Accessibility / Input Monitoring)"})
@@ -268,7 +283,7 @@ class Daemon:
             if self.supervisor is not None:
                 self.supervisor.activity.waiting(holder, on)
         self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait),
-                                     excluded=self.config.exclude_apps)
+                                     excluded=self.config.exclude_apps, web_password=self._web_password)
         add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)

@@ -120,8 +120,10 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   login page in "FERB Test": Chrome exposes no web area to Accessibility at all (both `AXManualAccessibility` and
   `AXEnhancedUserInterface` refused), so web password fields read as "can't tell" and are captured (§19). Browsers
   prefer the extension: with a paired owner profile of that browser connected, `mac.screenshot` / `mac.click` need a
-  recorded `fallback_reason` (§9.2). Proposed: ask the extension whether the captured window's tab has a password
-  field (match by window bounds) — awaiting the owner. A leftover local login tab may remain in "FERB Test".
+  recorded `fallback_reason` (§9.2). Approved and built: extension 0.6.3 `window_password` (the profile whose window
+  has the captured bounds says whether its active tab has a password field, any frame), asked before and after
+  capture. Offline tested; the real test (`tests/test_mac_vision_real.py`, spare profile) runs after the owner
+  reloads the extension.
 - **Extension 0.6.2:** sends and the "paired" reply read-modify-wrote the stored {key, seq} concurrently: a tab event
   racing the reply could write the old key back (every later message failed its MAC; the profile paired but never
   connected) and two sends could share a seq. Now serialized, messages posted in seq order; a node test runs the real

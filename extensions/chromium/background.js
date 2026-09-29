@@ -338,6 +338,26 @@ const commands = {
     if (!st.key) throw new Error("not paired");
     return { sealed: await seal(st.key, (r && r.result) || "", id, FEED_URL) };   // email content never in clear
   },
+  // Screenshot check (build step 9): does the active tab of this profile's window at exactly these screen bounds
+  // hold a password field, in any frame? Only yes / no / can't tell comes back, never page content.
+  async window_password({ bounds }) {
+    const [x, y, w, h] = bounds;
+    const wins = await chrome.windows.getAll({ windowTypes: ["normal", "popup"] });
+    const win = wins.find((v) => Math.abs(v.left - x) <= 2 && Math.abs(v.top - y) <= 2 &&
+                                 Math.abs(v.width - w) <= 2 && Math.abs(v.height - h) <= 2);
+    if (!win) return { matched: false, password: null };
+    const [tab] = await chrome.tabs.query({ active: true, windowId: win.id });
+    if (!tab) return { matched: true, password: null };
+    try {
+      const rs = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true },
+        func: () => !!document.querySelector('input[type="password" i]') });
+      const all = rs.map((r) => r.result);
+      if (all.some((v) => v === true)) return { matched: true, password: true };
+      return { matched: true, password: all.length && all.every((v) => v === false) ? false : null };
+    } catch (_) {
+      return { matched: true, password: null };                 // e.g. a browser page scripts can't read
+    }
+  },
   async wake_close({ url }) {            // close exactly the unique wake page (spike 13)
     const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || t.pendingUrl) === url);
     for (const t of tabs) await chrome.tabs.remove(t.id);

@@ -64,6 +64,7 @@ async function unseal(pairingKeyB64, sealed, commandId, origin) {
 const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page read_source may return
 
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "attach_debugger",
-             "detach_debugger", "cdp", "account", "wake_close", "frame_origin", "fill", "read_source"];
+             "detach_debugger", "cdp", "account", "wake_close", "frame_origin", "fill", "read_source",
+             "window_password"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal, FEED_URL };

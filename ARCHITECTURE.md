@@ -649,7 +649,9 @@ The `ax:*` fallback stops if it cannot establish which profile/account it is loo
   - daemon → ext: `open`, `navigate`, `close`, `list_tabs`, `snapshot`, `act`, `wait`, `screenshot`, `attach_debugger`,
     `detach_debugger`, `cdp` (allowlisted), `account` (run the site's account extractor, 9.3), `wake_close` (close
     exactly the wake page), `frame_origin` (a frame's origin, from its isolated world), `fill` (a sealed secret into
-    one element, 10.1), `read_source` (page source, refused for every URL except FERB's inbox feed); control: `welcome` (connection generation), `paired` (key), `refused` (e.g. protocol
+    one element, 10.1), `read_source` (page source, refused for every URL except FERB's inbox feed), `window_password` (whether the
+    active tab of this profile's window at exact screen bounds has a password field, any frame: yes / no / can't
+    tell, never content; the screenshot check, build step 9); control: `welcome` (connection generation), `paired` (key), `refused` (e.g. protocol
     mismatch)
   - ext → daemon: `result`, `error`, `tab_event` (created/updated/activated/removed), `hello` (`install_id`,
     extension/protocol version, owned resources). The extension can't know its profile folder: the daemon takes
@@ -998,7 +1000,8 @@ Rules:
    screenshot is out of this step), clicks by image coordinates through the same marked, yielding real input. The
    only refusals: apps on `[privacy] exclude_apps`, and a window whose Accessibility tree shows a password field
    (checked before and after capture; the frame is dropped). A browser's web tree is built on demand, so the check
-   waits up to ~2 s for web content before deciding. When the tree can't tell, the capture goes ahead.
+   waits up to ~2 s for web content; for Chrome / Brave the extension's `window_password` also answers for the tab on
+   screen (the profile whose window has those exact bounds). When nothing can tell, the capture goes ahead.
    Before each click event: the window hasn't moved and the system's hit test (Accessibility) says the click reaches
    it; if Accessibility can't answer, the topmost normal window there must be it.
 10. `sense` watchers + trail (fixed processing order, actor attribution) + exclusions.
@@ -1049,7 +1052,9 @@ section 21 safety tests pass.
   (9.3); the policy engine still gates it as `mac_input`. A screenshot of a browser exposes the worker (web
   content), as does one of a mail or messaging app. Chrome and Brave expose no web content to Accessibility unless
   an assistive technology (e.g. VoiceOver) has enabled it (`AXManualAccessibility` / `AXEnhancedUserInterface` are
-  refused), so a password field on a web page is usually "can't tell" and the frame is captured; Safari exposes it.
+  refused), so a web page's password field is detected through the extension (`window_password`) in paired
+  profiles; in unpaired profiles it's usually "can't tell" and the frame is captured. Safari exposes it to
+  Accessibility.
 - Trusted (debugger-dispatched) input works in a page's top frame only; elements inside iframes get page-mode
   (scripted) events, which some sites ignore. Extending trusted input to iframes needs frame-offset handling.
   Secret fills are unaffected: they set the value on the exact element in its own frame.

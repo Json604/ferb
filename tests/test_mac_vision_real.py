@@ -202,3 +202,63 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
                 continue
             assert raw not in data and marker.encode() not in data, f"the frame is on disk: {p}"
 
+
+
+# ---------- the extension's password check, in the spare profile ----------
+
+from tests.test_ext_real import rd, target  # noqa: E402,F401  (module fixtures: test daemon on the launcher)
+
+
+def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd: RunningDaemon,  # noqa: F811
+                                                                            target: tuple[str, str]) -> None:  # noqa: F811
+    """Chrome exposes no web content to Accessibility, so the check is the extension's (window_password): a local login
+    page in the spare profile's front window is refused; a page without a password field is captured."""
+    import http.server
+
+    from ferb.act.browser.profiles import discover_all, open_known_profile
+    from ferb.cli.client import Client
+    from ferb.core.errors import Refused
+    browser, name = target
+    if browser != "chrome":
+        pytest.skip("Chrome only")
+    pages = {"/login": b"<!doctype html><title>Login probe</title><input placeholder=User><input type=password>",
+             "/plain": b"<!doctype html><title>Plain probe</title><h1>nothing secret here</h1>"}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            self.send_response(200)
+            self.send_header("content-type", "text/html")
+            self.end_headers()
+            self.wfile.write(pages.get(self.path, b""))
+
+        def log_message(self, *a: Any) -> None:
+            pass
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    d = rd.daemon
+    known = discover_all()
+    p = next(p for p in known if p.browser == browser and p.display_name == name)
+    c = Client(rd.sock, timeout=90)
+    assert c.call("browsers.pair", {"profile": name, "browser": browser, "timeout_s": 60})["paired"]
+    c.close()
+    assert d.mac is not None and d.hub is not None
+    br = d.hub.bridges[(browser, p.folder)]
+
+    async def close_probe_tabs() -> None:
+        for t in (await br.call("list_tabs", {}))["tabs"]:
+            if t["host"] == "127.0.0.1":
+                await br.call("close", {"tab_id": t["tab_id"]})
+    try:
+        for path, refused in (("/login", True), ("/plain", False)):
+            open_known_profile(browser, p.folder, f"http://127.0.0.1:{srv.server_port}{path}", known)
+            time.sleep(2.5)
+            appsm.activate("com.google.Chrome")
+            time.sleep(0.5)
+            if refused:
+                with pytest.raises(Refused, match="password"):
+                    rd.run(d.mac.screenshot("com.google.Chrome"), timeout=30)
+            else:
+                rd.run(d.mac.screenshot("com.google.Chrome"), timeout=30)
+            rd.run(close_probe_tabs(), timeout=30)
+    finally:
+        srv.shutdown()

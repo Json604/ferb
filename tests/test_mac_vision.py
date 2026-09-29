@@ -131,6 +131,30 @@ def test_a_detectable_password_field_drops_the_frame_and_unknown_is_allowed(monk
     assert jpeg == shots.jpeg and shot.id == "shot1" and shot.size == IMG
 
 
+def test_a_browser_tab_the_extension_reports_with_a_password_field_drops_the_frame(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    d, ax, shots, *_ = vision(monkeypatch)
+    answers: list[bool | None] = []
+    asked: list[tuple[str, Any]] = []
+
+    async def web(browser: str, bounds: Any) -> bool | None:
+        asked.append((browser, bounds))
+        return answers.pop(0) if answers else None
+    d.web_password = web
+    answers[:] = [True]
+    with pytest.raises(Refused, match="password"):
+        asyncio.run(d.screenshot("Brave"))
+    assert shots.captured == [] and asked == [("brave", BOUNDS)]
+    answers[:] = [False, True]                                           # appeared while capturing
+    with pytest.raises(Refused, match="password"):
+        asyncio.run(d.screenshot("Brave"))
+    answers[:] = [None, None]                                            # no profile could tell: captured
+    asyncio.run(d.screenshot("Brave"))
+    asked.clear()
+    asyncio.run(d.screenshot("Notes"))
+    assert asked == []                                                   # only browsers are asked
+
+
 # ---------- clicks ----------
 
 def test_clicks_map_image_pixels_to_the_window_and_refuse_stale_moved_or_covered(monkeypatch: pytest.MonkeyPatch) -> None:
