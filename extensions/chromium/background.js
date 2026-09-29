@@ -37,18 +37,30 @@ async function hmac(keyB64, text) {
   return b64e(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text)));
 }
 
+// The stored {key, seq} is read-modify-written by every send and by pairing: one at a time, or a send racing the
+// "paired" reply writes the old key back (every later message fails its MAC) and two sends can share a seq.
+let stateLock = Promise.resolve();
+function serially(fn) {
+  const p = stateLock.then(fn);
+  stateLock = p.catch(() => {});
+  return p;
+}
+
 // Every message: install_id + type + body_json; once paired, a strictly increasing seq and an HMAC over all of it.
-async function send(type, body) {
-  const st = await install();
-  const msg = { install_id: st.installId, type, body_json: JSON.stringify(body) };
-  if (st.key) {
-    st.seq += 1;
-    await chrome.storage.local.set({ ferb: st });
-    msg.seq = st.seq;
-    msg.mac = await hmac(st.key, `${msg.install_id}|${msg.seq}|${msg.type}|${msg.body_json}`);
-  }
-  if (port) port.postMessage(msg);
-  else { outbox.push(msg); if (outbox.length > OUTBOX_MAX) outbox.shift(); ensurePort(); }
+// Posted inside the lock, so messages leave in seq order.
+function send(type, body) {
+  return serially(async () => {
+    const st = await install();
+    const msg = { install_id: st.installId, type, body_json: JSON.stringify(body) };
+    if (st.key) {
+      st.seq += 1;
+      await chrome.storage.local.set({ ferb: st });
+      msg.seq = st.seq;
+      msg.mac = await hmac(st.key, `${msg.install_id}|${msg.seq}|${msg.type}|${msg.body_json}`);
+    }
+    if (port) port.postMessage(msg);
+    else { outbox.push(msg); if (outbox.length > OUTBOX_MAX) outbox.shift(); ensurePort(); }
+  });
 }
 
 // ---------- connection ----------
@@ -75,9 +87,11 @@ async function ensurePort() {
 async function onDaemon(m) {
   if (m.type === "welcome") { gen = m.gen; return; }
   if (m.type === "paired" && m.key) {
-    const st = await install();
-    st.key = m.key; st.seq = 0;
-    await chrome.storage.local.set({ ferb: st });
+    await serially(async () => {
+      const st = await install();
+      st.key = m.key; st.seq = 0;
+      await chrome.storage.local.set({ ferb: st });
+    });
     gen = m.gen;
     await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                           browser: navigator.brave ? "brave" : "chrome", paired: true, owned: [], seen: [] });

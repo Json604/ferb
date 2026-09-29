@@ -416,3 +416,55 @@ def test_youtube_account_is_read_from_its_account_page_in_a_closed_helper_tab(bd
     ext.accounts["www.youtube.com"] = "me@gmail.com"
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     assert not call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")["is_error"]
+
+
+WORKER_HARNESS = r"""
+const vm = require("vm"), fs = require("fs"), path = require("path"), crypto = require("crypto");
+const dir = process.argv[1], OLD = process.argv[2], NEW = process.argv[3];
+const store = { ferb: { installId: "inst-1", key: OLD, seq: 5 } }, posted = [];
+const later = (v) => new Promise((r) => setTimeout(() => r(v), 5));       // storage is async, like Chrome's
+const noop = new Proxy(function () {}, { get: () => noop, apply: () => undefined });
+const chrome = new Proxy({
+  storage: { local: { get: (k) => later({ [k]: store[k] && JSON.parse(JSON.stringify(store[k])) }),
+                      set: (o) => { Object.assign(store, JSON.parse(JSON.stringify(o))); return later(); } },
+             session: { get: () => later({}), set: () => later() } },
+  runtime: new Proxy({ connectNative: () => ({ postMessage: (m) => posted.push(m), onMessage: noop, onDisconnect: noop }),
+                       getManifest: () => ({ version: "t" }) }, { get: (t, k) => (k in t ? t[k] : noop) }),
+}, { get: (t, k) => (k in t ? t[k] : noop) });
+const ctx = vm.createContext({ chrome, crypto: globalThis.crypto, btoa, atob, TextEncoder, console, setTimeout,
+                               clearTimeout, navigator: {}, URL });
+ctx.importScripts = (f) => vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx);
+vm.runInContext(fs.readFileSync(path.join(dir, "background.js"), "utf8"), ctx);
+const mac = (key, m) => crypto.createHmac("sha256", Buffer.from(key, "base64"))
+  .update(`${m.install_id}|${m.seq}|${m.type}|${m.body_json}`).digest("base64");
+(async () => {
+  await ctx.ensurePort();
+  const paired = ctx.onDaemon({ type: "paired", key: NEW });
+  const events = [1, 2, 3].map((i) => ctx.send("tab_event", { event: "updated", tab_id: i }));   // racing the reply
+  await Promise.all([paired, ...events]);
+  await new Promise((r) => setTimeout(r, 100));
+  const signed = posted.filter((m) => m.mac), i = signed.findIndex((m) => mac(NEW, m) === m.mac);
+  console.log(JSON.stringify({ stored_key_new: store.ferb.key === NEW,
+    after_pairing: signed.slice(i).map((m) => ({ seq: m.seq, new_key: mac(NEW, m) === m.mac, type: m.type })) }));
+})();
+"""
+
+
+def test_worker_keeps_the_new_key_and_orders_seqs_when_sends_race_the_paired_reply() -> None:
+    """The real background.js under node with async storage: tab events sent while the "paired" reply is stored must
+    not write the old key back (every later message would fail its MAC and the profile would never connect), and
+    messages leave in strictly increasing seq order."""
+    import base64
+    import os
+    import shutil
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    ext = Path(__file__).parents[1] / "extensions" / "chromium"
+    old, new = (base64.b64encode(os.urandom(32)).decode() for _ in range(2))
+    r = subprocess.run([node, "-e", WORKER_HARNESS, str(ext), old, new], capture_output=True, text=True, timeout=20)
+    out = json.loads(r.stdout or "null") or pytest.fail(r.stderr)
+    assert out["stored_key_new"], out
+    after = out["after_pairing"]
+    assert after and all(m["new_key"] for m in after), after
+    assert [m["seq"] for m in after] == list(range(1, len(after) + 1)), after

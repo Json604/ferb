@@ -6,9 +6,10 @@ native-host launcher is pointed at it for the run and restored afterwards):
    the allowed iframe works; focus stealing can't redirect the value), 21.21 (every line through the native host
    captured: the password never appears; a replayed seal is refused by the real extension), read_source refuses any
    page but FERB's inbox feed.
-2. `FERB_REAL_IDENTITY=1` — FERB's own profile (owner-approved). It re-pairs that profile's extension with the
-   test daemon, which replaces the key it shares with the installed daemon: afterwards the owner runs
-   `ferb setup --identity` (confirming the re-pair) to give it back to FERB. The rest: pairing as FERB (its account check), the session
+2. `FERB_REAL_IDENTITY=1` — FERB's own profile (owner-approved). Pairing it with the test daemon replaces the key
+   it shares with the installed daemon, so the installed daemon must be running (checked before anything is
+   touched) and, once the launcher is restored, re-pairs it itself (as `ferb setup --identity` would after the
+   owner confirms) and its session is checked; the owner never re-pairs after a run. The rest: pairing as FERB (its account check), the session
    checked through the extension, the Gmail and YouTube account extractors on real pages; with `FERB_OTP_CODE` +
    `FERB_OTP_SINCE`, a code the owner emailed to FERB is filled into a local page, sealed, never returned.
 """
@@ -31,9 +32,10 @@ from ferb.act.browser.profiles import discover_all
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
 from ferb.config import Config
-from ferb.core.errors import DriverError, Refused
+from ferb.core.errors import DriverError, NotRunning, Refused
 from ferb.core.types import BrowserAction, Identity, SecretRef, SecretSpec
 from ferb.identity.secrets import KeychainSecretStore
+from ferb.paths import socket_path
 from tests.browserkit import PASSWORD, REF
 from tests.conftest import RunningDaemon
 from tests.test_ext_real import LAUNCHER, restart_hosts
@@ -286,11 +288,36 @@ def ferb_profile() -> Iterator[RunningDaemon]:
     prof, address = home.get("identity", "profile"), home.get("mailbox", "address")
     if not prof or not address:
         pytest.skip("FERB's identity profile isn't set up: `ferb setup --identity`")
-    for d in daemon_on_launcher():
-        d.daemon.config.set("identity", "browser", "chrome")
-        d.daemon.config.set("identity", "profile", str(prof))
-        d.daemon.config.set("mailbox", "address", str(address))
-        yield d
+    installed = _installed()
+    try:
+        for d in daemon_on_launcher():
+            d.daemon.config.set("identity", "browser", "chrome")
+            d.daemon.config.set("identity", "profile", str(prof))
+            d.daemon.config.set("mailbox", "address", str(address))
+            yield d
+    finally:                                   # the launcher is FERB's again: give it back its pairing
+        _give_back(installed)
+
+
+def _installed() -> Client:
+    """The installed daemon, which gets FERB's profile back after the run. Not running: nothing is touched."""
+    try:
+        c = Client(socket_path(Path.home() / ".ferb"), timeout=120)
+        if not c.call("identity.check", {"session": False})["profile_ok"]:
+            pytest.skip("the installed daemon's identity isn't set up: `ferb setup --identity`")
+        return c
+    except NotRunning:
+        pytest.skip("the installed daemon isn't running (`ferb setup --update` restarts it): the test gives FERB's pairing back to it afterwards")
+
+
+def _give_back(c: Client) -> None:
+    try:
+        r = c.call("identity.pair", {"confirm": True, "timeout_s": 60})
+        check = c.call("identity.check") if r["paired"] else {}
+    finally:
+        c.close()
+    assert r["paired"] and check.get("session") is True, (
+        f"FERB's profile wasn't handed back to the installed daemon ({r}, {check}): run `ferb setup --identity`")
 
 
 def test_ferb_profile_pairs_signs_in_and_account_extractors_read_ferbs_address(ferb_profile: RunningDaemon) -> None:

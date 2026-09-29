@@ -104,5 +104,10 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
   closed only after FERB's own tab is open); pairing a profile with no window now loads it first; doctor's identity
   check has a 90 s timeout and reports "couldn't check" separately from "not signed in"; two real-test fixtures
   overlapped on the native-host launcher (likely the 6b start-up flakes).
-- **After running the FERB-profile real test** (`FERB_REAL_IDENTITY=1`), the owner re-runs `ferb setup --identity`:
-  the test re-pairs FERB's profile with a test daemon.
+- **The FERB-profile real test** (`FERB_REAL_IDENTITY=1`) needs the installed daemon running (skips otherwise, before
+  touching anything) and hands FERB's profile back to it afterwards (the installed daemon re-pairs it and its session
+  is checked); the owner no longer re-pairs after a run.
+- **Extension 0.6.2:** sends and the "paired" reply read-modify-wrote the stored {key, seq} concurrently: a tab event
+  racing the reply could write the old key back (every later message failed its MAC; the profile paired but never
+  connected) and two sends could share a seq. Now serialized, messages posted in seq order; a node test runs the real
+  background.js against slow storage (fails on 0.6.1).
