@@ -63,6 +63,7 @@ class Gateway:
         self.taint = Taint()
         self.observer: Observer = Observer()
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution (build step 10)
+        self.jev: Any = None                             # decide.ShadowDecider (build step 13): stricter only
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -130,6 +131,25 @@ class Gateway:
             return reply({"needs_owner_approval": verdict.approval_id, "reason": verdict.reason,
                           "next": "The owner has been asked in `ferb chat`. Retry the exact same call after they "
                                   "approve; don't change it."}, True)
+        if self.jev is not None and spec.kind not in REVERSIBLE:          # Jev: only ever stricter (section 12)
+            stricter = await self._jev_action(cap, name, spec, action, rec, span.id)
+            if stricter is not None:
+                if verdict.decision == "hold":
+                    self.engine.undo(verdict.hold_id or "")
+                kind, why = stricter
+                if kind == "block":
+                    self.spans.finish(span, error=f"blocked (jev): {why}")
+                    self.publish("policy.blocked", {"step": "jev", "reason": why, "capability": name,
+                                                    "task_id": grant.task_id, "worker_id": grant.worker_id})
+                    return reply({"error": f"blocked by FERB policy: {why}"}, True)
+                if self.engine.approvals.consume(action) is None:
+                    ap = self.engine.approvals.request(action, why)
+                    self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": spec.kind,
+                                                        "reason": why, "task_id": grant.task_id})
+                    self.spans.finish(span, output={"needs_approval": ap.id})
+                    return reply({"needs_owner_approval": ap.id, "reason": why,
+                                  "next": "The owner has been asked in `ferb chat`. Retry the exact same call after "
+                                          "they approve; don't change it."}, True)
         if verdict.decision == "hold":
             self.observer.waiting(grant.worker_id, True)                  # the undo window is the owner's time
             try:
@@ -181,11 +201,65 @@ class Gateway:
                 self.publish("worker.exposed", {"worker_id": grant.worker_id, "task_id": grant.task_id,
                                                 "reason": f"read {kind}: {source_id}"})
         content = self.redact(result.content)
+        if self.jev is not None:
+            stop = await self._jev_result(grant, name, result, content, span.id)
+            if stop is not None:
+                self.spans.finish(span, output=content, error=stop["error"])
+                return reply(stop, True)
         self.spans.finish(span, output=content, error=content.get("error") if result.is_error else None)
         out = reply(content, result.is_error)
         if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
+
+    async def _jev_action(self, cap: Capability, name: str, spec: Any, action: ActionRequest, rec: Any,
+                          span_id: str) -> tuple[str, str] | None:
+        """action.matches_request + action.risk in one request; ("block" | "ask", why) only when Jev is stricter."""
+        from ferb.decide.decider import Ask
+        req = self.engine.intents.get(action.request_id)
+        state = {"request": {"goal": rec.task.goal, "allowed_kinds": sorted(req.kinds) if req else [],
+                             "recipients": sorted(req.recipients) if req else [], "sites": sorted(req.sites) if req else [],
+                             "paths": sorted(req.paths) if req else []},
+                 "action": {"tool": name, "kind": spec.kind, "target": _target_dict(spec.target),
+                            "content": (spec.content or "")[:2000]}}
+        ref = f"span:{span_id}"
+        got = await self.jev.ask(state, [Ask("action.matches_request", "yes", ref),
+                                         Ask("action.risk", getattr(cap.risk, "name", "LOW").lower(), ref)])
+        if got.get("action.matches_request") == "no":
+            self.jev.mark_effect("action.matches_request", ref, "blocked")
+            return "block", "a second check says this doesn't match what the owner asked for"
+        if got.get("action.matches_request") == "unsure":
+            self.jev.mark_effect("action.matches_request", ref, "asked the owner")
+            return "ask", "a second check isn't sure this matches what you asked for"
+        if got.get("action.risk") == "high":
+            self.jev.mark_effect("action.risk", ref, "asked the owner")
+            return "ask", "a second check rates this action high-risk"
+        return None
+
+    async def _jev_result(self, grant: RunGrant, name: str, result: Any, content: dict[str, Any],
+                          span_id: str) -> dict[str, Any] | None:
+        """content.injection_suspected (untrusted reads) + browser.login_state (owner snapshots) on one state.
+        Returns replacement content when a signed-out page stops the worker."""
+        from ferb.decide.decider import Ask
+        from ferb.policy.exposure import UNTRUSTED_KINDS
+        ref = f"span:{span_id}"
+        asks = []
+        if any(k in UNTRUSTED_KINDS for k, _ in result.read_sources):
+            asks.append(Ask("content.injection_suspected", "no", ref))
+        if name == "browser.snapshot":
+            asks.append(Ask("browser.login_state", "unknown", ref))
+        if not asks or result.is_error:
+            return None
+        got = await self.jev.ask({"tool": name, "content": content}, asks)
+        if got.get("content.injection_suspected") == "yes":
+            self.engine.exposure.injection_signal(grant.worker_id, "a second check found instructions in content")
+            self.jev.mark_effect("content.injection_suspected", ref, "worker exposed")
+            self.publish("worker.exposed", {"worker_id": grant.worker_id, "task_id": grant.task_id,
+                                            "reason": "injection signal"})
+        if got.get("browser.login_state") == "signed_out":
+            self.jev.mark_effect("browser.login_state", ref, "stopped: signed out")
+            return {"error": "this page looks signed out; FERB never signs in as the owner — stop and tell the owner"}
+        return None
 
     async def _wait_hold(self, hold_id: str) -> str:
         while True:

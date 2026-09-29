@@ -52,6 +52,16 @@ MakeRuntime = Callable[..., AgentRuntime]
 Publish = Callable[[str, dict[str, Any]], None]
 
 
+LOOP_CHECK_EVERY = 25                          # loop.control: a checkpoint every 25 tool calls of a worker
+
+
+def route_of(scopes: set[str]) -> str:
+    """task.route baseline: what the subtask's scopes say."""
+    kinds = {("browser" if s.startswith(("browser:", "identity:")) else "shell" if s == "shell" else
+              "mac" if s.startswith(("mac:", "applescript", "screen")) else "") for s in scopes} - {""}
+    return kinds.pop() if len(kinds) == 1 else "mixed"
+
+
 @dataclass
 class ChatSession:
     id: str
@@ -76,6 +86,7 @@ class _Watch(Observer):
 
     def __init__(self, sup: "Supervisor") -> None:
         self.sup = sup
+        self.recent: dict[str, list[tuple[str, bool]]] = {}           # worker -> (tool, failed), for loop.control
 
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         self.sup.activity.beat(grant.worker_id)
@@ -87,6 +98,11 @@ class _Watch(Observer):
         reason = tree.guard.call(grant.worker_id, tool, args, failed)
         if reason is not None:
             self.sup.stop_worker(grant.worker_id, reason)
+            return
+        calls = self.recent.setdefault(grant.worker_id, [])
+        calls.append((tool, failed))
+        if self.sup.jev is not None and len(calls) % LOOP_CHECK_EVERY == 0:
+            asyncio.get_running_loop().create_task(self.sup.jev_loop(grant.worker_id, grant.task_id, list(calls)))
 
     def waiting(self, worker: str, on: bool) -> None:
         self.sup.activity.waiting(worker, on)
@@ -116,6 +132,7 @@ class Supervisor(WorkerRuns):
         # Memory (build step 11), supplied by the daemon: recall for a turn; save what the owner stated (returns the
         # confirmations shown to the owner)
         self.recall: Callable[[str], str] = lambda words: ""
+        self.jev: Any = None                     # decide.ShadowDecider (build step 13)
         self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
@@ -123,6 +140,28 @@ class Supervisor(WorkerRuns):
     def _system(self, name: str) -> str:
         facts = self.facts()
         return (PROMPTS / name).read_text() + (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
+
+    async def _jev_route(self, plan: Plan, request_id: str) -> None:
+        from ferb.decide.decider import Ask
+        try:
+            await self.jev.ask({"subtasks": [{"n": i, "goal": s.goal, "role": s.role} for i, s in enumerate(plan.subtasks)]},
+                               [Ask(f"task.route#{i}", route_of(set(s.scopes)), f"request:{request_id}#{s.id}")
+                                for i, s in enumerate(plan.subtasks)])
+        except Exception:
+            pass
+
+    async def jev_loop(self, worker_id: str, task_id: str, calls: list[tuple[str, bool]]) -> None:
+        """loop.control at a checkpoint: Jev may only stop a worker, never keep a stuck one going."""
+        from ferb.decide.decider import Ask
+        ref = f"worker:{worker_id}#{len(calls)}"
+        try:
+            got = await self.jev.ask({"recent_tool_calls": [{"tool": t, "failed": f} for t, f in calls[-25:]]},
+                                     [Ask("loop.control", "continue", ref)])
+        except Exception:
+            return
+        if got.get("loop.control") in ("stop", "escalate"):
+            self.jev.mark_effect("loop.control", ref, "worker stopped")
+            self.stop_worker(worker_id, "it looked stuck to a second check")
 
     def stop_worker(self, worker_id: str, reason: str) -> None:
         """A runaway guard tripped for this worker: cancel its run; its outcome says why."""
@@ -170,6 +209,8 @@ class Supervisor(WorkerRuns):
             yield {"type": "clarify", "text": question}
             return
         self.engine.intents.record(self._intent(out.plan, request_id))          # write-once, plan time
+        if self.jev is not None:                                                  # task.route: logged only
+            asyncio.get_running_loop().create_task(self._jev_route(out.plan, request_id))
         final: dict[str, Any] = {}
         async for ev in self.run_tree(out.plan, out.text, request_id):
             if ev["type"] == "outcome":

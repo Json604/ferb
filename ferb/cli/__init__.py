@@ -50,6 +50,13 @@ def main(argv: list[str] | None = None) -> int:
     mf.add_argument("id")
     mf.add_argument("--keep-sources", action="store_true")
     mf.add_argument("--yes", action="store_true")
+    dcp = sub.add_parser("decide", help="Jev's answers next to FERB's own decisions (shadow mode)")
+    dsub = dcp.add_subparsers(dest="dcmd", required=True)
+    dsub.add_parser("stats", help="agreement per question (flag rate + examples where FERB has no logic of its own)")
+    for name, help_ in (("enable", "let Jev's stricter answers act for one question"),
+                        ("disable", "back to shadow mode for one question")):
+        x = dsub.add_parser(name, help=help_)
+        x.add_argument("question")
     tl = sub.add_parser("timeline", help="the journal: chats, task outcomes, daily summaries")
     tl.add_argument("--since", help="YYYY-MM-DD")
     sub.add_parser("pause", help="stop every watcher: nothing is recorded until `ferb resume`")
@@ -78,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--identity", action="store_true",
                     help="choose FERB's identity profile in your Chrome (it must hold only FERB's account)")
     sp.add_argument("--profile", help="with --identity: the Chrome profile's name, if several hold FERB's account")
+    sp.add_argument("--jev", action="store_true", help="store the Jev API key in the Keychain and check it answers")
     sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
     xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
     xp.add_argument("--purge", action="store_true")
@@ -108,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
         inst = Installer(ferb_home(), native_hosts_dirs=NATIVE_HOSTS_DIRS, extension_ids=(FERB_EXTENSION_ID,))
         env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout)
         try:
+            if args.cmd == "setup" and args.jev:
+                return setup_cmd.jev_setup(env)
             if args.cmd == "setup" and args.identity:
                 return setup_cmd.identity_setup(env, args.profile)
             if args.cmd == "setup":
@@ -135,6 +145,8 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.resume(client, sys.stdout)
             if args.cmd == "memory":
                 return admin.memory(client, args, input, sys.stdout)
+            if args.cmd == "decide":
+                return admin.decide(client, args, input, sys.stdout)
             if args.cmd == "timeline":
                 return admin.timeline(client, args.since, sys.stdout)
             if args.cmd == "pause":

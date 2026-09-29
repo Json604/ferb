@@ -159,8 +159,9 @@ ferb/
     codex_exec.py       CodexRuntime (codex exec --json); supervisor and worker modes
     proxy.py            localhost tool-list proxy for the Claude runtime (records tool names only)
   decide/
-    decider.py          RuleDecider, LLMDecider, JevDecider, ShadowDecider
-    questions.py        the typed questions FERB asks (section 12)
+    decider.py          RuleDecider (FERB's existing logic), JevClient, ShadowDecider (logs both; stricter-only
+                        effects for enabled questions), the enable rule; LLMDecider isn't built (no question needs it)
+    questions.py        the typed questions FERB asks (section 12): answers, baselines, which answers are stricter
   policy/
     rules.py            scopes, identity rules, hard floor, destructive-pattern lists
     intent.py           does this action match what the owner asked for? (section 10.2)
@@ -474,6 +475,9 @@ exclude_apps = ["com.1password.1password", "com.agilebits.onepassword7", "com.bi
                 "com.apple.Passwords", "com.apple.keychainaccess"]
 exclude_domains = []                                  # never recorded (a domain covers its subdomains)
 exclude_paths = ["~/.ssh", "~/Library/Keychains", "~/.ferb"]   # never recorded, even inside a watched folder
+
+[jev]
+enabled = []                   # questions whose stricter answers act (`ferb decide enable`); all others: shadow mode
 
 [sense]
 window_titles = true           # record focused window titles (redacted); false: app names only
@@ -898,7 +902,42 @@ Runtimes keep no transcript on disk (Codex `--ephemeral`, Claude `--no-session-p
 
 ## 12. Jev placement
 
-All via `Decider`. Initially `ShadowDecider(primary=Rule/LLM, shadow=Jev)` logs both; switch per question after traces show agreement.
+All via `Decider`. `ShadowDecider(primary=Rule, shadow=Jev)`: FERB's existing logic decides; Jev's answer is logged
+next to it (`decisions` table: question, baseline, Jev's answer, confidence, latency, error, mode, effect; a reference
+to what was decided, never the payload). **Jev never approves**: it's only asked after FERB's own checks pass, and an
+enabled question acts only on a stricter answer (the Effect column); anything else is ignored.
+
+- **Jev API:** `POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer <key>`, body `{model, state,
+  questions}` with typed questions (noul = yes/no probability, choice, score); one typed answer per question id, plus
+  usage. The model is pinned (`jev-1.13.0`, never `jev-latest`: calibration differs between versions); questions about
+  the same state go in one request; 429 / 529 retry with exponential backoff.
+- **Key:** Keychain only (service `ferb`, account `jev/api_key`), stored by `ferb setup --jev` through `security`'s
+  own prompt; never in config, chat, logs or the database. Without a key, Jev is off: no calls, no rows.
+- **Shadow mode** (every question until the owner enables it): calls go to a bounded background queue and never
+  delay a task; `trail.*` questions are sampled 1 in 10 (Jev is billed per call); everything once enabled.
+- **Enabling** (`ferb decide enable <question>`): where FERB has real logic (matches_request, risk, loop.control,
+  task.route), only after 200 answered samples at ≥ 95% agreement; where it has none, `ferb decide stats` shows Jev's
+  flag rate with a few redacted examples (read from the source, which may be gone) and the owner decides.
+  `ferb decide disable` returns it to shadow mode.
+- **Unavailable:** down, slow (enabled questions wait ~2 s at most), rate-limited past the retries, wrong-shaped, no
+  key — FERB's own decision stands, the reason is logged, nothing fails.
+- **Data:** callers build Jev's state from data that already passed exclusions and redaction (trail rows only at
+  pipeline step 4); it is redacted once more before sending.
+
+| Question | Type | Asked | Baseline | Effect when enabled (stricter only) |
+|----------|------|-------|----------|-------------------------------------|
+| `action.matches_request` | yes / no / unsure | gateway, after FERB's checks pass | yes | no → block; unsure → ask |
+| `action.risk` | low / medium / high | same request | capability risk | raised to high → ask |
+| `content.injection_suspected` | yes / no | untrusted tool results | no | yes → worker exposed |
+| `browser.login_state` | signed_in / signed_out / unknown | owner-browser snapshots | unknown | signed_out → stop, tell the owner |
+| `browser.profile_match` | one listed profile / none | only after deterministic matching fails | none | a suggestion the owner confirms |
+| `loop.control` | continue / retry / escalate / stop | every 25 tool calls of a worker | continue | stop / escalate → worker stopped |
+| `memory.worth_keeping` | yes / no | before distillation proposes | yes | no → dropped |
+| `trail.relevance` | ignore / note / summarize | trail step 4 | note | stored on the row only |
+| `trail.sensitive` | yes / no | trail step 4 | no | yes → extra redaction of the row |
+| `task.route` | browser / mac / shell / mixed | plan time | from scopes | logged only |
+
+Earlier sketch of the questions (kept for reference):
 
 | Question | Type |
 |----------|------|
@@ -992,6 +1031,7 @@ Build step 11 specifics (owner decisions):
 | `ferb device` / `ferb browsers` | Device profile / browser drivers + connection status |
 | `ferb timeline`, `ferb memory list [--proposed\|--all] \| show \| add \| confirm \| edit \| retract \| forget` | Memory journey |
 | `ferb pause` / `ferb resume` | Stop / start monitoring |
+| `ferb decide stats \| enable <q> \| disable <q>` / `ferb setup --jev` | Jev's answers next to FERB's (shadow mode); enabling a question; the Jev key into the Keychain |
 | `ferb stop` / `ferb resume-tasks` | Emergency stop of all actions / lift it |
 | `ferb undo` | Cancel a pending send/post during its undo window (section 10.2) |
 | `ferb autonomy [careful\|balanced\|hands-off]` | Show / set autonomy level |
@@ -1210,3 +1250,7 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
 23. Exclusions run before anything else: an excluded app, domain, path or private tab reaches no trail row, bus
     event or tag; every stored event has an actor; `ferb pause` stops every watcher and the owner-input tap and
     records nothing (surviving a restart); the purge never deletes a day without its journal summary.
+24. Jev never approves: in shadow mode it has no effect; an enabled question acts only on a stricter answer, and
+    it's never asked about an action FERB already blocked. Trail data reaches Jev only after exclusions and
+    redaction. Jev unavailable (down, slow, rate-limited, wrong-shaped, no key) leaves FERB's own decision in place
+    and fails no task. The key lives only in the Keychain.

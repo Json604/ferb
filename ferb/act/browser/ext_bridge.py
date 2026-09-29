@@ -24,7 +24,7 @@ from ferb.act.browser import accounts
 from ferb.act.browser.ext_protocol import PROTOCOL_VERSION, Hello, Op, Result, TabEvent, command, parse
 from ferb.act.browser.pairing import Binding, Pairings
 from ferb.act.browser.profiles import BrowserProfile, open_known_profile
-from ferb.act.browser.resolver import Resolver
+from ferb.act.browser.resolver import NeedsOwner, Resolver
 from ferb.act.browser.snapshot import element as page_element
 from ferb.act.browser.tools import Secrets
 from ferb.identity.mailbox import FEED_URL, REASONS, GmailFeedMailbox, wait_for_code
@@ -483,8 +483,16 @@ class Router(_TabDriver):
         self.resolver = resolver
         self.secrets: Secrets = _NoSecrets()
 
+    jev: Any = None                                    # browser.profile_match (build step 13): a suggestion only
+
     async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
-        choice = self.resolver.choose(urlsplit(url).hostname, profile)
+        try:
+            choice = self.resolver.choose(urlsplit(url).hostname, profile)
+        except NeedsOwner as e:
+            hint = await self._profile_hint(profile) if profile and self.jev is not None else None
+            if hint is None:
+                raise
+            raise NeedsOwner(f"{e} Did you mean “{hint}”? (a suggestion — the owner confirms)") from None
         br = self.hub.bridge(choice.browser, choice.folder)
         if br is None:
             raise Refused(f"{choice.browser}/{choice.folder} isn't paired with FERB")
@@ -494,6 +502,20 @@ class Router(_TabDriver):
 
     async def open(self, url: str, background: bool = True) -> TabRef:
         return await self.open_for(url, owner="")
+
+    async def _profile_hint(self, named: str) -> str | None:
+        from ferb.decide.decider import Ask
+        names = sorted({p.display_name for p in self.profiles()} - {""})[:50]
+        if not names:
+            return None
+        crit = {n: f"the profile “{n}”" for n in names} | {"none": "none of these"}
+        try:
+            got = await self.jev.ask({"owner_said": named, "profiles": names},
+                                     [Ask("browser.profile_match", "none", f"profile:{named}", criteria=crit)])
+        except Exception:
+            return None
+        v = got.get("browser.profile_match")
+        return v if v in names else None
 
     async def check_account(self, tab: TabRef) -> None:
         """Before a consequential action (9.3): the page's signed-in account must be the profile's."""

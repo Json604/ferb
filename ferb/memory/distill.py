@@ -61,6 +61,7 @@ class Distiller:
                  purge: Callable[[], Any] = lambda: None, device_id: str = "dev") -> None:
         self.db, self.journal, self.memory, self.make_runtime = db, journal, memory, make_runtime
         self.clock, self.purge, self.device_id = clock, purge, device_id
+        self.jev: Any = None                          # memory.worth_keeping (build step 13): may only drop
 
     def pending_days(self, today: date | None = None) -> list[str]:
         """Past days with anything to remember that aren't done yet (oldest first)."""
@@ -97,7 +98,24 @@ class Distiller:
             return {"day": day, "status": "failed"}
         self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", ""))[:3000]})
         proposed, refused = 0, []
-        for item in out.get("items", [])[:40]:
+        items = out.get("items", [])[:40]
+        drop: set[int] = set()
+        if self.jev is not None and items:
+            from ferb.decide.decider import Ask
+            try:
+                got = await self.jev.ask({"day": day, "items": [{"n": i, "kind": x.get("kind"), "subject": x.get("subject"),
+                                                                "content": x.get("content")} for i, x in enumerate(items)]},
+                                         [Ask(f"memory.worth_keeping#{i}", "yes", f"distill:{day}#{i}")
+                                          for i in range(len(items))])
+            except Exception:
+                got = {}
+            drop = {int(k.split("#")[1]) for k, v in got.items() if v == "no"}
+            for i in drop:
+                self.jev.mark_effect(f"memory.worth_keeping#{i}", f"distill:{day}#{i}", "dropped")
+        for n, item in enumerate(items):
+            if n in drop:
+                refused.append("a second check found it not worth keeping")
+                continue
             try:
                 srcs = check(item, ev)
                 self.memory.propose(item["kind"], item["subject"], item["key"], item["content"], item["origin"],

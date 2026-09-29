@@ -317,6 +317,19 @@ def doctor(env: Env) -> int:
                           "`ferb resume`"))
             else:
                 add(Check("watchers", "ok", ", ".join(sense["watchers"]) or "none running"))
+            try:
+                c = env.connect()
+                jev = c.call("jev.stats")
+                c.close()
+            except (NotRunning, FerbError):
+                jev = None
+            if jev is not None and jev.get("configured"):
+                if jev["recent_total"] and jev["recent_answered"] == 0:
+                    add(Check("jev", "warn", f"not answering ({jev['last_error']}); FERB uses its own decisions",
+                              "check the key: `ferb setup --jev`"))
+                else:
+                    on = [s["question"] for s in jev["stats"] if s["enabled"]]
+                    add(Check("jev", "ok", f"shadow mode{'; enabled: ' + ', '.join(on) if on else ''}"))
             for source, why in sense.get("failed", {}).items():
                 add(Check(f"watcher {source}", "warn", f"stopped: {why}", "restart FERB (`ferb setup --update`)"))
             for problem in sense["folder_problems"]:
@@ -452,3 +465,29 @@ def uninstall(env: Env, purge: bool) -> int:
         env.say(f"macOS can't remove permissions for a plain binary: in System Settings → Privacy & Security, remove "
                 f"{binary} from Accessibility, Screen Recording (and Input Monitoring / Automation if granted).")
     return 0
+
+
+def jev_setup(env: Env) -> int:
+    """The Jev key goes straight into the Keychain (`security` asks for it; it's never an argument, never in chat or
+    config), then the daemon picks it up and makes one test call."""
+    import subprocess
+    from ferb.decide.decider import KEY_ACCOUNT
+    from ferb.identity.secrets import SERVICE
+    env.say("Paste your Jev API key when `security` asks (twice; nothing is shown):")
+    r = subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICE, "-a", KEY_ACCOUNT, "-w"])
+    if r.returncode != 0:
+        env.say("The key wasn't stored.")
+        return 1
+    try:
+        c = env.connect()
+        out = c.call("jev.reload", {"ping": True})
+        c.close()
+    except (NotRunning, FerbError) as e:
+        env.say(f"Stored. The daemon couldn't check it yet: {e}")
+        return 1
+    if not out.get("configured"):
+        env.say("Stored, but the daemon can't read it from the Keychain.")
+        return 1
+    env.say("Jev answered: shadow mode is on for every question." if out.get("ping") == "ok"
+            else f"Stored, but Jev didn't answer the test call: {out.get('ping')}")
+    return 0 if out.get("ping") == "ok" else 1

@@ -43,6 +43,8 @@ class FakeClient:
                 {"name": "input_event", "ok": True, "detail": "seen"}]
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid}
+        if method == "jev.stats":
+            return {"configured": False, "stats": []}
         if method == "sense.status":
             return {"paused": False, "watchers": ["app_focus"], "owner_input": True, "folder_problems": []}
         if method == "browsers.list":

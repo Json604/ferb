@@ -204,3 +204,46 @@ def timeline(client: Client, since: str | None, out: TextIO) -> int:
             text = ", ".join(f"{k}={v}" for k, v in d.items())[:160]
         print(f"{e['at'][:16].replace('T', ' ')}  {e['kind']:<22} {text}", file=out)
     return 0
+
+
+# ---------- Jev (build step 13) ----------
+
+def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
+    if args.dcmd == "stats":
+        r = client.call("jev.stats")
+        if not r["configured"]:
+            print("Jev isn't set up (`ferb setup --jev`).", file=out)
+            return 0
+        for st in r["stats"]:
+            if st["answered"] == 0 and st["asked"] == 0:
+                continue
+            head = f"{st['question']:<28} {'ENABLED' if st['enabled'] else 'shadow '}  answered {st['answered']}/{st['asked']}"
+            if st["real_baseline"]:
+                agree = f"{st['agreement']:.0%}" if st["agreement"] is not None else "-"
+                head += f", agreement {agree} (enable at 200+ and 95%+)"
+            else:
+                flag = f"{st['flag_rate']:.0%}" if st["flag_rate"] is not None else "-"
+                head += f", flagged {flag} (no existing logic: your call)"
+            if st["acted"]:
+                head += f", acted {st['acted']}x"
+            print(head, file=out)
+            for ex in st.get("examples", []):
+                print(f"      e.g. {ex}", file=out)
+        if r.get("dropped"):
+            print(f"({r['dropped']} shadow calls dropped while Jev was behind)", file=out)
+        return 0
+    on = args.dcmd == "enable"
+    if on:
+        st = next((x for x in client.call("jev.stats")["stats"] if x["question"] == args.question), None)
+        if st is not None and not st["real_baseline"]:
+            print(f"{args.question}: FERB has no logic of its own here. Jev flagged "
+                  f"{(st['flag_rate'] or 0):.0%} of {st['answered']} answers. Effect when enabled: {st['effect']}.",
+                  file=out)
+            for ex in st.get("examples", []):
+                print(f"  e.g. {ex}", file=out)
+            if ask("Enable it? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("Left in shadow mode.", file=out)
+                return 1
+    r = client.call("jev.enable", {"question": args.question, "on": on})
+    print(f"Enabled questions: {', '.join(r['enabled']) or 'none (all in shadow mode)'}", file=out)
+    return 0
