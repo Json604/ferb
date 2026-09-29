@@ -26,7 +26,12 @@ from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver, default_browser, last_used_profile
-from ferb.registry import add_identity_browser, add_owner_browsers
+from ferb.act.gui_lock import GuiLock
+from ferb.act.mac.driver import MacComputerDriver
+from ferb.act.mac.input import RealInput
+from ferb.act.shell.manager import ShellManager
+from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell
+from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core.errors import FerbError
@@ -55,7 +60,8 @@ RELEASE_TICK_S = 0.2
 
 class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
-                 redact: Redact | None = None, owner_uid: int | None = None, undo_window_s: float = 10.0) -> None:
+                 redact: Redact | None = None, owner_uid: int | None = None, undo_window_s: float = 10.0,
+                 watch_owner_input: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -92,6 +98,12 @@ class Daemon:
         self.ferb_identity: FerbIdentity | None = None
         self.identity_allow_local = False                # tests only: FERB's tools may open local pages
         self.wake = WakeServer()
+        # The owner's Mac + shell (build step 7)
+        self.watch_owner_input = watch_owner_input
+        self.owner_input = OwnerInput()
+        self.gui = GuiLock()
+        self.mac: MacComputerDriver | None = None
+        self.shells: ShellManager | None = None
 
     @property
     def stop_marker(self) -> Path:
@@ -108,6 +120,7 @@ class Daemon:
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.ledger = Ledger(self.db, self.clock, self.ids)
         await self._build_browsers()
+        self._build_mac_and_shell()
         self._build_agents()
         for name, fn in (("ping", self._ping), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift), ("undo", self._undo), ("autonomy.get", self._autonomy_get),
@@ -116,7 +129,8 @@ class Daemon:
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
                          ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
                          ("browsers.pair", self._browsers_pair), ("browsers.unpair", self._browsers_unpair),
-                         ("identity.pair", self._identity_pair)):
+                         ("identity.pair", self._identity_pair), ("ps.list", self._ps_list),
+                         ("ps.kill", self._ps_kill)):
             self.server.unary[name] = fn
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
@@ -142,6 +156,10 @@ class Daemon:
             await self.identity_browser.shutdown()
         if self.router is not None:
             await self.router.shutdown()
+        if self.shells is not None:
+            await self.shells.kill_all()
+        if self.owner_input.running:
+            self.owner_input.stop()
         await self.wake.close()
         await self.server.close()
         if self.journal:
@@ -219,11 +237,42 @@ class Daemon:
         for drv in (self.identity_browser, self.router):
             if drv is not None:
                 await drv.release(task_id)
+        if self.shells is not None:
+            await self.shells.end_task(task_id)              # its processes end with it (unless long-lived)
 
     def _stop_identity_browser(self) -> None:
         for drv in (self.identity_browser, self.router):
             if drv is not None:
                 asyncio.get_event_loop().create_task(drv.shutdown())
+        if self.shells is not None:
+            asyncio.get_event_loop().create_task(self.shells.kill_all())   # 10.5: kills task-owned processes
+
+    def _build_mac_and_shell(self) -> None:
+        if self.watch_owner_input and not self.owner_input.start():
+            self._journal().append("owner_input.unavailable", {"why": "no event tap (Accessibility / Input Monitoring)"})
+        device = str(self.config.get("device", "id", "unknown-device"))
+        self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui),
+                                     excluded=lambda: set(self.config.get("privacy", "exclude_apps", [])))
+        add_mac(self.registry, self.mac, self._device_profile)
+        self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
+        add_shell(self.registry, self.shells)
+
+    def _device_profile(self) -> Any:
+        from ferb.device.profile import ProfileStore
+        did = self.config.get("device", "id")
+        return ProfileStore(self.home).load(str(did)) if did else None
+
+    def _redact_text(self, text: str) -> str:
+        f = getattr(self.redact, "text", None)
+        return str(f(text)) if f else text
+
+    async def _ps_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.shells
+        return {"processes": [p.__dict__ for p in self.shells.list()]}
+
+    async def _ps_kill(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.shells
+        return {"killed": await self.shells.kill_id(str(params.get("id", "")))}
 
     # ---------- owner browsers (build step 6a) ----------
 

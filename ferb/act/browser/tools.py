@@ -131,6 +131,10 @@ class _Base:
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         raise NotImplementedError
 
+    def locks(self, args: BaseModel) -> list[str]:
+        tab = getattr(args, "tab", None)
+        return [f"tab:{self.family.prefix}/{tab}"] if tab else []
+
     def _site(self, args: BaseModel) -> str | None:
         return _host(self.driver.tab_url(str(getattr(args, "tab", ""))))
 

@@ -4,11 +4,11 @@ Each protocol is added when its first implementation lands, with section 5's sig
 """
 
 from datetime import datetime
-from typing import AsyncIterator, Protocol
+from typing import AsyncIterator, Literal, Protocol
 
 from pydantic import BaseModel
 
-from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, DriverFeatures, ElementRef, Identity,
+from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ComputerAction, DriverFeatures, ElementRef, Identity,
                              PageSnapshot, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, SecretRef, SecretSpec,
                              TabRef, Task, ToolContext, ToolResult, WaitCondition)
 
@@ -64,3 +64,9 @@ class BrowserDriver(Protocol):
     async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool: ...
     async def screenshot(self, tab: TabRef) -> bytes: ...
     async def close(self, tab: TabRef) -> None: ...
+
+
+class ComputerDriver(Protocol):                 # OS-neutral; Block 1 implementation: act/mac/driver.py
+    device_id: str
+    os: Literal["macos", "windows", "linux"]
+    async def act(self, app: str, action: ComputerAction) -> ActionResult: ...   # method resolved via DeviceProfile

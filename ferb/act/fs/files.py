@@ -70,6 +70,10 @@ class _Base:
     def describe_path(self, args: BaseModel) -> str:
         return str(Path(str(getattr(args, "path"))).expanduser())
 
+    def locks(self, args: BaseModel) -> list[str]:
+        """One file at a time per path (section 7 step 7); the path as given (relative ones are the workspace's)."""
+        return [f"file:{self.describe_path(args)}"]
+
 
 class FsList(_Base):
     name, description = "fs.list", "List a folder's entries (names, kind, size)."

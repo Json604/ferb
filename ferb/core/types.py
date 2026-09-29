@@ -265,3 +265,12 @@ class PageSnapshot:
     text: str = ""
     truncated: bool = False
     dialogs: list[str] = field(default_factory=list)   # JS dialogs dismissed since the last snapshot
+
+
+# ---------- Mac / computer (section 5 ComputerDriver) ----------
+
+@dataclass(frozen=True)
+class ComputerAction:
+    kind: Literal["press", "set_value", "focus", "click", "type", "key"]
+    element: str | None = None               # element id from the latest snapshot of that app
+    text: str | None = None                  # set_value / type: the text; key: a combo like "cmd+s"

@@ -104,3 +104,21 @@ def browsers(client: Client, cmd: str | None, profile: str | None, browser: str 
         email = f" <{p['email']}>" if p["email"] else ""
         print(f"{p['browser']:<7} {p['name']}{email} ({p['folder']}): {state}", file=out)
     return 0
+
+
+def ps(client: Client, out: TextIO) -> int:
+    """`ferb ps`: FERB's processes (section 15)."""
+    procs = client.call("ps.list")["processes"]
+    if not procs:
+        print("No processes.", file=out)
+    for p in procs:
+        state = "running" if p["running"] else f"exited {p['exit_code']}"
+        bg = ", background" if p["long_lived"] else ""
+        print(f"{p['id']}  {state}{bg}  task {p['owner_task']}  {p['command'][:80]}", file=out)
+    return 0
+
+
+def kill(client: Client, proc_id: str, out: TextIO) -> int:
+    ok = client.call("ps.kill", {"id": proc_id})["killed"]
+    print("Stopped." if ok else f"No process {proc_id}.", file=out)
+    return 0 if ok else 1

@@ -22,6 +22,7 @@ IMPLIES: dict[str, frozenset[str]] = {
     "edit_file": frozenset({Kind.READ, Kind.WRITE_FILE}),
     "run_command": frozenset({Kind.RUN_SHELL}),
     "sign_in": frozenset({Kind.NAVIGATE, Kind.OPEN_TAB, Kind.FILL_FORM, Kind.SUBMIT, Kind.FILL_SECRET}),
+    "use_app": frozenset({Kind.READ, Kind.MAC_INPUT, Kind.APPLESCRIPT}),
 }
 
 

@@ -41,6 +41,10 @@ def main(argv: list[str] | None = None) -> int:
         x.add_argument("profile", help="the profile's name as shown in the browser (or its email)")
         x.add_argument("--browser", choices=["chrome", "brave"])
 
+    sub.add_parser("ps", help="background processes FERB started")
+    kp = sub.add_parser("kill", help="stop one of FERB's background processes")
+    kp.add_argument("id")
+
     sub.add_parser("chat", help="talk to FERB")
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
@@ -105,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.resume(client, sys.stdout)
             if args.cmd == "undo":
                 return admin.undo(client, args.hold_id, sys.stdout)
+            if args.cmd == "ps":
+                return admin.ps(client, sys.stdout)
+            if args.cmd == "kill":
+                return admin.kill(client, args.id, sys.stdout)
             if args.cmd == "browsers":
                 return admin.browsers(client, args.bcmd, getattr(args, "profile", None), getattr(args, "browser", None),
                                       sys.stdout)

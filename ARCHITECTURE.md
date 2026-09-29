@@ -178,6 +178,7 @@ ferb/
       input.py          real mouse + keyboard events (takes gui_lock)
       screenshot.py     on-demand window / screen capture
       snapshot.py       AX tree → shared element-list format (same as browser snapshots)
+      tools.py          mac.* capabilities (apps, open, snapshot, act, applescript); OWNER only
     browser/
       resolver.py       site → (browser, profile, identity, driver) selection (section 9.3)
       profiles.py       profile discovery from Local State + name → profile resolver (section 9.5)
@@ -196,6 +197,7 @@ ferb/
       manager.py        ShellManager: start / read / send / wait / kill / list; task ownership + cleanup
       pty_proc.py       one process in a PTY: ring buffer + log file
       guard.py          command pre-check helpers used by policy (destructive patterns, cwd jail)
+      tools.py          shell.* capabilities (run, read, send, kill, list); OWNER only, lost when exposed
     gui_lock.py         single GUI actor at a time
   sense/
     watchers/
@@ -992,6 +994,11 @@ section 21 safety tests pass.
   process.
 - The secret passes through more components than a CDP fill did (native host and extension); both are
   high-privilege, reviewed components.
+- Mac control in Block 1 build step 7: AppleScript (scriptable apps, one app per script) and Accessibility, with
+  real mouse/keyboard only as the fallback. Screenshot + click (vision) is not built yet: it needs image results
+  to reach the model. The Accessibility browser fallback reads only; acting in a browser needs the extension.
+- Shell output is not treated as untrusted content (it would expose the worker after its first command); a command
+  that fetches web content brings that content in unmarked. Reader/actor splits (step 8) are the mitigation.
 - Trusted (debugger-dispatched) input works in a page's top frame only; elements inside iframes get page-mode
   (scripted) events, which some sites ignore. Extending trusted input to iframes needs frame-offset handling.
   Secret fills are unaffected: they set the value on the exact element in its own frame.

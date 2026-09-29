@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import ApplicationServices as AX
 import Quartz
 
-FERB_EVENT_MARK = 0x46455242          # "FERB" in kCGEventSourceUserData: FERB's own input events (section 10.5)
+from ferb.sense.watchers.owner_input import FERB_EVENT_MARK  # FERB's own input events (section 10.5)
 
 
 @dataclass(frozen=True)

@@ -13,6 +13,7 @@ from typing import Any, Callable
 from pydantic import ValidationError
 
 from ferb.act.fs.files import normalize_path
+from ferb.act.locks import ResourceLocks
 from ferb.clock import context
 from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext
@@ -42,6 +43,7 @@ class Gateway:
         self.caps, self.engine, self.ledger, self.spans = capabilities, engine, ledger, spans
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
+        self.locks = ResourceLocks()
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -103,6 +105,13 @@ class Gateway:
                 self.spans.finish(span, error="cancelled by the owner during the undo window")
                 return reply({"error": "cancelled by the owner (undo)"}, True)
 
+        lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
+        async with self.locks.hold(lock_keys, grant.worker_id):            # after policy, never across model calls
+            return await self._execute(cap, name, args, spec, action, grant, rec, span, reply)
+
+    async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
+                       grant: RunGrant, rec: Any, span: Any, reply: Callable[[dict[str, Any], bool], dict[str, Any]]) \
+            -> dict[str, Any]:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:

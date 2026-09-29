@@ -57,7 +57,7 @@ def home() -> Iterator[Path]:
 
 @pytest.fixture
 def daemon(home: Path) -> Iterator[RunningDaemon]:
-    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"))
+    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
     yield d
     d.stop()
 

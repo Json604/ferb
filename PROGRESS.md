@@ -26,11 +26,11 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | **Build step 5** — `identity/` layer: Keychain secrets, mailbox/OTP, identity-profile verification, `browser.*` tools + policy kinds (driver-independent) | 2026-09-29 | Done (closed as the identity layer; owner decision) | 165 offline tests (3 runs green): 21.3, 21.5 (password/code nowhere in results, db or logs), intent-gated submits, stale ids, per-task tabs, stop, local URLs refused before any driver, safety test 20 (profile must hold only FERB's account; cookie/password stores never opened). The copied-profile CDP driver was built, then removed: a copied profile loses its Google session within minutes (spike 16 shows the original profile via the extension holds it 35 min). FERB's browser itself arrives with the extension in step 6. |
 | **Build step 6a** — FERB extension (MV3), native host, pairing, `ext_bridge`, profile discovery + resolver, site resolver, owner `browser.*` tools, account extractors + ask-once trust | 2026-09-29 | Done | 180 offline tests (3 runs green): pairing + 21.16 (unpaired can't act/report; bad MAC, replay, reused/expired tokens refused), protocol-version refusal, native host refuses foreign extension ids and exits with the daemon, 21.15 (disconnect mid-command -> unknown -> reconciled done/failed, never resent), 21.13 (stale ids after navigation/reconnect), 21.12 (wrong / signed-out account refused), ask-once per site + profile remembered, resolver rules, FERB's identity profile never paired or routed as owner, wake page, 21.6 (extension CDP allowlist, run in node). Real (`-m real`, local pages): Chrome "FERB Test" 3/3 and a temporary Brave profile 3/3 — pairing, background tab never activated, snapshot sanitized in the page, trusted click/typing (`isTrusted`), cookies CDP refused, host killed -> reconnect -> stale ids refused. |
 | **Build step 6b** — FERB identity profile on the extension (paired as FERB), sealed secrets and inbox feed, step 5's carried-over real tests | 2026-09-29 | Done | 187 offline tests (green on 11 of 12 runs; one unreproduced fixture error, see notes): pairing as FERB needs exactly FERB's account (test 20) + confirmation to re-pair; 21.21 (secret and code never on the wire in clear, captured both directions; replayed seal refused; WebCrypto <-> Python seal checked in node); origin checked before the Keychain is read; 21.3/21.5. Real (`-m real`): stand-in identity in Chrome "FERB Test" 3/3 — 21.4 re-ported (lookalike, scheme, cross-origin iframe refused before the Keychain read; allowed iframe works; focus stealing can't redirect), 21.21 on the real wire, real extension refuses a replayed seal, read_source refuses non-feed pages. FERB's own profile 5/5 after instrumenting (2 earlier start-of-run flakes, see notes): paired as FERB, session through the extension, Gmail + YouTube account extractors read FERB's address on real pages; owner-assisted OTP filled sealed and submitted exactly the emailed code. Protocol v2 (extension 0.6.1). |
+| **Build step 7** — `act/mac` (apps, AX snapshot/act, guarded AppleScript, real-input fallback) + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser` (read-only) | 2026-09-29 | Done | 198 offline tests (3 runs green): 21.14 (locks in one global order: serialize, no deadlock), real input waits for the owner and resumes or yields saying where it stopped, GUI lock single actor, shell on real PTYs (task ownership, task-end cleanup, background survives until `ferb stop`, cwd jail, FERB files / Keychain / protected paths / osascript refused, clean env, redacted output), destructive commands = permanent deletion (blocked unless requested, then always asked), 21.3 + 21.8 for shell/Mac tools, AppleScript stays inside one app, Mac driver prefers Accessibility (no focus change) and falls back to real input then restores the owner's front app, password fields never read or typed, excluded apps refused, browsers read-only. Real (`-m real`, 3/3): owner-input tap tells marked FERB events from unmarked ones; Accessibility snapshot of Finder. Installed daemon's tap starts under launchd. |
 
 ## Next
 
-**Build step 7** — `act/mac` + `gui_lock` + resource locks + owner-input yield; `act/shell`; `ax_browser`.
-Not a foundation step: plan, then build (unless the owner asks for plan approval as for step 6).
+**Build step 8** — orchestrator multi-worker (DAG, reader/actor split, budgets, verification, reconciliation).
 
 ## Rules for build steps (owner)
 
@@ -41,8 +41,6 @@ Not a foundation step: plan, then build (unless the owner asks for plan approval
 
 - Automation (Apple Events): owner decision — ask on first use (no apps requested at setup).
 
-- Build step 7: mark every FERB input event; GUI actions check owner input before each step (per keystroke);
-  listen-only tap needs Accessibility or Input Monitoring on the daemon's interpreter.
 
 - Build steps 1/3: daemon runs on a dedicated Python under `~/.ferb` (owner decision, §8 step 6); build step 3
   first measures a stable launcher executable (§18 step 3).
@@ -95,3 +93,8 @@ Not a foundation step: plan, then build (unless the owner asks for plan approval
   FERB-profile real test failed twice at start-up (pairing / connection not ready) while the harness swapped
   daemons under the live extension; 5/5 after instrumenting, not reproduced. One offline-suite fixture error
   right after a real run; 11 clean runs since.
+- 7 notes: screenshot + click (vision) not built (needs image results to reach the model); the AX browser
+  fallback is read-only; shell output isn't marked untrusted (step 8's reader/actor split is the mitigation);
+  new verb `use_app` (READ, MAC_INPUT, APPLESCRIPT). No real test drives real input into an app (it would take
+  focus on the owner's screen); the yield logic is tested with an injected poster.
+- Doctor showed "device profile: 1 changed since last scan" (an app update); `ferb setup` rescans.

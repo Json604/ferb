@@ -7,6 +7,10 @@ from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, Br
                                    BrowserOpen, BrowserSnapshot, BrowserWait, FERB_BROWSER, IdentityDriver,
                                    OWNER_BROWSER)
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
+from ferb.act.mac.driver import MacComputerDriver
+from ferb.act.mac.tools import MacApps, MacAct, MacAppleScript, MacOpen, MacSnapshot
+from ferb.act.shell.manager import ShellManager
+from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRun, ShellSend
 from ferb.core.interfaces import Capability
 
 
@@ -58,3 +62,21 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
     r.add(BrowserAct(router, f))
     r.add(BrowserWait(router, f))
     r.add(BrowserClose(router, f))
+
+
+def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any) -> None:
+    """The owner's Mac (identity OWNER only; build step 7)."""
+    r.add(MacApps(driver, device_profile))
+    r.add(MacOpen(driver, device_profile))
+    r.add(MacSnapshot(driver, device_profile))
+    r.add(MacAct(driver, device_profile))
+    r.add(MacAppleScript(driver, device_profile))
+
+
+def add_shell(r: Registry, shells: ShellManager) -> None:
+    """Shell commands (identity OWNER only, lost when exposed; build step 7)."""
+    r.add(ShellRun(shells))
+    r.add(ShellRead(shells))
+    r.add(ShellSend(shells))
+    r.add(ShellKill(shells))
+    r.add(ShellList(shells))
