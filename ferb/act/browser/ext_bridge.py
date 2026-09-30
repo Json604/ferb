@@ -602,6 +602,20 @@ class FerbIdentity(_TabDriver):
     async def check_account(self, tab: TabRef) -> None:
         return None                                           # FERB's own profile: FERB's own accounts
 
+    async def _in_sent(self, tab: TabRef, subject: str, poll_s: float, tries: int) -> bool:
+        """The message is in FERB's Sent folder (searched by its exact subject): a real confirmation, not a toast."""
+        from urllib.parse import quote
+        url = "https://mail.google.com/mail/u/0/#search/" + quote(f'in:sent subject:"{subject}"', safe="")
+        for i in range(tries):
+            if i % 6 == 0:
+                await self.navigate(tab, url)                  # Gmail refreshes search results on navigation
+                await asyncio.sleep(1.0)
+            snap = await self.snapshot(tab)
+            if subject in snap.text and "No messages matched" not in snap.text:
+                return True
+            await asyncio.sleep(poll_s)
+        return False
+
     async def send_mail(self, to: list[str], subject: str, body: str, owner: str, intent_id: str = "",
                         poll_s: float = 0.5, tries: int = 30) -> str:
         """Send from FERB's own Gmail (build step 14): its compose page in FERB's profile, a real click on Send, and
@@ -622,11 +636,13 @@ class FerbIdentity(_TabDriver):
             if send is None:
                 raise Refused("Gmail's compose page didn't load in FERB's profile (is FERB's inbox signed in?)")
             await self.act(self.element_ref(tab, send.id), BrowserAction("click", trusted=True), intent_id)
-            for _ in range(tries * 4):                        # "Sending..." can take a while (measured up to ~20 s)
+            for _ in range(tries):                            # Gmail's own toast, when the tab shows it
                 snap = await self.snapshot(tab)
                 if "Message sent" in snap.text:
                     return "sent"
                 await asyncio.sleep(poll_s)
+            if await self._in_sent(tab, subject, poll_s, tries * 3):   # a background tab may never show the toast
+                return "sent"
             raise OutcomeUnknown("clicked Send but Gmail didn't confirm; check FERB's Sent folder")
         finally:
             await self.close(tab)
