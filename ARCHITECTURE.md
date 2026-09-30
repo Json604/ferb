@@ -576,6 +576,18 @@ can't write) on the pinned `gpt-5.5`, and keeps conversation continuity by re-se
 
 ## 8. Setup and device profile
 
+**Progressive setup (owner rule, 2026-09-30, build step 15).** `ferb setup` keeps only what macOS requires: the
+dedicated interpreter, the LaunchAgent, the TCC permissions macOS needs to be granted up front, the device scan and
+the self-test. Everything else is asked the first time a task needs it, and remembered:
+- facts the owner gives (e.g. their email, the first time they say "email me") are stored as owner-stated memory;
+- permissions (e.g. "Allow FERB to access ~/Projects?" the first time a task needs a folder outside the allowed
+  roots; Automation for an app) go to config only after the owner's explicit yes, and only for a target the owner
+  named in their own words — content FERB reads can never grant or even trigger one;
+- never during an unattended (scheduled) run: needed info is collected when the schedule is created, or the
+  question is queued for the owner's next chat and the step is skipped.
+FERB's identity profile (`ferb setup --identity`) and the Jev key (`ferb setup --jev`) are their own commands, run
+when first needed. Optional TCC permissions and per-app Automation are asked on first use.
+
 `ferb setup` (idempotent; `ferb doctor` re-checks everything). Setup never quits or kills the owner's browsers —
 when a browser must be closed it asks the owner to quit it and waits — and it does not touch Brave (FERB's
 identity profile is in Chrome only; the Brave pairing check is a separate, owner-scheduled step before build
@@ -989,6 +1001,19 @@ Earlier sketch of the questions (kept for reference):
 
 ## 13. Time
 
+**Time awareness (owner rules, 2026-09-30, build step 15).**
+- Only absolute timestamps are stored. Relative ages are computed fresh each time a prompt is built
+  (`clock/context.py`), never stored in history, and shown together with the absolute time ("3 days ago (Sat 26 Sep,
+  14:02)") for recalled memories, recent conversation and tasks, sends and trail items.
+- After a gap of more than 1 hour since the owner last talked to FERB, the prompt gets a short "since we last talked"
+  summary: a few lines, notable items only (tasks that finished, replies to email FERB sent, reminders that fired).
+- Idle time and time of day are given to FERB as facts. Behaviours that depend on them are code, not prompts: while
+  the owner is idle, non-urgent notifications (a finished task's answer) are held until they're back; reminders and
+  questions that need them are sent at once.
+- **Prompts stay bounded and cache-friendly:** stable instructions and the tool list come first, then the bounded
+  recent window (tagged items with absolute times) and the owner's message; everything time-dependent — the time
+  header, relative ages of the tagged items, the "since we last talked" lines — goes at the very end.
+
 - Header on every model turn (owner decision: per turn, not per API request): now (weekday + tz), task start + elapsed, deadline + remaining, owner last active, last trail event age.
 - Footer on every tool result: `[now 15:42:10 IST | task +11m | deadline in 18m]`.
 - Measured durations: median/p90 for similar past tasks from spans, when available.
@@ -1175,7 +1200,11 @@ Build step 11 specifics (owner decisions):
     chat is closed sends a macOS notification and chat shows its result next time.
 15. Scheduled and recurring tasks (owner-added, 2026-09-30): "every morning at 9, summarize my unread email", "check this
     price tomorrow and email me". The intent is recorded from the owner's words when the task is scheduled and each run
-    is held to that intent; `ferb schedules` lists and cancels them. Plan shown before building.
+    is held to that intent (a run's plan may only stay within it); `ferb schedules` lists, cancels, pauses, resumes.
+    Once, daily, weekdays, weekly, or every N minutes (N >= 15). Unattended approvals: notify, wait up to 1 hour, then
+    skip that step and report it. Missed runs: one run when the Mac wakes, marked late; skipped if later than half the
+    repeat interval (at most 12 hours); one-off schedules run up to 12 hours late. Three failures in a row pause a
+    schedule. Also in this step: progressive setup (§8) and time awareness (§13).
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.
