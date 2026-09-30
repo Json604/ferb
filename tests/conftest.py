@@ -77,3 +77,15 @@ def no_real_models(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
     from ferb.runtimes.codex_exec import CodexRuntime
     monkeypatch.setattr(CodexRuntime, "start", refuse)
     monkeypatch.setattr(ClaudeRuntime, "start", refuse)
+
+
+
+def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
+    """Claude-runtime real tests run only when the owner asks for them by name (-m real_claude); -m real is Codex only."""
+    if "real_claude" in (config.getoption("-m") or ""):
+        return
+    keep = [i for i in items if i.get_closest_marker("real_claude") is None]
+    dropped = [i for i in items if i.get_closest_marker("real_claude") is not None]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = keep

@@ -24,7 +24,7 @@ pytestmark = pytest.mark.real
 USAGE = Path(__file__).with_name(".distill_usage.json")
 
 
-@pytest.fixture(params=["codex", "claude"])
+@pytest.fixture(params=["codex", pytest.param("claude", marks=pytest.mark.real_claude)])
 def rt(request: pytest.FixtureRequest) -> Iterator[tuple[str, RunningDaemon]]:
     base = Path(tempfile.mkdtemp(prefix="ferbm-"))
     d = RunningDaemon(base / "home", clock=SystemClock())

@@ -43,6 +43,9 @@ pass): tag v0.1 and pair the owner's real Brave profile with the unpacked extens
 
 ## Rules for build steps (owner)
 
+- Real tests run on Codex only (`-m real`). The Claude-runtime variants carry `real_claude` and run only when the owner
+  runs `-m real_claude` himself (owner, 2026-09-30).
+
 - Use the spike findings and port their tests where relevant, but write production code fresh in `ferb/`;
   never import from `spikes/`.
 

@@ -33,7 +33,7 @@ pytestmark = pytest.mark.real
 FS_TOOLS = ["fs.edit", "fs.list", "fs.read", "fs.trash", "fs.write"]
 
 
-@pytest.fixture(params=["codex", "claude"])
+@pytest.fixture(params=["codex", pytest.param("claude", marks=pytest.mark.real_claude)])
 def rt_daemon(request: pytest.FixtureRequest):
     base = Path(tempfile.mkdtemp(prefix="ferbr-"))
     d = RunningDaemon(base / "home", clock=SystemClock())

@@ -148,7 +148,7 @@ def test_capture_is_the_window_only_and_clicks_land_or_refuse_under_a_covering_w
         oi.stop()
 
 
-@pytest.fixture(params=["codex", "claude"])
+@pytest.fixture(params=["codex", pytest.param("claude", marks=pytest.mark.real_claude)])
 def rt_daemon(request: pytest.FixtureRequest) -> Iterator[tuple[str, RunningDaemon, Path]]:
     base = Path(tempfile.mkdtemp(prefix="ferbr-"))
     d = RunningDaemon(base / "home", clock=SystemClock())
