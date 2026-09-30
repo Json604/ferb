@@ -108,6 +108,22 @@ def hit(x: float, y: float) -> tuple[int, tuple[float, float, float, float] | No
     return int(pid), frame(win)
 
 
+def label_at(x: float, y: float) -> str | None:
+    """The label of the control at a screen point (the element itself or, for its text, its parent button), or None
+    when Accessibility can't tell. Used to tell a call / send button from any other click (build step 16a)."""
+    import ApplicationServices as AX
+    err, el = AX.AXUIElementCopyElementAtPosition(AX.AXUIElementCreateSystemWide(), x, y, None)
+    if err != 0 or el is None:
+        return None
+    parts = []
+    for node in (el, _attr(el, "AXParent")):
+        if node is None:
+            continue
+        parts += [str(v) for v in (_attr(node, "AXTitle"), _attr(node, "AXDescription"), _attr(node, "AXHelp"))
+                  if v]
+    return " ".join(parts) or None
+
+
 SECURE_SCAN_MAX = 5000
 
 

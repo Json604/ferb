@@ -22,4 +22,6 @@ Output must match the JSON schema exactly.
 Contacts: when you press call or send for a person, fill `contact`: name (as the owner named them), selected (the
 contact's name exactly as the screen shows it) and detail (a number, username or subtitle the screen shows for them).
 Take a snapshot that shows the contact before selecting it. If several match, pick the one the goal's words point to;
-if nothing does, pick any — FERB asks the owner which one and tells you. Follow its answer; never invent a detail.
+if nothing does, do NOT stop to ask the owner yourself: select one of them and press call / send with its contact —
+FERB itself shows the owner the numbered list of matches, and nothing happens until they choose. If FERB then says the
+owner chose someone else, select that contact and press again. Never invent a detail.

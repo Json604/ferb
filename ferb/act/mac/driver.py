@@ -162,6 +162,26 @@ class MacComputerDriver:
                              prepare=lambda: self._bring_forward(a, shot))
         return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id}; {r.detail}")
 
+    def label_at(self, name_or_bundle: str, shot_id: str, x: float, y: float) -> str | None:
+        """What control is at (x, y) of the app's latest screenshot, by Accessibility (None: it can't tell)."""
+        a = self.app(name_or_bundle)
+        st = self._state.get(a.bundle_id)
+        shot = st.shot if st else None
+        if shot is None or shot.id != shot_id:
+            raise StaleRef(f"{shot_id} isn't {a.name}'s latest screenshot; take a new one")
+        bx, by, bw, bh = shot.bounds
+        label = self.ax.label_at(bx + x * bw / shot.size[0], by + y * bh / shot.size[1])
+        return str(label) if label else None
+
+    async def screen_text(self, name_or_bundle: str) -> dict[str, Any]:
+        """The window's Accessibility text, for FERB's own checks only (who was on screen): it doesn't change the
+        element ids of the latest snapshot and never reaches the model."""
+        a = self.app(name_or_bundle)
+        tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id))
+        return {"bundle_id": a.bundle_id, "text": tree.text,
+                "elements": [{"role": n.role, "label": n.label, "value": None if n.secret else n.value}
+                             for n in tree.nodes]}
+
     async def act(self, app: str, action: ComputerAction, holder: str = "", task: str | None = None) -> ActionResult:
         a = self.app(app)
         if is_browser(a.bundle_id):

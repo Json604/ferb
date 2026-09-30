@@ -72,6 +72,15 @@ COMMON_WORDS = frozenset({"meet", "notes", "messages", "reminders", "calendar", 
                           "mail", "x", "wa", "ig", "insta"})
 
 
+# Messaging and calling services: in their apps a screenshot click must say what it's for (build step 16a).
+COMMUNICATION = frozenset({"WhatsApp", "Slack", "Zoom", "Microsoft Teams", "FaceTime", "Messages", "Telegram",
+                           "Discord", "Signal", "Skype"})
+
+
+def communication_bundles() -> frozenset[str]:
+    return frozenset(b.lower() for s in CATALOGUE if s.name in COMMUNICATION for b in s.bundles)
+
+
 @dataclass(frozen=True)
 class Route:
     service: str

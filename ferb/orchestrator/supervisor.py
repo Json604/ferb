@@ -40,6 +40,7 @@ from ferb.orchestrator.verify import Checks, ConditionResult
 from ferb.orchestrator.worker import RuntimeViolation, WorkerRuns
 from ferb.policy.engine import PolicyEngine
 from ferb.policy.intent import RequestIntent
+from ferb.policy.rules import with_reads
 from ferb.sanitize.untrusted import mark, wrap_untrusted
 from ferb.store.spans import SpanStore
 
@@ -511,7 +512,8 @@ class Supervisor(WorkerRuns):
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self._tree_of[tree_id] = tree
         for s in plan.subtasks:
-            t = Task(f"{tree_id}.{s.id}", tree_id, s.goal, self.device_id, Identity(s.identity), set(s.scopes), s.role,
+            t = Task(f"{tree_id}.{s.id}", tree_id, s.goal, self.device_id, Identity(s.identity),
+                     with_reads(set(s.scopes)) if s.role == "actor" else set(s.scopes), s.role,
                      request_id, [c.text for c in s.success_conditions], limit)
             tree.tasks[s.id] = t
             self._tree_of[t.id] = tree

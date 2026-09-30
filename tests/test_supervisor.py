@@ -510,3 +510,24 @@ async def _fake_running(d: RunningDaemon) -> None:
 
 async def _interrupt(d: RunningDaemon) -> list[str]:
     return d.daemon.tasks.interrupt_running()
+
+
+def test_an_actor_that_may_act_may_also_see(daemon: RunningDaemon) -> None:
+    """A plan giving an actor only browser:act (seen in a real run) still lets it open and read the page."""
+    from ferb.policy.rules import with_reads
+    assert with_reads({"browser:act"}) == {"browser:act", "browser:read"}
+    assert with_reads({"mac:act", "fs:write"}) == {"mac:act", "mac:read", "fs:write", "fs:read"}
+    install(daemon, [sup("plan", "On it.", plan([sub("a", scopes=("fs:write",))], paths=("x.md",)))], {"a": STALL})
+    c = Client(daemon.sock, timeout=30)
+    try:
+        for ev in c.stream("chat.send", {"session_id": "s", "text": "write x.md"}):
+            if ev["type"] == "plan":
+                t = daemon.daemon.tasks.get(ev["task_id"] + ".a")
+                assert t is not None and {"fs:read", "fs:write"} <= set(t.task.scopes)
+                c2 = Client(daemon.sock)
+                c2.call("task.stop", {"task_ids": [ev["task_id"]]})
+                c2.close()
+            if ev["type"] == "outcome":
+                break
+    finally:
+        c.close()

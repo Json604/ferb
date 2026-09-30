@@ -207,3 +207,105 @@ def test_the_choice_question_reads_as_numbered_options() -> None:
     q = question({"kind": "contact_choice", "reason": "Which Rahul did you mean?",
                   "options": ["Rahul Sharma +91 98100 11111 · Work", "Rahul Verma +91 98200 22222 · Gym"]})
     assert "1) Rahul Sharma" in q and "2) Rahul Verma" in q and q.rstrip().endswith("number (Enter to cancel):")
+
+
+# ---------- screenshot clicks in messaging / calling apps ----------
+
+def _whatsapp(d: RunningDaemon, mp: Any, cells: list[tuple[str, str]], at_point: str | None = None) -> tuple[Any, Any]:
+    from datetime import timedelta
+    from ferb.act.mac.accessibility import AxNode, AxTree
+    from ferb.act.mac.apps import RunningApp
+    from ferb.core.types import Task
+    from ferb.orchestrator.tree import TaskRecord
+    from tests.test_mac_vision import _fake_mac
+    shots, posted = _fake_mac(d, mp)
+    shots.top = 150                                                              # WhatsApp's window (pid 15)
+    mac = d.daemon.mac
+    mac.apps.apps.append(RunningApp(WA, "WhatsApp", 15, False))                  # type: ignore[union-attr]
+    mac.ax.tree = AxTree(nodes=[AxNode(None, "AXCell", n, v, (0, 0, 10, 10), False, True) for n, v in cells])  # type: ignore[union-attr]
+    mac.ax.label_at = lambda x, y: at_point                                      # type: ignore[union-attr]
+    d.daemon.gateway.owner_words = lambda rid, name: "video call rahul on whatsapp"
+    t = Task("wa", None, "g", "dev", Identity.OWNER, {"screen", "mac:act"}, "actor", "req-wa", [],
+             d.daemon.clock.now() + timedelta(minutes=10))
+
+    async def go() -> Any:
+        d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), d.daemon.spans.start("task", task_id="wa", input={}).id))
+        d.daemon.engine.intents.record(RequestIntent.from_plan("req-wa", {"call"}, recipients=frozenset({"Rahul"}),
+                                                               sites=frozenset({WA.lower()})))
+        return d.daemon.tokens.validate(d.daemon.tokens.issue("wa", "w-wa", t.scopes, Identity.OWNER, ttl_s=600))
+    return d.run(go()), posted
+
+
+def _click(d: RunningDaemon, grant: Any, **args: Any) -> dict[str, Any]:
+    async def go() -> dict[str, Any]:
+        shot = await d.daemon.gateway.call(grant, "mac.screenshot", {"app": "WhatsApp"})
+        assert not shot["is_error"], shot
+        job = asyncio.create_task(d.daemon.gateway.call(
+            grant, "mac.click", {"app": "WhatsApp", "shot": shot["content"]["shot"], "x": 400, "y": 300, **args}))
+        for _ in range(100):                                                     # past the undo window
+            await asyncio.sleep(0.05)
+            d.daemon.clock.advance(1)
+            if job.done():
+                break
+        return await asyncio.wait_for(job, 5)
+    return d.run(go(), timeout=20)
+
+
+def test_an_undeclared_click_in_a_messaging_app_is_refused(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Verma", "+91 98200 22222")])
+    r = _click(daemon, grant)
+    assert r["is_error"] and "messaging / calling app" in r["content"]["error"] and posted == []
+
+
+def test_other_on_a_call_button_is_refused(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Verma", "+91 98200 22222")], at_point="Video call")
+    r = _click(daemon, grant, purpose="other")
+    assert r["is_error"] and "declare purpose call or send" in r["content"]["error"] and posted == []
+
+
+def test_a_declared_call_click_goes_through_the_contact_check_and_countdown(daemon: RunningDaemon,
+                                                                           monkeypatch: Any) -> None:
+    got = listen(daemon)
+    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Verma", "+91 98200 22222")])
+    r = _click(daemon, grant, purpose="call", contact=VERMA)
+    assert not r["is_error"] and posted[-1].startswith("click"), r
+    assert [d["to"] for t, d in got if t == "action.held"] == ["Rahul Verma (+91 98200 22222)"]
+    made_up = _click(daemon, grant, purpose="call", contact={**VERMA, "selected": "Rahul Kapoor"})
+    assert made_up["is_error"] and "wasn't on screen" in made_up["content"]["error"]
+    assert _click(daemon, grant, purpose="call")["content"]["error"].startswith("say who this is for")
+
+
+def test_two_matches_on_a_screenshot_ask_which_one(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Sharma", "+91 98100 11111"),
+                                                   ("Rahul Verma", "+91 98200 22222")])
+    pick = Answers(daemon, choice=2)
+    try:
+        r = _click(daemon, grant, purpose="call", contact=VERMA)
+        assert not r["is_error"] and [ap.reason for ap in pick.asked if ap.options] == ["Which Rahul did you mean?"]
+    finally:
+        pick.stop()
+
+
+def test_other_apps_need_no_purpose(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    from tests.test_mac_shell import call, task
+    from tests.test_mac_vision import _fake_mac
+    _, posted = _fake_mac(daemon, monkeypatch)
+    g = task(daemon, "n", Identity.OWNER, {"screen", "mac:act"}, {"use_app"})
+    assert not call(daemon, g, "mac.screenshot", app="Notes")["is_error"]
+    assert not call(daemon, g, "mac.click", app="Notes", shot="shot1", x=400, y=300)["is_error"] and posted
+
+
+def test_a_web_pages_text_and_an_open_chat_dont_count_as_more_contacts() -> None:
+    """Found in the real run: a page's text is one line holding every contact, and an open chat repeats the name."""
+    page = {"elements": [{"role": "button", "label": "Rahul Sharma · +91 98100 11111 · Work"},
+                         {"role": "button", "label": "Rahul Verma · +91 98200 22222 · Gym"},
+                         {"role": "button", "label": "Video call"}],
+            "text": "Chats Rahul Sharma · +91 98100 11111 · Work Rahul Verma · +91 98200 22222 · Gym Rahul Verma "
+                    "+91 98200 22222 Video call"}
+    two = contacts.matching("Rahul", contacts.entries(page))
+    assert two == ["Rahul Sharma · +91 98100 11111 · Work", "Rahul Verma · +91 98200 22222 · Gym"]
+    one = {"elements": [{"role": "button", "label": "Rahul Verma · +91 98200 22222 · Gym"},
+                        {"role": "heading", "label": "Rahul Verma"}, {"role": "button", "label": "Video call"}],
+           "text": "Chats Rahul Verma · +91 98200 22222 · Gym Priya Nair Rahul Verma +91 98200 22222"}
+    assert contacts.matching("Rahul", contacts.entries(one)) == ["Rahul Verma · +91 98200 22222 · Gym"]
+    assert contacts.check(Contact(**VERMA), [contacts.entries(one)], "video call rahul").decision == "ok"

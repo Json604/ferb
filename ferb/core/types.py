@@ -184,6 +184,7 @@ class ToolResult:
     is_error: bool = False
     read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) the call read: feeds exposure (10.2)
     image: bytes | None = None                        # JPEG for the model only: never redacted text, logged or stored
+    evidence: dict[str, Any] | None = None            # for FERB's own checks only (e.g. who was on screen, 16a)
 
 
 # ---------- browsers (section 5 BrowserDriver) ----------

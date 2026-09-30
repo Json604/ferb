@@ -112,6 +112,8 @@ class Gateway:
             args = cap.Input.model_validate(arguments)
         except ValidationError as e:
             return reply({"error": "invalid arguments", "details": e.errors(include_url=False)}, True)
+        if hasattr(cap, "precheck") and (why := cap.precheck(args)):       # refused before any policy step
+            return reply({"error": why}, True)
 
         spec = cap.describe(args)
         if rec.task.role == "reader" and spec.kind not in REVERSIBLE:      # readers read; they never act (7.4)
@@ -227,8 +229,9 @@ class Gateway:
                 self.publish("worker.exposed", {"worker_id": grant.worker_id, "task_id": grant.task_id,
                                                 "reason": f"read {kind}: {source_id}"})
         content = self.redact(result.content)
-        if name.endswith(".snapshot") and not result.is_error:          # what was on screen, for the contact check
-            self.seen.record(grant.task_id, self._where(cap, name, args, result.content), result.content)
+        if (name.endswith(".snapshot") or result.evidence) and not result.is_error:   # what was on screen (16a)
+            shown = result.evidence or result.content
+            self.seen.record(grant.task_id, self._where(cap, name, args, shown), shown)
         if self.jev is not None:
             stop = await self._jev_result(grant, name, result, content, span.id)
             if stop is not None:

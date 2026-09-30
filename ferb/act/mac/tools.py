@@ -1,6 +1,7 @@
 """mac.* capabilities (OWNER tasks only, section 10.1): list/open apps, read an app's window (Accessibility), act on
 it (Accessibility first, real input as the fallback under the GUI lock), and AppleScript for scriptable apps."""
 
+import asyncio
 import re
 from typing import Any, Callable, Literal
 
@@ -14,6 +15,7 @@ from ferb.act.mac.resolve import scriptable
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionSpec, ComputerAction, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.contacts import Contact
+from ferb.policy.services import communication_bundles
 from ferb.policy.rules import Kind
 
 
@@ -192,16 +194,24 @@ class MacScreenshot(_Base):
         if why := self._extension_first(args):
             return _err(why)
         a, shot, jpeg = await self.driver.screenshot(str(getattr(args, "app")))
+        evidence = None
+        if a.bundle_id.lower() in communication_bundles():   # who is on screen, for the contact check (16a)
+            try:
+                evidence = await self.driver.screen_text(a.bundle_id)
+            except Exception:
+                evidence = None
         return ToolResult({"app": a.name, "bundle_id": a.bundle_id, "shot": shot.id, "width": shot.size[0],
                            "height": shot.size[1], "next": "mac_click with this shot id and x, y in image pixels"},
-                          read_sources=_sources(a.bundle_id), image=jpeg)
+                          read_sources=_sources(a.bundle_id), image=jpeg, evidence=evidence)
 
 
 class MacClick(_Base):
     name = "mac.click"
     description = ("Click at x, y (image pixels) in an app's latest mac_screenshot. Uses the real mouse (it pauses "
                    "while the owner is using theirs); refused if the window moved or something is over that point: "
-                   "take a new screenshot. Type afterwards with mac_act (type / key).")
+                   "take a new screenshot. Type afterwards with mac_act (type / key). In messaging / calling apps "
+                   "(WhatsApp, Slack, Zoom, Teams, FaceTime, Messages, Telegram, Discord, Signal, Skype) say what the "
+                   "click is for: purpose call / send (with contact) or other.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
 
@@ -209,11 +219,28 @@ class MacClick(_Base):
         shot: str = Field(description="shot id from the latest mac_screenshot of this app")
         x: float = Field(ge=0)
         y: float = Field(ge=0)
+        purpose: Literal["call", "send", "other"] | None = Field(None, description=(
+            "required in messaging / calling apps: call (starts a call), send (sends a message), other"))
+        contact: Contact | None = Field(None, description="purpose call / send: who, as the owner said it and as "
+                                                          "the app shows it (FERB checks it was on screen)")
         fallback_reason: str | None = Field(None, max_length=300, description=(
             "browsers only: why the browser_* tools (FERB extension) can't do this"))
 
+    def _communication(self, args: BaseModel) -> bool:
+        return self._bundle(args).lower() in communication_bundles()
+
+    def precheck(self, args: BaseModel) -> str | None:
+        """In a messaging / calling app an undeclared click is refused: it could start a call or send a message."""
+        if self._communication(args) and getattr(args, "purpose") is None:
+            return (f"{getattr(args, 'app')} is a messaging / calling app: say what this click is for — purpose "
+                    "\"call\" or \"send\" (with contact), or \"other\"")
+        return None
+
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(Kind.MAC_INPUT, Target(site=self._bundle(args)))
+        purpose = getattr(args, "purpose")
+        kind = {"call": Kind.CALL, "send": Kind.SEND}.get(purpose or "", Kind.MAC_INPUT) \
+            if self._communication(args) else Kind.MAC_INPUT
+        return ActionSpec(kind, Target(site=self._bundle(args)))
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
@@ -221,9 +248,13 @@ class MacClick(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         if why := self._extension_first(args):
             return _err(why)
-        r = await self.driver.click_at(str(getattr(args, "app")), str(getattr(args, "shot")),
-                                       float(getattr(args, "x")), float(getattr(args, "y")), holder=ctx.worker_id,
-                                       task=ctx.task_id)
+        app, shot, x, y = (str(getattr(args, "app")), str(getattr(args, "shot")), float(getattr(args, "x")),
+                           float(getattr(args, "y")))
+        if self._communication(args) and getattr(args, "purpose") == "other":
+            label = await asyncio.to_thread(self.driver.label_at, app, shot, x, y)
+            if call_or_send(label or ""):                  # declared "other" but it's a call / send button
+                return _err(f"that point is a “{label}” control: declare purpose call or send, with the contact")
+        r = await self.driver.click_at(app, shot, x, y, holder=ctx.worker_id, task=ctx.task_id)
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new screenshot to see the result"},
                           is_error=not r.ok)
 

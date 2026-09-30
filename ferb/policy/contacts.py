@@ -24,6 +24,8 @@ STOP = frozenset({"the", "and", "for", "from", "with", "call", "video", "voice",
 
 
 class Contact(BaseModel):
+    """Who a call / message is for. If several contacts match the name, don't ask the owner yourself: pick one and
+    press — FERB shows the owner the numbered matches and tells you who they chose."""
     name: str = Field(description="the person as the owner named them, e.g. Rahul")
     selected: str = Field(description="the contact's name exactly as the app / page shows it")
     detail: str = Field(description="a number, username or subtitle the app / page shows for that contact")
@@ -44,7 +46,11 @@ def entries(content: dict[str, Any]) -> list[str]:
     seen: set[str] = set()
     items = [" ".join(str(x) for x in (e.get("label"), e.get("value")) if x)
              for e in content.get("elements", []) if not EDITABLE.search(str(e.get("role", "")))]
-    items += [line for line in str(content.get("text", "")).splitlines()]
+    shown = [norm(i) for i in items if norm(i)]
+    # visible text: a line that already contains an element's text is that element again (a web page's text can be
+    # one long line holding every contact), so it doesn't count separately
+    items += [line for line in str(content.get("text", "")).splitlines()
+              if not any(s in norm(line) for s in shown)]
     for it in items:
         it = it.strip()[:200]
         n = norm(it)
@@ -55,8 +61,18 @@ def entries(content: dict[str, Any]) -> list[str]:
 
 
 def matching(name: str, shot: list[str]) -> list[str]:
+    """The different contacts on one screen matching the name. An entry containing another matching entry is the same
+    contact (the open chat's header "Rahul Verma" and its row "Rahul Verma · +91 …"); each is shown by its fullest
+    label (at most 120 characters)."""
     want = _words(name)
-    return [e for e in shot if want and want <= _words(e)]
+    m = [e for e in shot if want and want <= _words(e)]
+    core = [e for e in m if not any(o != e and norm(o) in norm(e) for o in m)]
+    out = []
+    for e in core:
+        holders = [x for x in m if norm(e) in norm(x) and len(x) <= 120
+                   and not any(o != e and norm(o) in norm(x) for o in core)]
+        out.append(max(holders, key=len, default=e))
+    return out
 
 
 class Seen:

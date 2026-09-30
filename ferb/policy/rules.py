@@ -77,6 +77,14 @@ def payload_hash(a: ActionRequest) -> str:
 
 # ---------- identity + scopes (section 10.1) ----------
 
+# Acting needs seeing: an act scope brings its read scope (a worker with browser:act must open and read the page).
+IMPLIED_READ = {"browser:act": "browser:read", "mac:act": "mac:read", "fs:write": "fs:read"}
+
+
+def with_reads(scopes: set[str]) -> set[str]:
+    return scopes | {IMPLIED_READ[s] for s in scopes if s in IMPLIED_READ}
+
+
 SCOPES_BY_IDENTITY: dict[Identity, frozenset[str]] = {
     # FERB tasks: FERB's own browser profile, its secrets, its mailbox, files in FERB's workspace only.
     Identity.FERB: frozenset({"identity:browse", "secrets:fill", "mailbox:read", "mailbox:send",

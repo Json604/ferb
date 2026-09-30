@@ -551,6 +551,10 @@ Build step 14a specifics (owner decisions after testing):
   held for undo is cancelled too). A restart records interrupted tasks for the owner.
 
 Build step 8 specifics:
+- Acting needs seeing: an actor's act scope brings its read scope (`browser:act` → `browser:read`, `mac:act` →
+  `mac:read`, `fs:write` → `fs:read`), since the act tools work on element ids from its own snapshots (found in a
+  real run: a plan granting only `browser:act` left the worker unable to open or read the page). Readers still get
+  read scopes only.
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
 - Reader output is typed fields (string / number / boolean / string list / email / URL); strings default to 500
@@ -910,7 +914,9 @@ never counts as a stall) and the task continues once approved.
   remove anything from it.
 
 **Calls and messages (build step 16).** A call or message the owner asked for is not a question: like a send, it is
-held for the undo window with a countdown ("Calling Rahul… undo") and then goes. One the owner didn't ask for follows
+held for the undo window with a countdown ("Calling Rahul… undo") and then goes. Clicking through the app's own
+buttons on the way (opening a chat, picking a contact) is part of a call / message request (`submit` within the
+named sites / apps); the call or send itself is its own kind, contact-checked and held. One the owner didn't ask for follows
 the same rules as an unrequested send.
 
 **Contacts are never guessed** (build step 16a, owner decisions 2026-09-30), in code (`policy/contacts.py`, the
@@ -929,6 +935,11 @@ snapshots of that app / tab showed (the last 10 each, in memory only) and checks
   it as a memory;
 - the undo countdown names the exact contact: "📞 Calling Rahul Verma (+91 98…) in 10 s"; `contact.selected` is
   journaled.
+- screenshot clicks: in messaging / calling apps (the catalogue's WhatsApp, Slack, Zoom, Teams, FaceTime, Messages,
+  Telegram, Discord, Signal, Skype) `mac.click` must declare `purpose` — call / send (with `contact`: the same check
+  and countdown) or other. An undeclared click there is refused before any policy step; an "other" click on a point
+  Accessibility identifies as a call / send control is refused. A screenshot of such an app also records the
+  window's Accessibility text as evidence of who was on screen (FERB's checks only, never sent to the model).
 
 ### 10.4 Autonomy levels
 
@@ -1273,6 +1284,7 @@ Build step 11 specifics (owner decisions):
     said it, selected + detail as the screen shows them); the gateway checks both were on screen in this task; several
     matching entries with nothing in the owner's words to pick one → a numbered "Which Rahul?"; the answer is for that
     one action; the countdown names the exact contact. No automatic name → contact mappings (section 10.3).
+    Screenshot clicks in messaging / calling apps must declare their purpose (call / send / other).
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.
