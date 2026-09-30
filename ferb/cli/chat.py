@@ -43,6 +43,25 @@ def read_message(inp: TextIO) -> str | None:
     return text.rstrip("\n")
 
 
+PASTE_QUESTION = "   ? You pasted this as your whole message. Is it your own request? [y/N] "
+
+
+def whole_paste(text: str, pastes: list[str]) -> bool:
+    """Nothing typed around it: the message is one or more pastes and nothing else."""
+    rest = text
+    for p in pastes:
+        rest = rest.replace(p, "", 1)
+    return bool(pastes) and not rest.strip()
+
+
+def prepare(text: str, pastes: list[str], ask: Callable[[str], str]) -> str:
+    """What goes to the daemon. Pastes are data, never instructions (10.2) — unless the whole message is a paste and
+    the owner says, here in their own terminal, that it's their request (e.g. copied from their own notes)."""
+    if whole_paste(text, pastes) and ask(PASTE_QUESTION).strip().lower() in ("y", "yes"):
+        return text
+    return wrap_pastes(text, pastes)
+
+
 def wrap_pastes(text: str, pastes: list[str]) -> str:
     """Mark each pasted piece (in order) as untrusted: the daemon sees exactly what was pasted, and where."""
     out, rest = [], text
@@ -263,7 +282,7 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False) -> int:
             if text.strip() in ("/quit", "/exit"):
                 return 0
             if text.strip():
-                chat.turn(wrap_pastes(text, list(pastes)))
+                chat.turn(prepare(text, list(pastes), ask))
 
 
 def reminders(connect: Callable[[], Client], out: TextIO) -> None:

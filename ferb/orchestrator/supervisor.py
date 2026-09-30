@@ -81,6 +81,11 @@ def _env_text(env: dict[str, Any]) -> str:
     return ("\n".join(parts) + "\n\n") if parts else ""
 
 
+def _affirmative(words: str) -> bool:
+    return bool(re.fullmatch(r"\s*(yes|y|yeah|yep|yup|sure|ok|okay|go ahead|do it|please do|correct|right)[.! ]*\s*",
+                             words.lower()))
+
+
 def _wants_me(recipients: list[str]) -> bool:
     return any(r.strip().lower() in ME for r in recipients)
 
@@ -109,6 +114,8 @@ from ferb.clock.durations import route_of  # noqa: E402  (task.route baseline: w
 class ChatSession:
     id: str
     history: list[tuple[str, str]] = field(default_factory=list)   # (speaker, text as the supervisor saw it)
+    pending: str = ""          # the owner's words of a request FERB asked a question about (an answer continues it)
+    asked: str = ""            # that question, as the owner saw it
 
 
 @dataclass
@@ -350,21 +357,28 @@ class Supervisor(WorkerRuns):
     async def send(self, session_id: str, text: str) -> AsyncIterator[dict[str, Any]]:
         session = self.sessions.setdefault(session_id, ChatSession(session_id))
         m = mark(text)
+        # An answer to FERB's question continues the request it asked about: the owner's words are both. A plain yes
+        # also endorses the question they said yes to ("Use your Brave browser for the current YouTube tab?") —
+        # for planning checks only; quote checks (memory, reminders, schedules) stay on the owner's own words.
+        owner_words = f"{session.pending}\n{m.own_words}" if session.pending else m.own_words
+        endorsed = re.sub(r"\byour\b", "my", session.asked, flags=re.I)   # FERB's "your Brave" is the owner's "my Brave"
+        plan_words = owner_words + (f"\n{endorsed}" if session.asked and _affirmative(m.own_words) else "")
+        session.pending = session.asked = ""
         request_id = self.ids.new_id()
         entry = self.journal.append("chat.message", {"session": session_id, "request_id": request_id,
                                                      "text": m.for_model, "untrusted_parts": len(m.untrusted)})
-        recalled = self.recall(m.own_words)
+        recalled = self.recall(plan_words)
         avail = self.availability()                             # what's usable right now (the backstop too)
         available = avail.scopes
-        env = self.environment(m.own_words)                     # routes decided in code (9.3, build step 16)
+        env = self.environment(plan_words)                     # routes decided in code (9.3, build step 16)
         self._env[request_id] = env
         try:
             out = await self._supervise(session, m.for_model, request_id, recalled)
             for _ in range(PLAN_REPAIRS):                  # an invalid plan is repaired, never shown (14a)
                 if out.kind != "plan" or out.plan is None:
                     break
-                problems = dag.validate(out.plan, m.own_words, available, self.apps(),
-                                             self.owner_browser(m.own_words))
+                problems = dag.validate(out.plan, plan_words, available, self.apps(),
+                                             self.owner_browser(plan_words))
                 if not problems:
                     break
                 self.journal.append("plan.repair", {"request_id": request_id, "problems": problems})
@@ -377,22 +391,22 @@ class Supervisor(WorkerRuns):
             self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__})
             yield {"type": "reply", "text": SORRY}
             return
-        for saved in self.remember(out.remember, m.own_words, entry.id):          # the owner's words, quote-checked
+        for saved in self.remember(out.remember, owner_words, entry.id):          # the owner's words, quote-checked
             yield {"type": "memory", "text": saved}
         for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
-            yield {"type": "timer", "text": self.on_reminder_cancel(rc, m.own_words)}
-        for note in self._set_timers(out.timers, m.own_words, request_id):
+            yield {"type": "timer", "text": self.on_reminder_cancel(rc, owner_words)}
+        for note in self._set_timers(out.timers, owner_words, request_id):
             yield {"type": "timer", "text": note}
         if out.schedule is not None:                                             # build step 15
-            yield {"type": "timer", "text": self.on_schedule(out.schedule, m.own_words, request_id)}
+            yield {"type": "timer", "text": self.on_schedule(out.schedule, owner_words, request_id)}
         for ch in out.schedule_changes:
-            yield {"type": "timer", "text": self.on_schedule_change(ch, m.own_words)}
+            yield {"type": "timer", "text": self.on_schedule_change(ch, owner_words)}
         if out.kind == "plan" and out.plan is not None and _wants_me(out.plan.intent.recipients) \
                 and self.owner_email() is None:                                  # progressive setup (section 8)
             out = SupervisorOutcome(kind="clarify", text="What email address should I use for you? I'll remember it.",
                                     plan=None)
-        final = dag.validate(out.plan, m.own_words, available, self.apps(),
-                                             self.owner_browser(m.own_words)) \
+        final = dag.validate(out.plan, plan_words, available, self.apps(),
+                                             self.owner_browser(plan_words)) \
             if out.kind == "plan" and out.plan is not None else []
         if final:
             self.journal.append("chat.failed", {"request_id": request_id, "why": "plan still invalid after repair"})
@@ -400,12 +414,14 @@ class Supervisor(WorkerRuns):
             needs_missing = any("FERB can't do" in p for p in final)             # needed something unavailable
             out = SupervisorOutcome(kind="reply", plan=None, text=(f"I can't do that right now. {missing}"
                                                                    if missing and needs_missing else SORRY_PLAN))
+        if out.kind == "clarify":                               # the answer will continue this request
+            session.pending, session.asked = owner_words, out.text
         if out.kind in ("reply", "clarify") or out.plan is None:
             self.journal.append(f"chat.{out.kind}", {"session": session_id, "request_id": request_id,
                                                      "text": out.text})
             yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": out.text}
             return
-        self.engine.intents.record(self._intent(out.plan, request_id, m.own_words))   # write-once, plan time
+        self.engine.intents.record(self._intent(out.plan, request_id, plan_words))   # write-once, plan time
         if self.jev is not None:                                                  # task.route: logged only
             asyncio.get_running_loop().create_task(self._jev_route(out.plan, request_id))
         routes = [r.say() for r in env.get("routes", [])]
