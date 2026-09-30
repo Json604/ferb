@@ -66,9 +66,10 @@ def test_ferbs_own_browser_and_the_mac_permissions(daemon: RunningDaemon) -> Non
     assert "FERB's own browser (not paired — run `ferb setup --identity`)" in line
     assert "the owner's Mac apps (FERB doesn't have the Accessibility permission — run `ferb doctor`)" in line
     assert "Screen Recording" in line and not a.scopes & {"mac:act", "mac:read", "applescript", "screen"}
-    dm.identity_browser = SimpleNamespace(shutdown=_noop)                   # set up, but its profile isn't open
-    try:
-        assert "FERB's own browser (not connected — run `ferb doctor`)" in daemon.run(_avail(dm)).unavailable_line()
+    dm.identity_browser = SimpleNamespace(shutdown=_noop)                   # set up, but its profile isn't open:
+    try:                                                                     # usable — FERB opens it when needed
+        a = daemon.run(_avail(dm))
+        assert "FERB's own browser" not in a.unavailable_line()
     finally:
         dm.identity_browser = None
 

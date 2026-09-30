@@ -365,7 +365,9 @@ class Daemon:
                 self.supervisor.activity.waiting(holder, on)
         def available() -> bool:                                  # paused: no owner-input tap, so no real input
             return not (self.sense is not None and self.sense.paused)
-        self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait,
+        def owner_active() -> bool:                    # `[mac] yield_to_owner = false`: keep going while the owner types
+            return bool(self.config.get("mac", "yield_to_owner", True)) and self.owner_input.active()
+        self.mac = MacComputerDriver(device, RealInput(owner_active, self.gui, on_wait=owner_wait,
                                                        available=available),
                                      excluded=self.config.exclude_apps, web_password=self._web_password)
         add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected, self._unpaired_note)
@@ -1252,12 +1254,9 @@ class Daemon:
             profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                  for b in live)
         prof = self._identity_profile()
-        if prof is not None:                                   # FERB's own browser is part of this FERB
-            br = self.hub.bridges.get(prof) if self.hub is not None else None
-            if self.identity_browser is None:
-                problems["ferb_browser"] = "not paired — run `ferb setup --identity`"
-            elif br is None or br.conn is None:
-                problems["ferb_browser"] = "not connected — run `ferb doctor`"
+        if prof is not None and self.identity_browser is None:   # FERB's own browser is part of this FERB
+            problems["ferb_browser"] = "not paired — run `ferb setup --identity`"
+        # Not open right now is fine: FERB opens its own profile when a task needs it (the owner's report, 2026-09-30)
         perms = self._permissions()
         if registered & {"mac:read", "mac:act"} and not perms.get("accessibility", True):
             problems["mac"] = "FERB doesn't have the Accessibility permission — run `ferb doctor`"

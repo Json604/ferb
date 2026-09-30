@@ -98,12 +98,7 @@ remember that my dentist is Dr. Rao at Smile Clinic
 
 In chat:
 
-- **Several at once:** type any time, even while tasks run. Each message runs in the background; with more than one
-  running, lines are labelled `[1]`, `[2]`. `/tasks` lists them, `/stop N` stops one.
-- **Ctrl-C** on an empty line stops everything this chat started ("stopped by you"); a message held for undo is
-  cancelled too. With nothing running, it leaves chat.
-- **FERB's questions** appear as they come; answer with `y`, `n`, a number, or Enter. A longer line is a new message
-  and the question keeps waiting (the prompt shows `answer>`).
+- **Ctrl-C** stops the running task ("stopped by you"); a message held for undo is cancelled too.
 - Closing chat (or `/quit`) does **not** stop tasks. When one finishes while chat is closed, you get a macOS
   notification, and chat shows the answer next time it opens.
 - Pasted text arrives in one piece and is treated as data, never as instructions. Option-Enter starts a new line.
@@ -170,6 +165,7 @@ defaults for the privacy keys on first run, so you can see and edit them there. 
 |                | `watch_folders`         | `[]`                                                               | Folders whose file events are recorded (nothing is watched unless listed)                  |
 |                | `idle_after_s`          | `120`                                                              | Seconds without input before you count as idle                                             |
 |                | `trail_retention_days`  | `30`                                                               | Raw activity rows kept; days are purged only after their daily summary exists              |
+| `[mac]`      | `yield_to_owner`        | `true`                                                             | Pause FERB's real mouse/keyboard while you use yours; `false` keeps it going                |
 | `[browser]`  | `prefer_for_actions`    | `["brave", "chrome"]`                                              | Browser order when a site is open in several                                               |
 | `[identity]` | `browser`, `profile`  | set by`ferb setup --identity`                                      | FERB's own Chrome profile                                                                  |
 | `[mailbox]`  | `address`, `provider` | set by`ferb setup --identity`                                      | FERB's own email address (Gmail)                                                           |

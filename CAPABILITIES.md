@@ -27,8 +27,7 @@ to fix it.
 | Ask one question when unclear | `send it to him` | – | Offline | One question at a time |
 | Continuity across chats and restarts | `what were you doing earlier? did you finish?` | – | Verified (stop + new chat) | Sees the last day of conversation and tasks |
 | Tasks outlive the chat window | close chat mid-task, reopen later | – | Offline | Finished answers show once; a macOS notification goes out when chat is closed |
-| Several requests at once | type a new request while a task runs | – | Offline | Lines labelled [1], [2]; `/tasks`, `/stop N`; short replies answer FERB's questions |
-| Stop a task | Ctrl-C on an empty line (all), `/stop N` (one) | – | Verified (stop through the same call) | A send held for undo is cancelled too |
+| Stop a task | Ctrl-C while it works | – | Verified (stop through the same call) | A send held for undo is cancelled too |
 | Pasted text is data, not instructions | paste an email, then `summarize this` | – | Offline | Targets (recipients, sites) must be in your own words, not the paste |
 | Inline approvals | a request in `careful` mode | – | Verified (one question per target and action type) | Unanswered questions expire after 10 min (1 h for scheduled runs) |
 | Plain wording, `--verbose` for internals | `ferb chat --verbose` | – | Offline | – |

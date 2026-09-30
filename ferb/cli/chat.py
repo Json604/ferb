@@ -5,17 +5,12 @@
   FERB wraps each pasted piece in the paste markers the daemon treats as untrusted (section 10.2).
 - Plain by default: FERB's own words, its questions, and a line when something is held for undo. `--verbose` shows
   the plan, each step, tools and checks.
-- Several at once (owner request, 2026-09-30): in a terminal, each message runs in the background and the prompt stays
-  free, so the owner can keep typing. With more than one running, lines are labelled [1], [2]. FERB's questions show
-  up as they come; the next line answers the oldest one (the prompt says `answer>`). `/tasks` lists what's running,
-  `/stop N` stops one, Ctrl-C on an empty line stops everything this chat started (with nothing running it leaves).
-- Closing chat (Ctrl-D, /quit, closing the terminal) never stops anything: tasks keep running, their answers wait for
-  next time (and arrive as a macOS notification).
+- Ctrl-C while FERB works stops that task ("stopped by you"). Closing chat (Ctrl-D, /quit, closing the terminal)
+  never stops anything: tasks keep running, their answers wait for next time (and arrive as a macOS notification).
 - On opening: answers that arrived while chat was closed, tasks still running, and any question waiting for the
   owner.
 """
 
-import queue
 import secrets
 import sys
 import threading
@@ -159,18 +154,9 @@ class Chat:
                  verbose: bool = False) -> None:
         self.connect, self.out, self.ask, self.verbose = connect, out, ask, verbose
         self.session_id = secrets.token_hex(6)
-        self.lock = threading.Lock()
-        self.turns: dict[int, dict[str, Any]] = {}          # running messages: number -> {"msg", "tasks"}
-        self._n = 0
-        self.background = False                               # a terminal: questions go through the main prompt
-        self.questions: queue.Queue[tuple[dict[str, Any], threading.Event, list[str]]] = queue.Queue()
-        self.on_question: Callable[[], None] = lambda: None   # redraw the prompt ("answer>")
 
-    def say(self, line: str, label: int | None = None) -> None:
-        with self.lock:
-            if label is not None and len(self.turns) > 1:
-                line = "\n".join(f"[{label}] {x}" for x in line.split("\n"))
-            print(line, file=self.out, flush=True)
+    def say(self, line: str) -> None:
+        print(line, file=self.out, flush=True)
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
         c = self.connect()
@@ -179,34 +165,8 @@ class Chat:
         finally:
             c.close()
 
-    def _reply(self, q: str) -> str:
-        """Ask the owner. In a terminal with work in the background, the question is shown now and the owner's next
-        line answers it (the main prompt reads it); otherwise ask directly."""
-        if not self.background:
-            return self.ask(q)
-        done: threading.Event = threading.Event()
-        box: list[str] = []
-        self.questions.put(({"q": q}, done, box))
-        self.say(q.rstrip())
-        self.on_question()
-        done.wait(3600)
-        return box[0] if box else ""
-
-    def answer_pending(self, text: str) -> bool:
-        """The owner's line answers the oldest waiting question, if there is one and the line looks like an answer
-        (y / n / a number / Enter): a longer line is a new message, and the question keeps waiting."""
-        if text.strip().lower() not in ("", "y", "yes", "n", "no") and not text.strip().isdigit():
-            return False
-        try:
-            _, done, box = self.questions.get_nowait()
-        except queue.Empty:
-            return False
-        box.append(text)
-        done.set()
-        return True
-
     def answer_approval(self, d: dict[str, Any]) -> None:
-        reply = self._reply(question(d)).strip()
+        reply = self.ask(question(d)).strip()
         if d.get("options"):
             n = int(reply) if reply.isdigit() and 1 <= int(reply) <= len(d["options"]) else None
             params: dict[str, Any] = {"approval_id": d["approval_id"], "granted": n is not None, "choice": n}
@@ -230,43 +190,13 @@ class Chat:
         for d in st.get("approvals", []):
             self.answer_approval(d)
         for q in st.get("questions", []):                    # asked while you were away (a scheduled run)
-            reply = self._reply(f"   ? {q['question']} [y/N] ")
+            reply = self.ask(f"   ? {q['question']} [y/N] ")
             self.call("questions.answer", {"id": q["id"], "yes": reply.strip().lower() in ("y", "yes")})
         reminders(self.connect, self.out)
 
-    def start(self, msg: str) -> int:
-        """Run one message in the background (a terminal): the prompt stays free for the next one."""
-        with self.lock:
-            self._n += 1
-            n = self._n
-            self.turns[n] = {"msg": msg, "tasks": []}
-
-        def go() -> None:
-            try:
-                self.turn(msg, n)
-            except Exception as e:                            # the daemon went away mid-turn, etc.
-                self.say(f"ferb> {e}", n)
-            finally:
-                with self.lock:
-                    self.turns.pop(n, None)
-        threading.Thread(target=go, daemon=True).start()
-        return n
-
-    def running(self) -> list[str]:
-        with self.lock:
-            return [f"[{n}] {t['msg'][:70]}" for n, t in sorted(self.turns.items())]
-
-    def stop(self, n: int | None = None) -> bool:
-        """Stop one running message's tasks (or all this chat started)."""
-        with self.lock:
-            ids = [tid for k, t in self.turns.items() if n is None or k == n for tid in t["tasks"]]
-        if ids:
-            self.call("task.stop", {"task_ids": ids})
-        return bool(ids)
-
-    def turn(self, msg: str, label: int | None = None) -> None:
+    def turn(self, msg: str) -> None:
         client = self.connect()
-        tasks: list[str] = self.turns[label]["tasks"] if label in self.turns else []
+        tasks: list[str] = []
         try:
             for ev in client.stream("chat.send", {"session_id": self.session_id, "text": msg}):
                 if ev.get("type") == "plan" and ev.get("task_id"):
@@ -276,7 +206,7 @@ class Chat:
                     continue
                 line = render(ev, self.verbose)
                 if line:
-                    self.say(line, label)
+                    self.say(line)
         except KeyboardInterrupt:                             # Ctrl-C: stop what FERB is doing for this message
             if tasks:
                 self.call("task.stop", {"task_ids": tasks})
@@ -331,7 +261,7 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False) -> int:
             event.current_buffer.reset()
             pastes.clear()
         else:
-            event.app.exit(exception=KeyboardInterrupt)       # the loop decides: stop running work, or leave
+            event.app.exit(exception=EOFError)
 
     session: PromptSession[str] = PromptSession(history=InMemoryHistory(), key_bindings=kb, multiline=True)
 
@@ -339,48 +269,20 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False) -> int:
         return session.prompt(q, multiline=False, key_bindings=None)
 
     chat = Chat(connect, sys.stdout, ask, verbose)
-    chat.background = True
-
-    def redraw() -> None:
-        app = session.app
-        if app.is_running:
-            app.invalidate()
-    chat.on_question = redraw
-
-    def prompt_text() -> str:
-        return "answer> " if not chat.questions.empty() else "you> "
-
     with patch_stdout():
-        chat.say("FERB — type any time, even while tasks run. /tasks lists them, /stop N stops one, Ctrl-C stops all; "
-                 "Ctrl-D or /quit leaves (tasks keep running). Option-Enter for a new line.")
+        chat.say("FERB — Ctrl-D or /quit to leave (tasks keep running). Option-Enter for a new line.")
         chat.opening()
         threading.Thread(target=_live_reminders, args=(connect, sys.stdout), daemon=True).start()
         while True:
             pastes.clear()
             try:
-                text = session.prompt(prompt_text)
-            except KeyboardInterrupt:
-                if chat.stop():
-                    chat.say("ferb> Stopped everything this chat started.")
-                    continue
+                text = session.prompt("you> ")
+            except (EOFError, KeyboardInterrupt):
                 return 0
-            except EOFError:
+            if text.strip() in ("/quit", "/exit"):
                 return 0
-            if chat.answer_pending(text.strip()):             # this line answers FERB's question
-                continue
-            cmd = text.strip()
-            if cmd in ("/quit", "/exit"):
-                return 0
-            if cmd == "/tasks":
-                chat.say("\n".join(chat.running()) or "ferb> Nothing running.")
-                continue
-            if cmd.startswith("/stop"):
-                arg = cmd[5:].strip()
-                ok = chat.stop(int(arg)) if arg.isdigit() else chat.stop()
-                chat.say("ferb> Stopped." if ok else "ferb> Nothing to stop there.")
-                continue
-            if cmd:
-                chat.start(prepare(text, list(pastes), ask))
+            if text.strip():
+                chat.turn(prepare(text, list(pastes), ask))
 
 
 def reminders(connect: Callable[[], Client], out: TextIO) -> None:

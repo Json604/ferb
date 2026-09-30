@@ -337,3 +337,13 @@ def test_reading_a_background_downloads_output_later_also_exposes(daemon: Runnin
     assert daemon.daemon.engine.exposure.state("w-b").exposed                   # exposed on the first result
     h = task(daemon, "c", Identity.OWNER, OWNER_SHELL, {"run_command"})
     assert call(daemon, h, "shell.read", id=pid)["is_error"]                     # not their process
+
+
+def test_yielding_to_the_owner_can_be_switched_off(daemon: RunningDaemon) -> None:
+    """Owner request (2026-09-30): `[mac] yield_to_owner = false` keeps FERB's real input going while they type."""
+    d = daemon.daemon
+    real_input = d.mac.input                                                  # type: ignore[union-attr]
+    d.owner_input.active = lambda: True                                      # type: ignore[method-assign]
+    assert real_input.owner_active() is True
+    d.config.set("mac", "yield_to_owner", False)
+    assert real_input.owner_active() is False

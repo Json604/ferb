@@ -534,6 +534,8 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
     the owner), and generous caps — 4 hours, 50 worker runs, 1,000 tool calls. The owner hears about a guard only
     when it actually stops something. Distillation and shadow decisions run unmetered.
 11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
+    Switchable (owner request, 2026-09-30): `[mac] yield_to_owner = false` keeps FERB's real input going while the
+    owner uses the Mac (default true; the owner turned it off for now).
 12. `ferb stop` (or the stop hotkey) halts everything immediately (section 10.5).
 13. **Environment summary** (build step 16): each turn the planner gets a short summary of this Mac — macOS version,
     the paired browser profiles FERB can use, and the installed apps relevant to what the owner named — plus the
@@ -559,10 +561,8 @@ Build step 14a specifics (owner decisions after testing):
   notification, and shown when chat next opens, with anything still running and any question still waiting. An
   approval asked while no chat is open also sends a notification. Ctrl-C stops the task ("stopped by you"; a send
   held for undo is cancelled too). A restart records interrupted tasks for the owner.
-- Several at once (owner request, 2026-09-30): `ferb chat` never blocks on a task. Each message runs in the background
-  and the owner can keep typing; with more than one running, lines are labelled [1], [2]. FERB's questions appear as
-  they come and a short reply (y / n / a number / Enter) answers the oldest one; a longer line is a new message.
-  `/tasks` lists what this chat started, `/stop N` stops one, Ctrl-C on an empty line stops them all.
+- Chat takes one request at a time (a "several at once" chat was tried on 2026-09-30 and removed at the owner's
+  request: questions arriving mid-typing were confusing). The daemon itself still runs turns independently.
 
 Build step 8 specifics:
 - Acting needs seeing: an actor's act scope brings its read scope (`browser:act` → `browser:read`, `mac:act` →
