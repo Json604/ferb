@@ -25,7 +25,8 @@ from ferb.orchestrator.ledger import DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskTree
 from ferb.policy.engine import PolicyEngine, Verdict
 from ferb.policy.exposure import LOST_WHEN_EXPOSED
-from ferb.policy.rules import REVERSIBLE, ActionRequest, payload_hash
+from ferb.policy import contacts
+from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.store.spans import SpanStore
 
 Publish = Callable[[str, dict[str, Any]], None]
@@ -68,6 +69,10 @@ class Gateway:
         # Progressive setup (section 8), supplied by the daemon: record a granted folder; queue a question for later
         self.grant_folder: Callable[[str], None] = lambda folder: None
         self.queue_question: Callable[[str, str, str], None] = lambda kind, target, text: None
+        # Contacts (build step 16a): what this task's snapshots showed; the owner's words for a request + name
+        self.seen = contacts.Seen()
+        self.owner_words: Callable[[str, str], str] = lambda request_id, name: ""
+        self._picked: dict[tuple[str, str], str] = {}     # the owner's answer, for the next attempt of that one action
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -123,6 +128,12 @@ class Gateway:
                                task_scopes=grant.scopes, target=spec.target, content=spec.content,
                                data_labels=spec.data_labels, unverified_account=spec.unverified_account,
                                flagged_irreversible=bool(req_intent and spec.kind in req_intent.irreversible))
+        if spec.kind in (Kind.CALL, Kind.SEND) and "contact" in type(args).model_fields \
+                and self._needs_contact(spec.kind, rec.task.request_id):        # never guess between contacts (16a)
+            got = await self._contact(cap, name, args, action, grant, rec)
+            if isinstance(got, str):
+                return reply({"error": got}, True)
+            action, spec = got, dataclasses.replace(spec, target=got.target)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": name, "args": arguments})
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id})
@@ -216,6 +227,8 @@ class Gateway:
                 self.publish("worker.exposed", {"worker_id": grant.worker_id, "task_id": grant.task_id,
                                                 "reason": f"read {kind}: {source_id}"})
         content = self.redact(result.content)
+        if name.endswith(".snapshot") and not result.is_error:          # what was on screen, for the contact check
+            self.seen.record(grant.task_id, self._where(cap, name, args, result.content), result.content)
         if self.jev is not None:
             stop = await self._jev_result(grant, name, result, content, span.id)
             if stop is not None:
@@ -226,6 +239,58 @@ class Gateway:
         if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
+
+    def _needs_contact(self, kind: str, request_id: str) -> bool:
+        """Calls always name their contact; a send does when the owner named a person rather than an address."""
+        if kind == Kind.CALL:
+            return True
+        req = self.engine.intents.get(request_id)
+        return any("@" not in r and r.strip().lower() not in ("me", "myself", "owner") for r in
+                   (req.recipients if req else ()))
+
+    def _where(self, cap: Any, name: str, args: Any, content: dict[str, Any] | None) -> str:
+        if name.startswith("mac."):
+            if content and content.get("bundle_id"):
+                return str(content["bundle_id"])
+            return str(cap._bundle(args)) if hasattr(cap, "_bundle") else str(getattr(args, "app", ""))
+        tab = (content or {}).get("tab") or getattr(args, "tab", "")
+        return f"{name.split('.')[0]}:{tab}"
+
+    async def _contact(self, cap: Any, name: str, args: Any, action: ActionRequest, grant: RunGrant,
+                       rec: Any) -> ActionRequest | str:
+        """The selected contact must have been on screen; several matches (and nothing the owner said picks one)
+        means asking "Which Rahul?". The owner's answer is for this one action. Returns the action (its target now
+        naming the exact contact) or why not."""
+        c: contacts.Contact | None = getattr(args, "contact")
+        if c is None:
+            return ("say who this is for: contact = {name as the owner said it, selected as the screen shows it, "
+                    "detail (number / username / subtitle) as the screen shows it}")
+        req = self.engine.intents.get(action.request_id)
+        rname = next((r for r in (req.recipients if req else ()) if r.strip().lower() == c.name.strip().lower()), None)
+        if rname is None:
+            named = ", ".join(sorted(req.recipients)) if req and req.recipients else "nobody"
+            return f"“{c.name}” isn't someone the owner named in this request (they named: {named})"
+        shots = self.seen.shots(grant.task_id, self._where(cap, name, args, None))
+        words = self.owner_words(action.request_id, c.name)
+        res = contacts.check(c, shots, words, self._picked.pop((grant.task_id, rname.lower()), None))
+        how = "on screen"
+        if res.decision == "ask":
+            ap = self.engine.approvals.request_choice(action, res.why, res.options)
+            self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": "contact_choice",
+                                                "reason": res.why, "options": list(res.options),
+                                                "task_id": grant.task_id})
+            answer = await self._wait_answer(grant, ap.id)
+            if answer != "granted" or ap.choice is None:
+                return _declined(answer, action.request_id in self.engine.approvals.unattended)
+            res, how = contacts.check(c, shots, words, ap.choice), "the owner chose"
+            if res.decision != "ok":
+                self._picked[(grant.task_id, rname.lower())] = ap.choice          # the retry of this one action
+        if res.decision != "ok":
+            return res.why
+        shown = contacts.display(c)
+        self.publish("contact.selected", {"task_id": grant.task_id, "name": c.name, "contact": shown, "how": how})
+        return dataclasses.replace(action, target=dataclasses.replace(action.target, recipients=(rname,),
+                                                                      contact=shown))
 
     async def _folder_access(self, grant: RunGrant, action: ActionRequest, path: str) -> str | None:
         """"Allow FERB to access ~/Projects?" — asked only for a folder the owner named in this request (content FERB
@@ -345,4 +410,5 @@ def _declined(answer: str, unattended: bool = False) -> str:
 
 def _target_dict(t: Any) -> dict[str, Any]:
     return {k: v for k, v in {"account": t.account, "site": t.site, "recipients": list(t.recipients),
-                              "path": t.path, "amount": t.amount}.items() if v not in (None, [], ())}
+                              "path": t.path, "amount": t.amount, "contact": t.contact}.items()
+            if v not in (None, [], ())}

@@ -30,6 +30,8 @@ class Approval:
     scope: str = ""                        # scope key: what a grant covers (empty for irreversible: exact, once)
     request_id: str = ""
     kind: str = ""
+    options: tuple[str, ...] = ()          # a choice question ("Which Rahul?"): the owner picks one
+    choice: str | None = None
 
 
 class Approvals:
@@ -46,8 +48,19 @@ class Approvals:
         self._items[ap.id] = ap
         return ap
 
-    def resolve(self, approval_id: str, granted: bool) -> Approval:
+    def request_choice(self, a: ActionRequest, question: str, options: list[str]) -> Approval:
+        """"Which Rahul did you mean?" — the answer is for this one action; it never covers another call."""
+        ap = self.request(a, question)
+        ap.options, ap.scope, ap.kind = tuple(options), "", "contact_choice"
+        ap.payload_hash = "choice:" + ap.id                                # consume() can never match it
+        return ap
+
+    def resolve(self, approval_id: str, granted: bool, choice: int | None = None) -> Approval:
         ap = self._items[approval_id]
+        if ap.options and granted:
+            if choice is None or not 1 <= choice <= len(ap.options):
+                raise ValueError(f"pick one of 1–{len(ap.options)}")
+            ap.choice = ap.options[choice - 1]
         if ap.state != "pending":
             raise ValueError(f"approval {approval_id} is {ap.state}")
         if self._clock.monotonic() >= ap.expires_at:

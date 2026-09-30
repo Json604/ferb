@@ -296,6 +296,7 @@ class Daemon:
         self.gateway = Gateway(self.registry.capabilities, self.engine, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.grant_folder, self.gateway.queue_question = self._grant_folder, self._queue_question
+        self.gateway.owner_words = self._owner_words
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, engine=self.engine,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
@@ -794,8 +795,8 @@ class Daemon:
         rows = self.db.conn.execute("SELECT * FROM task_results WHERE shown = 0 ORDER BY at").fetchall()
         for r in rows:
             self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
-        pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason}
-                   for ap in self.engine.approvals.pending()]
+        pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
+                    "options": list(ap.options)} for ap in self.engine.approvals.pending()]
         questions = [{"id": q["id"], "question": q["question"]} for q in self.db.conn.execute(
             "SELECT id, question FROM owner_questions WHERE state = 'open' ORDER BY seq").fetchall()]
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
@@ -1188,6 +1189,20 @@ class Daemon:
         stable, live = svc.summary(env, platform.mac_ver()[0] or "unknown", named, running)
         return {"routes": routes, "stable": stable, "live": live, "unknown": unknown}
 
+    def _owner_words(self, request_id: str, name: str) -> str:
+        """For the contact check (16a): this request's own words, the owner's messages over the last day, and what the
+        owner has explicitly told FERB to remember about that name — never pasted or read content."""
+        import re as _re
+        strip = _re.compile(r"<untrusted-data[^>]*>.*?</untrusted-data>", _re.S)
+        since = self.clock.now() - timedelta(days=1)
+        words = [strip.sub(" ", str(e.data.get("text", ""))) for e in self._journal().entries(since)
+                 if e.kind == "chat.message"]
+        if self.memory is not None:
+            low = name.strip().lower()
+            words += [f"{it.subject} {it.content}" for it in self.memory.items("active")
+                      if it.origin == "owner_stated" and low and (low in it.content.lower() or low in it.subject.lower())]
+        return "\n".join(words)
+
     def _time_meanings(self) -> list[tuple[str, str]]:
         """The owner's own meanings of fuzzy time words ("next friday", "evening"), stored when they corrected FERB."""
         if self.memory is None:
@@ -1427,6 +1442,8 @@ class Daemon:
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)
+        if topic == "contact.selected":                                   # who a call / message went to (16a)
+            self._journal().append("contact.selected", self.redact(data))
 
     def _runtime_violation(self, runtime: str, detail: str) -> None:
         """Section 7: a run that shows a tool outside the allowlist unregisters its runtime."""
@@ -1464,7 +1481,9 @@ class Daemon:
         return await self.gateway.call(session.grant, str(params.get("name")), dict(params.get("arguments") or {}))
 
     async def _chat_approve(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        ap = self.engine.approvals.resolve(str(params["approval_id"]), bool(params["granted"]))
+        choice = params.get("choice")
+        ap = self.engine.approvals.resolve(str(params["approval_id"]), bool(params["granted"]),
+                                           int(choice) if choice is not None else None)
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,
                                                      "capability": ap.capability})
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})

@@ -19,6 +19,7 @@ task.
 
 Output must match the JSON schema exactly.
 
-Contacts: if a name you must call or message matches more than one contact in the app, don't choose. Stop with status
-needs_user and list the matches (names and a distinguishing detail) in your summary; FERB asks the owner once and
-remembers the answer.
+Contacts: when you press call or send for a person, fill `contact`: name (as the owner named them), selected (the
+contact's name exactly as the screen shows it) and detail (a number, username or subtitle the screen shows for them).
+Take a snapshot that shows the contact before selecting it. If several match, pick the one the goal's words point to;
+if nothing does, pick any — FERB asks the owner which one and tells you. Follow its answer; never invent a detail.

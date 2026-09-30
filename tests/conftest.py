@@ -94,8 +94,8 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
 class Answers:
     """Answers FERB's approval questions as they appear (the owner at `ferb chat`), recording each question."""
 
-    def __init__(self, d: RunningDaemon, granted: bool = True) -> None:
-        self.d, self.granted, self.asked = d, granted, []
+    def __init__(self, d: RunningDaemon, granted: bool = True, choice: int | None = None) -> None:
+        self.d, self.granted, self.choice, self.asked = d, granted, choice, []
         self._task = asyncio.run_coroutine_threadsafe(self._loop(), d.loop)
 
     async def _loop(self) -> None:
@@ -103,7 +103,10 @@ class Answers:
         while True:
             for ap in approvals.pending():
                 self.asked.append(ap)
-                approvals.resolve(ap.id, self.granted)
+                if ap.options:                                   # "Which Rahul?": the owner's pick (or cancel)
+                    approvals.resolve(ap.id, self.choice is not None, self.choice)
+                else:
+                    approvals.resolve(ap.id, self.granted)
             await asyncio.sleep(0.02)
 
     def stop(self) -> None:

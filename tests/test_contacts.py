@@ -1,0 +1,209 @@
+"""Build step 16a: never guess between contacts, enforced in code.
+- a call / send to a person must name the contact (name as the owner said it, selected + detail as shown);
+- the selected contact and its detail must have been on screen in this task;
+- several entries matching the name, with nothing the owner said picking one -> "Which Rahul?" (numbered);
+- the owner's words ("Rahul from work", or a memory they stated) resolve it without asking;
+- the answer applies to that one action only: nothing is stored;
+- the undo countdown names the exact contact with its detail.
+"""
+
+import asyncio
+from typing import Any
+
+from pydantic import BaseModel
+
+from ferb.cli.chat import question, render
+from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.policy import contacts
+from ferb.policy.contacts import Contact
+from ferb.policy.intent import RequestIntent
+from ferb.policy.rules import Kind
+from tests.conftest import Answers, RunningDaemon
+from tests.test_gateway import setup
+
+WA = "net.whatsapp.WhatsApp"
+TWO_RAHULS = {"bundle_id": WA, "app": "WhatsApp", "elements": [
+    {"id": "s1e1", "role": "AXTextField", "label": "Search", "value": "Rahul"},
+    {"id": "s1e2", "role": "AXCell", "label": "Rahul Sharma", "value": "+91 98100 11111 · Work"},
+    {"id": "s1e3", "role": "AXCell", "label": "Rahul Verma", "value": "+91 98200 22222 · Gym"},
+    {"id": "s1e4", "role": "AXButton", "label": "Video call"}], "text": ""}
+ONE_RAHUL = {"bundle_id": WA, "app": "WhatsApp", "elements": [
+    {"id": "s2e1", "role": "AXStaticText", "label": "Rahul Verma", "value": "+91 98200 22222"},
+    {"id": "s2e2", "role": "AXButton", "label": "Video call"}], "text": ""}
+VERMA = {"name": "Rahul", "selected": "Rahul Verma", "detail": "+91 98200 22222"}
+SHARMA = {"name": "Rahul", "selected": "Rahul Sharma", "detail": "+91 98100 11111"}
+
+
+class Snap:
+    name, description, identities = "mac.snapshot", "fake snapshot", {Identity.OWNER}
+    scopes, risk, reversible = {"mac:read"}, RiskLevel.LOW, True
+
+    class Input(BaseModel):
+        app: str
+
+    def __init__(self) -> None:
+        self.screens: list[dict[str, Any]] = []
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=WA))
+
+    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        return ToolResult(self.screens.pop(0))
+
+
+class Call:
+    name, description, identities = "mac.act", "fake call button", {Identity.OWNER}
+    scopes, risk, reversible = {"mac:act"}, RiskLevel.MEDIUM, False
+
+    class Input(BaseModel):
+        app: str
+        contact: Contact | None = None
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def _bundle(self, args: BaseModel) -> str:
+        return WA
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.CALL, Target(site=WA))
+
+    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        self.calls += 1
+        return ToolResult({"ok": True})
+
+
+def rig(d: RunningDaemon, *screens: dict[str, Any], words: str = "video call rahul on whatsapp") -> tuple[Any, Call]:
+    snap, call = Snap(), Call()
+    snap.screens = list(screens)
+    grant, _ = setup(d, {"mac:read", "mac:act"}, RequestIntent.from_plan(
+        "req-1", {"call"}, recipients=frozenset({"Rahul"}), sites=frozenset({WA.lower()})), [snap, call])  # type: ignore[list-item]
+    d.daemon.gateway.owner_words = lambda rid, name: words
+    for _ in screens:
+        assert not d.run(d.daemon.gateway.call(grant, "mac.snapshot", {"app": "WhatsApp"}))["is_error"]
+    return grant, call
+
+
+def press_call(d: RunningDaemon, grant: Any, contact: dict[str, Any] | None) -> dict[str, Any]:
+    async def go() -> dict[str, Any]:
+        job = asyncio.create_task(d.daemon.gateway.call(grant, "mac.act", {"app": "WhatsApp", "contact": contact}))
+        for _ in range(100):                                            # past the undo window
+            await asyncio.sleep(0.05)
+            d.daemon.clock.advance(1)
+            if job.done():
+                break
+        return await asyncio.wait_for(job, 5)
+    return d.run(go(), timeout=20)
+
+
+def listen(d: RunningDaemon) -> list[tuple[str, dict[str, Any]]]:
+    got: list[tuple[str, dict[str, Any]]] = []
+    real = d.daemon.gateway.publish
+
+    def pub(topic: str, data: dict[str, Any]) -> None:
+        got.append((topic, data))
+        real(topic, data)
+    d.daemon.gateway.publish = pub                                      # type: ignore[method-assign]
+    return got
+
+
+# ---------- the rule, in code ----------
+
+def test_several_matches_and_nothing_to_pick_one_means_ask() -> None:
+    shots = [contacts.entries(TWO_RAHULS)]
+    r = contacts.check(Contact(**VERMA), shots, "video call rahul")
+    assert r.decision == "ask" and r.why == "Which Rahul did you mean?"
+    assert [o.split(" ")[:2] for o in r.options] == [["Rahul", "Sharma"], ["Rahul", "Verma"]]  # not the search box
+
+
+def test_the_owners_words_pick_one() -> None:
+    shots = [contacts.entries(TWO_RAHULS)]
+    assert contacts.check(Contact(**SHARMA), shots, "video call rahul from work").decision == "ok"
+    wrong = contacts.check(Contact(**VERMA), shots, "video call rahul from work")
+    assert wrong.decision == "refuse" and "Rahul Sharma" in wrong.why
+    stated = "call rahul\nperson:rahul Rahul always means Rahul Sharma (work)"          # an owner-stated memory
+    assert contacts.check(Contact(**SHARMA), shots, stated).decision == "ok"
+
+
+def test_a_contact_that_was_never_on_screen_is_refused() -> None:
+    shots = [contacts.entries(ONE_RAHUL)]
+    assert contacts.check(Contact(**VERMA), shots, "call rahul").decision == "ok"            # one match: no question
+    made_up = contacts.check(Contact(name="Rahul", selected="Rahul Kapoor", detail="+91 1"), shots, "call rahul")
+    assert made_up.decision == "refuse" and "wasn't on screen" in made_up.why
+    bad_detail = contacts.check(Contact(name="Rahul", selected="Rahul Verma", detail="+91 99999"), shots, "call rahul")
+    assert bad_detail.decision == "refuse" and "detail" in bad_detail.why
+    assert contacts.check(Contact(**VERMA), [], "call rahul").decision == "refuse"             # no snapshot at all
+
+
+# ---------- through the gateway ----------
+
+def test_which_rahul_is_asked_and_the_answer_is_for_that_one_action(daemon: RunningDaemon) -> None:
+    got = listen(daemon)
+    grant, call = rig(daemon, TWO_RAHULS, ONE_RAHUL)
+    pick = Answers(daemon, choice=2)                                   # the owner: "2" (Rahul Verma)
+    try:
+        r = press_call(daemon, grant, VERMA)
+        assert not r["is_error"] and call.calls == 1, r
+        asked = [ap for ap in pick.asked if ap.options]
+        assert len(asked) == 1 and asked[0].reason == "Which Rahul did you mean?"
+        held_ev = [d for t, d in got if t == "action.held"]
+        assert held_ev and held_ev[0]["to"] == "Rahul Verma (+91 98200 22222)"
+        assert render({"type": "event", "topic": "action.held", "data": held_ev[0]}) == \
+            "   📞 Calling Rahul Verma (+91 98200 22222) in 10 s… (Ctrl-C to cancel)"
+        again = press_call(daemon, grant, VERMA)                    # the next call: asked again (nothing stored)
+        assert not again["is_error"] and len([ap for ap in pick.asked if ap.options]) == 2
+    finally:
+        pick.stop()
+    mem = daemon.daemon.memory
+    assert mem is None or not [it for it in daemon.run(_items(daemon)) if "verma" in it.content.lower()]
+
+
+async def _items(d: RunningDaemon) -> list[Any]:
+    return d.daemon.memory.items(None)                                 # type: ignore[union-attr]
+
+
+def test_a_wrong_pick_is_refused_then_the_retry_uses_the_owners_answer(daemon: RunningDaemon) -> None:
+    grant, call = rig(daemon, TWO_RAHULS)
+    pick = Answers(daemon, choice=1)                                   # the owner meant Rahul Sharma
+    try:
+        r = press_call(daemon, grant, VERMA)
+        assert r["is_error"] and "Rahul Sharma" in r["content"]["error"] and call.calls == 0
+        ok = press_call(daemon, grant, SHARMA)                      # the worker reselects: no second question
+        assert not ok["is_error"] and call.calls == 1
+        assert len([ap for ap in pick.asked if ap.options]) == 1
+    finally:
+        pick.stop()
+
+
+def test_cancelling_the_question_stops_the_call(daemon: RunningDaemon) -> None:
+    grant, call = rig(daemon, TWO_RAHULS)
+    nobody = Answers(daemon, choice=None)                              # Enter: cancel
+    try:
+        r = press_call(daemon, grant, VERMA)
+        assert r["is_error"] and "declined" in r["content"]["error"] and call.calls == 0
+    finally:
+        nobody.stop()
+
+
+def test_the_owners_words_resolve_it_without_asking(daemon: RunningDaemon) -> None:
+    grant, call = rig(daemon, TWO_RAHULS, words="video call rahul from work on whatsapp")
+    watch = Answers(daemon)
+    try:
+        assert not press_call(daemon, grant, SHARMA)["is_error"] and call.calls == 1
+        assert watch.asked == []
+    finally:
+        watch.stop()
+
+
+def test_a_call_must_say_who_and_only_someone_the_owner_named(daemon: RunningDaemon) -> None:
+    grant, call = rig(daemon, ONE_RAHUL)
+    r = press_call(daemon, grant, None)
+    assert r["is_error"] and "say who this is for" in r["content"]["error"]
+    r = press_call(daemon, grant, {**VERMA, "name": "Priya"})
+    assert r["is_error"] and "isn't someone the owner named" in r["content"]["error"] and call.calls == 0
+
+
+def test_the_choice_question_reads_as_numbered_options() -> None:
+    q = question({"kind": "contact_choice", "reason": "Which Rahul did you mean?",
+                  "options": ["Rahul Sharma +91 98100 11111 · Work", "Rahul Verma +91 98200 22222 · Gym"]})
+    assert "1) Rahul Sharma" in q and "2) Rahul Verma" in q and q.rstrip().endswith("number (Enter to cancel):")

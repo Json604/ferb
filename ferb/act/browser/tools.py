@@ -25,6 +25,7 @@ from ferb.act.browser import accounts
 from ferb.act.browser.snapshot import for_model
 from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
+from ferb.policy.contacts import Contact
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, Identity, PageElement, RiskLevel,
                              SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
 from ferb.policy.rules import REVERSIBLE, Kind
@@ -232,6 +233,8 @@ class BrowserAct(_Base):
         text: str | None = Field(default=None, description="type: the text; select: option; press: key; "
                                                            "scroll: up or down")
         trusted: bool = False
+        contact: Contact | None = Field(default=None, description="clicking call / send to a person: who, as the "
+                                        "owner said it and as this page shows it (FERB checks it was on screen)")
 
     def _scopes(self) -> set[str]:
         return {self.family.act}

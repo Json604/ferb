@@ -170,6 +170,8 @@ ferb/
     autonomy.py         careful / balanced / hands-off levels + learned trust from traces (10.4)
     approvals.py        single-use, expiring approvals bound to the exact action payload; undo windows
     engine.py           fixed evaluation order over the checks above -> ALLOW / HOLD / ASK / BLOCK with reason
+    services.py         how to reach a named service or app: correction > owner usage > app > paired web (9.3)
+    contacts.py         never guess between contacts: the selected contact was on screen; several match -> ask (10.3)
   sanitize/
     redact.py           one redaction pipeline: secrets, password/OTP fields, tokens in URLs, exclusions
   act/
@@ -498,7 +500,7 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
   `tool.called`, `trail.event`, `browser.connected`, `browser.disconnected`, `browser.profiles_changed`,
   `memory.proposed`. Also critical: `policy.blocked`, `worker.exposed`, `action.held` (undo countdown),
   `action.released`, `action.undone`, `stop.engaged`, `stop.lifted`, `sense.paused`, `sense.resumed`,
-  `sense.watcher_failed`. Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
+  `sense.watcher_failed`, `contact.selected` (who a call or message went to, step 16a). Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
   oldest telemetry is dropped and the subscriber is told how many; if a queue is full of critical events, that
   subscriber is disconnected with an explicit overflow error (it must resubscribe and re-read state) rather
   than silently losing one.
@@ -716,7 +718,7 @@ installed app, else by the name of a site in the trail; anything else is unknown
 route is only ever a browser profile FERB can drive (paired). The route is shown in plain words when a task starts
 ("Using the WhatsApp app"). Calls and messages the owner asked for go ahead without a prompt, held with an undo
 countdown like sends ("Calling Rahul… undo", section 10.3). A contact name matching more than one person is never
-guessed: FERB asks which once and remembers the answer (owner-stated memory about that person).
+guessed — enforced in code (10.3, build step 16a).
 
 ### 9.4 Extension contract
 
@@ -910,6 +912,23 @@ never counts as a stall) and the task continues once approved.
 **Calls and messages (build step 16).** A call or message the owner asked for is not a question: like a send, it is
 held for the undo window with a countdown ("Calling Rahul… undo") and then goes. One the owner didn't ask for follows
 the same rules as an unrequested send.
+
+**Contacts are never guessed** (build step 16a, owner decisions 2026-09-30), in code (`policy/contacts.py`, the
+gateway). A call — or a message sent in an app or web chat when the owner named a person, not an address — must say
+who it's for: `contact` = name (as the owner said it; must be a recipient in the request's intent), selected (the
+contact's name as shown) and detail (a number, username or subtitle as shown). The gateway keeps what this task's
+snapshots of that app / tab showed (the last 10 each, in memory only) and checks:
+- the selected contact and its detail were on screen (typed text, e.g. the search box, doesn't count) — otherwise
+  refused;
+- if one screen showed more than one different entry matching the name, and nothing in the owner's words picks one
+  (this request, their messages over the last day, and what they explicitly told FERB to remember about that name,
+  e.g. "Rahul from work", "Rahul always means Rahul Sharma"), FERB asks: "Which Rahul did you mean? 1) … 2) …"
+  (a notification when chat is closed; unattended runs wait 1 hour, then skip). A pick other than the worker's
+  selection is refused with the owner's choice, and the retry of that one action uses it;
+- the answer applies to that one action only: nothing is stored. A lasting mapping exists only when the owner states
+  it as a memory;
+- the undo countdown names the exact contact: "📞 Calling Rahul Verma (+91 98…) in 10 s"; `contact.selected` is
+  journaled.
 
 ### 10.4 Autonomy levels
 
@@ -1249,8 +1268,11 @@ Build step 11 specifics (owner decisions):
     (4) ask only if none works. The planner gets a short environment summary each turn (macOS, relevant installed and
     running apps, paired browser profiles). A correction ("use the web version") is stored as an owner-stated
     preference and followed from then on. The chosen route is shown in plain words when starting. Recorded in §9.3
-    and §7. Calls/messages the owner asked for run with an undo countdown; ambiguous contacts are asked once, never
-    guessed.
+    and §7. Calls/messages the owner asked for run with an undo countdown.
+16a. Contacts in code (owner-added, 2026-09-30): a call / message to a person names its contact (name as the owner
+    said it, selected + detail as the screen shows them); the gateway checks both were on screen in this task; several
+    matching entries with nothing in the owner's words to pick one → a numbered "Which Rahul?"; the answer is for that
+    one action; the countdown names the exact contact. No automatic name → contact mappings (section 10.3).
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.

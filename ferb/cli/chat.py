@@ -94,10 +94,13 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
         d, topic = ev["data"], ev["topic"]
         if topic == "action.held":
             secs = f"{d.get('seconds', 10):.0f} s"
+            to = d.get("to")
             if d.get("kind") == "call":
-                return f"   📞 calling in {secs}… (Ctrl-C to cancel)"
+                return f"   📞 Calling {to} in {secs}… (Ctrl-C to cancel)" if to else \
+                    f"   📞 calling in {secs}… (Ctrl-C to cancel)"
             if d.get("kind") in ("send", "mailbox_send", "reply", "post"):
-                return f"   ✉️ sending in {secs}… (Ctrl-C to cancel)"
+                return f"   ✉️ Sending to {to} in {secs}… (Ctrl-C to cancel)" if to else \
+                    f"   ✉️ sending in {secs}… (Ctrl-C to cancel)"
             return f"   ⏳ holding this for {secs} so you can stop it (Ctrl-C)"
         if topic == "action.undone":
             return "   ↩ cancelled"
@@ -116,6 +119,9 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
 
 def question(d: dict[str, Any]) -> str:
     """An approval in plain words."""
+    if d.get("options"):                                  # "Which Rahul did you mean?" (16a)
+        opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
+        return f"   ? {d.get('reason', '')}\n{opts}\n   number (Enter to cancel): "
     if d.get("kind") == "folder_access":
         return f"   ? {d.get('reason', '')} [y/N] "
     what = KIND_TEXT.get(str(d.get("kind")), str(d.get("kind") or "do this"))
@@ -139,8 +145,13 @@ class Chat:
             c.close()
 
     def answer_approval(self, d: dict[str, Any]) -> None:
-        reply = self.ask(question(d))
-        r = self.call("chat.approve", {"approval_id": d["approval_id"], "granted": reply.strip().lower() in ("y", "yes")})
+        reply = self.ask(question(d)).strip()
+        if d.get("options"):
+            n = int(reply) if reply.isdigit() and 1 <= int(reply) <= len(d["options"]) else None
+            params: dict[str, Any] = {"approval_id": d["approval_id"], "granted": n is not None, "choice": n}
+        else:
+            params = {"approval_id": d["approval_id"], "granted": reply.lower() in ("y", "yes")}
+        r = self.call("chat.approve", params)
         if self.verbose:
             self.say(f"   {r['state']}")
 

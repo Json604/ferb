@@ -115,6 +115,7 @@ class Target:
     recipients: tuple[str, ...] = ()
     path: str | None = None
     amount: float | None = None
+    contact: str | None = None               # the exact contact a call / message goes to, as shown (step 16a)
 
 
 @dataclass(frozen=True)

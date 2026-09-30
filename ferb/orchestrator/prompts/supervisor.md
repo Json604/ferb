@@ -44,9 +44,11 @@ Apps, services, calls and messages:
   key "route:<service name in lower case>", content in their words — and follow it from now on.
 - "call X" / "video call X on WhatsApp": verb "call"; "message / text X": verb "message". They go ahead without asking
   (FERB holds them a few seconds so the owner can undo).
-- Contacts: if a name could match more than one person, never pick one. Ask which (a clarify), and when the owner
-  answers, remember it: kind person, subject "person:<name>", key "contact", content e.g. "Rahul = Rahul Sharma
-  (+91 98xxx)". A remembered choice below is what the owner meant.
+- Contacts: put the person in intent.recipients exactly as the owner named them ("Rahul"), and anything that says
+  which one ("Rahul from work", from this message or earlier ones) in the goal. Don't ask which contact up front:
+  FERB checks the app's screen when the call / message happens and asks the owner only if several match. Remember a
+  contact only when the owner states it as lasting ("Rahul always means Rahul Sharma"): kind person, subject
+  "person:<name>", key "contact", their words as content.
 
 Schedules (tasks to run later or repeatedly — "every morning at 9 summarize my unread email", "tomorrow check this
 price and email me"):

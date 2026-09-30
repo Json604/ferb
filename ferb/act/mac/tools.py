@@ -13,6 +13,7 @@ from ferb.act.mac.input import Yielded
 from ferb.act.mac.resolve import scriptable
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionSpec, ComputerAction, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.policy.contacts import Contact
 from ferb.policy.rules import Kind
 
 
@@ -145,6 +146,8 @@ class MacAct(_Base):
         action: Literal["press", "set_value", "focus", "click", "type", "key"]
         element: str | None = None
         text: str | None = None
+        contact: Contact | None = Field(default=None, description="pressing call / send to a person: who, as the "
+                                        "owner said it and as this app shows it (FERB checks it was on screen)")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(self._kind(args), Target(site=self._bundle(args)), content=getattr(args, "text"))

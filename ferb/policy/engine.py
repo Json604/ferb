@@ -84,7 +84,8 @@ class PolicyEngine:
             h = self.holds.hold(a)
             return Verdict("hold", f"held {self.holds.window_s:.0f} s for undo", "undo", hold_id=h.id,
                            events=[("action.held", {"hold_id": h.id, "capability": a.capability, "kind": a.kind,
-                                                    "seconds": self.holds.window_s, "task_id": a.task_id})])
+                                                    "seconds": self.holds.window_s, "task_id": a.task_id,
+                                                    "to": a.target.contact})])
         return Verdict("allow", step="allow")
 
     def release_due(self) -> list[tuple[Hold, Verdict]]:
