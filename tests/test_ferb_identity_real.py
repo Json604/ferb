@@ -37,7 +37,7 @@ from ferb.core.types import BrowserAction, Identity, SecretRef, SecretSpec
 from ferb.identity.secrets import KeychainSecretStore
 from ferb.paths import socket_path
 from tests.browserkit import PASSWORD, REF
-from tests.conftest import RunningDaemon
+from tests.conftest import RunningDaemon, without_owner_mac
 from tests.test_ext_real import LAUNCHER, restart_hosts
 
 pytestmark = pytest.mark.real
@@ -88,6 +88,7 @@ def daemon_on_launcher() -> Iterator[RunningDaemon]:
     base = Path(tempfile.mkdtemp(prefix="ferbr-"))
     original = LAUNCHER.read_text()
     d = RunningDaemon(base / "home", clock=SystemClock())
+    without_owner_mac(d)                                                  # locked down (CLAUDE.md)
     t0, events = time.monotonic(), []                                     # browser.* events, shown on failure
     publish = d.daemon._publish
 

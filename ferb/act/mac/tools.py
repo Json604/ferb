@@ -111,10 +111,12 @@ class MacOpen(_Base):
         bundle_id: str = Field(description="The app's bundle id, e.g. com.apple.Notes")
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(Kind.OPEN_TAB)
+        return ActionSpec(Kind.OPEN_TAB, Target(site=str(getattr(args, "bundle_id")).lower()))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         bid = str(getattr(args, "bundle_id"))
+        if bid.lower() in {e.lower() for e in self.driver.excluded()}:
+            return _err(f"{bid} is on the owner's exclusion list")
         if not self.driver.apps.launch(bid):
             return _err(f"no installed app {bid}")
         return ToolResult({"opened": bid})

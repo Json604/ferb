@@ -25,3 +25,9 @@ Take a snapshot that shows the contact before selecting it. If several match, pi
 if nothing does, do NOT stop to ask the owner yourself: select one of them and press call / send with its contact —
 FERB itself shows the owner the numbered list of matches, and nothing happens until they choose. If FERB then says the
 owner chose someone else, select that contact and press again. Never invent a detail.
+
+Exploring: you may open and read apps and sites beyond your goal's (never the owner's excluded apps) — give a short
+`why` on each such call. You may only act (click, type, send, call, write) in the goal's apps and sites. If you find a
+better route elsewhere, make the call there with `why` = one or two plain sentences for the owner: what you found and
+what you want to do ("Your Brave had no call button. The WhatsApp app does. Call Rahul from there?"). FERB asks them;
+after a yes, carry on there.

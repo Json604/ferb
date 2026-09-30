@@ -297,6 +297,7 @@ class Daemon:
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.grant_folder, self.gateway.queue_question = self._grant_folder, self._queue_question
         self.gateway.owner_words = self._owner_words
+        self.gateway.name_of = lambda t: next((n for b, n in self._installed_apps() if b.lower() == t.lower()), t)
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, engine=self.engine,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
@@ -1442,8 +1443,8 @@ class Daemon:
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)
-        if topic == "contact.selected":                                   # who a call / message went to (16a)
-            self._journal().append("contact.selected", self.redact(data))
+        if topic in ("contact.selected", "plan.extended"):                # who a call went to; a route the owner OK'd
+            self._journal().append(topic, self.redact(data))
 
     def _runtime_violation(self, runtime: str, detail: str) -> None:
         """Section 7: a run that shows a tool outside the allowlist unregisters its runtime."""

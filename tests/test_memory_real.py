@@ -17,7 +17,7 @@ import pytest
 
 from ferb.clock.clock import SystemClock
 from ferb.memory import summary
-from tests.conftest import RunningDaemon
+from tests.conftest import RunningDaemon, only_tools
 from tests.test_supervisor import chat
 
 pytestmark = pytest.mark.real
@@ -28,6 +28,7 @@ USAGE = Path(__file__).with_name(".distill_usage.json")
 def rt(request: pytest.FixtureRequest) -> Iterator[tuple[str, RunningDaemon]]:
     base = Path(tempfile.mkdtemp(prefix="ferbm-"))
     d = RunningDaemon(base / "home", clock=SystemClock())
+    only_tools(d, "fs.", "time.", "trail.")                             # locked down (CLAUDE.md)
     d.daemon.config.set("runtimes", "orchestrator", request.param)
     d.daemon.config.set("runtimes", "worker", request.param)
     yield request.param, d

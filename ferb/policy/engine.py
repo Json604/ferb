@@ -45,6 +45,25 @@ class PolicyEngine:
         self.holds = Holds(clock, undo_window_s)
         self.stopped = False
 
+    def blocker(self, a: ActionRequest) -> tuple[str, str] | None:
+        """What would block this action whatever the owner said, with no side effects: stop, identity, exposure, an
+        action type the request never asked for, and owner data leaving for a destination the request (as recorded)
+        doesn't involve. Asked before offering the owner a route outside the plan (10.3), so they're never asked to
+        approve what policy forbids."""
+        if self.stopped:
+            return "stop", "FERB is stopped"
+        reason = check_identity(a, self.ferb_workspace) or check_scopes(a)
+        if reason:
+            return "identity", reason
+        reason = self.exposure.check(a)
+        if reason:
+            return "exposure", reason
+        req = self.intents.get(a.request_id)
+        if req is None or a.kind not in req.kinds:
+            return "intent", f"'{a.kind}' was not requested"
+        reason = dataflow.check(a, req)
+        return ("dataflow", reason) if reason else None
+
     def evaluate(self, a: ActionRequest) -> Verdict:
         if self.stopped:
             return self._block("stop", "FERB is stopped (`ferb resume-tasks` lifts it)", a)

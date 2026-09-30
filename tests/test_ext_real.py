@@ -29,7 +29,7 @@ from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
 from ferb.core.errors import DriverError, StaleRef
 from ferb.core.types import BrowserAction
-from tests.conftest import RunningDaemon
+from tests.conftest import RunningDaemon, without_owner_mac
 
 pytestmark = pytest.mark.real
 LAUNCHER = Path.home() / ".ferb" / "bin" / "ferb-native-host"
@@ -59,6 +59,7 @@ def rd(target: tuple[str, str]) -> Iterator[RunningDaemon]:
     base = Path(tempfile.mkdtemp(prefix="ferbr-"))
     original = LAUNCHER.read_text()
     d = RunningDaemon(base / "home", clock=SystemClock())
+    without_owner_mac(d)                                                  # locked down (CLAUDE.md)
     LAUNCHER.write_text(re.sub(r'FERB_HOME="[^"]*"', f'FERB_HOME="{d.daemon.home}"', original))
     restart_hosts()                    # an extension already connected keeps its old host (and daemon) otherwise
     try:

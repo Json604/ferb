@@ -27,7 +27,7 @@ import pytest
 from ferb.cli.chat import render
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
-from tests.conftest import Answers, RunningDaemon
+from tests.conftest import Answers, RunningDaemon, without_owner_mac
 
 pytestmark = pytest.mark.real
 LAUNCHER = Path.home() / ".ferb" / "bin" / "ferb-native-host"
@@ -92,8 +92,7 @@ def rd(site: tuple[str, list[str]]) -> Iterator[RunningDaemon]:
     d.daemon.config.set("runtimes", "orchestrator", "codex")
     d.daemon.config.set("runtimes", "worker", "codex")
     d.daemon.config.set("gates", "owner_profiles", True)
-    for tool in [n for n in d.daemon.registry.capabilities if n.split(".")[0] in ("mac", "shell", "applescript")]:
-        del d.daemon.registry.capabilities[tool]                   # the owner's real Mac and apps stay out of this test
+    without_owner_mac(d)                                           # locked down (CLAUDE.md): the owner's Mac stays out
     for cap in d.daemon.registry.capabilities.values():            # local pages for the owner-browser tools (test)
         if cap.name.startswith("browser.") and hasattr(cap, "family"):
             cap.family = dataclasses.replace(cap.family, allow_local=True)

@@ -122,6 +122,8 @@ def question(d: dict[str, Any]) -> str:
     if d.get("options"):                                  # "Which Rahul did you mean?" (16a)
         opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
         return f"   ? {d.get('reason', '')}\n{opts}\n   number (Enter to cancel): "
+    if d.get("kind") == "route_change":                   # FERB found a better route while exploring (10.3)
+        return f"   ? {d.get('reason', '')} [y/N] "
     if d.get("kind") == "folder_access":
         return f"   ? {d.get('reason', '')} [y/N] "
     what = KIND_TEXT.get(str(d.get("kind")), str(d.get("kind") or "do this"))

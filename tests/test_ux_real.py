@@ -18,7 +18,7 @@ import pytest
 from ferb.cli.chat import render
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
-from tests.conftest import Answers, RunningDaemon
+from tests.conftest import Answers, RunningDaemon, only_tools
 
 pytestmark = pytest.mark.real
 INTERNALS = ("supervisor", "subtask", "worker", "only readers", "before i do that", "internal error",
@@ -50,20 +50,23 @@ def shown(evs: list[dict[str, Any]]) -> str:
 
 
 def test_1_ferb_introduces_itself_as_ferb(codex: RunningDaemon) -> None:
+    only_tools(codex, "fs.", "time.")                                   # locked down (CLAUDE.md)
     out = shown(chat(codex, "hi, who are you, who am i and what all can you do?"))
     low = out.lower()
     assert "ferb" in low and not any(w in low for w in INTERNALS), out
 
 
 def test_2_the_storage_question_gets_an_answer_not_an_internal_error(codex: RunningDaemon) -> None:
+    only_tools(codex, "fs.", "mac.", "shell.")                          # about the Mac and its storage (CLAUDE.md)
     out = shown(chat(codex, "what all apps are there on my mac?? can you analyse how can i manage my mac storage "
                             "better?? it fills too fast adn idk how"))
     low = out.lower()
     assert not any(w in low for w in INTERNALS), out
-    assert len(out) > 200, out                                           # an actual answer, not a status line
+    assert len(out) > 200, (out, codex.run(_repairs(codex)))             # an actual answer, not a status line
 
 
 def test_3_one_approval_per_target_and_the_task_finishes(codex: RunningDaemon) -> None:
+    only_tools(codex, "fs.")
     codex.daemon.config.set("policy", "autonomy", "careful")             # FERB asks before every action
     codex.run(_reload(codex))
     yes = Answers(codex)
@@ -79,11 +82,16 @@ def test_3_one_approval_per_target_and_the_task_finishes(codex: RunningDaemon) -
     assert not any(w in out.lower() for w in INTERNALS), out
 
 
+async def _repairs(d: RunningDaemon) -> list[Any]:
+    return [e.data for e in d.daemon._journal().entries() if e.kind in ("plan.repair", "chat.failed")]
+
+
 async def _reload(d: RunningDaemon) -> None:
     d.daemon._load_config()
 
 
 def test_4_continuity_after_a_stop_and_a_new_chat(codex: RunningDaemon) -> None:
+    only_tools(codex, "fs.")
     started = threading.Event()
     stopped: dict[str, Any] = {}
     c = Client(codex.sock, timeout=900)

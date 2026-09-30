@@ -34,6 +34,8 @@ other unit, go straight from the plan to building.
 - Use throwaway accounts and a spare browser profile for anything touching real sites; my real accounts stay
   out until the section 21 safety tests pass. Never put secrets in code, logs, or commits.
 - Ask before anything destructive or hard to undo outside the working tree.
+- Real tests are locked down by default: the test daemon gets only the tools that test needs. Mac, shell and
+  AppleScript tools are included only when the test is about them.
 - Never run experiments or probes against FERB's live identity session (`~/.ferb/chrome/identity`) without asking me
   first. Use spare, throwaway Chrome profiles for experiments.
 - After each commit, push to origin. Never force-push or rewrite history that's already pushed.

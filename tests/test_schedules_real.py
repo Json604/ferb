@@ -15,7 +15,7 @@ import pytest
 
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
-from tests.conftest import RunningDaemon
+from tests.conftest import RunningDaemon, only_tools
 
 pytestmark = pytest.mark.real
 
@@ -26,6 +26,7 @@ def codex(monkeypatch: pytest.MonkeyPatch) -> Iterator[RunningDaemon]:
     monkeypatch.setattr(schedules, "MIN_EVERY_MIN", 1)                  # test only (the repeat is shortened below)
     base = Path(tempfile.mkdtemp(prefix="fsc-", dir="/tmp"))
     d = RunningDaemon(base / "home", clock=SystemClock())
+    only_tools(d, "fs.", "time.")                                       # locked down (CLAUDE.md)
     d.daemon.config.set("runtimes", "orchestrator", "codex")
     d.daemon.config.set("runtimes", "worker", "codex")
     yield d

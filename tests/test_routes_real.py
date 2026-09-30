@@ -15,7 +15,7 @@ import pytest
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
 from ferb.policy import services as svc
-from tests.conftest import RunningDaemon
+from tests.conftest import RunningDaemon, only_tools
 
 pytestmark = pytest.mark.real
 
@@ -24,6 +24,7 @@ pytestmark = pytest.mark.real
 def codex() -> Iterator[RunningDaemon]:
     base = Path(tempfile.mkdtemp(prefix="frt-", dir="/tmp"))
     d = RunningDaemon(base / "home", clock=SystemClock())
+    only_tools(d, "fs.", "time.", "browser.", "mac.apps", "mac.open", "mac.snapshot", "mac.act")   # about app routes
     d.daemon.config.set("runtimes", "orchestrator", "codex")
     d.daemon.config.set("runtimes", "worker", "codex")
     env = svc.Environment([("com.apple.Notes", "Notes")], [("brave", "Default", "Work")])

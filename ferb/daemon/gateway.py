@@ -26,6 +26,7 @@ from ferb.orchestrator.tree import TaskTree
 from ferb.policy.engine import PolicyEngine, Verdict
 from ferb.policy.exposure import LOST_WHEN_EXPOSED
 from ferb.policy import contacts
+from ferb.policy.intent import site_matches
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.store.spans import SpanStore
 
@@ -73,6 +74,7 @@ class Gateway:
         self.seen = contacts.Seen()
         self.owner_words: Callable[[str, str], str] = lambda request_id, name: ""
         self._picked: dict[tuple[str, str], str] = {}     # the owner's answer, for the next attempt of that one action
+        self.name_of: Callable[[str], str] = lambda target: target    # bundle id -> app name, for plain questions
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -83,8 +85,9 @@ class Gateway:
                 continue
             if exposed and cap.scopes & LOST_WHEN_EXPOSED:
                 continue
-            out.append({"name": cap.name, "description": cap.description,
-                        "input_schema": cap.Input.model_json_schema()})
+            schema = cap.Input.model_json_schema()
+            schema.setdefault("properties", {})["why"] = {"type": "string", "description": WHY_HELP}
+            out.append({"name": cap.name, "description": cap.description, "input_schema": schema})
         return out
 
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -108,6 +111,8 @@ class Gateway:
             return reply({"error": f"tool {name} is not available to this worker"}, True)
         if rec is None:
             return reply({"error": "task is not running"}, True)
+        arguments = dict(arguments)
+        why = str(arguments.pop("why", "") or "").strip()[:400]         # the worker's stated reason (10.2 / 10.3)
         try:
             args = cap.Input.model_validate(arguments)
         except ValidationError as e:
@@ -130,6 +135,18 @@ class Gateway:
                                task_scopes=grant.scopes, target=spec.target, content=spec.content,
                                data_labels=spec.data_labels, unverified_account=spec.unverified_account,
                                flagged_irreversible=bool(req_intent and spec.kind in req_intent.irreversible))
+        if beyond_plan(spec.target.site, req_intent):                     # exploring / a route outside the plan
+            blocked = self.engine.blocker(action) if spec.kind not in REVERSIBLE else None
+            if blocked is not None:                                      # never offered: policy forbids it anyway
+                self.publish("policy.blocked", {"step": blocked[0], "reason": blocked[1], "capability": name,
+                                                "task_id": grant.task_id, "worker_id": grant.worker_id})
+                return reply({"error": f"blocked by FERB policy: {blocked[1]}"}, True)
+            if not why:
+                return reply({"error": EXPLORE_NEEDS_WHY if spec.kind in REVERSIBLE else ROUTE_NEEDS_WHY}, True)
+            if spec.kind not in REVERSIBLE:                              # acting there: the owner decides
+                refused = await self._route_change(name, spec.target.site or "", why, action, grant)
+                if refused:
+                    return reply({"error": refused}, True)
         if spec.kind in (Kind.CALL, Kind.SEND) and "contact" in type(args).model_fields \
                 and self._needs_contact(spec.kind, rec.task.request_id):        # never guess between contacts (16a)
             got = await self._contact(cap, name, args, action, grant, rec)
@@ -137,7 +154,7 @@ class Gateway:
                 return reply({"error": got}, True)
             action, spec = got, dataclasses.replace(spec, target=got.target)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                                input={"tool": name, "args": arguments})
+                                input={"tool": name, "args": arguments} | ({"why": why} if why else {}))
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id})
 
         verdict = self.engine.evaluate(action)
@@ -242,6 +259,25 @@ class Gateway:
         if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
+
+    async def _route_change(self, name: str, target: str, why: str, action: ActionRequest,
+                            grant: RunGrant) -> str | None:
+        """An action outside the plan's apps / sites: the worker's plain-words proposal goes to the owner ("Your Brave
+        had no call button. The WhatsApp app does. Call Rahul from there?"). A yes adds that app / site to this
+        request for the rest of it; then normal policy runs. Returns why not, or None to carry on."""
+        ask = dataclasses.replace(action, kind="route_change", content=None, flagged_irreversible=False)
+        question = f"{why} (FERB would {KIND_WORDS.get(action.kind, action.kind)} in {self.name_of(target)}.)"   # facts from code
+        ap = self.engine.approvals.request(ask, question)
+        self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": "route_change",
+                                            "reason": question, "task_id": grant.task_id})
+        answer = await self._wait_answer(grant, ap.id)
+        if answer != "granted":
+            return (_declined(answer, action.request_id in self.engine.approvals.unattended) +
+                    "; stay within the plan's apps and sites")
+        self.engine.intents.extend(action.request_id, target)
+        self.publish("plan.extended", {"task_id": grant.task_id, "request_id": action.request_id, "target": target,
+                                       "why": why})
+        return None
 
     def _needs_contact(self, kind: str, request_id: str) -> bool:
         """Calls always name their contact; a send does when the owner named a person rather than an address."""
@@ -402,6 +438,24 @@ class Gateway:
     def _events(self, v: Verdict) -> None:
         for topic, data in v.events:
             self.publish(topic, data)
+
+
+KIND_WORDS = {"call": "start a call", "send": "send a message", "mac_input": "click and type",
+              "submit": "click / submit", "fill_form": "type", "post": "post", "reply": "reply",
+              "write_file": "write a file", "applescript": "run AppleScript"}
+WHY_HELP = ("Only when this goes outside the plan's apps and sites. Opening / reading there: a short reason. Acting "
+            "there: one or two plain sentences for the owner — what you found and what you want to do, e.g. \"Your "
+            "Brave had no call button. The WhatsApp app does. Call Rahul from there?\"")
+EXPLORE_NEEDS_WHY = ("this app / site isn't in the plan: you may look, with a short reason — call again with why = "
+                     "why you're looking here")
+ROUTE_NEEDS_WHY = ("acting here is outside the plan's apps and sites. If it's the better route, call again with why = "
+                   "one or two plain sentences for the owner: what you found and what you want to do (e.g. \"Your "
+                   "Brave had no call button. The WhatsApp app does. Call Rahul from there?\"); FERB asks them")
+
+
+def beyond_plan(site: str | None, intent: Any) -> bool:
+    """A target outside the request's apps / sites (only when the plan named some)."""
+    return bool(site and intent is not None and intent.sites and not site_matches(site, intent.sites))
 
 
 def _declined(answer: str, unattended: bool = False) -> str:

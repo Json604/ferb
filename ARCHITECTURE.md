@@ -500,7 +500,8 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
   `tool.called`, `trail.event`, `browser.connected`, `browser.disconnected`, `browser.profiles_changed`,
   `memory.proposed`. Also critical: `policy.blocked`, `worker.exposed`, `action.held` (undo countdown),
   `action.released`, `action.undone`, `stop.engaged`, `stop.lifted`, `sense.paused`, `sense.resumed`,
-  `sense.watcher_failed`, `contact.selected` (who a call or message went to, step 16a). Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
+  `sense.watcher_failed`, `contact.selected` (who a call or message went to, step 16a), `plan.extended` (the
+  owner's yes to a route found while exploring). Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
   oldest telemetry is dropped and the subscriber is told how many; if a queue is full of critical events, that
   subscriber is disconnected with an explicit overflow error (it must resubscribe and re-read state) rather
   than silently losing one.
@@ -890,6 +891,12 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
 - **Undo windows**: sends/posts are held ~10 s before executing. The pending send is shown with a countdown in
   `ferb chat` and `ferb logs`, and `ferb undo` cancels it. No system notifications in Block 1.
 - **Reversible actions just run**: drafts, navigation, search, opening tabs, moving files to Trash.
+- **Exploring beyond the plan** (owner decision, 2026-09-30): workers may open and read apps and sites outside the
+  plan's list — never apps on `[privacy] exclude_apps` (`mac.open` included) — with a short stated reason for each
+  (`why`, a field every tool takes; the gateway strips it before the tool runs and records it in that call's span).
+  Without a reason such a call is refused. Actions (click, type, send, call, write) stay limited to the plan's apps
+  and sites; one outside them goes to the owner as a route change (10.3). Exploring counts toward the runaway guards
+  like any tool call.
 - **Injection signals**: content that tries to issue instructions (Jev `content.injection_suspected`) marks the
   worker exposed immediately and is reported in `ferb logs`.
 
@@ -912,6 +919,16 @@ never counts as a stall) and the task continues once approved.
 - on top of that, the planning model may mark action types irreversible for a request (e.g. submitting an
   application), and Jev's `action.risk` = high (once enabled) makes FERB ask. They can only add to the floor, never
   remove anything from it.
+
+**Routes found while exploring** (owner decision, 2026-09-30). An action outside the plan's apps / sites is a route
+change: the worker says in plain words what it found and what it wants to do (its `why`), FERB adds what it would do
+from code, and asks: "Your Brave had no call button. The WhatsApp app does. Call Rahul from there? (FERB would start
+a call in WhatsApp.) [y/N]" (a notification when chat is closed; unattended runs wait 1 hour, then skip). The task
+continues after a yes, and that app / site joins the request's plan for the rest of the request (`plan.extended` is
+journaled; the owner's yes is the only thing that can extend a recorded intent). A no keeps the plan as it was. FERB
+never offers what policy forbids anyway: first the checks that would block whatever the owner said — stop, identity,
+exposure, an action type the request never asked for, owner data going to a destination the request as recorded
+doesn't involve (21.9) — and those are simply blocked.
 
 **Calls and messages (build step 16).** A call or message the owner asked for is not a question: like a send, it is
 held for the undo window with a countdown ("Calling Rahul… undo") and then goes. Clicking through the app's own

@@ -91,6 +91,20 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
         items[:] = keep
 
 
+def only_tools(d: "RunningDaemon", *keep: str) -> None:
+    """Real tests are locked down (CLAUDE.md): the test daemon keeps only the tools the test needs — names or name
+    prefixes ("fs.", "mac.apps"). Mac, shell and AppleScript tools only when the test is about them."""
+    caps = d.daemon.registry.capabilities
+    for name in [n for n in caps if not any(n == k or (k.endswith(".") and n.startswith(k)) for k in keep)]:
+        del caps[name]
+
+
+def without_owner_mac(d: "RunningDaemon") -> None:
+    """Browser tests: everything but the owner's Mac, shell and AppleScript."""
+    only_tools(d, *{n.split(".")[0] + "." for n in d.daemon.registry.capabilities
+                    if n.split(".")[0] not in ("mac", "shell", "applescript")})
+
+
 class Answers:
     """Answers FERB's approval questions as they appear (the owner at `ferb chat`), recording each question."""
 

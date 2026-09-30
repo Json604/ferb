@@ -1,9 +1,11 @@
 """Intent match (section 10.2): does this action match what the owner asked for?
 
 The typed intent is derived only from the owner's message at plan time — before any untrusted content is read —
-recorded once per request, and never changeable by workers (IntentRegistry refuses a second write).
+recorded once per request, and never changeable by workers (IntentRegistry refuses a second write; only the owner's
+yes to a route found while exploring adds an app / site, section 10.3).
 """
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -57,7 +59,8 @@ class RequestIntent:
 
 
 class IntentRegistry:
-    """Write-once per request. The supervisor records it at plan time; nothing can replace it afterwards."""
+    """Write-once per request. The supervisor records it at plan time; nothing can replace it afterwards. The one
+    change: the owner's yes to a route FERB found while exploring adds that app / site (`extend`, section 10.3)."""
 
     def __init__(self) -> None:
         self._by_request: dict[str, RequestIntent] = {}
@@ -69,6 +72,12 @@ class IntentRegistry:
 
     def get(self, request_id: str) -> RequestIntent | None:
         return self._by_request.get(request_id)
+
+    def extend(self, request_id: str, target: str) -> RequestIntent:
+        """Only after the owner said yes to it: one more app / site for the rest of this request."""
+        cur = self._by_request[request_id]
+        self._by_request[request_id] = dataclasses.replace(cur, sites=cur.sites | {target.lower()})
+        return self._by_request[request_id]
 
 
 @dataclass(frozen=True)
