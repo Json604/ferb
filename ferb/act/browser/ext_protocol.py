@@ -20,7 +20,7 @@ MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 ExtType = Literal["hello", "pair", "result", "error", "tab_event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "attach_debugger",
              "detach_debugger", "cdp", "account", "wake_close", "frame_origin", "fill",
-             "read_source", "window_password", "scroll"]
+             "read_source", "window_password", "scroll", "find"]
 
 
 class ExtMessage(BaseModel):

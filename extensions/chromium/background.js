@@ -280,6 +280,16 @@ const commands = {
       }, args: [direction] });
     return r && r.result ? r.result : { y: 0, height: 0, at_end: false };
   },
+  async find({ tab_id, text }) {                   // the whole page's text, not just the snapshot's first screens
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab_id },
+      func: (q) => {
+        const needle = (q || "").toLowerCase();
+        const lines = (document.body ? document.body.innerText : "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+        const hits = needle ? lines.filter((l) => l.toLowerCase().includes(needle)) : [];
+        return { count: hits.length, lines: lines.length, examples: hits.slice(0, 20).map((l) => l.slice(0, 160)) };
+      }, args: [text] });
+    return r && r.result ? r.result : { count: 0, lines: 0, examples: [] };
+  },
   async list_tabs() {
     const tabs = await chrome.tabs.query({});
     return { tabs: tabs.map((t) => ({ tab_id: t.id, host: (() => { try { return new URL(t.url).hostname; } catch (_) { return ""; } })(),

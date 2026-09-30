@@ -412,6 +412,19 @@ class _TabDriver:
             raise StaleRef(f"element {el.element_id} is gone; take a new snapshot")
         return ActionResult(bool(v.get("ok")), str(v.get("detail", "")))
 
+    async def find(self, tab: TabRef, text: str) -> dict[str, Any]:
+        """Lines on the whole page (not just the snapshot's first screens) containing `text`: a count and a few."""
+        t = self._tab(tab)
+        try:
+            v = await t.bridge.call("find", {"tab_id": t.chrome_id, "text": text}, timeout=15)
+        except DriverError as e:
+            if "unknown op" in str(e):
+                raise Refused("the FERB extension in that browser is older than FERB: reload it (0.6.5 or later)") \
+                    from None
+            raise
+        return {"matches": int(v.get("count", 0)), "lines_on_page": int(v.get("lines", 0)),
+                "examples": [str(x)[:160] for x in v.get("examples", [])][:20]}
+
     async def scroll(self, tab: TabRef, direction: str) -> dict[str, Any]:
         """Scroll the whole page about one screen; where it is now and whether it reached the end."""
         t = self._tab(tab)
@@ -544,19 +557,25 @@ class Router(_TabDriver):
             out.append(br)
         return out
 
-    async def open_tabs(self, profile: str | None = None) -> list[dict[str, Any]]:
-        """The owner's open tabs in their connected profiles: a reference, the site and whether it's the active one."""
+    async def open_tabs(self, profile: str | None = None, task: str | None = None) -> list[dict[str, Any]]:
+        """The owner's open tabs in their connected profiles: a reference, the site and whether it's the active one.
+        A tab this task already took over is listed with its tab id; FERB's own tabs and other tasks' aren't."""
         names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
         out = []
         for br in self._owner_bridges(profile):
             v = await br.call("list_tabs", {}, timeout=10)
             for t in v.get("tabs", []):
-                if self.owner_of(br, int(t["tab_id"])) is not None:
-                    continue                                  # FERB's own tabs aren't the owner's
-                out.append({"tab_ref": f"{br.binding.browser}:{br.binding.folder}:{t['tab_id']}",
+                mine = next((x for x in self._tabs.values() if x.bridge is br and x.chrome_id == int(t["tab_id"])
+                             and x.attached and task is not None and x.owner == task), None)
+                if mine is None and self.owner_of(br, int(t["tab_id"])) is not None:
+                    continue                                  # FERB's own tabs, or another task's
+                entry = {"tab_ref": f"{br.binding.browser}:{br.binding.folder}:{t['tab_id']}",
                             "profile": f"{br.binding.browser.capitalize()} “"
                                        f"{names.get((br.binding.browser, br.binding.folder), br.binding.folder)}”",
-                            "site": str(t.get("host") or ""), "active": bool(t.get("active"))})
+                            "site": str(t.get("host") or ""), "active": bool(t.get("active"))}
+                if mine is not None:
+                    entry["taken_over_as"] = mine.ref.tab_id      # already this task's: use this tab id
+                out.append(entry)
         return out
 
     async def attach(self, tab_ref: str, owner: str) -> TabRef:

@@ -34,5 +34,8 @@ after a yes, carry on there.
 
 The owner's open tabs: when your goal says to use a tab the owner already has open, list them (browser_tabs), take
 that one over (browser_use_tab) — prefer the active tab on the site the goal names — and work in it; never open a new
-tab for it. To keep scrolling a page (comments, a feed), use browser_scroll until at_end, taking a snapshot when you
-need to read what's shown.
+tab for it. To keep scrolling a page (comments, a feed), use browser_scroll until at_end; pages like YouTube load more as
+you go, so wait a moment (browser_wait) and scroll again until page_height stops growing. A tab you already took over
+shows in browser_tabs as taken_over_as: keep using that tab id. Snapshots keep only the top of a long page: to count
+or find things across the whole page (e.g. comments mentioning a name), use browser_find, and report the number it
+gives (lines containing the text).

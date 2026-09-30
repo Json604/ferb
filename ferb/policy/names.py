@@ -48,7 +48,11 @@ def app_named(app_name: str, own_words: str) -> bool:
     if name in lw:
         return True
     first = re.findall(r"[a-z0-9]+", name)
-    return bool(first) and len(first[0]) >= 3 and first[0] in words
+    if bool(first) and len(first[0]) >= 3 and first[0] in words:
+        return True
+    from ferb.policy import services                   # a known alias counts too ("call Aditya in wa" = WhatsApp)
+    return any(s.name.lower() == name or name.startswith(s.name.lower())
+               for s in services.services_named(own_words, services.Environment([], [])))
 
 
 def resolve_apps(names: list[str], apps: list[tuple[str, str]], own_words: str) -> tuple[dict[str, str], list[str]]:

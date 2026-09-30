@@ -4,7 +4,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
-                                   BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
+                                   BrowserFind, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    MailboxSend, OWNER_BROWSER)
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
@@ -51,6 +51,7 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool 
     r.add(BrowserWait(driver, f))
     r.add(BrowserClose(driver, f))
     r.add(BrowserScroll(driver, f))
+    r.add(BrowserFind(driver, f))
     r.add(BrowserFillSecret(driver, f))
     r.add(BrowserFillOtp(driver, f))
     r.add(MailboxSend(driver))
@@ -66,6 +67,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
     r.add(BrowserWait(router, f))
     r.add(BrowserClose(router, f))
     r.add(BrowserScroll(router, f))
+    r.add(BrowserFind(router, f))
     r.add(BrowserTabs(router, f))                      # the owner's open tabs (owner decision, 2026-09-30)
     r.add(BrowserUseTab(router, f))
 

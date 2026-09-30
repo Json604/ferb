@@ -164,3 +164,30 @@ def test_scroll_is_a_read_in_both_browsers(daemon: Any) -> None:
     assert caps["browser.scroll"].scopes == {"browser:read"}
     spec = caps["browser.scroll"].describe(caps["browser.scroll"].Input(tab="t9"))
     assert spec.kind == "read"
+
+
+def test_a_tab_the_task_took_over_stays_in_its_list() -> None:
+    r, _ = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    mine = asyncio.run(r.open_tabs(task="task-1"))
+    assert mine[0]["tab_ref"] == "brave:Default:11" and mine[0]["taken_over_as"] == ref.tab_id
+    assert [t["tab_ref"] for t in asyncio.run(r.open_tabs(task="task-2"))] == ["brave:Default:12"]   # others: hidden
+
+
+def test_find_searches_the_whole_page() -> None:
+    r, br = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+
+    async def page(op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
+        if op == "find":
+            return {"count": 23, "lines": 900, "examples": ["arpit is the best"] * 25}
+        return {"tabs": []}
+    br.call = page                                                                   # type: ignore[method-assign]
+    got = asyncio.run(r.find(ref, "arpit"))
+    assert got["matches"] == 23 and got["lines_on_page"] == 900 and len(got["examples"]) == 20
+
+
+def test_an_app_alias_counts_as_naming_the_app() -> None:
+    from ferb.policy.names import app_named
+    assert app_named("WhatsApp", "now call aditya scaler in wa")                     # the owner's session
+    assert not app_named("WhatsApp", "call aditya")

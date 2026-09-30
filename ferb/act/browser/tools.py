@@ -203,6 +203,24 @@ class BrowserScroll(_Base):
         return ToolResult(await self.driver.scroll(ref, str(getattr(args, "direction"))))   # type: ignore[attr-defined]
 
 
+class BrowserFind(_Base):
+    verb = "find"
+    blurb = ("Search the whole page in one of this task's tabs ({whose}) for some text — everything loaded so far, "
+             "not just what a snapshot shows (snapshots keep only the top of long pages). Returns how many lines "
+             "contain it and up to 20 of them. For comments or feeds: scroll to the end first so they're loaded.")
+
+    class Input(_Tab):
+        text: str = Field(min_length=1, max_length=100)
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=self._site(args)))
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
+        out = await self.driver.find(ref, str(getattr(args, "text")))                    # type: ignore[attr-defined]
+        return ToolResult(out, read_sources=(("web", self.driver.tab_url(ref.tab_id) or ""),))
+
+
 class BrowserTabs(_Base):
     """The owner's open tabs (build: owner decision 2026-09-30). Only the owner's browser, only when their words
     pointed at it (plan validation)."""
@@ -218,7 +236,8 @@ class BrowserTabs(_Base):
         return ActionSpec(Kind.READ, Target())
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        return ToolResult({"tabs": await self.driver.open_tabs(getattr(args, "profile"))})   # type: ignore[attr-defined]
+        return ToolResult({"tabs": await self.driver.open_tabs(getattr(args, "profile"),    # type: ignore[attr-defined]
+                                                               ctx.task_id)})
 
 
 class BrowserUseTab(_Base):
