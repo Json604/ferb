@@ -35,6 +35,8 @@ def codex() -> Iterator[RunningDaemon]:
         return {"routes": [r for s in named if (r := svc.route(s, env))], "stable": stable, "live": live}
     d.daemon.supervisor.environment = environment                                  # type: ignore[union-attr]
     d.daemon.supervisor.apps = lambda: env.apps                                    # type: ignore[union-attr]
+    sup = d.daemon.supervisor
+    sup.availability = sup._default_availability                   # type: ignore[union-attr]  # about routes, not pairing
     yield d
     d.stop()
     shutil.rmtree(base, ignore_errors=True)

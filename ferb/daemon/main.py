@@ -534,6 +534,7 @@ class Daemon:
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
             self.supervisor.environment = self._environment
+            self.supervisor.availability = self._availability
             self.supervisor.recall = lambda words: context_block(self.memory, words)
             self.supervisor.remember = self._remember
         if self.run_distill:
@@ -1210,6 +1211,51 @@ class Daemon:
             return []
         return [(it.key.removeprefix("time_").replace("_", " "), it.content)
                 for it in self.memory.items("active", "owner") if it.kind == "preference" and it.key.startswith("time_")]
+
+    def _permissions(self) -> dict[str, bool]:
+        """The daemon's own macOS permissions (the process that acts). Replaceable in tests."""
+        from ferb.device import permissions as perm
+        try:
+            return {"accessibility": perm.accessibility() is perm.Status.GRANTED,
+                    "screen": perm.screen_recording() is perm.Status.GRANTED}
+        except Exception:
+            return {"accessibility": True, "screen": True}              # can't tell: plan validation still guards
+
+    def _availability(self) -> Any:
+        """What the planner may use right now, and what's missing with how to fix it (owner decision, 2026-09-30)."""
+        from ferb.orchestrator.availability import build
+        registered = set().union(*(c.scopes for c in self.registry.capabilities.values()))
+        problems: dict[str, str] = {}
+        profiles = ""
+        if "browser:act" in registered:
+            ferb = self._identity_profile()
+            owner = [b for b in (self.pairings.all() if self.pairings else [])
+                     if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
+            names = {(p.browser, p.folder): p.display_name for p in self._profiles()} if owner else {}
+            live = [b for b in owner if self.hub is not None and (br := self.hub.bridges.get((b.browser, b.folder)))
+                    is not None and br.conn is not None]
+            if not owner:
+                problems["owner_browsers"] = "none of the owner's browser profiles is paired — `ferb browsers pair " \
+                                             "<browser> \"<profile>\"`"
+            elif not live:
+                shown = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
+                                  for b in owner)
+                problems["owner_browsers"] = f"{shown} paired but not open — open it and FERB reconnects within 30 s"
+            profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
+                                 for b in live)
+        prof = self._identity_profile()
+        if prof is not None:                                   # FERB's own browser is part of this FERB
+            br = self.hub.bridges.get(prof) if self.hub is not None else None
+            if self.identity_browser is None:
+                problems["ferb_browser"] = "not paired — run `ferb setup --identity`"
+            elif br is None or br.conn is None:
+                problems["ferb_browser"] = "not connected — run `ferb doctor`"
+        perms = self._permissions()
+        if registered & {"mac:read", "mac:act"} and not perms.get("accessibility", True):
+            problems["mac"] = "FERB doesn't have the Accessibility permission — run `ferb doctor`"
+        if "screen" in registered and not perms.get("screen", True):
+            problems["screen"] = "FERB doesn't have the Screen Recording permission — run `ferb doctor`"
+        return build(registered, problems, profiles)
 
     def _installed_apps(self) -> list[tuple[str, str]]:
         """(bundle id, name) of the Mac's apps, for matching the names the owner uses (14a)."""

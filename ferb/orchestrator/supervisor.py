@@ -41,6 +41,7 @@ from ferb.orchestrator.worker import RuntimeViolation, WorkerRuns
 from ferb.policy.engine import PolicyEngine
 from ferb.policy.intent import RequestIntent
 from ferb.policy.rules import with_reads
+from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.sanitize.untrusted import mark, wrap_untrusted
 from ferb.store.spans import SpanStore
 
@@ -179,6 +180,8 @@ class Supervisor(WorkerRuns):
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
         self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
         self.owner_email: Callable[[], str | None] = lambda: None
+        # What the planner may use right now (supplied by the daemon: connections, permissions)
+        self.availability: Callable[[], Availability] = self._default_availability
         # Build step 16: routes + environment summary for the owner's words (supplied by the daemon)
         self.environment: Callable[[str], dict[str, Any]] = lambda words: {}
         self._env: dict[str, dict[str, Any]] = {}
@@ -190,7 +193,13 @@ class Supervisor(WorkerRuns):
 
     def _system(self, name: str) -> str:
         facts = self.facts()
-        return (PROMPTS / name).read_text() + (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
+        text = (PROMPTS / name).read_text()
+        if "{capabilities}" in text:                          # built in code: only what's usable right now
+            text = text.replace("{capabilities}", self.availability().text)
+        return text + (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
+
+    def _default_availability(self) -> Availability:
+        return build_availability(set().union(*(c.scopes for c in self.gateway.caps.values())), {})
 
     def _set_timers(self, items: list[Any], own_words: str, request_id: str) -> list[str]:
         """Reminders the owner asked for in chat: kept only when the quote is the owner's own words and the time is
@@ -244,7 +253,7 @@ class Supervisor(WorkerRuns):
                 f"{', running late' if late else ''}. The owner isn't here: don't ask questions; do the task, or "
                 "reply with what's missing.)")
         session = ChatSession("schedule:" + sched.id)
-        available = set().union(*(c.scopes for c in self.gateway.caps.values()))
+        available = self.availability().scopes
         try:
             out = await self._supervise(session, sched.request + note, request_id)
             for _ in range(PLAN_REPAIRS):
@@ -338,7 +347,8 @@ class Supervisor(WorkerRuns):
         entry = self.journal.append("chat.message", {"session": session_id, "request_id": request_id,
                                                      "text": m.for_model, "untrusted_parts": len(m.untrusted)})
         recalled = self.recall(m.own_words)
-        available = set().union(*(c.scopes for c in self.gateway.caps.values()))
+        avail = self.availability()                             # what's usable right now (the backstop too)
+        available = avail.scopes
         env = self.environment(m.own_words)                     # routes decided in code (9.3, build step 16)
         self._env[request_id] = env
         try:
@@ -373,9 +383,14 @@ class Supervisor(WorkerRuns):
                 and self.owner_email() is None:                                  # progressive setup (section 8)
             out = SupervisorOutcome(kind="clarify", text="What email address should I use for you? I'll remember it.",
                                     plan=None)
-        if out.kind == "plan" and out.plan is not None and dag.validate(out.plan, m.own_words, available, self.apps()):
+        final = dag.validate(out.plan, m.own_words, available, self.apps()) \
+            if out.kind == "plan" and out.plan is not None else []
+        if final:
             self.journal.append("chat.failed", {"request_id": request_id, "why": "plan still invalid after repair"})
-            out = SupervisorOutcome(kind="reply", text=SORRY_PLAN, plan=None)
+            missing = avail.unavailable_line()
+            needs_missing = any("FERB can't do" in p for p in final)             # needed something unavailable
+            out = SupervisorOutcome(kind="reply", plan=None, text=(f"I can't do that right now. {missing}"
+                                                                   if missing and needs_missing else SORRY_PLAN))
         if out.kind in ("reply", "clarify") or out.plan is None:
             self.journal.append(f"chat.{out.kind}", {"session": session_id, "request_id": request_id,
                                                      "text": out.text})

@@ -146,6 +146,7 @@ ferb/
     supervisor.py       plans, spawns workers, merges, verifies, reports
     worker.py           one task, scoped capabilities, heartbeat, runaway guards
     tree.py             task tree persistence
+    availability.py     what the planner may use right now (connected profiles, FERB's browser, permissions) + "Unavailable"
     guards.py           runaway guards per task tree (repeated failing action, loops, generous time / worker-run /
                         tool-call caps) and worker heartbeats; no token or dollar budgets
     dag.py              plan validation (cycles, fan-out, depth, identity/scopes, own-words targets) + graph order
@@ -537,6 +538,13 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
     the paired browser profiles FERB can use, and the installed apps relevant to what the owner named — plus the
     route code chose for each named service (9.3). The stable part sits with the stable prompt; which of those apps
     are running now changes, so it goes at the end with the time block (section 13).
+14. **Availability, in code** (owner decision, 2026-09-30): the planner's "what workers can do right now" list is
+    built each turn (`orchestrator/availability.py`) from the tools registered and what's live — the owner's
+    browsers only when a paired profile is connected (named), FERB's own browser only when paired and connected,
+    Mac apps / screenshots only with the Accessibility / Screen Recording permissions. Anything missing gets one
+    short line, e.g. "Unavailable: FERB's own browser (not connected — run `ferb doctor`)", so FERB tells the owner
+    plainly what's missing and how to fix it. Plan validation uses the same scopes as the backstop; a plan that still
+    needs a missing capability after repair ends in "I can't do that right now. Unavailable: …".
 
 Build step 14a specifics (owner decisions after testing):
 - FERB speaks as FERB (never "supervisor"), without internal jargon; `ferb chat --verbose` shows the internals.
@@ -1307,6 +1315,10 @@ Build step 11 specifics (owner decisions):
 section 21 safety tests pass.
 
 ## 19. Known gaps (not solved in Block 1)
+
+- For later (owner note, 2026-09-30; not built): read-only planner tools for large, trusted data the planner needs
+  only sometimes (e.g. "is app X installed?" against the device profile). Never give the planner direct access to
+  trail data: titles there are set by websites.
 
 - Prompt injection: reduced by intent matching, exposure tracking, reader/actor split and data-flow limits
   (section 10.2), not eliminated. Typed reader outputs narrow but do not close the channel.

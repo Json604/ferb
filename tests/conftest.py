@@ -61,6 +61,10 @@ def home() -> Iterator[Path]:
 @pytest.fixture
 def daemon(home: Path) -> Iterator[RunningDaemon]:
     d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
+    d.daemon._permissions = lambda: {"accessibility": True, "screen": True}   # type: ignore[method-assign]
+    sup = d.daemon.supervisor                   # offline: fake tools count as usable (test_availability tests the real)
+    if sup is not None:
+        sup.availability = sup._default_availability
     yield d
     d.stop()
 
