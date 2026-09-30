@@ -301,6 +301,9 @@ def doctor(env: Env) -> int:
             name = f"browser {p['browser']}/{p['name']}"
             if p["refused"]:
                 add(Check(name, "fail", p["refused"], "reload the FERB extension in that profile"))
+            elif not p["connected"] and p.get("identity") == "ferb":   # FERB's own: opened only when a task needs it
+                add(Check(name, "ok", "FERB's own profile: paired, not open right now (FERB opens it when a task "
+                                      "needs it)"))
             else:
                 add(Check(name, "ok" if p["connected"] else "warn",
                           f"connected, extension {p['version']}" if p["connected"] else "paired, not connected",
