@@ -139,7 +139,7 @@ def test_ctrl_c_stops_the_task_as_stopped_by_you(daemon: RunningDaemon) -> None:
     c.close()
     out = next(e for e in evs if e["type"] == "outcome")
     assert out["status"] == "cancelled" and out["answer"] == "Stopped, as you asked."
-    ctx = daemon.run(_async(daemon.daemon.supervisor.recent))
+    ctx = daemon.run(_async(daemon.daemon.supervisor.recent))[0]
     assert "stopped by the owner" in ctx
 
 

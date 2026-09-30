@@ -70,12 +70,23 @@ REMEMBER_SCHEMA = _obj({
     "quote": {"type": "string"},
 })
 TIMER_SCHEMA = _obj({"at": {"type": "string"}, "message": {"type": "string"}, "quote": {"type": "string"}})
+SCHEDULE_SCHEMA = _obj({
+    "request": {"type": "string"}, "first_run": {"type": "string"},
+    "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekly", "every"]},
+    "weekday": _nullable("string"), "every_minutes": _nullable("integer"), "quote": {"type": "string"},
+    "intent": INTENT_SCHEMA,
+})
+SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
+                               "action": {"type": "string", "enum": ["cancel", "pause", "resume"]},
+                               "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "plan"]},
     "text": {"type": "string"},
     "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
     "remember": {"type": "array", "items": REMEMBER_SCHEMA},
     "timers": {"type": "array", "items": TIMER_SCHEMA},
+    "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
+    "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({
@@ -168,6 +179,25 @@ class SupervisorOutcome(BaseModel):
     plan: Plan | None
     remember: list[Remember] = []
     timers: list["TimerRequest"] = []
+    schedule: "ScheduleRequest | None" = None
+    schedule_changes: list["ScheduleChange"] = []
+
+
+class ScheduleRequest(BaseModel):
+    """A task to run later or repeatedly: in the owner's words, with the intent recorded now (build step 15)."""
+    request: str
+    first_run: str
+    repeat: Literal["none", "daily", "weekdays", "weekly", "every"]
+    weekday: str | None = None
+    every_minutes: int | None = None
+    quote: str
+    intent: Intent
+
+
+class ScheduleChange(BaseModel):
+    id: str
+    action: Literal["cancel", "pause", "resume"]
+    quote: str
 
 
 class TimerRequest(BaseModel):

@@ -8,6 +8,7 @@ runaway guards (guards.py) catch stuck trees instead.
 """
 
 import re
+from typing import Any
 
 from ferb.orchestrator.schemas import KINDS, MAX_FIELD_CHARS, Plan, Subtask
 from ferb.policy.intent import IMPLIES
@@ -25,16 +26,7 @@ ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 def validate(plan: Plan, own_words: str, available_scopes: set[str],
              apps: list[tuple[str, str]] | None = None) -> list[str]:
     p: list[str] = []
-    i = plan.intent
-    if set(i.verbs) - set(IMPLIES):
-        p.append(f"I don't know how to '{', '.join(sorted(set(i.verbs) - set(IMPLIES)))}'")
-    if set(i.extra_kinds) - set(KINDS):
-        p.append("the plan names an unknown kind of action")
-    missing = targets_in_own_words(i.recipients + i.accounts + i.paths, own_words)
-    missing += [s for s in i.sites if not site_named(s, own_words)]            # "Slack" names slack.com
-    missing += resolve_apps(i.apps, apps or [], own_words)[1]                  # "Brave" names the Brave app
-    if missing:
-        p.append("please name these yourself (I won't take them from pasted or quoted text): " + ", ".join(missing))
+    p += validate_intent(plan.intent, own_words, apps)
     if not plan.subtasks:
         p.append("the plan has no subtasks")
     if len(plan.subtasks) > MAX_FANOUT:
@@ -47,6 +39,21 @@ def validate(plan: Plan, own_words: str, available_scopes: set[str],
         p += _subtask(s, by_id, available_scopes)
     if not p and _cycle(plan.subtasks):
         p.append("the subtasks depend on each other in a circle")
+    return p
+
+
+def validate_intent(i: Any, own_words: str, apps: list[tuple[str, str]] | None = None) -> list[str]:
+    """The intent's verbs and targets: every target must be in the owner's own words (names count, 14a)."""
+    p = []
+    if set(i.verbs) - set(IMPLIES):
+        p.append(f"I don't know how to '{', '.join(sorted(set(i.verbs) - set(IMPLIES)))}'")
+    if set(i.extra_kinds) - set(KINDS):
+        p.append("the plan names an unknown kind of action")
+    missing = targets_in_own_words(i.recipients + i.accounts + i.paths, own_words)
+    missing += [s for s in i.sites if not site_named(s, own_words)]            # "Slack" names slack.com
+    missing += resolve_apps(i.apps, apps or [], own_words)[1]                  # "Brave" names the Brave app
+    if missing:
+        p.append("please name these yourself (I won't take them from pasted or quoted text): " + ", ".join(missing))
     return p
 
 

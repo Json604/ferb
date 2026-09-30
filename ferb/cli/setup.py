@@ -93,13 +93,13 @@ def setup(env: Env, update: bool = False) -> int:
     except NotRunning:
         pass
 
-    env.say("1/7  Installing FERB's dedicated Python, its venv and the LaunchAgent…")
+    env.say("1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…")
     inst.install()
     client = wait_for_daemon(env)
     binary = inst.granted_binary()
     env.say(f"     Daemon running. Permissions must be granted to: {binary}")
 
-    env.say("2/7  Scanning this Mac's apps (Info.plist only)…")
+    env.say("2/4  Scanning this Mac's apps (Info.plist only)…")
     config = Config(inst.home)
     profile = scan(device_id(config))
     store = ProfileStore(inst.home)
@@ -107,25 +107,19 @@ def setup(env: Env, update: bool = False) -> int:
     s = summarize(profile)
     env.say(f"     {s['apps']} apps, {s['scriptable']} scriptable; browsers: {', '.join(s['browsers']) or 'none'}")
 
-    env.say("3/7  Permissions (checked by the daemon itself)")
+    env.say("3/4  Permissions (checked by the daemon itself)")
     for perm in REQUIRED_PERMISSIONS:
         client = _grant(env, client, perm, binary, required=True)
+    client = _input_monitoring_if_needed(env, client, binary)      # macOS needs it when the tap can't be made
 
-    env.say("4/7  Optional permissions")
-    client = _optional(env, client, binary)
-
-    env.say("5/7  Automation (Apple Events) for apps you choose")
-    _automation(env, client, profile)
-
-    env.say("6/7  Self-test through the daemon")
+    env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
     client.close()
 
-    env.say("7/7  FERB's identity profile (its Google account, in your Chrome)")
-    if Config(inst.home).get("identity", "profile"):
-        ok = _identity_status(env) and ok
-    else:
-        ok = identity_setup(env) == 0 and ok
+    # Progressive setup (section 8): nothing else is asked now. Optional permissions and per-app Automation are asked
+    # the first time a task needs them; FERB's own identity (`ferb setup --identity`) and Jev (`ferb setup --jev`)
+    # when first wanted; facts such as the owner's email when a request first needs them.
+    env.say("     Everything else is asked the first time a task needs it.")
     env.say("Setup complete." if ok else "Setup finished with problems — `ferb doctor` shows what to fix.")
     return 0 if ok else 1
 
@@ -151,6 +145,14 @@ def _grant(env: Env, client: Client, perm: str, binary: Path | None, required: b
             env.inst.restart()
             client = wait_for_daemon(env)
     env.say(f"     {label}: granted ✓")
+    return client
+
+
+def _input_monitoring_if_needed(env: Env, client: Client, binary: Path | None) -> Client:
+    tap = next((r for r in client.call("doctor.check")["selftest"] if r["name"] == "event_tap"), None)
+    if tap and not tap["ok"]:
+        env.say("     The owner-input watcher couldn't create its event tap: Input Monitoring is needed.")
+        client = _grant(env, client, "input_monitoring", binary, required=False)
     return client
 
 

@@ -6,6 +6,7 @@ result, never an exception.
 """
 
 import asyncio
+import os
 import base64
 import dataclasses
 from dataclasses import dataclass
@@ -64,6 +65,9 @@ class Gateway:
         self.observer: Observer = Observer()
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution (build step 10)
         self.jev: Any = None                             # decide.ShadowDecider (build step 13): stricter only
+        # Progressive setup (section 8), supplied by the daemon: record a granted folder; queue a question for later
+        self.grant_folder: Callable[[str], None] = lambda folder: None
+        self.queue_question: Callable[[str, str, str], None] = lambda kind, target, text: None
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -193,6 +197,12 @@ class Gateway:
             self.on_path(spec.target.path, grant.task_id)              # file events it causes are FERB's
         try:
             result = await cap.run(args, ctx)
+            if (result.is_error and name.startswith("fs.") and spec.target.path
+                    and "outside the allowed folders" in str(result.content.get("error", ""))):
+                folder = await self._folder_access(grant, action, spec.target.path)   # progressive setup (8)
+                if folder is not None:
+                    ctx = dataclasses.replace(ctx, owner_roots=self.roots.owner_roots)
+                    result = await cap.run(args, ctx)
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", [f"exception: {type(e).__name__}"])
@@ -217,12 +227,34 @@ class Gateway:
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
 
+    async def _folder_access(self, grant: RunGrant, action: ActionRequest, path: str) -> str | None:
+        """"Allow FERB to access ~/Projects?" — asked only for a folder the owner named in this request (content FERB
+        reads can't trigger it); a yes goes to config ([fs] owner_roots). An unattended run queues the question."""
+        req = self.engine.intents.get(action.request_id)
+        named = next((p for p in (req.paths if req else ()) if path == p or path.startswith(p.rstrip("/") + "/")), None)
+        if named is None:
+            return None
+        folder = named if not os.path.splitext(named)[1] else os.path.dirname(named)
+        shown = folder.replace(os.path.expanduser("~"), "~", 1)
+        if action.request_id in self.engine.approvals.unattended:
+            self.queue_question("folder_access", folder, f"Allow FERB to access {shown}?")
+            return None
+        ask = dataclasses.replace(action, kind="folder_access", target=dataclasses.replace(action.target, path=folder),
+                                  content=None, flagged_irreversible=False)
+        ap = self.engine.approvals.request(ask, f"Allow FERB to access {shown}?")
+        self.publish("approval.requested", {"approval_id": ap.id, "capability": "fs", "kind": "folder_access",
+                                            "reason": ap.reason, "task_id": grant.task_id})
+        if await self._wait_answer(grant, ap.id) != "granted":
+            return None
+        self.grant_folder(folder)
+        return folder
+
     async def _await_owner(self, grant: RunGrant, action: ActionRequest, verdict: Verdict) -> Verdict:
         """The tool call waits for the owner's answer (their time is never a stall), then policy runs again: a grant
         covers this call (and, unless it's irreversible, the same target and type for the rest of the request)."""
         answer = await self._wait_answer(grant, verdict.approval_id or "")
         if answer != "granted":
-            return Verdict("block", _declined(answer), "approval")
+            return Verdict("block", _declined(answer, action.request_id in self.engine.approvals.unattended), "approval")
         again = self.engine.evaluate(action)
         self._events(again)
         return again
@@ -304,7 +336,9 @@ class Gateway:
             self.publish(topic, data)
 
 
-def _declined(answer: str) -> str:
+def _declined(answer: str, unattended: bool = False) -> str:
+    if answer == "expired" and unattended:
+        return "the owner didn't answer within an hour; skip this step and say so in your report"
     return ("the owner didn't answer in time; don't try this again in this task" if answer == "expired"
             else "the owner declined this; don't try it again in this task")
 

@@ -309,3 +309,23 @@ def device(home: Any, action: str, connect: Any, out: TextIO) -> int:
         for line in live.get(b.name, []):
             print(f"      {line}", file=out)
     return 0
+
+
+# ---------- schedules (build step 15) ----------
+
+def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
+    if action != "list":
+        if not sid:
+            print(f"usage: ferb schedules {action} <id>", file=out)
+            return 2
+        print(client.call("schedules.change", {"id": sid, "action": action})["text"], file=out)
+        return 0
+    from datetime import datetime
+    rows = client.call("schedules.list")["schedules"]
+    for r in rows:
+        nxt = datetime.fromisoformat(r["next_run"]).astimezone().strftime("%a %d %b %H:%M") if r["next_run"] else "-"
+        extra = f", failed {r['failures']}x in a row" if r["failures"] else ""
+        print(f"  {r['id']}  {r['state']:<7} {r['rule']:<28} next {nxt}  {r['request']}{extra}", file=out)
+    if not rows:
+        print("  (no schedules)", file=out)
+    return 0

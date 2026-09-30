@@ -113,3 +113,39 @@ def check(a: ActionRequest, intent: RequestIntent | None, fuzzy: Fuzzy | None = 
         if verdict == "unsure":
             return IntentResult("ask", "fuzzy check: unsure it matches the request")
     return IntentResult("match")
+
+
+
+def within(run: RequestIntent, recorded: RequestIntent) -> list[str]:
+    """A scheduled run's intent must stay inside the one recorded from the owner's words (build step 15)."""
+    p = []
+    if run.kinds - recorded.kinds:
+        p.append("action types " + ", ".join(sorted(run.kinds - recorded.kinds)))
+    if {r.lower() for r in run.recipients} - {r.lower() for r in recorded.recipients}:
+        p.append("recipients " + ", ".join(sorted(run.recipients - recorded.recipients)))
+    extra_sites = [x for x in run.sites if not site_matches(x, recorded.sites)]
+    if extra_sites:
+        p.append("sites " + ", ".join(sorted(extra_sites)))
+    if run.accounts - recorded.accounts:
+        p.append("accounts " + ", ".join(sorted(run.accounts - recorded.accounts)))
+    extra_paths = [x for x in run.paths if not any(x == r or x.startswith(r.rstrip("/") + "/") for r in recorded.paths)]
+    if extra_paths:
+        p.append("paths " + ", ".join(sorted(extra_paths)))
+    if run.max_amount is not None and (recorded.max_amount is None or run.max_amount > recorded.max_amount):
+        p.append("a larger amount")
+    return p
+
+
+def to_json(i: RequestIntent) -> dict[str, object]:
+    return {"kinds": sorted(i.kinds), "recipients": sorted(i.recipients), "sites": sorted(i.sites),
+            "accounts": sorted(i.accounts), "paths": sorted(i.paths), "max_amount": i.max_amount,
+            "irreversible": sorted(i.irreversible)}
+
+
+def from_json(request_id: str, d: dict[str, object]) -> RequestIntent:
+    def fs(k: str) -> frozenset[str]:
+        v = d.get(k) or []
+        return frozenset(str(x) for x in v) if isinstance(v, (list, tuple, set, frozenset)) else frozenset()
+    amount = d.get("max_amount")
+    return RequestIntent(request_id, fs("kinds"), fs("recipients"), fs("sites"), fs("accounts"), fs("paths"),
+                         float(amount) if isinstance(amount, (int, float)) else None, fs("irreversible"))

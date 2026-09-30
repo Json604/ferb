@@ -118,14 +118,14 @@ def test_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str,
 
 
 def test_full_setup_walks_permissions_restarts_for_screen_recording_and_skips_brave(world: dict[str, Any]) -> None:
-    env, out = make_env(world, ["", "", "n", "1,2,3"], daemon_up=False)
+    env, out = make_env(world, ["", ""], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
     d = world["daemon"]
     assert world["panes"][:2] == ["accessibility", "screen_recording"]
     assert d.perms["accessibility"] == d.perms["screen_recording"] == "granted"
     text = out.getvalue()
-    assert "Brave" not in text.split("5/7")[1].split("6/7")[0]          # never offered for Automation
-    assert d.automation_requests and all("com.brave.Browser" not in r for r in d.automation_requests)
+    assert not d.automation_requests                                    # progressive: asked on first use (8)
+    assert "Optional" not in text and "identity profile" not in text and "4/4" in text
     assert "Setup complete." in text
     assert (world["home"] / "device").is_dir()
 

@@ -111,6 +111,8 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
 
 def question(d: dict[str, Any]) -> str:
     """An approval in plain words."""
+    if d.get("kind") == "folder_access":
+        return f"   ? {d.get('reason', '')} [y/N] "
     what = KIND_TEXT.get(str(d.get("kind")), str(d.get("kind") or "do this"))
     return f"   ? OK for FERB to {what}? {d.get('reason', '')} [y/N] "
 
@@ -150,6 +152,9 @@ class Chat:
             self.say(f"ferb> Still working on: {r['goal']}")
         for d in st.get("approvals", []):
             self.answer_approval(d)
+        for q in st.get("questions", []):                    # asked while you were away (a scheduled run)
+            reply = self.ask(f"   ? {q['question']} [y/N] ")
+            self.call("questions.answer", {"id": q["id"], "yes": reply.strip().lower() in ("y", "yes")})
         reminders(self.connect, self.out)
 
     def turn(self, msg: str) -> None:

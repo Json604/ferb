@@ -7,7 +7,7 @@ Build step 1: ping, trace.get, logs.subscribe. Build step 2: the redaction pipel
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import signal
 import sys
@@ -38,6 +38,8 @@ from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
 from ferb.sense.trail import Attribution, Trail
+from ferb.act.fs.files import normalize_path
+from ferb.clock.context import ago as context_ago
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core.errors import FerbError
@@ -130,6 +132,10 @@ class Daemon:
         # Chat (build step 14a): turns outlive a closed chat; which task trees have a chat attached
         self._turns: set[asyncio.Task[None]] = set()
         self._attached_trees: set[str] = set()
+        self._held: list[tuple[str, str]] = []               # notifications waiting for the owner to be back (13)
+        self.schedules: Any = None                            # build step 15
+        self._runs: set[asyncio.Task[None]] = set()
+        self._held_task: asyncio.Task[None] | None = None
         # Timers (build step 14)
         self.timers: Any = None
         self._timer_task: asyncio.Task[None] | None = None
@@ -170,6 +176,8 @@ class Daemon:
         await self._build_jev()
         self._build_timers()
         for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
+                         ("schedules.list", self._schedules_list), ("schedules.change", self._schedules_change),
+                         ("questions.answer", self._questions_answer),
                          ("chat.status", self._chat_status), ("chat.attach", self._chat_attach),
                          ("task.stop", self._task_stop),
                          ("reminders.list", self._reminders_list), ("reminders.cancel", self._reminders_cancel),
@@ -222,6 +230,8 @@ class Daemon:
             self.jev.close()
         if self._timer_task is not None:
             self._timer_task.cancel()
+        if self._held_task is not None:
+            self._held_task.cancel()
         if self.sense is not None:
             await self.sense.stop()
         if self.owner_input.running:
@@ -285,6 +295,7 @@ class Daemon:
         assert self.ledger and self.spans and self.journal
         self.gateway = Gateway(self.registry.capabilities, self.engine, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
+        self.gateway.grant_folder, self.gateway.queue_question = self._grant_folder, self._queue_question
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, engine=self.engine,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
@@ -628,12 +639,21 @@ class Daemon:
     def _build_timers(self) -> None:
         from ferb.clock.timers import Timers
         assert self.db is not None
+        from ferb.orchestrator.schedules import Schedules
         self.timers = Timers(self.db, self.clock, self.ids, self._timer_fired)
         self.timers.cancel_all_sleeps()
+        self.schedules = Schedules(self.db, self.clock, self.ids)
+        if self.supervisor is not None:
+            self.supervisor.on_schedule = self._schedule_create
+            self.supervisor.on_schedule_change = self._schedule_change_from_chat
+            self.supervisor.owner_email = self._owner_email
         if self.supervisor is not None:
             self.supervisor.timers = self.timers
             self.supervisor.sleep_until = self._sleep_until
         self._timer_task = asyncio.get_running_loop().create_task(self.timers.run())
+        self._held_task = asyncio.get_running_loop().create_task(self._flush_held())
+        if self.supervisor is not None:
+            self.supervisor.replies = self._inbox_replies
 
     async def _timer_fired(self, t: Any) -> None:
         """The consumer. Sleeps wake their worker; reminders reach the owner once (notification, chat, logs,
@@ -643,6 +663,12 @@ class Daemon:
             ev = self._sleepers.get(t.id)
             if ev is not None:
                 ev.set()
+            return
+        if t.kind == "schedule":
+            from ferb.clock.timers import mark_handled as handled
+            assert self.db is not None
+            if handled(self.db, t.id, self.clock.now()):                 # exactly once, even after a crash
+                self._runs.add(asyncio.get_running_loop().create_task(self._run_schedule(t.message, t.overdue_s or 0)))
             return
         assert self.db is not None
         c = self.db.conn
@@ -661,7 +687,8 @@ class Daemon:
         self._publish("timer.fired", {"timer_id": t.id, "kind": t.kind, "message": t.message,
                                       "overdue_by": round(t.overdue_s or 0)})
         try:
-            await self.notify("FERB reminder" if t.kind == "reminder" else "FERB timer", f"{t.message}{late}")
+            await self._notify("FERB reminder" if t.kind == "reminder" else "FERB timer", f"{t.message}{late}",
+                               urgent=True)                     # a reminder is for now
         except Exception:
             pass                                                     # chat, logs and the journal still have it
 
@@ -701,7 +728,7 @@ class Daemon:
                              "(?, ?, ?, ?, ?, ?)", (ev["task_id"], self.clock.now().isoformat(), ev.get("status", ""),
                                                     str(ev.get("goal", ""))[:300], answer, int(shown)))
         if not shown and ev.get("status") != "cancelled":
-            await self._notify_safely("FERB finished" if ev.get("status") == "done" else "FERB", answer[:200])
+            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", answer[:200])
 
     def _approval_notice(self, data: dict[str, Any]) -> None:
         """An approval is waiting and no chat is open for that task: tell the owner (notification)."""
@@ -709,13 +736,54 @@ class Daemon:
         if tid.split(".", 1)[0] in self._attached_trees:
             return
         text = f"FERB needs your OK: {str(data.get('reason', ''))[:150]} — open ferb chat"
-        asyncio.get_running_loop().create_task(self._notify_safely("FERB needs you", text))
+        asyncio.get_running_loop().create_task(self._notify("FERB needs you", text, urgent=True))
 
     async def _notify_safely(self, title: str, text: str) -> None:
         try:
             await self.notify(title, text)
         except Exception:
             pass
+
+    def owner_idle(self) -> bool:
+        """Away from the Mac longer than [sense] idle_after_s (the owner-input tap); unknown counts as present."""
+        last = self.owner_input.last_owner_wall
+        if not self.owner_input.running or last is None:
+            return False
+        import time as _t
+        return _t.time() - last > float(self.config.get("sense", "idle_after_s", 120))
+
+    async def _notify(self, title: str, text: str, urgent: bool = False) -> None:
+        """Time awareness in code (13): while the owner is idle, non-urgent notifications wait until they're back."""
+        if not urgent and self.owner_idle():
+            self._held.append((title, text))
+            return
+        await self._notify_safely(title, text)
+
+    async def _flush_held(self) -> None:
+        while True:
+            await asyncio.sleep(10)
+            if self._held and not self.owner_idle():
+                held, self._held = self._held, []
+                for title, text in held[-5:]:
+                    await self._notify_safely(title, text)
+
+    async def _inbox_replies(self, since: datetime) -> list[str]:
+        """Replies in FERB's inbox to email FERB sent since then (the "since we last talked" summary)."""
+        from ferb.identity.mailbox import FEED_URL, parse_feed
+        assert self.db is not None
+        sent = [json.loads(r["input_json"]).get("args", {}) for r in self.db.conn.execute(
+            "SELECT input_json FROM spans WHERE kind = 'tool.call' AND started_at >= ? AND input_json LIKE ?",
+            (since.isoformat(), '%"mailbox.send"%'))]
+        subjects = {str(a.get("subject", "")).strip().lower() for a in sent if a.get("subject")}
+        if not subjects or self.ferb_identity is None:
+            return []
+        _, msgs = parse_feed(await self.ferb_identity._read_feed(FEED_URL))
+        out = []
+        for m in msgs:
+            subj = m.subject.lower().removeprefix("re:").strip()
+            if subj in subjects and m.issued >= since:
+                out.append(f"{m.sender} replied to \"{m.subject}\" {context_ago(m.issued, self.clock.now())}")
+        return out
 
     async def _chat_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """For `ferb chat` when it opens: answers that arrived while it was closed (then marked shown), tasks still
@@ -726,9 +794,11 @@ class Daemon:
             self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason}
                    for ap in self.engine.approvals.pending()]
+        questions = [{"id": q["id"], "question": q["question"]} for q in self.db.conn.execute(
+            "SELECT id, question FROM owner_questions WHERE state = 'open' ORDER BY seq").fetchall()]
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
         return {"results": [{"task_id": r["task_id"], "status": r["status"], "goal": r["goal"], "answer": r["answer"]}
-                            for r in rows], "running": running, "approvals": pending}
+                            for r in rows], "running": running, "approvals": pending, "questions": questions}
 
     async def _chat_attach(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Chat is open again: approvals for running tasks are asked there, not by notification."""
@@ -747,6 +817,175 @@ class Daemon:
         for t in stopped:
             self._journal().append("task.stopped", {"task_id": t, "by": "owner"})
         return {"stopped": stopped}
+
+    # ---------- schedules (build step 15) ----------
+
+    def _owner_email(self) -> str | None:
+        """The owner's email, once they've told FERB (owner-stated memory, key "email"): progressive setup (8)."""
+        import re as _re
+        if self.memory is None:
+            return None
+        for it in self.memory.items("active", "owner"):
+            if it.key in ("email", "email_address", "my_email") or "email" in it.key:
+                m = _re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", it.content)
+                if m and it.origin == "owner_stated":
+                    return m.group(0)
+        return None
+
+    def _schedule_create(self, spec: Any, own_words: str, request_id: str) -> str:
+        """From chat: the owner's words (quote-checked), the intent recorded now, the first run in the future."""
+        from ferb.orchestrator import dag
+        from ferb.orchestrator.schedules import Rule, ScheduleError
+        from ferb.orchestrator.supervisor import _wants_me
+        from ferb.policy.intent import to_json
+        from ferb.policy.names import resolve_apps
+        norm = " ".join(own_words.lower().split())
+        if len(spec.quote.strip()) < 3 or " ".join(spec.quote.lower().split()) not in norm:
+            self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
+            return "I couldn't set that up — could you ask me again in your own words?"
+        problems = dag.validate_intent(spec.intent, own_words, self._installed_apps())
+        if problems:
+            return "To schedule that, please name the sites, apps or people involved yourself."
+        if _wants_me(spec.intent.recipients) and self._owner_email() is None:
+            return "What email address should I use for you? Tell me, then ask me to schedule it again."
+        try:
+            first = datetime.fromisoformat(spec.first_run)
+            if first.tzinfo is None:
+                raise ScheduleError("the first run needs a time zone")
+            rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes)
+            me = self._owner_email()
+            bundles = set(resolve_apps(spec.intent.apps, self._installed_apps(), own_words)[0].values())
+            from ferb.policy.intent import RequestIntent
+            i = spec.intent
+            recorded = RequestIntent.from_plan(
+                request_id, set(i.verbs), set(i.extra_kinds),
+                recipients=frozenset(me if (me and r.strip().lower() in {"me", "myself", "owner"}) else r
+                                     for r in i.recipients),
+                sites=frozenset(i.sites) | frozenset(b.lower() for b in bundles), accounts=frozenset(i.accounts),
+                paths=frozenset(normalize_path(p, str(self.home / "workspace")) for p in i.paths),
+                max_amount=i.max_amount, irreversible=frozenset(i.irreversible_kinds))
+            s = self.schedules.add(spec.request, own_words, to_json(recorded), rule, first)
+        except (ScheduleError, ValueError) as e:
+            return f"I couldn't schedule that: {e}."
+        t = self.timers.add("schedule", first, s.id)
+        self.schedules.set_timer(s.id, t.id, first)
+        self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe()})
+        return f"🗓 scheduled ({s.id}): {s.request} — {rule.describe()}, first on {first.astimezone():%a %d %b %H:%M}"
+
+    def _schedule_change_from_chat(self, ch: Any, own_words: str) -> str:
+        norm = " ".join(own_words.lower().split())
+        if len(ch.quote.strip()) < 3 or " ".join(ch.quote.lower().split()) not in norm:
+            return "I didn't change any schedule — could you say which one in your own words?"
+        return self._schedule_change(ch.id, ch.action)
+
+    def _schedule_change(self, sid: str, action: str) -> str:
+        s = self.schedules.get(sid)
+        if s is None or s.state in ("cancelled", "done"):
+            return f"There's no active schedule {sid}."
+        if action == "cancel":
+            self.schedules.set_state(sid, "cancelled")
+            if s.timer_id:
+                self.timers.cancel(s.timer_id)
+        elif action == "pause":
+            self.schedules.set_state(sid, "paused")
+            if s.timer_id:
+                self.timers.cancel(s.timer_id)
+        elif action == "resume":
+            self.schedules.set_state(sid, "active")
+            nxt = s.rule.next_after(max(self.clock.now(), s.first_run - timedelta(seconds=1)), s.first_run) \
+                if s.rule.repeat != "none" else (s.next_run if s.next_run and s.next_run > self.clock.now() else None)
+            if nxt is None:
+                self.schedules.set_state(sid, "done")
+                return f"{sid} has no future runs left."
+            t = self.timers.add("schedule", nxt, sid)
+            self.schedules.set_timer(sid, t.id, nxt)
+        self._journal().append(f"schedule.{action}", {"schedule_id": sid})
+        return {"cancel": "Cancelled", "pause": "Paused", "resume": "Resumed"}[action] + f": {s.request}"
+
+    async def _run_schedule(self, sid: str, overdue_s: float) -> None:
+        """A due run: the next one is set up first; a run missed by too much is skipped; the result reaches the owner
+        (notification, next chat); three failures in a row pause the schedule."""
+        s = self.schedules.get(sid)
+        if s is None or s.state != "active":
+            return
+        now = self.clock.now()
+        nxt = s.rule.next_after(now, s.first_run)
+        if nxt is not None:
+            t = self.timers.add("schedule", nxt, sid)
+            self.schedules.set_timer(sid, t.id, nxt)
+        else:
+            self.schedules.set_timer(sid, None, None)
+            self.schedules.set_state(sid, "done")
+        if overdue_s > s.rule.late_limit_s():
+            self._journal().append("schedule.skipped", {"schedule_id": sid, "late_s": round(overdue_s)})
+            await self._task_result({"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "skipped", "goal": s.request,
+                                     "answer": f"I skipped “{s.request}”: it was due "
+                                               f"{context_ago(now - timedelta(seconds=overdue_s), now)}, while the "
+                                               "Mac was asleep or FERB wasn't running."}, shown=False)
+            return
+        if self.supervisor is None:
+            return
+        try:
+            final = await self.supervisor.run_scheduled(s, late=overdue_s > 60)
+        except Exception as e:                              # a run's failure is reported, never lost
+            self._journal().append("schedule.failed", {"schedule_id": sid, "why": f"{type(e).__name__}: {e}"[:300]})
+            final = {"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "failed",
+                     "answer": f"“{s.request}” didn't work this time; I'll try again at the next run."}
+        ok = final.get("status") == "done"
+        fails = self.schedules.ran(sid, ok)
+        answer = str(final.get("answer") or final.get("summary") or "")
+        if overdue_s > 60:
+            answer = f"(ran late) {answer}"
+        await self._task_result({**final, "goal": s.request, "answer": answer}, shown=False)
+        if fails >= 3:
+            self._schedule_change(sid, "pause")
+            await self._notify("FERB paused a schedule", f"“{s.request}” failed 3 times in a row, so I paused it "
+                               f"(ferb schedules resume {sid}).", urgent=True)
+
+    # ---------- progressive setup (section 8) ----------
+
+    def _grant_folder(self, folder: str) -> None:
+        """The owner said yes: the folder joins [fs] owner_roots (config) and takes effect at once."""
+        from ferb.daemon.gateway import FsRoots
+        roots = list(self.config.get("fs", "owner_roots", []))
+        if folder not in roots:
+            roots.append(folder)
+            self.config.set("fs", "owner_roots", roots)
+        if self.gateway is not None:
+            r = self.gateway.roots
+            self.gateway.roots = FsRoots(r.workspace, tuple(dict.fromkeys((*r.owner_roots, folder))),
+                                         r.untrusted_roots)
+        self._journal().append("setup.folder_granted", {"folder": folder})
+
+    def _queue_question(self, kind: str, target: str, text: str) -> None:
+        assert self.db is not None
+        if self.db.conn.execute("SELECT 1 FROM owner_questions WHERE kind = ? AND target = ? AND state = 'open'",
+                                (kind, target)).fetchone():
+            return
+        self.db.conn.execute("INSERT INTO owner_questions (id, at, kind, target, question, state) VALUES "
+                             "(?, ?, ?, ?, ?, 'open')", ("q-" + self.ids.new_id()[:10], self.clock.now().isoformat(),
+                                                         kind, target, text))
+
+    async def _questions_answer(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The owner's answer, at chat, to a question an unattended run couldn't ask."""
+        assert self.db is not None
+        r = self.db.conn.execute("SELECT * FROM owner_questions WHERE id = ? AND state = 'open'",
+                                 (str(params["id"]),)).fetchone()
+        if r is None:
+            raise FerbError("no such open question")
+        yes = bool(params.get("yes"))
+        self.db.conn.execute("UPDATE owner_questions SET state = ? WHERE id = ?", ("yes" if yes else "no", r["id"]))
+        if yes and r["kind"] == "folder_access":
+            self._grant_folder(r["target"])
+        return {"ok": True}
+
+    async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        return {"schedules": [{"id": s.id, "request": s.request, "rule": s.rule.describe(), "state": s.state,
+                               "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures}
+                              for s in self.schedules.all()]}
+
+    async def _schedules_change(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        return {"text": self._schedule_change(str(params["id"]), str(params["action"]))}
 
     async def _reminders_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.timers is not None
@@ -1112,6 +1351,8 @@ class Daemon:
                  "- FERB has no email account set up."]
         lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
                   for s in self.secrets.specs()]
+        for sc in (self.schedules.all() if self.schedules is not None else []):
+            lines.append(f"- Schedule {sc.id} ({sc.state}): {sc.request} — {sc.rule.describe()}")
         if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
             ferb = self._identity_profile()
             for b in self.pairings.all():

@@ -15,6 +15,7 @@ from ferb.policy.rules import ActionRequest, irreversible, payload_hash, scope_k
 
 APPROVAL_TTL_S = 600.0                     # an unanswered question expires after 10 minutes
 GRANT_TTL_S = 4 * 3600.0                   # a scoped approval lasts as long as a task can
+UNATTENDED_TTL_S = 3600.0                  # a scheduled run's question: notify, wait an hour, then skip the step
 UNDO_WINDOW_S = 10.0
 
 
@@ -35,10 +36,12 @@ class Approvals:
     def __init__(self, clock: Clock, ttl_s: float = APPROVAL_TTL_S) -> None:
         self._clock, self._ttl = clock, ttl_s
         self._items: dict[str, Approval] = {}
+        self.unattended: set[str] = set()     # request ids of scheduled runs (the owner isn't at chat)
 
     def request(self, a: ActionRequest, reason: str) -> Approval:
         ap = Approval("ap-" + secrets.token_hex(6), payload_hash(a), a.capability, reason,
-                      self._clock.monotonic() + self._ttl, scope="" if irreversible(a) else scope_key(a),
+                      self._clock.monotonic() + (UNATTENDED_TTL_S if a.request_id in self.unattended else self._ttl),
+                      scope="" if irreversible(a) else scope_key(a),
                       request_id=a.request_id, kind=a.kind)
         self._items[ap.id] = ap
         return ap

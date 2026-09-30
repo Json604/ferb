@@ -1205,6 +1205,13 @@ Build step 11 specifics (owner decisions):
     skip that step and report it. Missed runs: one run when the Mac wakes, marked late; skipped if later than half the
     repeat interval (at most 12 hours); one-off schedules run up to 12 hours late. Three failures in a row pause a
     schedule. Also in this step: progressive setup (§8) and time awareness (§13).
+16. Environment-aware resolution (owner-added, 2026-09-30; plan shown before building): when a task names a service or
+    app ("video call X on WhatsApp"), FERB picks how to reach it without asking — (1) how the owner actually uses it,
+    from the trail; (2) an installed native app, from the device profile; (3) the website in a paired browser profile;
+    (4) ask only if none works. The planner gets a short environment summary each turn (macOS, relevant installed and
+    running apps, paired browser profiles). A correction ("use the web version") is stored as an owner-stated
+    preference and followed from then on. The chosen route is shown in plain words when starting. Recorded in §9.3
+    and §7 when built.
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.

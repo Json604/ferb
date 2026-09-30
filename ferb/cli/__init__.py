@@ -57,6 +57,9 @@ def main(argv: list[str] | None = None) -> int:
                         ("disable", "back to shadow mode for one question")):
         x = dsub.add_parser(name, help=help_)
         x.add_argument("question")
+    scp = sub.add_parser("schedules", help="scheduled and recurring tasks: list, cancel / pause / resume <id>")
+    scp.add_argument("action", nargs="?", choices=["list", "cancel", "pause", "resume"], default="list")
+    scp.add_argument("id", nargs="?")
     rp = sub.add_parser("reminders", help="pending reminders and timers (cancel <id> to cancel one)")
     rp.add_argument("action", nargs="?", choices=["list", "cancel"], default="list")
     rp.add_argument("id", nargs="?")
@@ -155,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.resume(client, sys.stdout)
             if args.cmd == "memory":
                 return admin.memory(client, args, input, sys.stdout)
+            if args.cmd == "schedules":
+                return admin.schedules(client, args.action, args.id, sys.stdout)
             if args.cmd == "reminders":
                 return admin.reminders(client, args.action, args.id, sys.stdout)
             if args.cmd == "decide":

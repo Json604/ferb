@@ -55,6 +55,14 @@ Publish = Callable[[str, dict[str, Any]], None]
 STOPPED_BY_YOU = "stopped by you"
 ANSWER_SCHEMA: dict[str, Any] = {"type": "object", "additionalProperties": False, "required": ["text"],
                                  "properties": {"text": {"type": "string"}}}
+ME = {"me", "myself", "owner", "my email", "my address"}
+
+
+def _wants_me(recipients: list[str]) -> bool:
+    return any(r.strip().lower() in ME for r in recipients)
+
+
+SINCE_GAP_S, SINCE_ITEMS = 3600, 6
 PLAN_REPAIRS = 2                               # an invalid plan goes back to the model this many times, silently
 CONTINUITY_HOURS, CONTINUITY_TURNS = 24, 20
 SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
@@ -63,6 +71,11 @@ SORRY_PLAN = ("I couldn't work out a safe way to do that as asked. Could you say
 TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
               "unknown": "outcome unclear", "skipped": "skipped"}
+
+async def _no_replies(since: datetime) -> list[str]:
+    return []
+
+
 LOOP_CHECK_EVERY = 25                          # loop.control: a checkpoint every 25 tool calls of a worker
 
 
@@ -138,9 +151,14 @@ class Supervisor(WorkerRuns):
         self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
         # Memory (build step 11), supplied by the daemon: recall for a turn; save what the owner stated (returns the
         # confirmations shown to the owner)
-        self.recall: Callable[[str], str] = lambda words: ""
+        self.recall: Callable[[str], Any] = lambda words: ""
+        self.replies: Callable[[datetime], Awaitable[list[str]]] = _no_replies       # replies to FERB's sent mail
         self.jev: Any = None                     # decide.ShadowDecider (build step 13)
         self.timers: Any = None                  # clock.timers.Timers (build step 14)
+        # Build step 15, supplied by the daemon: schedules from chat, and the owner's email ("email me")
+        self.on_schedule: Callable[[Any, str, str], str] = lambda spec, own, rid: "Scheduling isn't available."
+        self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
+        self.owner_email: Callable[[], str | None] = lambda: None
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
         self.sleep_until: Any = None
         self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
@@ -194,6 +212,46 @@ class Supervisor(WorkerRuns):
         if got.get("loop.control") in ("stop", "escalate"):
             self.jev.mark_effect("loop.control", ref, "worker stopped")
             self.stop_worker(worker_id, "it looked stuck to a second check")
+
+    async def run_scheduled(self, sched: Any, late: bool) -> dict[str, Any]:
+        """One run of a schedule, unattended: planned afresh from the owner's words, held to the intent recorded when
+        it was scheduled (a plan wanting more doesn't run); questions can't be asked, approvals wait an hour."""
+        from ferb.policy.intent import from_json, within
+        request_id = self.ids.new_id()
+        self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late})
+        note = (f"\n\n(A scheduled run the owner set up earlier — {sched.rule.describe()}"
+                f"{', running late' if late else ''}. The owner isn't here: don't ask questions; do the task, or "
+                "reply with what's missing.)")
+        session = ChatSession("schedule:" + sched.id)
+        available = set().union(*(c.scopes for c in self.gateway.caps.values()))
+        try:
+            out = await self._supervise(session, sched.request + note, request_id)
+            for _ in range(PLAN_REPAIRS):
+                if out.kind != "plan" or out.plan is None:
+                    break
+                problems = dag.validate(out.plan, sched.own_words, available, self.apps())
+                if not problems:
+                    break
+                out = await self._supervise(session, sched.request + note, request_id, repair=problems)
+        except (RuntimeViolation, ValidationError, ValueError):
+            return {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
+        if out.kind != "plan" or out.plan is None or dag.validate(out.plan, sched.own_words, available, self.apps()):
+            status = "done" if out.kind == "reply" and out.plan is None else "needs_user"
+            return {"task_id": request_id, "status": status, "answer": out.text, "goal": sched.request}
+        recorded = from_json(request_id, sched.intent)
+        extra = within(self._intent(out.plan, request_id, sched.own_words), recorded)
+        if extra:
+            self.journal.append("schedule.blocked", {"schedule_id": sched.id, "beyond": extra})
+            return {"task_id": request_id, "status": "failed", "goal": sched.request,
+                    "answer": f"I didn't run “{sched.request}”: this time it needed {'; '.join(extra)}, which you "
+                              "didn't include when you scheduled it."}
+        self.engine.intents.record(recorded)                                 # the recorded intent, not this plan's
+        self.engine.approvals.unattended.add(request_id)
+        final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
+        async for ev in self.run_tree(out.plan, out.text, request_id, sched.request):
+            if ev.get("type") == "outcome":
+                final = ev
+        return final
 
     def stop_tree(self, tree_id: str) -> bool:
         """Ctrl-C in ferb chat: stop this request's task; it's recorded as stopped by the owner."""
@@ -282,6 +340,14 @@ class Supervisor(WorkerRuns):
             yield {"type": "memory", "text": saved}
         for note in self._set_timers(out.timers, m.own_words, request_id):
             yield {"type": "timer", "text": note}
+        if out.schedule is not None:                                             # build step 15
+            yield {"type": "timer", "text": self.on_schedule(out.schedule, m.own_words, request_id)}
+        for ch in out.schedule_changes:
+            yield {"type": "timer", "text": self.on_schedule_change(ch, m.own_words)}
+        if out.kind == "plan" and out.plan is not None and _wants_me(out.plan.intent.recipients) \
+                and self.owner_email() is None:                                  # progressive setup (section 8)
+            out = SupervisorOutcome(kind="clarify", text="What email address should I use for you? I'll remember it.",
+                                    plan=None)
         if out.kind == "plan" and out.plan is not None and dag.validate(out.plan, m.own_words, available, self.apps()):
             self.journal.append("chat.failed", {"request_id": request_id, "why": "plan still invalid after repair"})
             out = SupervisorOutcome(kind="reply", text=SORRY_PLAN, plan=None)
@@ -299,13 +365,19 @@ class Supervisor(WorkerRuns):
     async def _supervise(self, session: ChatSession, message: str, request_id: str,
                          remembered: str = "", repair: list[str] | None = None) -> SupervisorOutcome:
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
-        ctx = (f"{context.header(self.clock.now(), None, None, *self.signals())}\n\n{self.recent(request_id)}\n\n"
-               + (f"{remembered}\n\n" if remembered else "") + f"Owner's new message:\n{message}")
+        recent, ages = self.recent(request_id)
+        mem_text, mem_ages = self.recall_items(remembered)
+        ctx = (f"{recent}\n\n" + (f"{mem_text}\n\n" if mem_text else "") + self.facts_now()
+               + f"Owner's new message:\n{message}")
         if repair:
             ctx += ("\n\nFERB's checks rejected your plan:\n" + "\n".join(f"- {p}" for p in repair) +
                     "\nReturn a corrected plan. If only the owner can resolve it (e.g. a site or app they didn't name), "
                     "use kind \"clarify\" and ask one short plain question — never mention checks, plans, subtasks or "
                     "workers.")
+        owner_active, last_event = self.signals()
+        since = await self.since_last_talk(request_id)
+        ctx += "\n\n" + context.time_block(self.clock.now(), None, None, owner_active, last_event,
+                                           ages=ages | mem_ages, since_last_talk=since)   # time-dependent: last
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
                          [], None)
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id,
@@ -314,39 +386,79 @@ class Supervisor(WorkerRuns):
         self.spans.finish(span, output={"text": final[:2000]})
         return SupervisorOutcome.model_validate_json(final)
 
-    def recent(self, current_request: str = "") -> str:
-        """Continuity (14a): recent conversation and tasks from the journal and the task table, across chat restarts."""
+    def recent(self, current_request: str = "") -> tuple[str, dict[str, datetime]]:
+        """Continuity (14a), bounded: the last day's conversation and tasks, tagged with absolute times only (their
+        relative ages are computed at the prompt's end, 13). Stable text first keeps prompts cache-friendly."""
         since = self.clock.now() - timedelta(hours=CONTINUITY_HOURS)
-        lines = []
+        items: list[tuple[datetime, str]] = []
         for e in self.journal.entries(since):
             d = e.data
             if d.get("request_id") == current_request:
                 continue
             if e.kind == "chat.message":
-                lines.append(f"Owner ({e.at.astimezone():%a %H:%M}): {str(d.get('text', ''))[:600]}")
+                items.append((e.at, f"Owner: {str(d.get('text', ''))[:600]}"))
             elif e.kind in ("chat.reply", "chat.clarify"):
-                lines.append(f"FERB: {str(d.get('text', ''))[:600]}")
+                items.append((e.at, f"FERB: {str(d.get('text', ''))[:600]}"))
             elif e.kind == "task.answer":
-                lines.append(f"FERB (task result, {d.get('status')}): {str(d.get('text', ''))[:600]}")
+                items.append((e.at, f"FERB (task result, {d.get('status')}): {str(d.get('text', ''))[:600]}"))
+        ages: dict[str, datetime] = {}
+        lines = []
+        for n, (at, text) in enumerate(items[-CONTINUITY_TURNS:], 1):
+            ages[f"c{n}"] = at
+            lines.append(f"[c{n}] ({at.astimezone():%a %d %b %H:%M}) {text}")
         tasks = []
-        for r in self.tasks.recent_roots(since.isoformat()):
+        for n, r in enumerate(self.tasks.recent_roots(since.isoformat())[-10:], 1):
             state = TASK_STATE.get(r["status"], r["status"])
             if r["status"] == "cancelled" and "stopped by you" in str(r.get("outcome_json", "")):
                 state = "stopped by the owner (Ctrl-C)"
-            tasks.append(f"- {r['goal'][:200]} — {state} (last update {r['updated_at'][11:16]})")
-        out = "Recent conversation (from FERB's journal, oldest first):\n" + ("\n".join(lines[-CONTINUITY_TURNS:])
-                                                                              or "(none)")
+            at = datetime.fromisoformat(r["updated_at"])
+            ages[f"t{n}"] = at
+            tasks.append(f"- [t{n}] {r['goal'][:200]} — {state} (last update {at.astimezone():%a %d %b %H:%M})")
+        out = "Recent conversation (from FERB's journal, oldest first):\n" + ("\n".join(lines) or "(none)")
         if tasks:
-            out += "\n\nTasks in the last day:\n" + "\n".join(tasks[-10:])
-        return out
+            out += "\n\nTasks in the last day:\n" + "\n".join(tasks)
+        return out, ages
+
+    def recall_items(self, remembered: Any) -> tuple[str, dict[str, datetime]]:
+        if isinstance(remembered, tuple):
+            return remembered
+        return (str(remembered or ""), {})
+
+    def facts_now(self) -> str:
+        return ""
+
+    async def since_last_talk(self, current_request: str) -> list[str]:
+        """After a gap of over an hour since the owner's last message: notable things since then (13)."""
+        now = self.clock.now()
+        entries = self.journal.entries(now - timedelta(days=7))
+        prev = [e for e in entries if e.kind == "chat.message" and e.data.get("request_id") != current_request]
+        if not prev or (now - prev[-1].at).total_seconds() <= SINCE_GAP_S:
+            return []
+        last = prev[-1].at
+        notes = []
+        for e in entries:
+            if e.at <= last:
+                continue
+            if e.kind == "task.answer":
+                notes.append(f"a task finished ({e.data.get('status')}) {context.ago(e.at, now)}: "
+                             f"{str(e.data.get('text', ''))[:200]}")
+            elif e.kind == "timer.delivered":
+                notes.append(f"reminder \"{e.data.get('message')}\" went off {context.ago(e.at, now)}")
+        try:
+            notes += await asyncio.wait_for(self.replies(last), 8)
+        except Exception:
+            pass
+        return notes[:SINCE_ITEMS]
 
     def _intent(self, plan: Plan, request_id: str, own_words: str = "") -> RequestIntent:
         """Apps the owner named become their bundle ids: a Mac action's target is its app's bundle id."""
         from ferb.policy.names import resolve_apps
         i = plan.intent
         bundles = set(resolve_apps(i.apps, self.apps(), own_words)[0].values()) if i.apps else set()
+        me = self.owner_email()
+        recipients = frozenset(me if (me and r.strip().lower() in ME) else r for r in i.recipients)
         return RequestIntent.from_plan(
-            request_id, set(i.verbs), set(i.extra_kinds), recipients=frozenset(i.recipients),
+            request_id, set(i.verbs), set(i.extra_kinds), recipients=recipients,
             sites=frozenset(i.sites) | frozenset(b.lower() for b in bundles), accounts=frozenset(i.accounts),
             paths=frozenset(normalize_path(p, self.workspace) for p in i.paths), max_amount=i.max_amount,
             irreversible=frozenset(i.irreversible_kinds))
