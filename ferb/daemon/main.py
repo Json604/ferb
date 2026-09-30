@@ -647,6 +647,7 @@ class Daemon:
         if self.supervisor is not None:
             self.supervisor.on_schedule = self._schedule_create
             self.supervisor.on_schedule_change = self._schedule_change_from_chat
+            self.supervisor.on_reminder_cancel = self._reminder_cancel_from_chat
             self.supervisor.owner_email = self._owner_email
         if self.supervisor is not None:
             self.supervisor.timers = self.timers
@@ -871,6 +872,16 @@ class Daemon:
         self.schedules.set_timer(s.id, t.id, first)
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe()})
         return f"🗓 scheduled ({s.id}): {s.request} — {rule.describe()}, first on {first.astimezone():%a %d %b %H:%M}"
+
+    def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
+        norm = " ".join(own_words.lower().split())
+        if len(rc.quote.strip()) < 3 or " ".join(rc.quote.lower().split()) not in norm:
+            return "I didn't change any reminder — could you say which one in your own words?"
+        t = self.timers.get(rc.id) if self.timers is not None else None
+        if t is None or t.kind != "reminder" or not self.timers.cancel(rc.id):
+            return f"I couldn't find a pending reminder {rc.id}."
+        self._journal().append("timer.cancelled", {"timer_id": rc.id, "by": "owner"})
+        return f"⏰ cancelled reminder {rc.id}: {t.message}"
 
     def _schedule_change_from_chat(self, ch: Any, own_words: str) -> str:
         norm = " ".join(own_words.lower().split())
@@ -1177,6 +1188,13 @@ class Daemon:
         stable, live = svc.summary(env, platform.mac_ver()[0] or "unknown", named, running)
         return {"routes": routes, "stable": stable, "live": live, "unknown": unknown}
 
+    def _time_meanings(self) -> list[tuple[str, str]]:
+        """The owner's own meanings of fuzzy time words ("next friday", "evening"), stored when they corrected FERB."""
+        if self.memory is None:
+            return []
+        return [(it.key.removeprefix("time_").replace("_", " "), it.content)
+                for it in self.memory.items("active", "owner") if it.kind == "preference" and it.key.startswith("time_")]
+
     def _installed_apps(self) -> list[tuple[str, str]]:
         """(bundle id, name) of the Mac's apps, for matching the names the owner uses (14a)."""
         p = self._device_profile()
@@ -1385,6 +1403,10 @@ class Daemon:
                   for s in self.secrets.specs()]
         for sc in (self.schedules.all() if self.schedules is not None else []):
             lines.append(f"- Schedule {sc.id} ({sc.state}): {sc.request} — {sc.rule.describe()}")
+        for t in (self.timers.pending(("reminder",)) if self.timers is not None else []):
+            lines.append(f"- Reminder {t.id}: {t.message} — {t.fire_at.astimezone():%a %d %b %Y %H:%M}")
+        for phrase, meaning in self._time_meanings():
+            lines.append(f"- When the owner says “{phrase}”, they mean: {meaning}")
         if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
             ferb = self._identity_profile()
             for b in self.pairings.all():

@@ -9,6 +9,8 @@ The model fills only what the owner said:
 - date: "MM-DD" or "YYYY-MM-DD" for a calendar date ("on 31 October"); without a year, the next one;
 - time: "HH:MM", 24-hour, local ("at 5 pm" = "17:00"). A day without a time means 09:00; a time without a day means
   the next one (today if still ahead, else tomorrow).
+Which fields a fuzzy phrase maps to ("next Friday", "evening", "this weekend") is not a rule here: the model guesses
+from context or follows the owner's stored meaning (a `time:<phrase>` preference); these fields are then exact.
 Wall-clock times are local (the Mac's time zone): "tomorrow at 9" stays 09:00 across a daylight-saving change, and a
 time that doesn't exist that day (skipped by the change) moves forward by the gap.
 """

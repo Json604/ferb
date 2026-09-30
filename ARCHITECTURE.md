@@ -1065,6 +1065,11 @@ Earlier sketch of the questions (kept for reference):
   across a daylight-saving change; a time skipped by the change moves forward by the gap; a day without a time is
   09:00; a weekday or time already gone today means the next one. The confirmation line shows the computed date and
   time ("⏰ reminder … set for Fri 09 Oct 17:00").
+- **Fuzzy time words have no fixed rule** (owner decision, 2026-09-30): "next Friday", "morning", "evening", "end of
+  the week", "this weekend" — the model makes its best guess from context (including the day and time it's said) and
+  chooses the fields; FERB always shows the computed date. When the owner corrects one, their meaning is stored as an
+  owner-stated preference (`time:<phrase>`), listed in the planner's facts and used from then on, and the wrong
+  reminder is cancelled and replaced (a schedule: cancelled and scheduled again).
 - Elapsed time, timeouts, heartbeats and guards use `Clock.monotonic()`; timestamps and schedules use `Clock.now()`.
 - `FakeClock` in all tests.
 

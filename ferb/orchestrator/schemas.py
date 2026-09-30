@@ -80,6 +80,7 @@ SCHEDULE_SCHEMA = _obj({
 SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                "action": {"type": "string", "enum": ["cancel", "pause", "resume"]},
                                "quote": {"type": "string"}})
+REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "plan"]},
     "text": {"type": "string"},
@@ -88,6 +89,7 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "timers": {"type": "array", "items": TIMER_SCHEMA},
     "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
     "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
+    "reminder_cancels": {"type": "array", "items": REMINDER_CHANGE_SCHEMA},
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({
@@ -182,6 +184,7 @@ class SupervisorOutcome(BaseModel):
     timers: list["TimerRequest"] = []
     schedule: "ScheduleRequest | None" = None
     schedule_changes: list["ScheduleChange"] = []
+    reminder_cancels: list["ReminderCancel"] = []
 
 
 class ScheduleRequest(BaseModel):
@@ -198,6 +201,12 @@ class ScheduleRequest(BaseModel):
 class ScheduleChange(BaseModel):
     id: str
     action: Literal["cancel", "pause", "resume"]
+    quote: str
+
+
+class ReminderCancel(BaseModel):
+    """Cancel one of the owner's pending reminders (e.g. FERB got the date wrong), with the owner's words."""
+    id: str
     quote: str
 
 

@@ -176,6 +176,7 @@ class Supervisor(WorkerRuns):
         # Build step 15, supplied by the daemon: schedules from chat, and the owner's email ("email me")
         self.on_schedule: Callable[[Any, str, str], str] = lambda spec, own, rid: "Scheduling isn't available."
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
+        self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
         self.owner_email: Callable[[], str | None] = lambda: None
         # Build step 16: routes + environment summary for the owner's words (supplied by the daemon)
         self.environment: Callable[[str], dict[str, Any]] = lambda words: {}
@@ -359,6 +360,8 @@ class Supervisor(WorkerRuns):
             return
         for saved in self.remember(out.remember, m.own_words, entry.id):          # the owner's words, quote-checked
             yield {"type": "memory", "text": saved}
+        for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
+            yield {"type": "timer", "text": self.on_reminder_cancel(rc, m.own_words)}
         for note in self._set_timers(out.timers, m.own_words, request_id):
             yield {"type": "timer", "text": note}
         if out.schedule is not None:                                             # build step 15

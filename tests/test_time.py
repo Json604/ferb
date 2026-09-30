@@ -329,3 +329,28 @@ def test_the_confirmation_shows_the_time_code_computed(daemon: RunningDaemon) ->
     expected = resolve(When(**when), daemon.daemon.clock.now())
     assert notes == [f"⏰ reminder {run(daemon, daemon.daemon.timers.pending)[0].id} set for "
                      f"{expected.astimezone():%a %d %b %H:%M}: call Mom"]
+
+
+def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(daemon: RunningDaemon) -> None:
+    """Fuzzy words have no fixed rule: FERB guesses, shows the date; the owner's correction is kept as their meaning."""
+    nxt = {**mins(0), "in_minutes": None, "day": "next_friday", "time": "17:00"}
+    this = {**nxt, "day": "friday"}
+    first = json.dumps({"kind": "reply", "text": "Will do.", "plan": None, "remember": [],
+                        "timers": [{"when": nxt, "message": "call Mom", "quote": "next friday at 5"}]})
+    install(daemon, [first])
+    chat(daemon, "remind me next friday at 5 to call Mom")
+    wrong = run(daemon, daemon.daemon.timers.pending)[0]
+    fix = json.dumps({"kind": "reply", "text": "Fixed.", "plan": None,
+                      "remember": [{"kind": "preference", "subject": "owner", "key": "time:next friday",
+                                    "content": "the coming Friday, not next week's", "quote": "I meant this friday"}],
+                      "reminder_cancels": [{"id": wrong.id, "quote": "I meant this friday"}],
+                      "timers": [{"when": this, "message": "call Mom", "quote": "I meant this friday"}]})
+    install(daemon, [fix])
+    evs = chat(daemon, "no, by next friday I meant this friday")
+    notes = [e["text"] for e in evs if e["type"] == "timer"]
+    assert notes[0] == f"⏰ cancelled reminder {wrong.id}: call Mom" and notes[1].startswith("⏰ reminder")
+    left = run(daemon, daemon.daemon.timers.pending)
+    assert len(left) == 1 and left[0].fire_at == resolve(When(**this), daemon.daemon.clock.now())
+    facts = run(daemon, daemon.daemon._facts)
+    assert "When the owner says “next friday”, they mean: the coming Friday, not next week's" in facts
+    assert f"Reminder {left[0].id}: call Mom" in facts

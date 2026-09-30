@@ -89,10 +89,24 @@ async def _every_minute(d: RunningDaemon) -> None:
     db.conn.execute("UPDATE schedules SET rule_json = ? WHERE id = ?", (json.dumps(rule), r["id"]))   # type: ignore[union-attr]
 
 
-def test_the_model_says_when_and_code_computes_the_date(codex: RunningDaemon) -> None:
-    """Structured times: "next Friday at 5 pm" -> the date FERB computed, shown in the confirmation."""
+def test_the_model_says_when_code_computes_the_date_and_a_correction_is_remembered(codex: RunningDaemon) -> None:
+    """"next Friday at 5 pm" -> a Friday at 17:00 computed by FERB (which Friday is the model's guess); correcting it
+    moves the reminder and keeps the owner's meaning."""
     from ferb.clock.when import When, resolve
-    evs = chat(codex, "remind me next friday at 5 pm to call mom")
-    expected = resolve(When(day="next_friday", time="17:00"), codex.daemon.clock.now())
-    notes = [e["text"] for e in evs if e["type"] == "timer"]
-    assert len(notes) == 1 and f"{expected.astimezone():%a %d %b %H:%M}" in notes[0], (notes, evs)
+    now = codex.daemon.clock.now()
+    this, nxt = (resolve(When(day=d, time="17:00"), now) for d in ("friday", "next_friday"))
+    shown = {f"{t.astimezone():%a %d %b %H:%M}": t for t in (this, nxt)}
+    notes = [e["text"] for e in chat(codex, "remind me next friday at 5 pm to call mom") if e["type"] == "timer"]
+    got = [k for k in shown if len(notes) == 1 and k in notes[0]]
+    assert got, notes
+    other = next(t for k, t in shown.items() if k != got[0])
+    fix = "no, by next friday I meant " + ("the friday after this one" if other == nxt else "this coming friday")
+    chat(codex, fix)
+    pending = [t for t in codex.run(_async(codex.daemon.timers.pending)) if t.kind == "reminder"]  # type: ignore[union-attr]
+    assert [t.fire_at for t in pending] == [other], pending
+    meanings = codex.run(_async(codex.daemon._time_meanings))
+    assert any("next friday" in p for p, _ in meanings), meanings
+
+
+async def _async(fn: Any) -> Any:
+    return fn()
