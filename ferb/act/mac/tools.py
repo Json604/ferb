@@ -33,13 +33,18 @@ class _Base:
     risk, reversible = RiskLevel.LOW, True
 
     def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None,
-                 extension_ready: Callable[[str], bool] = lambda browser: False) -> None:
+                 extension_ready: Callable[[str], bool] = lambda browser: False,
+                 unpaired: Callable[[str], str | None] = lambda browser: None) -> None:
         self.driver, self.device_profile, self.extension_ready = driver, device_profile, extension_ready
+        self.unpaired = unpaired
 
     def _extension_first(self, args: BaseModel) -> str | None:
         """Browsers go through the extension (9.2); the Mac layer is the fallback, used with a stated reason when a
         paired profile of that browser is connected."""
         b = BROWSER_BUNDLES.get(self._bundle(args))
+        note = self.unpaired(b) if b else None
+        if note:                                  # installed but unpaired: tell the owner, don't work around it
+            return note
         if b and self.extension_ready(b) and not (getattr(args, "fallback_reason", None) or "").strip():
             return (f"{b} is connected through the FERB extension: use the browser_* tools. If they can't do this "
                     "(e.g. browser UI, a canvas-only page), call again with fallback_reason saying why.")

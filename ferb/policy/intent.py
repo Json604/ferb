@@ -35,6 +35,7 @@ class RequestIntent:
     accounts: frozenset[str] = frozenset()
     paths: frozenset[str] = frozenset()      # path prefixes
     max_amount: float | None = None
+    irreversible: frozenset[str] = frozenset()   # kinds the model marked irreversible for this request (ask each time)
 
     @classmethod
     def from_plan(cls, request_id: str, verbs: set[str], extra_kinds: set[str] | None = None,

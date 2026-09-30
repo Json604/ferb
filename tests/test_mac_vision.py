@@ -45,6 +45,9 @@ class FakeShots:
     def window(self, wid: int) -> Window | None:
         return Window(wid, wid // 10, self.bounds, "w")
 
+    def on_screen(self, wid: int) -> bool:
+        return True
+
     def window_at(self, x: float, y: float, max_layer: int = 0) -> Window | None:
         return Window(self.top if self.top is not None else 110, 0, self.bounds, "w")
 
@@ -72,6 +75,10 @@ class VisionAx(FakeAx):
 
     def hit(self, x: float, y: float) -> Any:
         return self.hit_answer
+
+    def raise_window(self, pid: int, bounds: Any) -> bool:
+        self.raised = getattr(self, "raised", 0) + 1
+        return True
 
     def has_secure_field(self, win: Any, browser: bool = False) -> bool | None:
         return self.secure.pop(0) if self.secure else False
@@ -162,6 +169,7 @@ def test_clicks_map_image_pixels_to_the_window_and_refuse_stale_moved_or_covered
     _, shot, _ = asyncio.run(d.screenshot("Notes"))
     r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))              # image px at 2x
     assert r.ok and posted == ["move 300.0,200.0", "click 300.0,200.0"]
+    assert getattr(d.ax, "raised", 0) >= 1                               # the window itself was raised first
     assert apps.activated == ["com.apple.Notes", "com.brave.Browser"]   # brought forward, owner's app put back
     with pytest.raises(Refused, match="outside"):
         asyncio.run(d.click_at("Notes", shot.id, 1600, 10))

@@ -13,6 +13,7 @@ snapshot): following a link is `navigate`; typing into / submitting a search for
 """
 
 import ipaddress
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol
@@ -237,8 +238,10 @@ class BrowserAct(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         action, text = str(getattr(args, "action")), getattr(args, "text")
-        return self._spec(act_kind(action, text, self._element(args)), args,
-                          content=text if action in ("type", "select") else None)
+        kind = act_kind(action, text, self._element(args))
+        if kind in (Kind.FILL_FORM, Kind.SUBMIT) and security_page(self.driver.tab_url(str(getattr(args, "tab", "")))):
+            kind = Kind.ACCOUNT_SECURITY                                 # always asks, every time (10.3)
+        return self._spec(kind, args, content=text if action in ("type", "select") else None)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
@@ -248,6 +251,25 @@ class BrowserAct(_Base):
                                                     bool(getattr(args, "trusted"))), ctx.intent_id or "")
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new snapshot to see the result"},
                           is_error=not r.ok)
+
+
+SECURITY_PAGE = re.compile(r"(passw|passcode|2fa|two[-_]?factor|two[-_]?step|mfa|authenticator|security|recovery|"
+                           r"backup[-_]?codes|delete[-_]?account|close[-_]?account|deactivate|signin[-_]?options|"
+                           r"sign[-_]?in[-_]?options|login[-_]?settings)", re.I)
+
+
+ACCOUNT_CONTEXT = re.compile(r"(settings|account|myaccount|profile|preferences|/user|/id\b|^id\.|auth|login|signin)",
+                             re.I)
+
+
+def security_page(url: str | None) -> bool:
+    """Account / security settings (10.3 floor): passwords, 2FA, recovery, account deletion."""
+    if not url:
+        return False
+    parts = urlsplit(url)
+    where = f"{parts.path}?{parts.query}#{parts.fragment}"
+    context = f"{parts.hostname or ''}{where}"
+    return bool(SECURITY_PAGE.search(where)) and bool(ACCOUNT_CONTEXT.search(context))
 
 
 def act_kind(action: str, text: str | None, el: PageElement | None) -> str:

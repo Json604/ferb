@@ -8,6 +8,7 @@ dependencies = [
     "cryptography==50.0.1",
     "httpx==0.28.1",
     "mcp==2.2.0",
+    "prompt-toolkit>=3.0.47",
     "pydantic>=2,<3",
     "pyobjc-framework-applicationservices>=12.2.2",
     "pyobjc-framework-cocoa>=12.2.2",

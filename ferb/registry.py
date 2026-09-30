@@ -66,15 +66,16 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
 
 
 def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
-            extension_ready: Callable[[str], bool] = lambda browser: False) -> None:
+            extension_ready: Callable[[str], bool] = lambda browser: False,
+            unpaired: Callable[[str], str | None] = lambda browser: None) -> None:
     """The owner's Mac (identity OWNER only; build steps 7 and 9)."""
     r.add(MacApps(driver, device_profile))
     r.add(MacOpen(driver, device_profile))
     r.add(MacSnapshot(driver, device_profile))
     r.add(MacAct(driver, device_profile))
     r.add(MacAppleScript(driver, device_profile))
-    r.add(MacScreenshot(driver, device_profile, extension_ready))
-    r.add(MacClick(driver, device_profile, extension_ready))
+    r.add(MacScreenshot(driver, device_profile, extension_ready, unpaired))
+    r.add(MacClick(driver, device_profile, extension_ready, unpaired))
 
 
 def add_trail(r: Registry, trail: Callable[[], Any]) -> None:

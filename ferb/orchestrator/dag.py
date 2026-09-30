@@ -13,6 +13,7 @@ from ferb.orchestrator.schemas import KINDS, MAX_FIELD_CHARS, Plan, Subtask
 from ferb.policy.intent import IMPLIES
 from ferb.policy.rules import SCOPES_BY_IDENTITY
 from ferb.core.types import Identity
+from ferb.policy.names import resolve_apps, site_named
 from ferb.sanitize.untrusted import targets_in_own_words
 
 MAX_FANOUT, MAX_DEPTH = 6, 2
@@ -21,14 +22,17 @@ READ_SCOPES = frozenset({"fs:read", "browser:read", "mac:read", "screen", "trail
 ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
-def validate(plan: Plan, own_words: str, available_scopes: set[str]) -> list[str]:
+def validate(plan: Plan, own_words: str, available_scopes: set[str],
+             apps: list[tuple[str, str]] | None = None) -> list[str]:
     p: list[str] = []
     i = plan.intent
     if set(i.verbs) - set(IMPLIES):
         p.append(f"I don't know how to '{', '.join(sorted(set(i.verbs) - set(IMPLIES)))}'")
     if set(i.extra_kinds) - set(KINDS):
         p.append("the plan names an unknown kind of action")
-    missing = targets_in_own_words(i.recipients + i.sites + i.accounts + i.paths, own_words)
+    missing = targets_in_own_words(i.recipients + i.accounts + i.paths, own_words)
+    missing += [s for s in i.sites if not site_named(s, own_words)]            # "Slack" names slack.com
+    missing += resolve_apps(i.apps, apps or [], own_words)[1]                  # "Brave" names the Brave app
     if missing:
         p.append("please name these yourself (I won't take them from pasted or quoted text): " + ", ".join(missing))
     if not plan.subtasks:

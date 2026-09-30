@@ -530,6 +530,19 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
 11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
 12. `ferb stop` (or the stop hotkey) halts everything immediately (section 10.5).
 
+Build step 14a specifics (owner decisions after testing):
+- FERB speaks as FERB (never "supervisor"), without internal jargon; `ferb chat --verbose` shows the internals.
+- An invalid plan goes back to the planning model with the problems (up to 2 repairs), never to the owner; if only the
+  owner can resolve it, the model asks one plain question. Still invalid: a plain apology, details in the journal.
+- Readers may return analysis and summaries (up to 2,000 characters a field); when a task ends, FERB writes the
+  owner-facing answer from the readers' fields (as data) and the outcome (`task.answer` in the journal).
+- Continuity: every turn sees the last day's conversation from the journal (across chat sessions and restarts) and
+  the last day's tasks with their status (running, stopped by the owner, interrupted by a restart, …).
+- A turn outlives its chat: closing chat never stops a task; its answer is kept (`task_results`), announced by a macOS
+  notification, and shown when chat next opens, with anything still running and any question still waiting. An
+  approval asked while no chat is open also sends a notification. Ctrl-C stops the task ("stopped by you"; a send
+  held for undo is cancelled too). A restart records interrupted tasks for the owner.
+
 Build step 8 specifics:
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
@@ -626,6 +639,12 @@ Watchers emit `device.changed` on app install/removal (FSEvents on /Applications
 | Browser | Primary | Fallback 1 | Fallback 2 |
 |---------|---------|------------|------------|
 | Chrome, Brave | FERB extension: content-script snapshot + `chrome.debugger` for actions | Accessibility (the web AX tree is built on demand; if the first query returns it empty, re-query for up to ~2 s. `AXManualAccessibility` is unsupported since at least Chrome 154 / Brave 151) | Screenshot + click |
+
+If the FERB extension is installed in a browser but no profile of it is paired (an unpaired install still says
+hello), FERB tells the owner — pairing the owner's real profiles waits for the §21 gate (`[gates] owner_profiles`),
+after which `ferb chat` offers to pair — and doesn't fall back to screenshots of that browser (build step 14a).
+Windows on other Spaces or in full screen are found (all windows, not just on-screen ones); to act, FERB activates the
+app, raises that exact window and waits for it to be on screen before any click.
 
 Browsers prefer the extension: `mac.screenshot` / `mac.click` (screenshot + click) are the fallback for what the
 extension can't do (browser UI such as permission prompts, canvas-only pages). While a paired owner profile of that
@@ -814,6 +833,9 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   owner's message, at plan time, before any untrusted content is read**. It includes the action kinds the request
   clearly implies (e.g. "book a table" implies form fill and submit). It is recorded once per request and workers
   can never change it. An action kind not in it is blocked; a requested kind with a target outside it asks.
+  **Names the owner uses count** (build step 14a, `policy/names.py`): an app by its name ("Brave" → the Brave app's
+  bundle id, matched against the device profile; exactly one match), a site by its name or a known alias ("Slack" →
+  slack.com, "Gmail" → mail.google.com) or its domain. They still have to be in the owner's own words.
   **Pasted or quoted content in the owner's chat message** (terminal bracketed paste, fenced code blocks, `>`
   quotes) is wrapped as untrusted data — tags carrying a random id — before the supervisor sees it; the intent is
   derived only from the owner's own words around it, and code checks that every intent target (recipient, site,
@@ -835,11 +857,22 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
 ### 10.3 When FERB asks (the only confirmations)
 
 Only when a mistake is costly **and** the action was not explicitly requested, or something looks wrong:
-- spending money / payments (always, every autonomy level),
-- permanent deletion (always, every autonomy level),
+- irreversible actions (below): **every time**, even within the same request, at every autonomy level;
 - intent mismatch the owner may still want, surprising destination, or injection signals on the path.
-Approvals are single-use, expire in minutes, and are bound to the exact action (account, target, payload hash);
-any change voids them.
+
+**Approval scope (owner decision, 2026-09-30, build step 14a).** One approval covers the same target and action type
+for the rest of the request (e.g. approving input to the Brave app once covers every further input to Brave in that
+request). A different target (another recipient, site, account, path or amount) is a new question. Everything else
+just runs, with no prompts. While FERB waits for an answer, the tool call waits (up to 10 minutes; the owner's time
+never counts as a stall) and the task continues once approved.
+
+**Irreversible actions always ask, one call at a time**, never covered by an earlier approval:
+- the fixed floor, enforced by code from each capability's declared reversibility and kind: payments, permanent
+  deletion (including destructive shell commands such as `rm -rf` and `git push --force`), and account / security
+  changes (passwords, 2FA, recovery settings, account deletion — browser actions on those pages);
+- on top of that, the planning model may mark action types irreversible for a request (e.g. submitting an
+  application), and Jev's `action.risk` = high (once enabled) makes FERB ask. They can only add to the floor, never
+  remove anything from it.
 
 ### 10.4 Autonomy levels
 
@@ -1037,7 +1070,7 @@ Build step 11 specifics (owner decisions):
 
 | Command | Purpose |
 |---------|---------|
-| `ferb chat` | Conversation with the orchestrator; approvals inline |
+| `ferb chat [--verbose]` | Conversation with FERB: a line editor (paste as one message, Option-Enter for a new line), approvals inline, results of tasks that finished while chat was closed; Ctrl-C stops the running task, closing chat doesn't; `--verbose` shows plans, workers and tools |
 | `ferb logs [--tasks --trail --tools --browsers --policy --actions --timers]` | Live stream from the bus (redacted) |
 | `ferb trace <task-id>` | Span tree for one task |
 | `ferb setup [--update]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent) / health, permissions, extension connectivity |
@@ -1132,6 +1165,14 @@ Build step 11 specifics (owner decisions):
     (safety test 19); `clock/durations.py` (measured task durations in the time header); sending from FERB's mailbox
     (normal autonomy: in the request → the 10 s undo window; a recipient the owner didn't name → asks; a send the
     request didn't include → blocked, owner decision); `ferb device`; the §0 table fix.
+14a. UX fixes (owner-added after testing, 2026-09-30; built before step 15): invalid plans repaired silently (never an
+    internal error in chat); readers may return analysis and FERB writes the final answer; `ferb chat` with a real
+    line editor (bracketed paste, multi-line); continuity from the journal (recent turns, running / recent /
+    interrupted tasks); names the owner uses (apps, sites) count as intent targets; approval scope + the irreversible
+    floor (10.3); a tool call waits for the owner's answer and continues; windows on other Spaces / full screen;
+    installed-but-unpaired extensions are reported; FERB speaks as FERB, without internal jargon (`--verbose` shows
+    it). Ctrl-C stops the running task ("stopped by you"); closing chat never stops tasks — a task that finishes while
+    chat is closed sends a macOS notification and chat shows its result next time.
 15. Scheduled and recurring tasks (owner-added, 2026-09-30): "every morning at 9, summarize my unread email", "check this
     price tomorrow and email me". The intent is recorded from the owner's words when the task is scheduled and each run
     is held to that intent; `ferb schedules` lists and cancels them. Plan shown before building.
@@ -1251,7 +1292,8 @@ Each test proves a promise in this file; all run in CI with fakes, and the marke
 7. Intent mismatch is blocked: summarize-only task tries to send / run shell / message a new recipient.
 8. Exposed worker loses shell/AppleScript/file-write; injected page text cannot reach an actor worker.
 9. Data-flow: owner email content cannot be typed into an unrelated site.
-10. Approval bound to payload: changing recipient or amount after approval voids it.
+10. Approval scope: one approval covers the same target and action type within a request; a different recipient or
+    amount is a new question; irreversible actions (the floor, plus any the model or Jev flag) ask every time.
 11. Lost acknowledgement after Send → ledger `unknown` → reconciliation, no duplicate send.
 12. Wrong profile / wrong account: action refused when the verified account differs from the resolved one.
 13. Stale `ElementRef` after navigation or reconnect is rejected.

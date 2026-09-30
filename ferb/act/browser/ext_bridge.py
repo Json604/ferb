@@ -49,6 +49,7 @@ class _Conn:
     install_id: str | None = None
     bridge: "Bridge | None" = None
     gen: int = 0
+    unpaired_install: str | None = None
 
 
 @dataclass
@@ -140,6 +141,7 @@ class Hub:
         self.pairings, self.ledger, self.publish, self.device_id = pairings, ledger, publish, device_id
         self.bridges: dict[tuple[str, str], Bridge] = {}
         self.refused: dict[str, str] = {}                    # install_id -> why (e.g. protocol mismatch)
+        self.unpaired: dict[str, str] = {}                   # install_id -> browser: installed, connected, not paired
         # The trail (build step 10): every tab event goes to on_tab; while paused, only tabs FERB owns are tracked.
         self.on_tab: Callable[["Bridge", TabEvent], None] = lambda br, e: None
         self.paused: Callable[[], bool] = lambda: False
@@ -176,6 +178,8 @@ class Hub:
         except (ConnectionError, asyncio.LimitOverrunError, ValueError):
             pass
         finally:
+            if conn.unpaired_install:
+                self.unpaired.pop(conn.unpaired_install, None)
             if conn.bridge is not None:
                 conn.bridge.drop(conn)
                 self.publish("browser.disconnected", {"profile": conn.bridge.name})
@@ -185,14 +189,23 @@ class Hub:
         if not v.accepted:
             return                                           # unpaired / bad MAC / replay: dropped, nothing acts
         if v.reply is not None:                              # just paired: hand the key back on this connection
+            self.unpaired.pop(m.install_id, None)
             conn.writer.write(json.dumps(v.reply).encode() + b"\n")
             await conn.writer.drain()
             if v.binding:
                 self.publish("browser.profile_paired", {"browser": v.binding.browser, "folder": v.binding.folder,
                                                         "identity": v.binding.identity.value})
             return
-        if v.binding is None:
-            return                                           # unpaired hello: nothing to do until pairing
+        if v.binding is None:                                # unpaired hello: nothing acts; FERB can tell the owner
+            if m.type == "hello":
+                try:
+                    b = str(m.body().get("browser") or "")
+                except ValueError:
+                    b = ""
+                if b in ("chrome", "brave"):
+                    self.unpaired[m.install_id] = b
+                    conn.unpaired_install = m.install_id
+            return
         conn.install_id = m.install_id
         try:
             body = m.body()

@@ -289,15 +289,17 @@ def test_unverifiable_site_asks_once_per_site_and_profile(bd: Any) -> None:
     tab = call(d, g, "browser.open", url="https://shop.example/form")["content"]["tab"]
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     name = snap["elements"][0]["id"]
-    r = call(d, g, "browser.act", tab=tab, element=name, action="type", text="Ada")
-    ap = r["content"]["needs_owner_approval"]
-    assert "can't check which account" in r["content"]["reason"] and not ext.acts
-    d.call_soon(d.daemon.engine.approvals.resolve, ap, True)
-    assert not call(d, g, "browser.act", tab=tab, element=name, action="type", text="Ada")["is_error"]
+    from tests.conftest import Answers
+    yes = Answers(d)
+    try:
+        r = call(d, g, "browser.act", tab=tab, element=name, action="type", text="Ada")
+    finally:
+        yes.stop()
+    assert not r["is_error"] and len(ext.acts) == 1 and "can't check which account" in yes.asked[0].reason
     assert "shop.example @ chrome/Profile 1" in d.daemon.config.get("policy", "trusted_accounts")
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     r = call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="type", text="Bob")
-    assert not r["is_error"] and len(ext.acts) == 2                             # not asked again
+    assert not r["is_error"] and len(ext.acts) == 2 and len(yes.asked) == 1      # not asked again
 
 
 # ---------- resolver + discovery (deterministic, before any model) ----------

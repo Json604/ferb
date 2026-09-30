@@ -83,7 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     kp = sub.add_parser("kill", help="stop one of FERB's background processes")
     kp.add_argument("id")
 
-    sub.add_parser("chat", help="talk to FERB")
+    cp = sub.add_parser("chat", help="talk to FERB")
+    cp.add_argument("--verbose", action="store_true", help="also show plans, steps, tools and checks")
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
     sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
@@ -108,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "chat":
         from ferb.cli.chat import main_chat
         try:
-            return main_chat(lambda: Client(socket_path(), timeout=1800))
+            return main_chat(lambda: Client(socket_path(), timeout=1800), verbose=args.verbose)
         except NotRunning as e:
             print(f"ferb: {e}", file=sys.stderr)
             return 2

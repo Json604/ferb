@@ -257,6 +257,7 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd:
             open_known_profile(browser, p.folder, f"http://127.0.0.1:{srv.server_port}{path}", known)
             time.sleep(2.5)
             appsm.activate("com.google.Chrome")
+            _raise_titled("com.google.Chrome", "Login probe" if refused else "Plain probe")
             time.sleep(0.5)
             if refused:
                 with pytest.raises(Refused, match="password"):
@@ -274,3 +275,15 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd:
     rd.run(close_probe_tabs(), timeout=30)
     assert loads and all(r["actor"] == "owner" and r["profile"] == p.folder and r["browser"] == "chrome"
                          for r in loads), loads
+
+
+
+def _raise_titled(bundle: str, title: str) -> None:
+    """Chrome's front window may belong to another profile: raise the test page's own window."""
+    from ferb.act.mac import accessibility as ax
+    app = appsm.find(bundle)
+    assert app is not None
+    w = next((w for w in (shotm._window(d) for d in shotm._info_windows(True))
+              if w.pid == app.pid and title in w.title), None)
+    assert w is not None, f"no {title} window"
+    ax.raise_window(app.pid, w.bounds)

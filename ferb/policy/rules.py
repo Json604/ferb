@@ -22,11 +22,13 @@ class Kind:
     WRITE_FILE, RUN_SHELL, APPLESCRIPT, MAC_INPUT = "write_file", "run_shell", "applescript", "mac_input"
     FILL_SECRET, MAILBOX_READ, MAILBOX_SEND = "fill_secret", "mailbox_read", "mailbox_send"
     TIMER = "timer"                                       # a reminder / timer for the owner (cancelable)
+    ACCOUNT_SECURITY = "account_security"                 # passwords, 2FA, recovery settings, account deletion
 
 
 # Reversible actions just run (section 10.2) once identity/scope/exposure pass.
 REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER}
-HARD_FLOOR = {Kind.PAY, Kind.DELETE_PERMANENT}                 # always ask, every autonomy level
+# The irreversible floor (10.3): ask every single time, every autonomy level; nothing can remove a kind from it.
+HARD_FLOOR = {Kind.PAY, Kind.DELETE_PERMANENT, Kind.ACCOUNT_SECURITY}
 UNDO_WINDOW = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND}   # held ~10 s before executing
 OUTBOUND = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.FILL_FORM, Kind.SUBMIT, Kind.MAILBOX_SEND, Kind.WRITE_FILE,
             Kind.PAY}                                           # moves data somewhere (data-flow checks)
@@ -47,6 +49,20 @@ class ActionRequest:
     content: str | None = None
     data_labels: frozenset[DataLabel] = field(default_factory=frozenset)
     unverified_account: str | None = None    # "site @ browser/folder" whose signed-in account FERB can't check (9.3)
+    flagged_irreversible: bool = False       # the model (request intent) or Jev marked this action irreversible
+
+
+def scope_key(a: ActionRequest) -> str:
+    """What one approval covers (10.3): this request, this action type, this target — whatever the content."""
+    canon = json.dumps({"request": a.request_id, "kind": a.kind, "identity": a.identity.value,
+                        "account": a.target.account, "site": a.target.site, "recipients": sorted(a.target.recipients),
+                        "path": a.target.path, "amount": a.target.amount}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canon.encode()).hexdigest()
+
+
+def irreversible(a: ActionRequest) -> bool:
+    """The floor, plus what the model or Jev flagged for this action: asks every time, one call at a time."""
+    return a.kind in HARD_FLOOR or a.flagged_irreversible
 
 
 def payload_hash(a: ActionRequest) -> str:

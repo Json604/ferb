@@ -172,8 +172,14 @@ def test_destructive_commands_are_permanent_deletion_blocked_or_always_asked(dae
     r = call(daemon, g, "shell.run", command="rm -rf build")
     assert r["is_error"] and "'delete_permanent' was not requested" in r["content"]["error"]
     h = task(daemon, "y", Identity.OWNER, OWNER_SHELL, {"run_command"}, {"delete_permanent"})
-    r = call(daemon, h, "shell.run", command="rm -rf build")
-    assert r["is_error"] and "hard floor" in r["content"]["reason"]              # asked, even when requested
+    from tests.conftest import Answers
+    no = Answers(daemon, granted=False)
+    try:
+        r = call(daemon, h, "shell.run", command="rm -rf build")
+        assert r["is_error"] and "declined" in r["content"]["error"]
+        assert "can't be undone" in no.asked[0].reason                        # asked, even when requested
+    finally:
+        no.stop()
 
 
 def test_shell_and_mac_tools_follow_identity_and_exposure(daemon: RunningDaemon) -> None:

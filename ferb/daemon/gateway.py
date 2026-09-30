@@ -113,16 +113,20 @@ class Gateway:
         if spec.target.path is not None:                 # the same path form the intent was recorded in
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
+        req_intent = self.engine.intents.get(rec.task.request_id)
         action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity, scopes=frozenset(cap.scopes),
                                task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                                task_scopes=grant.scopes, target=spec.target, content=spec.content,
-                               data_labels=spec.data_labels, unverified_account=spec.unverified_account)
+                               data_labels=spec.data_labels, unverified_account=spec.unverified_account,
+                               flagged_irreversible=bool(req_intent and spec.kind in req_intent.irreversible))
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": name, "args": arguments})
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id})
 
         verdict = self.engine.evaluate(action)
         self._events(verdict)
+        if verdict.decision == "ask":                                    # wait for the owner, then carry on (10.3)
+            verdict = await self._await_owner(grant, action, verdict)
         if verdict.decision == "block":
             self.spans.finish(span, error=f"blocked ({verdict.step}): {verdict.reason}")
             return reply({"error": f"blocked by FERB policy: {verdict.reason}"}, True)
@@ -142,14 +146,15 @@ class Gateway:
                     self.publish("policy.blocked", {"step": "jev", "reason": why, "capability": name,
                                                     "task_id": grant.task_id, "worker_id": grant.worker_id})
                     return reply({"error": f"blocked by FERB policy: {why}"}, True)
-                if self.engine.approvals.consume(action) is None:
-                    ap = self.engine.approvals.request(action, why)
+                flagged = dataclasses.replace(action, flagged_irreversible=True)     # Jev: ask every time
+                if self.engine.approvals.consume(flagged) is None:
+                    ap = self.engine.approvals.request(flagged, why)
                     self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": spec.kind,
                                                         "reason": why, "task_id": grant.task_id})
-                    self.spans.finish(span, output={"needs_approval": ap.id})
-                    return reply({"needs_owner_approval": ap.id, "reason": why,
-                                  "next": "The owner has been asked in `ferb chat`. Retry the exact same call after "
-                                          "they approve; don't change it."}, True)
+                    answer = await self._wait_answer(grant, ap.id)
+                    if answer != "granted" or self.engine.approvals.consume(flagged) is None:
+                        self.spans.finish(span, error=f"not approved ({answer})")
+                        return reply({"error": _declined(answer)}, True)
         if verdict.decision == "hold":
             self.observer.waiting(grant.worker_id, True)                  # the undo window is the owner's time
             try:
@@ -212,6 +217,32 @@ class Gateway:
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
 
+    async def _await_owner(self, grant: RunGrant, action: ActionRequest, verdict: Verdict) -> Verdict:
+        """The tool call waits for the owner's answer (their time is never a stall), then policy runs again: a grant
+        covers this call (and, unless it's irreversible, the same target and type for the rest of the request)."""
+        answer = await self._wait_answer(grant, verdict.approval_id or "")
+        if answer != "granted":
+            return Verdict("block", _declined(answer), "approval")
+        again = self.engine.evaluate(action)
+        self._events(again)
+        return again
+
+    async def _wait_answer(self, grant: RunGrant, approval_id: str) -> str:
+        self.observer.waiting(grant.worker_id, True)
+        try:
+            while True:
+                ap = self.engine.approvals.get(approval_id)
+                if ap is None:
+                    return "gone"
+                if ap.state != "pending":
+                    return ap.state
+                if self.clock.monotonic() >= ap.expires_at:
+                    ap.state = "expired"
+                    return "expired"
+                await asyncio.sleep(self.hold_poll_s)
+        finally:
+            self.observer.waiting(grant.worker_id, False)
+
     async def _jev_action(self, cap: Capability, name: str, spec: Any, action: ActionRequest, rec: Any,
                           span_id: str) -> tuple[str, str] | None:
         """action.matches_request + action.risk in one request; ("block" | "ask", why) only when Jev is stricter."""
@@ -271,6 +302,11 @@ class Gateway:
     def _events(self, v: Verdict) -> None:
         for topic, data in v.events:
             self.publish(topic, data)
+
+
+def _declined(answer: str) -> str:
+    return ("the owner didn't answer in time; don't try this again in this task" if answer == "expired"
+            else "the owner declined this; don't try it again in this task")
 
 
 def _target_dict(t: Any) -> dict[str, Any]:

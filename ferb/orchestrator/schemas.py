@@ -37,6 +37,7 @@ def _obj(props: dict[str, Any]) -> dict[str, Any]:
 INTENT_SCHEMA = _obj({
     "verbs": _strings(sorted(IMPLIES)), "extra_kinds": _strings(KINDS),
     "recipients": _strings(), "sites": _strings(), "accounts": _strings(), "paths": _strings(),
+    "apps": _strings(), "irreversible_kinds": _strings(KINDS),
     "max_amount": _nullable("number"),
 })
 CONDITION_SCHEMA = _obj({
@@ -100,6 +101,8 @@ class Intent(BaseModel):
     accounts: list[str]
     paths: list[str]
     max_amount: float | None
+    apps: list[str] = []                     # Mac apps the owner named ("Brave"), resolved to bundle ids by code
+    irreversible_kinds: list[str] = []       # action types the model judges can't be undone here: ask every time
 
 
 class Check(BaseModel):

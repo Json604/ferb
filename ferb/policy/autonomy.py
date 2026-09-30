@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from ferb.policy.rules import HARD_FLOOR, REVERSIBLE, ActionRequest
+from ferb.policy.rules import HARD_FLOOR, REVERSIBLE, ActionRequest, irreversible
 
 
 class Level(Enum):
@@ -15,7 +15,9 @@ def ask_reason(a: ActionRequest, level: Level, intent_ask: str | None, injection
                trusted_kinds: frozenset[str] = frozenset()) -> str | None:
     """Why this action needs the owner's confirmation, or None to proceed without asking."""
     if a.kind in HARD_FLOOR:
-        return f"'{a.kind}' always needs confirmation (hard floor)"          # every level, even if requested
+        return f"'{a.kind}' can't be undone, so FERB always asks"             # every level, even if requested
+    if irreversible(a):
+        return "this can't be undone, so FERB asks first"                   # flagged by the model or Jev
     if intent_ask:
         return intent_ask                                                   # surprising destination etc.
     if injection_on_path and a.kind not in REVERSIBLE:

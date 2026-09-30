@@ -89,3 +89,22 @@ def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     if dropped:
         config.hook.pytest_deselected(items=dropped)
         items[:] = keep
+
+
+class Answers:
+    """Answers FERB's approval questions as they appear (the owner at `ferb chat`), recording each question."""
+
+    def __init__(self, d: RunningDaemon, granted: bool = True) -> None:
+        self.d, self.granted, self.asked = d, granted, []
+        self._task = asyncio.run_coroutine_threadsafe(self._loop(), d.loop)
+
+    async def _loop(self) -> None:
+        approvals = self.d.daemon.engine.approvals
+        while True:
+            for ap in approvals.pending():
+                self.asked.append(ap)
+                approvals.resolve(ap.id, self.granted)
+            await asyncio.sleep(0.02)
+
+    def stop(self) -> None:
+        self._task.cancel()

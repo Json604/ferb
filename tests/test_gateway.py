@@ -87,16 +87,52 @@ def test_block_without_intent_is_recorded_on_the_span(daemon: RunningDaemon) -> 
     assert spans[0].span.error.startswith("blocked (intent)")
 
 
-def test_ask_then_approve_then_same_call_runs_once_with_ledger(daemon: RunningDaemon) -> None:
+def test_the_call_waits_for_the_owner_and_payment_asks_every_time(daemon: RunningDaemon) -> None:
+    """10.3: the tool call waits for the answer and carries on; a payment (the irreversible floor) asks every time,
+    even the same payment in the same request; declining blocks without running."""
+    from tests.conftest import Answers
     pay = FakeCap("fake.pay", "pay", {"browser:act"})
     grant, _ = setup(daemon, {"browser:act"}, RequestIntent.from_plan("req-1", {"buy"}), [pay])
-    r = call(daemon, grant, "fake.pay")
-    ap = r["content"]["needs_owner_approval"]
-    assert r["is_error"] and pay.calls == 0
-    daemon.call_soon(daemon.daemon.engine.approvals.resolve, ap, True)
-    r2 = call(daemon, grant, "fake.pay")
-    assert not r2["is_error"] and pay.calls == 1
-    assert daemon.run(_ledger(daemon, "fake.pay")) == ["done"]
+    yes = Answers(daemon)
+    try:
+        assert not call(daemon, grant, "fake.pay")["is_error"] and pay.calls == 1
+        assert not call(daemon, grant, "fake.pay")["is_error"] and pay.calls == 2
+        assert len(yes.asked) == 2                                          # asked both times
+    finally:
+        yes.stop()
+    assert daemon.run(_ledger(daemon, "fake.pay")) == ["done", "done"]
+    no = Answers(daemon, granted=False)
+    try:
+        r = call(daemon, grant, "fake.pay")
+        assert r["is_error"] and "declined" in r["content"]["error"] and pay.calls == 2
+    finally:
+        no.stop()
+
+
+def test_one_approval_covers_the_same_target_and_type_for_the_rest_of_the_request(daemon: RunningDaemon) -> None:
+    from tests.conftest import Answers
+    send = FakeCap("fake.send", "send", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"},
+                     RequestIntent.from_plan("req-1", {"email"}, recipients=frozenset({"alice@x.com"})), [send])
+    yes = Answers(daemon)
+    import asyncio as aio
+
+    async def send_to(to: str, text: str) -> dict:
+        job = aio.create_task(daemon.daemon.gateway.call(grant, "fake.send", {"to": to, "text": text}))
+        for _ in range(50):                                              # past the undo window
+            await aio.sleep(0.05)
+            daemon.daemon.clock.advance(1)
+            if job.done():
+                break
+        return await aio.wait_for(job, 5)
+    try:
+        for text in ("one", "two", "three"):                             # an unnamed recipient: asked once
+            assert not daemon.run(send_to("bob@y.com", text), timeout=20)["is_error"]
+        assert len(yes.asked) == 1 and send.calls == 3
+        assert not daemon.run(send_to("carol@z.com", "x"), timeout=20)["is_error"]
+        assert len(yes.asked) == 2                                       # a different recipient: a new question
+    finally:
+        yes.stop()
 
 
 def test_send_waits_out_the_undo_window_and_undo_cancels(daemon: RunningDaemon) -> None:

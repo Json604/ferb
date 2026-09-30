@@ -311,6 +311,12 @@ def _installed() -> Client:
 
 
 def _give_back(c: Client) -> None:
+    """Point the launcher at the installed daemon first: another module fixture may still hold it for its own test
+    daemon (restoring "what was there" would hand FERB's profile to that one)."""
+    installed = Path.home() / ".ferb"
+    text = LAUNCHER.read_text()
+    LAUNCHER.write_text(re.sub(r'FERB_HOME="[^"]*"', f'FERB_HOME="{installed}"', text))
+    restart_hosts()
     try:
         r = c.call("identity.pair", {"confirm": True, "timeout_s": 60})
         check = c.call("identity.check") if r["paired"] else {}

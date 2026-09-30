@@ -57,6 +57,13 @@ class TaskTree:
         return [dict(r) for r in self.db.conn.execute("SELECT * FROM tasks WHERE tree_id = ? ORDER BY created_at",
                                                       (tree_id,)).fetchall()]
 
+    def recent_roots(self, since_iso: str) -> list[dict[str, Any]]:
+        """Requests' task trees updated since then (continuity, 14a)."""
+        if self.db is None:
+            return []
+        return [dict(r) for r in self.db.conn.execute(
+            "SELECT * FROM tasks WHERE parent_id IS NULL AND updated_at >= ? ORDER BY created_at", (since_iso,))]
+
     def interrupt_running(self) -> list[str]:
         """After a restart: whatever was running or planned didn't finish."""
         if self.db is None:

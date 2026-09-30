@@ -212,8 +212,13 @@ def test_mailbox_send_follows_the_normal_autonomy_rules(daemon: RunningDaemon) -
         return await asyncio.wait_for(job, 5)
     r = daemon.run(send("alice@x.com"))
     assert not r["is_error"] and mail.sent == [(["alice@x.com"], "Hi", "Lunch?")]      # held, then sent
-    r = daemon.run(send("eve@evil.example"))
-    assert "needs_owner_approval" in r["content"] and len(mail.sent) == 1              # not named: asks
+    from tests.conftest import Answers
+    no = Answers(daemon, granted=False)
+    try:
+        r = daemon.run(send("eve@evil.example"))
+    finally:
+        no.stop()
+    assert "declined" in r["content"]["error"] and len(mail.sent) == 1 and len(no.asked) == 1   # not named: asks
     g2 = ferb_task(daemon, "m2", {"summarize"})
     r = call(daemon, g2, "mailbox.send", to=["alice@x.com"], subject="Hi", body="x")
     assert r["is_error"] and "blocked" in r["content"]["error"] and len(mail.sent) == 1   # not requested: blocked

@@ -137,10 +137,16 @@ def test_enabled_jev_only_ever_makes_things_stricter(jd: Any) -> None:
     fake.answers = {"action.matches_request": "no", "action.risk": "low"}
     r = shell_call(d, cap)
     assert r["is_error"] and "blocked by FERB policy" in r["content"]["error"] and cap.calls == 0
-    fake.answers = {"action.matches_request": "unsure", "action.risk": "low"}
-    assert "needs_owner_approval" in shell_call(d, cap)["content"] and cap.calls == 0
-    fake.answers = {"action.matches_request": "yes", "action.risk": "high"}
-    assert "needs_owner_approval" in shell_call(d, cap)["content"] and cap.calls == 0
+    from tests.conftest import Answers
+    no = Answers(d, granted=False)                                       # FERB asks; the owner says no
+    try:
+        fake.answers = {"action.matches_request": "unsure", "action.risk": "low"}
+        assert "declined" in shell_call(d, cap)["content"]["error"] and cap.calls == 0
+        fake.answers = {"action.matches_request": "yes", "action.risk": "high"}
+        assert "declined" in shell_call(d, cap)["content"]["error"] and cap.calls == 0
+        assert len(no.asked) == 2
+    finally:
+        no.stop()
     fake.answers = {"action.matches_request": "yes", "action.risk": "low"}   # lower than FERB's: ignored
     assert not shell_call(d, cap)["is_error"] and cap.calls == 1
     assert {x["effect"] for x in rows(d) if x["effect"]} == {"blocked", "asked the owner"}

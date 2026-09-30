@@ -25,10 +25,12 @@ class Window:
     title: str
 
 
-def _info_windows() -> list[dict[str, Any]]:
+def _info_windows(everywhere: bool = False) -> list[dict[str, Any]]:
+    """On-screen windows front to back; `everywhere` also lists windows on other Spaces and full-screen apps."""
     import Quartz
-    opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
-    return list(Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or [])   # front to back
+    opts = (Quartz.kCGWindowListOptionAll if everywhere else Quartz.kCGWindowListOptionOnScreenOnly) \
+        | Quartz.kCGWindowListExcludeDesktopElements
+    return list(Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID) or [])
 
 
 def _window(d: dict[str, Any]) -> Window:
@@ -44,19 +46,28 @@ MIN_SIDE = 50                 # smaller layer-0 windows are helpers / strips, no
 def front_window(pid: int, like: tuple[float, float, float, float] | None = None) -> Window | None:
     """The app's window to capture: the on-screen normal (layer 0) window matching `like` (its Accessibility window's
     frame) if there is one, else its frontmost one of a real size."""
-    mine = [_window(d) for d in _info_windows()
-            if int(d.get("kCGWindowOwnerPID", -1)) == pid and int(d.get("kCGWindowLayer", 1)) == 0
-            and float(d.get("kCGWindowAlpha", 1)) > 0]
-    mine = [w for w in mine if w.bounds[2] >= MIN_SIDE and w.bounds[3] >= MIN_SIDE]
-    if like is not None:
-        match = next((w for w in mine if all(abs(a - b) <= 2 for a, b in zip(w.bounds, like))), None)
-        if match is not None:
-            return match
-    return mine[0] if mine else None
+    for everywhere in (False, True):                  # this Space first; then other Spaces / full screen (14a)
+        mine = [_window(d) for d in _info_windows(everywhere)
+                if int(d.get("kCGWindowOwnerPID", -1)) == pid and int(d.get("kCGWindowLayer", 1)) == 0
+                and float(d.get("kCGWindowAlpha", 1)) > 0]
+        mine = [w for w in mine if w.bounds[2] >= MIN_SIDE and w.bounds[3] >= MIN_SIDE]
+        if everywhere:
+            mine = [w for w in mine if w.title] or mine   # real windows have titles; helpers often don't
+        if like is not None:
+            match = next((w for w in mine if all(abs(a - b) <= 2 for a, b in zip(w.bounds, like))), None)
+            if match is not None:
+                return match
+        if mine:
+            return mine[0]
+    return None
+
+
+def on_screen(window_id: int) -> bool:
+    return any(int(d["kCGWindowNumber"]) == window_id for d in _info_windows())
 
 
 def window(window_id: int) -> Window | None:
-    return next((_window(d) for d in _info_windows() if int(d["kCGWindowNumber"]) == window_id), None)
+    return next((_window(d) for d in _info_windows(True) if int(d["kCGWindowNumber"]) == window_id), None)
 
 
 def window_at(x: float, y: float, max_layer: int = 0) -> Window | None:
@@ -91,7 +102,7 @@ def capture(w: Window, max_edge: int = MAX_EDGE) -> tuple[bytes, int, int]:
     """JPEG bytes of exactly this window, and the image size (px)."""
     import ScreenCaptureKit as SCK
     content = _wait(lambda h: SCK.SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(
-        True, True, h))
+        True, False, h))                              # a window on another Space / full screen can be captured too
     sc = next((x for x in content.windows() if int(x.windowID()) == w.id), None)
     if sc is None:
         raise LookupError("that window is no longer on screen")

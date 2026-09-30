@@ -84,6 +84,16 @@ def window_with_frame(pid: int, bounds: tuple[float, float, float, float]) -> An
     return None
 
 
+def raise_window(pid: int, bounds: tuple[float, float, float, float]) -> bool:
+    """Bring this exact window to the front of its app (activating the app alone may leave another window on top)."""
+    import ApplicationServices as AX
+    win = window_with_frame(pid, bounds)
+    if win is None:
+        return False
+    AX.AXUIElementSetAttributeValue(win, "AXMain", True)
+    return bool(AX.AXUIElementPerformAction(win, "AXRaise") == 0)
+
+
 def hit(x: float, y: float) -> tuple[int, tuple[float, float, float, float] | None] | None:
     """What a click at this screen point would reach: (pid, frame of its window), or None if Accessibility can't
     tell. Uses the system's own hit test, so click-through overlays (screen tools, the Dock's layer) don't count."""

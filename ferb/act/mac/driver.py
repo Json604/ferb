@@ -158,7 +158,8 @@ class MacComputerDriver:
                                    "screenshot")
                 step.post()
             return Step(step.what, post)
-        r = await self._real(a, [guarded(s) for s in click_steps(px, py)], holder, "click", task)
+        r = await self._real(a, [guarded(s) for s in click_steps(px, py)], holder, "click", task,
+                             prepare=lambda: self._bring_forward(a, shot))
         return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id}; {r.detail}")
 
     async def act(self, app: str, action: ComputerAction, holder: str = "", task: str | None = None) -> ActionResult:
@@ -192,7 +193,18 @@ class MacComputerDriver:
             return await self._real(a, type_steps(action.text or ""), holder, "typing", task)
         raise Refused(f"unknown action {action.kind}")
 
-    async def _real(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None = None) -> ActionResult:
+    async def _bring_forward(self, a: Any, shot: Shot) -> None:
+        """After activating the app: raise the captured window itself and wait (~3 s) for it to be on screen — the
+        app may switch to another Space or a full-screen window first."""
+        for _ in range(12):
+            await asyncio.to_thread(self.ax.raise_window, a.pid, shot.bounds)
+            if await asyncio.to_thread(self.shots.on_screen, shot.window):
+                await asyncio.sleep(0.2)
+                return
+            await asyncio.sleep(0.25)
+
+    async def _real(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None = None,
+                    prepare: Callable[[], Awaitable[None]] | None = None) -> ActionResult:
         """Real input goes to the frontmost app: bring this one forward, act, then put the owner's app back. Both
         switches are FERB's (the trail attributes them to the task)."""
         if not self.input.available():
@@ -202,6 +214,8 @@ class MacComputerDriver:
             self.on_activate(a.bundle_id, task)
             self.apps.activate(a.bundle_id)
             await asyncio.sleep(0.3)
+        if prepare is not None:
+            await prepare()
         try:
             n = await self.input.run(steps, holder, what)
         finally:

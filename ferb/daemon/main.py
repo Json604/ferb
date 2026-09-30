@@ -127,6 +127,9 @@ class Daemon:
         # Jev in shadow mode (build step 13): None until a key is in the Keychain
         self.jev: Any = None
         self.jev_post: Any = None                        # tests: a fake Jev endpoint
+        # Chat (build step 14a): turns outlive a closed chat; which task trees have a chat attached
+        self._turns: set[asyncio.Task[None]] = set()
+        self._attached_trees: set[str] = set()
         # Timers (build step 14)
         self.timers: Any = None
         self._timer_task: asyncio.Task[None] | None = None
@@ -152,6 +155,13 @@ class Daemon:
         interrupted = self.tasks.interrupt_running()          # a restart: what was running didn't finish
         if interrupted:
             self.journal.append("tasks.interrupted_after_restart", {"task_ids": interrupted})
+            for tid in {t.split(".", 1)[0] for t in interrupted}:          # chat tells the owner next time (14a)
+                goal = next((r["goal"] for r in self.tasks.rows(tid) if r["id"] == tid), "")
+                self.db.conn.execute("INSERT OR IGNORE INTO task_results (task_id, at, status, goal, answer, shown) "
+                                     "VALUES (?, ?, 'interrupted', ?, ?, 0)",
+                                     (tid, self.clock.now().isoformat(), goal,
+                                      f"This was interrupted when FERB restarted: {goal[:200]}. Want me to pick it "
+                                      "up again?"))
         await self._build_browsers()
         self._build_mac_and_shell()
         self._build_agents()
@@ -160,6 +170,8 @@ class Daemon:
         await self._build_jev()
         self._build_timers()
         for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
+                         ("chat.status", self._chat_status), ("chat.attach", self._chat_attach),
+                         ("task.stop", self._task_stop),
                          ("reminders.list", self._reminders_list), ("reminders.cancel", self._reminders_cancel),
                          ("reminders.unseen", self._reminders_unseen),
                          ("memory.list", self._memory_list), ("memory.show", self._memory_show),
@@ -301,6 +313,18 @@ class Daemon:
         if self.shells is not None:
             asyncio.get_event_loop().create_task(self.shells.kill_all())   # 10.5: kills task-owned processes
 
+    def _unpaired_note(self, browser: str) -> str | None:
+        """The FERB extension is installed and connected in this browser but not paired (build step 14a)."""
+        if self.hub is None or browser not in self.hub.unpaired.values() or self._owner_extension_connected(browser):
+            return None
+        name = {"brave": "Brave", "chrome": "Chrome"}.get(browser, browser)
+        if not self.config.get("gates", "owner_profiles", False):
+            return (f"The FERB extension is installed in {name} but not paired yet. Pairing your real profiles waits "
+                    "until FERB's safety tests all pass; tell the owner that, and don't fall back to screenshots of "
+                    f"{name}.")
+        return (f"The FERB extension is installed in {name} but not paired. Tell the owner to pair it: "
+                f"`ferb browsers pair {browser} \"<profile name>\"` (or say yes when ferb chat offers it).")
+
     def _owner_extension_connected(self, browser: str) -> bool:
         """A paired owner profile of this browser is connected: browser work goes through the extension (9.2)."""
         return self.hub is not None and any(br.conn is not None and br.binding.browser == browser
@@ -331,7 +355,7 @@ class Daemon:
         self.mac = MacComputerDriver(device, RealInput(self.owner_input.active, self.gui, on_wait=owner_wait,
                                                        available=available),
                                      excluded=self.config.exclude_apps, web_password=self._web_password)
-        add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected)
+        add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected, self._unpaired_note)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)
         add_trail(self.registry, lambda: self.trail)
@@ -495,6 +519,7 @@ class Daemon:
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")))
         if self.supervisor is not None:
+            self.supervisor.apps = self._installed_apps
             self.supervisor.recall = lambda words: context_block(self.memory, words)
             self.supervisor.remember = self._remember
         if self.run_distill:
@@ -665,6 +690,64 @@ class Daemon:
                 self.supervisor.activity.waiting(worker_id, False)
             self.timers.cancel(t.id)
 
+    # ---------- chat continuity (build step 14a) ----------
+
+    async def _task_result(self, ev: dict[str, Any], shown: bool) -> None:
+        """What FERB told (or will tell) the owner about a task; a macOS notification if chat was closed."""
+        assert self.db is not None
+        answer = str(ev.get("answer") or ev.get("summary") or "")
+        shown = shown or ev.get("status") == "cancelled"          # stopped by the owner: they know
+        self.db.conn.execute("INSERT OR REPLACE INTO task_results (task_id, at, status, goal, answer, shown) VALUES "
+                             "(?, ?, ?, ?, ?, ?)", (ev["task_id"], self.clock.now().isoformat(), ev.get("status", ""),
+                                                    str(ev.get("goal", ""))[:300], answer, int(shown)))
+        if not shown and ev.get("status") != "cancelled":
+            await self._notify_safely("FERB finished" if ev.get("status") == "done" else "FERB", answer[:200])
+
+    def _approval_notice(self, data: dict[str, Any]) -> None:
+        """An approval is waiting and no chat is open for that task: tell the owner (notification)."""
+        tid = str(data.get("task_id") or "")
+        if tid.split(".", 1)[0] in self._attached_trees:
+            return
+        text = f"FERB needs your OK: {str(data.get('reason', ''))[:150]} — open ferb chat"
+        asyncio.get_running_loop().create_task(self._notify_safely("FERB needs you", text))
+
+    async def _notify_safely(self, title: str, text: str) -> None:
+        try:
+            await self.notify(title, text)
+        except Exception:
+            pass
+
+    async def _chat_status(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """For `ferb chat` when it opens: answers that arrived while it was closed (then marked shown), tasks still
+        running, and questions waiting for the owner."""
+        assert self.db is not None
+        rows = self.db.conn.execute("SELECT * FROM task_results WHERE shown = 0 ORDER BY at").fetchall()
+        for r in rows:
+            self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
+        pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason}
+                   for ap in self.engine.approvals.pending()]
+        running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
+        return {"results": [{"task_id": r["task_id"], "status": r["status"], "goal": r["goal"], "answer": r["answer"]}
+                            for r in rows], "running": running, "approvals": pending}
+
+    async def _chat_attach(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Chat is open again: approvals for running tasks are asked there, not by notification."""
+        for t, _ in (self.supervisor.running_trees() if self.supervisor else []):
+            self._attached_trees.add(t)
+        return {"ok": True}
+
+    async def _task_stop(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Ctrl-C in ferb chat: stop the request's task, recorded as stopped by the owner."""
+        assert self.supervisor is not None
+        ids = [str(t) for t in params.get("task_ids", [])] or [t for t, _ in self.supervisor.running_trees()]
+        stopped = [t for t in ids if self.supervisor.stop_tree(t)]
+        for h in self.engine.holds.pending():                     # a send held for undo in that task goes too
+            if any(h.action.task_id == t or h.action.task_id.startswith(t + ".") for t in stopped):
+                self.engine.holds.undo(h.id)
+        for t in stopped:
+            self._journal().append("task.stopped", {"task_id": t, "by": "owner"})
+        return {"stopped": stopped}
+
     async def _reminders_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.timers is not None
         return {"pending": [{"id": t.id, "kind": t.kind, "at": t.fire_at.isoformat(), "message": t.message}
@@ -822,6 +905,11 @@ class Daemon:
             except JevUnavailable as e:
                 out["ping"] = str(e)
         return out
+
+    def _installed_apps(self) -> list[tuple[str, str]]:
+        """(bundle id, name) of the Mac's apps, for matching the names the owner uses (14a)."""
+        p = self._device_profile()
+        return [(a.bundle_id, a.name) for a in p.apps] if p is not None else []
 
     def _device_profile(self) -> Any:
         from ferb.device.profile import ProfileStore
@@ -1024,10 +1112,26 @@ class Daemon:
                  "- FERB has no email account set up."]
         lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
                   for s in self.secrets.specs()]
+        if self.pairings is not None and self.hub is not None:           # the owner's browsers, as FERB can use them
+            ferb = self._identity_profile()
+            for b in self.pairings.all():
+                if (b.browser, b.folder) == ferb or b.identity is not Identity.OWNER:
+                    continue
+                br = self.hub.bridges.get((b.browser, b.folder))
+                name = next((p.display_name for p in self._profiles() if (p.browser, p.folder) == (b.browser, b.folder)),
+                            b.folder)
+                lines.append(f"- The owner's {b.browser} profile “{name}”: paired"
+                             f"{', connected' if br is not None and br.conn else ', not open right now'}")
+            for browser in sorted(set(self.hub.unpaired.values())):
+                note = self._unpaired_note(browser)
+                if note:
+                    lines.append(f"- {note}")
         return "\n".join(lines)
 
     def _publish(self, topic: str, data: dict[str, Any]) -> None:
         self.bus.publish(topic, self.redact(data))
+        if topic == "approval.requested":
+            self._approval_notice(data)
 
     def _runtime_violation(self, runtime: str, detail: str) -> None:
         """Section 7: a run that shows a tool outside the allowlist unregisters its runtime."""
@@ -1078,6 +1182,7 @@ class Daemon:
             raise FerbError("daemon not started")
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         my_tasks: set[str] = set()
+        attached = {"on": True}                     # False once the owner closes chat: the task keeps running (14a)
         sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*", "policy.blocked",
                                   "worker.exposed"})
 
@@ -1087,11 +1192,18 @@ class Daemon:
                                                      str(params.get("text", ""))):
                     if ev.get("task_id"):
                         my_tasks.add(ev["task_id"])
+                        if attached["on"]:
+                            self._attached_trees.add(ev["task_id"])
+                    if ev.get("type") == "outcome":
+                        await self._task_result(ev, shown=attached["on"])
+                        self._attached_trees.discard(ev["task_id"])
                     await queue.put(ev)
             except FerbError as e:
                 await queue.put({"type": "error", "text": str(e)})
-            except Exception as e:                       # never a silent chat: the owner sees what broke
-                await queue.put({"type": "error", "text": f"internal error: {type(e).__name__}: {self.redact(str(e))}"})
+            except Exception as e:                       # logged; the owner gets a plain sentence, not internals
+                self._journal().append("chat.failed", {"why": f"{type(e).__name__}: {self.redact(str(e))}"[:300]})
+                await queue.put({"type": "reply", "text": "Sorry — something went wrong on my side. Could you try "
+                                                          "that again?"})
             finally:
                 await queue.put(None)
 
@@ -1102,14 +1214,18 @@ class Daemon:
                     await queue.put({"type": "event", "topic": ev.topic, "data": self.redact(ev.data)})
 
         t1, t2 = asyncio.create_task(turn()), asyncio.create_task(bus_events())
+        self._turns.add(t1)
+        t1.add_done_callback(self._turns.discard)
         try:
             while (item := await queue.get()) is not None:
                 yield item
         finally:
             t2.cancel()
             sub.close()
-            if not t1.done():
-                t1.cancel()
+            if not t1.done():                           # chat closed mid-task: never stops it (Ctrl-C does)
+                attached["on"] = False
+                for tid in my_tasks:
+                    self._attached_trees.discard(tid)
 
     def _journal(self) -> Journal:
         if self.journal is None:
