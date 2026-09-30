@@ -209,3 +209,37 @@ def test_a_window_on_another_space_is_still_found(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(shots, "_info_windows", lambda all_=False: everywhere if all_ else here)
     w = shots.front_window(9)
     assert w is not None and w.id == 2 and w.title == "Slack thread"
+
+
+def test_a_second_message_is_answered_while_the_first_task_runs(daemon: RunningDaemon) -> None:
+    """Several at once (owner request, 2026-09-30): the daemon takes a new message in the same chat session while an
+    earlier task is still working."""
+    install(daemon, [sup("plan", "On it.", plan([sub("a")], paths=("todo.md",))), sup("reply", "It's 9 am.")],
+            {"a": STALL})
+    first: list[dict[str, Any]] = []
+
+    def long_one() -> None:
+        c = Client(daemon.sock, timeout=30)
+        try:
+            for ev in c.stream("chat.send", {"session_id": "s", "text": "create todo.md"}):
+                first.append(ev)
+                if ev["type"] in ("outcome", "reply"):
+                    break
+        finally:
+            c.close()
+    t = threading.Thread(target=long_one, daemon=True)
+    t.start()
+    for _ in range(200):
+        if any(e["type"] == "plan" for e in first):
+            break
+        time.sleep(0.02)
+    second = chat(daemon, "what time is it?", session="s")
+    assert [e["text"] for e in second if e["type"] == "reply"] == ["It's 9 am."]
+    assert not any(e["type"] == "outcome" for e in first)                  # the first is still working
+    tid = next(e["task_id"] for e in first if e["type"] == "plan")
+    c2 = Client(daemon.sock)
+    try:
+        c2.call("task.stop", {"task_ids": [tid]})
+    finally:
+        c2.close()
+    t.join(10)

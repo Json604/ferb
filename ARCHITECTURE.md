@@ -559,6 +559,10 @@ Build step 14a specifics (owner decisions after testing):
   notification, and shown when chat next opens, with anything still running and any question still waiting. An
   approval asked while no chat is open also sends a notification. Ctrl-C stops the task ("stopped by you"; a send
   held for undo is cancelled too). A restart records interrupted tasks for the owner.
+- Several at once (owner request, 2026-09-30): `ferb chat` never blocks on a task. Each message runs in the background
+  and the owner can keep typing; with more than one running, lines are labelled [1], [2]. FERB's questions appear as
+  they come and a short reply (y / n / a number / Enter) answers the oldest one; a longer line is a new message.
+  `/tasks` lists what this chat started, `/stop N` stops one, Ctrl-C on an empty line stops them all.
 
 Build step 8 specifics:
 - Acting needs seeing: an actor's act scope brings its read scope (`browser:act` → `browser:read`, `mac:act` →
