@@ -140,6 +140,8 @@ class _Watch(Observer):
 
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         self.sup.activity.beat(grant.worker_id)
+        if not done:
+            self.sup.calls_by_worker[grant.worker_id] = self.sup.calls_by_worker.get(grant.worker_id, 0) + 1
 
     def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool, digest: str = "") -> None:
         tree = self.sup._tree_of.get(grant.task_id)
@@ -192,6 +194,7 @@ class Supervisor(WorkerRuns):
         self.owner_email: Callable[[], str | None] = lambda: None
         # Whether the owner's words point at their own browser (the daemon adds their paired profile names)
         self.owner_browser: Callable[[str], bool] = lambda words: owner_browser_named(words)
+        self.calls_by_worker: dict[str, int] = {}          # FERB tool calls each worker made (the no-tools retry)
         # What the planner may use right now (supplied by the daemon: connections, permissions)
         self.availability: Callable[[], Availability] = self._default_availability
         # Build step 16: routes + environment summary for the owner's words (supplied by the daemon)

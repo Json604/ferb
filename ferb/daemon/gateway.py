@@ -92,6 +92,10 @@ class Gateway:
             out.append({"name": cap.name, "description": cap.description, "input_schema": schema})
         return out
 
+    def tools_for_task(self, task: Any) -> list[str]:
+        """The tool names a worker of this task gets (its scopes and identity)."""
+        return [c.name for c in self.caps.values() if c.scopes <= set(task.scopes) and task.identity in c.identities]
+
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         r = await self._call(grant, name, arguments)
         content = r.get("content") or {}

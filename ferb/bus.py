@@ -19,7 +19,7 @@ class EventClass(Enum):
     TELEMETRY = "telemetry"
 
 
-CRITICAL = {"task.created", "task.started", "task.finished", "approval.requested", "approval.resolved",
+CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "approval.requested", "approval.resolved",
             "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
             "policy.blocked", "worker.exposed", "action.held", "action.released", "action.undone",
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed", "contact.selected",

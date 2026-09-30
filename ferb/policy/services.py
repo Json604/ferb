@@ -167,7 +167,11 @@ def services_named(own_words: str, env: Environment) -> list[Service]:
     seen = {d for s in found for d in s.domains}
     for (host, _b, _f) in env.usage_web:                            # anything visited, by its name
         label = [x for x in host.split(".") if x not in ("www", "app", "web", "com", "co", "in", "org", "io")]
-        if label and len(label[-1]) >= 4 and label[-1] in words and not _host_is(host, tuple(seen)) \
+        name = label[-1] if label else ""
+        said_as_site = bool(name) and (host in lw or f"{name}." in lw or re.search(               # "Aditya Scaler" is
+            rf"\b(on|in|at|via|using|open|visit|from) (the )?{re.escape(name)}\b|\b{re.escape(name)} "  # a person,
+            r"(website|site|web|page|account)\b", lw) is not None)                                # not scaler.com
+        if len(name) >= 4 and said_as_site and not _host_is(host, tuple(seen)) \
                 and not any(_host_is(d, (host,)) for d in seen):                        # one service, announced once
             found.append(Service(label[-1].capitalize(), (label[-1],), (), (host,)))
             seen.add(host)

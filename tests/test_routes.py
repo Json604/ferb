@@ -111,7 +111,7 @@ async def _trail(d: RunningDaemon, eid: str, actor: str, now: datetime) -> None:
 def test_services_come_from_the_catalogue_installed_apps_and_visited_sites() -> None:
     e = env(apps=[WA_APP, ("com.culturedcode.ThingsMac", "Things")],
             usage_web={("app.linear.app", "brave", "Default"): (3, NOW)})
-    names = [s.name for s in svc.services_named("video call Rahul on whatsapp, add it to things, then linear", e)]
+    names = [s.name for s in svc.services_named("video call Rahul on whatsapp, add it to things, then file it on linear", e)]
     assert names == ["WhatsApp", "Things", "Linear"]
     assert svc.services_named("what's the weather", e) == []
 

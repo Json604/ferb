@@ -531,3 +531,21 @@ def test_an_actor_that_may_act_may_also_see(daemon: RunningDaemon) -> None:
                 break
     finally:
         c.close()
+
+
+def test_a_worker_that_didnt_load_its_tools_gets_one_more_run(daemon: RunningDaemon) -> None:
+    """The owner's session: the worker had FERB tools but said they weren't callable (Codex defers MCP tools behind
+    tool_search) and never called one. FERB retries once, telling it how to load them."""
+    gave_up = json.dumps({"status": "needs_user", "summary": "the FERB tools are not currently exposed in my callable "
+                                                             "tool list", "artifacts": [], "evidence": []})
+    seen: list[str] = []
+
+    def second(token: str) -> str:
+        seen.append("second run")
+        return writes(daemon.sock, "x.md", "ok")(token)
+    script = install(daemon, [sup("plan", "On it.", plan([sub("a")], paths=("x.md",)))], {"a": [gave_up, second],
+                     "answer": json.dumps({"text": "Done."})})
+    chat(daemon, "write x.md in your workspace")
+    assert seen == ["second run"] and (daemon.daemon.home / "workspace" / "x.md").read_text() == "ok"
+    worker_ctx = [c[2] for c in script.contexts if c[0] == "worker"]
+    assert "tool_search" in worker_ctx[-1] and "Note from FERB" in worker_ctx[-1]

@@ -191,3 +191,11 @@ def test_an_app_alias_counts_as_naming_the_app() -> None:
     from ferb.policy.names import app_named
     assert app_named("WhatsApp", "now call aditya scaler in wa")                     # the owner's session
     assert not app_named("WhatsApp", "call aditya")
+
+
+def test_a_word_in_a_contacts_name_is_not_a_site_from_history() -> None:
+    """The owner's session: "whatsapp voice call to aditya scaler" routed to scaler.com from the trail."""
+    e = env(False, usage_web={("www.scaler.com", "brave", "Default"): (3, NOW)})
+    assert [s.name for s in svc.services_named("whatsapp voice call to aditya scaler", e)] == ["WhatsApp"]
+    for said in ("open my class on scaler", "check the scaler website", "go to scaler.com"):
+        assert "Scaler" in [s.name for s in svc.services_named(said, e)], said

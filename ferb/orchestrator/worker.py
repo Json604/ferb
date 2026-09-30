@@ -5,6 +5,7 @@ waits on the owner — is cancelled); usage counted against its tree. Mixed into
 from __future__ import annotations
 
 import asyncio
+import re
 import json
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -18,6 +19,11 @@ from ferb.orchestrator.tree import TaskRecord
 
 if TYPE_CHECKING:
     from ferb.orchestrator.supervisor import _Tree
+
+
+NO_TOOLS = re.compile(r"(not|aren't|isn't|no)\b[^.]{0,60}\b(callable|exposed|available|access)|tool list", re.I)
+NO_TOOLS_HINT = ("\n\nNote from FERB: a previous attempt said its FERB tools weren't available. They are: call "
+                 "tool_search (query \"ferb\", or the tool name) first to load them, then use them.")
 
 
 class RuntimeViolation(Exception):
@@ -57,7 +63,19 @@ class WorkerRuns:
 
     async def run_worker(self, tree: "_Tree", task: Task, prompt: str, ctx: str, schema: dict[str, Any],
                          span: str) -> tuple[dict[str, Any] | Outcome, str]:
-        """Run one worker; returns its parsed JSON (or a failed Outcome) and its worker id."""
+        """Run one worker; returns its parsed JSON (or a failed Outcome) and its worker id. A worker that had FERB
+        tools, never called one, and gave up saying it had no tools (Codex lists MCP tools behind its tool_search, and
+        a model sometimes doesn't look) gets one more run with that spelled out — found in the owner's session."""
+        result, worker_id = await self._run_worker_once(tree, task, prompt, ctx, schema, span)
+        calls = getattr(self, "calls_by_worker", {}).get(worker_id, 0)
+        if (isinstance(result, dict) and result.get("status") in ("needs_user", "failed") and calls == 0
+                and self.gateway.tools_for_task(task) and NO_TOOLS.search(json.dumps(result))):
+            self.publish("task.retried", {"task_id": task.id, "why": "the worker didn't load its tools"})
+            result, worker_id = await self._run_worker_once(tree, task, prompt, ctx + NO_TOOLS_HINT, schema, span)
+        return result, worker_id
+
+    async def _run_worker_once(self, tree: "_Tree", task: Task, prompt: str, ctx: str, schema: dict[str, Any],
+                               span: str) -> tuple[dict[str, Any] | Outcome, str]:
         worker_id = "w-" + self.ids.new_id()
         if not tree.guard.can_start_worker():
             return Outcome(task.id, "failed", f"Stopped: it started over {MAX_WORKER_RUNS} worker runs ({GUARD_NOTE})",
@@ -79,7 +97,9 @@ class WorkerRuns:
         usual = typical(self.spans._db, set(task.scopes), task.role)
         owner_active, last_event = self.signals()
         head = context.time_block(self.clock.now(), started, task.deadline, owner_active, last_event, typical=usual)
-        full_ctx = (f"{ctx}\n\nYour FERB tools (MCP server `ferb`): {names}\n\n{head}")   # time-dependent text last
+        full_ctx = (f"{ctx}\n\nYour FERB tools (MCP server `ferb`): {names}. If you can't see them, they're behind "
+                    f"tool_search: search for \"ferb\" or the tool's name to load them — they are always there."
+                    f"\n\n{head}")                                         # time-dependent text last
         self.publish("task.started", {"task_id": task.id, "worker_id": worker_id})
         self.activity.start(worker_id)
         try:
