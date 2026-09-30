@@ -67,6 +67,11 @@ CATALOGUE: tuple[Service, ...] = (
 )
 
 
+# Service names that are also everyday words: they count only in context ("on Zoom", "in Notes", "the Teams app").
+COMMON_WORDS = frozenset({"meet", "notes", "messages", "reminders", "calendar", "zoom", "teams", "signal", "music",
+                          "mail", "x", "wa", "ig", "insta"})
+
+
 @dataclass(frozen=True)
 class Route:
     service: str
@@ -106,11 +111,14 @@ def services_named(own_words: str, env: Environment) -> list[Service]:
     found: list[Service] = []
 
     def named(alias: str) -> bool:
+        if alias in COMMON_WORDS:                   # "meet John", "take notes": only "on Zoom", "in Notes", "the Notes app"
+            return re.search(rf"\b(on|in|via|using|with|open)\s+{re.escape(alias)}\b|\b{re.escape(alias)}"
+                             rf"\s+app\b", lw) is not None
         return (alias in words) if " " not in alias else (alias in lw)
     for s in CATALOGUE:
         if named(s.name.lower()) or any(named(a) for a in s.aliases):
             found.append(s)
-    known = {b.lower() for s in found for b in s.bundles}
+    known = {b.lower() for s in CATALOGUE for b in s.bundles}      # catalogue apps are matched by the catalogue only
     for bundle, name in env.apps:                                   # anything installed, by its name
         if bundle.lower() not in known and len(name) >= 3 and app_named(name, own_words) \
                 and name.lower() not in ("mail", "music", "notes", "photos", "preview", "finder"):

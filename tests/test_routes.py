@@ -165,3 +165,13 @@ def test_a_call_the_owner_asked_for_is_held_for_undo_and_one_they_didnt_is_block
     assert e.release_due() == []                                                   # undone: never happens
     e.intents.record(RequestIntent.from_plan("r2", {"edit_file"}))
     assert e.evaluate(act(Kind.CALL, {"mac:act"}, request_id="r2")).decision == "block"
+
+
+def test_everyday_words_are_not_services_unless_said_as_one() -> None:
+    e = env(apps=[WA_APP, ("com.apple.Notes", "Notes"), ("us.zoom.xos", "zoom.us")])
+    for words in ("remind me to meet John at 5", "take notes on this article", "zoom into the chart",
+                  "the teams are playing tonight", "send a signal"):
+        assert svc.services_named(words, e) == [], words
+    assert [s.name for s in svc.services_named("call Priya on Zoom", e)] == ["Zoom"]
+    assert [s.name for s in svc.services_named("make a note in Notes", e)] == ["Notes"]
+    assert [s.name for s in svc.services_named("join the google meet", e)] == ["Google Meet"]
