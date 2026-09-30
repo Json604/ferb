@@ -1,6 +1,7 @@
 """mac.* capabilities (OWNER tasks only, section 10.1): list/open apps, read an app's window (Accessibility), act on
 it (Accessibility first, real input as the fallback under the GUI lock), and AppleScript for scriptable apps."""
 
+import re
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
@@ -13,6 +14,19 @@ from ferb.act.mac.resolve import scriptable
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionSpec, ComputerAction, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
+
+
+CALL_LABEL = re.compile(r"\b(video call|voice call|audio call|start (a )?call|call|facetime( audio| video)?|dial)\b", re.I)
+SEND_LABEL = re.compile(r"^\s*send\b", re.I)
+
+
+def call_or_send(label: str) -> str | None:
+    """A button's label says it starts a call or sends a message (Mac apps and web pages alike)."""
+    if CALL_LABEL.search(label or ""):
+        return Kind.CALL
+    if SEND_LABEL.search(label or ""):
+        return Kind.SEND
+    return None
 
 
 def _err(msg: str) -> ToolResult:
@@ -133,7 +147,17 @@ class MacAct(_Base):
         text: str | None = None
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(Kind.MAC_INPUT, Target(site=self._bundle(args)), content=getattr(args, "text"))
+        return ActionSpec(self._kind(args), Target(site=self._bundle(args)), content=getattr(args, "text"))
+
+    def _kind(self, args: BaseModel) -> str:
+        """Pressing an app's call / send button is a call / a send: held for undo like other sends (step 16)."""
+        if getattr(args, "action") not in ("press", "click") or not getattr(args, "element"):
+            return Kind.MAC_INPUT
+        try:
+            label = self.driver.node(self._bundle(args), str(getattr(args, "element"))).label
+        except Exception:
+            return Kind.MAC_INPUT
+        return call_or_send(label) or Kind.MAC_INPUT
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]

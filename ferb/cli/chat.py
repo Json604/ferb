@@ -21,7 +21,7 @@ from ferb.sanitize.untrusted import PASTE_END, PASTE_START
 
 PASTE_ON, PASTE_OFF = "\x1b[?2004h", "\x1b[?2004l"
 
-KIND_TEXT = {"send": "send a message", "post": "post", "reply": "reply", "mailbox_send": "send an email from FERB",
+KIND_TEXT = {"call": "start a call", "send": "send a message", "post": "post", "reply": "reply", "mailbox_send": "send an email from FERB",
              "pay": "make a payment", "delete_permanent": "permanently delete something",
              "account_security": "change account or security settings", "run_shell": "run a command",
              "applescript": "control an app with AppleScript", "mac_input": "use the mouse and keyboard in an app",
@@ -93,7 +93,12 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
     if t == "event":
         d, topic = ev["data"], ev["topic"]
         if topic == "action.held":
-            return f"   ⏳ holding this for {d.get('seconds', 10):.0f} s so you can stop it (Ctrl-C)"
+            secs = f"{d.get('seconds', 10):.0f} s"
+            if d.get("kind") == "call":
+                return f"   📞 calling in {secs}… (Ctrl-C to cancel)"
+            if d.get("kind") in ("send", "mailbox_send", "reply", "post"):
+                return f"   ✉️ sending in {secs}… (Ctrl-C to cancel)"
+            return f"   ⏳ holding this for {secs} so you can stop it (Ctrl-C)"
         if topic == "action.undone":
             return "   ↩ cancelled"
         if not verbose:

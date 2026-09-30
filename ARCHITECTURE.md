@@ -529,6 +529,10 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
     when it actually stops something. Distillation and shadow decisions run unmetered.
 11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
 12. `ferb stop` (or the stop hotkey) halts everything immediately (section 10.5).
+13. **Environment summary** (build step 16): each turn the planner gets a short summary of this Mac — macOS version,
+    the paired browser profiles FERB can use, and the installed apps relevant to what the owner named — plus the
+    route code chose for each named service (9.3). The stable part sits with the stable prompt; which of those apps
+    are running now changes, so it goes at the end with the time block (section 13).
 
 Build step 14a specifics (owner decisions after testing):
 - FERB speaks as FERB (never "supervisor"), without internal jargon; `ferb chat --verbose` shows the internals.
@@ -696,6 +700,22 @@ a mismatch with the resolved account refuses the action (safety test 12). On a s
 account can't be verified: FERB asks the owner once per site + profile and remembers the answer as learned trust
 (10.4), so it doesn't ask again. If signed out → stop and tell the owner. FERB never logs in as the owner.
 The `ax:*` fallback stops if it cannot establish which profile/account it is looking at.
+
+**Services and apps (build step 16, owner decisions 2026-09-30).** When a task names a service or app ("video call X
+on WhatsApp", "play it on YouTube"), code — not the model — picks how to reach it, in `policy/services.py`:
+0. the owner's explicit correction ("use the web version"), stored as an owner-stated preference (key
+   `route:<service>`), always wins;
+1. how the owner actually uses it: the most used of its app / its website per browser profile over the last 14 days of
+   the owner's own trail (FERB's own actions never count), ties broken by the most recent;
+2. an installed native app (device profile);
+3. the website in a paired browser profile;
+4. nothing workable → ask once and remember.
+A service is known from a catalogue of ~30 common services (their Mac apps and websites), else by the name of an
+installed app, else by the name of a site in the trail; anything else is unknown → ask once and remember. A website
+route is only ever a browser profile FERB can drive (paired). The route is shown in plain words when a task starts
+("Using the WhatsApp app"). Calls and messages the owner asked for go ahead without a prompt, held with an undo
+countdown like sends ("Calling Rahul… undo", section 10.3). A contact name matching more than one person is never
+guessed: FERB asks which once and remembers the answer (owner-stated memory about that person).
 
 ### 9.4 Extension contract
 
@@ -885,6 +905,10 @@ never counts as a stall) and the task continues once approved.
 - on top of that, the planning model may mark action types irreversible for a request (e.g. submitting an
   application), and Jev's `action.risk` = high (once enabled) makes FERB ask. They can only add to the floor, never
   remove anything from it.
+
+**Calls and messages (build step 16).** A call or message the owner asked for is not a question: like a send, it is
+held for the undo window with a countdown ("Calling Rahul… undo") and then goes. One the owner didn't ask for follows
+the same rules as an unrequested send.
 
 ### 10.4 Autonomy levels
 
@@ -1211,7 +1235,8 @@ Build step 11 specifics (owner decisions):
     (4) ask only if none works. The planner gets a short environment summary each turn (macOS, relevant installed and
     running apps, paired browser profiles). A correction ("use the web version") is stored as an owner-stated
     preference and followed from then on. The chosen route is shown in plain words when starting. Recorded in §9.3
-    and §7 when built.
+    and §7. Calls/messages the owner asked for run with an undo countdown; ambiguous contacts are asked once, never
+    guessed.
 
 **Gate:** owner-account actions (sending, posting, editing in the owner's accounts) are enabled only after the
 section 21 safety tests pass.

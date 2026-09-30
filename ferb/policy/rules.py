@@ -23,13 +23,14 @@ class Kind:
     FILL_SECRET, MAILBOX_READ, MAILBOX_SEND = "fill_secret", "mailbox_read", "mailbox_send"
     TIMER = "timer"                                       # a reminder / timer for the owner (cancelable)
     ACCOUNT_SECURITY = "account_security"                 # passwords, 2FA, recovery settings, account deletion
+    CALL = "call"                                         # starting a voice / video call (build step 16)
 
 
 # Reversible actions just run (section 10.2) once identity/scope/exposure pass.
 REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER}
 # The irreversible floor (10.3): ask every single time, every autonomy level; nothing can remove a kind from it.
 HARD_FLOOR = {Kind.PAY, Kind.DELETE_PERMANENT, Kind.ACCOUNT_SECURITY}
-UNDO_WINDOW = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND}   # held ~10 s before executing
+UNDO_WINDOW = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND, Kind.CALL}   # held ~10 s before executing
 OUTBOUND = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.FILL_FORM, Kind.SUBMIT, Kind.MAILBOX_SEND, Kind.WRITE_FILE,
             Kind.PAY}                                           # moves data somewhere (data-flow checks)
 

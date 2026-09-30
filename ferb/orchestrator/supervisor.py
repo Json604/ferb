@@ -58,6 +58,24 @@ ANSWER_SCHEMA: dict[str, Any] = {"type": "object", "additionalProperties": False
 ME = {"me", "myself", "owner", "my email", "my address"}
 
 
+def _env_text(env: dict[str, Any]) -> str:
+    """The environment summary and FERB's chosen routes (stable enough to sit before the owner's message)."""
+    parts = []
+    if env.get("stable"):
+        parts.append(env["stable"])
+    if env.get("routes"):
+        parts.append("How to reach what the owner named (decided by FERB; follow it, and put a web route's browser "
+                     "profile in the goal): " + "; ".join(
+                         f"{r.service} → " + (f"the app ({r.target})" if r.kind == "app" else
+                                              f"the website {r.target} in {r.browser} profile “{r.profile_name}”")
+                         for r in env["routes"]) + ".")
+    if env.get("unknown"):
+        parts.append("Not found on this Mac or in the owner's activity: " + ", ".join(env["unknown"]) +
+                     ". If the request needs one of these, ask the owner once how to reach it (app or website) and "
+                     "remember the answer (kind preference, subject owner, key \"route:<name>\").")
+    return ("\n".join(parts) + "\n\n") if parts else ""
+
+
 def _wants_me(recipients: list[str]) -> bool:
     return any(r.strip().lower() in ME for r in recipients)
 
@@ -159,6 +177,9 @@ class Supervisor(WorkerRuns):
         self.on_schedule: Callable[[Any, str, str], str] = lambda spec, own, rid: "Scheduling isn't available."
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
         self.owner_email: Callable[[], str | None] = lambda: None
+        # Build step 16: routes + environment summary for the owner's words (supplied by the daemon)
+        self.environment: Callable[[str], dict[str, Any]] = lambda words: {}
+        self._env: dict[str, dict[str, Any]] = {}
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
         self.sleep_until: Any = None
         self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
@@ -318,6 +339,8 @@ class Supervisor(WorkerRuns):
                                                      "text": m.for_model, "untrusted_parts": len(m.untrusted)})
         recalled = self.recall(m.own_words)
         available = set().union(*(c.scopes for c in self.gateway.caps.values()))
+        env = self.environment(m.own_words)                     # routes decided in code (9.3, build step 16)
+        self._env[request_id] = env
         try:
             out = await self._supervise(session, m.for_model, request_id, recalled)
             for _ in range(PLAN_REPAIRS):                  # an invalid plan is repaired, never shown (14a)
@@ -359,15 +382,21 @@ class Supervisor(WorkerRuns):
         self.engine.intents.record(self._intent(out.plan, request_id, m.own_words))   # write-once, plan time
         if self.jev is not None:                                                  # task.route: logged only
             asyncio.get_running_loop().create_task(self._jev_route(out.plan, request_id))
-        async for ev in self.run_tree(out.plan, out.text, request_id, m.for_model):
-            yield ev
+        routes = [r.say() for r in env.get("routes", [])]
+        text = (". ".join(routes) + ". " + out.text) if routes else out.text       # the route, in plain words
+        try:
+            async for ev in self.run_tree(out.plan, text, request_id, m.for_model):
+                yield ev
+        finally:
+            self._env.pop(request_id, None)
 
     async def _supervise(self, session: ChatSession, message: str, request_id: str,
                          remembered: str = "", repair: list[str] | None = None) -> SupervisorOutcome:
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
         recent, ages = self.recent(request_id)
         mem_text, mem_ages = self.recall_items(remembered)
-        ctx = (f"{recent}\n\n" + (f"{mem_text}\n\n" if mem_text else "") + self.facts_now()
+        env = self._env.get(request_id, {})
+        ctx = (f"{recent}\n\n" + (f"{mem_text}\n\n" if mem_text else "") + _env_text(env)
                + f"Owner's new message:\n{message}")
         if repair:
             ctx += ("\n\nFERB's checks rejected your plan:\n" + "\n".join(f"- {p}" for p in repair) +
@@ -378,6 +407,8 @@ class Supervisor(WorkerRuns):
         since = await self.since_last_talk(request_id)
         ctx += "\n\n" + context.time_block(self.clock.now(), None, None, owner_active, last_event,
                                            ages=ages | mem_ages, since_last_talk=since)   # time-dependent: last
+        if env.get("live"):
+            ctx += "\n" + env["live"]
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
                          [], None)
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id,
@@ -455,8 +486,11 @@ class Supervisor(WorkerRuns):
         from ferb.policy.names import resolve_apps
         i = plan.intent
         bundles = set(resolve_apps(i.apps, self.apps(), own_words)[0].values()) if i.apps else set()
+        bundles = {b.lower() for b in bundles}
         me = self.owner_email()
         recipients = frozenset(me if (me and r.strip().lower() in ME) else r for r in i.recipients)
+        route_targets = {r.target.lower() for r in self._env.get(request_id, {}).get("routes", [])}   # from own words
+        bundles |= route_targets
         return RequestIntent.from_plan(
             request_id, set(i.verbs), set(i.extra_kinds), recipients=recipients,
             sites=frozenset(i.sites) | frozenset(b.lower() for b in bundles), accounts=frozenset(i.accounts),

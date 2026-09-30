@@ -290,6 +290,10 @@ def act_kind(action: str, text: str | None, el: PageElement | None) -> str:
         return Kind.NAVIGATE
     if el.role in FORM_ROLES:
         return Kind.FILL_FORM
+    if action == "click" and el.role == "button":
+        from ferb.act.mac.tools import CALL_LABEL
+        if CALL_LABEL.search(el.label or ""):
+            return Kind.CALL                                # held for undo like a send (build step 16)
     return Kind.SEARCH if search else Kind.SUBMIT
 
 

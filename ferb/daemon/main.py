@@ -531,6 +531,7 @@ class Daemon:
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")))
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
+            self.supervisor.environment = self._environment
             self.supervisor.recall = lambda words: context_block(self.memory, words)
             self.supervisor.remember = self._remember
         if self.run_distill:
@@ -1144,6 +1145,38 @@ class Daemon:
             except JevUnavailable as e:
                 out["ping"] = str(e)
         return out
+
+    def _environment(self, own_words: str) -> dict[str, Any]:
+        """Routes for what the owner named, and the environment summary (9.3, build step 16)."""
+        import platform
+        from ferb.act.mac import apps as appsm
+        from ferb.policy import services as svc
+        assert self.db is not None
+        since = (self.clock.now() - timedelta(days=14)).isoformat()
+        rows = self.db.conn.execute(
+            "SELECT at, source, data_json FROM trail WHERE actor = 'owner' AND source IN ('app_focus', "
+            "'browser_tab') AND at >= ?", (since,)).fetchall()                    # the owner's own activity only
+        usage_apps, usage_web = svc.usage_from_trail(rows)
+        ferb = self._identity_profile()
+        names = {(p.browser, p.folder): p.display_name for p in self._profiles()} if self.pairings else {}
+        paired = [(b.browser, b.folder, names.get((b.browser, b.folder), b.folder))
+                  for b in (self.pairings.all() if self.pairings else [])
+                  if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
+        prefs = {}
+        if self.memory is not None:
+            for it in self.memory.items("active", "owner"):
+                if it.key.startswith("route_") or it.key.startswith("route:"):
+                    prefs["route:" + it.key.split(":", 1)[-1].removeprefix("route_").replace("_", " ")] = it.content
+        env = svc.Environment(self._installed_apps(), paired, usage_apps, usage_web, prefs)
+        named = svc.services_named(own_words, env)
+        routes = [r for s in named if (r := svc.route(s, env)) is not None]
+        unknown = [s.name for s in named if svc.route(s, env) is None]
+        try:
+            running = {a.bundle_id for a in appsm.running()}
+        except Exception:
+            running = set()
+        stable, live = svc.summary(env, platform.mac_ver()[0] or "unknown", named, running)
+        return {"routes": routes, "stable": stable, "live": live, "unknown": unknown}
 
     def _installed_apps(self) -> list[tuple[str, str]]:
         """(bundle id, name) of the Mac's apps, for matching the names the owner uses (14a)."""

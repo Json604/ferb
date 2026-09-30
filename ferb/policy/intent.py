@@ -23,6 +23,10 @@ IMPLIES: dict[str, frozenset[str]] = {
     "run_command": frozenset({Kind.RUN_SHELL}),
     "sign_in": frozenset({Kind.NAVIGATE, Kind.OPEN_TAB, Kind.FILL_FORM, Kind.SUBMIT, Kind.FILL_SECRET}),
     "use_app": frozenset({Kind.READ, Kind.MAC_INPUT, Kind.APPLESCRIPT}),
+    # build step 16: calls and messages the owner asked for go ahead with the undo countdown
+    "call": frozenset({Kind.READ, Kind.MAC_INPUT, Kind.NAVIGATE, Kind.OPEN_TAB, Kind.SEARCH, Kind.CALL}),
+    "message": frozenset({Kind.READ, Kind.MAC_INPUT, Kind.NAVIGATE, Kind.OPEN_TAB, Kind.SEARCH, Kind.DRAFT,
+                          Kind.SEND, Kind.FILL_FORM}),
 }
 
 

@@ -18,3 +18,7 @@ task.
   artifacts (paths you created or changed), evidence (what you observed that shows it worked).
 
 Output must match the JSON schema exactly.
+
+Contacts: if a name you must call or message matches more than one contact in the app, don't choose. Stop with status
+needs_user and list the matches (names and a distinguishing detail) in your summary; FERB asks the owner once and
+remembers the answer.
