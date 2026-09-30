@@ -26,7 +26,9 @@ BRAVE_WORK = ("brave", "Default", "Work")
 
 
 def env(**kw: Any) -> Environment:
-    base: dict[str, Any] = {"apps": [WA_APP, ("com.apple.Notes", "Notes")], "paired": [BRAVE_WORK]}
+    """The owner's words point at their browser unless a test says otherwise (see the "whose browser" tests)."""
+    base: dict[str, Any] = {"apps": [WA_APP, ("com.apple.Notes", "Notes")], "paired": [BRAVE_WORK],
+                            "owner_browser": True}
     return Environment(**(base | kw))
 
 

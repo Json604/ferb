@@ -186,6 +186,58 @@ class BrowserOpen(_Base):
         return ToolResult(out)
 
 
+class BrowserScroll(_Base):
+    verb = "scroll"
+    blurb = ("Scroll a whole page in one of this task's tabs ({whose}) by about one screen, up or down — no element "
+             "needed. Returns the position and whether it reached the end; take a snapshot to read what's shown. "
+             "Pages that load more as you scroll (comments, feeds) keep going until at_end.")
+
+    class Input(_Tab):
+        direction: Literal["down", "up"] = "down"
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=self._site(args)))
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
+        return ToolResult(await self.driver.scroll(ref, str(getattr(args, "direction"))))   # type: ignore[attr-defined]
+
+
+class BrowserTabs(_Base):
+    """The owner's open tabs (build: owner decision 2026-09-30). Only the owner's browser, only when their words
+    pointed at it (plan validation)."""
+    verb = "tabs"
+    blurb = ("List the tabs the owner has open in their connected browser profiles: a tab_ref, the site, and whether "
+             "it's the active tab. Use it when the owner refers to a tab they already have open (\"my current "
+             "YouTube tab\"), then {p}_use_tab.")
+
+    class Input(BaseModel):
+        profile: str | None = Field(default=None, description="a profile the owner named (optional)")
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target())
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        return ToolResult({"tabs": await self.driver.open_tabs(getattr(args, "profile"))})   # type: ignore[attr-defined]
+
+
+class BrowserUseTab(_Base):
+    verb = "use_tab"
+    blurb = ("Take over one of the owner's open tabs for this task (a tab_ref from {p}_tabs). Returns a tab id for "
+             "{p}_snapshot / {p}_act. FERB lets go of it when the task ends and never closes it.")
+
+    class Input(BaseModel):
+        tab_ref: str = Field(description="a tab_ref from the tabs tool")
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.OPEN_TAB, Target())
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        tab = await self.driver.attach(str(getattr(args, "tab_ref")), ctx.task_id)   # type: ignore[attr-defined]
+        return ToolResult({"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id),
+                           "next": "take a snapshot; this is the owner's own tab"})
+
+
 class BrowserNavigate(_Base):
     verb, blurb = "navigate", "Load a different http(s) URL in one of this task's tabs ({whose})."
 

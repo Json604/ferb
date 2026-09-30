@@ -41,6 +41,7 @@ from ferb.orchestrator.worker import RuntimeViolation, WorkerRuns
 from ferb.policy.engine import PolicyEngine
 from ferb.policy.intent import RequestIntent
 from ferb.policy.rules import with_reads
+from ferb.policy.services import owner_browser_named
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.sanitize.untrusted import mark, wrap_untrusted
 from ferb.store.spans import SpanStore
@@ -69,6 +70,8 @@ def _env_text(env: dict[str, Any]) -> str:
         parts.append("How to reach what the owner named (decided by FERB; follow it, and put a web route's browser "
                      "profile in the goal): " + "; ".join(
                          f"{r.service} → " + (f"the app ({r.target})" if r.kind == "app" else
+                                              f"the website {r.target} in FERB's own browser (identity \"ferb\")"
+                                              if r.browser == "ferb" else
                                               f"the website {r.target} in {r.browser} profile “{r.profile_name}”")
                          for r in env["routes"]) + ".")
     if env.get("unknown"):
@@ -131,11 +134,11 @@ class _Watch(Observer):
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         self.sup.activity.beat(grant.worker_id)
 
-    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool) -> None:
+    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool, digest: str = "") -> None:
         tree = self.sup._tree_of.get(grant.task_id)
         if tree is None:
             return
-        reason = tree.guard.call(grant.worker_id, tool, args, failed)
+        reason = tree.guard.call(grant.worker_id, tool, args, failed, digest)
         if reason is not None:
             self.sup.stop_worker(grant.worker_id, reason)
             return
@@ -180,6 +183,8 @@ class Supervisor(WorkerRuns):
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
         self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
         self.owner_email: Callable[[], str | None] = lambda: None
+        # Whether the owner's words point at their own browser (the daemon adds their paired profile names)
+        self.owner_browser: Callable[[str], bool] = lambda words: owner_browser_named(words)
         # What the planner may use right now (supplied by the daemon: connections, permissions)
         self.availability: Callable[[], Availability] = self._default_availability
         # Build step 16: routes + environment summary for the owner's words (supplied by the daemon)
@@ -259,13 +264,15 @@ class Supervisor(WorkerRuns):
             for _ in range(PLAN_REPAIRS):
                 if out.kind != "plan" or out.plan is None:
                     break
-                problems = dag.validate(out.plan, sched.own_words, available, self.apps())
+                problems = dag.validate(out.plan, sched.own_words, available, self.apps(),
+                                             self.owner_browser(sched.own_words))
                 if not problems:
                     break
                 out = await self._supervise(session, sched.request + note, request_id, repair=problems)
         except (RuntimeViolation, ValidationError, ValueError):
             return {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
-        if out.kind != "plan" or out.plan is None or dag.validate(out.plan, sched.own_words, available, self.apps()):
+        if out.kind != "plan" or out.plan is None or dag.validate(out.plan, sched.own_words, available, self.apps(),
+                                             self.owner_browser(sched.own_words)):
             status = "done" if out.kind == "reply" and out.plan is None else "needs_user"
             return {"task_id": request_id, "status": status, "answer": out.text, "goal": sched.request}
         recorded = from_json(request_id, sched.intent)
@@ -356,7 +363,8 @@ class Supervisor(WorkerRuns):
             for _ in range(PLAN_REPAIRS):                  # an invalid plan is repaired, never shown (14a)
                 if out.kind != "plan" or out.plan is None:
                     break
-                problems = dag.validate(out.plan, m.own_words, available, self.apps())
+                problems = dag.validate(out.plan, m.own_words, available, self.apps(),
+                                             self.owner_browser(m.own_words))
                 if not problems:
                     break
                 self.journal.append("plan.repair", {"request_id": request_id, "problems": problems})
@@ -383,7 +391,8 @@ class Supervisor(WorkerRuns):
                 and self.owner_email() is None:                                  # progressive setup (section 8)
             out = SupervisorOutcome(kind="clarify", text="What email address should I use for you? I'll remember it.",
                                     plan=None)
-        final = dag.validate(out.plan, m.own_words, available, self.apps()) \
+        final = dag.validate(out.plan, m.own_words, available, self.apps(),
+                                             self.owner_browser(m.own_words)) \
             if out.kind == "plan" and out.plan is not None else []
         if final:
             self.journal.append("chat.failed", {"request_id": request_id, "why": "plan still invalid after repair"})

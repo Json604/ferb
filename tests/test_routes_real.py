@@ -24,12 +24,14 @@ pytestmark = pytest.mark.real
 def codex() -> Iterator[RunningDaemon]:
     base = Path(tempfile.mkdtemp(prefix="frt-", dir="/tmp"))
     d = RunningDaemon(base / "home", clock=SystemClock())
-    only_tools(d, "fs.", "time.", "browser.", "mac.apps", "mac.open", "mac.snapshot", "mac.act")   # about app routes
+    d.daemon.use_identity_browser(_StandIn())                          # FERB's browser tools (planning only: never run)
+    only_tools(d, "fs.", "time.", "browser.", "ferb_browser.", "mac.apps", "mac.open", "mac.snapshot", "mac.act")
     d.daemon.config.set("runtimes", "orchestrator", "codex")
     d.daemon.config.set("runtimes", "worker", "codex")
     env = svc.Environment([("com.apple.Notes", "Notes")], [("brave", "Default", "Work")])
 
     def environment(words: str) -> dict[str, Any]:
+        env.owner_browser = svc.owner_browser_named(words, ["Work"])
         named = svc.services_named(words, env)
         stable, live = svc.summary(env, "26.0", named, set())
         return {"routes": [r for s in named if (r := svc.route(s, env))], "stable": stable, "live": live}
@@ -40,6 +42,17 @@ def codex() -> Iterator[RunningDaemon]:
     yield d
     d.stop()
     shutil.rmtree(base, ignore_errors=True)
+
+
+class _StandIn:
+    """FERB's browser for planning-only tests: tasks are stopped at the plan, so nothing is ever called."""
+    secrets = None
+
+    async def release(self, owner: str) -> None:
+        return None
+
+    async def shutdown(self) -> None:
+        return None
 
 
 def plan_of(d: RunningDaemon, text: str) -> str:
@@ -62,6 +75,15 @@ def test_the_notes_app_route(codex: RunningDaemon) -> None:
     assert text.startswith("Using the Notes app"), text
 
 
-def test_a_web_route_in_the_paired_brave_profile(codex: RunningDaemon) -> None:
+def test_a_plain_request_on_a_site_uses_ferbs_own_browser(codex: RunningDaemon) -> None:
     text = plan_of(codex, "play some lofi music on youtube")
+    assert text.startswith("Using YouTube on the web (youtube.com) in FERB's own browser"), (text, codex.run(_why(codex)))
+
+
+def test_the_owners_profile_when_they_say_so(codex: RunningDaemon) -> None:
+    text = plan_of(codex, "in my Work profile, play some lofi music on youtube")
     assert text.startswith("Using YouTube on the web (youtube.com) in your Brave (Work) profile"), text
+
+
+async def _why(d: RunningDaemon) -> list[Any]:
+    return [e.data for e in d.daemon._journal().entries() if e.kind in ("plan.repair", "chat.failed")]

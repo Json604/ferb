@@ -270,6 +270,16 @@ const commands = {
     const s = await session(); s.owned = s.owned.filter((o) => o.tabId !== tab_id); await saveSession(s);
     return { closed: true };
   },
+  async scroll({ tab_id, direction }) {           // the whole page (a page may have no elements to act on)
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab_id },
+      func: (d) => {
+        const el = document.scrollingElement || document.documentElement;
+        window.scrollBy(0, (d === "up" ? -1 : 1) * Math.round(innerHeight * 0.85));
+        return { y: Math.round(el.scrollTop), height: el.scrollHeight,
+                 at_end: d === "up" ? el.scrollTop <= 0 : el.scrollTop + innerHeight >= el.scrollHeight - 2 };
+      }, args: [direction] });
+    return r && r.result ? r.result : { y: 0, height: 0, at_end: false };
+  },
   async list_tabs() {
     const tabs = await chrome.tabs.query({});
     return { tabs: tabs.map((t) => ({ tab_id: t.id, host: (() => { try { return new URL(t.url).hostname; } catch (_) { return ""; } })(),

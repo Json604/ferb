@@ -3,8 +3,9 @@
 No token or dollar budgets (owner decision). The guards only catch stuck tasks and stay invisible unless one stops
 something:
 - the same failing action (same tool, same arguments) 3 times -> that worker stops;
-- a loop between steps: the same sequence of 2-4 calls (identical arguments) 5 times in a row -> that worker stops
-  (one call repeated is polling, e.g. waiting for a page, and isn't stopped unless it keeps failing);
+- a loop between steps: the same sequence of 2-4 calls (identical arguments AND identical results) 5 times in a row ->
+  that worker stops (one call repeated is polling, e.g. waiting for a page, and isn't stopped unless it keeps failing;
+  scrolling through a page that keeps changing returns new results each time, so it isn't a loop);
 - generous tree caps: 4 hours, 50 worker runs, 1,000 tool calls -> the tree stops.
 
 A worker that shows no sign of life for STALL_S is stalled and cancelled — but time spent waiting on the owner
@@ -37,8 +38,8 @@ class TreeGuard:
     _recent: dict[str, deque[str]] = field(default_factory=lambda: defaultdict(
         lambda: deque(maxlen=LOOP_REPEATS * LOOP_MAX_PERIOD)))
 
-    def call(self, worker: str, tool: str, args: dict[str, Any], failed: bool) -> str | None:
-        """Record one finished tool call; a reason if this worker must stop."""
+    def call(self, worker: str, tool: str, args: dict[str, Any], failed: bool, result: str = "") -> str | None:
+        """Record one finished tool call (`result`: a digest of what it returned); a reason if this worker must stop."""
         self.tool_calls += 1
         key = call_key(tool, args)
         if failed:
@@ -46,7 +47,7 @@ class TreeGuard:
             if self._failed[worker][key] >= REPEATED_FAILURES:
                 return f"it kept repeating the same failing action ({tool})"
         recent = self._recent[worker]
-        recent.append(key)
+        recent.append(key + ":" + result)                  # same call, same answer: that's what a loop repeats
         for period in range(2, LOOP_MAX_PERIOD + 1):      # one call repeated is polling, not a loop
             n = period * LOOP_REPEATS
             if len(recent) >= n:

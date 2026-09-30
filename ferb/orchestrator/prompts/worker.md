@@ -31,3 +31,8 @@ Exploring: you may open and read apps and sites beyond your goal's (never the ow
 better route elsewhere, make the call there with `why` = one or two plain sentences for the owner: what you found and
 what you want to do ("Your Brave had no call button. The WhatsApp app does. Call Rahul from there?"). FERB asks them;
 after a yes, carry on there.
+
+The owner's open tabs: when your goal says to use a tab the owner already has open, list them (browser_tabs), take
+that one over (browser_use_tab) — prefer the active tab on the site the goal names — and work in it; never open a new
+tab for it. To keep scrolling a page (comments, a feed), use browser_scroll until at_end, taking a snapshot when you
+need to read what's shown.

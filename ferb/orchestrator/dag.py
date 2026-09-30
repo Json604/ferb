@@ -24,7 +24,8 @@ ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 def validate(plan: Plan, own_words: str, available_scopes: set[str],
-             apps: list[tuple[str, str]] | None = None) -> list[str]:
+             apps: list[tuple[str, str]] | None = None, owner_browser: bool | None = None) -> list[str]:
+    """`owner_browser`: whether the owner's words point at their own browser (None: not checked)."""
     p: list[str] = []
     p += validate_intent(plan.intent, own_words, apps)
     if not plan.subtasks:
@@ -37,6 +38,9 @@ def validate(plan: Plan, own_words: str, available_scopes: set[str],
     by_id = {s.id: s for s in plan.subtasks}
     for s in plan.subtasks:
         p += _subtask(s, by_id, available_scopes)
+        if owner_browser is False and s.identity == "owner" and {"browser:read", "browser:act"} & set(s.scopes):
+            p.append(f"subtask {s.id}: the owner didn't ask for their own browser — work on websites in FERB's own "
+                     "browser (identity \"ferb\"), or ask the owner if it must be theirs")
     if not p and _cycle(plan.subtasks):
         p.append("the subtasks depend on each other in a circle")
     return p

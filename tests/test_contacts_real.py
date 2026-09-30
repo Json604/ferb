@@ -44,6 +44,11 @@ PAGE = """<!doctype html><meta charset=utf-8><title>Chat</title>
 <script>let current = '';
 function open_(n, d) { current = n; document.getElementById('chat').hidden = false;
   document.getElementById('who').textContent = n; document.getElementById('detail').textContent = d; }</script>"""
+COMMENTS = ("<!doctype html><meta charset=utf-8><title>Video</title><h1>A video</h1><h2>Comments</h2>" +
+            "".join(f"<p style='margin:40px 0'>Comment {i}: {'great video' if i < 60 else 'the last one'}</p>"
+                    for i in range(1, 61)) +
+            "<script>let t=0;addEventListener('scroll',()=>{clearTimeout(t);t=setTimeout(()=>"
+            "fetch('/scrolled?y='+Math.round(scrollY)),200)})</script>")
 ROW = """<button type=button onclick="open_('{n}', '{d}')">{n} · {d} · {s}</button><br>"""
 
 
@@ -57,6 +62,11 @@ def site() -> Iterator[tuple[str, list[str]]]:
             if u.path == "/called":
                 called.append(parse_qs(u.query).get("who", [""])[0])
                 body = b"ok"
+            elif u.path == "/scrolled":                             # test_tabs_real: how far the owner's tab scrolled
+                called.append("scrolled:" + parse_qs(u.query).get("y", ["0"])[0])
+                body = b"ok"
+            elif u.path == "/comments":
+                body = COMMENTS.encode()
             else:
                 rows = "".join(ROW.format(n=n, d=d, s=s) for n, d, s in PEOPLE.get(u.path.strip("/"), []))
                 body = (PAGE % rows).encode()

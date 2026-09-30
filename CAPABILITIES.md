@@ -48,12 +48,17 @@ to fix it.
 
 ## Browser (your paired profiles)
 
+FERB uses your browser only when your words point at it: "my browser", "my Brave", "in Brave", "my Chrome", "my
+<profile> profile", "this / the current tab", or "my <service>" ("my LinkedIn"). A plain "do X on YouTube" uses
+FERB's own browser (next section).
+
 | Capability | Example request | Needs | Status | Known limits |
 |---|---|---|---|---|
 | Open and read pages in your signed-in profile | `open <site> in my <profile> profile and tell me what's on it` | Paired | Verified (local test pages, spare profile) | Tabs open in the background and never take focus |
 | Click, type, select (scripted or trusted input) | `search for 'standing desk' on <site> in my <profile> profile` | Paired | Verified (local pages: scripted and `isTrusted` input) | Password/code fields are never typed into |
 | Choose the profile | `check my email` (site open in one profile) | Paired | Offline | Order: open tab → your trail → default browser → ask |
-| Web route for a named service | `play some lofi on youtube` | Paired | Verified (route chosen; planning only) | Only paired profiles are ever routes |
+| Your profile when you say so | `in my <profile> profile, play some lofi on youtube` | Paired | Offline (real run pending) | Only paired profiles are ever routes |
+| Use a tab you already have open | `in my brave, keep scrolling the comments in the current youtube tab` | Paired | Offline (real run pending) | FERB lets go of the tab afterwards and never closes it; scrolling a changing page isn't treated as a loop |
 | Account check before consequential actions | a send on a site where two accounts are signed in | Paired | Offline (extractors verified on FERB's own Gmail/YouTube) | Extractors exist for Gmail and YouTube; other sites ask once per site + profile |
 | Calls in web chat, contacts checked | `video call Rahul` on a chat page | Paired | Verified (local fake chat page; 8/10 over the final 5 runs) | The worker sometimes stops to ask you itself instead of letting FERB ask (safe, not a guess) |
 | Account and security pages always ask | `turn on 2FA in <site> settings` | Paired | Offline | Every action there asks, every time |
@@ -63,6 +68,7 @@ to fix it.
 
 | Capability | Example request | Needs | Status | Known limits |
 |---|---|---|---|---|
+| Websites by default | `play some lofi on youtube` / `post this on linkedin` | FERB's browser | Offline (real run pending) | Uses FERB's accounts; say "my …" for yours |
 | Browse as FERB | `using your own account, open youtube.com and check you're signed in` | FERB's browser | Verified (session held through the extension) | Never your accounts or browsers |
 | Sign in with FERB's password and inbox code | `sign in to <site> with your account` | FERB's browser, the password in the Keychain | Verified (owner-assisted one-time code) | Passwords and codes are sealed; the model never sees them; lookalike or cross-origin frames refused |
 | Email from FERB's address | `email me the summary` | FERB's browser (Gmail) | Verified (3/3 through Gmail's compose page) | Only to recipients you named; 10 s undo; text only, no attachments; "me" asks your address once |

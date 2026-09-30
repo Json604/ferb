@@ -529,7 +529,8 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
    **reconciled first** (re-read the target: did it happen?) and never blindly retried.
 10. **No token or dollar budgets anywhere** (owner decision: they don't matter for the owner's experience). Only
     invisible runaway guards per task tree, there to catch stuck tasks: the same failing action repeated 3 times,
-    a loop between steps (the same 2–4 calls repeated 5 times), a stalled worker (no sign of life for 180 s, not counting waits on
+    a loop between steps (the same 2–4 calls repeated 5 times with the same results — scrolling through a page that
+    keeps changing isn't a loop), a stalled worker (no sign of life for 180 s, not counting waits on
     the owner), and generous caps — 4 hours, 50 worker runs, 1,000 tool calls. The owner hears about a guard only
     when it actually stops something. Distillation and shadow decisions run unmetered.
 11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
@@ -716,6 +717,19 @@ a mismatch with the resolved account refuses the action (safety test 12). On a s
 account can't be verified: FERB asks the owner once per site + profile and remembers the answer as learned trust
 (10.4), so it doesn't ask again. If signed out → stop and tell the owner. FERB never logs in as the owner.
 The `ax:*` fallback stops if it cannot establish which profile/account it is looking at.
+
+**Whose browser (owner decision, 2026-09-30; takes precedence over the web-route rules below).** The owner's browser
+profiles are used only when the owner's own words say so: "my browser", "my Brave" / "my Chrome", "in Brave", "my
+<profile name> profile", "this / the current / the open (…) tab", or "my <service>" ("my LinkedIn", "my Gmail").
+Checked in code (`policy/services.py:owner_browser_named`); a plan giving an "owner" subtask browser scopes without it
+is refused by plan validation. Otherwise work on a website ("post this on LinkedIn", "find X on YouTube") uses FERB's
+own browser and email (identity "ferb"). A browser is never a Mac-app route ("in my Brave" is the owner's Brave
+profile, not the Brave app), and each service is announced once.
+
+**The owner's open tabs.** When the owner's words point at their browser, a worker can list the open tabs of the
+paired profiles (`browser.tabs`: host, active) and take one over for the task (`browser.use_tab`) — e.g. "keep
+scrolling the comments in my current YouTube tab". An attached tab is the owner's: FERB forgets it when the task ends
+and never closes it. Everything else about acting in it (intent, data flow, account checks, undo) is unchanged.
 
 **Services and apps (build step 16, owner decisions 2026-09-30).** When a task names a service or app ("video call X
 on WhatsApp", "play it on YouTube"), code — not the model — picks how to reach it, in `policy/services.py`:

@@ -306,7 +306,7 @@ def test_injected_text_in_a_field_cannot_redirect_an_actor(daemon: RunningDaemon
     from tests.conftest import Answers
     no = Answers(daemon, granted=False)                                  # the owner says no
     try:
-        chat(daemon, "read my note and email bob@x.com about it")
+        chat(daemon, "read my note and email bob@x.com about it from my browser")
     finally:
         no.stop()
     assert "declined" in result["r"]["content"]["error"] and send.calls == 0    # new recipient: asked, not sent
@@ -331,7 +331,7 @@ def test_owner_data_typed_into_an_unrelated_site_is_blocked(daemon: RunningDaemo
               sub("a", identity="owner", scopes=("browser:act",), deps=("r",), inputs=(("r", "acct"),))],
              verbs=("post",), sites=("mail.google.com",))
     install(daemon, [sup("plan", "x", p)], {"r": reader, "a": [actor, actor]})
-    chat(daemon, "read mail.google.com and post my account number")
+    chat(daemon, "in my browser, read mail.google.com and post my account number")
     assert result["r"]["is_error"] and "owner data from mail.google.com may not go to evil.example" in \
         result["r"]["content"]["error"] and post.calls == 0                        # 21.9
 
@@ -440,12 +440,12 @@ def test_unknown_action_is_reconciled_not_retried(daemon: RunningDaemon) -> None
                   conds=(cond("the send happened", "ledger_done"),))], verbs=("email",), recipients=("bob@x.com",))
     yes = json.dumps({"happened": "yes", "evidence": "it's in Sent"})
     install(daemon, [sup("plan", "x", p)], {"a": actor, "a.reconcile": yes})
-    out = outcome(chat(daemon, "email bob@x.com hi"))
+    out = outcome(chat(daemon, "email bob@x.com hi from my browser"))
     assert boom.calls == 1                                                          # never sent twice (21.11)
     assert out["subtasks"]["a"]["status"] == "done" and out["verified"] is True
     unclear = json.dumps({"happened": "unclear", "evidence": "can't tell"})
     install(daemon, [sup("plan", "x", p)], {"a": actor, "a.reconcile": unclear})
-    out = outcome(chat(daemon, "email bob@x.com hi", session="s2"))
+    out = outcome(chat(daemon, "email bob@x.com hi from my browser", session="s2"))
     assert out["status"] == "needs_user" and boom.calls == 2                        # one per request, no retry
 
 

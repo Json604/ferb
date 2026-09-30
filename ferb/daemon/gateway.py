@@ -6,6 +6,8 @@ result, never an exception.
 """
 
 import asyncio
+import hashlib
+import json
 import os
 import base64
 import dataclasses
@@ -48,7 +50,7 @@ class Observer:
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         pass
 
-    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool) -> None:
+    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool, digest: str = "") -> None:
         """Every answered call (runaway guards: the same failing action, loops)."""
 
     def waiting(self, worker: str, on: bool) -> None:
@@ -94,7 +96,8 @@ class Gateway:
         r = await self._call(grant, name, arguments)
         content = r.get("content") or {}
         waiting_on_owner = isinstance(content, dict) and "needs_owner_approval" in content   # not a failure
-        self.observer.result(grant, name, arguments, bool(r.get("is_error")) and not waiting_on_owner)
+        digest = hashlib.sha256(json.dumps(content, sort_keys=True, default=str).encode()).hexdigest()[:16]
+        self.observer.result(grant, name, arguments, bool(r.get("is_error")) and not waiting_on_owner, digest)
         return r
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:

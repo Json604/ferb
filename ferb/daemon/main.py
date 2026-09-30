@@ -535,6 +535,7 @@ class Daemon:
             self.supervisor.apps = self._installed_apps
             self.supervisor.environment = self._environment
             self.supervisor.availability = self._availability
+            self.supervisor.owner_browser = self._owner_browser
             self.supervisor.recall = lambda words: context_block(self.memory, words)
             self.supervisor.remember = self._remember
         if self.run_distill:
@@ -1180,7 +1181,8 @@ class Daemon:
             for it in self.memory.items("active", "owner"):
                 if it.key.startswith("route_") or it.key.startswith("route:"):
                     prefs["route:" + it.key.split(":", 1)[-1].removeprefix("route_").replace("_", " ")] = it.content
-        env = svc.Environment(self._installed_apps(), paired, usage_apps, usage_web, prefs)
+        env = svc.Environment(self._installed_apps(), paired, usage_apps, usage_web, prefs,
+                              owner_browser=self._owner_browser(own_words))
         named = svc.services_named(own_words, env)
         routes = [r for s in named if (r := svc.route(s, env)) is not None]
         unknown = [s.name for s in named if svc.route(s, env) is None]
@@ -1190,6 +1192,12 @@ class Daemon:
             running = set()
         stable, live = svc.summary(env, platform.mac_ver()[0] or "unknown", named, running)
         return {"routes": routes, "stable": stable, "live": live, "unknown": unknown}
+
+    def _owner_browser(self, own_words: str) -> bool:
+        """The owner's words point at their own browser (a paired profile's name counts: "in my Work profile")."""
+        from ferb.policy.services import owner_browser_named
+        names = [p.display_name for p in self._profiles()] if self.pairings else []
+        return owner_browser_named(own_words, names)
 
     def _owner_words(self, request_id: str, name: str) -> str:
         """For the contact check (16a): this request's own words, the owner's messages over the last day, and what the

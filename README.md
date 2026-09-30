@@ -243,6 +243,9 @@ The full contract is [ARCHITECTURE.md §10](ARCHITECTURE.md), with the safety te
 
 - **Two identities:** *owner* tasks use your Mac, your paired browser profiles and your shell, and never hold
   credentials. *FERB* tasks use only FERB's own browser profile and accounts, and never touch yours.
+- **Whose browser:** your browser profiles are used only when your words point at them ("my browser", "my Brave",
+  "my <profile> profile", "the current tab", "my LinkedIn"). A plain "do X on YouTube" uses FERB's own browser.
+  FERB can take over a tab you already have open, and never closes it.
 - **One gateway:** every tool call from a model goes through `ferb mcp` → the daemon's gateway → the policy engine.
   Runtimes' built-in tools (their own shell, file writes, web access) are disabled and checked on every run.
 - **Intent:**
