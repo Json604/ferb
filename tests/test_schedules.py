@@ -68,11 +68,16 @@ def test_a_run_may_only_stay_within_the_recorded_intent() -> None:
 
 # ---------- schedules from chat ----------
 
+def mins(delta: timedelta) -> dict[str, Any]:
+    """A `when` of "in N minutes" (the model's output; FERB computes the time)."""
+    return {"in_minutes": delta.total_seconds() / 60, "in_days": None, "day": None, "date": None, "time": None}
+
+
 def schedule_reply(d: RunningDaemon, request: str, quote: str, first: datetime, repeat: str = "none",
                    recipients: tuple[str, ...] = (), verbs: tuple[str, ...] = ("edit_file",),
                    paths: tuple[str, ...] = ("report.md",), every: int | None = None) -> str:
     return json.dumps({"kind": "reply", "text": "Scheduled.", "plan": None, "remember": [], "timers": [],
-                       "schedule": {"request": request, "first_run": first.isoformat(), "repeat": repeat,
+                       "schedule": {"request": request, "when": mins(first - d.daemon.clock.now()), "repeat": repeat,
                                     "weekday": None, "every_minutes": every, "quote": quote,
                                     "intent": {**plan([sub("a")], verbs=verbs, paths=paths)["intent"],
                                                "recipients": list(recipients)}},

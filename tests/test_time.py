@@ -7,12 +7,14 @@ the task), measured durations in the header, sending from FERB's mailbox under t
 import asyncio
 import io
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from ferb.clock.when import When, WhenError, resolve
 from ferb.act.browser.ext_bridge import OutcomeUnknown
 from ferb.act.browser.tools import MailboxSend
 from ferb.clock.durations import typical
@@ -111,9 +113,10 @@ def test_19_a_claim_left_by_a_crash_is_delivered_exactly_once(daemon: RunningDae
 
 def test_reminders_from_chat_need_the_owners_own_words_and_a_future_time(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
-    ok = {"at": (now + timedelta(hours=2)).isoformat(), "message": "call Mom", "quote": "remind me in two hours"}
-    pasted = {"at": (now + timedelta(hours=2)).isoformat(), "message": "wire money", "quote": "remind me to wire"}
-    past = {"at": (now - timedelta(hours=2)).isoformat(), "message": "late", "quote": "remind me in two hours"}
+    ok = {"when": mins(120), "message": "call Mom", "quote": "remind me in two hours"}
+    pasted = {"when": mins(120), "message": "wire money", "quote": "remind me to wire"}
+    past = {"when": {**mins(0), "in_minutes": None, "day": "today", "time": "00:00"}, "message": "late",
+            "quote": "remind me in two hours"}
     install(daemon, [json.dumps({"kind": "reply", "text": "Will do.", "plan": None, "remember": [],
                                  "timers": [ok, pasted, past]})])
     evs = chat(daemon, 'remind me in two hours to call Mom ```remind me to wire money```')
@@ -122,25 +125,29 @@ def test_reminders_from_chat_need_the_owners_own_words_and_a_future_time(daemon:
     assert [t.message for t in run(daemon, daemon.daemon.timers.pending)] == ["call Mom"]
 
 
+def mins(n: float) -> dict[str, Any]:
+    return {"in_minutes": n, "in_days": None, "day": None, "date": None, "time": None}
+
+
 # ---------- tools ----------
 
 def test_time_tools_set_reminders_and_sleep_without_counting_as_stuck(daemon: RunningDaemon) -> None:
     setup_notes(daemon)
     g = task(daemon, "tt", Identity.OWNER, {"time"}, {"research"})
-    at = (daemon.daemon.clock.now() + timedelta(hours=1)).isoformat()
-    r = call(daemon, g, "time.remind_at", at=at, message="check the oven")
+    r = call(daemon, g, "time.remind_at", in_minutes=60, message="check the oven")
     assert not r["is_error"] and r["content"]["timer"].startswith("tm-")
     assert not call(daemon, g, "time.set_timer", minutes=20, message="tea")["is_error"]
-    assert call(daemon, g, "time.remind_at", at="2020-01-01T00:00:00+00:00", message="x")["is_error"]
-    assert call(daemon, g, "time.sleep_until", at=(daemon.daemon.clock.now() + timedelta(days=1)).isoformat())["is_error"]
+    assert call(daemon, g, "time.remind_at", date="2020-01-01", message="x")["is_error"]           # in the past
+    assert call(daemon, g, "time.remind_at", message="x")["is_error"]                              # no time at all
+    assert call(daemon, g, "time.sleep_until", in_days=1)["is_error"]                              # past the limit
     waits: list[bool] = []
     sup = daemon.daemon.supervisor
     real = sup.activity.waiting
     sup.activity.waiting = lambda w, on: waits.append(on) or real(w, on)   # type: ignore[method-assign]
-    wake = (daemon.daemon.clock.now() + timedelta(minutes=5)).isoformat()
+    wake = 5
 
     async def sleep_then_fire() -> dict[str, Any]:
-        job = asyncio.create_task(daemon.daemon.gateway.call(g, "time.sleep_until", {"at": wake}))
+        job = asyncio.create_task(daemon.daemon.gateway.call(g, "time.sleep_until", {"in_minutes": wake}))
         await asyncio.sleep(0.05)
         daemon.daemon.clock.advance(301)
         await daemon.daemon.timers.tick()
@@ -261,3 +268,64 @@ def test_ferb_device_shows_the_profile_with_current_driver_status(tmp_path: Path
     assert device(home, "show", no_daemon, out) == 0
     text = out.getvalue()
     assert "apps" in text and "not built yet" not in text
+
+
+# ---------- when: the model says what the owner said, code computes the time ----------
+
+IST, NY = ZoneInfo("Asia/Kolkata"), ZoneInfo("America/New_York")
+
+
+def w(**k: Any) -> When:
+    return When(**k)
+
+
+def local(at: datetime, zone: ZoneInfo) -> str:
+    return f"{at.astimezone(zone):%a %d %b %Y %H:%M %Z}"
+
+
+def test_next_friday_and_weekdays() -> None:
+    wed = datetime(2026, 9, 30, 12, 0, tzinfo=IST)                                   # Wednesday
+    assert local(resolve(w(day="friday"), wed, IST), IST) == "Fri 02 Oct 2026 09:00 IST"
+    assert local(resolve(w(day="next_friday", time="17:00"), wed, IST), IST) == "Fri 09 Oct 2026 17:00 IST"
+    fri = datetime(2026, 10, 2, 10, 0, tzinfo=IST)
+    assert local(resolve(w(day="friday", time="17:00"), fri, IST), IST) == "Fri 02 Oct 2026 17:00 IST"  # still ahead
+    assert local(resolve(w(day="friday", time="09:00"), fri, IST), IST) == "Fri 09 Oct 2026 09:00 IST"  # gone: next
+    assert local(resolve(w(day="next_friday"), fri, IST), IST) == "Fri 09 Oct 2026 09:00 IST"
+    sun = datetime(2026, 10, 4, 10, 0, tzinfo=IST)
+    assert local(resolve(w(day="next_monday"), sun, IST), IST) == "Mon 05 Oct 2026 09:00 IST"
+    assert local(resolve(w(time="08:00"), wed, IST), IST) == "Thu 01 Oct 2026 08:00 IST"   # a time alone: next one
+
+
+def test_end_of_month_and_dates() -> None:
+    sep30 = datetime(2026, 9, 30, 12, 0, tzinfo=IST)
+    assert local(resolve(w(day="tomorrow"), sep30, IST), IST) == "Thu 01 Oct 2026 09:00 IST"
+    assert local(resolve(w(in_days=2), sep30, IST), IST) == "Fri 02 Oct 2026 09:00 IST"
+    assert local(resolve(w(day="end_of_month", time="17:00"), sep30, IST), IST) == "Wed 30 Sep 2026 17:00 IST"
+    assert local(resolve(w(day="end_of_month", time="09:00"), sep30, IST), IST) == "Sat 31 Oct 2026 09:00 IST"
+    leap = datetime(2028, 2, 10, 12, 0, tzinfo=IST)
+    assert local(resolve(w(day="end_of_month"), leap, IST), IST) == "Tue 29 Feb 2028 09:00 IST"
+    assert local(resolve(w(date="10-31", time="18:30"), sep30, IST), IST) == "Sat 31 Oct 2026 18:30 IST"
+    assert local(resolve(w(date="01-15"), sep30, IST), IST) == "Fri 15 Jan 2027 09:00 IST"      # the next one
+    for bad in (w(date="02-30"), w(date="2026-01-01"), w(), w(time="25:00"), w(in_minutes=-5),
+                w(date="2028-01-01")):                                              # impossible, past, none, > 1 year
+        with pytest.raises(WhenError):
+            resolve(bad, sep30, IST)
+
+
+def test_across_daylight_saving_changes() -> None:
+    before_fall = datetime(2026, 10, 31, 12, 0, tzinfo=NY)                          # EDT; clocks go back 1 Nov
+    assert local(resolve(w(day="tomorrow", time="09:00"), before_fall, NY), NY) == "Sun 01 Nov 2026 09:00 EST"
+    assert local(resolve(w(in_minutes=24 * 60), before_fall, NY), NY) == "Sun 01 Nov 2026 11:00 EST"  # exact span
+    before_spring = datetime(2026, 3, 7, 12, 0, tzinfo=NY)                          # EST; clocks go forward 8 Mar
+    assert local(resolve(w(day="tomorrow", time="09:00"), before_spring, NY), NY) == "Sun 08 Mar 2026 09:00 EDT"
+    assert local(resolve(w(day="tomorrow", time="02:30"), before_spring, NY), NY) == "Sun 08 Mar 2026 03:30 EDT"
+
+
+def test_the_confirmation_shows_the_time_code_computed(daemon: RunningDaemon) -> None:
+    when = {**mins(0), "in_minutes": None, "day": "tomorrow", "time": "17:00"}
+    install(daemon, [json.dumps({"kind": "reply", "text": "Will do.", "plan": None, "remember": [],
+                                 "timers": [{"when": when, "message": "call Mom", "quote": "tomorrow at 5 pm"}]})])
+    notes = [e["text"] for e in chat(daemon, "remind me tomorrow at 5 pm to call Mom") if e["type"] == "timer"]
+    expected = resolve(When(**when), daemon.daemon.clock.now())
+    assert notes == [f"⏰ reminder {run(daemon, daemon.daemon.timers.pending)[0].id} set for "
+                     f"{expected.astimezone():%a %d %b %H:%M}: call Mom"]

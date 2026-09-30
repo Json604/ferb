@@ -850,9 +850,8 @@ class Daemon:
         if _wants_me(spec.intent.recipients) and self._owner_email() is None:
             return "What email address should I use for you? Tell me, then ask me to schedule it again."
         try:
-            first = datetime.fromisoformat(spec.first_run)
-            if first.tzinfo is None:
-                raise ScheduleError("the first run needs a time zone")
+            from ferb.clock.when import resolve
+            first = resolve(spec.when, self.clock.now())                        # code computes the date, not the model
             rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes)
             me = self._owner_email()
             bundles = set(resolve_apps(spec.intent.apps, self._installed_apps(), own_words)[0].values())

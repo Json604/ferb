@@ -87,3 +87,12 @@ async def _every_minute(d: RunningDaemon) -> None:
     rule = json.loads(r["rule_json"])
     rule["every_minutes"] = 1
     db.conn.execute("UPDATE schedules SET rule_json = ? WHERE id = ?", (json.dumps(rule), r["id"]))   # type: ignore[union-attr]
+
+
+def test_the_model_says_when_and_code_computes_the_date(codex: RunningDaemon) -> None:
+    """Structured times: "next Friday at 5 pm" -> the date FERB computed, shown in the confirmation."""
+    from ferb.clock.when import When, resolve
+    evs = chat(codex, "remind me next friday at 5 pm to call mom")
+    expected = resolve(When(day="next_friday", time="17:00"), codex.daemon.clock.now())
+    notes = [e["text"] for e in evs if e["type"] == "timer"]
+    assert len(notes) == 1 and f"{expected.astimezone():%a %d %b %H:%M}" in notes[0], (notes, evs)

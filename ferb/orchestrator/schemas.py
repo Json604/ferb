@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ferb.clock.when import WHEN_SCHEMA, When
 from ferb.policy.intent import IMPLIES
 from ferb.policy.rules import SCOPES_BY_IDENTITY, Kind
 
@@ -69,9 +70,9 @@ REMEMBER_SCHEMA = _obj({
     "subject": {"type": "string"}, "key": {"type": "string"}, "content": {"type": "string"},
     "quote": {"type": "string"},
 })
-TIMER_SCHEMA = _obj({"at": {"type": "string"}, "message": {"type": "string"}, "quote": {"type": "string"}})
+TIMER_SCHEMA = _obj({"when": WHEN_SCHEMA, "message": {"type": "string"}, "quote": {"type": "string"}})
 SCHEDULE_SCHEMA = _obj({
-    "request": {"type": "string"}, "first_run": {"type": "string"},
+    "request": {"type": "string"}, "when": WHEN_SCHEMA,
     "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekly", "every"]},
     "weekday": _nullable("string"), "every_minutes": _nullable("integer"), "quote": {"type": "string"},
     "intent": INTENT_SCHEMA,
@@ -186,7 +187,7 @@ class SupervisorOutcome(BaseModel):
 class ScheduleRequest(BaseModel):
     """A task to run later or repeatedly: in the owner's words, with the intent recorded now (build step 15)."""
     request: str
-    first_run: str
+    when: When                   # the first run, as the owner said it; code computes the time
     repeat: Literal["none", "daily", "weekdays", "weekly", "every"]
     weekday: str | None = None
     every_minutes: int | None = None
@@ -201,8 +202,9 @@ class ScheduleChange(BaseModel):
 
 
 class TimerRequest(BaseModel):
-    """A reminder the owner asked for: when (ISO 8601 with offset), what to say, the owner's exact words."""
-    at: str
+    """A reminder the owner asked for: when (as the owner said it; code computes the time), what to say, the owner's
+    exact words."""
+    when: When
     message: str
     quote: str
 

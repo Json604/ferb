@@ -24,7 +24,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from pydantic import ValidationError
 
 from ferb.act.fs.files import normalize_path
-from ferb.clock import context
+from ferb.clock import context, when
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.types import Identity, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
@@ -200,13 +200,11 @@ class Supervisor(WorkerRuns):
         for it in items:
             quote = " ".join(str(it.quote).lower().split())
             try:
-                at = datetime.fromisoformat(it.at)
                 if len(quote) < 3 or quote not in norm:
                     raise ValueError("the reminder isn't in the owner's own words")
-                if at.tzinfo is None or at <= self.clock.now():
-                    raise ValueError("the time is in the past or has no time zone")
+                at = when.resolve(it.when, self.clock.now())                     # code computes the date, not the model
                 t = self.timers.add("reminder", at, it.message, request_id=request_id)
-            except ValueError as e:
+            except ValueError as e:                                             # WhenError is a ValueError
                 self.journal.append("timer.refused", {"why": str(e)})
                 continue
             out.append(f"⏰ reminder {t.id} set for {t.fire_at.astimezone():%a %d %b %H:%M}: {t.message}")

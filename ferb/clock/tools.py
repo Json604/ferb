@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field
 
+from ferb.clock.when import WHEN_HELP, When, WhenError, resolve
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
 
@@ -42,19 +43,16 @@ class _Base:
 
 class TimeRemindAt(_Base):
     name = "time.remind_at"
-    description = "Remind the owner at a time (ISO 8601 with offset, from the time header). It only reminds."
+    description = "Remind the owner at a time. It only reminds. " + WHEN_HELP
 
-    class Input(BaseModel):
-        at: str
+    class Input(When):
         message: str = Field(max_length=300)
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
-            at = datetime.fromisoformat(str(getattr(args, "at")))
-        except ValueError:
-            return _err("at must be ISO 8601, e.g. 2026-10-01T17:00:00+05:30")
-        if at.tzinfo is None or at <= self.now():
-            return _err("the time must be in the future, with a time zone offset")
+            at = resolve(When.model_validate(args.model_dump(include=set(When.model_fields))), self.now())
+        except WhenError as e:
+            return _err(str(e))
         return self._add(at, str(getattr(args, "message")), ctx)
 
 
@@ -73,11 +71,11 @@ class TimeSetTimer(_Base):
 
 class TimeSleepUntil(_Base):
     name = "time.sleep_until"
-    description = ("Pause this task until a time (ISO 8601 with offset), e.g. to wait for something to be ready. "
-                   "Within the task's time limit; waiting doesn't count as being stuck.")
+    description = ("Pause this task until a time, e.g. to wait for something to be ready. Within the task's time "
+                   "limit; waiting doesn't count as being stuck. " + WHEN_HELP)
 
-    class Input(BaseModel):
-        at: str
+    class Input(When):
+        pass
 
     def __init__(self, timers: Callable[[], Any], now: Callable[[], datetime],
                  sleep: Callable[[], Any], limit: Callable[[str], datetime | None]) -> None:
@@ -89,11 +87,9 @@ class TimeSleepUntil(_Base):
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
-            at = datetime.fromisoformat(str(getattr(args, "at")))
-        except ValueError:
-            return _err("at must be ISO 8601 with an offset")
-        if at.tzinfo is None or at <= self.now():
-            return _err("the time must be in the future, with a time zone offset")
+            at = resolve(When.model_validate(args.model_dump(include=set(When.model_fields))), self.now())
+        except WhenError as e:
+            return _err(str(e))
         limit = self.limit(ctx.task_id)
         if limit is not None and at >= limit:
             return _err(f"that's past this task's time limit ({limit.astimezone():%H:%M})")

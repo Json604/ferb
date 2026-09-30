@@ -15,6 +15,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ferb.clock.when import local_zone
 from ferb.core.interfaces import Clock, IdSource
 from ferb.store.db import Database
 
@@ -27,22 +28,6 @@ DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sun
 
 class ScheduleError(ValueError):
     pass
-
-
-def local_zone() -> ZoneInfo:
-    import os
-    import time as _t
-    name = os.environ.get("TZ")
-    if not name:
-        try:
-            link = os.readlink("/etc/localtime")
-            name = link.split("zoneinfo/", 1)[1]
-        except (OSError, IndexError):
-            name = None
-    try:
-        return ZoneInfo(name) if name else ZoneInfo(_t.tzname[0])
-    except Exception:
-        return ZoneInfo("UTC")
 
 
 @dataclass(frozen=True)

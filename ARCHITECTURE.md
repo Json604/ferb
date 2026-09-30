@@ -235,6 +235,7 @@ ferb/
     durations.py        measured task durations (per route + role, median / p90) for the time header
     timers.py           durable timers (SQLite): claim → deliver → acknowledge, overdue after sleep / restart; tools
                         time.set_timer / time.remind_at / time.sleep_until
+    when.py             the owner's "when" (tomorrow at 5, next Friday, in 2 hours) -> an absolute time, in code
   memory/
     journal.py          append-only episodic log
     items.py            distilled memory items (source of truth): origin rules, versions, conflicts, forget = purge
@@ -1056,6 +1057,14 @@ Earlier sketch of the questions (kept for reference):
   - A timer never starts work on its own; scheduled and recurring tasks are build step 15.
   Delivery: due → claimed (row lock) → delivered → acknowledged by its consumer. A claimed-but-unacknowledged timer
   is re-delivered after restart with the same timer id; consumers ignore ids they already handled.
+- **Code computes dates, never the model** (owner decision, 2026-09-30). For reminders (chat and `time.remind_at`),
+  schedules' first runs and `time.sleep_until`, the model outputs only what the owner said — `when`: in_minutes,
+  in_days, day (today / tomorrow / day_after_tomorrow / end_of_month / a weekday / `next_<weekday>` = that day of
+  next week), date (`MM-DD` or `YYYY-MM-DD`), time (`HH:MM` local) — and `clock/when.py` computes the absolute time
+  from the clock in the Mac's time zone: a span ("in 2 hours") is exact; a wall time ("tomorrow at 9") stays 09:00
+  across a daylight-saving change; a time skipped by the change moves forward by the gap; a day without a time is
+  09:00; a weekday or time already gone today means the next one. The confirmation line shows the computed date and
+  time ("⏰ reminder … set for Fri 09 Oct 17:00").
 - Elapsed time, timeouts, heartbeats and guards use `Clock.monotonic()`; timestamps and schedules use `Clock.now()`.
 - `FakeClock` in all tests.
 
