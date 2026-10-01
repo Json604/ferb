@@ -513,7 +513,8 @@ def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     """Push-to-talk (section 20.1): build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
     survive rebuilds), record its signature for the daemon's check, ask for Microphone and Speech Recognition once,
     turn push-to-talk on. The daemon is not restarted."""
-    found = run(["security", "find-identity", "-v", "-p", "codesigning"], capture_output=True, text=True)
+    # not `-v`: that lists only certificates macOS trusts, and a self-made one never is (it still signs fine)
+    found = run(["security", "find-identity", "-p", "codesigning"], capture_output=True, text=True)
     if CERTIFICATE not in (found.stdout or ""):
         env.say(f"The signing certificate \"{CERTIFICATE}\" isn't in your login keychain. Create it in Keychain Access →")
         env.say("Certificate Assistant → Create a Certificate (name it exactly that, type Code Signing), then run this again.")
