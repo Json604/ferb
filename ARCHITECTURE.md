@@ -1460,13 +1460,20 @@ nothing in Block 1 blocks it.
   - System audio: a global tap (FERB's own process excluded) and a per-app tap (Apple Music) both captured real signal
     through the owner's Bluetooth headphones; Apple Music's DRM playback came through (not silent). With nothing
     playing the tap delivers no frames at all (so "silent" = no frames, not zeros). The system-audio permission survived
-    an ad-hoc rebuild. AirPods: not tested (the owner's headphones were the route).
+    an ad-hoc rebuild. The MacBook speakers route was also captured (it's the digital mix, not sound through a mic, so
+    it's clean whatever the output). AirPods: not tested (the owner's headphones were the route).
   - Microphone: `AVAudioEngine` delivered **no buffers** in a background (`LSUIElement`) app, with permission granted;
     a Core Audio IOProc on the input device works — FERB captures that way. The owner's Bluetooth headset mic gave
     near-silence (peak 0.0005) while the built-in mic gave real signal: prefer the built-in mic when the default input
     is a Bluetooth headset (configurable).
-  - Speech: on-device `SFSpeechRecognizer` is available; a spoken sentence transcribed exactly in 0.23 s, offline.
-    Live path (IOProc → on-device speech): pending the owner's part 3.
+  - Speech: on-device `SFSpeechRecognizer` is available; a recorded sentence transcribed exactly in 0.23 s, offline.
+    Live path (IOProc → buffer request, on-device), owner's voice, built-in mic: "… what's the weather in Delhi
+    tomorrow" exact both times, text ready 0.02 s after release; the name "FERB" is misheard ("For", "Siri") — fine for
+    push-to-talk (the key is the trigger), a wake word will need its own detector. Two traps found and fixed: the
+    recognizer often returns an **empty final result** after `endAudio()` though its partial results had the words —
+    keep the last partial when the final is empty; and load the speech model before listening (≈0.15 s, at launch in
+    FERB.app). Never open a Bluetooth headset's mic (it drops the headset into low-quality call mode): choose the
+    input by reading device properties only, built-in mic when the default input is Bluetooth (owner rule).
   - Talk key, from a listen-only event tap: hold Right Option → "send" (1 s hold), taps of 0.04–0.08 s ignored, a hold
     with C → "shortcut: discard"; each decision within 1 ms of the key event.
   - Signing: ad-hoc signed, a real rebuild (new CDHash) reset microphone + speech permissions to "not asked"; signed

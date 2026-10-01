@@ -178,8 +178,22 @@ func transcribeFile(_ path: String) {     // on-device speech on a recorded sent
     _ = sem.wait(timeout: .now() + 60); _ = task
 }
 
+func warmUp(_ rec: SFSpeechRecognizer) -> Double {   // load the on-device model before listening (FERB.app: at launch)
+    let t0 = Date()
+    let req = SFSpeechAudioBufferRecognitionRequest()
+    req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+    let sem = DispatchSemaphore(value: 0)
+    let task = rec.recognitionTask(with: req) { r, err in if (r?.isFinal ?? false) || err != nil { sem.signal() } }
+    if let f = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1), let b = AVAudioPCMBuffer(pcmFormat: f, frameCapacity: 8000) {
+        b.frameLength = 8000; req.append(b) }                          // half a second of silence
+    req.endAudio()
+    _ = sem.wait(timeout: .now() + 10); _ = task
+    return Date().timeIntervalSince(t0)
+}
+
 func mic2(seconds: Double, builtin: Bool) {   // the live path FERB would use: IOProc -> on-device speech
     guard let rec = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else { return }
+    let warm = warmUp(rec)
     var dev = prop(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultInputDevice, AudioObjectID(0)).1
     if builtin, let b = builtInMic() { dev = b }
     let (_, nameRef) = prop(dev, kAudioObjectPropertyName, "" as CFString)
@@ -189,6 +203,9 @@ func mic2(seconds: Double, builtin: Bool) {   // the live path FERB would use: I
     guard let fmt = AVAudioFormat(standardFormatWithSampleRate: asbd.mSampleRate, channels: 1) else { return }
     let req = SFSpeechAudioBufferRecognitionRequest()
     req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+    req.shouldReportPartialResults = true
+    req.contextualStrings = ["FERB"]                     // the assistant's name, so it isn't heard as "Siri"
+    let appendQ = DispatchQueue(label: "append")
     let chans = Int(max(1, asbd.mChannelsPerFrame))
     let meter = Meter()
     var procID: AudioDeviceIOProcID?
@@ -201,22 +218,63 @@ func mic2(seconds: Double, builtin: Bool) {   // the live path FERB would use: I
         let src = p.bindMemory(to: Float.self, capacity: n * chans)
         for i in 0..<n { let v = src[i * chans]; pcm.floatChannelData![0][i] = v; meter.sumSq += Double(v*v); meter.peak = max(meter.peak, abs(v)) }
         meter.frames += n
-        req.append(pcm)
+        appendQ.async { req.append(pcm) }                  // off the real-time audio thread
     }
     let sem = DispatchSemaphore(value: 0)
     var released = Date()
+    var partials = 0, lastPartial = ""
     let task = rec.recognitionTask(with: req) { r, err in
-        if let r = r, r.isFinal { emit(["mode": "mic2", "text": r.bestTranscription.formattedString, "input_device": nameRef as String,
+        if let r = r, !r.isFinal { partials += 1; lastPartial = r.bestTranscription.formattedString }
+        if let r = r, r.isFinal { let f = r.bestTranscription.formattedString
+                                  let t = f.isEmpty ? lastPartial : f            // an empty final keeps what was heard
+                                  emit(["mode": "mic2", "frames": meter.frames, "segments": r.bestTranscription.segments.count, "partials": partials, "last_partial": lastPartial, "text": CommandLine.arguments.contains("notext") ? "<\(t.count) chars>" : t, "input_device": nameRef as String,
                                        "after_release_s": Date().timeIntervalSince(released), "peak": Double(meter.peak)]); sem.signal() }
         else if let err = err { emit(["mode": "mic2", "error": err.localizedDescription, "input_device": nameRef as String, "peak": Double(meter.peak)]); sem.signal() }
     }
-    AudioDeviceStart(dev, procID)
-    Thread.sleep(forTimeInterval: seconds)
+    let started = AudioDeviceStart(dev, procID)
+    emit(["mode": "mic2-start", "warm_up_s": warm, "status": Int(started), "input_device": nameRef as String, "format_rate": asbd.mSampleRate,
+          "channels": Int(asbd.mChannelsPerFrame), "format_flags": Int(asbd.mFormatFlags), "bits": Int(asbd.mBitsPerChannel)])
+    var lastFrames = 0, lastSq = 0.0
+    for _ in 0..<Int(seconds * 2) {                      // a live meter every 0.5 s: frames arriving and their level
+        Thread.sleep(forTimeInterval: 0.5)
+        let f = meter.frames, sq = meter.sumSq
+        let n = f - lastFrames
+        emit(["mode": "mic2-level", "frames_total": f, "frames_new": n, "rms": n > 0 ? sqrt((sq - lastSq) / Double(n)) : 0])
+        lastFrames = f; lastSq = sq
+    }
     AudioDeviceStop(dev, procID)
     released = Date()
+    appendQ.sync { req.endAudio() }
+    if sem.wait(timeout: .now() + 30) == .timedOut {
+        emit(["mode": "mic2", "error": "no result within 30 s after release", "input_device": nameRef as String,
+              "frames": meter.frames, "peak": Double(meter.peak)]) }
+    _ = task
+    if let p = procID { AudioDeviceDestroyIOProcID(dev, p) }
+}
+
+func bufferFile(_ path: String) {      // the live path's buffer request, fed from a known recording at real time
+    guard let rec = SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
+          let file = try? AVAudioFile(forReading: URL(fileURLWithPath: path)) else { emit(["mode": "buffer-file", "error": "open"]); return }
+    let req = SFSpeechAudioBufferRecognitionRequest()
+    req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+    let sem = DispatchSemaphore(value: 0)
+    let fmt = file.processingFormat
+    var frames = 0
+    let task = rec.recognitionTask(with: req) { r, err in
+        if let r = r, r.isFinal { emit(["mode": "buffer-file", "text": r.bestTranscription.formattedString, "frames": frames,
+                                       "rate": fmt.sampleRate, "channels": Int(fmt.channelCount)]); sem.signal() }
+        else if let err = err { emit(["mode": "buffer-file", "error": err.localizedDescription]); sem.signal() }
+    }
+    while true {
+        guard let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 1024) else { break }
+        do { try file.read(into: buf) } catch { break }
+        if buf.frameLength == 0 { break }
+        frames += Int(buf.frameLength)
+        req.append(buf)
+        Thread.sleep(forTimeInterval: Double(buf.frameLength) / fmt.sampleRate)
+    }
     req.endAudio()
     _ = sem.wait(timeout: .now() + 30); _ = task
-    if let p = procID { AudioDeviceDestroyIOProcID(dev, p) }
 }
 
 func request() {                       // ask for both permissions, record nothing
@@ -271,6 +329,7 @@ DispatchQueue.global().async {
     case "mic": mic(seconds: Double(args.dropFirst().first ?? "5") ?? 5)
     case "request": request()
     case "file": transcribeFile(args[1])
+    case "buffer-file": bufferFile(args[1])
     case "mic2": mic2(seconds: Double(args.count > 1 ? args[1] : "6") ?? 6, builtin: args.contains("builtin"))
     case "io-level": ioLevel(seconds: Double(args.count > 1 ? args[1] : "3") ?? 3, builtin: args.contains("builtin"))
     case "level": level(seconds: Double(args.count > 1 ? args[1] : "3") ?? 3, builtin: args.contains("builtin"))
