@@ -1272,7 +1272,7 @@ Build step 11 specifics (owner decisions):
 6. pyobjc: frontmost app, window title, AX tree of Chrome with and without `AXManualAccessibility`; TCC status checks.
 7. *Skipped — Safari control deferred to a later block.* Safari extension handler → daemon socket from inside the app sandbox (may require the socket in a shared app-group container).
 8. launchd agent start/stop + socket from CLI.
-9. *Skipped — deferred to the voice block.* System audio (timeboxed, ~1 hour, throwaway script — not FERB code): with the `catap` Python package, record 10 s
+9. *Run 2026-10-01 (owner's voice block).* System audio (timeboxed, ~1 hour, throwaway script — not FERB code): with the `catap` Python package, record 10 s
    of one app (browser playing YouTube) and of the whole system mix, on speakers, wired headphones and AirPods.
    Confirm the Audio Capture prompt appears, that denial yields silence (so `doctor` must check for real signal),
    and whether DRM playback (Apple Music, Netflix in Safari) comes through silent. Record results in section 20.
@@ -1285,6 +1285,12 @@ Build step 11 specifics (owner decisions):
 14. Owner-input detection latency (how fast GUI actions yield when the owner touches the mouse).
 15. TCC grant on a stable launcher vs the interpreter (build step 3).
 16. FERB identity through the extension in its original Chrome profile: Google session survives 30+ min of use.
+17. Voice input (owner-added 2026-10-01; throwaway): a minimal background app bundle (no windows, Dock icon or menu-bar
+    item; `LSUIElement`) built with `swiftc` and ad-hoc signed — the microphone prompt and capture; on-device speech
+    recognition of a spoken sentence (latency, accuracy, works offline?); the push-to-talk key from the daemon's
+    existing event tap (hold Right Option to talk, release to send; taps under ~0.3 s ignored; another key pressed while
+    it's down = a shortcut, the recording discarded); and whether permissions survive a rebuild ad-hoc signed vs signed
+    with a local self-signed certificate (created only if needed — owner approved).
 
 ## 18. Build order inside Block 1
 
@@ -1450,7 +1456,23 @@ nothing in Block 1 blocks it.
 - **Setup/doctor:** Audio Capture permission added when built; `doctor` verifies a non-silent signal, not just tap creation.
 - **Shared with voice:** the same audio service will carry microphone input; the system-audio tap is what lets FERB
   separate its own output and background media from the owner's voice.
-- **Spike results (fill in after spike 9, deferred to the voice block):** route coverage, permission behavior, DRM behavior.
+- **Spike results (spikes 9 + 17, 2026-10-01; `spikes/17_voice_audio`):**
+  - System audio: a global tap (FERB's own process excluded) and a per-app tap (Apple Music) both captured real signal
+    through the owner's Bluetooth headphones; Apple Music's DRM playback came through (not silent). With nothing
+    playing the tap delivers no frames at all (so "silent" = no frames, not zeros). The system-audio permission survived
+    an ad-hoc rebuild. AirPods: not tested (the owner's headphones were the route).
+  - Microphone: `AVAudioEngine` delivered **no buffers** in a background (`LSUIElement`) app, with permission granted;
+    a Core Audio IOProc on the input device works — FERB captures that way. The owner's Bluetooth headset mic gave
+    near-silence (peak 0.0005) while the built-in mic gave real signal: prefer the built-in mic when the default input
+    is a Bluetooth headset (configurable).
+  - Speech: on-device `SFSpeechRecognizer` is available; a spoken sentence transcribed exactly in 0.23 s, offline.
+    Live path (IOProc → on-device speech): pending the owner's part 3.
+  - Talk key, from a listen-only event tap: hold Right Option → "send" (1 s hold), taps of 0.04–0.08 s ignored, a hold
+    with C → "shortcut: discard"; each decision within 1 ms of the key event.
+  - Signing: ad-hoc signed, a real rebuild (new CDHash) reset microphone + speech permissions to "not asked"; signed
+    with a local self-signed certificate ("FERB Local Code Signing", login Keychain, created with the owner's approval)
+    the designated requirement is the bundle id + certificate leaf, and permissions survived a rebuild with a new CDHash.
+    FERB.app is signed with that certificate.
 
 ## 21. Safety invariant tests (must pass before owner-account actions are enabled)
 
