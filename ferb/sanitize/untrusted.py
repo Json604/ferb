@@ -100,7 +100,24 @@ def wrap_untrusted(text: str) -> str:
     return f'<{tag} id="{uid}">\n{body}\n</{tag} id="{uid}">'
 
 
+HOME_FOLDERS = {"~", "users", "desktop", "documents", "downloads", "home", "library", "icloud drive"}
+
+
 def targets_in_own_words(targets: list[str], own_words: str) -> list[str]:
-    """Targets that do NOT appear in the owner's own words (case-insensitive). Empty list = all present."""
+    """Targets that do NOT appear in the owner's own words (case-insensitive). Empty list = all present. A path counts
+    when its folder / file names are all in their words, however written: "clg/uni folder in desktop" names
+    Desktop/clg/uni (owner's report 2026-10-01) — the usual home folders (Desktop, Documents…) may be implied."""
     lw = own_words.lower()
-    return [t for t in targets if t.strip() and t.strip().lower() not in lw]
+    words = set(re.findall(r"[\w.-]+", lw))
+    missing = []
+    for t in targets:
+        s = t.strip().lower()
+        if not s or s in lw:
+            continue
+        if "/" in s:
+            parts = [p for p in re.split(r"[/\\]+", s) if p and p not in HOME_FOLDERS
+                     and not re.fullmatch(r"\.{1,2}", p)]
+            if parts and all(p in words or p in lw for p in parts):
+                continue
+        missing.append(t)
+    return missing

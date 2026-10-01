@@ -88,3 +88,25 @@ def test_pairing_walks_the_owner_through_installing_the_extension_then_pairs() -
     assert "isn't installed in Chrome “scaler”" in text and "Load unpacked" in text
     assert "/repo/extensions/chromium" in text and "Paired chrome profile “scaler”" in text
     assert c.calls == ["browsers.pair", "browsers.installed", "browsers.installed", "browsers.pair"]
+
+
+def test_a_folder_named_in_the_owners_own_way_counts() -> None:
+    """Owner's report (2026-10-01): "clg/uni folder in desktop" was asked about three times because the plan wrote
+    Desktop/clg/uni. A path counts when its folder names are all in the owner's words (home folders may be implied)."""
+    from ferb.sanitize.untrusted import targets_in_own_words
+    said = "do that assignment in clg/uni fodler in desktop"
+    assert targets_in_own_words(["Desktop/clg/uni", "~/Desktop/clg/uni", "clg/uni"], said) == []
+    assert targets_in_own_words(["Documents/clg/uni"], "the uni folder inside clg") == []
+    assert targets_in_own_words(["Desktop/clg/secret"], said) == ["Desktop/clg/secret"]     # never named: refused
+    assert targets_in_own_words(["~/.ssh/id_rsa"], said) == ["~/.ssh/id_rsa"]
+    assert targets_in_own_words(["Desktop/../clg"], "the clg folder") == []                  # ".." isn't a name
+
+
+def test_naming_a_profile_counts_as_asking_for_their_own_browser(bd: Any) -> None:     # noqa: F811
+    d, launched = bd
+    pair(d, launched, "Work")
+
+    async def owner_browser(words: str) -> bool:
+        return bool(d.daemon._owner_browser(words))
+    assert d.run(owner_browser("open my Personal gmail account in chrome and search it"))
+    assert not d.run(owner_browser("search the web for budgeting tips"))

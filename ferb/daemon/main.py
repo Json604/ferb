@@ -1404,6 +1404,8 @@ class Daemon:
         """The owner's words point at their own browser (a paired profile's name counts: "in my Work profile")."""
         from ferb.policy.services import owner_browser_named
         names = [p.display_name for p in self._profiles()] if self.pairings else []
+        if self._named_browser(own_words) is not None:     # "my scaler gmail in chrome": a profile / browser of theirs
+            return True
         return owner_browser_named(own_words, names)
 
     def _owner_words(self, request_id: str, name: str) -> str:

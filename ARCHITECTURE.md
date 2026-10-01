@@ -981,7 +981,9 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   **Pasted or quoted content in the owner's chat message** (terminal bracketed paste, fenced code blocks, `>`
   quotes) is wrapped as untrusted data — tags carrying a random id — before the supervisor sees it; the intent is
   derived only from the owner's own words around it, and code checks that every intent target (recipient, site,
-  account, path) appears in those words. When the whole message is a paste — or a paste with only a greeting typed
+  account, path) appears in those words. A path counts when each of its folder / file names is in their words, however
+  written ("clg/uni folder in desktop" names Desktop/clg/uni; the usual home folders may be implied — owner's report
+  2026-10-01). When the whole message is a paste — or a paste with only a greeting typed
   around it ("hey " + the paste; owner's report 2026-10-01) — `ferb chat` asks, in the owner's own terminal, whether
   it's their request; a yes sends it as their words.
   **Misspelled names (owner decision 2026-10-01):** before planning, a word in the owner's own words that is one or
