@@ -28,7 +28,10 @@ to fix it.
 | Continuity across chats and restarts | `what were you doing earlier? did you finish?` | – | Verified (stop + new chat) | Sees the last day of conversation and tasks |
 | Tasks outlive the chat window | close chat mid-task, reopen later | – | Offline | Finished answers show once; a macOS notification goes out when chat is closed |
 | Stop a task | Ctrl-C while it works | – | Verified (stop through the same call) | A send held for undo is cancelled too |
-| Pasted text is data, not instructions | paste an email, then `summarize this` | – | Offline | Targets (recipients, sites) must be in your own words, not the paste |
+| Pasted text is data, not instructions | paste an email, then `summarize this` | – | Offline | Targets (recipients, sites) must be in your own words, not the paste; a whole-message paste (or "hey" + a paste) asks whether it's your request; `[policy] pasted_text_is_data = false` turns the rule off |
+| Misspelled app names | `check if ive got any salck messages` | – | Offline | One close app → used and said ("Using Slack, from 'salck'"); several → "Did you mean …?" |
+| See what a task did | `ferb trace` / `ferb trace a1b2c3d4` | – | Verified (rendered a real run, including a driven Claude Code session) | Latest task by default; `--full` shows everything |
+| Speak replies | `ferb chat --speak` | – | Verified (owner use) | The Mac's built-in voice (`say`) |
 | Inline approvals | a request in `careful` mode | – | Verified (one question per target and action type) | Unanswered questions expire after 10 min (1 h for scheduled runs) |
 | Plain wording, `--verbose` for internals | `ferb chat --verbose` | – | Offline | – |
 
@@ -38,26 +41,34 @@ to fix it.
 |---|---|---|---|---|
 | List apps, read a window | `what's open in Finder right now?` | Mac | Verified (Finder snapshot) | Password fields are never read |
 | See an app window with its controls numbered | (automatic in app work) | Mac, Screen | Offline (mark placement verified on a real window) | Not for browsers yet; no image for excluded apps or password fields |
-| Operate an app through Accessibility | `in TextEdit, type 'hello' in the open document` | Mac | Offline (real input, driver level: verified) | Falls back to real mouse/keyboard, which pauses while you use yours |
+| Read an app wherever it is | `open whatsapp and tell what is the topmost chat message` | Mac | Verified (owner's run: WhatsApp read on another desktop, no switch) | Chat rows include their latest message preview |
+| Operate an app from the background | `in TextEdit, type 'hello' in the open document` | Mac | Verified (TextEdit typed in the background, no switch; WhatsApp search box set and typed in the background) | Order: Accessibility, then keystrokes to the app itself; types only when the box really has focus (a dialog can hold it) |
+| Foreground only as a last resort | an app that ignores background keystrokes | Mac (Input Monitoring if needed) | Offline | One switch per stretch of work; your first key/click held back so it never lands in FERB's app; your app back after 3 s idle |
+| Electron apps (Slack, Discord, VS Code) | `open slack and check my messages` | Mac | Offline | FERB asks each for its full Accessibility tree; waits for the main window after opening |
 | AppleScript inside one scriptable app | `make a note in Notes titled 'groceries' with milk and eggs` | Mac, Automation for that app (asked once) | Offline (planning the Notes route: verified) | One app per script; no System Events, shell or nested `tell` |
-| Open an app | `open Calculator` | Mac | Offline | Apps on `[privacy] exclude_apps` are refused |
+| Open an app | `open Calculator` | Mac | Verified (WhatsApp: opened, window reopened from its own menu, read; your app stayed in front) | Background launch; read-only steps may open apps to look; apps on `[privacy] exclude_apps` are refused |
 | Screenshot one window, click by position | `in <app>, click the blue Export button` | Mac, Screen | Verified (probe window: window-only capture, clicks within 2 pt; reading an image: Codex 4/5) | Windows showing a password field aren't captured; excluded apps refused; images never saved |
 | Windows on other Spaces / full screen | an app in full screen on another Space | Mac, Screen | Offline | – |
-| Yield to you | move the mouse while FERB clicks | Mac (Input Monitoring if needed) | Verified (marked vs unmarked input told apart) | FERB waits, then continues or says where it stopped |
+| Yield to you | move the mouse while FERB clicks | Mac (Input Monitoring if needed) | Verified (marked vs unmarked input told apart) | Only matters in the foreground; FERB puts your app back, waits until you stop, then continues or says where it stopped |
 | Pick the app for a named service | `video call Rahul on WhatsApp` | the app installed | Verified (route chosen and shown; planning only) | Uses your last 14 days of activity; your correction wins |
-| Calls and messages in Mac apps | `message Priya on WhatsApp: running late` | Mac | Offline | Contact must be on screen; several matches → "Which Priya?"; 10 s undo countdown |
+| Calls and messages in Mac apps | `message Priya on WhatsApp: running late` | Mac | Offline | Contact must be on screen; several matches → "Which Priya?"; Send button, never Return; 10 s undo countdown; a second message to the same person asks |
+| No arrow-key editing, no app switching | (automatic) | Mac | Offline | Text is replaced whole; ⌘Tab, Control+arrows and AppleScript `activate` are refused |
 
 ## Browser (your paired profiles)
 
 FERB uses your browser only when your words point at it: "my browser", "my Brave", "in Brave", "my Chrome", "my
-<profile> profile", "this / the current tab", or "my <service>" ("my LinkedIn"). A plain "do X on YouTube" uses
-FERB's own browser (next section).
+<profile> profile", a profile's name or account ("my school gmail in chrome"), "this / the current tab", or "my
+<service>" ("my LinkedIn"). A plain "do X on YouTube" uses FERB's own browser (next section). The browser or profile
+you name is the only one used.
 
 | Capability | Example request | Needs | Status | Known limits |
 |---|---|---|---|---|
-| Open and read pages in your signed-in profile | `open <site> in my <profile> profile and tell me what's on it` | Paired | Verified (local test pages, spare profile) | Tabs open in the background and never take focus |
+| Open and read pages in your signed-in profile | `open <site> in my <profile> profile and tell me what's on it` | Paired | Verified (local test pages, spare profile) | Tabs open in the background |
 | Click, type, select (scripted or trusted input) | `search for 'standing desk' on <site> in my <profile> profile` | Paired | Verified (local pages: scripted and `isTrusted` input) | Password/code fields are never typed into |
 | Choose the profile | `check my email` (site open in one profile) | Paired | Offline | Order: open tab → your trail → default browser → ask |
+| The profile you name, and only that one | `open my school gmail in chrome and find the latest assignment email` | Paired | Verified (owner's run: the named Chrome profile's Gmail searched, the email and its form opened) | Not connected → FERB says why and how (`ferb browsers pair`), never another browser |
+| Install + pair the extension in a profile | `ferb browsers pair school` | Chrome/Brave | Offline (the profile was paired by hand before the guide existed) | Chrome allows only Load unpacked by hand; FERB opens the page, copies the path, shows the clicks, waits, pairs |
+| Wake a browser without moving you | any browser task with Chrome closed or open | Paired | Verified (owner watching, with an event detector: windowless wake; owner's search run) | A first window is created minimized; if a browser still jumps forward, your app comes back |
 | Your profile when you say so | `in my <profile> profile, play some lofi on youtube` | Paired | Offline (real run pending) | Only paired profiles are ever routes |
 | Use a tab you already have open | `in my brave, keep scrolling the comments in the current youtube tab` | Paired | Offline (real run pending) | FERB lets go of the tab afterwards and never closes it; scrolling a changing page isn't treated as a loop |
 | Account check before consequential actions | a send on a site where two accounts are signed in | Paired | Offline (extractors verified on FERB's own Gmail/YouTube) | Extractors exist for Gmail and YouTube; other sites ask once per site + profile |
@@ -74,12 +85,24 @@ FERB's own browser (next section).
 | Sign in with FERB's password and inbox code | `sign in to <site> with your account` | FERB's browser, the password in the Keychain | Verified (owner-assisted one-time code) | Passwords and codes are sealed; the model never sees them; lookalike or cross-origin frames refused |
 | Email from FERB's address | `email me the summary` | FERB's browser (Gmail) | Verified (3/3 through Gmail's compose page) | Only to recipients you named; 10 s undo; text only, no attachments; "me" asks your address once |
 
+## Voice (push-to-talk)
+
+| Capability | Example request | Needs | Status | Known limits |
+|---|---|---|---|---|
+| Hold Right Option, speak, let go | "what's the time?" | `ferb setup --voice` (Microphone, Speech Recognition) | Verified (owner use) | Taps under 0.3 s and Right Option + another key are dropped; start sound only on a real hold |
+| On-device speech recognition | any request | – | Verified (owner's voice: sentence exact, text ready 0.02 s after release) | English; FERB's name is often misheard (the key is the trigger) |
+| Spoken replies | any voice request | – | Verified (owner use) | Pressing the key cuts FERB off; `[voice] sounds = false` silences the start/stop sounds |
+| Never a Bluetooth headset's mic | default input is AirPods | – | Offline (and spike: never probed) | Uses the built-in mic instead |
+| Answer FERB by voice | "yes" / "the second one" / "stop" | – | Offline | Answers the oldest waiting question; "stop" cancels a send/call countdown |
+| See it live, turn it off | `ferb voice` / `ferb voice off` / `ferb voice on` | – | Offline | Off quits FERB.app and stops speech |
+
 ## Shell and files
 
 | Capability | Example request | Needs | Status | Known limits |
 |---|---|---|---|---|
 | Files in FERB's workspace | `in your workspace create notes.md with 'one', then append 'two'` | – | Verified | – |
-| Your folders | `read ~/Documents/plan.txt and summarize it` | Folder | Offline | Asked once per folder you name; content FERB reads can't trigger the question |
+| Your folders | `read ~/Documents/plan.txt and summarize it` | Folder | Offline | Asked once per folder you name; content FERB reads can't trigger the question; "Desktop/…", "Documents/…" mean yours; Finder names with "/" are found by their real ":" name |
+| Drive a terminal program | `use claude in terminal in my projects/notes folder to do X` | – | Verified (owner's run: Claude Code started, instructed and read) | Interactive programs run in FERB's shell (not your Terminal window); FERB reads their screen as text |
 | Move to Trash | `move old.txt in your workspace to the Trash` | – | Offline | Trash, not permanent deletion |
 | Shell commands | `how big is my Downloads folder?` | – | Offline (available in the verified storage replay) | Starts in the workspace; FERB's files, the Keychain and protected paths refused; lost after reading untrusted content |
 | Background processes | `start a local web server in your workspace` | – | Offline | `ferb ps` / `ferb kill`; end with the task unless long-lived |
@@ -146,8 +169,11 @@ FERB's own browser (next section).
 | `ferb setup --identity` | Verified | Refuses a profile that holds any account besides FERB's |
 | `ferb setup --jev` | Verified | Key in the Keychain |
 | `ferb chat` | Verified | – |
-| `ferb logs`, `trace`, `timeline` | Offline (used throughout development) | – |
-| `ferb browsers`, `browsers pair` / `unpair` | Verified (pairing a spare and a real profile) | Needs `[gates] owner_profiles = true` for real profiles |
+| `ferb logs`, `timeline` | Offline (used throughout development) | – |
+| `ferb trace [task]` | Verified (real runs) | Latest task by default; every step and tool call |
+| `ferb setup --voice`, `ferb voice [on\|off]` | Verified (setup, use); on/off offline | Needs the "FERB Local Code Signing" certificate |
+| `ferb setup --codex-login` | Offline | FERB's own Codex sign-in, apart from your personal Codex |
+| `ferb browsers`, `browsers pair` / `unpair` | Verified (pairing a spare and real profiles) | Needs `[gates] owner_profiles = true` for real profiles; guides installing the extension where it's missing |
 | `ferb memory …`, `reminders`, `schedules`, `device`, `autonomy`, `undo`, `stop`, `resume-tasks`, `pause`, `resume`, `ps`, `kill`, `decide …` | Offline | – |
 | `ferb uninstall [--purge]` | Offline | Doesn't remove the Jev key or macOS permission entries |
 
@@ -171,6 +197,9 @@ FERB's own browser (next section).
 - **Learned trust:** FERB doesn't offer to stop asking about an action type; edit `[policy] trusted_kinds` instead.
 - **Planner lookups:** the planner doesn't look things up itself (e.g. "is app X installed?"); it plans from the
   summary it's given.
-- **Other platforms:** no GUI, voice, phone or web access to FERB, and no sync across devices.
+- **Other platforms:** no GUI, phone or web access to FERB, and no sync across devices. Voice is push-to-talk on the
+  Mac only (no wake word, no always-on listening, no system-audio listening yet).
+- **Browser focus on macOS:** a new browser window can still jump to the front briefly (a Chromium problem); FERB
+  takes you back.
 - **Other users:** FERB is for the one macOS user who installed it.
 - **Arbitrary code isolation:** the shell runs as you, inside FERB's rules. There's no sandbox per resource.

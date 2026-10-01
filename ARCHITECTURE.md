@@ -109,8 +109,10 @@ sanitize  ← imports core only; applied by the gateway and every writer (traces
   **run token** (`FERB_RUN_TOKEN`) that identifies task/worker, so the daemon enforces that worker's scopes and identity.
 - **`ferb-native-host`** is the native-messaging host the Chromium browsers launch for the extension; it only
   relays JSON messages to the daemon socket.
-- **FERB.app** is reserved for later blocks and not built in Block 1: the future home of the Swift audio service
-  (section 20), the stop hotkey, Keychain item access anchored to a signed app identity, and the Safari extension.
+- **FERB.app** (`macapp/FERB`, built by `ferb setup --voice`): a background Swift app with no window, Dock icon or
+  menu-bar item, signed with a local certificate. Today it is push-to-talk's microphone and on-device speech (20.1).
+  Later: system-audio listening (20), the stop hotkey, Keychain item access anchored to its signed identity, and the
+  Safari extension.
 - **FERB's identity is a dedicated "FERB" profile in the owner's normal Chrome**, running the same FERB extension.
   The daemon binds that profile to identity `FERB` at pairing (9.6); the extension itself never decides identity.
   No profile copies: a copied profile loses its Google session within minutes, while the original keeps it
@@ -267,8 +269,7 @@ extensions/
     content.js          DOM snapshot + element lookup (no decisions)
     protocol.ts|js      message schema (mirrors ferb/act/browser/ext_protocol)
 macapp/FERB/            FERB.app (Unit 4): push-to-talk microphone + on-device speech (20.1); later: system audio (20),
-macapp/                 RESERVED (not built in Block 1): FERB.app — audio service, stop hotkey, Keychain anchoring,
-                        Safari extension (later blocks)
+                        stop hotkey, Keychain anchoring, Safari extension
 tests/
   fakes/                FakeClock, FakeRuntime, FakeBrowserDriver, recorded responses
 ```
@@ -862,8 +863,8 @@ guessed — enforced in code (10.3, build step 16a).
   not `about:blank`, whose fragment is dropped so it couldn't be told apart from the owner's tabs), and close
   exactly that page after the reconnect (spike 13). Never the browser's binary with a URL — that took focus — except
   for pages the owner must see (pairing).
-- **The browser the owner names (owner's report 2026-10-01):** "my scaler gmail in chrome" names Chrome and the
-  profile whose name or account matches ("scaler", sst.scaler.com; everyday words like "work" only as "work profile"
+- **The browser the owner names (owner's report 2026-10-01):** "my school gmail in chrome" names Chrome and the
+  profile whose name or account matches ("school", its school.edu account; everyday words like "work" only as "work profile"
   / "my work"). FERB uses exactly that — the planner is told so, and the router refuses any other profile for that
   request — or, when it isn't connected, says why (no extension / not paired) and that `ferb browsers pair <name>`
   connects it. It never substitutes another browser. Whether FERB's extension is installed in a profile is read from
@@ -984,10 +985,10 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   quotes) is wrapped as untrusted data — tags carrying a random id — before the supervisor sees it; the intent is
   derived only from the owner's own words around it, and code checks that every intent target (recipient, site,
   account, path) appears in those words. A path counts when each of its folder / file names is in their words, however
-  written ("clg/uni folder in desktop" names Desktop/clg/uni; the usual home folders may be implied — owner's report
+  written ("notes/2025 folder in desktop" names Desktop/notes/2025; the usual home folders may be implied — owner's report
   2026-10-01). Paths resolve where the owner means them: "Desktop/…", "Documents/…", "Downloads/…" are their folders
   (other relative paths are FERB's workspace), and a name Finder shows with "/" is found by its on-disk ":" form
-  (clg/uni is clg:uni), so the folder-access question names the real folder. The owner's home prefix (/Users/<them>, ~) is never a name they must have typed. When the whole message is a paste — or a paste with only a greeting typed
+  (notes/2025 is notes:2025), so the folder-access question names the real folder. The owner's home prefix (/Users/<them>, ~) is never a name they must have typed. When the whole message is a paste — or a paste with only a greeting typed
   around it ("hey " + the paste; owner's report 2026-10-01) — `ferb chat` asks, in the owner's own terminal, whether
   it's their request; a yes sends it as their words.
   **Misspelled names (owner decision 2026-10-01):** before planning, a word in the owner's own words that is one or
@@ -1309,9 +1310,10 @@ Build step 11 specifics (owner decisions):
 | `ferb logs [--tasks --trail --tools --browsers --policy --actions --timers --voice]` | Live stream from the bus (redacted) |
 | `ferb voice [on\|off]` | No argument: push-to-talk as a live conversation (what FERB heard, what it said back). `on` / `off`: start or stop push-to-talk without restarting FERB — off also stops FERB speaking and quits FERB.app (20.1) |
 | `ferb trace [task] [--full]` | What a task did, step by step: each step's goal and result, every tool call with what it opened / typed / ran and what came back (terminal output as plain text). Default: the latest task; a short id works (owner's request 2026-10-01) |
-| `ferb setup [--update] [--codex-login]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent; `--codex-login`: sign in FERB's own Codex home) / health, permissions, extension connectivity |
+| `ferb setup [--update] [--codex-login] [--voice]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent; `--codex-login`: sign in FERB's own Codex home; `--voice`: build, sign and enable FERB.app for push-to-talk) / health, permissions, extension connectivity, push-to-talk |
 | `ferb uninstall [--purge]` | Remove the LaunchAgent (and native-host files); `--purge` also deletes `~/.ferb` after confirmation |
 | `ferb device [scan]` / `ferb browsers` | Device profile (apps, scriptable apps, browsers with live pairing status; `scan` rescans) / browser drivers + connection status |
+| `ferb browsers pair\|unpair [--browser chrome\|brave] <profile>` | Pair a profile (installing the extension there first, guided, if it's missing — 9.3) / forget its pairing |
 | `ferb reminders [cancel <id>]` | Pending reminders and timers; cancel one |
 | `ferb timeline`, `ferb memory list [--proposed\|--all] \| show \| add \| confirm \| edit \| retract \| forget` | Memory journey |
 | `ferb pause` / `ferb resume` | Stop / start monitoring |
@@ -1523,8 +1525,8 @@ When phone apps (iOS/Android) or other computers arrive, FERB splits into one **
 ## 20. Reserved: system audio listening (built in the voice block)
 
 Goal: FERB can hear what the Mac is playing — speakers, wired headphones or AirPods — to answer
-"what is this song?" or "what is this video saying?". Not built in Block 1; this section fixes its shape so
-nothing in Block 1 blocks it.
+"what is this song?" or "what is this video saying?". Not built yet (Unit 5, after push-to-talk); spike 9 proved the
+capture (results below), and this section fixes its shape.
 
 - **Capture:** Core Audio process taps (macOS 14.2+), per app or global mix, FERB's own process excluded.
   Taps capture the post-mix signal and follow the output route, so headphones need no special handling.

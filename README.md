@@ -2,14 +2,16 @@
 
 FERB is a personal agent runtime for macOS. You talk to it in a terminal (`ferb chat`). It plans the work, runs model
 workers (Codex by default, Claude Agent SDK as an alternative), and every action they take goes through one gateway
-that checks it against what you asked for. It can operate your Mac apps, your paired Chrome/Brave profiles, a shell,
-files, and a separate browser profile with FERB's own accounts. It keeps a record of your activity (metadata only),
-daily summaries, and a memory of facts you tell it.
+that checks it against what you asked for. It can operate your Mac apps (in the background where it can), your
+paired Chrome/Brave profiles, a shell, files, and a separate browser profile with FERB's own accounts. You can also
+talk to it: hold Right Option, speak, let go (push-to-talk), and it answers out loud. It keeps a record of your
+activity (metadata only), daily summaries, and a memory of facts you tell it.
 
 - **Status:** v0.1 ("Block 1"). All 24 safety tests in [ARCHITECTURE.md §21](ARCHITECTURE.md) pass, offline and
   against real models, browsers and the Mac. Built and tested by one person on one Mac. Expect rough edges.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed and tested on macOS 26.
-- **Interface:** the CLI only. There is no GUI, menu-bar item or web dashboard.
+- **Interface:** the CLI only, plus push-to-talk. There is no GUI, menu-bar item or web dashboard. FERB.app (for
+  push-to-talk) runs in the background with no window, Dock icon or menu-bar item.
 
 [CAPABILITIES.md](CAPABILITIES.md) lists what FERB can do and how well tested each item is.
 [CODE_TOUR.md](CODE_TOUR.md) walks through the code. [ARCHITECTURE.md](ARCHITECTURE.md) is the design contract.
@@ -24,6 +26,7 @@ daily summaries, and a memory of facts you tell it.
 | Browser control (optional)     | Google Chrome and/or Brave, with the FERB extension from`extensions/chromium` loaded unpacked                            |
 | FERB's own accounts (optional) | A Chrome profile that holds only FERB's Google account                                                                     |
 | Jev decisions (optional)       | A Jev API key (shadow mode only; see ARCHITECTURE.md §12)                                                                 |
+| Push-to-talk (optional)        | Xcode command-line tools (`swiftc`) and a local code-signing certificate named "FERB Local Code Signing" in your login keychain (Keychain Access → Certificate Assistant → Create a Certificate, type Code Signing) |
 
 ## Install and setup
 
@@ -50,15 +53,35 @@ After changing the code, `ferb setup --update` reinstalls FERB into its venv and
 
 ### Optional: browsers
 
-1. In Chrome or Brave, open the extensions page, turn on Developer mode, choose **Load unpacked**, and select
-   `extensions/chromium`. The manifest carries a fixed key, so the extension id matches the one the native host
-   accepts.
-2. Pair each profile you want FERB to use:
-   `ferb browsers pair --browser brave "<profile name>"`. With no arguments, `ferb browsers` lists profiles and
-   their pairing status.
+Pair each profile you want FERB to use: `ferb browsers pair [--browser chrome|brave] "<profile name>"`.
 
-An installed but unpaired extension can't act or report anything. Pairing your real profiles is gated by
-`[gates] owner_profiles` in `config.toml` (see Configuration).
+- If FERB's extension isn't installed in that profile yet, pairing walks you through it. It opens the profile's
+  extensions page, copies the extension folder (`extensions/chromium`) to your clipboard and shows the three clicks
+  (Developer mode → Load unpacked → ⌘⇧G, paste, Select), waits until Chrome has it, then pairs. Chrome only allows
+  installing an unpacked extension by hand (the command-line way was removed in Chrome 137). The manifest carries a
+  fixed key, so the extension id matches the one the native host accepts.
+- `ferb browsers` lists profiles: paired, connected, or "not open right now" (FERB opens its own profile when a task
+  needs it).
+- An installed but unpaired extension can't act or report anything. Pairing your real profiles is gated by
+  `[gates] owner_profiles` in `config.toml` (see Configuration).
+
+### Optional: push-to-talk
+
+```sh
+ferb setup --voice
+```
+
+This builds FERB.app into `~/.ferb/FERB.app`, signs it with your local certificate (so its permissions survive
+rebuilds), asks once for **Microphone** and **Speech Recognition**, and turns push-to-talk on. Then:
+
+- **Hold Right Option**, speak, let go. A soft sound plays once the hold passes 0.3 s; a quick tap, or Right Option
+  plus another key (a shortcut), does nothing. Pressing it again cuts FERB off mid-sentence.
+- FERB answers out loud. When it's waiting on a question, say "yes", "no" or a number; during a send or call
+  countdown, say "stop" to cancel.
+- `ferb voice` shows what FERB heard and said back, live. `ferb voice off` stops push-to-talk (FERB.app quits and
+  FERB stops speaking); `ferb voice on` turns it back on.
+- Speech recognition runs on your Mac. Audio is never saved. FERB never opens a Bluetooth headset's microphone (that
+  drops the headset into call-quality audio); it uses the built-in mic instead.
 
 ### Optional: FERB's own identity
 
@@ -101,10 +124,17 @@ In chat:
 - **Ctrl-C** stops the running task ("stopped by you"); a message held for undo is cancelled too.
 - Closing chat (or `/quit`) does **not** stop tasks. When one finishes while chat is closed, you get a macOS
   notification, and chat shows the answer next time it opens.
-- Pasted text arrives in one piece and is treated as data, never as instructions. Option-Enter starts a new line.
+- Pasted text arrives in one piece and is treated as data, never as instructions. If the whole message is a paste
+  (or a paste with just "hey" before it), chat asks whether it's your own request. You can turn this rule off with
+  `[policy] pasted_text_is_data = false`. Option-Enter starts a new line.
+- A misspelled app name is read as the app it's close to ("salck" → Slack, and FERB says so); if it's close to
+  several, FERB asks which.
 - When FERB needs your OK, it asks inline (`[y/N]`, or a numbered choice). If chat is closed, a notification tells
   you to open it.
-- `ferb chat --verbose` also shows plans, steps, tool calls and checks.
+- `ferb chat --verbose` also shows plans, steps, tool calls and checks. `ferb chat --speak` also says FERB's replies
+  out loud.
+- To see what a task did afterwards, step by step: `ferb trace` (the latest task) or `ferb trace <first few
+  characters of its id>`; `ferb timeline` lists recent tasks with their ids.
 
 ## Command reference
 
@@ -113,8 +143,9 @@ All commands talk to the daemon over `~/.ferb/run/ferb.sock` (owner-only permiss
 | Command                                                                                    | What it does                                                                                                    |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `ferb chat [--verbose] [--speak]`                                                                  | Talk to FERB                                                                                                    |
-| `ferb logs [--tasks] [--trail] [--tools] [--browsers] [--policy] [--actions] [--timers]` | Live stream from the daemon's bus, optionally filtered                                                          |
-| `ferb trace <task_id>`                                                                   | Span tree for one task                                                                                          |
+| `ferb logs [--tasks] [--trail] [--tools] [--browsers] [--policy] [--actions] [--timers] [--voice]` | Live stream from the daemon's bus, optionally filtered                                                          |
+| `ferb trace [task] [--full]`                                                             | What a task did, step by step: each step's goal and result, every tool call and what came back. Default: the latest task; a short id works |
+| `ferb voice [on\|off]`                                                                   | Push-to-talk: watch what FERB heard and said (no argument), or turn it on / off                                |
 | `ferb timeline [--since YYYY-MM-DD]`                                                     | The journal: chats, task outcomes, daily summaries                                                              |
 | `ferb stop`                                                                              | Emergency stop: revoke tokens, block all actions, cancel held sends (survives restarts)                         |
 | `ferb resume-tasks`                                                                      | Lift the emergency stop                                                                                         |
@@ -131,13 +162,13 @@ All commands talk to the daemon over `~/.ferb/run/ferb.sock` (owner-only permiss
 | `ferb reminders [list\|cancel] [id]`                                                      | Pending reminders and timers                                                                                    |
 | `ferb schedules [list\|cancel\|pause\|resume] [id]`                                         | Scheduled and recurring tasks                                                                                   |
 | `ferb browsers`                                                                          | Browser profiles, pairing and connection status                                                                 |
-| `ferb browsers pair [--browser chrome\|brave] <profile>`                                  | Pair a profile (the extension must be loaded there)                                                             |
+| `ferb browsers pair [--browser chrome\|brave] <profile>`                                  | Pair a profile; walks you through installing the extension there first if it's missing                         |
 | `ferb browsers unpair [--browser chrome\|brave] <profile>`                                | Forget a profile's pairing                                                                                      |
 | `ferb device [show\|scan]`                                                                | This Mac's device profile (apps, scriptable apps, browsers);`scan` rescans                                    |
 | `ferb ps` / `ferb kill <id>`                                                           | Background processes FERB started / stop one                                                                    |
 | `ferb decide stats`                                                                      | Jev's answers next to FERB's decisions, per question                                                            |
 | `ferb decide enable <question>` / `disable <question>`                                 | Let Jev's stricter answers act for one question, or go back to shadow mode                                      |
-| `ferb setup [--update] [--identity [--profile P]] [--jev] [--codex-login]`                               | Install / update / identity profile / Jev key                                                                   |
+| `ferb setup [--update] [--identity [--profile P]] [--jev] [--codex-login] [--voice]`     | Install / update / identity profile / Jev key / sign in FERB's own Codex / set up push-to-talk                 |
 | `ferb doctor`                                                                            | Check the installation, permissions (from inside the daemon), browsers, identity, and run the self-test         |
 | `ferb uninstall [--purge]`                                                               | Remove the LaunchAgent and native-host files;`--purge` also deletes `~/.ferb` (asks you to type `delete`) |
 | `ferb daemon run`                                                                        | Run the daemon in the foreground (development)                                                                  |
@@ -156,6 +187,7 @@ defaults for the privacy keys on first run, so you can see and edit them there. 
 | `[policy]`   | `autonomy`              | `"balanced"`                                                       | `careful` (confirm every non-reversible action), `balanced`, `hands-off`             |
 |                | `trusted_kinds`         | `[]`                                                               | Action kinds`careful` mode no longer confirms                                            |
 |                | `trusted_accounts`      | `[]`                                                               | Site + profile pairs where you approved an account FERB can't verify (written by FERB)     |
+|                | `pasted_text_is_data`   | `true`                                                             | Pasted text is data, never instructions; `false` treats it as your own words              |
 | `[fs]`       | `owner_roots`           | `[]`                                                               | Your folders FERB may use in your tasks (added when you say yes to a folder question)      |
 |                | `untrusted_roots`       | `["~/Downloads"]`                                                  | Folders whose files count as untrusted content                                             |
 | `[privacy]`  | `exclude_apps`          | password managers (1Password, Bitwarden, Passwords, Keychain Access) | Never recorded, never captured or acted on; you may edit or empty it                       |
@@ -165,8 +197,11 @@ defaults for the privacy keys on first run, so you can see and edit them there. 
 |                | `watch_folders`         | `[]`                                                               | Folders whose file events are recorded (nothing is watched unless listed)                  |
 |                | `idle_after_s`          | `120`                                                              | Seconds without input before you count as idle                                             |
 |                | `trail_retention_days`  | `30`                                                               | Raw activity rows kept; days are purged only after their daily summary exists              |
-| `[mac]`      | `yield_to_owner`        | `true`                                                             | Pause FERB's real mouse/keyboard while you use yours; `false` keeps it going                |
-|              | `snapshot_image`        | `true`                                                             | Mac app snapshots also carry an image of the window with each control numbered               |
+| `[mac]`      | `snapshot_image`        | `true`                                                             | Mac app snapshots also carry an image of the window with each control numbered               |
+| `[voice]`    | `push_to_talk`          | `false`                                                            | Set by `ferb setup --voice` / `ferb voice on\|off`                                        |
+|              | `mic`                   | `"auto"`                                                           | `auto` (your default input, built-in if that's Bluetooth), `builtin`, `default`; never a Bluetooth mic |
+|              | `sounds`                | `true`                                                             | The start / stop sounds                                                                    |
+|              | `requirement`           | set by setup                                                         | FERB.app's code signature; only that app may send speech to FERB                         |
 | `[browser]`  | `prefer_for_actions`    | `["brave", "chrome"]`                                              | Browser order when a site is open in several                                               |
 | `[identity]` | `browser`, `profile`  | set by`ferb setup --identity`                                      | FERB's own Chrome profile                                                                  |
 | `[mailbox]`  | `address`, `provider` | set by`ferb setup --identity`                                      | FERB's own email address (Gmail)                                                           |
@@ -184,7 +219,8 @@ The daemon re-reads `[policy]` settings when they change through the CLI. For ot
 - Accessibility: read and operate app windows. Required for Mac control.
 - Screen Recording: screenshots of a single app window. Required for screenshot clicks.
 - Input Monitoring: only if FERB's watcher of your own mouse and keyboard can't start without it. FERB uses it to
-  pause its own real input while you're typing or moving the mouse.
+  hear the push-to-talk key and to step aside while you're typing or moving the mouse.
+- Microphone and Speech Recognition: for FERB.app only, asked by `ferb setup --voice`.
 - Automation (AppleScript): asked per app, the first time a task needs it.
 - Full Disk Access: optional; not needed for normal use.
 
@@ -214,6 +250,8 @@ stay in memory and are never written to disk. A window showing a detectable pass
 | `~/.ferb/logs/`                                | Daemon stdout/stderr logs                                                                                 |
 | `~/.ferb/run/`                                 | The daemon socket and the planner's scratch directory                                                     |
 | `~/.ferb/python`, `venv`, `node`, `bin`  | The dedicated interpreter, FERB's venv, the pinned Codex, the native-host launcher                        |
+| `~/.ferb/codex-home/`                          | FERB's own Codex settings and sign-in (`ferb setup --codex-login`), kept apart from your personal Codex  |
+| `~/.ferb/FERB.app`                             | The push-to-talk app (built by `ferb setup --voice`)                                                      |
 | `~/Library/LaunchAgents/com.ferb.daemon.plist` | The LaunchAgent                                                                                           |
 | Chrome/Brave`NativeMessagingHosts/`            | The native-host manifest for the extension                                                                |
 | macOS Keychain, service`ferb`                  | FERB's own secrets and the Jev key                                                                        |
@@ -246,8 +284,13 @@ The full contract is [ARCHITECTURE.md §10](ARCHITECTURE.md), with the safety te
 - **Two identities:** *owner* tasks use your Mac, your paired browser profiles and your shell, and never hold
   credentials. *FERB* tasks use only FERB's own browser profile and accounts, and never touch yours.
 - **Whose browser:** your browser profiles are used only when your words point at them ("my browser", "my Brave",
-  "my <profile> profile", "the current tab", "my LinkedIn"). A plain "do X on YouTube" uses FERB's own browser.
-  FERB can take over a tab you already have open, and never closes it.
+  "my <profile> profile", "my school gmail in chrome", "the current tab", "my LinkedIn"). A plain "do X on YouTube"
+  uses FERB's own browser. The browser or profile you name is the only one used; if it isn't connected, FERB says
+  why instead of using another. FERB can take over a tab you already have open, and never closes it.
+- **Your screen stays yours:** FERB works in Mac apps from the background where it can (Accessibility, then
+  keystrokes sent to the app itself). When it has to bring an app forward, it does so once per stretch of work,
+  holds back your first key or click so it never lands in FERB's app, steps aside while you use the Mac, and puts
+  your app back. A browser that jumps forward when FERB opens it is sent back too.
 - **One gateway:** every tool call from a model goes through `ferb mcp` → the daemon's gateway → the policy engine.
   Runtimes' built-in tools (their own shell, file writes, web access) are disabled and checked on every run.
 - **Intent:**
@@ -266,12 +309,14 @@ The full contract is [ARCHITECTURE.md §10](ARCHITECTURE.md), with the safety te
     every time.
   - One approval covers the same target and action type for the rest of the request.
 - **Contacts are never guessed:** a call or message must name a contact that was actually on screen. Several
-  matches means FERB asks "Which …?".
+  matches means FERB asks "Which …?". In messaging apps FERB presses the Send button (Return is refused, so the
+  countdown and contact check always apply), and a second message to the same person in one task asks you first.
 - **Exploring:** workers may look at other apps and sites, with a stated reason. Acting outside the plan's apps and
   sites needs your yes.
 - **Runaway guards:** the same failing action 3×, loops, 4 h / 50 worker runs / 1,000 tool calls per task.
 - **Emergency stop:** `ferb stop` halts everything immediately and survives restarts.
-- **Traces:** every tool call is a span, redacted before it's stored. See `ferb trace <task_id>`.
+- **Traces:** every tool call is a span, redacted before it's stored. See `ferb trace` (the latest task) or
+  `ferb trace <id>`.
 
 ## Troubleshooting
 
@@ -287,6 +332,11 @@ drift, and runs the self-test. Each problem comes with a hint.
 | Mac control unavailable                                         | Accessibility / Screen Recording not granted to FERB's interpreter (not your terminal) |
 | A permission was just granted but still shows denied            | Screen Recording applies after the daemon restarts:`ferb setup --update`             |
 | The extension shows as installed but unpaired                   | `ferb browsers pair --browser <chrome\|brave> "<profile>"`                            |
+| "I can't use your Chrome “…” profile yet"                       | That profile isn't connected: `ferb browsers pair "<profile>"` (it walks you through installing the extension) |
+| What did a task actually do?                                    | `ferb trace` (latest) or `ferb trace <id>`; `--full` for everything                 |
+| Push-to-talk does nothing                                       | `ferb doctor` (push-to-talk line); `ferb voice on`; `ferb setup --voice` if FERB.app isn't set up |
+| Push-to-talk is on and you want it off                          | `ferb voice off`                                                                     |
+| `ferb doctor` says "installed code differs"                     | `ferb setup --update` (close `ferb chat` first)                                      |
 | Everything is blocked                                           | An emergency stop is active:`ferb resume-tasks`                                      |
 | Nothing is recorded                                             | Watchers paused:`ferb resume`                                                        |
 | Device profile drift in doctor                                  | `ferb device scan`                                                                   |
@@ -320,7 +370,13 @@ uv run mypy ferb
 
 - macOS only, Apple silicon only; one Mac (no multi-device sync); single user.
 - Browsers: Chrome and Brave through the extension. Safari is not supported yet. The extension is loaded unpacked
-  (no Web Store listing).
+  (no Web Store listing), by hand in each profile (`ferb browsers pair` guides you).
+- On macOS any new browser window can pull the browser to the front (a known Chromium problem). FERB avoids
+  creating windows and takes you straight back when one does, but you may see a brief switch.
+- Push-to-talk recognizes speech on your Mac (English); FERB's own name is often misheard, which doesn't matter
+  since the key is the trigger. There's no wake word or always-listening mode yet.
+- The planner model has its own judgment; FERB's instructions tell it you decide what's appropriate for your own
+  work, which reduces but can't remove its caution.
 - The CLI is the only interface.
 - FERB never signs in as you. A signed-out page stops the task.
 - Opening and reading apps/sites is never confirmed (only acting is). A worker may explore more than you expect.
@@ -339,7 +395,8 @@ uv run mypy ferb
 
 Later blocks (see ARCHITECTURE.md §18–§19):
 
-- Safari control and a minimal FERB.app container for the Safari extension.
+- Safari control (FERB.app, which already runs push-to-talk, will host the Safari extension).
+- Listening to system audio (what's playing) as a tool; an always-on voice mode with a wake word.
 - A GUI, designed separately.
 - Read-only planner lookups for large trusted data (e.g. "is app X installed?" against the device profile). The
   planner never gets direct access to trail data.
