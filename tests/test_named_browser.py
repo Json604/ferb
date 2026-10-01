@@ -265,3 +265,22 @@ def test_a_refused_reader_call_is_in_the_trail(daemon: RunningDaemon) -> None:
         return [x for n in nodes for x in [n.span.error, *walk(n.children)]]
     errs = walk(daemon.run(spans()))
     assert any("a reader subtask can't send" in (e or "") for e in errs)
+
+
+def test_a_reader_may_type_only_the_owners_own_words(daemon: RunningDaemon) -> None:
+    """Owner's audit (2026-10-01): WhatsApp's search box is an unlabeled button, so "is it a search box?" refused the
+    reader's background set_value that had worked on Sept 30. A reader may type text from the owner's own words this
+    request, into any box; anything else stays refused."""
+    gw = daemon.daemon.gateway
+    gw.request_words = lambda rid: "search in my WhatsApp for syllabus, then open the latest syllabus link"
+
+    class A:
+        def __init__(self, action: str, text: str) -> None:
+            self.action, self.text = action, text
+    assert gw._reader_types_own_words("mac.act", A("set_value", "syllabus"), "r")
+    assert gw._reader_types_own_words("mac.act", A("type", "Syllabus"), "r")             # case doesn't matter
+    assert not gw._reader_types_own_words("mac.act", A("set_value", "my bank pin is 1234"), "r")
+    assert not gw._reader_types_own_words("mac.act", A("key", "return"), "r")
+    assert not gw._reader_types_own_words("browser.act", A("type", "syllabus"), "r")
+    gw.request_words = lambda rid: ""
+    assert not gw._reader_types_own_words("mac.act", A("set_value", "syllabus"), "r")     # no words, no typing

@@ -130,7 +130,8 @@ class Gateway:
             return reply({"error": why}, True)
 
         spec = cap.describe(args)
-        reader_click = hasattr(cap, "reader_ok") and cap.reader_ok(args)  # opening a chat / link / tab to read it
+        reader_click = (hasattr(cap, "reader_ok") and cap.reader_ok(args)) \
+            or self._reader_types_own_words(name, args, rec.task.request_id)  # opening to read; searching their words
         if rec.task.role == "reader" and spec.kind not in REVERSIBLE and not reader_click:   # readers read (7.4)
             why_not = f"blocked by FERB policy: a reader subtask can't {spec.kind}"
             refused = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id,   # in the trail
@@ -368,6 +369,17 @@ class Gateway:
         self.publish("contact.selected", {"task_id": grant.task_id, "name": c.name, "contact": shown, "how": how})
         return dataclasses.replace(action, target=dataclasses.replace(action.target, recipients=(rname,),
                                                                       contact=shown))
+
+    def _reader_types_own_words(self, name: str, args: Any, request_id: str) -> bool:
+        """A reader may type into an app only text from the owner's own words this request ("syllabus") — whatever the
+        box is (WhatsApp's search box reports itself as an unlabeled button). Their own words can't leak anything, and
+        a reader still can't press Send / Return. Owner's audit 2026-10-01: background search had worked as set_value;
+        a box-type guess refused it."""
+        if name != "mac.act" or getattr(args, "action", None) not in ("set_value", "type"):
+            return False
+        text = " ".join(str(getattr(args, "text", "") or "").lower().split())
+        words = " ".join(self.request_words(request_id).lower().split())
+        return bool(text) and len(text) <= 100 and text in words
 
     async def _folder_access(self, grant: RunGrant, action: ActionRequest, path: str) -> str | None:
         """"Allow FERB to access ~/Projects?" — asked only for a folder the owner named in this request (content FERB
