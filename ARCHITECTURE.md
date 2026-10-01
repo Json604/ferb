@@ -748,7 +748,10 @@ the daemon's asyncio loop never did — an app launched after the daemon started
 runs one zero-wait turn every 0.2 s (under 1 ms), and a lookup by bundle id asks macOS directly. App names are
 matched ignoring invisible direction marks (WhatsApp's name is "\u200eWhatsApp").
 **Editing and sending (owner decision 2026-10-01, every app):** buttons over keystrokes, and whole values over
-cursor editing. Typing into a search box is a search (it sends nothing; a reader may do it). A reader may also type, into any box, text taken from the owner's own words this request ("syllabus") — apps label search boxes unreliably (WhatsApp's is an unlabeled button that takes a background set_value), and the owner's own words can't leak anything. Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
+cursor editing. Typing into a search box is a search (it sends nothing; a reader may do it). A reader may also type, into any box, text taken from the owner's own words this request ("syllabus") — apps label search boxes unreliably (WhatsApp's is an unlabeled button), and the owner's own words can't leak anything. A value
+is set through Accessibility only on a real text field; anything else is clicked and typed into with the app in front
+(WhatsApp accepts a set value on its search box but only searches on real typing — Sept 30 trail, owner's audit
+2026-10-01). Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
 Enter in a text box is refused when the window has a Send button (press it instead) — and always in a communication
 app, where Return would send without the countdown or the contact check (10.3). After a send, the worker checks by
 reading the chat, never by sending again: a second send to the same contact (or the same recipients) in one task

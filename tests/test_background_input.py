@@ -302,3 +302,19 @@ def test_electron_apps_are_asked_for_their_tree_and_slow_windows_are_waited_for(
     assert ax.calls.count("expose") == 1                             # asked once per app process
     asyncio.run(d.snapshot("WhatsApp"))
     assert ax.calls.count("expose") == 1 and apps.activated == []
+
+
+def test_a_search_box_that_isnt_a_text_field_is_clicked_and_typed_in_front(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sept 30 trail (owner's audit): WhatsApp's search box reports itself as an unlabeled button; a value set on it
+    is accepted but never searches — results came only after a click and real typing with WhatsApp in front."""
+    ax = Ax(takes_background=False, focused="button", box_has_focus=False)
+    d, apps, posted = setup(monkeypatch, ax)
+    d._state[CHAT] = drv._AppState(gen=1, nodes={"s1e1": AxNode("btn", "button", "", None, (0, 0, 10, 10), False, True)})
+
+    async def work() -> None:
+        r = await d.act("WhatsApp", ComputerAction("set_value", "s1e1", "syllabus"))
+        assert r.ok and "click + typing" in r.detail                          # not "value set"
+        d.restore_owner()
+    asyncio.run(work())
+    assert posted[:3] == ["guard on", "click foreground", "type 'syllabus' foreground"]
+    assert apps.activated == [CHAT, "com.microsoft.VSCode"]                  # forward once, then back

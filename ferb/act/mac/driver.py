@@ -281,7 +281,10 @@ class MacComputerDriver:
         if action.kind == "focus":
             return ActionResult(await asyncio.to_thread(self.ax.focus, n.ref), "focused")
         if action.kind == "set_value":
-            if await asyncio.to_thread(self.ax.set_value, n.ref, action.text or ""):
+            # only a real text field takes a value that the app then acts on (WhatsApp's search "button" accepts a
+            # set value but never searches on it — Sept 30 trail); anything else is clicked and typed into
+            if n.role in ("textbox", "searchbox", "combobox") and \
+                    await asyncio.to_thread(self.ax.set_value, n.ref, action.text or ""):
                 return ActionResult(True, "value set")
             return await self._type(a, n, action.text or "", holder, task)
         if action.kind == "type":
@@ -349,6 +352,13 @@ class MacComputerDriver:
                 self._background_ok[a.bundle_id] = True
                 return ActionResult(True, "typed (in the background)")
             self._background_ok[a.bundle_id] = False          # nothing arrived: the foreground, once
+
+        if n.role not in ("textbox", "searchbox"):
+            # Not a real text field (WhatsApp's search box reports itself as an unlabeled button and only searches on
+            # real typing — Sept 30 trail): click it in front, then type, as a person would. Accessibility can't tell
+            # where its focus lands, so the focus check (for real text fields) can't apply here.
+            return await self._real(a, click_steps(*self.ax.center(n)) + type_steps(text), holder, "click + typing",
+                                    task)
 
         async def focus_it() -> None:                          # in front now: focus the box, and check it took
             await asyncio.to_thread(self.ax.focus, n.ref)
