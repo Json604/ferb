@@ -77,7 +77,7 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | **Spike 20: background WhatsApp search** | 2026-10-01 | Built; real check passed | The owner insisted it can be done without switching (ChatGPT's Dot does). Tested one method per run on WhatsApp's search box (an unlabeled button): set value — stored, never searches; keystrokes to the process — never arrive; Accessibility press — focuses the box in the background; then the Accessibility keyboard API (`AXUIElementPostKeyboardEvent`, real key codes) — WhatsApp searched ("No results" for a test word), owner's app in front throughout. Built into the driver: press/focus + AX keyboard before any foreground fallback; also a second background try for single keys. Real check through FERB's driver: "typed (in the background, Accessibility keyboard)", no switches. |
 ## Next
 
-**Next:** the owner's guided push-to-talk check (`ferb setup --update`, `ferb setup --voice`), then Unit 5 (system audio: `audio.listen`).
+**Next:** Unit 5 (system audio: `audio.listen`, §20) — the last planned unit of the owner's 2026-10-01 list. Push-to-talk shipped and was checked by the owner.
 
 ## Rules for build steps (owner)
 
