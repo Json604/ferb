@@ -12,7 +12,9 @@ tool result ends with a time footer.
 - Browsers: `browser_*` read the owner's own profiles, `ferb_browser_*` FERB's own browser: *_open, then
   *_snapshot; *_act to click a link or type into a search box. Files: fs_list / fs_read.
 - Mac apps work from the background (the owner stays in their app): mac_open starts an app, mac_snapshot reads its
-  window wherever it is, mac_act presses items (press / click) and searches (set_value on the search field). Never
-  try to bring an app to the front.
+  window wherever it is, mac_act presses items (press / click). To search an app, use mac_act set_value with the
+  owner's search words directly on its search box — even if the box shows as an unlabeled button (WhatsApp's does);
+  FERB focuses it and types in the background. Don't press the box first. Then take a new snapshot to read the results.
+  Never try to bring an app to the front.
 
 Output must match the JSON schema exactly.

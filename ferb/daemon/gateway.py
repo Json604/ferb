@@ -134,6 +134,10 @@ class Gateway:
             or self._reader_types_own_words(name, args, rec.task.request_id)  # opening to read; searching their words
         if rec.task.role == "reader" and spec.kind not in REVERSIBLE and not reader_click:   # readers read (7.4)
             why_not = f"blocked by FERB policy: a reader subtask can't {spec.kind}"
+            if name == "mac.act":                         # say what a reader CAN do (owner's run: it gave up instead)
+                why_not += (". A reader may press a labeled control that only opens something, and may type the "
+                            "owner's own words into a box with action set_value — that also runs a search, even in a "
+                            "box that looks like a button (e.g. WhatsApp's search). Try that.")
             refusal = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id,   # in the trail
                                        device_id=self.device_id, input={"tool": name, "args": arguments})
             self.spans.finish(refusal, error=why_not)
