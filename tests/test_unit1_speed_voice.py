@@ -136,3 +136,28 @@ def test_say_runs_the_macs_voice_and_can_be_cut_off() -> None:
     s.say("ferb> Hello there.")
     s.say("ferb> Second thing.")
     assert runs == [["say", "Hello there."], ["terminated"], ["say", "Second thing."]]
+
+
+def test_gpt6_catalog_lockdown_and_namespaced_tools(tmp_path: Path, monkeypatch: Any) -> None:
+    """Spike 21 (owner's move to GPT-6): the model catalog switched on code mode (functions.exec), multi-agent v2
+    (collaboration.* sub-agents) and experimental tools no flag turns off. FERB hands Codex its own catalog with those
+    neutralized for every model; GPT-6's "functions." namespace is read as the plain tool name."""
+    import ferb.runtimes.codex_exec as cx
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "auth.json").write_text("{}")
+    (home / "models_cache.json").write_text(json.dumps({"models": [
+        {"slug": "gpt-6-sol", "tool_mode": "code_mode_only", "multi_agent_version": "v2",
+         "experimental_supported_tools": ["clock"], "context_window": 1},
+        {"slug": "gpt-5.5", "tool_mode": None, "context_window": 2}]}))
+    out = cx.locked_catalog(tmp_path)
+    assert out is not None
+    models = json.loads(out.read_text())["models"]
+    assert all(m["tool_mode"] is None and m["multi_agent_version"] is None and m["experimental_supported_tools"] == []
+               for m in models)
+    assert models[0]["context_window"] == 1                                   # everything else untouched
+    rt = CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, tmp_path)
+    cmd = rt._cmd(None, "")
+    assert f"model_catalog_json={json.dumps(str(out))}" in cmd
+    seen = {n.removeprefix("functions.") for n in ("functions.apply_patch", "functions.exec", "mcp__ferb.fs_read")}
+    assert "apply_patch" in seen and "exec" in seen and not ("exec" in cx.BASE_TOOLS)   # exec still a violation

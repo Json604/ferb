@@ -612,8 +612,13 @@ Runtime-native tools: each runtime is launched with its own shell, file, web, su
 disabled wherever the runtime allows, and inherited user settings and rules ignored; FERB provides equivalents
 through MCP (`act/fs`, `act/shell`, browser). A native tool the runtime cannot remove must be made inert by the
 runtime's OS sandbox: Codex workers run with `--sandbox read-only`, `approval_policy = never`, MCP tools
-pre-approved, and a pinned non-code-mode model (code-mode models expose a JS tool runner and built-in subagents
-that cannot be disabled); its non-removable `apply_patch` therefore cannot write. Each runtime declares the exact
+pre-approved, and the model run without code mode: code-mode models expose a code runner (`functions.exec`) and
+built-in sub-agents (`collaboration.*`) that no feature flag turns off, because the model's catalog entry switches them
+on. FERB therefore hands Codex its own model catalog (`model_catalog_json`, rebuilt from Codex's cached catalog before
+each run) with `tool_mode`, `multi_agent_version` and `experimental_supported_tools` neutralized for every model —
+spike 21, owner's move to the GPT-6 family (2026-10-01): with it, gpt-6-sol / -astra / -luna each passed all four
+runtime safety tests. GPT-6 groups plain tools under a `functions.` namespace, read as the plain name
+(`functions.exec` is still `exec`, not allowed). The non-removable `apply_patch` therefore cannot write. Each runtime declares the exact
 list of tools its model may see; the list actually sent to the model (from the runtime's request trace) must be
 a subset of it. A runtime that fails this check, or whose sandbox cannot be verified, is not registered
 (spikes 1–2, test 21.1). The check runs on every run at no token cost: Codex from its request trace, Claude through
@@ -621,7 +626,8 @@ a proxy bound to localhost, used only for FERB's Claude runtime, which records *
 request — never auth headers, prompts or replies. A run that shows a tool outside the allowlist is killed and the
 runtime unregistered.
 When Codex is the supervisor it gets no FERB tools, runs in the read-only sandbox (its non-removable `apply_patch`
-can't write) on the pinned `gpt-5.5`, and keeps conversation continuity by re-sending the chat history each turn
+can't write) on the pinned model (`MODEL` in `runtimes/codex_exec.py`; `gpt-6-sol` since 2026-10-01), and keeps
+conversation continuity by re-sending the chat history each turn
 (ephemeral: no FERB conversation is written into the owner's `~/.codex` session history).
 Speed, within the owner's Codex subscription (owner decisions, 2026-10-01): supervisor-mode runs (planner, answer
 writer, distillation — no tools) use `model_reasoning_effort = low`, FERB's own instructions in place of Codex's
@@ -1404,6 +1410,11 @@ Build step 11 specifics (owner decisions):
 20. Background search in WhatsApp (owner-added 2026-10-01, after the owner pointed at ChatGPT's Dot): which background
     method reaches a search box that Accessibility shows as an unlabeled button — set value, keystrokes to the process,
     an Accessibility press, the Accessibility keyboard API. Result: press + Accessibility keyboard (20 in §20).
+21. GPT-6 under Codex's lockdown (owner, 2026-10-01; gpt-5.5 is being retired): the GPT-6 family offered
+    `collaboration.*` sub-agents, `functions.exec` (code mode), ask-user and wait tools that FERB's flags didn't
+    remove (they come from the model catalog). Recipe: FERB's own `model_catalog_json` with those fields neutralized,
+    and the `functions.` namespace read as plain names. All four Codex runtime safety tests pass on gpt-6-sol,
+    gpt-6-astra and gpt-6-luna.
 
 ## 18. Build order inside Block 1
 
@@ -1529,11 +1540,11 @@ section 21 safety tests pass.
 - Background input in owner browsers uses focus emulation, so the page believes it is visible during trusted-input
   actions (only while the debugger is attached for them). This is a deliberate trade-off, not an automation-signal
   change.
-- The Codex worker runtime (`codex exec`) is a stopgap: it is pinned to `gpt-5.5` (the only non-code-mode model it
-  can be locked down on) and carries ~25–40k tokens of Codex's own instructions per run. Planned replacement: a
-  direct-API runtime (FERB's own agent loop) where the model sees only FERB's tools. When `gpt-5.5` is retired
-  the allowlist check fails and the Codex runtime stays unregistered until a new lockdown recipe or the
-  replacement exists.
+- The Codex worker runtime (`codex exec`) is a stopgap: its lockdown depends on Codex's catalog fields (spike 21's
+  recipe) and it carries ~25–40k tokens of Codex's own instructions per run. Planned replacement: a direct-API
+  runtime (FERB's own agent loop) where the model sees only FERB's tools. If a future model or Codex version brings
+  tools the recipe doesn't cover, the allowlist check stops every run until the recipe is updated and the runtime
+  safety tests pass again.
 
 ### Future direction: brain + nodes (do not build in Block 1; do not block it)
 

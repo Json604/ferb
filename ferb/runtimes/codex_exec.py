@@ -1,6 +1,7 @@
 """CodexRuntime (section 5 AgentRuntime) over `codex exec --json` — supervisor and worker modes.
 
-Lockdown (spike 1, section 7): pinned Codex 0.157.1 and gpt-5.5 (non-code-mode), user config and rules ignored,
+Lockdown (spikes 1 + 21, section 7): pinned Codex 0.157.1 and MODEL below, run without code mode / sub-agents via
+FERB's own model catalog, user config and rules ignored,
 every disableable native tool off, read-only sandbox (makes the non-removable apply_patch inert),
 approval_policy=never. Worker mode's only tool source is `ferb mcp` (pre-approved); supervisor mode has none.
 Ephemeral: nothing is written into the owner's ~/.codex sessions. The model-visible tool list is scanned from the
@@ -30,7 +31,7 @@ from ferb.core.types import RunHandle, RuntimeEvent, RuntimeFeatures, Task
 from ferb.runtimes.tooltrace import tools_in
 
 CODEX_VERSION = "0.157.1"
-MODEL = "gpt-5.5"
+MODEL = "gpt-6-astra"
 _NATIVE_BIN = Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
 DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "multi_agent_v2", "apps", "plugins",
             "remote_plugin", "tool_suggest", "skill_search", "hooks", "browser_use", "browser_use_external",
@@ -49,6 +50,36 @@ def codex_home(ferb_home: Path) -> Path | None:
     """FERB's own Codex home, once the owner has logged in there (`CODEX_HOME=~/.ferb/codex-home codex login`)."""
     home = ferb_home / "codex-home"
     return home if (home / "auth.json").exists() else None
+
+
+# A model's catalog entry can switch on tools no feature flag turns off (spike 21, owner's move to GPT-6): code mode
+# (`functions.exec` runs code), multi-agent v2 (`collaboration.*` sub-agents outside FERB's gateway) and experimental
+# tools (ask the user, wait). FERB hands Codex its own copy of the catalog with these neutralized, for every model.
+CATALOG_LOCKDOWN: dict[str, Any] = {"tool_mode": None, "multi_agent_version": None,
+                                    "multi_agent_reasoning_effort": None, "experimental_supported_tools": []}
+
+
+def locked_catalog(ferb_home: Path) -> Path | None:
+    """FERB's model catalog for Codex: Codex's own cached catalog with CATALOG_LOCKDOWN applied to every model. None
+    when no cached catalog exists (then nothing changes; a model that brings extra tools is still caught and stopped)."""
+    home = codex_home(ferb_home) or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    src = home / "models_cache.json"
+    try:
+        data = json.loads(src.read_text())
+    except (OSError, ValueError):
+        return None
+    models = data.get("models", data) if isinstance(data, dict) else data
+    if not isinstance(models, list):
+        return None
+    for m in models:
+        if isinstance(m, dict):
+            m.update(CATALOG_LOCKDOWN)
+    out = ferb_home / "run" / "codex-models.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data))
+    tmp.replace(out)
+    return out
 
 
 def codex_binary(ferb_home: Path, repo: Path | None = None) -> Path:
@@ -87,6 +118,8 @@ class CodexRuntime:
                "-c", 'approval_policy="never"', "-c", 'web_search="disabled"']
         for f in DISABLED:
             cmd += ["--disable", f]
+        if (catalog := locked_catalog(self.ferb_home)) is not None:      # no code mode / sub-agents for any model
+            cmd += ["-c", f"model_catalog_json={json.dumps(str(catalog))}"]
         if self.mode == "worker":
             if not self.shim_cmd:
                 raise ValueError("worker mode needs the ferb mcp shim")
@@ -196,7 +229,9 @@ class CodexRuntime:
         async for raw in proc.stderr:
             if b'"tools":[' not in raw and b" output=[" not in raw:
                 continue
-            seen = tools_in(raw.decode(errors="replace"))
+            # GPT-6 groups plain tools under a "functions" namespace: functions.apply_patch is apply_patch (and
+            # functions.exec stays exec, which isn't allowed)
+            seen = {n.removeprefix("functions.") for n in tools_in(raw.decode(errors="replace"))}
             run.state["seen"] |= seen
             extra = seen - self.allowed
             if extra:
