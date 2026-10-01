@@ -579,7 +579,10 @@ Build step 8 specifics:
   `mac:read`, `fs:write` → `fs:read`), since the act tools work on element ids from its own snapshots (found in a
   real run: a plan granting only `browser:act` left the worker unable to open or read the page). Readers get read
   scopes, plus `browser:act` / `mac:act` when they must click to read — open an email, a "View here" link (owner's
-  run 2026-10-01: a reader without them couldn't open the email it was sent to read).
+  run 2026-10-01: a reader without them couldn't open the email it was sent to read). **Owner decision
+  (2026-10-01), after the risk was laid out:** readers keep these three widenings — opening a Mac app to look,
+  clicking to read, typing into a search box — accepting that a steered reader could follow a link that carries what
+  it read; everything consequential stays refused for readers in the gateway.
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
   A reader may still click (the gateway keeps it to opening and looking); other acting scopes the planner gives a
