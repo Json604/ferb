@@ -1397,13 +1397,13 @@ Build step 11 specifics (owner decisions):
 18. Background input (owner-added 2026-10-01): can FERB act in an app that stays in the background — (a) Accessibility:
     set a text box's value and press buttons; (b) keystrokes posted to the app's process (`CGEventPostToPid`) — tested
     in WhatsApp (draft-only: the New Chat search box, never a chat, never Send) and TextEdit.
-20. Background search in WhatsApp (owner-added 2026-10-01, after the owner pointed at ChatGPT's Dot): which background
-    method reaches a search box that Accessibility shows as an unlabeled button — set value, keystrokes to the process,
-    an Accessibility press, the Accessibility keyboard API. Result: press + Accessibility keyboard (20 in §20).
 19. Waking a browser profile without moving the owner (owner-added 2026-10-01): an event-based detector (macOS's
     active-Space-changed and app-activated notifications, timestamped) validated against the old wake; then one
     variant per run with the owner watching — "FERB Test" first, then (owner's permission) their own profile and
     FERB's.
+20. Background search in WhatsApp (owner-added 2026-10-01, after the owner pointed at ChatGPT's Dot): which background
+    method reaches a search box that Accessibility shows as an unlabeled button — set value, keystrokes to the process,
+    an Accessibility press, the Accessibility keyboard API. Result: press + Accessibility keyboard (20 in §20).
 
 ## 18. Build order inside Block 1
 
