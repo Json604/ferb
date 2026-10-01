@@ -860,6 +860,15 @@ guessed — enforced in code (10.3, build step 16a).
   not `about:blank`, whose fragment is dropped so it couldn't be told apart from the owner's tabs), and close
   exactly that page after the reconnect (spike 13). Never the browser's binary with a URL — that took focus — except
   for pages the owner must see (pairing).
+- **The browser the owner names (owner's report 2026-10-01):** "my scaler gmail in chrome" names Chrome and the
+  profile whose name or account matches ("scaler", sst.scaler.com; everyday words like "work" only as "work profile"
+  / "my work"). FERB uses exactly that — the planner is told so, and the router refuses any other profile for that
+  request — or, when it isn't connected, says why (no extension / not paired) and that `ferb browsers pair <name>`
+  connects it. It never substitutes another browser. Whether FERB's extension is installed in a profile is read from
+  that profile's settings on disk. Chrome removed installing unpacked extensions from the command line in version
+  137, so `ferb browsers pair` walks the owner through it: it opens `chrome://extensions` in that profile, copies the
+  extension folder's path, shows the three clicks (Developer mode, Load unpacked, ⌘⇧G + paste), waits until Chrome
+  has it, then pairs as usual.
 - **Moving the owner and taking them back (owner decision 2026-10-01):** on macOS any new browser window can pull the
   browser to the front — a long-standing Chromium problem nobody can fix from outside. So FERB avoids creating
   windows (the windowless wake; the extension creates a profile's first window *minimized* and keeps it for later

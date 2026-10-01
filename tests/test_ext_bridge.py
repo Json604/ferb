@@ -35,6 +35,10 @@ def chrome_data(root: Path) -> Path:
     d.mkdir(parents=True)
     cache = {f: {"name": n, "user_name": e} for f, (n, e) in PROFILES.items()}
     (d / "Local State").write_text(json.dumps({"profile": {"info_cache": cache, "last_used": "Profile 1"}}))
+    for folder in PROFILES:                                   # the FERB extension is loaded in each (like real ones)
+        (d / folder).mkdir(exist_ok=True)
+        (d / folder / "Secure Preferences").write_text(json.dumps(
+            {"extensions": {"settings": {FERB_EXTENSION_ID: {"location": 4}}}}))
     return d
 
 

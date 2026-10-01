@@ -1,8 +1,10 @@
 """Admin commands. Build step 1: `ferb trace <task-id>` and `ferb daemon run`."""
 
 import json
+import subprocess
+import time
 from datetime import datetime
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
 from ferb.cli.client import Client
 
@@ -88,11 +90,47 @@ def autonomy(client: Client, level: str | None, out: TextIO) -> int:
     return 0
 
 
-def browsers(client: Client, cmd: str | None, profile: str | None, browser: str | None, out: TextIO) -> int:
+INSTALL_WAIT_S = 300
+
+
+def _guide_install(client: Client, r: dict[str, Any], profile: str | None, browser: str | None, out: TextIO,
+                   sleep: Callable[[float], None]) -> bool:
+    """FERB's extension isn't in that profile and Chrome only allows installing it by hand ("Load unpacked"; the
+    command-line way was removed in Chrome 137). Its extensions page is open there; the folder path is on the
+    clipboard; FERB waits until Chrome has it, then pairs."""
+    path = r["extension_dir"]
+    try:
+        subprocess.run(["pbcopy"], input=path.encode(), check=False)
+        copied = " (copied to your clipboard)"
+    except OSError:
+        copied = ""
+    print(f"FERB's extension isn't installed in {r['browser'].capitalize()} “{r['name']}” yet. Its extensions page "
+          "is open there:", file=out)
+    print("  (If it didn't open: in that profile's window, ⋮ menu → Extensions → Manage Extensions.)", file=out)
+    print("  1. Turn on Developer mode (top right).", file=out)
+    print("  2. Click “Load unpacked”.", file=out)
+    print(f"  3. Press ⌘⇧G, paste the folder{copied}, press Return, then click Select:", file=out)
+    print(f"     {path}", file=out)
+    print("Waiting for it…", file=out, flush=True)
+    for _ in range(int(INSTALL_WAIT_S / 2)):
+        if client.call("browsers.installed", {"profile": profile, "browser": browser}).get("installed"):
+            return True
+        sleep(2)
+    print("Didn't see it installed after 5 minutes. Run this again when it's loaded.", file=out)
+    return False
+
+
+def browsers(client: Client, cmd: str | None, profile: str | None, browser: str | None, out: TextIO,
+             sleep: Callable[[float], None] = time.sleep) -> int:
     """`ferb browsers [pair|unpair <profile>]` (section 15)."""
     if cmd == "pair":
-        print(f"Opening the FERB pairing page in {profile}… (the extension must be loaded there)", file=out)
+        print(f"Opening the FERB pairing page in {profile}…", file=out)
         r = client.call("browsers.pair", {"profile": profile, "browser": browser})
+        if r.get("needs_install"):
+            if not _guide_install(client, r, profile, browser, out, sleep):
+                return 1
+            print("Installed. Now pairing…", file=out)
+            r = client.call("browsers.pair", {"profile": profile, "browser": browser})
         if r["paired"]:
             print(f"Paired {r['browser']} profile “{r['name']}” ({r['folder']}).", file=out)
             return 0

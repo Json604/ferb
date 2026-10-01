@@ -544,12 +544,15 @@ class Router(_TabDriver):
     def __init__(self, hub: Hub, resolver: Resolver, profiles: Callable[[], list[BrowserProfile]],
                  wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None) -> None:
         super().__init__(hub, profiles, wake, launch)
+        # the browser / profile the owner named for this task (daemon-set; None: they didn't name one)
+        self.named_for: Callable[[str], Any] | None = None
         self.resolver = resolver
         self.secrets: Secrets = _NoSecrets()
 
     jev: Any = None                                    # browser.profile_match (build step 13): a suggestion only
 
     async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
+        named = self.named_for(owner) if self.named_for else None
         try:
             choice = self.resolver.choose(urlsplit(url).hostname, profile)
         except NeedsOwner as e:
@@ -557,6 +560,10 @@ class Router(_TabDriver):
             if hint is None:
                 raise
             raise NeedsOwner(f"{e} Did you mean “{hint}”? (a suggestion — the owner confirms)") from None
+        if named is not None and not named.allows(choice.browser, choice.folder):    # never swap browsers (2026-10-01)
+            want = ", ".join(f"{p.browser} “{p.display_name}”" for p in named.profiles) or named.browser
+            raise Refused(f"the owner asked for {want}, not this profile; don't use another browser or profile — "
+                          "report needs_user: that one isn't connected to FERB yet (`ferb browsers pair`)")
         br = self.hub.bridge(choice.browser, choice.folder)
         if br is None:
             raise Refused(f"{choice.browser}/{choice.folder} isn't paired with FERB")

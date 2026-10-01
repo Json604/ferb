@@ -201,7 +201,7 @@ class Daemon:
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
                          ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
-                         ("browsers.pair", self._browsers_pair), ("browsers.unpair", self._browsers_unpair),
+                         ("browsers.pair", self._browsers_pair), ("browsers.installed", self._browsers_installed), ("browsers.unpair", self._browsers_unpair),
                          ("identity.pair", self._identity_pair), ("ps.list", self._ps_list),
                          ("ps.kill", self._ps_kill)):
             self.server.unary[name] = fn
@@ -1354,7 +1354,51 @@ class Daemon:
         except Exception:
             running = set()
         stable, live = svc.summary(env, platform.mac_ver()[0] or "unknown", named, running)
-        return {"routes": routes, "stable": stable, "live": live, "unknown": unknown}
+        chosen = self._named_browser(own_words)
+        if chosen is not None:
+            stable += " " + self._named_note(chosen)
+        return {"routes": routes, "stable": stable, "live": live, "unknown": unknown, "named_browser": chosen}
+
+    def _named_for_task(self, task_id: str) -> Any:
+        rec = self.tasks.get(task_id) or self.tasks.get(task_id.rsplit(".", 1)[0])
+        env = self.supervisor._env.get(rec.task.request_id) if rec is not None and self.supervisor else None
+        return env.get("named_browser") if env else None
+
+    def _named_browser(self, own_words: str) -> Any:
+        """The browser / profile the owner's words name — never FERB's own profile (owner's report 2026-10-01)."""
+        from ferb.act.browser.profiles import named_in
+        ferb = self._identity_profile()
+        owners = [p for p in self._profiles() if (p.browser, p.folder) != ferb]
+        return named_in(own_words, owners)
+
+    def _profile_state(self, p: Any) -> str:
+        """connected / paired (FERB opens it) / installed, not paired / no extension."""
+        from ferb.act.browser.profiles import has_extension
+        b = self.pairings.for_profile(p.browser, p.folder) if self.pairings else None
+        if b is not None:
+            br = self.hub.bridges.get((p.browser, p.folder)) if self.hub else None
+            return "connected" if br is not None and br.conn else "paired"
+        ids = frozenset(self.config.get("browser", "extension_ids", [FERB_EXTENSION_ID]))
+        data = (self.browser_data_dirs or {}).get(p.browser)
+        return "installed" if has_extension(p, ids, data) else "missing"
+
+    def _named_note(self, n: Any) -> str:
+        """For the planner: use exactly the browser / profile the owner named, or say why it can't be used yet."""
+        browser = {"chrome": "Chrome", "brave": "Brave"}.get(n.browser or "", "")
+        targets = list(n.profiles) or [p for p in self._profiles() if p.browser == n.browser
+                                       and (p.browser, p.folder) != self._identity_profile()]
+        usable = [p for p in targets if self._profile_state(p) in ("connected", "paired")]
+        named = ", ".join(f"{p.browser.capitalize()} “{p.display_name}”" for p in (n.profiles or ())) or browser
+        if usable:
+            names = ", ".join(f"“{p.display_name}”" for p in usable)
+            return (f"The owner named {named}: use only that ({names}; browser tools with profile set to it) — never "
+                    "another browser or profile.")
+        p = n.profiles[0] if n.profiles else None
+        how = (f"`ferb browsers pair {p.display_name}`" if p else f"`ferb browsers pair <profile>`")
+        why = ("FERB's extension isn't installed there" if p is None or self._profile_state(p) == "missing"
+               else "FERB's extension is installed but not paired")
+        return (f"The owner named {named}, but FERB can't use it yet: {why}. Don't use another browser or profile "
+                f"instead — reply (no plan) that {how} connects it (FERB walks them through it), then ask again.")
 
     def _owner_browser(self, own_words: str) -> bool:
         """The owner's words point at their own browser (a paired profile's name counts: "in my Work profile")."""
@@ -1483,6 +1527,7 @@ class Daemon:
                                           self.wake, self.browser_launch)
         for drv in (self.router, self.ferb_identity):          # a wake never leaves the owner in the browser (9.3)
             drv.front, drv.put_back = self._front_bundle, self._put_owner_back
+        self.router.named_for = self._named_for_task           # the browser the owner named, never another one
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve
         self.server.extension_ids = lambda: frozenset(self.config.get("browser", "extension_ids",
@@ -1590,6 +1635,12 @@ class Daemon:
         p = r.candidates[0]
         if (p.browser, p.folder) == self._identity_profile():
             raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB (`ferb setup --identity`)")
+        if self._profile_state(p) == "missing":                 # the extension first (owner's report 2026-10-01)
+            from ferb.device.install import repo_root
+            browser_profiles.open_known_profile(p.browser, p.folder, "chrome://extensions", known,
+                                                background=False)   # the owner does the clicks: they must see it
+            return {"paired": False, "needs_install": True, "browser": p.browser, "folder": p.folder,
+                    "name": p.display_name, "extension_dir": str(repo_root() / "extensions" / "chromium")}
         token = self.pairings.issue_token(p.browser, p.folder)
         wake = await self._open_pairing(p.browser, p.folder, token)
         timeout = float(params.get("timeout_s", 60))
@@ -1602,6 +1653,13 @@ class Daemon:
             await asyncio.sleep(0.2)
         return {"paired": False, "browser": p.browser, "folder": p.folder, "name": p.display_name,
                 "hint": "is the FERB extension loaded and enabled in that profile?"}
+
+    async def _browsers_installed(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """Is FERB's extension installed in that profile yet (read from its settings on disk)?"""
+        r = browser_profiles.resolve(str(params.get("profile", "")), self._profiles(), browser=params.get("browser"))
+        if r.kind != "one":
+            raise FerbError(r.message(str(params.get("profile", "")), self._profiles()))
+        return {"installed": self._profile_state(r.candidates[0]) != "missing"}
 
     async def _browsers_unpair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.pairings

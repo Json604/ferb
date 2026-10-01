@@ -9,6 +9,7 @@ detached. FERB never quits or kills the owner's browser.
 """
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,3 +111,64 @@ def open_known_profile(browser: str, folder: str, url: str | None, known: list[B
                 url or "--no-startup-window"])
     else:
         launch([BROWSERS[browser][1], f"--profile-directory={folder}", url or "--no-startup-window"])
+
+
+def has_extension(p: BrowserProfile, extension_ids: frozenset[str], data_dir: Path | None = None) -> bool:
+    """Is the FERB extension installed in this profile? Read from the profile's own settings on disk (both files
+    Chromium uses), so it's known before the extension ever says hello."""
+    folder = (data_dir or BROWSERS[p.browser][0]) / p.folder
+    for name in ("Secure Preferences", "Preferences"):
+        try:
+            settings = json.loads((folder / name).read_text()).get("extensions", {}).get("settings", {})
+        except (OSError, ValueError):
+            continue
+        if any(i in settings for i in extension_ids):
+            return True
+    return False
+
+
+@dataclass(frozen=True)
+class Named:
+    """The browser / profile the owner's own words name ("my scaler gmail in chrome")."""
+    browser: str | None                       # "chrome" / "brave" when they named the browser
+    profiles: tuple[BrowserProfile, ...]      # the profiles their words point at (empty: just the browser)
+
+    def allows(self, browser: str, folder: str) -> bool:
+        if self.profiles:
+            return any(p.browser == browser and p.folder == folder for p in self.profiles)
+        return self.browser is None or self.browser == browser
+
+
+GENERIC_PROFILE_WORDS = {"default", "person", "profile", "personal", "user", "guest", "me", "my", "new", "old",
+                         "main", "work", "home", "test"}
+
+
+def named_in(own_words: str, known: list[BrowserProfile]) -> Named | None:
+    """Which browser / profile the owner named, if any. A profile counts by its name ("scaler profile", "my scaler
+    gmail") or its account ("sst.scaler.com", the account's name before @) — everyday words like "work" only as
+    "<name> profile" or "my <name>". The browser counts as "chrome" / "brave" in their words."""
+    lw = " ".join(own_words.lower().split())
+    words = set(re.findall(r"[a-z0-9]+", lw))
+    browser = next((b for b in BROWSERS if b in words), None)
+    hits = []
+    for p in known:
+        if browser and p.browser != browser:
+            continue
+        name = str(getattr(p, "display_name", "")).lower().strip()
+        tokens = {name} if name and " " not in name else set()
+        email = str(getattr(p, "email", "") or "")
+        if email:
+            local, _, domain = email.partition("@")
+            tokens |= {t for t in domain.split(".") if len(t) >= 4 and t not in ("gmail", "googlemail", "yahoo",
+                                                                                   "outlook", "hotmail", "icloud")}
+            tokens.add(local)
+        for t in tokens:
+            if not t or len(t) < 3:
+                continue
+            strong = re.search(rf"\b({re.escape(t)} profile|my {re.escape(t)})\b", lw)
+            if strong or (t in words and t not in GENERIC_PROFILE_WORDS):
+                hits.append(p)
+                break
+    if not hits and browser is None:
+        return None
+    return Named(browser, tuple(hits))
