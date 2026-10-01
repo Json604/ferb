@@ -30,6 +30,7 @@ from ferb.core.types import Identity, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal
+from ferb.policy import spelling
 from ferb.orchestrator import dag
 from ferb.orchestrator.guards import GUARD_NOTE, MAX_MINUTES, STALL_S, Activity, TreeGuard
 from ferb.orchestrator.schemas import (RECONCILE_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA, WORKER_SCHEMA,
@@ -95,8 +96,16 @@ PLAN_REPAIRS = 2                               # an invalid plan goes back to th
 CONTINUITY_HOURS, CONTINUITY_TURNS = 24, 8      # the last 8 entries verbatim; the rest of the day summarized (speed)
 EARLIER_MAX, VERBATIM_CHARS = 12, 400
 SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
-SORRY_PLAN = ("I couldn't work out a safe way to do that as asked. Could you say it a bit differently, naming the apps or "
-              "sites involved?")
+SORRY_PLAN = ("I couldn't put together a working plan for that, so I didn't start anything — that's a problem on my "
+              "side, not with how you asked. Could you try again?")
+
+
+def _unnamed(problems: list[str]) -> list[str]:
+    """The targets a plan used that the owner never named (so they can be told or asked about)."""
+    for p in problems:
+        if p.startswith(dag.UNNAMED):
+            return p[len(dag.UNNAMED):].split(", ")
+    return []
 TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
               "unknown": "outcome unclear", "skipped": "skipped"}
@@ -356,6 +365,14 @@ class Supervisor(WorkerRuns):
         for tree in {id(t): t for t in self._tree_of.values()}.values():
             tree.stop = tree.stop or "FERB was stopped"
 
+    def _names(self) -> list[str]:
+        """App and service names a misspelling may be corrected to: installed apps and the service catalogue."""
+        from ferb.policy.services import CATALOGUE
+        names = [n for _, n in self.apps()]
+        for svc in CATALOGUE:
+            names.append(svc.name)
+        return names
+
     # ---------- one chat turn ----------
 
     async def send(self, session_id: str, text: str) -> AsyncIterator[dict[str, Any]]:
@@ -364,10 +381,17 @@ class Supervisor(WorkerRuns):
         # An answer to FERB's question continues the request it asked about: the owner's words are both. A plain yes
         # also endorses the question they said yes to ("Use your Brave browser for the current YouTube tab?") —
         # for planning checks only; quote checks (memory, reminders, schedules) stay on the owner's own words.
+        answering = bool(session.pending)                       # this message answers FERB's question
         owner_words = f"{session.pending}\n{m.own_words}" if session.pending else m.own_words
+        spelled = spelling.fix(owner_words, self._names())     # "salck" -> Slack (owner decision 2026-10-01)
+        owner_words = spelled.text
         endorsed = re.sub(r"\byour\b", "my", session.asked, flags=re.I)   # FERB's "your Brave" is the owner's "my Brave"
         plan_words = owner_words + (f"\n{endorsed}" if session.asked and _affirmative(m.own_words) else "")
         session.pending = session.asked = ""
+        if spelled.ambiguous and not answering:                # could be several apps: ask, then carry on
+            session.pending, session.asked = owner_words, spelled.question()
+            yield {"type": "clarify", "text": spelled.question()}
+            return
         request_id = self.ids.new_id()
         entry = self.journal.append("chat.message", {"session": session_id, "request_id": request_id,
                                                      "text": m.for_model, "untrusted_parts": len(m.untrusted)})
@@ -417,8 +441,25 @@ class Supervisor(WorkerRuns):
             self.journal.append("chat.failed", {"request_id": request_id, "why": "plan still invalid after repair"})
             missing = avail.unavailable_line()
             needs_missing = any("FERB can't do" in p for p in final)             # needed something unavailable
-            out = SupervisorOutcome(kind="reply", plan=None, text=(f"I can't do that right now. {missing}"
-                                                                   if missing and needs_missing else SORRY_PLAN))
+            if missing and needs_missing:
+                out = SupervisorOutcome(kind="reply", plan=None, text=f"I can't do that right now. {missing}")
+            elif (unnamed := _unnamed(final)):                  # a target the owner didn't type: say why
+                pasted = [t for t in unnamed if t.lower() in m.for_model.lower()]
+                quoted = " or ".join(f"“{t}”" for t in unnamed)
+                if pasted:
+                    out = SupervisorOutcome(kind="reply", plan=None,
+                                            text=f"{quoted} only appears in the pasted text, and I don't act on "
+                                                 "instructions in pasted text. If you want that, type it yourself.")
+                else:
+                    out = SupervisorOutcome(kind="clarify", plan=None,
+                                            text=f"I couldn't find {quoted} in what you said — which app, site or "
+                                                 "file did you mean?")
+            elif (browser := next((p for p in final if "didn't ask for their own browser" in p), None)):
+                out = SupervisorOutcome(kind="reply", plan=None,
+                                        text="That would need your own browser. Say “in my browser” (or name it) "
+                                             "if you want me to use it; otherwise I'll use FERB's own.")
+            else:                                               # the planner's own mistake: say so plainly
+                out = SupervisorOutcome(kind="reply", plan=None, text=SORRY_PLAN)
         if out.kind == "clarify":                               # the answer will continue this request
             session.pending, session.asked = owner_words, out.text
         if out.kind in ("reply", "clarify") or out.plan is None:
@@ -431,6 +472,8 @@ class Supervisor(WorkerRuns):
             asyncio.get_running_loop().create_task(self._jev_route(out.plan, request_id))
         routes = [r.say() for r in env.get("routes", [])]
         text = (". ".join(routes) + ". " + out.text) if routes else out.text       # the route, in plain words
+        if spelled.fixes:
+            text = f"{spelled.note()} {text}"
         try:
             async for ev in self.run_tree(out.plan, text, request_id, m.for_model):
                 yield ev
@@ -798,7 +841,7 @@ class Supervisor(WorkerRuns):
         results: list[ConditionResult] = []
         judged: list[tuple[int, Condition]] = []
         for i, c in enumerate(s.success_conditions):
-            if self.checks is not None and self.checks.code_checkable(c):
+            if self.checks is not None and self.checks.code_checkable(c, task.id):
                 results.append(await self.checks.run(i, c, task.id, ctx, tree.fields))
             else:
                 judged.append((i, c))

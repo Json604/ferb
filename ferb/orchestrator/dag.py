@@ -18,6 +18,7 @@ from ferb.policy.names import resolve_apps, site_named
 from ferb.sanitize.untrusted import targets_in_own_words
 
 MAX_FANOUT, MAX_DEPTH = 6, 2
+UNNAMED = "not in the owner's own words: "
 READ_SCOPES = frozenset({"fs:read", "browser:read", "mac:read", "screen", "trail:read", "identity:browse",
                          "mailbox:read"})
 ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -57,7 +58,7 @@ def validate_intent(i: Any, own_words: str, apps: list[tuple[str, str]] | None =
     missing += [s for s in i.sites if not site_named(s, own_words)]            # "Slack" names slack.com
     missing += resolve_apps(i.apps, apps or [], own_words)[1]                  # "Brave" names the Brave app
     if missing:
-        p.append("please name these yourself (I won't take them from pasted or quoted text): " + ", ".join(missing))
+        p.append(UNNAMED + ", ".join(missing))
     return p
 
 

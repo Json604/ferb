@@ -41,6 +41,13 @@ class Ax:
     def value(self, el: Any) -> str | None:
         return self.box
 
+    def expose_tree(self, pid: int) -> bool:
+        self.calls.append("expose")
+        return True
+
+    def window_title(self, win: Any) -> str:
+        return "" if win is None else getattr(self, "title", "Chat")
+
     def focused_role(self, pid: int) -> str | None:
         return self.focused
 
@@ -272,3 +279,26 @@ def test_an_app_running_without_a_window_gets_it_back_in_the_background(monkeypa
 
 async def _no_sleep(s: float) -> None:
     return None
+
+
+def test_electron_apps_are_asked_for_their_tree_and_slow_windows_are_waited_for(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Slack (Electron) hid its controls, so a background press failed and FERB clicked in the foreground. FERB now asks
+    each app for its full Accessibility tree (AXManualAccessibility) and, after opening an app, waits for its titled
+    main window — Slack first showed an untitled panel."""
+    ax = Ax()
+    steps = iter([None, "", "", "Slack | general"])                 # nothing yet, an untitled panel, then the window
+    current: list[Any] = [None]
+
+    def app_window(pid: int) -> Any:
+        current[0] = next(steps, "Slack | general")
+        return None if current[0] is None else object()
+    ax.app_window = app_window                                       # type: ignore[attr-defined]
+    ax.window_title = lambda win: current[0] or ""                   # type: ignore[method-assign]
+    ax.open_window = lambda pid, name: False                         # type: ignore[attr-defined]
+    d, apps, _ = setup(monkeypatch, ax)
+    monkeypatch.setattr(drv.asyncio, "sleep", _no_sleep)
+    assert asyncio.run(d.ensure_window(CHAT)) is True
+    assert ax.calls.count("expose") == 1                             # asked once per app process
+    asyncio.run(d.snapshot("WhatsApp"))
+    assert ax.calls.count("expose") == 1 and apps.activated == []

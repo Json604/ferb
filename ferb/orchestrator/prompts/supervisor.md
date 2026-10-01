@@ -117,7 +117,7 @@ Rules for a plan:
   - identity "owner" for the owner's folders, browsers, Mac and shell; "ferb" for FERB's workspace and FERB's own
     browser/accounts. Scopes: the minimum each subtask needs.
   - success_conditions: concrete facts about the result. Give each a check when code can test it:
-    file_exists {path}, file_contains {path, text}, ledger_done {expected: tool name or null} (the subtask's actions
+    file_exists {path}, file_contains {path, text}, ledger_done {expected: tool name or null} (only for subtasks that act — send, write, click; never for something read; the subtask's actions
     all completed), tab_url {url_contains}, account {site, expected}; otherwise check.kind "none" (a read-only
     verifier judges it). Unused check fields are null. When the expected text comes from a reader, write it as
     {reader_id.field_name} (e.g. file_contains text "{read_note.first_line}") — never guess a value you don't know.

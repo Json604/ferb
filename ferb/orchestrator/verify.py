@@ -43,11 +43,14 @@ class Checks:
                  account_of: Callable[[str, str], Awaitable[str | None]]) -> None:
         self.ledger, self.urls_of, self.account_of = ledger, urls_of, account_of
 
-    def code_checkable(self, c: Condition) -> bool:
+    def code_checkable(self, c: Condition, task_id: str | None = None) -> bool:
+        """`ledger_done` is about actions FERB took: when the subtask took none (it only read — "WhatsApp is
+        running"), the condition is a reading one and goes to the verifier instead (owner's report 2026-10-01)."""
         k = c.check
+        if k.kind == "ledger_done":
+            return task_id is None or bool(self.ledger.for_task(task_id))
         return (k.kind == "file_exists" and bool(k.path)) or (k.kind == "file_contains" and bool(k.path and k.text)) \
-            or k.kind == "ledger_done" or (k.kind == "tab_url" and bool(k.url_contains)) \
-            or (k.kind == "account" and bool(k.site and k.expected))
+            or (k.kind == "tab_url" and bool(k.url_contains)) or (k.kind == "account" and bool(k.site and k.expected))
 
     async def run(self, i: int, c: Condition, task_id: str, ctx: ToolContext,
                   fields: dict[str, dict[str, Any]] | None = None) -> ConditionResult:

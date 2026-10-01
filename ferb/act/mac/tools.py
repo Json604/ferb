@@ -106,8 +106,9 @@ class MacApps(_Base):
 class MacOpen(_Base):
     name = "mac.open"
     description = ("Open an installed app in the background, without taking focus — or, if it's running with no "
-                   "window, reopen its window (still in the background). The owner stays where they are.")
-    scopes = {"mac:act"}
+                   "window, reopen its window (still in the background). The owner stays where they are. Reading "
+                   "an app that isn't running? Open it first.")
+    scopes = {"mac:read"}             # opening an app to look at it is part of reading (owner decision 2026-10-01)
 
     class Input(BaseModel):
         bundle_id: str = Field(description="The app's bundle id, e.g. com.apple.Notes")

@@ -80,6 +80,7 @@ class MacComputerDriver:
         self._forward_app: str | None = None            # the app FERB brought forward, while a stretch lasts
         self._owner_app: Any = None                     # the app the owner was in, to put back
         self._restore_at: asyncio.TimerHandle | None = None
+        self._exposed: set[int] = set()                 # app processes asked for their full tree (Electron)
 
     def app(self, name_or_bundle: str) -> Any:
         a = self.apps.find(name_or_bundle)
@@ -90,21 +91,32 @@ class MacComputerDriver:
             raise Refused(f"{a.name} is on the owner's exclusion list")
         return a
 
-    async def ensure_window(self, bundle_id: str, wait_s: float = 4.0) -> bool:
-        """After opening an app: wait for it to be running with a window; reopen its window from its own menu if it
-        has none (in the background). True once there's a window."""
-        reopened = False
+    async def _expose(self, a: Any) -> None:
+        if a.pid not in self._exposed:
+            self._exposed.add(a.pid)
+            await asyncio.to_thread(self.ax.expose_tree, a.pid)
+
+    async def ensure_window(self, bundle_id: str, wait_s: float = 10.0) -> bool:
+        """After opening an app: wait for its main window — one with a title; slow starters (Electron apps) show an
+        untitled panel first — reopening it from the app's own menu if there's none (in the background). True once
+        there's a window (titled, or untitled when that's all it shows by the end)."""
+        reopened, untitled = False, False
         for i in range(int(wait_s / 0.25)):
             a = self.apps.find(bundle_id)
-            if a is not None and await asyncio.to_thread(self.ax.app_window, a.pid) is not None:
-                return True
-            if a is not None and not reopened and i >= 4:          # running ~1 s and still no window
-                reopened = await asyncio.to_thread(self.ax.open_window, a.pid, a.name)
+            if a is not None:
+                await self._expose(a)
+                win = await asyncio.to_thread(self.ax.app_window, a.pid)
+                if win is not None and self.ax.window_title(win):
+                    return True
+                untitled = untitled or win is not None
+                if win is None and not reopened and i >= 4:        # running ~1 s and still no window
+                    reopened = await asyncio.to_thread(self.ax.open_window, a.pid, a.name)
             await asyncio.sleep(0.25)
-        return False
+        return untitled
 
     async def snapshot(self, name_or_bundle: str) -> tuple[Any, dict[str, Any]]:
         a = self.app(name_or_bundle)
+        await self._expose(a)
         tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id))
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.gen += 1

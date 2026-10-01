@@ -216,6 +216,19 @@ def value(el: Any) -> str | None:
     return None if v is None else str(v)
 
 
+def expose_tree(pid: int) -> bool:
+    """Electron apps (Slack, Discord, VS Code…) build their full Accessibility tree only when an assistive app asks
+    for it with AXManualAccessibility; without it their controls can't be pressed in the background. Harmless for
+    other apps (they just refuse the attribute)."""
+    import ApplicationServices as AX
+    return bool(AX.AXUIElementSetAttributeValue(AX.AXUIElementCreateApplication(pid), "AXManualAccessibility",
+                                                True) == 0)
+
+
+def window_title(win: Any) -> str:
+    return str(_attr(win, "AXTitle") or "").strip("\u200e ") if win is not None else ""
+
+
 REOPEN = re.compile(r"^(open|show) (the )?main window$", re.I)
 
 
@@ -225,7 +238,7 @@ def open_window(pid: int, app_name: str) -> bool:
     import ApplicationServices as AX
     bar = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
     name = app_name.strip("\u200e").lower()
-    candidates = []
+    candidates: list[Any] = []
     for top in _attr(bar, "AXChildren") or []:
         top_title = str(_attr(top, "AXTitle") or "").strip("\u200e")
         for menu in _attr(top, "AXChildren") or []:

@@ -526,7 +526,9 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
 7. Locks: `gui_lock` for real mouse/keyboard, plus resource locks (tab, account, file, app) from `act/locks.py`,
    acquired in a fixed order, held across observe → act → verify, never across model calls or approval waits.
 8. Supervisor **verifies** each outcome against the plan's success conditions using fresh reads; the worker's
-   own claim is evidence, not verification.
+   own claim is evidence, not verification. A `ledger_done` check (the subtask's actions completed) only applies to
+   steps that acted: when the action ledger has nothing for the step (it only read — "WhatsApp is running"), the
+   condition is a reading one and goes to the reading verifier (owner's report 2026-10-01).
 9. Retries: definite failures retry per policy. `unknown` outcomes (e.g. Send clicked, connection lost) are
    **reconciled first** (re-read the target: did it happen?) and never blindly retried.
 10. **No token or dollar budgets anywhere** (owner decision: they don't matter for the owner's experience). Only
@@ -578,6 +580,8 @@ Build step 8 specifics:
   read scopes only.
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
+  Opening an app in the background (`mac.open`) is part of reading — a reader that finds an app closed opens it and
+  looks, rather than reporting "not running" (owner decision 2026-10-01).
 - Reader output is typed fields (string / number / boolean / string list / email / URL); strings default to 500
   characters and the plan may raise a field to at most 2,000. Actors get them wrapped as untrusted data.
 - Verification: each success condition is checked by code where its form allows (file exists / contains, the
@@ -716,6 +720,10 @@ menu ("Open main window", or its entry in the Window menu) through Accessibility
 from the background and goals are what to read or do, never "bring X to the front"; keys that switch the owner's apps
 or desktops (⌘Tab, Control+arrows) and AppleScript `activate` / `reopen` are refused. An element "click" is a press
 in the background first. Snapshots include a button's value when it has one (a chat row's latest message).
+**Electron apps** (Slack, Discord, VS Code…) build their full Accessibility tree only when asked: FERB sets
+`AXManualAccessibility` once per app process before reading it, so their controls can be pressed in the background
+(Slack's hidden tree made a press fail and FERB click in the foreground). After opening an app FERB waits up to 10 s
+for its titled main window (Electron apps first show an untitled panel).
 **The running-app list stays current:** macOS refreshes it only when the process gives its event system a turn, which
 the daemon's asyncio loop never did — an app launched after the daemon started stayed "not running". The daemon now
 runs one zero-wait turn every 0.2 s (under 1 ms), and a lookup by bundle id asks macOS directly. App names are
@@ -958,6 +966,13 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   account, path) appears in those words. When the whole message is a paste — or a paste with only a greeting typed
   around it ("hey " + the paste; owner's report 2026-10-01) — `ferb chat` asks, in the owner's own terminal, whether
   it's their request; a yes sends it as their words.
+  **Misspelled names (owner decision 2026-10-01):** before planning, a word in the owner's own words that is one or
+  two letters off exactly one installed app or catalogue service (a swap counts as one), and isn't itself a word
+  (the Mac's dictionary, plus everyday tech words), is read as that name and FERB says so ("Using Slack, from
+  'salck'"); close to several, FERB asks "Did you mean …?" and the answer continues the request. Pasted text is never
+  corrected. When a plan still names something the owner didn't type, FERB says the real reason: it only appears in
+  pasted text (not acted on), or it couldn't find it in what they said (which did they mean?); a planner mistake is
+  called one ("a problem on my side, not with how you asked"), without its internals.
 - **Exposure** (`policy/exposure.py`): a worker that has read untrusted content (web pages, emails, messages,
   downloaded files, anything not from a trusted source) is *exposed*. Exposed workers lose shell, AppleScript and
   file-write capabilities for the rest of their run. If those are needed, the supervisor starts a clean worker

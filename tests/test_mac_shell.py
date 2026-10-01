@@ -227,6 +227,13 @@ class FakeAx:
     def read_tree(self, pid: int, browser: bool = False) -> AxTree:
         return self.tree
 
+    def expose_tree(self, pid: int) -> bool:
+        self.calls.append("ax.expose")
+        return False
+
+    def window_title(self, win: Any) -> str:
+        return "Window"
+
     def press(self, el: Any) -> bool:
         self.calls.append("ax.press")
         return self.press_ok
@@ -286,7 +293,7 @@ def test_mac_driver_prefers_accessibility_and_falls_back_to_real_input(monkeypat
     pw = next(e for e in out["elements"] if e["label"] == "Password")
     assert pw.get("sensitive") and pw.get("filled") and "value" not in pw        # password value never read
     r = asyncio.run(d.act("Notes", ComputerAction("press", ids["Save"])))
-    assert r.ok and ax.calls == ["ax.press"] and posted == [] and apps.activated == []   # no focus stolen
+    assert r.ok and ax.calls == ["ax.expose", "ax.press"] and posted == [] and apps.activated == []   # no focus stolen
     with pytest.raises(Refused, match="password"):
         asyncio.run(d.act("Notes", ComputerAction("set_value", ids["Password"], "hunter2")))
     d2, ax2, apps2, posted2 = mac(monkeypatch, press_ok=False)
@@ -369,7 +376,7 @@ def test_opening_an_app_takes_the_owner_back_to_where_they_were(daemon: RunningD
         apps.apps = [RunningApp(a.bundle_id, a.name, a.pid, a.bundle_id == bid) for a in apps.apps]
         return real_activate(bid)
     apps.activate = activate
-    g = task(daemon, "o", Identity.OWNER, {"mac:act"}, {"use_app"})
+    g = task(daemon, "o", Identity.OWNER, {"mac:read"}, {"use_app"})          # reading may open apps too
     r = call(daemon, g, "mac.open", bundle_id="com.apple.Notes")
     assert not r["is_error"], r
     assert apps.activated[-1] == "com.brave.Browser" and apps.frontmost().bundle_id == "com.brave.Browser"
