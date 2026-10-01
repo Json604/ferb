@@ -585,7 +585,10 @@ Build step 8 specifics:
   it read; everything consequential stays refused for readers in the gateway.
   In Mac apps a reader's press counts as "clicking to read" only on a labeled button, link, tab or menu item whose
   label isn't consequential (send, call, delete, block, forward, share, allow, install, pay, sign out, …); unlabeled
-  or risky ones stay refused. The reader's own instructions (`prompts/reader.md`) say exactly this — a reader told
+  or risky ones stay refused. On web pages the same: a reader may click content (an email row, a list item, a cell,
+  a tab) and links / buttons / menu items whose label isn't consequential (also: submit, sign in, register,
+  checkout, apply, book, discard, mark as…); never form controls (owner's run 2026-10-01: opening an email in Gmail
+  was refused as a "submit"). The reader's own instructions (`prompts/reader.md`) say exactly this — a reader told
   "you can't change anything" gave up without trying (owner's run 2026-10-01).
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.

@@ -310,6 +310,24 @@ class BrowserAct(_Base):
     def _scopes(self) -> set[str]:
         return {self.family.act}
 
+    def reader_ok(self, args: BaseModel) -> bool:
+        """A reader may click to open something and read it — an email row, a link, a tab — never a form control and
+        never a control whose label sounds consequential (owner decision 2026-10-01; owner's run: opening an email in
+        Gmail was refused as a "submit")."""
+        from ferb.act.mac.tools import RISKY_LABEL, call_or_send
+        if getattr(args, "action", None) != "click":
+            return False
+        el = self._element(args)
+        if el is None or el.form not in (None, "", "search") or el.role in FORM_ROLES:
+            return False
+        label = (el.label or "").strip()
+        if not label:
+            return False
+        if el.role in ("row", "listitem", "option", "cell", "gridcell", "article", "tab", "treeitem"):
+            return True                    # content: clicking opens it (an email row's label is its whole preview)
+        return el.role in ("link", "menuitem", "button") and not RISKY_LABEL.search(label) \
+            and call_or_send(label) is None and not READER_RISKY.search(label)   # the label is the action
+
     def describe(self, args: BaseModel) -> ActionSpec:
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
@@ -344,6 +362,10 @@ def security_page(url: str | None) -> bool:
     where = f"{parts.path}?{parts.query}#{parts.fragment}"
     context = f"{parts.hostname or ''}{where}"
     return bool(SECURITY_PAGE.search(where)) and bool(ACCOUNT_CONTEXT.search(context))
+
+
+READER_RISKY = re.compile(r"\b(submit|sign in|log in|login|register|subscribe|checkout|apply|enroll|vote|"
+                          r"book|reserve|unsend|discard|empty trash|mark as)\b", re.I)   # web-only risky words
 
 
 def act_kind(action: str, text: str | None, el: PageElement | None) -> str:

@@ -284,3 +284,25 @@ def test_a_reader_may_type_only_the_owners_own_words(daemon: RunningDaemon) -> N
     assert not gw._reader_types_own_words("browser.act", A("type", "syllabus"), "r")
     gw.request_words = lambda rid: ""
     assert not gw._reader_types_own_words("mac.act", A("set_value", "syllabus"), "r")     # no words, no typing
+
+
+def test_a_reader_may_open_an_email_row_but_never_submit_on_a_page() -> None:
+    """Owner's run: opening an email in Gmail was refused as a "submit". A reader may click content (an email row, a
+    list item, a tab) and harmless links/buttons; never form controls or consequential labels."""
+    from ferb.act.browser.tools import BrowserAct
+    from ferb.core.types import PageElement
+    def pe(i: str, role: str, label: str, **k: Any) -> PageElement:
+        return PageElement(i, "f0", role, label, None, (0, 0, 1, 1), True, **k)
+    els = {"row": pe("e1", "row", "Student Alert Computer Vision Course – Kaggle Assignment 2 new post"),
+           "send": pe("e2", "button", "Send"), "archive": pe("e3", "button", "Archive"),
+           "link": pe("e4", "link", "View here", href="https://forms.gle/x"),
+           "submitbtn": pe("e5", "button", "Submit"), "field": pe("e6", "textbox", "To")}
+    tool = BrowserAct.__new__(BrowserAct)
+    tool._element = lambda args: els[args.element]                             # type: ignore[method-assign]
+
+    class A:
+        def __init__(self, element: str, action: str = "click") -> None:
+            self.element, self.action = element, action
+    assert tool.reader_ok(A("row")) and tool.reader_ok(A("link"))
+    assert not tool.reader_ok(A("send")) and not tool.reader_ok(A("archive")) and not tool.reader_ok(A("submitbtn"))
+    assert not tool.reader_ok(A("field")) and not tool.reader_ok(A("row", action="type"))
