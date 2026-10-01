@@ -51,8 +51,9 @@ class FakeShots:
     def window_at(self, x: float, y: float, max_layer: int = 0) -> Window | None:
         return Window(self.top if self.top is not None else 110, 0, self.bounds, "w")
 
-    def capture(self, w: Window) -> tuple[bytes, int, int]:
+    def capture(self, w: Window, marks: Any = None) -> tuple[bytes, int, int]:
         self.captured.append(w.id)
+        self.marks = marks
         if self.on_capture:
             self.on_capture()
         return self.jpeg, *IMG
@@ -294,3 +295,62 @@ def test_browsers_go_through_the_extension_first(daemon: RunningDaemon, monkeypa
 
 async def _span_inputs(d: RunningDaemon) -> list[str]:
     return [str(r[0]) for r in d.daemon.db.conn.execute("SELECT input_json FROM spans").fetchall()]
+
+
+# ---------- the image with the tree (owner request, 2026-10-01) ----------
+
+def test_marks_map_controls_onto_the_image() -> None:
+    from ferb.act.mac.screenshot import to_pixels
+    bounds, size = (100.0, 50.0, 400.0, 300.0), (800, 600)                  # a window captured at 2x
+    got = to_pixels([("7", (110, 60, 100, 30)), ("9", (450, 300, 100, 100)), ("off", (2000, 0, 10, 10)),
+                     ("flat", (150, 100, 0, 20))], bounds, size)
+    assert got == [("7", (20.0, 20.0, 200.0, 60.0)), ("9", (700.0, 500.0, 100.0, 100.0))]   # clipped to the window
+
+
+def _tree_with_controls(ax: Any) -> None:
+    from ferb.act.mac.accessibility import AxNode, AxTree
+    ax.tree = AxTree(nodes=[AxNode(None, "button", "Send", None, (120.0, 70.0, 60.0, 20.0), False, True),
+                            AxNode(None, "button", "", None, (200.0, 100.0, 30.0, 30.0), False, True)],
+                     title="Chat")
+
+
+def test_a_snapshot_with_the_screen_scope_carries_a_marked_image(daemon: RunningDaemon,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    _tree_with_controls(daemon.daemon.mac.ax)                                   # type: ignore[union-attr]
+    g = task(daemon, "i", Identity.OWNER, {"mac:read", "screen"}, {"use_app"})
+    r = call(daemon, g, "mac.snapshot", app="Notes")
+    assert not r["is_error"] and base64.b64decode(r["image"]["data"]) == shots.jpeg
+    ids = [e["id"] for e in r["content"]["elements"]]
+    assert shots.marks == [(i.split("e", 1)[1], rect) for i, rect in
+                           zip(ids, [(120.0, 70.0, 60.0, 20.0), (200.0, 100.0, 30.0, 30.0)])]
+    assert r["content"]["shot"] == "shot1" and r["content"]["image"].startswith("attached")
+    daemon.run(_checkpoint(daemon))
+    for p in daemon.daemon.home.rglob("*"):                                    # in memory only, as before
+        if p.is_file() and not p.is_socket():
+            assert base64.b64encode(shots.jpeg) not in p.read_bytes(), p
+
+
+def test_no_image_without_the_screen_scope_for_browsers_or_when_switched_off(daemon: RunningDaemon,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    _tree_with_controls(daemon.daemon.mac.ax)                                   # type: ignore[union-attr]
+    plain = task(daemon, "p", Identity.OWNER, {"mac:read"}, {"use_app"})
+    assert "image" not in call(daemon, plain, "mac.snapshot", app="Notes")
+    g = task(daemon, "q", Identity.OWNER, {"mac:read", "screen"}, {"use_app"})
+    assert "image" not in call(daemon, g, "mac.snapshot", app="Brave")        # browsers: the extension's job
+    daemon.daemon.mac.snapshot_images = lambda: False                          # type: ignore[union-attr]
+    assert "image" not in call(daemon, g, "mac.snapshot", app="Notes")
+    assert shots.captured == []
+
+
+def test_a_password_field_still_means_no_image_but_the_tree_comes_back(daemon: RunningDaemon,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    ax = daemon.daemon.mac.ax                                                   # type: ignore[union-attr]
+    _tree_with_controls(ax)
+    ax.secure = [True]
+    g = task(daemon, "s", Identity.OWNER, {"mac:read", "screen"}, {"use_app"})
+    r = call(daemon, g, "mac.snapshot", app="Notes")
+    assert not r["is_error"] and "image" not in r and "password" in r["content"]["image"]
+    assert len(r["content"]["elements"]) == 2 and shots.captured == []

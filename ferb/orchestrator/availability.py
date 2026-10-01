@@ -38,7 +38,9 @@ GROUPS: tuple[Group, ...] = (
     Group("mac", "the owner's Mac apps", frozenset({"mac:read", "mac:act", "applescript"}),
           "The owner's Mac apps (\"owner\" identity): through Accessibility{and_applescript} ({scopes})."),
     Group("screen", "screenshots of app windows", frozenset({"screen"}),
-          "A screenshot of one app window, with clicks by position (screen, mac:act)."),
+          "A screenshot of one app window, with clicks by position (screen, mac:act). Give work in Mac apps the "
+          "screen scope along with mac:read / mac:act: its snapshots then include an image of the window with each "
+          "control numbered, which makes acting in apps far more reliable."),
     Group("shell", "shell commands", frozenset({"shell"}), "Shell commands on the owner's Mac (shell)."),
     Group("trail", "the owner's activity record", frozenset({"trail:read"}),
           "FERB's record of the owner's recent activity (trail:read)."),

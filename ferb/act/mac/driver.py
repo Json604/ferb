@@ -54,6 +54,7 @@ class MacComputerDriver:
         self.shots, self.web_password = shots, web_password     # web_password: the extension's check (9.4)
         self.on_activate: Callable[[str, str | None], None] = lambda bundle, task: None   # the trail's attribution
         self._state: dict[str, _AppState] = {}
+        self.snapshot_images: Callable[[], bool] = lambda: True   # `[mac] snapshot_image` (owner request, 2026-10-01)
 
     def app(self, name_or_bundle: str) -> Any:
         a = self.apps.find(name_or_bundle)
@@ -92,7 +93,16 @@ class MacComputerDriver:
             raise StaleRef(f"element {element} is from an older snapshot of this app; take a new one")
         return n
 
-    async def screenshot(self, name_or_bundle: str) -> tuple[Any, Shot, bytes]:
+    def marks(self, bundle_id: str) -> list[tuple[str, tuple[float, float, float, float]]]:
+        """The latest snapshot's controls as numbered boxes for the image: "12" = element s<gen>e12."""
+        st = self._state.get(bundle_id)
+        if st is None:
+            return []
+        return [(eid.split("e", 1)[1], n.rect) for eid, n in st.nodes.items() if n.rect[2] > 0 and n.rect[3] > 0]
+
+    async def screenshot(self, name_or_bundle: str,
+                         marks: list[tuple[str, tuple[float, float, float, float]]] | None = None
+                         ) -> tuple[Any, Shot, bytes]:
         """The app's front window only, in memory. A password field the Accessibility tree shows (or, for a browser,
         the extension reports in the tab on screen), before or after the capture, drops the frame; when neither can
         tell, the capture goes ahead."""
@@ -114,6 +124,8 @@ class MacComputerDriver:
 
         def grab(w: Any) -> tuple[bytes, int, int]:
             try:
+                if marks:
+                    return self.shots.capture(w, marks=marks)     # type: ignore[no-any-return]
                 return self.shots.capture(w)                  # type: ignore[no-any-return]
             except (LookupError, RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None

@@ -166,6 +166,7 @@ defaults for the privacy keys on first run, so you can see and edit them there. 
 |                | `idle_after_s`          | `120`                                                              | Seconds without input before you count as idle                                             |
 |                | `trail_retention_days`  | `30`                                                               | Raw activity rows kept; days are purged only after their daily summary exists              |
 | `[mac]`      | `yield_to_owner`        | `true`                                                             | Pause FERB's real mouse/keyboard while you use yours; `false` keeps it going                |
+|              | `snapshot_image`        | `true`                                                             | Mac app snapshots also carry an image of the window with each control numbered               |
 | `[browser]`  | `prefer_for_actions`    | `["brave", "chrome"]`                                              | Browser order when a site is open in several                                               |
 | `[identity]` | `browser`, `profile`  | set by`ferb setup --identity`                                      | FERB's own Chrome profile                                                                  |
 | `[mailbox]`  | `address`, `provider` | set by`ferb setup --identity`                                      | FERB's own email address (Gmail)                                                           |

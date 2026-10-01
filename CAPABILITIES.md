@@ -37,6 +37,7 @@ to fix it.
 | Capability | Example request | Needs | Status | Known limits |
 |---|---|---|---|---|
 | List apps, read a window | `what's open in Finder right now?` | Mac | Verified (Finder snapshot) | Password fields are never read |
+| See an app window with its controls numbered | (automatic in app work) | Mac, Screen | Offline (mark placement verified on a real window) | Not for browsers yet; no image for excluded apps or password fields |
 | Operate an app through Accessibility | `in TextEdit, type 'hello' in the open document` | Mac | Offline (real input, driver level: verified) | Falls back to real mouse/keyboard, which pauses while you use yours |
 | AppleScript inside one scriptable app | `make a note in Notes titled 'groceries' with milk and eggs` | Mac, Automation for that app (asked once) | Offline (planning the Notes route: verified) | One app per script; no System Events, shell or nested `tell` |
 | Open an app | `open Calculator` | Mac | Offline | Apps on `[privacy] exclude_apps` are refused |

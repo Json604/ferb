@@ -699,6 +699,12 @@ app, raises that exact window and waits for it to be on screen before any click.
 The owner stays where they are (owner report, 2026-10-01): FERB reads the app the owner is in from Accessibility's
 focused application (NSWorkspace's flag goes stale in the daemon), and after opening an app or acting with real input
 it activates that app again, which brings the owner back to their own desktop.
+The image with the tree (owner request, 2026-10-01): with the `screen` scope, `mac.snapshot` also returns an image of
+that one window with each control's box outlined and numbered ("12" = element s<gen>e12), drawn in memory before
+encoding, so the model acts on what it sees. Same rules as `mac.screenshot`: excluded apps and windows showing a
+password field give no image (the tree still comes back, with the reason); never saved; browsers are read through the
+extension instead. The image counts as the latest screenshot for `mac.click`. `[mac] snapshot_image = false` turns it
+off. Browser snapshots don't carry marked images yet (marks need the page's viewport size from the extension).
 
 Browsers prefer the extension: `mac.screenshot` / `mac.click` (screenshot + click) are the fallback for what the
 extension can't do (browser UI such as permission prompts, canvas-only pages). While a paired owner profile of that

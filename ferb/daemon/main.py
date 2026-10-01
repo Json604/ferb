@@ -370,6 +370,7 @@ class Daemon:
         self.mac = MacComputerDriver(device, RealInput(owner_active, self.gui, on_wait=owner_wait,
                                                        available=available),
                                      excluded=self.config.exclude_apps, web_password=self._web_password)
+        self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree
         add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected, self._unpaired_note)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)
