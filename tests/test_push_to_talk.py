@@ -212,3 +212,49 @@ def test_the_talk_key_does_nothing_while_push_to_talk_is_off(daemon: RunningDaem
     hook(RIGHT_OPTION, True)
     time.sleep(0.1)
     assert calls == [(RIGHT_OPTION, True)]
+
+
+def test_ferb_voice_shows_what_was_heard_and_said(daemon: RunningDaemon) -> None:
+    import io
+    import threading
+
+    from ferb.cli.client import Client
+    from ferb.cli.logs import voice as voice_view
+    install(daemon, [sup("reply", "It's 4:05 pm.")])
+    daemon.daemon.voice.speaker = FakeSpeaker()
+    out = io.StringIO()
+    c = Client(daemon.sock, timeout=15)
+    viewer = threading.Thread(target=voice_view, args=(c, out, 2))
+    viewer.start()
+    time.sleep(0.3)                                                    # subscribed
+    daemon.run(daemon.daemon.voice.transcript("what's the time"))
+    viewer.join(15)
+    c.close()
+    assert "you (voice)> what's the time\nferb> It's 4:05 pm." in out.getvalue()
+
+
+def test_questions_are_shown_and_spoken_in_voice_words() -> None:
+    from ferb.cli.chat import question, render
+    published: list[Any] = []
+    speaker = FakeSpeaker()
+
+    async def run_turn(text: str) -> Any:
+        yield {"type": "event", "topic": "approval.requested",
+               "data": {"kind": "send", "reason": "Message Rahul: running late"}}
+        yield {"type": "event", "topic": "action.held", "data": {"kind": "call", "to": "Rahul Sharma", "seconds": 10}}
+
+    class J:
+        def append(self, *a: Any) -> None:
+            return None
+    v = Voice(run_turn, lambda: [], lambda *a: None, speaker, J(), lambda: None, render=render, question=question,
+              publish=lambda t, d: published.append((t, d["text"])))
+
+    async def go() -> None:
+        await v.transcript("tell Rahul I'm running late")
+        await asyncio.sleep(0.1)
+    asyncio.run(go())
+    shown = [t for topic, t in published if topic == "voice.said"]
+    assert shown[0].endswith("(say yes or no)") and "[y/N]" not in shown[0]
+    assert shown[1] == "📞 Calling Rahul Sharma in 10 s… (say stop to cancel)"
+    assert speaker.said[1] == "Calling Rahul Sharma in 10 seconds. Say stop to cancel."
+    assert published[0] == ("voice.heard", "tell Rahul I'm running late")

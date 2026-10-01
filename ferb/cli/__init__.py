@@ -9,7 +9,7 @@ from ferb.cli.client import Client, RpcError
 from ferb.core.errors import NotRunning
 from ferb.paths import ferb_home, socket_path
 
-LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers")
+LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers", "voice")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -19,6 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     lp = sub.add_parser("logs", help="live stream from the daemon's bus")
     for flag in LOG_FLAGS:
         lp.add_argument(f"--{flag}", action="store_true")
+
+    sub.add_parser("voice", help="watch push-to-talk live: what FERB heard you say, and what it said back")
 
     tp = sub.add_parser("trace", help="span tree for one task")
     tp.add_argument("task_id")
@@ -160,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "logs":
                 filters = [f for f in LOG_FLAGS if getattr(args, f)]
                 return logs.run(client, filters, sys.stdout)
+            if args.cmd == "voice":
+                return logs.voice(client, sys.stdout)
             if args.cmd == "trace":
                 return admin.trace(client, args.task_id, sys.stdout)
             if args.cmd == "stop":

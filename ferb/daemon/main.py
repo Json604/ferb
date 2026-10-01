@@ -63,7 +63,8 @@ Redact = Callable[[Any], Any]
 
 # `ferb logs` filter flags -> bus topic patterns
 LOG_FILTERS = {"tasks": "task.*", "trail": "trail.event", "tools": "tool.called", "browsers": "browser.*",
-               "policy": "policy.*", "actions": "action.*", "timers": "timer.*"}
+               "policy": "policy.*", "actions": "action.*", "timers": "timer.*",
+               "voice": "voice.*"}
 RELEASE_TICK_S = 0.2
 
 
@@ -287,7 +288,7 @@ class Daemon:
                            self.voice_speaker or SaySpeaker(),
                            self._journal(), self._launch_voice_app,
                            mode=lambda: str(self.config.get("voice", "mic", "auto")), render=render, question=question,
-                           cancel_countdown=self._cancel_countdown)
+                           cancel_countdown=self._cancel_countdown, publish=self._publish)
         loop = asyncio.get_running_loop()
 
         def on_key(code: int, down: bool) -> None:               # the tap's thread: hand off to the loop
@@ -351,7 +352,7 @@ class Daemon:
     async def _voice_transcript(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if params.get("error"):                                  # FERB.app couldn't listen
             self._journal().append("voice.failed", {"why": str(params["error"])[:300]})
-            self.voice.speaker.say("I couldn't use the microphone.")
+            self.voice._say("I couldn't use the microphone.")
             return {"handled": "error"}
         result: dict[str, Any] = await self.voice.transcript(str(params.get("text", "")))
         return result

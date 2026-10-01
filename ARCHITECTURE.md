@@ -503,7 +503,8 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
   `memory.proposed`. Also critical: `policy.blocked`, `worker.exposed`, `action.held` (undo countdown),
   `action.released`, `action.undone`, `stop.engaged`, `stop.lifted`, `sense.paused`, `sense.resumed`,
   `sense.watcher_failed`, `contact.selected` (who a call or message went to, step 16a), `plan.extended` (the
-  owner's yes to a route found while exploring). Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
+  owner's yes to a route found while exploring), `voice.heard` / `voice.said` (push-to-talk: what the owner said, as
+  recognized, and what FERB said back — shown live by `ferb voice`). Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
   oldest telemetry is dropped and the subscriber is told how many; if a queue is full of critical events, that
   subscriber is disconnected with an explicit overflow error (it must resubscribe and re-read state) rather
   than silently losing one.
@@ -1231,7 +1232,8 @@ Build step 11 specifics (owner decisions):
 | Command | Purpose |
 |---------|---------|
 | `ferb chat [--verbose] [--speak]` | Conversation with FERB: a line editor (paste as one message, Option-Enter for a new line), approvals inline, results of tasks that finished while chat was closed; Ctrl-C stops the running task, closing chat doesn't; `--verbose` shows plans, workers and tools; `--speak`: FERB also says its own words out loud (the Mac's voice, `say`; behind an interface for a later TTS API) |
-| `ferb logs [--tasks --trail --tools --browsers --policy --actions --timers]` | Live stream from the bus (redacted) |
+| `ferb logs [--tasks --trail --tools --browsers --policy --actions --timers --voice]` | Live stream from the bus (redacted) |
+| `ferb voice` | Push-to-talk as a live conversation: what FERB heard you say, and what it said back (20.1) |
 | `ferb trace <task-id>` | Span tree for one task |
 | `ferb setup [--update] [--codex-login]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent; `--codex-login`: sign in FERB's own Codex home) / health, permissions, extension connectivity |
 | `ferb uninstall [--purge]` | Remove the LaunchAgent (and native-host files); `--purge` also deletes `~/.ferb` after confirmation |

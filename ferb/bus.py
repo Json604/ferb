@@ -23,7 +23,7 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ap
             "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
             "policy.blocked", "worker.exposed", "action.held", "action.released", "action.undone",
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed", "contact.selected",
-            "plan.extended"}
+            "plan.extended", "voice.heard", "voice.said"}
 TELEMETRY = {"tool.called", "trail.event", "browser.connected", "browser.disconnected", "browser.profiles_changed",
              "memory.proposed"}
 STABLE_TOPICS = CRITICAL | TELEMETRY

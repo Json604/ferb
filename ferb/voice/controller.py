@@ -37,16 +37,22 @@ class Voice:
                  launch_app: Callable[[], None], mode: Callable[[], str] = lambda: "auto",
                  render: Callable[[dict[str, Any]], str | None] = lambda ev: None,
                  question: Callable[[dict[str, Any]], str] = lambda d: "",
-                 cancel_countdown: Callable[[], bool] = lambda: False) -> None:
+                 cancel_countdown: Callable[[], bool] = lambda: False,
+                 publish: Callable[[str, dict[str, Any]], None] = lambda topic, data: None) -> None:
         self.run_turn, self.pending, self.answer = run_turn, pending, answer
         self.speaker, self.journal = speaker, journal
         self.launch_app, self.mode, self.render, self.question = launch_app, mode, render, question
-        self.cancel_countdown = cancel_countdown
+        self.cancel_countdown, self.publish = cancel_countdown, publish
         self.key = TalkKey()
         self.devices: list[InputDevice] = []
         self.permissions: dict[str, Any] = {}
         self.app: asyncio.Queue[dict[str, Any]] | None = None     # commands to FERB.app while it's connected
         self.listening = False
+
+    def _say(self, words: str, line: str | None = None) -> None:
+        """Speak, and show it in `ferb voice` (the chat-style line when there is one)."""
+        self.speaker.say(words)
+        self.publish("voice.said", {"text": (line or words).strip()})
 
     # ---------- FERB.app ----------
 
@@ -72,11 +78,11 @@ class Voice:
             if self.app is None:
                 self.launch_app()
                 self.journal.append("voice.unavailable", {"why": "FERB.app isn't connected"})
-                self.speaker.say("Voice isn't ready yet. Try again in a moment.")
+                self._say("Voice isn't ready yet. Try again in a moment.")
                 return act
             device = choose(self.devices, self.mode())
             if device is None:
-                self.speaker.say("I can't find a microphone I'm allowed to use.")
+                self._say("I can't find a microphone I'm allowed to use.")
                 return act
             self.listening = True
             self.app.put_nowait({"op": "start", "device_uid": device.uid, "device": device.name})
@@ -89,11 +95,12 @@ class Voice:
 
     async def transcript(self, text: str) -> dict[str, Any]:
         text = " ".join(text.split())
+        self.publish("voice.heard", {"text": text})
         if not text:
-            self.speaker.say("I didn't catch that.")
+            self._say("I didn't catch that.")
             return {"handled": "empty"}
         if CANCEL.search(text) and self.cancel_countdown():    # a send / call still counting down
-            self.speaker.say("Cancelled.")
+            self._say("Cancelled.")
             return {"handled": "cancelled"}
         pending = self.pending()
         if pending:                                              # a spoken answer to the oldest waiting question
@@ -102,12 +109,12 @@ class Voice:
                 n = spoken_choice(text)
                 if n is not None and 1 <= n <= len(ap.options):
                     self.answer(ap.id, True, n)
-                    self.speaker.say(f"OK, {ap.options[n - 1]}.")
+                    self._say(f"OK, {ap.options[n - 1]}.")
                     return {"handled": "answer"}
             elif YES.search(text) or NO.search(text):
                 granted = bool(YES.search(text)) and not NO.search(text)
                 self.answer(ap.id, granted, None)
-                self.speaker.say("OK." if granted else "OK, I won't.")
+                self._say("OK." if granted else "OK, I won't.")
                 return {"handled": "answer"}
         asyncio.get_running_loop().create_task(self._turn(text))
         return {"handled": "request"}
@@ -122,10 +129,13 @@ class Voice:
                 else:
                     line = self.render(ev)
                 if line and (line.lstrip().startswith(("ferb>", "📞", "✉️", "?"))):
-                    words = spoken(line.replace("(Ctrl-C to cancel)", ". Say stop to cancel.")
-                                   .replace("number (Enter to cancel):", ". Say the number."))
+                    shown = (line.replace("(Ctrl-C to cancel)", "(say stop to cancel)")
+                             .replace("number (Enter to cancel): ", "say the number")
+                             .replace("[y/N]", "(say yes or no)").strip().removeprefix("ferb>").strip())
+                    words = spoken(shown.replace("… (say stop to cancel)", ". Say stop to cancel.")
+                                   .replace(" (say stop to cancel)", ". Say stop to cancel."))
                     await asyncio.to_thread(self.speaker.wait)       # don't cut off what it's still saying
-                    self.speaker.say(words)
+                    self._say(words, shown)
         except Exception as e:                                    # the owner hears it, the journal keeps it
             self.journal.append("voice.failed", {"why": f"{type(e).__name__}: {e}"[:300]})
-            self.speaker.say("Sorry — something went wrong on my side.")
+            self._say("Sorry — something went wrong on my side.")

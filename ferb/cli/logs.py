@@ -22,3 +22,19 @@ def run(client: Client, filters: list[str], out: TextIO, limit: int | None = Non
         if limit is not None and n >= limit:
             break
     return 0
+
+
+def voice(client: Client, out: TextIO, limit: int | None = None) -> int:
+    """`ferb voice`: push-to-talk as a conversation — what FERB heard you say, and what it said back (section 20.1)."""
+    print("Push-to-talk, live — hold Right Option to talk. Ctrl-C to leave (voice keeps working).", file=out, flush=True)
+    n = 0
+    for ev in client.stream("logs.subscribe", {"filters": ["voice"]}):
+        text = str(ev.get("data", {}).get("text", ""))
+        if ev.get("topic") == "voice.heard":
+            print(f"\nyou (voice)> {text or '(nothing heard)'}", file=out, flush=True)
+        elif ev.get("topic") == "voice.said":
+            print(f"ferb> {text}", file=out, flush=True)
+        n += 1
+        if limit is not None and n >= limit:
+            break
+    return 0
