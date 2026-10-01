@@ -42,7 +42,9 @@ class Client:
     def _read(self) -> dict[str, Any]:
         try:
             line = self._file.readline()
-        except (ConnectionResetError, socket.timeout):
+        except socket.timeout:
+            raise NotRunning(f"FERB didn't answer within {self._sock.gettimeout():.0f} s") from None
+        except ConnectionResetError:
             raise NotRunning("FERB daemon went away") from None
         if not line:   # EOF: e.g. connected to a daemon that was dying (spike 8)
             raise NotRunning("FERB daemon closed the connection")

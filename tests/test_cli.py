@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from ferb.cli import main as cli_main
 import json
 
@@ -141,3 +143,35 @@ def test_trace_shows_every_step_and_what_came_back(daemon: RunningDaemon) -> Non
     assert "worker  drive Claude" in text and "shell.read  id=p-1" in text
     assert "→ I couldn't get the brief" in text and "\x1b" not in text
     assert "→ failed: brief needs sign-in" in text
+
+
+def test_a_slow_tool_call_isnt_reported_as_the_daemon_going_away(tmp_path: Path) -> None:
+    """Owner's report (2026-10-01): waking a browser profile took 16 s, the worker's link gave up at 10 s and said
+    "FERB daemon went away". Workers' calls now wait as long as FERB's longest legitimate wait; a timeout says so."""
+    import socket as so
+    import threading
+
+    from ferb.cli.client import Client
+    from ferb.cli.mcp import SHIM_TIMEOUT_S
+    from ferb.core.errors import NotRunning
+    assert SHIM_TIMEOUT_S >= 3600                                    # an unattended question can take an hour
+    import tempfile
+    path = tempfile.mkdtemp(prefix="ferb", dir="/tmp") + "/s.sock"            # macOS: socket paths stay short
+    srv = so.socket(so.AF_UNIX, so.SOCK_STREAM)
+    srv.bind(path)
+    srv.listen(1)
+
+    def serve() -> None:
+        conn, _ = srv.accept()
+        f = conn.makefile("r")
+        f.readline()
+        conn.sendall(b'{"jsonrpc":"2.0","id":1,"result":{"role":"cli"}}\n')     # hello, then silence
+        f.readline()
+        threading.Event().wait(2)
+        conn.close()
+    threading.Thread(target=serve, daemon=True).start()
+    c = Client(Path(path), timeout=0.5)
+    with pytest.raises(NotRunning, match="didn't answer within"):
+        c.call("ping")
+    c.close()
+    srv.close()

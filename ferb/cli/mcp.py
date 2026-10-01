@@ -23,6 +23,9 @@ def mcp_name(capability: str) -> str:
     return capability.replace(".", "_")
 
 
+SHIM_TIMEOUT_S = 3600.0
+
+
 class Shim:
     def __init__(self) -> None:
         token = os.environ.get("FERB_RUN_TOKEN")
@@ -32,7 +35,10 @@ class Shim:
         self._names: dict[str, str] = {}          # mcp name -> capability name
 
     def _client(self) -> Client:
-        return Client(socket_path(), role="mcp_shim", token=self._token)
+        # A tool call can rightly take long: waking a browser profile (~30 s), a send's undo window, the owner answering
+        # a question (up to 1 h when unattended). A short timeout here was reported as "the daemon went away" and
+        # failed the task (owner's report 2026-10-01); stuck work is the runaway guards' job, not this socket's.
+        return Client(socket_path(), role="mcp_shim", token=self._token, timeout=SHIM_TIMEOUT_S)
 
     def _call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         c = self._client()
