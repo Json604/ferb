@@ -20,7 +20,16 @@ class Marked:
     untrusted: list[str]  # the untrusted parts, raw
 
 
-def mark(message: str) -> Marked:
+def mark(message: str, pasted_is_data: bool = True) -> Marked:
+    """Split the owner's message into their own words and untrusted parts. `pasted_is_data=False` (the owner's switch,
+    `[policy] pasted_text_is_data = false`, 2026-10-01): everything they send counts as their own words."""
+    if not pasted_is_data:
+        plain = message.replace(PASTE_START, "").replace(PASTE_END, "")
+        return Marked(plain.strip(), " ".join(plain.split()), [])
+    return _mark(message)
+
+
+def _mark(message: str) -> Marked:
     parts: list[tuple[bool, str]] = []                         # (untrusted?, text)
     rest = message
     while PASTE_START in rest:                                # 1) bracketed paste

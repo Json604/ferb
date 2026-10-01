@@ -37,6 +37,7 @@ from ferb.orchestrator.ledger import Ledger
 
 Publish = Callable[[str, dict[str, Any]], None]
 CMD_TIMEOUT_S, WAKE_TIMEOUT_S = 30.0, 20.0
+WINDOWLESS_WAIT_S = 8.0          # a profile loaded with no window: its extension connects by then (spike 19)
 
 
 class OutcomeUnknown(DriverError):
@@ -329,6 +330,8 @@ class _TabDriver:
     def __init__(self, hub: Hub, profiles: Callable[[], list[BrowserProfile]], wake: WakeServer | None = None,
                  launch: Callable[[list[str]], None] | None = None) -> None:
         self.hub, self.profiles, self.wake, self.launch = hub, profiles, wake, launch
+        self.front: Callable[[], str | None] | None = None       # the owner's app (bundle id), set by the daemon
+        self.put_back: Callable[[str], None] | None = None        # activate it again if the browser took focus
         self._tabs: dict[str, _Tab] = {}
         self._n = 0
 
@@ -337,20 +340,40 @@ class _TabDriver:
         tab is open there (`_open_in`): if it were the profile's only window, closing it first would unload the
         profile and drop the connection before any work started."""
         if br.conn is None and self.wake is not None:
-            url = self.wake.url()
-            kwargs = {"launch": self.launch} if self.launch else {}
-            open_known_profile(br.binding.browser, br.binding.folder, url, self.profiles(), **kwargs)
+            kwargs: dict[str, Any] = {"launch": self.launch} if self.launch else {}
+            owner = self.front() if self.front else None             # where the owner is: they go back there
             try:
-                await asyncio.wait_for(br.connected.wait(), WAKE_TIMEOUT_S)
-            except asyncio.TimeoutError:
-                raise DriverError(f"{br.name} didn't connect (is the FERB extension enabled there?)") from None
-            br.wake_url = url
+                # 1) load the profile with no window: the extension starts and connects, nothing moves (spike 19)
+                open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(), **kwargs)
+                try:
+                    await asyncio.wait_for(br.connected.wait(), WINDOWLESS_WAIT_S)
+                except asyncio.TimeoutError:
+                    # 2) the profile was already loaded with its extension asleep: a wake page starts it (a window)
+                    url = self.wake.url()
+                    open_known_profile(br.binding.browser, br.binding.folder, url, self.profiles(), **kwargs)
+                    try:
+                        await asyncio.wait_for(br.connected.wait(), WAKE_TIMEOUT_S)
+                    except asyncio.TimeoutError:
+                        raise DriverError(f"{br.name} didn't connect (is the FERB extension enabled there?)") from None
+                    br.wake_url = url
+            finally:
+                self._back(owner)
         if br.conn is None:
             raise DriverError(f"{br.name} isn't connected")
         return br
 
+    def _back(self, owner_app: str | None) -> None:
+        """If a browser step pulled the browser to the front (macOS: any new browser window can — a known Chromium
+        problem), take the owner straight back to their app and desktop (owner decision 2026-10-01)."""
+        if owner_app is not None and self.put_back is not None:
+            self.put_back(owner_app)
+
     async def _open_in(self, br: Bridge, url: str, owner: str | None) -> TabRef:
-        v = await br.call("open", {"url": url}, timeout=30)
+        front = self.front() if self.front else None
+        try:
+            v = await br.call("open", {"url": url}, timeout=30)   # a first window is created minimized (extension)
+        finally:
+            self._back(front)
         if br.wake_url is not None:                           # FERB's own tab is open now: the wake page can go
             wake, br.wake_url = br.wake_url, None
             try:

@@ -211,6 +211,7 @@ class Supervisor(WorkerRuns):
         self.environment: Callable[[str], dict[str, Any]] = lambda words: {}
         self._env: dict[str, dict[str, Any]] = {}
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
+        self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data` (10.2)
         self.sleep_until: Any = None
         self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
@@ -377,7 +378,7 @@ class Supervisor(WorkerRuns):
 
     async def send(self, session_id: str, text: str) -> AsyncIterator[dict[str, Any]]:
         session = self.sessions.setdefault(session_id, ChatSession(session_id))
-        m = mark(text)
+        m = mark(text, self.pasted_is_data())
         # An answer to FERB's question continues the request it asked about: the owner's words are both. A plain yes
         # also endorses the question they said yes to ("Use your Brave browser for the current YouTube tab?") —
         # for planning checks only; quote checks (memory, reminders, schedules) stay on the owner's own words.

@@ -348,7 +348,10 @@ def test_profile_discovery_resolution_and_only_known_folders_open(tmp_path: Path
     assert "found:" in resolve("nobody", ps).message("nobody", ps)
     launched: list[list[str]] = []
     open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append)
-    assert launched[0][1] == "--profile-directory=Profile 1"
+    assert launched[0] == ["open", "-g", "-b", "com.google.Chrome", "--args", "--profile-directory=Profile 1",
+                           "https://x/"]                                 # background: never takes focus (spike 19)
+    open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append, background=False)
+    assert launched[1][1] == "--profile-directory=Profile 1"              # pairing: the owner must see the page
     with pytest.raises(ValueError, match="refusing to create"):
         open_known_profile("chrome", "Profile 99", "https://x/", ps, launch=launched.append)
 
@@ -378,7 +381,31 @@ console.log(JSON.stringify(p.cdpFilter("Page.captureScreenshot", {{data: "x", ex
     assert json.loads(out[1]) == {"data": "x"}
 
 
-def test_a_sleeping_profile_is_woken_with_a_unique_local_page_then_it_is_closed(bd: Any) -> None:
+def test_a_profile_is_woken_with_no_window_first(bd: Any) -> None:
+    """Spike 19 (owner watching): loading the profile with no window never moved them and its extension came online.
+    That's tried first; no wake page, nothing to close."""
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.kill()                                                                  # the profile isn't running
+    d.run(_start_wake(d))
+
+    def on_launch(args: list[str]) -> None:
+        launched.append(args)
+        ext.connect()                                                           # loading the profile starts it
+    d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
+    g = task(d, "w", OWNER, {"research"})
+    r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
+    assert not r["is_error"], r
+    assert launched[-1] == ["open", "-g", "-b", "com.google.Chrome", "--args", "--profile-directory=Profile 1",
+                            "--no-startup-window"]                              # background, no window
+    assert list(ext.tabs.values())[-1] == "https://example.com/"
+
+
+def test_an_asleep_extension_in_a_loaded_profile_gets_a_wake_page_then_it_is_closed(
+        bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ferb.act.browser.ext_bridge as eb
+    monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.3)
     d, launched = bd
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
@@ -389,13 +416,16 @@ def test_a_sleeping_profile_is_woken_with_a_unique_local_page_then_it_is_closed(
 
     def on_launch(args: list[str]) -> None:
         launched.append(args)
-        ext.connect()                                                           # the wake page restarts the worker
+        if "/wake/" in args[-1]:                                                # only a page restarts the worker
+            ext.connect()
     d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
     g = task(d, "w", OWNER, {"research"})
     r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
     assert not r["is_error"], r
+    assert launched[-2][-1] == "--no-startup-window"                            # tried without a window first
     wake = launched[-1][-1]
-    assert launched[-1][1] == "--profile-directory=Profile 1" and "/wake/" in wake and wake.startswith("http://127.0.0.1:")
+    assert launched[-1][:2] == ["open", "-g"] and "--profile-directory=Profile 1" in launched[-1]   # in the background
+    assert "/wake/" in wake and wake.startswith("http://127.0.0.1:")
     assert closed == [wake]                                                     # exactly that page, nothing else
     assert list(ext.tabs.values())[-1] == "https://example.com/"               # ...after FERB's own tab was open
 
@@ -485,3 +515,38 @@ def test_the_profile_that_owns_a_window_says_whether_its_tab_has_a_password_fiel
     assert d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0))) is False
     assert d.run(ask("chrome", (1.0, 1.0, 5.0, 5.0))) is None
     assert d.run(ask("brave", (10.0, 20.0, 800.0, 600.0))) is None
+
+
+
+def test_waking_a_profile_never_leaves_the_owner_in_the_browser() -> None:
+    """Owner's report (2026-10-01): a search woke FERB's Chrome and moved them to it. The wake now goes through
+    `open -g`; and if the browser still ends up in front, the owner's app comes straight back."""
+    from ferb.daemon.main import Daemon
+    calls: list[str] = []
+
+    class Apps:
+        front = "com.google.Chrome"
+
+        def frontmost(self) -> Any:
+            return type("A", (), {"bundle_id": self.front})()
+
+        def activate(self, b: str) -> bool:
+            calls.append(b)
+            return True
+    import ferb.act.mac.apps as real
+    fake = Apps()
+    saved = (real.frontmost, real.activate)
+    real.frontmost, real.activate = fake.frontmost, fake.activate          # type: ignore[assignment]
+    try:
+        d = Daemon.__new__(Daemon)
+        d._journal = lambda: type("J", (), {"append": lambda *a: None})()  # type: ignore[method-assign]
+        d._put_owner_back("com.microsoft.VSCode")
+        assert calls == ["com.microsoft.VSCode"]                           # Chrome took the front: given back
+        fake.front = "com.microsoft.VSCode"
+        d._put_owner_back("com.microsoft.VSCode")
+        assert calls == ["com.microsoft.VSCode"]                           # the owner is where they were: nothing
+        fake.front = "com.google.Chrome"
+        d._put_owner_back("com.google.Chrome")
+        assert calls == ["com.microsoft.VSCode"]                           # the owner was in Chrome: leave it
+    finally:
+        real.frontmost, real.activate = saved                              # type: ignore[assignment]

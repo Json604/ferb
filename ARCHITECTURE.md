@@ -852,10 +852,19 @@ guessed — enforced in code (10.3, build step 16a).
   worker restarts) and tags what it creates with that id; `hello` re-announces owned resources, and the daemon
   reconciles `unknown` from them, never resending. After a worker death the extension reconnects on the next tab
   event or a 30 s `chrome.alarms` tick; until then the daemon treats that browser as temporarily unavailable.
-  When a task needs a temporarily unavailable paired browser, the daemon wakes the extension immediately by opening
-  a unique blank local page in that profile (`--profile-directory`, e.g. `http://127.0.0.1:<port>/wake/<token>`;
-  not `about:blank`, whose fragment is dropped so it couldn't be told apart from the owner's tabs), and closes
-  exactly that page after the reconnect (spike 13).
+  When a task needs a temporarily unavailable paired browser, the daemon wakes it without a window first: the
+  profile is loaded in the background with no startup window (`open -g -b <browser> --args --profile-directory=…
+  --no-startup-window`), which starts the extension and reconnects it without moving the owner (spike 19). Only if
+  it hasn't connected within 8 s (the profile was already loaded with its extension asleep) does the daemon open a
+  unique blank local page in that profile, still through `open -g` (e.g. `http://127.0.0.1:<port>/wake/<token>`;
+  not `about:blank`, whose fragment is dropped so it couldn't be told apart from the owner's tabs), and close
+  exactly that page after the reconnect (spike 13). Never the browser's binary with a URL — that took focus — except
+  for pages the owner must see (pairing).
+- **Moving the owner and taking them back (owner decision 2026-10-01):** on macOS any new browser window can pull the
+  browser to the front — a long-standing Chromium problem nobody can fix from outside. So FERB avoids creating
+  windows (the windowless wake; the extension creates a profile's first window *minimized* and keeps it for later
+  tabs), and when a browser step does pull the browser forward, FERB takes the owner straight back to their app and
+  desktop, without announcing it. (A confirmation before such a switch may come with FERB's own app later.)
 - Tabs FERB opens are background (`active: false`) and grouped in a "FERB" tab group; closed at task end unless kept.
 - Snapshots use one format for all drivers (`snapshot.py`): elements with stable ids, role, label, value, rect, visibility.
   Screenshots only when the snapshot is insufficient (canvas-heavy pages) or requested.
@@ -973,6 +982,9 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   corrected. When a plan still names something the owner didn't type, FERB says the real reason: it only appears in
   pasted text (not acted on), or it couldn't find it in what they said (which did they mean?); a planner mistake is
   called one ("a problem on my side, not with how you asked"), without its internals.
+  **The owner's switch (2026-10-01):** `[policy] pasted_text_is_data` (default true). The owner turned it off: what
+  they paste counts as their own words — no paste question, no tags — until they turn it back on. Every other rule
+  (exposure, the intent's targets, approvals) still applies.
 - **Exposure** (`policy/exposure.py`): a worker that has read untrusted content (web pages, emails, messages,
   downloaded files, anything not from a trusted source) is *exposed*. Exposed workers lose shell, AppleScript and
   file-write capabilities for the rest of their run. If those are needed, the supervisor starts a clean worker
@@ -1344,6 +1356,10 @@ Build step 11 specifics (owner decisions):
 18. Background input (owner-added 2026-10-01): can FERB act in an app that stays in the background — (a) Accessibility:
     set a text box's value and press buttons; (b) keystrokes posted to the app's process (`CGEventPostToPid`) — tested
     in WhatsApp (draft-only: the New Chat search box, never a chat, never Send) and TextEdit.
+19. Waking a browser profile without moving the owner (owner-added 2026-10-01): an event-based detector (macOS's
+    active-Space-changed and app-activated notifications, timestamped) validated against the old wake; then one
+    variant per run with the owner watching — "FERB Test" first, then (owner's permission) their own profile and
+    FERB's.
 
 ## 18. Build order inside Block 1
 
@@ -1546,6 +1562,17 @@ nothing in Block 1 blocks it.
     intended, so keys are checked by what changed, and closing things is done by pressing their button.
   - Not tested, on purpose: pressing WhatsApp's Send button (it would send a real message from the owner's account);
     it's an ordinary Accessibility press like the ones that worked.
+
+- **Spike 19 results (2026-10-01, owner watching; detector and owner agreed on every run):**
+  - A focus-only poll (every 50 ms) missed moves the owner saw — measured wrongly; replaced by the event detector.
+  - The old wake (the browser's binary with a URL): Chrome activated, the owner moved. Detector recorded it.
+  - (a) `open -g … --profile-directory=… --no-startup-window`, Chrome closed: nothing moved, no window, and the
+    extension in that profile connected.
+  - (b) the same for FERB's own profile while Chrome ran the owner's profile: nothing moved, FERB's extension
+    connected ("FERB's own profile, connected").
+  - Opening a window in any way (`open -g` with a URL, the extension's unfocused `windows.create`): Chrome came
+    forward and the owner moved, Chrome closed or open. Matches the open Chromium bugs on macOS focus stealing.
+  - Not yet run with the owner watching: the extension's first window created minimized (built, extension 0.6.6).
 
 ### 20.1 Push-to-talk (Unit 4, owner decisions 2026-10-01)
 

@@ -64,6 +64,16 @@ def whole_paste(text: str, pastes: list[str]) -> bool:
     return bool(pastes) and (not rest.strip() or bool(GREETING.match(rest.strip())))
 
 
+def pasted_is_data() -> bool:
+    """`[policy] pasted_text_is_data` (the owner's switch): off means pastes are the owner's own words — no question."""
+    try:
+        from ferb.paths import ferb_home
+        from ferb.config import Config
+        return bool(Config(ferb_home()).get("policy", "pasted_text_is_data", True))
+    except Exception:
+        return True
+
+
 def prepare(text: str, pastes: list[str], ask: Callable[[str], str]) -> str:
     """What goes to the daemon. Pastes are data, never instructions (10.2) — unless the whole message is a paste and
     the owner says, here in their own terminal, that it's their request (e.g. copied from their own notes)."""
@@ -356,7 +366,7 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False, speaker: Any =
             if text.strip() in ("/quit", "/exit"):
                 return 0
             if text.strip():
-                chat.turn(prepare(text, list(pastes), ask))
+                chat.turn(prepare(text, list(pastes), ask) if pasted_is_data() else text)
 
 
 def reminders(connect: Callable[[], Client], out: TextIO) -> None:

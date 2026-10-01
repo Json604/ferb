@@ -245,7 +245,9 @@ const commands = {
     try { win = await chrome.windows.getLastFocused({ windowTypes: ["normal"] }); } catch (_) { win = null; }
     let tab;
     if (win) tab = await chrome.tabs.create({ url, active: false, windowId: win.id });
-    else { const w = await chrome.windows.create({ url, focused: false }); tab = w.tabs[0]; }
+    // No window in this profile: create one minimized. An unfocused new window still pulled Chrome to the front on
+    // macOS (owner's report 2026-10-01); a minimized one is never put in front. It stays, for later tabs (spike 19).
+    else { const w = await chrome.windows.create({ url, state: "minimized" }); tab = w.tabs[0]; }
     const s = await session(); s.owned.push({ id, tabId: tab.id }); await saveSession(s);   // tagged with its command
     try { await ferbGroup(tab.id, tab.windowId); } catch (_) { /* grouping is cosmetic */ }
     await waitComplete(tab.id, 20000);

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable, Literal
 
 SUPPORT = Path.home() / "Library" / "Application Support"
+BUNDLES = {"chrome": "com.google.Chrome", "brave": "com.brave.Browser"}
 BROWSERS: dict[str, tuple[Path, str, str]] = {   # browser -> (data dir, binary, process name)
     "chrome": (SUPPORT / "Google" / "Chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                "Google Chrome"),
@@ -93,9 +94,19 @@ def _detached(args: list[str]) -> None:
                      start_new_session=True)             # never our child with a timeout; never waited on or killed
 
 
-def open_known_profile(browser: str, folder: str, url: str, known: list[BrowserProfile],
-                       launch: Launch = _detached) -> None:
-    """Hand `url` to that profile. Refuses folders discovery didn't return."""
+def open_known_profile(browser: str, folder: str, url: str | None, known: list[BrowserProfile],
+                       launch: Launch = _detached, background: bool = True) -> None:
+    """Hand `url` to that profile — or, with no url, just load the profile with no window. Refuses folders discovery
+    didn't return.
+
+    Spike 19 (with the owner watching, 2026-10-01): loading a profile with no window through macOS's `open -g` never
+    moved them, browser closed or open, and its extension came online; anything that creates a browser window pulled
+    the browser to the front, however it was launched. Running the binary with a URL is only for pages the owner must
+    see (pairing): `background=False`."""
     if not any(p.browser == browser and p.folder == folder for p in known):
         raise ValueError(f"{browser}/{folder} isn't a discovered profile; refusing to create one")
-    launch([BROWSERS[browser][1], f"--profile-directory={folder}", url])
+    if background:
+        launch(["open", "-g", "-b", BUNDLES[browser], "--args", f"--profile-directory={folder}",
+                url or "--no-startup-window"])
+    else:
+        launch([BROWSERS[browser][1], f"--profile-directory={folder}", url or "--no-startup-window"])

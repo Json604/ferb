@@ -378,6 +378,22 @@ class Daemon:
         if self._redact_override is None:
             self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps()))
 
+    def _front_bundle(self) -> str | None:
+        if not self.watch_owner_input:                    # tests: the owner's real Mac stays out
+            return None
+        from ferb.act.mac import apps
+        f = apps.frontmost()
+        return f.bundle_id if f else None
+
+    def _put_owner_back(self, owner: str) -> None:
+        """After waking a browser profile: if a browser took the front from the owner, give it back at once."""
+        from ferb.act.browser.profiles import BUNDLES
+        from ferb.act.mac import apps
+        now = apps.frontmost()
+        if now is not None and now.bundle_id != owner and now.bundle_id in BUNDLES.values():
+            self._journal().append("browser.focus_returned", {"from": now.bundle_id, "to": owner})
+            apps.activate(owner)
+
     async def _macos_events(self) -> None:
         """Give macOS's event system a turn on the daemon's thread, a few times a second. Without it, its running-app
         list never refreshes in the daemon: an app launched after the daemon started stayed "not running" for FERB
@@ -660,6 +676,7 @@ class Daemon:
                                    purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")))
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
+            self.supervisor.pasted_is_data = lambda: bool(self.config.get("policy", "pasted_text_is_data", True))
             self.supervisor.environment = self._environment
             self.supervisor.availability = self._availability
             self.supervisor.owner_browser = self._owner_browser
@@ -1445,6 +1462,8 @@ class Daemon:
                                           lambda: str(self.config.get("mailbox", "address", "") or ""),
                                           lambda install_id: pairings.key(install_id), self._profiles,
                                           self.wake, self.browser_launch)
+        for drv in (self.router, self.ferb_identity):          # a wake never leaves the owner in the browser (9.3)
+            drv.front, drv.put_back = self._front_bundle, self._put_owner_back
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve
         self.server.extension_ids = lambda: frozenset(self.config.get("browser", "extension_ids",
@@ -1497,7 +1516,8 @@ class Daemon:
     async def _open_pairing(self, browser: str, folder: str, token: str) -> str | None:
         """Open the extension's pairing page in that profile. A profile with no window isn't loaded, and a pairing
         page handed to it can go unanswered: load it first with a blank local page (closed after pairing)."""
-        known, kwargs = self._profiles(), ({"launch": self.browser_launch} if self.browser_launch else {})
+        known = self._profiles()
+        kwargs: dict[str, Any] = {"launch": self.browser_launch} if self.browser_launch else {}
         wake = None
         br = self.hub.bridges.get((browser, folder)) if self.hub else None
         if br is None or br.conn is None:
@@ -1506,7 +1526,7 @@ class Daemon:
             await asyncio.sleep(self.pair_load_wait_s)
         ext = sorted(self.server.extension_ids())[0]
         browser_profiles.open_known_profile(browser, folder, f"chrome-extension://{ext}/pair.html#token={token}",
-                                            known, **kwargs)
+                                            known, background=False, **kwargs)   # the owner must see this page
         return wake
 
     @staticmethod
