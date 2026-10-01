@@ -96,17 +96,26 @@ def _detached(args: list[str]) -> None:
 
 
 def open_known_profile(browser: str, folder: str, url: str | None, known: list[BrowserProfile],
-                       launch: Launch = _detached, background: bool = True) -> None:
+                       launch: Launch = _detached, background: bool = True,
+                       is_running: Callable[[str], bool] = running) -> None:
     """Hand `url` to that profile — or, with no url, just load the profile with no window. Refuses folders discovery
     didn't return.
 
     Spike 19 (with the owner watching, 2026-10-01): loading a profile with no window through macOS's `open -g` never
     moved them, browser closed or open, and its extension came online; anything that creates a browser window pulled
     the browser to the front, however it was launched. Running the binary with a URL is only for pages the owner must
-    see (pairing): `background=False`."""
+    see (pairing): `background=False`.
+
+    A browser that's already running never sees `open`'s arguments (macOS passes them only at launch), so the wake
+    did nothing (owner's run 2026-10-01): then the binary itself is run with no startup window, which reaches the
+    running browser and loaded FERB's profile without bringing anything forward."""
     if not any(p.browser == browser and p.folder == folder for p in known):
         raise ValueError(f"{browser}/{folder} isn't a discovered profile; refusing to create one")
-    if background:
+    if background and url is None and is_running(browser):
+        launch([BROWSERS[browser][1], f"--profile-directory={folder}", "--no-startup-window"])
+    elif background and is_running(browser):              # a wake page into a running browser: only the binary works
+        launch([BROWSERS[browser][1], f"--profile-directory={folder}", url or ""])
+    elif background:
         launch(["open", "-g", "-b", BUNDLES[browser], "--args", f"--profile-directory={folder}",
                 url or "--no-startup-window"])
     else:

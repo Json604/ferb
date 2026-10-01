@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 from ferb.act.browser import accounts
 from ferb.act.browser.ext_protocol import PROTOCOL_VERSION, Hello, Op, Result, TabEvent, command, parse
 from ferb.act.browser.pairing import Binding, Pairings
-from ferb.act.browser.profiles import BrowserProfile, open_known_profile
+from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
 from ferb.act.browser.resolver import NeedsOwner, Resolver
 from ferb.act.browser.snapshot import element as page_element
 from ferb.act.browser.tools import Secrets
@@ -331,6 +331,7 @@ class _TabDriver:
                  launch: Callable[[list[str]], None] | None = None) -> None:
         self.hub, self.profiles, self.wake, self.launch = hub, profiles, wake, launch
         self.front: Callable[[], str | None] | None = None       # the owner's app (bundle id), set by the daemon
+        self.is_running: Callable[[str], bool] = browser_running  # is that browser running (tests replace it)
         self.put_back: Callable[[str], None] | None = None        # activate it again if the browser took focus
         self._tabs: dict[str, _Tab] = {}
         self._n = 0
@@ -341,6 +342,7 @@ class _TabDriver:
         profile and drop the connection before any work started."""
         if br.conn is None and self.wake is not None:
             kwargs: dict[str, Any] = {"launch": self.launch} if self.launch else {}
+            kwargs["is_running"] = self.is_running
             owner = self.front() if self.front else None             # where the owner is: they go back there
             try:
                 # 1) load the profile with no window: the extension starts and connects, nothing moves (spike 19)
@@ -591,8 +593,11 @@ class Router(_TabDriver):
         """The owner's open tabs in their connected profiles: a reference, the site and whether it's the active one.
         A tab this task already took over is listed with its tab id; FERB's own tabs and other tasks' aren't."""
         names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
+        named = self.named_for(task) if self.named_for and task else None
         out = []
         for br in self._owner_bridges(profile):
+            if named is not None and not named.allows(br.binding.browser, br.binding.folder):
+                continue                                              # the owner named another profile
             v = await br.call("list_tabs", {}, timeout=10)
             for t in v.get("tabs", []):
                 mine = next((x for x in self._tabs.values() if x.bridge is br and x.chrome_id == int(t["tab_id"])
@@ -615,6 +620,10 @@ class Router(_TabDriver):
             cid = int(chrome_id)
         except ValueError:
             raise Refused(f"{tab_ref!r} isn't a tab reference from browser.tabs") from None
+        named = self.named_for(owner) if self.named_for else None
+        if named is not None and not named.allows(browser, folder):    # never another profile (2026-10-01: a
+            want = ", ".join(f"{p.browser} “{p.display_name}”" for p in named.profiles) or named.browser
+            raise Refused(f"the owner asked for {want}, not this profile; don't use another browser or profile")
         br = self.hub.bridge(browser, folder)
         if br is None or br.conn is None or br.binding.identity is not Identity.OWNER:
             raise Refused("that profile isn't one of the owner's connected profiles")

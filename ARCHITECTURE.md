@@ -586,6 +586,8 @@ Build step 8 specifics:
   reader (fs:write) become their read-only forms in code before validation, instead of a model repair round.
   Opening an app in the background (`mac.open`) is part of reading — a reader that finds an app closed opens it and
   looks, rather than reporting "not running" (owner decision 2026-10-01).
+- A step whose input field an earlier reader didn't find (empty) is skipped with that reason, never run on an
+  empty value; `{reader.field}` in a goal is read as "that input".
 - Reader output is typed fields (string / number / boolean / string list / email / URL); strings default to 500
   characters and the plan may raise a field to at most 2,000. Actors get them wrapped as untrusted data.
 - Verification: each success condition is checked by code where its form allows (file exists / contains, the
@@ -733,7 +735,7 @@ the daemon's asyncio loop never did — an app launched after the daemon started
 runs one zero-wait turn every 0.2 s (under 1 ms), and a lookup by bundle id asks macOS directly. App names are
 matched ignoring invisible direction marks (WhatsApp's name is "\u200eWhatsApp").
 **Editing and sending (owner decision 2026-10-01, every app):** buttons over keystrokes, and whole values over
-cursor editing. Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
+cursor editing. Typing into a search box is a search (it sends nothing; a reader may do it). Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
 Enter in a text box is refused when the window has a Send button (press it instead) — and always in a communication
 app, where Return would send without the countdown or the contact check (10.3). After a send, the worker checks by
 reading the chat, never by sending again: a second send to the same contact (or the same recipients) in one task
@@ -857,8 +859,10 @@ guessed — enforced in code (10.3, build step 16a).
   reconciles `unknown` from them, never resending. After a worker death the extension reconnects on the next tab
   event or a 30 s `chrome.alarms` tick; until then the daemon treats that browser as temporarily unavailable.
   When a task needs a temporarily unavailable paired browser, the daemon wakes it without a window first: the
-  profile is loaded in the background with no startup window (`open -g -b <browser> --args --profile-directory=…
-  --no-startup-window`), which starts the extension and reconnects it without moving the owner (spike 19). Only if
+  profile is loaded with no startup window — through `open -g -b <browser> --args --profile-directory=…
+  --no-startup-window` when the browser isn't running, and through the browser's own binary with the same flags when
+  it is (macOS passes `open`'s arguments only at launch, so a running browser never saw them — owner's run
+  2026-10-01) — which starts the extension and reconnects it without moving the owner (spike 19). Only if
   it hasn't connected within 8 s (the profile was already loaded with its extension asleep) does the daemon open a
   unique blank local page in that profile, still through `open -g` (e.g. `http://127.0.0.1:<port>/wake/<token>`;
   not `about:blank`, whose fragment is dropped so it couldn't be told apart from the owner's tabs), and close
@@ -867,7 +871,7 @@ guessed — enforced in code (10.3, build step 16a).
 - **The browser the owner names (owner's report 2026-10-01):** "my school gmail in chrome" names Chrome and the
   profile whose name or account matches ("school", its school.edu account; everyday words like "work" only as "work profile"
   / "my work"). FERB uses exactly that — the planner is told so, and the router refuses any other profile for that
-  request — or, when it isn't connected, says why (no extension / not paired) and that `ferb browsers pair <name>`
+  request (opening, listing and taking over tabs alike) — or, when it isn't connected, says why (no extension / not paired) and that `ferb browsers pair <name>`
   connects it. It never substitutes another browser. Whether FERB's extension is installed in a profile is read from
   that profile's settings on disk. Chrome removed installing unpacked extensions from the command line in version
   137, so `ferb browsers pair` walks the owner through it: it opens `chrome://extensions` in that profile, copies the

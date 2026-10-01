@@ -157,3 +157,53 @@ def test_a_reader_may_click_to_read() -> None:
     assert p.subtasks[0].scopes == ["browser:act", "browser:read", "fs:read"]
     assert not [x for x in dag.validate(p, "summarize it", {"browser:act", "browser:read", "fs:read"})
                 if "reader only reads" in x]
+
+
+def test_taking_over_a_tab_also_keeps_to_the_named_profile(bd: Any) -> None:     # noqa: F811
+    """Owner's run (2026-10-01): a check step got into Brave by taking over an open tab, though the owner named
+    Chrome "scaler". Taking over and listing tabs keep to the named profile too."""
+    import asyncio
+    d, launched = bd
+    pair(d, launched, "Work")
+    personal = next(p for p in d.daemon._profiles() if p.display_name == "Personal")
+    d.daemon.router.named_for = lambda task_id: Named("chrome", (personal,))    # type: ignore[union-attr]
+    work = next(p for p in d.daemon._profiles() if p.display_name == "Work")
+
+    async def attach() -> str:
+        try:
+            await d.daemon.router.attach(f"{work.browser}:{work.folder}:7", "task-x")
+        except Exception as e:                                                      # noqa: BLE001
+            return str(e)
+        return ""
+    assert "the owner asked for chrome “Personal”" in d.run(attach())
+
+
+def test_typing_a_search_is_a_search_and_a_missing_input_skips_the_step(daemon: RunningDaemon) -> None:
+    """Owner's run: searching WhatsApp for "syllabus" was blocked for a reader, and the next step ran with
+    "{find_syllabus_link.syllabus_url}" because nothing was found."""
+    import asyncio
+    from ferb.act.mac.accessibility import AxNode
+    from ferb.act.mac.tools import MacAct
+    from ferb.policy.rules import Kind
+
+    class Driver:
+        def node(self, bundle: str, el: str) -> AxNode:
+            return {"s1e1": AxNode("r", "textbox", "Search", None, (0, 0, 1, 1), False, True),
+                    "s1e2": AxNode("r", "textbox", "Type a message", None, (0, 0, 1, 1), False, True)}[el]
+    tool = MacAct.__new__(MacAct)
+    tool.driver = Driver()                                                       # type: ignore[assignment]
+    tool._bundle = lambda args: "net.whatsapp.WhatsApp"                          # type: ignore[method-assign]
+    search = tool.Input(app="WhatsApp", action="set_value", element="s1e1", text="syllabus")
+    message = tool.Input(app="WhatsApp", action="set_value", element="s1e2", text="hi")
+    assert tool._kind(search) == Kind.SEARCH and tool._kind(message) == Kind.MAC_INPUT
+
+    from tests.test_supervisor import chat, install, outcome, plan, sub, sup
+    p = plan([sub("find", role="reader", scopes=("fs:read",), fields=(("url", "string"),)),
+              sub("open", deps=("find",), inputs=(("find", "url"),))], verbs=("summarize",))
+    p["subtasks"][1]["goal"] = "open {find.url} in chrome"
+    empty = json.dumps({"status": "done", "summary": "nothing found", "fields": {"url": ""}, "artifacts": [],
+                        "evidence": []})
+    script = install(daemon, [sup("plan", "x", p)], {"find": empty})
+    out = outcome(chat(daemon, "summarize it"))
+    assert "skipped: an earlier step found no find.url" in out["subtasks"]["open"]["summary"]
+    assert not [k for m, k, *_ in script.contexts if k == "open"]                # never ran on an empty value

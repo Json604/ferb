@@ -20,6 +20,7 @@ from ferb.policy.rules import Kind
 
 
 CALL_LABEL = re.compile(r"\b(video call|voice call|audio call|start (a )?call|call|facetime( audio| video)?|dial)\b", re.I)
+SEARCH_LABEL = re.compile(r"\bsearch\b|^\s*name, number", re.I)   # WhatsApp: "Search", "Name, number, @username"
 SEND_LABEL = re.compile(r"^\s*send\b", re.I)
 
 
@@ -186,7 +187,17 @@ class MacAct(_Base):
         return ActionSpec(self._kind(args), Target(site=self._bundle(args)), content=getattr(args, "text"))
 
     def _kind(self, args: BaseModel) -> str:
-        """Pressing an app's call / send button is a call / a send: held for undo like other sends (step 16)."""
+        """Pressing an app's call / send button is a call / a send: held for undo like other sends (step 16). Typing
+        into a search box is a search — it sends nothing, so a reader may do it (owner's run 2026-10-01: searching
+        WhatsApp for "syllabus" was blocked)."""
+        if getattr(args, "action") in ("set_value", "type") and getattr(args, "element"):
+            try:
+                n = self.driver.node(self._bundle(args), str(getattr(args, "element")))
+            except Exception:
+                return Kind.MAC_INPUT
+            if n.role == "searchbox" or SEARCH_LABEL.search(n.label or ""):
+                return Kind.SEARCH
+            return Kind.MAC_INPUT
         if getattr(args, "action") not in ("press", "click") or not getattr(args, "element"):
             return Kind.MAC_INPUT
         try:

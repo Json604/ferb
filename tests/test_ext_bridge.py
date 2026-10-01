@@ -52,6 +52,7 @@ def bd(daemon: RunningDaemon) -> Iterator[tuple[RunningDaemon, list[list[str]]]]
     d.pair_load_wait_s = 0.0
     d.router.launch = launched.append                                         # type: ignore[union-attr]
     d.router.wake = None                                                      # type: ignore[union-attr]
+    d.router.is_running = lambda browser: False                               # type: ignore[union-attr]
     d.config.set("identity", "browser", "chrome")
     d.config.set("identity", "profile", "Profile 22")
     yield daemon, launched
@@ -351,10 +352,16 @@ def test_profile_discovery_resolution_and_only_known_folders_open(tmp_path: Path
     assert resolve("Work", both).kind == "ambiguous"                            # never first match
     assert "found:" in resolve("nobody", ps).message("nobody", ps)
     launched: list[list[str]] = []
-    open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append)
+    stopped, started = (lambda b: False), (lambda b: True)
+    open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append, is_running=stopped)
     assert launched[0] == ["open", "-g", "-b", "com.google.Chrome", "--args", "--profile-directory=Profile 1",
                            "https://x/"]                                 # background: never takes focus (spike 19)
-    open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append, background=False)
+    open_known_profile("chrome", "Profile 1", None, ps, launch=launched.append, is_running=started)
+    assert launched[-1][1:] == ["--profile-directory=Profile 1", "--no-startup-window"]   # running: `open` can't
+    assert launched[-1][0].endswith("Google Chrome")                                     # reach it; the binary can
+    launched.pop()
+    open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append, background=False,
+                       is_running=stopped)
     assert launched[1][1] == "--profile-directory=Profile 1"              # pairing: the owner must see the page
     with pytest.raises(ValueError, match="refusing to create"):
         open_known_profile("chrome", "Profile 99", "https://x/", ps, launch=launched.append)
