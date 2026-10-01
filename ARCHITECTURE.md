@@ -709,8 +709,17 @@ none, the app's main / focused window — spike 18).
    stretch of work** (raise that exact window, wait for it to be on screen), keep it there while the task keeps
    acting in it, and put the owner's app back once — when the task moves to another app or has done nothing there
    for 3 s. While the app is forward, the owner's input wins (10.5).
-FERB reads the app the owner is in from Accessibility's focused application (NSWorkspace's flag goes stale in the
-daemon); opening an app (`mac.open`) takes the owner back to their own desktop at once.
+FERB reads the app the owner is in from Accessibility's focused application; opening an app (`mac.open`) takes the
+owner back to their own desktop at once, and when the app is running with no window, reopens it from the app's own
+menu ("Open main window", or its entry in the Window menu) through Accessibility — still in the background.
+**Never "bring it to the front" (owner's report 2026-10-01):** the planner's and workers' instructions say apps work
+from the background and goals are what to read or do, never "bring X to the front"; keys that switch the owner's apps
+or desktops (⌘Tab, Control+arrows) and AppleScript `activate` / `reopen` are refused. An element "click" is a press
+in the background first. Snapshots include a button's value when it has one (a chat row's latest message).
+**The running-app list stays current:** macOS refreshes it only when the process gives its event system a turn, which
+the daemon's asyncio loop never did — an app launched after the daemon started stayed "not running". The daemon now
+runs one zero-wait turn every 0.2 s (under 1 ms), and a lookup by bundle id asks macOS directly. App names are
+matched ignoring invisible direction marks (WhatsApp's name is "\u200eWhatsApp").
 **Editing and sending (owner decision 2026-10-01, every app):** buttons over keystrokes, and whole values over
 cursor editing. Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
 Enter in a text box is refused when the window has a Send button (press it instead) — and always in a communication
@@ -946,7 +955,9 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   **Pasted or quoted content in the owner's chat message** (terminal bracketed paste, fenced code blocks, `>`
   quotes) is wrapped as untrusted data — tags carrying a random id — before the supervisor sees it; the intent is
   derived only from the owner's own words around it, and code checks that every intent target (recipient, site,
-  account, path) appears in those words.
+  account, path) appears in those words. When the whole message is a paste — or a paste with only a greeting typed
+  around it ("hey " + the paste; owner's report 2026-10-01) — `ferb chat` asks, in the owner's own terminal, whether
+  it's their request; a yes sends it as their words.
 - **Exposure** (`policy/exposure.py`): a worker that has read untrusted content (web pages, emails, messages,
   downloaded files, anything not from a trusted source) is *exposed*. Exposed workers lose shell, AppleScript and
   file-write capabilities for the rest of their run. If those are needed, the supervisor starts a clean worker

@@ -66,6 +66,7 @@ LOG_FILTERS = {"tasks": "task.*", "trail": "trail.event", "tools": "tool.called"
                "policy": "policy.*", "actions": "action.*", "timers": "timer.*",
                "voice": "voice.*"}
 RELEASE_TICK_S = 0.2
+MACOS_TICK_S = 0.2
 
 
 class Daemon:
@@ -91,6 +92,7 @@ class Daemon:
         self.spans: SpanStore | None = None
         self.ledger: Ledger | None = None
         self._release_task: asyncio.Task[None] | None = None
+        self._macos_task: asyncio.Task[None] | None = None
         self._autonomy = Level.BALANCED
         self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
         self.identity_browser: IdentityDriver | None = None    # the extension in Chrome's FERB profile (step 6)
@@ -216,10 +218,13 @@ class Daemon:
             self.stop_control.engaged = True
             self.journal.append("stop.still_engaged", {})
         self._release_task = asyncio.create_task(self._release_loop())
+        self._macos_task = asyncio.create_task(self._macos_events())
 
     async def shutdown(self) -> None:
         if self._release_task:
             self._release_task.cancel()
+        if self._macos_task:
+            self._macos_task.cancel()
         if self.supervisor:
             self.supervisor.cancel_all()
         if self._proxy:
@@ -372,6 +377,18 @@ class Daemon:
         self._autonomy = Level(self.config.get("policy", "autonomy", Level.BALANCED.value))
         if self._redact_override is None:
             self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps()))
+
+    async def _macos_events(self) -> None:
+        """Give macOS's event system a turn on the daemon's thread, a few times a second. Without it, its running-app
+        list never refreshes in the daemon: an app launched after the daemon started stayed "not running" for FERB
+        (owner's WhatsApp report, 2026-10-01). One zero-wait turn takes under a millisecond."""
+        try:
+            import CoreFoundation as CF
+        except ImportError:
+            return
+        while True:
+            CF.CFRunLoopRunInMode(CF.kCFRunLoopDefaultMode, 0, True)
+            await asyncio.sleep(MACOS_TICK_S)
 
     async def _release_loop(self) -> None:
         """Undo windows: publish releases as holds come due (the gateway executes them from build step 4)."""

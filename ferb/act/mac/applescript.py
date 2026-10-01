@@ -16,6 +16,8 @@ FORBIDDEN = [
     (re.compile(r"\busing\s+terms\s+from\b", re.I), "other apps' terms"),
     (re.compile(r"\bosascript\b|\bcurl\b", re.I), "shell tools"),
     (re.compile(r"«", re.I), "raw Apple event codes"),
+    (re.compile(r"\b(activate|reopen)\b", re.I), "bringing the app to the front (FERB works with apps in the "
+                                                  "background; the owner stays in their own app)"),
 ]
 MAX_SCRIPT = 4000
 

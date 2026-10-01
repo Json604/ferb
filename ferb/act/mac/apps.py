@@ -26,7 +26,20 @@ def find(name_or_bundle: str) -> RunningApp | None:
     q = name_or_bundle.lower()
     apps = running()
     return next((a for a in apps if a.bundle_id.lower() == q), None) or \
-        next((a for a in apps if a.name.lower() == q), None)
+        next((a for a in apps if a.name.lower().strip("\u200e") == q.strip("\u200e")), None) or \
+        _by_bundle(name_or_bundle)
+
+
+def _by_bundle(bundle_id: str) -> RunningApp | None:
+    """Asked of macOS directly — always current, even where the shared running-app list hasn't refreshed yet."""
+    if "." not in bundle_id:
+        return None
+    from AppKit import NSRunningApplication
+    for a in NSRunningApplication.runningApplicationsWithBundleIdentifier_(bundle_id):
+        if not a.isTerminated():
+            return RunningApp(str(a.bundleIdentifier()), str(a.localizedName() or ""), int(a.processIdentifier()),
+                              bool(a.isActive()))
+    return None
 
 
 def frontmost() -> RunningApp | None:

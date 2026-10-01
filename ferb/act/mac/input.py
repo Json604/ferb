@@ -162,6 +162,12 @@ def key_steps(combo: str, pid: int | None = None) -> list[Step]:
 ARROWS = {"left", "right", "up", "down"}
 
 
+def switches_apps(combo: str) -> bool:
+    """⌘Tab and Control+arrows act on the owner's whole Mac (switch apps / desktops), not on one app."""
+    parts = combo.lower().split("+")
+    return (parts[-1] == "tab" and "cmd" in parts) or (parts[-1] in ARROWS and "ctrl" in parts)
+
+
 def is_arrow(combo: str) -> bool:
     return combo.lower().split("+")[-1] in ARROWS
 

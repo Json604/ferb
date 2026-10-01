@@ -36,7 +36,9 @@ GROUPS: tuple[Group, ...] = (
     Group("time", "reminders and timers", frozenset({"time"}),
           "Time (either identity): reminders and timers for the owner, and pausing a task until a time (time)."),
     Group("mac", "the owner's Mac apps", frozenset({"mac:read", "mac:act", "applescript"}),
-          "The owner's Mac apps (\"owner\" identity): through Accessibility{and_applescript} ({scopes})."),
+          "The owner's Mac apps (\"owner\" identity): through Accessibility{and_applescript} ({scopes}). Apps "
+          "work from the background — the owner stays in their own app: never plan to bring an app to the front, "
+          "activate or switch to it; a goal is what to read or do in it (\"Read the top chat in WhatsApp\")."),
     Group("screen", "screenshots of app windows", frozenset({"screen"}),
           "A screenshot of one app window, with clicks by position (screen, mac:act). Give work in Mac apps the "
           "screen scope along with mac:read / mac:act: its snapshots then include an image of the window with each "

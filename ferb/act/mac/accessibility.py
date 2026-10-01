@@ -5,6 +5,7 @@ Password fields (AXSecureTextField) are reported only as filled/empty: their val
 of a browser is built on demand; if the first read has no web content, re-read for up to ~2 s (section 9.2).
 """
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -198,6 +199,8 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int) -> None:
                     "AXSecureTextField", "AXSlider"):
             v = None if secret else _attr(el, "AXValue")
             value = ("filled" if _attr(el, "AXNumberOfCharacters") else "") if secret else _clip(v, MAX_VALUE)
+        elif role == "AXButton" and isinstance(_attr(el, "AXValue"), str):   # e.g. a chat row's latest message
+            value = _clip(_attr(el, "AXValue"), MAX_VALUE)
         x, y = _point(_attr(el, "AXPosition"), AX.kAXValueCGPointType)
         w, h = _point(_attr(el, "AXSize"), AX.kAXValueCGSizeType)
         tree.nodes.append(AxNode(el, "searchbox" if subrole == "AXSearchField" else ROLES[role],
@@ -211,6 +214,28 @@ def value(el: Any) -> str | None:
     """A text box's current value (to check that typing arrived), or None if it doesn't expose one."""
     v = _attr(el, "AXValue")
     return None if v is None else str(v)
+
+
+REOPEN = re.compile(r"^(open|show) (the )?main window$", re.I)
+
+
+def open_window(pid: int, app_name: str) -> bool:
+    """A running app with no window: press its own menu item that opens it ("Open main window", or the app's entry in
+    the Window menu) — through Accessibility, so the app stays in the background (spike 18)."""
+    import ApplicationServices as AX
+    bar = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    name = app_name.strip("\u200e").lower()
+    candidates = []
+    for top in _attr(bar, "AXChildren") or []:
+        top_title = str(_attr(top, "AXTitle") or "").strip("\u200e")
+        for menu in _attr(top, "AXChildren") or []:
+            for item in _attr(menu, "AXChildren") or []:
+                t = str(_attr(item, "AXTitle") or "").strip("\u200e")
+                if REOPEN.match(t):
+                    candidates.insert(0, item)
+                elif top_title == "Window" and t.lower() == name:
+                    candidates.append(item)
+    return any(AX.AXUIElementPerformAction(c, "AXPress") == 0 for c in candidates[:1])
 
 
 def has_focus(pid: int, el: Any) -> bool | None:

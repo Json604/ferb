@@ -14,6 +14,7 @@
   owner.
 """
 
+import re
 import secrets
 import sys
 import threading
@@ -51,12 +52,16 @@ def read_message(inp: TextIO) -> str | None:
 PASTE_QUESTION = "   ? You pasted this as your whole message. Is it your own request? [y/N] "
 
 
+GREETING = re.compile(r"^(hey|hi|hello|yo|ok|okay|so|ferb|hey ferb|hi ferb|please|pls)[\s,.!:;-]*$", re.I)
+
+
 def whole_paste(text: str, pastes: list[str]) -> bool:
-    """Nothing typed around it: the message is one or more pastes and nothing else."""
+    """Nothing typed around it but perhaps a greeting ("hey " + the paste, owner's report 2026-10-01): the message is
+    the paste."""
     rest = text
     for p in pastes:
         rest = rest.replace(p, "", 1)
-    return bool(pastes) and not rest.strip()
+    return bool(pastes) and (not rest.strip() or bool(GREETING.match(rest.strip())))
 
 
 def prepare(text: str, pastes: list[str], ask: Callable[[str], str]) -> str:

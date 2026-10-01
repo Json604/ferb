@@ -26,6 +26,7 @@ class Ax:
     takes_background: bool = True
     focused: str | None = "textbox"
     box_has_focus: bool | None = True                       # False: a sheet / dialog holds the keyboard focus
+    press_ok: bool = True                                   # False: the control ignores Accessibility presses
     send_button: bool = True
     box: str = ""
     text: str = ""
@@ -55,7 +56,7 @@ class Ax:
 
     def press(self, el: Any) -> bool:
         self.calls.append("press")
-        return True
+        return self.press_ok
 
     def center(self, n: AxNode) -> tuple[float, float]:
         return 5.0, 5.0
@@ -183,9 +184,9 @@ def test_the_owner_touching_the_mac_puts_their_app_back_until_they_stop(monkeypa
     e = ids(d)
 
     async def work() -> None:
-        d._background_ok[CHAT] = False
-        await d.act("WhatsApp", ComputerAction("press", e["Send"]))        # Accessibility press: no switch
+        await d.act("WhatsApp", ComputerAction("click", e["Send"]))        # a control: pressed in the background
         assert apps.activated == []
+        ax.press_ok = False                                                 # this one ignores presses: a real click
         await d.act("WhatsApp", ComputerAction("click", e["Send"]))
         d.restore_owner()
     asyncio.run(work())
@@ -233,3 +234,41 @@ def test_nothing_is_typed_while_a_dialog_holds_the_keyboard_focus(monkeypatch: p
     asyncio.run(work())
     assert not [p for p in posted if p.startswith("type")] and ax.box == ""      # nothing typed anywhere
     assert apps.frontmost().bundle_id == "com.microsoft.VSCode"                   # type: ignore[union-attr]
+
+
+def test_ferb_never_switches_the_owners_apps_or_desktops(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owner's report (2026-10-01): told to "bring WhatsApp to the front", a worker pressed cmd+tab. FERB works with
+    apps where they are; keys that switch apps or desktops, and AppleScript activate, are refused."""
+    from ferb.act.mac import applescript
+    d, _, posted = setup(monkeypatch, Ax(focused="button"))
+    ids(d)
+    for combo in ("cmd+tab", "cmd+shift+tab", "ctrl+left", "ctrl+up"):
+        with pytest.raises(Refused, match="switches the owner's apps"):
+            asyncio.run(d.act("WhatsApp", ComputerAction("key", None, combo)))
+    assert posted == []
+    for script in ("activate", "reopen", "activate\nget name of window 1"):
+        with pytest.raises(Refused, match="front"):
+            applescript.wrap(CHAT, script)
+
+
+def test_an_app_running_without_a_window_gets_it_back_in_the_background(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spike 18: WhatsApp can run with no window; its own "Open main window" menu item brings it back, pressed
+    through Accessibility — the app stays in the background."""
+    ax = Ax()
+    windows: list[bool] = [False]
+    opened: list[str] = []
+    ax.app_window = lambda pid: object() if windows[0] else None           # type: ignore[attr-defined]
+
+    def open_window(pid: int, name: str) -> bool:
+        opened.append(name)
+        windows[0] = True
+        return True
+    ax.open_window = open_window                                          # type: ignore[attr-defined]
+    d, apps, _ = setup(monkeypatch, ax)
+    monkeypatch.setattr(drv.asyncio, "sleep", _no_sleep)
+    assert asyncio.run(d.ensure_window(CHAT)) is True
+    assert opened == ["WhatsApp"] and apps.activated == []
+
+
+async def _no_sleep(s: float) -> None:
+    return None

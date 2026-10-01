@@ -17,8 +17,8 @@ from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
 from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
-from ferb.act.mac.input import (RealInput, Step, click_steps, is_arrow, is_enter, key_steps, type_steps,
-                                valid_combo)
+from ferb.act.mac.input import (RealInput, Step, click_steps, is_arrow, is_enter, key_steps, switches_apps,
+                                type_steps, valid_combo)
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
 
@@ -89,6 +89,19 @@ class MacComputerDriver:
         if a.bundle_id.lower() in ex or a.name.lower() in ex:
             raise Refused(f"{a.name} is on the owner's exclusion list")
         return a
+
+    async def ensure_window(self, bundle_id: str, wait_s: float = 4.0) -> bool:
+        """After opening an app: wait for it to be running with a window; reopen its window from its own menu if it
+        has none (in the background). True once there's a window."""
+        reopened = False
+        for i in range(int(wait_s / 0.25)):
+            a = self.apps.find(bundle_id)
+            if a is not None and await asyncio.to_thread(self.ax.app_window, a.pid) is not None:
+                return True
+            if a is not None and not reopened and i >= 4:          # running ~1 s and still no window
+                reopened = await asyncio.to_thread(self.ax.open_window, a.pid, a.name)
+            await asyncio.sleep(0.25)
+        return False
 
     async def snapshot(self, name_or_bundle: str) -> tuple[Any, dict[str, Any]]:
         a = self.app(name_or_bundle)
@@ -226,6 +239,9 @@ class MacComputerDriver:
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
                 raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, cmd+s)")
+            if switches_apps(action.text):
+                raise Refused(f"{action.text} switches the owner's apps or desktops; FERB works with {a.name} where it "
+                              "is — no need to bring it forward")
             await self._key_rules(a, action.text)
             return await self._key(a, action.text, holder, task)
         if action.element is None:
@@ -237,7 +253,9 @@ class MacComputerDriver:
             if await asyncio.to_thread(self.ax.press, n.ref):
                 return ActionResult(True, "pressed")
             return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
-        if action.kind == "click":
+        if action.kind == "click":                                # a control: pressed in the background if it can be
+            if await asyncio.to_thread(self.ax.press, n.ref):
+                return ActionResult(True, "pressed")
             return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
         if action.kind == "focus":
             return ActionResult(await asyncio.to_thread(self.ax.focus, n.ref), "focused")

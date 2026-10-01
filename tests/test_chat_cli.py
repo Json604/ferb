@@ -108,3 +108,15 @@ def test_no_loader_when_output_isnt_a_terminal() -> None:
                 spinner_out=io.StringIO())
     chat.turn("hi")
     assert out.getvalue() == "ferb> Hi.\n" and not chat.spinner.enabled
+
+
+def test_a_greeting_typed_before_a_paste_still_asks_whether_its_the_owners_request() -> None:
+    """Owner's report (2026-10-01): "hey " + a pasted request was answered as a greeting; the pasted part was data."""
+    from ferb.cli.chat import PASTE_START, prepare
+    asked: list[str] = []
+    req = "open whatsapp and tell what is topmost chat message"
+    assert prepare("hey " + req, [req], lambda q: (asked.append(q), "y")[1]) == "hey " + req and asked
+    assert PASTE_START in prepare("hey " + req, [req], lambda q: "n")         # "no": still marked as pasted
+    asked.clear()
+    assert PASTE_START in prepare("summarize this: " + req, [req], lambda q: (asked.append(q), "y")[1])
+    assert asked == []                                     # real words around it: the paste stays data, no question
