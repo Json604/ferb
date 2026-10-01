@@ -1306,7 +1306,7 @@ Build step 11 specifics (owner decisions):
 | `ferb chat [--verbose] [--speak]` | Conversation with FERB: a line editor (paste as one message, Option-Enter for a new line), approvals inline, results of tasks that finished while chat was closed; Ctrl-C stops the running task, closing chat doesn't; `--verbose` shows plans, workers and tools; `--speak`: FERB also says its own words out loud (the Mac's voice, `say`; behind an interface for a later TTS API) |
 | `ferb logs [--tasks --trail --tools --browsers --policy --actions --timers --voice]` | Live stream from the bus (redacted) |
 | `ferb voice [on\|off]` | No argument: push-to-talk as a live conversation (what FERB heard, what it said back). `on` / `off`: start or stop push-to-talk without restarting FERB — off also stops FERB speaking and quits FERB.app (20.1) |
-| `ferb trace <task-id>` | Span tree for one task |
+| `ferb trace [task] [--full]` | What a task did, step by step: each step's goal and result, every tool call with what it opened / typed / ran and what came back (terminal output as plain text). Default: the latest task; a short id works (owner's request 2026-10-01) |
 | `ferb setup [--update] [--codex-login]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent; `--codex-login`: sign in FERB's own Codex home) / health, permissions, extension connectivity |
 | `ferb uninstall [--purge]` | Remove the LaunchAgent (and native-host files); `--purge` also deletes `~/.ferb` after confirmation |
 | `ferb device [scan]` / `ferb browsers` | Device profile (apps, scriptable apps, browsers with live pairing status; `scan` rescans) / browser drivers + connection status |
