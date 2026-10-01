@@ -145,6 +145,46 @@ class MacOpen(_Base):
                                    "it's running but shows no window; mac_snapshot may still read its menus"})
 
 
+class MacMenu(_Base):
+    name = "mac.menu"
+    description = ("An app's menu bar, in the background: with no path, list its menus and items; with a path "
+                   "(\"File > Search\"), press that item. Many apps keep commands only in their menus — e.g. "
+                   "WhatsApp's search opens from File > Search, then mac_snapshot shows the search box. Take a new "
+                   "snapshot after pressing.")
+    scopes = {"mac:read"}             # listing is reading; pressing is checked per item (reader_ok / mac:act)
+
+    class Input(_App):
+        path: str | None = Field(default=None, description='menu path, e.g. "File > Search"; empty to list menus')
+
+    def _items(self, args: BaseModel) -> list[str]:
+        return [p.strip() for p in (getattr(args, "path") or "").split(">") if p.strip()]
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        items = self._items(args)
+        if not items:
+            return ActionSpec(Kind.READ, Target(site=self._bundle(args)))
+        return ActionSpec(call_or_send(items[-1]) or Kind.MAC_INPUT, Target(site=self._bundle(args)))
+
+    def reader_ok(self, args: BaseModel) -> bool:
+        """A reader may press a menu item that only opens or shows something (Search, View, Find…), never a risky one."""
+        items = self._items(args)
+        return bool(items) and not RISKY_LABEL.search(items[-1]) and call_or_send(items[-1]) is None
+
+    def locks(self, args: BaseModel) -> list[str]:
+        return [f"app:{self._bundle(args)}"]
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        items = self._items(args)
+        app = str(getattr(args, "app"))
+        if not items:
+            return ToolResult({"menus": await self.driver.menus(app)})
+        if not self.reader_ok(args) and "mac:act" not in ctx.scopes:
+            return _err(f"pressing “{items[-1]}” is acting, which needs mac:act")
+        ok = await self.driver.press_menu(app, items)
+        return ToolResult({"pressed": " > ".join(items)} if ok else {"error": f"no menu item {' > '.join(items)}"},
+                          is_error=not ok)
+
+
 class MacSnapshot(_Base):
     name = "mac.snapshot"
     description = ("Read an app's window through Accessibility, in front or not (the app stays where it is): its title, "

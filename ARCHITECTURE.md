@@ -594,7 +594,8 @@ Build step 8 specifics:
   Opening an app in the background (`mac.open`) is part of reading — a reader that finds an app closed opens it and
   looks, rather than reporting "not running" (owner decision 2026-10-01).
 - A step whose input field an earlier reader didn't find (empty) is skipped with that reason, never run on an
-  empty value; `{reader.field}` in a goal is read as "that input".
+  empty value; `{reader.field}` in a goal is read as "that input". A call the gateway refuses to a reader is recorded as a span with its reason, so
+  `ferb trace` shows it.
 - Reader output is typed fields (string / number / boolean / string list / email / URL); strings default to 500
   characters and the plan may raise a field to at most 2,000. Actors get them wrapped as untrusted data.
 - Verification: each success condition is checked by code where its form allows (file exists / contains, the
@@ -733,6 +734,11 @@ menu ("Open main window", or its entry in the Window menu) through Accessibility
 from the background and goals are what to read or do, never "bring X to the front"; keys that switch the owner's apps
 or desktops (⌘Tab, Control+arrows) and AppleScript `activate` / `reopen` are refused. An element "click" is a press
 in the background first. Snapshots include a button's value when it has one (a chat row's latest message).
+**Menus:** `mac.menu` lists an app's menu bar and presses an item by path ("File > Search") through Accessibility,
+in the background — many apps keep commands only there. Listing is reading; a reader may press a harmless item, never
+a risky one (the same label rule as buttons); anything else needs mac:act. Some apps draw controls Accessibility
+can't describe and that take no background typing (WhatsApp's search bar, owner's run 2026-10-01): those need a real
+click and typing in the foreground.
 **Electron apps** (Slack, Discord, VS Code…) build their full Accessibility tree only when asked: FERB sets
 `AXManualAccessibility` once per app process before reading it, so their controls can be pressed in the background
 (Slack's hidden tree made a press fail and FERB click in the foreground). After opening an app FERB waits up to 10 s

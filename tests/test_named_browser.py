@@ -231,3 +231,37 @@ def test_a_reader_may_open_a_chat_but_never_press_anything_consequential() -> No
     assert ok("s1e1") and ok("s1e6")
     assert not ok("s1e2") and not ok("s1e3") and not ok("s1e4") and not ok("s1e5")
     assert not tool.reader_ok(tool.Input(app="WhatsApp", action="set_value", element="s1e1", text="x"))
+
+
+def test_mac_menu_reads_freely_and_presses_only_harmless_items_for_readers() -> None:
+    """Apps keep commands in their menus (WhatsApp: File > Search). Listing is reading; a reader may press a harmless
+    item, never a risky one; an actor needs mac:act for anything else."""
+    from ferb.act.mac.tools import MacMenu
+    from ferb.policy.rules import Kind
+    tool = MacMenu.__new__(MacMenu)
+    tool._bundle = lambda args: "net.whatsapp.WhatsApp"                          # type: ignore[method-assign]
+    inp = lambda path: tool.Input(app="WhatsApp", path=path)                      # noqa: E731
+    assert tool.describe(inp(None)).kind == Kind.READ
+    assert tool.reader_ok(inp("File > Search")) and tool.reader_ok(inp("View > Chats"))
+    assert not tool.reader_ok(inp("Chat > Delete Chat")) and not tool.reader_ok(inp("Chat > Voice Call"))
+    assert tool.describe(inp("Chat > Voice Call")).kind == Kind.CALL
+
+
+def test_a_refused_reader_call_is_in_the_trail(daemon: RunningDaemon) -> None:
+    """Owner's run: the worker said it was blocked, but `ferb trace` showed nothing. Refusals are recorded."""
+    from tests.test_gateway import FakeCap, setup
+    send = FakeCap("fake.send", "send", {"browser:read"})
+    grant, _ = setup(daemon, {"browser:read"}, None, [send])
+    import dataclasses
+    record = daemon.daemon.tasks.get("task-1")
+    assert record is not None
+    record.task = dataclasses.replace(record.task, role="reader")                # this step is a reader
+    r = daemon.run(daemon.daemon.gateway.call(grant, "fake.send", {}))
+    assert r["is_error"] and "a reader subtask can't send" in r["content"]["error"]
+
+    async def spans() -> list[Any]:
+        return daemon.daemon.spans.tree(grant.task_id)                          # type: ignore[union-attr]
+    def walk(nodes: list[Any]) -> list[Any]:
+        return [x for n in nodes for x in [n.span.error, *walk(n.children)]]
+    errs = walk(daemon.run(spans()))
+    assert any("a reader subtask can't send" in (e or "") for e in errs)

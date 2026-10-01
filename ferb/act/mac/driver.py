@@ -96,6 +96,15 @@ class MacComputerDriver:
             self._exposed.add(a.pid)
             await asyncio.to_thread(self.ax.expose_tree, a.pid)
 
+    async def menus(self, name_or_bundle: str) -> list[dict[str, Any]]:
+        a = self.app(name_or_bundle)
+        result: list[dict[str, Any]] = await asyncio.to_thread(self.ax.menus, a.pid)
+        return result
+
+    async def press_menu(self, name_or_bundle: str, path: list[str]) -> bool:
+        a = self.app(name_or_bundle)
+        return bool(await asyncio.to_thread(self.ax.press_menu, a.pid, path))
+
     async def ensure_window(self, bundle_id: str, wait_s: float = 10.0) -> bool:
         """After opening an app: wait for its main window — one with a title; slow starters (Electron apps) show an
         untitled panel first — reopening it from the app's own menu if there's none (in the background). True once

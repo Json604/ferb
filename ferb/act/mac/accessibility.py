@@ -229,6 +229,45 @@ def window_title(win: Any) -> str:
     return str(_attr(win, "AXTitle") or "").strip("\u200e ") if win is not None else ""
 
 
+def _title(el: Any) -> str:
+    return str(_attr(el, "AXTitle") or "").strip("\u200e ").strip()
+
+
+def menus(pid: int) -> list[dict[str, Any]]:
+    """The app's menu bar, read in the background: each menu and its items (submenus one level deep, "A > B")."""
+    import ApplicationServices as AX
+    bar = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    out = []
+    for top in (_attr(bar, "AXChildren") or [])[1:]:             # skip the Apple menu
+        items: list[str] = []
+        for menu in _attr(top, "AXChildren") or []:
+            for item in _attr(menu, "AXChildren") or []:
+                t = _title(item)
+                if not t:
+                    continue
+                subs = [_title(x) for m in (_attr(item, "AXChildren") or []) for x in (_attr(m, "AXChildren") or [])]
+                items += [f"{t} > {s}" for s in subs if s] if any(subs) else [t]
+        out.append({"menu": _title(top), "items": items})
+    return out
+
+
+def press_menu(pid: int, path: list[str]) -> bool:
+    """Press a menu item by its path ("File", "Search"), through Accessibility: the app stays in the background."""
+    import ApplicationServices as AX
+    level = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
+    el = None
+    for i, name in enumerate(path):
+        want = name.strip().lower()
+        kids = _attr(level, "AXChildren") or []
+        if i > 0:                                                  # menu items live under the menu (one child)
+            kids = [x for m in kids for x in (_attr(m, "AXChildren") or [])]
+        el = next((k for k in kids if _title(k).lower() == want), None)
+        if el is None:
+            return False
+        level = el
+    return el is not None and AX.AXUIElementPerformAction(el, "AXPress") == 0
+
+
 REOPEN = re.compile(r"^(open|show) (the )?main window$", re.I)
 
 
