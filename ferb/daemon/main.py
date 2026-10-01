@@ -1425,7 +1425,7 @@ class Daemon:
             raise FerbError(r.message(name, known))
         p = r.candidates[0]
         if (p.browser, p.folder) == self._identity_profile():
-            raise FerbError(f"{p.display_name} is FERB's identity profile; it's paired as FERB (build step 6b)")
+            raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB (`ferb setup --identity`)")
         token = self.pairings.issue_token(p.browser, p.folder)
         wake = await self._open_pairing(p.browser, p.folder, token)
         timeout = float(params.get("timeout_s", 60))

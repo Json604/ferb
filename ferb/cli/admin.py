@@ -104,8 +104,13 @@ def browsers(client: Client, cmd: str | None, profile: str | None, browser: str 
         return 0
     r = client.call("browsers.list")
     for p in r["profiles"]:
-        if p["ferb_identity"]:
-            state = "FERB's identity profile (build step 6b)"
+        if p["ferb_identity"]:                            # FERB opens its own profile when a task needs it
+            if not p["paired"]:
+                state = "FERB's own profile, not paired yet (`ferb setup --identity`)"
+            elif p["connected"]:
+                state = "FERB's own profile, connected" + (f", extension {p['version']}" if p["version"] else "")
+            else:
+                state = "FERB's own profile, paired; not open right now (FERB opens it when a task needs it)"
         elif not p["paired"]:
             state = "not paired"
         elif p["refused"]:

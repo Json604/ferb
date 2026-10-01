@@ -95,3 +95,24 @@ def test_daemon_process_lifecycle_writes_journal(home: Path) -> None:
     db = Database(home / "ferb.db")
     kinds = [e.kind for e in Journal(db, SystemClock(), RandomIds(), lambda d: d).entries()]
     assert kinds == ["daemon.started", "daemon.stopped"]
+
+
+def test_ferbs_own_profile_is_described_plainly() -> None:
+    """The owner asked why FERB's profile never says "connected": it's opened only when a task needs it."""
+    import io as _io
+    from ferb.cli.admin import browsers
+
+    def listing(connected: bool, paired: bool = True) -> str:
+        class C:
+            def call(self, method: str, params: object = None) -> dict:
+                return {"profiles": [{"browser": "chrome", "name": "FERB", "folder": "Profile 22", "email": "",
+                                      "ferb_identity": True, "paired": paired, "identity": "ferb",
+                                      "connected": connected, "version": "0.6.5" if connected else "",
+                                      "refused": None}]}
+        out = _io.StringIO()
+        browsers(C(), None, None, None, out)                                 # type: ignore[arg-type]
+        return out.getvalue()
+    assert "FERB's own profile, paired; not open right now (FERB opens it when a task needs it)" in listing(False)
+    assert "FERB's own profile, connected, extension 0.6.5" in listing(True)
+    assert "not paired yet (`ferb setup --identity`)" in listing(False, paired=False)
+    assert "build step" not in listing(False) + listing(True)
