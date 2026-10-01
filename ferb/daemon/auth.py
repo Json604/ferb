@@ -37,7 +37,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "memory.retract", "memory.forget", "memory.distill", "timeline.get",
                          "jev.stats", "jev.enable", "jev.reload", "reminders.list", "reminders.cancel",
                          "reminders.unseen", "chat.status", "chat.attach", "task.stop", "schedules.list", "schedules.change",
-                         "questions.answer", "voice.reload"}),
+                         "questions.answer", "voice.reload", "voice.switch"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
     Role.VOICE: frozenset({"ping", "voice.attach", "voice.transcript"}),

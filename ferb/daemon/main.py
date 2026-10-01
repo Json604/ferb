@@ -303,6 +303,7 @@ class Daemon:
         self.owner_input.on_key = on_key
         self.server.unary["voice.transcript"] = self._voice_transcript
         self.server.unary["voice.reload"] = self._voice_reload
+        self.server.unary["voice.switch"] = self._voice_switch
         self.server.streams["voice.attach"] = self._voice_attach
         self.server.voice_app = self._voice_app_exe
         self.server.voice_signed = self._voice_signed
@@ -362,6 +363,24 @@ class Daemon:
             return {"handled": "error"}
         result: dict[str, Any] = await self.voice.transcript(str(params.get("text", "")))
         return result
+
+    async def _voice_switch(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`ferb voice on|off`. Off: the setting, FERB stops speaking, FERB.app quits. On: needs `ferb setup --voice`
+        to have recorded FERB.app's signature."""
+        on = bool(params.get("on"))
+        if on and not self.config.get("voice", "requirement"):
+            return {"needs_setup": True, "push_to_talk": False}
+        self.config.set("voice", "push_to_talk", on)
+        out = await self._voice_reload(session, {})
+        if not on:
+            self._quit_voice_app()
+        self._journal().append("voice.switched", {"on": on})
+        return out
+
+    def _quit_voice_app(self) -> None:
+        from AppKit import NSRunningApplication
+        for app in NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.ferb.app"):
+            app.terminate()
 
     async def _voice_reload(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """`ferb setup --voice` finished: read the voice settings again and open FERB.app (no daemon restart)."""

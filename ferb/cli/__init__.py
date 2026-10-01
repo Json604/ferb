@@ -20,7 +20,9 @@ def main(argv: list[str] | None = None) -> int:
     for flag in LOG_FLAGS:
         lp.add_argument(f"--{flag}", action="store_true")
 
-    sub.add_parser("voice", help="watch push-to-talk live: what FERB heard you say, and what it said back")
+    vp = sub.add_parser("voice", help="push-to-talk: watch it live (no argument), or turn it on / off")
+    vp.add_argument("switch", nargs="?", choices=["on", "off"],
+                    help="on: start push-to-talk (after `ferb setup --voice`); off: stop it and quit FERB.app")
 
     tp = sub.add_parser("trace", help="span tree for one task")
     tp.add_argument("task_id")
@@ -162,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "logs":
                 filters = [f for f in LOG_FLAGS if getattr(args, f)]
                 return logs.run(client, filters, sys.stdout)
+            if args.cmd == "voice" and args.switch:
+                return logs.voice_switch(client, args.switch == "on", sys.stdout)
             if args.cmd == "voice":
                 return logs.voice(client, sys.stdout)
             if args.cmd == "trace":

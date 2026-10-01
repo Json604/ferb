@@ -38,3 +38,15 @@ def voice(client: Client, out: TextIO, limit: int | None = None) -> int:
         if limit is not None and n >= limit:
             break
     return 0
+
+
+def voice_switch(client: Client, on: bool, out: TextIO) -> int:
+    """`ferb voice on|off`: push-to-talk on or off without restarting FERB (the daemon starts or quits FERB.app)."""
+    r = client.call("voice.switch", {"on": on})
+    if r.get("needs_setup"):
+        print("Push-to-talk isn't set up yet: run `ferb setup --voice` once.", file=out)
+        return 1
+    print("Push-to-talk is on: hold Right Option, speak, let go." if r.get("push_to_talk") else
+          "Push-to-talk is off: FERB.app has quit and FERB won't listen or speak replies. `ferb voice on` turns it "
+          "back on.", file=out)
+    return 0

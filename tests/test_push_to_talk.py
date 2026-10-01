@@ -292,3 +292,25 @@ def test_turning_push_to_talk_off_silences_replies_still_running() -> None:
         await asyncio.sleep(0.05)
     asyncio.run(go())
     assert speaker.said == [] and "It's 31°C in Delhi." in published     # shown in `ferb voice`, not spoken
+
+
+def test_ferb_voice_on_and_off(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`ferb voice off` stops push-to-talk (setting, speech, FERB.app); `on` needs `ferb setup --voice` first."""
+    import io
+
+    from ferb.cli.client import Client
+    from ferb.cli.logs import voice_switch
+    quit_calls: list[int] = []
+    monkeypatch.setattr(daemon.daemon, "_quit_voice_app", lambda: quit_calls.append(1))
+    monkeypatch.setattr(daemon.daemon, "_launch_voice_app", lambda: None)
+    speaker = FakeSpeaker()
+    daemon.daemon.voice.speaker = speaker
+    c, out = Client(daemon.sock), io.StringIO()
+    try:
+        assert voice_switch(c, True, out) == 1 and "ferb setup --voice" in out.getvalue()   # not set up yet
+        daemon.daemon.config.set("voice", "requirement", 'identifier "com.ferb.app"')
+        assert voice_switch(c, True, out) == 0 and daemon.daemon._ptt is True
+        assert voice_switch(c, False, out) == 0 and daemon.daemon._ptt is False
+        assert quit_calls == [1] and speaker.stops >= 1 and "FERB.app has quit" in out.getvalue()
+    finally:
+        c.close()
