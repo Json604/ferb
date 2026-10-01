@@ -27,6 +27,7 @@ class Ax:
     focused: str | None = "textbox"
     box_has_focus: bool | None = True                       # False: a sheet / dialog holds the keyboard focus
     press_ok: bool = True                                   # False: the control ignores Accessibility presses
+    ax_keys: bool = False                                   # True: the app takes the Accessibility keyboard (spike 20)
     send_button: bool = True
     box: str = ""
     text: str = ""
@@ -43,6 +44,18 @@ class Ax:
 
     def expose_tree(self, pid: int) -> bool:
         self.calls.append("expose")
+        return True
+
+    def post_text(self, pid: int, text: str) -> bool:
+        self.calls.append(f"ax keys {text}")
+        if self.ax_keys:
+            self.box += text
+        return True
+
+    def post_key(self, pid: int, keycode: int, mods: list[str]) -> bool:
+        self.calls.append(f"ax key {keycode}")
+        if self.ax_keys:
+            self.text += f"[{keycode}]"
         return True
 
     def window_title(self, win: Any) -> str:
@@ -304,9 +317,21 @@ def test_electron_apps_are_asked_for_their_tree_and_slow_windows_are_waited_for(
     assert ax.calls.count("expose") == 1 and apps.activated == []
 
 
-def test_a_search_box_that_isnt_a_text_field_is_clicked_and_typed_in_front(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sept 30 trail (owner's audit): WhatsApp's search box reports itself as an unlabeled button; a value set on it
-    is accepted but never searches — results came only after a click and real typing with WhatsApp in front."""
+def test_a_search_box_that_isnt_a_text_field_is_typed_in_the_background_with_the_ax_keyboard(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spike 20: WhatsApp's search box (an unlabeled button) ignores a set value and keystrokes posted to its process,
+    but pressed through Accessibility and typed into with the Accessibility keyboard, it searches in the background."""
+    ax = Ax(takes_background=False, focused="button", box_has_focus=False, ax_keys=True)
+    d, apps, posted = setup(monkeypatch, ax)
+    d._state[CHAT] = drv._AppState(gen=1, nodes={"s1e1": AxNode("btn", "button", "", None, (0, 0, 10, 10), False, True)})
+    r = asyncio.run(d.act("WhatsApp", ComputerAction("set_value", "s1e1", "syllabus")))
+    assert r.ok and "Accessibility keyboard" in r.detail and ax.box == "syllabus"
+    assert "press" in ax.calls and "ax keys syllabus" in ax.calls                # pressed to focus, then typed
+    assert apps.activated == [] and posted == []                                 # never came forward
+
+
+def test_a_box_that_takes_no_background_input_is_clicked_and_typed_in_front(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The last resort for such a box: click it and type with the app in front, then put the owner back."""
     ax = Ax(takes_background=False, focused="button", box_has_focus=False)
     d, apps, posted = setup(monkeypatch, ax)
     d._state[CHAT] = drv._AppState(gen=1, nodes={"s1e1": AxNode("btn", "button", "", None, (0, 0, 10, 10), False, True)})

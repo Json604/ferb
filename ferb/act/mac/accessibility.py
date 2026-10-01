@@ -319,6 +319,60 @@ def set_value(el: Any, text: str) -> bool:
     return bool(AX.AXUIElementSetAttributeValue(el, "AXValue", text) == 0)
 
 
+# US keyboard: character -> (virtual key code, shift). For the Accessibility keyboard API, which needs real key codes.
+_US = {**{c: (k, False) for c, k in zip("asdfhgzxcvbqweryt123465=97-80]ou[ip", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12,
+       13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35])},
+       **{c: (k, False) for c, k in zip("lj'k;\\,/nm.` ", [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 50, 49])}}
+_SHIFTED = dict(zip("!@#$%^&*()_+{}|:\"<>?~", "1234567890-=[]\\;',./`"))
+_MODS = {"cmd": 55, "shift": 56, "alt": 58, "ctrl": 59}
+
+
+def _keycode(ch: str) -> tuple[int, bool] | None:
+    if ch in _US:
+        return _US[ch]
+    if ch.isupper() and ch.lower() in _US:
+        return _US[ch.lower()][0], True
+    if ch in _SHIFTED and _SHIFTED[ch] in _US:
+        return _US[_SHIFTED[ch]][0], True
+    return None
+
+
+def post_text(pid: int, text: str) -> bool:
+    """Type into the app's focused control through the Accessibility keyboard API — the app stays in the background
+    (spike 20: WhatsApp's search box took these, while keystrokes posted to its process never arrived). False if a
+    character has no key on the US layout (nothing is typed then)."""
+    import ApplicationServices as AX
+    import time as _t
+    codes = [_keycode(c) for c in text]
+    if any(c is None for c in codes):
+        return False
+    app = AX.AXUIElementCreateApplication(pid)
+    for ch, code in zip(text, codes):
+        kc, shift = code                                         # type: ignore[misc]
+        if shift:
+            AX.AXUIElementPostKeyboardEvent(app, 0, _MODS["shift"], True)
+        AX.AXUIElementPostKeyboardEvent(app, ord(ch), kc, True)
+        AX.AXUIElementPostKeyboardEvent(app, ord(ch), kc, False)
+        if shift:
+            AX.AXUIElementPostKeyboardEvent(app, 0, _MODS["shift"], False)
+        _t.sleep(0.02)
+    return True
+
+
+def post_key(pid: int, keycode: int, modifiers: list[str]) -> bool:
+    """One key (with modifiers) to the app's focused control through the Accessibility keyboard API."""
+    import ApplicationServices as AX
+    app = AX.AXUIElementCreateApplication(pid)
+    mods = [_MODS[m] for m in modifiers if m in _MODS]
+    for m in mods:
+        AX.AXUIElementPostKeyboardEvent(app, 0, m, True)
+    AX.AXUIElementPostKeyboardEvent(app, 0, keycode, True)
+    AX.AXUIElementPostKeyboardEvent(app, 0, keycode, False)
+    for m in reversed(mods):
+        AX.AXUIElementPostKeyboardEvent(app, 0, m, False)
+    return True
+
+
 def focus(el: Any) -> bool:
     import ApplicationServices as AX
     return bool(AX.AXUIElementSetAttributeValue(el, "AXFocused", True) == 0)

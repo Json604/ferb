@@ -231,6 +231,12 @@ class FakeAx:
         self.calls.append("ax.expose")
         return False
 
+    def post_text(self, pid: int, text: str) -> bool:
+        return True                                              # this fake app ignores the AX keyboard
+
+    def post_key(self, pid: int, keycode: int, mods: list[str]) -> bool:
+        return True
+
     def window_title(self, win: Any) -> str:
         return "Window"
 

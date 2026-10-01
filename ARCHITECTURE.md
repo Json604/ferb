@@ -749,9 +749,12 @@ runs one zero-wait turn every 0.2 s (under 1 ms), and a lookup by bundle id asks
 matched ignoring invisible direction marks (WhatsApp's name is "\u200eWhatsApp").
 **Editing and sending (owner decision 2026-10-01, every app):** buttons over keystrokes, and whole values over
 cursor editing. Typing into a search box is a search (it sends nothing; a reader may do it). A reader may also type, into any box, text taken from the owner's own words this request ("syllabus") — apps label search boxes unreliably (WhatsApp's is an unlabeled button), and the owner's own words can't leak anything. A value
-is set through Accessibility only on a real text field; anything else is clicked and typed into with the app in front
-(WhatsApp accepts a set value on its search box but only searches on real typing — Sept 30 trail, owner's audit
-2026-10-01). Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
+is set through Accessibility only on a real text field. For anything else (WhatsApp's search box, an unlabeled button
+that accepts a set value but never searches on it), FERB presses it through Accessibility to focus it and types through
+the Accessibility keyboard API (`AXUIElementPostKeyboardEvent`, US key codes) — still in the background (spike 20:
+WhatsApp searched, "No results" for a test word, the owner's app stayed in front; keystrokes posted to its process
+never arrived). The same keyboard is the second background try for a single key. Only if neither shows a change is
+the box clicked and typed into with the app in front. Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
 Enter in a text box is refused when the window has a Send button (press it instead) — and always in a communication
 app, where Return would send without the countdown or the contact check (10.3). After a send, the worker checks by
 reading the chat, never by sending again: a second send to the same contact (or the same recipients) in one task
@@ -1394,6 +1397,9 @@ Build step 11 specifics (owner decisions):
 18. Background input (owner-added 2026-10-01): can FERB act in an app that stays in the background — (a) Accessibility:
     set a text box's value and press buttons; (b) keystrokes posted to the app's process (`CGEventPostToPid`) — tested
     in WhatsApp (draft-only: the New Chat search box, never a chat, never Send) and TextEdit.
+20. Background search in WhatsApp (owner-added 2026-10-01, after the owner pointed at ChatGPT's Dot): which background
+    method reaches a search box that Accessibility shows as an unlabeled button — set value, keystrokes to the process,
+    an Accessibility press, the Accessibility keyboard API. Result: press + Accessibility keyboard (20 in §20).
 19. Waking a browser profile without moving the owner (owner-added 2026-10-01): an event-based detector (macOS's
     active-Space-changed and app-activated notifications, timestamped) validated against the old wake; then one
     variant per run with the owner watching — "FERB Test" first, then (owner's permission) their own profile and

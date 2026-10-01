@@ -17,7 +17,7 @@ from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
 from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
-from ferb.act.mac.input import (RealInput, Step, click_steps, is_arrow, is_enter, key_steps, switches_apps,
+from ferb.act.mac.input import (KEYCODES, RealInput, Step, click_steps, is_arrow, is_enter, key_steps, switches_apps,
                                 type_steps, valid_combo)
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
@@ -321,6 +321,20 @@ class MacComputerDriver:
         tree = await asyncio.to_thread(self.ax.read_tree, a.pid, False)
         return tree.title, tree.text, tuple((n.role, n.label, n.value) for n in tree.nodes)
 
+    async def _ax_type(self, a: Any, n: Any, text: str) -> bool:
+        """Spike 20: press (a box that isn't a text field) or focus it through Accessibility, then type through the
+        Accessibility keyboard API — still in the background. True once the window shows the change."""
+        before = await self._signature(a)
+        if n.role in ("textbox", "searchbox", "combobox"):
+            await asyncio.to_thread(self.ax.focus, n.ref)
+        else:
+            await asyncio.to_thread(self.ax.press, n.ref)                # WhatsApp's search "button" focuses its box
+        await asyncio.sleep(0.3)
+        if not await asyncio.to_thread(self.ax.post_text, a.pid, text):
+            return False
+        await asyncio.sleep(SETTLE_S + 0.6)                              # the app filters / updates
+        return await self._signature(a) != before
+
     async def _key(self, a: Any, combo: str, holder: str, task: str | None) -> ActionResult:
         if self._background_ok.get(a.bundle_id) is not False:
             before = await self._signature(a)
@@ -331,6 +345,11 @@ class MacComputerDriver:
                 return ActionResult(True, f"{combo} (in the background)")
             if self._background_ok.get(a.bundle_id):            # the app takes them; this key just showed nothing
                 return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
+            parts = combo.lower().split("+")                       # second background try: the AX keyboard
+            if await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[parts[-1]], parts[:-1]):
+                await asyncio.sleep(SETTLE_S + 0.4)
+                if await self._signature(a) != before:
+                    return ActionResult(True, f"{combo} (in the background, Accessibility keyboard)")
             self._background_ok[a.bundle_id] = False
             return ActionResult(False, f"{combo} went to {a.name} in the background but nothing changed; if it "
                                        "should have, do it again (FERB will bring the app forward this time)")
@@ -351,8 +370,10 @@ class MacComputerDriver:
             if landed:
                 self._background_ok[a.bundle_id] = True
                 return ActionResult(True, "typed (in the background)")
-            self._background_ok[a.bundle_id] = False          # nothing arrived: the foreground, once
+            self._background_ok[a.bundle_id] = False          # nothing arrived: try the Accessibility keyboard
 
+        if await self._ax_type(a, n, text):
+            return ActionResult(True, "typed (in the background, Accessibility keyboard)")
         if n.role not in ("textbox", "searchbox"):
             # Not a real text field (WhatsApp's search box reports itself as an unlabeled button and only searches on
             # real typing — Sept 30 trail): click it in front, then type, as a person would. Accessibility can't tell
