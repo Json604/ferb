@@ -579,3 +579,22 @@ def test_the_owner_can_switch_off_treating_pastes_as_data(daemon: RunningDaemon)
             {"a": json.dumps({"status": "done", "summary": "ok", "artifacts": [], "evidence": []})})
     evs = chat(daemon, pasted)
     assert any(e["type"] == "plan" for e in evs)                                      # the paste's target is allowed
+
+
+def test_the_checks_tabs_and_processes_end_with_the_task_too(daemon: RunningDaemon) -> None:
+    """Owner's report (2026-10-01): pages the verifier re-read stayed open in FERB's browser — its task
+    (<id>.verify) was never ended. Every task's checks now end with it."""
+    ended: list[str] = []
+
+    async def end(task_id: str) -> None:
+        ended.append(task_id)
+    daemon.daemon.supervisor.on_task_end = end                                       # type: ignore[union-attr]
+    p = plan([sub("look", role="reader", scopes=("fs:read",), fields=(("top", "string"),),
+                  conds=(cond("it's there", "none"),))], verbs=("summarize",))
+    worker = json.dumps({"status": "done", "summary": "read it", "fields": {"top": "x"}, "artifacts": [],
+                         "evidence": []})
+    seen = json.dumps({"results": [{"index": 0, "met": True, "evidence": "fresh read"}]})
+    install(daemon, [sup("plan", "x", p)], {"look": worker, "look.verify": seen})
+    outcome(chat(daemon, "summarize what's there"))
+    look = next(t for t in ended if t.endswith(".look"))
+    assert f"{look}.verify" in ended and f"{look}.reconcile" in ended

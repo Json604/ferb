@@ -628,11 +628,14 @@ class Supervisor(WorkerRuns):
         async for ev in self._verify_all(tree, root_span.id):
             yield ev
         for t in tree.tasks.values():                                         # tabs, processes: end with the tree
-            if self.on_task_end is not None:
-                try:
-                    await self.on_task_end(t.id)
-                except Exception:
-                    pass
+            # the checks run as their own tasks (<id>.verify / .reconcile) and open tabs too — theirs close as well
+            # (owner's report 2026-10-01: a verifier's re-read pages stayed open in FERB's browser)
+            for tid in (t.id, f"{t.id}.verify", f"{t.id}.reconcile"):
+                if self.on_task_end is not None:
+                    try:
+                        await self.on_task_end(tid)
+                    except Exception:
+                        pass
         final = self._final(tree)
         final["answer"] = await self._answer(tree, message, final)            # FERB tells the owner (14a)
         final["goal"] = plan.goal
