@@ -580,6 +580,8 @@ Build step 8 specifics:
   read scopes only.
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
+  A reader the planner gave acting scopes (browser:act, mac:act, fs:write) gets their read-only forms in code before
+  validation, instead of a model repair round (owner's runs 2026-10-01: it cost a round each time).
   Opening an app in the background (`mac.open`) is part of reading — a reader that finds an app closed opens it and
   looks, rather than reporting "not running" (owner decision 2026-10-01).
 - Reader output is typed fields (string / number / boolean / string list / email / URL); strings default to 500
@@ -985,7 +987,7 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   written ("clg/uni folder in desktop" names Desktop/clg/uni; the usual home folders may be implied — owner's report
   2026-10-01). Paths resolve where the owner means them: "Desktop/…", "Documents/…", "Downloads/…" are their folders
   (other relative paths are FERB's workspace), and a name Finder shows with "/" is found by its on-disk ":" form
-  (clg/uni is clg:uni), so the folder-access question names the real folder. When the whole message is a paste — or a paste with only a greeting typed
+  (clg/uni is clg:uni), so the folder-access question names the real folder. The owner's home prefix (/Users/<them>, ~) is never a name they must have typed. When the whole message is a paste — or a paste with only a greeting typed
   around it ("hey " + the paste; owner's report 2026-10-01) — `ferb chat` asks, in the owner's own terminal, whether
   it's their request; a yes sends it as their words.
   **Misspelled names (owner decision 2026-10-01):** before planning, a word in the owner's own words that is one or

@@ -406,6 +406,8 @@ class Supervisor(WorkerRuns):
             for _ in range(PLAN_REPAIRS):                  # an invalid plan is repaired, never shown (14a)
                 if out.kind != "plan" or out.plan is None:
                     break
+                if (tidied := dag.tidy(out.plan)):                         # fixed in code, no model round-trip
+                    self.journal.append("plan.tidied", {"request_id": request_id, "changes": tidied})
                 problems = dag.validate(out.plan, plan_words, available, self.apps(),
                                              self.owner_browser(plan_words))
                 if not problems:
@@ -435,6 +437,8 @@ class Supervisor(WorkerRuns):
                 and self.owner_email() is None:                                  # progressive setup (section 8)
             out = SupervisorOutcome(kind="clarify", text="What email address should I use for you? I'll remember it.",
                                     plan=None)
+        if out.kind == "plan" and out.plan is not None:
+            dag.tidy(out.plan)                                  # the last repaired plan too
         final = dag.validate(out.plan, plan_words, available, self.apps(),
                                              self.owner_browser(plan_words)) \
             if out.kind == "plan" and out.plan is not None else []

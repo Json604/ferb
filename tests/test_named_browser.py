@@ -100,6 +100,11 @@ def test_a_folder_named_in_the_owners_own_way_counts() -> None:
     assert targets_in_own_words(["Desktop/clg/secret"], said) == ["Desktop/clg/secret"]     # never named: refused
     assert targets_in_own_words(["~/.ssh/id_rsa"], said) == ["~/.ssh/id_rsa"]
     assert targets_in_own_words(["Desktop/../clg"], "the clg folder") == []                  # ".." isn't a name
+    import os
+    home = os.path.expanduser("~")                                         # their home folder is never "a name"
+    said2 = "make it complete the assignment in clg:uni folder in desktop"
+    assert targets_in_own_words([f"{home}/Desktop/clg/uni", f"{home}/Desktop/clg:uni", "/Users/someone/Desktop/clg/uni"],
+                                said2) == []
 
 
 def test_naming_a_profile_counts_as_asking_for_their_own_browser(bd: Any) -> None:     # noqa: F811

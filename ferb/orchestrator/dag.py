@@ -24,6 +24,23 @@ READ_SCOPES = frozenset({"fs:read", "browser:read", "mac:read", "screen", "trail
 ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
+READ_FORM = {"browser:act": "browser:read", "mac:act": "mac:read", "fs:write": "fs:read"}
+
+
+def tidy(plan: Plan) -> list[str]:
+    """Fix in code what the planner keeps getting wrong and that has one safe answer, instead of a slow repair round:
+    a reader given acting scopes gets their read-only forms (it couldn't act anyway — the gateway blocks it). Returns
+    what was changed, for the journal."""
+    notes = []
+    for s in plan.subtasks:
+        if s.role == "reader":
+            fixed = list(dict.fromkeys(READ_FORM.get(x, x) for x in s.scopes if x in READ_SCOPES or x in READ_FORM))
+            if fixed != s.scopes:
+                notes.append(f"subtask {s.id}: reader scopes {s.scopes} -> {fixed}")
+                s.scopes = fixed
+    return notes
+
+
 def validate(plan: Plan, own_words: str, available_scopes: set[str],
              apps: list[tuple[str, str]] | None = None, owner_browser: bool | None = None) -> list[str]:
     """`owner_browser`: whether the owner's words point at their own browser (None: not checked)."""

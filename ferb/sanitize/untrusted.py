@@ -5,6 +5,7 @@ Each is wrapped in <untrusted-data id="..."> tags with a random id (so pasted te
 the owner's own words are returned separately: the intent may only use targets that appear in them.
 """
 
+import os
 import re
 import secrets
 from dataclasses import dataclass
@@ -115,7 +116,11 @@ def targets_in_own_words(targets: list[str], own_words: str) -> list[str]:
         if not s or s in lw:
             continue
         if "/" in s:
-            parts = [p for p in re.split(r"[/\\]+", s) if p and p not in HOME_FOLDERS
+            home = os.path.expanduser("~").lower().rstrip("/")
+            if s == home or s.startswith(home + "/"):              # /Users/<them>/… is just "~/…"
+                s = "~" + s[len(home):]
+            s = re.sub(r"^/users/[^/]+(?=/|$)", "~", s)
+            parts = [p for p in re.split(r"[/\\:]+", s) if p and p not in HOME_FOLDERS
                      and not re.fullmatch(r"\.{1,2}", p)]
             if parts and all(p in words or p in lw for p in parts):
                 continue

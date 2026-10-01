@@ -163,8 +163,6 @@ def test_runtime_violation_unregisters_the_runtime(daemon: RunningDaemon) -> Non
     (plan([sub("a", deps=("b",)), sub("b", deps=("a",))], paths=("todo.md",)), "circle"),
     (plan([sub("a", deps=("zzz",))], paths=("todo.md",)), "unknown subtask"),
     (plan([sub(f"s{i}") for i in range(7)], paths=("todo.md",)), "too many subtasks"),
-    (plan([sub("r", role="reader", scopes=("fs:write",), fields=(("x", "string"),))], paths=("todo.md",)),
-     "a reader only reads"),
     (plan([sub("r", role="reader", fields=(("x", "string"),), scopes=("fs:read",)),
            sub("a", inputs=(("r", "x"),))], paths=("todo.md",)), "must come from a subtask it depends on"),
     (plan([sub("r", role="reader", fields=(("x", "string"),), scopes=("fs:read",), max_chars=3000)],
@@ -598,3 +596,17 @@ def test_the_checks_tabs_and_processes_end_with_the_task_too(daemon: RunningDaem
     outcome(chat(daemon, "summarize what's there"))
     look = next(t for t in ended if t.endswith(".look"))
     assert f"{look}.verify" in ended and f"{look}.reconcile" in ended
+
+
+
+def test_a_reader_given_acting_scopes_is_fixed_in_code_not_sent_back() -> None:
+    """The planner kept giving readers browser:act (owner's runs, 2026-10-01), costing a repair round each time. A
+    reader can't act anyway (the gateway blocks it), so its scopes become their read-only forms in code."""
+    from ferb.orchestrator import dag
+    from ferb.orchestrator.schemas import Plan
+    p = Plan.model_validate(plan([sub("r", role="reader", scopes=("browser:act", "browser:read", "fs:write"),
+                                      fields=(("x", "string"),))], verbs=("summarize",)))
+    notes = dag.tidy(p)
+    assert p.subtasks[0].scopes == ["browser:read", "fs:read"] and notes
+    actor = Plan.model_validate(plan([sub("a", scopes=("browser:act",))], verbs=("summarize",)))
+    assert dag.tidy(actor) == [] and actor.subtasks[0].scopes == ["browser:act"]      # actors untouched

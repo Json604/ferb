@@ -70,8 +70,8 @@ def test_a_name_the_owner_never_said_is_asked_about_plainly(daemon: RunningDaemo
 
 
 def test_other_plan_problems_say_the_real_reason(daemon: RunningDaemon) -> None:
-    bad = plan([sub("look", role="reader", scopes=("fs:read", "fs:write"), fields=(("x", "string"),))])
+    bad = plan([sub("a", deps=("b",)), sub("b", deps=("a",))], paths=("notes.txt",))   # steps in a circle
     install(daemon, [sup("plan", "x", bad)] * 3)
     evs = chat(daemon, "tidy notes.txt")
     assert evs[-1]["type"] == "reply" and evs[-1]["text"] == SORRY_PLAN               # the planner's mistake, said so
-    assert "fs:write" not in evs[-1]["text"]                                            # without its internals
+    assert "circle" not in evs[-1]["text"]                                              # without its internals
