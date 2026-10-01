@@ -266,6 +266,7 @@ extensions/
     background.js       service worker: native messaging, tab control, chrome.debugger sessions
     content.js          DOM snapshot + element lookup (no decisions)
     protocol.ts|js      message schema (mirrors ferb/act/browser/ext_protocol)
+macapp/FERB/            FERB.app (Unit 4): push-to-talk microphone + on-device speech (20.1); later: system audio (20),
 macapp/                 RESERVED (not built in Block 1): FERB.app — audio service, stop hotkey, Keychain anchoring,
                         Safari extension (later blocks)
 tests/
@@ -1480,6 +1481,34 @@ nothing in Block 1 blocks it.
     with a local self-signed certificate ("FERB Local Code Signing", login Keychain, created with the owner's approval)
     the designated requirement is the bundle id + certificate leaf, and permissions survived a rebuild with a new CDHash.
     FERB.app is signed with that certificate.
+
+### 20.1 Push-to-talk (Unit 4, owner decisions 2026-10-01)
+
+- **The key:** hold Right Option to talk, release to send. A hold under 0.3 s is ignored; another key pressed while it's
+  down makes it a shortcut and the recording is discarded. Read from the daemon's existing listen-only event tap
+  (`OwnerInput`; FERB-marked events never count). Pressing it also stops FERB speaking.
+- **FERB.app** (`macapp/FERB`, built by `ferb setup --voice` into `~/.ferb/FERB.app`): a background app — no windows,
+  Dock icon or menu-bar item (`LSUIElement`) — signed with the local "FERB Local Code Signing" certificate so
+  Microphone and Speech Recognition permissions survive rebuilds. It is the only part that opens a microphone: on the
+  daemon's "start" it opens the chosen input with a Core Audio IOProc and feeds on-device `SFSpeechRecognizer`
+  (model loaded at launch; an empty final result falls back to the last partial; "FERB" as a contextual string); on
+  "stop" it returns the text; on "discard" it drops everything. Audio is never written anywhere. A soft sound marks
+  start and stop; macOS shows its own microphone indicator.
+- **Which mic (owner rule):** never open a Bluetooth headset's microphone, not even to probe it (it drops the headset
+  into low-quality call mode). The daemon chooses from the device list FERB.app reports — read from device properties
+  only — and picks the built-in mic whenever the default input is Bluetooth (`[voice] mic = auto | builtin |
+  default`); FERB.app refuses to open a Bluetooth input as a second guard.
+- **Who may speak for the owner:** only the installed FERB.app. A `voice` connection is accepted only when the peer
+  runs as the owner, its executable is `~/.ferb/FERB.app/Contents/MacOS/FERB`, and its code signature satisfies
+  the requirement recorded at setup (bundle id + the local certificate's leaf). The voice role can only attach and send
+  transcripts.
+- **What's said:** the transcript is the owner's own words (they held the key), sent as a chat turn in the "voice"
+  session — same journal, continuity and every policy rule as typed chat. Replies to voice requests are always spoken
+  (`say` now, swappable), and also appear in `ferb logs`. While FERB is waiting on a question, a spoken "yes", "no" or
+  a number answers the oldest one.
+- **Setup / doctor:** `ferb setup --voice` builds, signs and installs FERB.app, records the signature requirement,
+  asks for Microphone and Speech Recognition once, and turns `[voice] push_to_talk` on; the daemon opens FERB.app at
+  start when push-to-talk is on. `ferb doctor` reports whether FERB.app is connected and its permissions.
 
 ## 21. Safety invariant tests (must pass before owner-account actions are enabled)
 

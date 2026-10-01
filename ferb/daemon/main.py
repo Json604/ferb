@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timedelta
 import os
 import signal
+import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -111,6 +112,9 @@ class Daemon:
         # The owner's Mac + shell (build step 7)
         self.watch_owner_input = watch_owner_input
         self.owner_input = OwnerInput()
+        self.voice: Any = None                              # push-to-talk (20.1), built at start
+        self.voice_speaker: Any = None                      # tests replace FERB's voice
+        self._ptt = False
         self.gui = GuiLock()
         self.mac: MacComputerDriver | None = None
         self.shells: ShellManager | None = None
@@ -200,6 +204,7 @@ class Daemon:
             self.server.unary[name] = fn
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
+        self._build_voice()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         self.journal.append("daemon.started", {"pid": os.getpid()})
         unknown = self.ledger.mark_unknown_after_restart()
@@ -272,7 +277,94 @@ class Daemon:
     def _trusted_kinds(self) -> frozenset[str]:
         return frozenset(self.config.get("policy", "trusted_kinds", []))
 
+    # ---------- push-to-talk (section 20.1) ----------
+
+    def _build_voice(self) -> None:
+        from ferb.cli.chat import question, render
+        from ferb.voice.controller import Voice
+        from ferb.voice.speak import SaySpeaker
+        self.voice = Voice(self._voice_turn, self.engine.approvals.pending, self._resolve_approval,
+                           self.voice_speaker or SaySpeaker(),
+                           self._journal(), self._launch_voice_app,
+                           mode=lambda: str(self.config.get("voice", "mic", "auto")), render=render, question=question,
+                           cancel_countdown=self._cancel_countdown)
+        loop = asyncio.get_running_loop()
+
+        def on_key(code: int, down: bool) -> None:               # the tap's thread: hand off to the loop
+            if self._ptt:
+                loop.call_soon_threadsafe(self.voice.on_key, code, down)
+        self.owner_input.on_key = on_key
+        self.server.unary["voice.transcript"] = self._voice_transcript
+        self.server.unary["voice.reload"] = self._voice_reload
+        self.server.streams["voice.attach"] = self._voice_attach
+        self.server.voice_app = self._voice_app_exe
+        self.server.voice_signed = self._voice_signed
+        if self._ptt:
+            self._launch_voice_app()
+
+    @property
+    def voice_bundle(self) -> Path:
+        return self.home / "FERB.app"
+
+    def _voice_app_exe(self) -> str | None:
+        exe = self.voice_bundle / "Contents" / "MacOS" / "FERB"
+        return str(exe) if self._ptt and exe.exists() else None
+
+    def _voice_signed(self, exe: str) -> bool:
+        """FERB.app's signature meets the requirement recorded by `ferb setup --voice` (bundle id + certificate)."""
+        req = self.config.get("voice", "requirement")
+        if not req:
+            return False
+        r = subprocess.run(["codesign", "--verify", f"-R={req}", str(self.voice_bundle)], capture_output=True)
+        return r.returncode == 0
+
+    def _launch_voice_app(self) -> None:
+        if self.voice_bundle.exists():
+            subprocess.Popen(["open", "-g", str(self.voice_bundle)], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+
+    def _cancel_countdown(self) -> bool:
+        """Spoken "stop" during a send / call countdown: the newest pending one is undone."""
+        pending = self.engine.holds.pending()
+        if not pending:
+            return False
+        hold = pending[-1]
+        if not self.engine.undo(hold.id):
+            return False
+        self._journal().append("action.undone", {"hold_id": hold.id, "by": "voice"})
+        self.bus.publish("action.undone", {"hold_id": hold.id})
+        return True
+
+    async def _voice_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:
+        async for ev in self._chat_send(None, {"session_id": "voice", "text": text}):     # type: ignore[arg-type]
+            yield ev
+
+    async def _voice_attach(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        """FERB.app connects and waits for commands: start (with the chosen mic), stop, discard."""
+        q = self.voice.attach(list(params.get("devices", [])), dict(params.get("permissions", {})))
+        try:
+            while True:
+                yield await q.get()
+        finally:
+            self.voice.detach(q)
+
+    async def _voice_transcript(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        if params.get("error"):                                  # FERB.app couldn't listen
+            self._journal().append("voice.failed", {"why": str(params["error"])[:300]})
+            self.voice.speaker.say("I couldn't use the microphone.")
+            return {"handled": "error"}
+        result: dict[str, Any] = await self.voice.transcript(str(params.get("text", "")))
+        return result
+
+    async def _voice_reload(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`ferb setup --voice` finished: read the voice settings again and open FERB.app (no daemon restart)."""
+        self._load_config()
+        if self._ptt:
+            self._launch_voice_app()
+        return {"push_to_talk": self._ptt}
+
     def _load_config(self) -> None:
+        self._ptt = bool(self.config.get("voice", "push_to_talk", False))
         self._autonomy = Level(self.config.get("policy", "autonomy", Level.BALANCED.value))
         if self._redact_override is None:
             self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps()))
@@ -1537,8 +1629,12 @@ class Daemon:
 
     async def _chat_approve(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         choice = params.get("choice")
-        ap = self.engine.approvals.resolve(str(params["approval_id"]), bool(params["granted"]),
-                                           int(choice) if choice is not None else None)
+        return self._resolve_approval(str(params["approval_id"]), bool(params["granted"]),
+                                      int(choice) if choice is not None else None)
+
+    def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None) -> dict[str, Any]:
+        """The owner's answer to a question, typed (`ferb chat`) or spoken (push-to-talk)."""
+        ap = self.engine.approvals.resolve(approval_id, granted, choice)
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,
                                                      "capability": ap.capability})
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})
@@ -1690,6 +1786,9 @@ class Daemon:
                     "selftest": [{"name": r.name, "ok": r.ok, "detail": r.detail} for r in results]}
         out = await asyncio.to_thread(run)
         out["runtimes"] = await self._runtime_status()
+        out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
+                        "connected": self.voice is not None and self.voice.app is not None,
+                        "permissions": self.voice.permissions if self.voice is not None else {}}
         out.update({"pid": os.getpid(), "executable": os.path.realpath(sys.executable),
                     "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
                     "home": str(self.home), "stopped": self.engine.stopped})

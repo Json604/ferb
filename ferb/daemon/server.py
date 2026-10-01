@@ -17,7 +17,8 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 from pydantic import BaseModel, ValidationError
 
 from ferb.core.errors import AlreadyRunning, AuthError, FerbError, Unsupported
-from ferb.daemon.auth import RunGrant, RunTokens, Role, allowed, check_cli_peer, check_native_host
+from ferb.daemon.auth import (RunGrant, RunTokens, Role, allowed, check_cli_peer, check_native_host,
+                              check_voice_peer)
 
 MAX_MESSAGE = 1024 * 1024
 
@@ -51,6 +52,26 @@ Channel = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]
 Stream = Callable[[Session, dict[str, Any]], AsyncIterator[dict[str, Any]]]
 
 
+LOCAL_PEERPID = 0x002
+
+
+def peer_pid(sock: socket.socket) -> int:
+    return int(sock.getsockopt(SOL_LOCAL, LOCAL_PEERPID))
+
+
+def exe_of(pid: int) -> str | None:
+    """The executable path of a process (libproc), or None."""
+    import ctypes
+    import ctypes.util
+    buf = ctypes.create_string_buffer(4096)
+    try:
+        lib = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib")
+        n = lib.proc_pidpath(pid, buf, len(buf))
+    except OSError:
+        return None
+    return buf.value.decode() if n > 0 else None
+
+
 def peer_uid(sock: socket.socket) -> int:
     raw = sock.getsockopt(SOL_LOCAL, LOCAL_PEERCRED, 76)   # struct xucred: u_int version, uid_t uid, ...
     return int(struct.unpack_from("Ii", raw)[1])
@@ -80,6 +101,9 @@ class Server:
         self.streams: dict[str, Stream] = {}
         self.native: Channel | None = None               # extension message channel (build step 6a)
         self.extension_ids: Callable[[], frozenset[str]] = lambda: frozenset()
+        # FERB.app (20.1): where it's installed and how to check its signature; unset = voice refused
+        self.voice_app: Callable[[], str | None] = lambda: None
+        self.voice_signed: Callable[[str], bool] = lambda path: False
         self._server: asyncio.base_events.Server | None = None
         self._writers: set[asyncio.StreamWriter] = set()
 
@@ -153,6 +177,13 @@ class Server:
                 session = Session(Role.CLI)
             elif hello.role is Role.MCP_SHIM:
                 session = Session(Role.MCP_SHIM, self.tokens.validate(hello.token or ""))
+            elif hello.role is Role.VOICE:
+                expected = self.voice_app()
+                if expected is None:
+                    raise Unsupported("push-to-talk isn't set up (`ferb setup --voice`)")
+                sock = writer.get_extra_info("socket")
+                check_voice_peer(uid, self.owner_uid, exe_of(peer_pid(sock)), expected, self.voice_signed)
+                session = Session(Role.VOICE)
             else:
                 if self.native is None:
                     raise Unsupported("FERB's browser bridge isn't running")

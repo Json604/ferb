@@ -10,6 +10,7 @@ from typing import Protocol
 class Speaker(Protocol):
     def say(self, text: str) -> None: ...
     def stop(self) -> None: ...
+    def wait(self) -> None: ...
 
 
 class Silent:
@@ -17,6 +18,9 @@ class Silent:
         return None
 
     def stop(self) -> None:
+        return None
+
+    def wait(self) -> None:
         return None
 
 
@@ -39,6 +43,15 @@ class SaySpeaker:
         if self._proc is not None and self._proc.poll() is None:
             self._proc.terminate()
         self._proc = None
+
+    def wait(self, timeout: float = 60) -> None:
+        """Until the current utterance is finished (so the next one doesn't cut it off)."""
+        p = self._proc
+        if p is not None:
+            try:
+                p.wait(timeout)
+            except Exception:
+                pass
 
 
 def spoken(line: str) -> str:

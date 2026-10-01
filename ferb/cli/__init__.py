@@ -98,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--jev", action="store_true", help="store the Jev API key in the Keychain and check it answers")
     sp.add_argument("--codex-login", action="store_true",
                     help="sign in FERB's own Codex (its own home: your personal Codex settings and skills stay out)")
+    sp.add_argument("--voice", action="store_true",
+                    help="push-to-talk: build and sign FERB.app, ask for Microphone + Speech Recognition, turn it on")
     sub.add_parser("doctor", help="check the installation, permissions (from inside the daemon) and self-test")
     xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
     xp.add_argument("--purge", action="store_true")
@@ -131,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.cmd == "setup" and args.jev:
                 return setup_cmd.jev_setup(env)
+            if args.cmd == "setup" and args.voice:
+                return setup_cmd.voice_setup(env)
             if args.cmd == "setup" and args.codex_login:
                 return setup_cmd.codex_login(env)
             if args.cmd == "setup" and args.identity:

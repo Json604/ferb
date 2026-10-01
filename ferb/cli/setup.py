@@ -268,6 +268,15 @@ def doctor(env: Env) -> int:
                       f"grant it to {dedicated} (System Settings → Privacy & Security)" if level != "ok" else ""))
         for r in report["selftest"]:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
+        voice = report.get("voice", {})
+        if voice.get("push_to_talk"):
+            perms = voice.get("permissions", {})
+            ok = voice.get("connected") and perms.get("microphone") == "granted" and perms.get("speech") == "granted"
+            add(Check("push-to-talk", "ok" if ok else "warn",
+                      "FERB.app connected, microphone + speech allowed" if ok else
+                      ("FERB.app not connected" if not voice.get("connected") else
+                       f"microphone: {perms.get('microphone')}, speech: {perms.get('speech')}"),
+                      "" if ok else "run `ferb setup --voice`"))
         rs = report.get("runtimes", {})
         for name in ("codex", "claude"):
             if name in rs:
@@ -494,6 +503,63 @@ def uninstall(env: Env, purge: bool) -> int:
     if binary:
         env.say(f"macOS can't remove permissions for a plain binary: in System Settings → Privacy & Security, remove "
                 f"{binary} from Accessibility, Screen Recording (and Input Monitoring / Automation if granted).")
+    return 0
+
+
+CERTIFICATE = "FERB Local Code Signing"
+
+
+def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
+    """Push-to-talk (section 20.1): build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
+    survive rebuilds), record its signature for the daemon's check, ask for Microphone and Speech Recognition once,
+    turn push-to-talk on. The daemon is not restarted."""
+    found = run(["security", "find-identity", "-v", "-p", "codesigning"], capture_output=True, text=True)
+    if CERTIFICATE not in (found.stdout or ""):
+        env.say(f"The signing certificate \"{CERTIFICATE}\" isn't in your login keychain. Create it in Keychain Access →")
+        env.say("Certificate Assistant → Create a Certificate (name it exactly that, type Code Signing), then run this again.")
+        return 1
+    app = env.inst.home / "FERB.app"
+    env.say("Building FERB.app (the microphone part of push-to-talk; no windows, no Dock icon)…")
+    built = run([str(repo_root() / "macapp" / "FERB" / "build.sh"), str(app)], capture_output=True, text=True)
+    if built.returncode != 0:
+        env.say("Build failed:\n" + ((built.stderr or built.stdout or "").strip()[-1500:]))
+        return 1
+    shown = run(["codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
+    req = next((ln.split("=>", 1)[1].strip() for ln in ((shown.stdout or "") + (shown.stderr or "")).splitlines()
+                if ln.startswith("designated =>")), "")
+    if "certificate leaf" not in req:
+        env.say("FERB.app isn't signed with the local certificate; push-to-talk stays off.")
+        return 1
+    config = Config(env.inst.home)
+    config.set("voice", "requirement", req)
+    env.say("macOS will ask once for Microphone and Speech Recognition for FERB — allow both.")
+    run(["open", "-n", "-W", str(app), "--args", "request"])
+    config.set("voice", "push_to_talk", True)
+    if config.get("voice", "mic") is None:
+        config.set("voice", "mic", "auto")
+    try:
+        c = env.connect()
+        c.call("voice.reload")
+        report: dict[str, Any] = {}
+        for _ in range(20):                                   # FERB.app loads its speech model, then connects
+            report = c.call("doctor.check", {"selftest": False}).get("voice", {})
+            if report.get("connected"):
+                break
+            env.sleep(1)
+        c.close()
+    except (NotRunning, FerbError) as e:
+        env.say(f"Push-to-talk is on, but the daemon couldn't start it yet: {e}")
+        return 1
+    perms = report.get("permissions", {})
+    if not report.get("connected"):
+        env.say("Push-to-talk is on, but FERB.app didn't connect. `ferb doctor` shows more.")
+        return 1
+    if perms.get("microphone") != "granted" or perms.get("speech") != "granted":
+        env.say(f"FERB.app is connected but lacks permission (microphone: {perms.get('microphone')}, speech: "
+                f"{perms.get('speech')}). Allow FERB in System Settings → Privacy & Security, then run this again.")
+        return 1
+    env.say("Push-to-talk is ready: hold Right Option, speak, let go. A tap or a shortcut (Right Option + a key) is ignored.")
+    env.say("It uses the built-in mic whenever your default input is a Bluetooth headset (it never opens a headset's mic).")
     return 0
 
 

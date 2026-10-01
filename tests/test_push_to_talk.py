@@ -1,0 +1,214 @@
+"""Push-to-talk (section 20.1): the talk key's rules, never a Bluetooth headset's microphone, only the installed and
+signed FERB.app may speak for the owner, and what's said runs as the owner's own chat turn with FERB's reply spoken."""
+
+import asyncio
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from ferb.core.errors import AuthError
+from ferb.daemon.auth import Role, allowed, check_voice_peer
+from ferb.daemon.server import exe_of
+from ferb.voice.controller import Voice, spoken_choice
+from ferb.voice.mic import InputDevice, choose
+from ferb.voice.push_to_talk import RIGHT_OPTION, TalkKey
+from tests.conftest import RunningDaemon
+from tests.test_server import raw, send
+from tests.test_supervisor import install, sup
+
+OTHER_KEY = 0                                  # "a"
+
+
+class FakeSpeaker:
+    def __init__(self) -> None:
+        self.said: list[str] = []
+        self.stops = 0
+
+    def say(self, text: str) -> None:
+        self.said.append(text)
+
+    def stop(self) -> None:
+        self.stops += 1
+
+    def wait(self) -> None:
+        return None
+
+
+# ---------- the talk key ----------
+
+def test_hold_to_talk_tap_ignored_and_shortcut_discarded() -> None:
+    k = TalkKey()
+    assert k.key(RIGHT_OPTION, True, 0.0) == "start"
+    assert k.key(RIGHT_OPTION, False, 1.2) == "send"                 # held long enough: send
+    assert k.key(RIGHT_OPTION, True, 2.0) == "start"
+    assert k.key(RIGHT_OPTION, False, 2.2) == "ignore"               # a tap under 0.3 s
+    assert k.key(RIGHT_OPTION, True, 3.0) == "start"
+    assert k.key(OTHER_KEY, True, 3.5) is None                       # Right Option + a key: a shortcut
+    assert k.key(RIGHT_OPTION, False, 5.0) == "discard"
+    assert k.key(OTHER_KEY, True, 6.0) is None and not k.held        # other keys alone mean nothing
+    assert k.key(RIGHT_OPTION, True, 7.0) == "start"                 # the shortcut doesn't linger
+    assert k.key(RIGHT_OPTION, False, 8.0) == "send"
+
+
+# ---------- which microphone ----------
+
+BUILT_IN = InputDevice("builtin", "MacBook Air Microphone", "bltn")
+HEADSET = InputDevice("bt", "AirPods", "blue", default=True)
+USB = InputDevice("usb", "USB Mic", "usb ", default=True)
+
+
+def test_a_bluetooth_headset_mic_is_never_chosen() -> None:
+    assert choose([BUILT_IN, HEADSET]) == BUILT_IN                     # default input is Bluetooth: built-in instead
+    assert choose([BUILT_IN, InputDevice("le", "Buds", "blea", default=True)]) == BUILT_IN
+    assert choose([HEADSET]) is None                                   # nothing allowed: nothing opened
+    assert choose([HEADSET], "default") is None                        # not even when asked for the default
+    assert choose([BUILT_IN, USB]) == USB                              # a wired default is used
+    assert choose([BUILT_IN, USB], "builtin") == BUILT_IN
+
+
+# ---------- who may speak for the owner ----------
+
+def test_only_the_installed_signed_app_may_connect_as_voice(tmp_path: Path) -> None:
+    app = tmp_path / "FERB.app" / "Contents" / "MacOS" / "FERB"
+    app.parent.mkdir(parents=True)
+    app.write_text("")
+    me = os.getuid()
+    check_voice_peer(me, me, str(app), str(app), lambda p: True)
+    with pytest.raises(AuthError):
+        check_voice_peer(me + 1, me, str(app), str(app), lambda p: True)         # another user
+    with pytest.raises(AuthError):
+        check_voice_peer(me, me, sys.executable, str(app), lambda p: True)       # any other program
+    with pytest.raises(AuthError):
+        check_voice_peer(me, me, None, str(app), lambda p: True)
+    with pytest.raises(AuthError):
+        check_voice_peer(me, me, str(app), str(app), lambda p: False)            # signature doesn't match setup
+    assert not allowed(Role.VOICE, "chat.send") and not allowed(Role.VOICE, "chat.approve")
+    assert not allowed(Role.VOICE, "tools.call") and allowed(Role.VOICE, "voice.transcript")
+
+
+def _hello(daemon: RunningDaemon) -> dict[str, Any]:
+    s, f = raw(daemon.sock)
+    send(s, {"jsonrpc": "2.0", "id": 1, "method": "auth.hello", "params": {"role": "voice"}})
+    out: dict[str, Any] = json.loads(f.readline())
+    if "result" in out:
+        send(s, {"jsonrpc": "2.0", "id": 2, "method": "chat.send", "params": {"session_id": "x", "text": "hi"}})
+        out["then"] = json.loads(f.readline())
+    s.close()
+    return out
+
+
+def test_the_daemon_checks_the_voice_peer(daemon: RunningDaemon) -> None:
+    srv = daemon.daemon.server
+    assert "isn't set up" in _hello(daemon)["error"]["message"]                    # push-to-talk off
+    srv.voice_app = lambda: "/Users/nobody/.ferb/FERB.app/Contents/MacOS/FERB"
+    srv.voice_signed = lambda p: True
+    assert _hello(daemon)["error"]["message"] == "voice role is only for the installed FERB.app"   # this test isn't
+    me = exe_of(os.getpid())
+    srv.voice_app = lambda: me                                                    # pretend the test is FERB.app
+    srv.voice_signed = lambda p: False
+    assert "signature" in _hello(daemon)["error"]["message"]
+    srv.voice_signed = lambda p: True
+    ok = _hello(daemon)
+    assert ok["result"]["role"] == "voice"
+    assert "not allowed for voice" in ok["then"]["error"]["message"]               # it can't chat or act
+
+
+# ---------- the daemon side ----------
+
+def _voice(pending: list[Any] | None = None, answers: list[Any] | None = None,
+           turns: list[str] | None = None, cancel: bool = False) -> tuple[Voice, FakeSpeaker, list[str]]:
+    speaker, launched = FakeSpeaker(), []
+
+    async def run_turn(text: str) -> Any:
+        (turns if turns is not None else []).append(text)
+        yield {"type": "reply", "text": "It's 31°C in Delhi."}
+
+    class J:
+        def append(self, *a: Any) -> None:
+            return None
+    v = Voice(run_turn, lambda: pending or [], lambda *a: (answers if answers is not None else []).append(a),
+              speaker, J(), lambda: launched.append("open"), cancel_countdown=lambda: cancel)
+    return v, speaker, launched
+
+
+def test_key_drives_the_app_with_an_allowed_mic() -> None:
+    v, speaker, launched = _voice()
+    v.on_key(RIGHT_OPTION, True, 0.0)
+    assert launched == ["open"] and speaker.said == ["Voice isn't ready yet. Try again in a moment."]
+    q = v.attach([{"uid": "bt", "name": "AirPods", "transport": "blue", "default": True},
+                  {"uid": "builtin", "name": "MacBook Air Microphone", "transport": "bltn"}], {})
+    v.on_key(RIGHT_OPTION, False, 1.0)
+    v.on_key(RIGHT_OPTION, True, 2.0)
+    assert speaker.stops == 2                                          # the owner talks: FERB stops speaking
+    assert q.get_nowait() == {"op": "start", "device_uid": "builtin", "device": "MacBook Air Microphone"}
+    v.on_key(RIGHT_OPTION, False, 3.0)
+    assert q.get_nowait() == {"op": "stop"}
+    v.on_key(RIGHT_OPTION, True, 4.0)
+    v.on_key(RIGHT_OPTION, False, 4.1)                                 # a tap: what was heard is dropped
+    q.get_nowait()
+    assert q.get_nowait() == {"op": "discard"}
+    v.detach(q)
+    assert v.app is None
+
+
+def test_only_bluetooth_means_no_listening() -> None:
+    v, speaker, _ = _voice()
+    q = v.attach([{"uid": "bt", "name": "AirPods", "transport": "blue", "default": True}], {})
+    v.on_key(RIGHT_OPTION, True, 0.0)
+    assert q.empty() and "can't find a microphone" in speaker.said[0]
+
+
+def test_spoken_answers_go_to_the_waiting_question() -> None:
+    class Ap:
+        def __init__(self, options: tuple[str, ...] = ()) -> None:
+            self.id, self.options = "ap1", options
+    answers: list[Any] = []
+    v, speaker, _ = _voice([Ap()], answers)
+    assert asyncio.run(v.transcript("yes go ahead"))["handled"] == "answer" and answers == [("ap1", True, None)]
+    asyncio.run(v.transcript("no"))
+    assert answers[-1] == ("ap1", False, None)
+    v2, _, _ = _voice([Ap(("Rahul Sharma", "Rahul (work)"))], answers)
+    assert asyncio.run(v2.transcript("the second one"))["handled"] == "answer" and answers[-1] == ("ap1", True, 2)
+    assert spoken_choice("number 1") == 1 and spoken_choice("what's the weather") is None
+
+
+def test_stop_cancels_a_countdown() -> None:
+    v, speaker, _ = _voice(cancel=True)
+    assert asyncio.run(v.transcript("stop"))["handled"] == "cancelled" and speaker.said == ["Cancelled."]
+    v2, _, _ = _voice(cancel=False, turns=(turns := []))
+
+    async def go() -> None:
+        await v2.transcript("stop the music")                          # no countdown: an ordinary request
+        await asyncio.sleep(0.05)
+    asyncio.run(go())
+    assert turns == ["stop the music"]
+
+
+def test_a_voice_request_is_a_chat_turn_and_the_reply_is_spoken(daemon: RunningDaemon) -> None:
+    install(daemon, [sup("reply", "It's 31 degrees in Delhi.")])
+    speaker = FakeSpeaker()
+    daemon.daemon.voice.speaker = speaker
+    assert daemon.run(daemon.daemon.voice.transcript("  what's the weather   in Delhi "))["handled"] == "request"
+    deadline = time.time() + 10
+    while not speaker.said and time.time() < deadline:
+        time.sleep(0.05)
+    assert speaker.said == ["It's 31 degrees in Delhi."]                  # the owner's words in, FERB's reply out loud
+
+
+def test_the_talk_key_does_nothing_while_push_to_talk_is_off(daemon: RunningDaemon) -> None:
+    calls: list[Any] = []
+    daemon.daemon.voice.on_key = lambda *a: calls.append(a)          # type: ignore[method-assign]
+    hook = daemon.daemon.owner_input.on_key
+    assert hook is not None
+    hook(RIGHT_OPTION, True)
+    time.sleep(0.1)
+    assert calls == []
+    daemon.daemon._ptt = True
+    hook(RIGHT_OPTION, True)
+    time.sleep(0.1)
+    assert calls == [(RIGHT_OPTION, True)]
