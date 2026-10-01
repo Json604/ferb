@@ -24,7 +24,9 @@ READ_SCOPES = frozenset({"fs:read", "browser:read", "mac:read", "screen", "trail
 ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
-READ_FORM = {"browser:act": "browser:read", "mac:act": "mac:read", "fs:write": "fs:read"}
+READ_FORM = {"fs:write": "fs:read"}
+READER_CLICKS = frozenset({"browser:act", "mac:act"})   # a reader may click to read; the gateway keeps it to
+                                                        # reversible kinds (open, navigate, search), never send/submit
 
 
 def tidy(plan: Plan) -> list[str]:
@@ -34,7 +36,8 @@ def tidy(plan: Plan) -> list[str]:
     notes = []
     for s in plan.subtasks:
         if s.role == "reader":
-            fixed = list(dict.fromkeys(READ_FORM.get(x, x) for x in s.scopes if x in READ_SCOPES or x in READ_FORM))
+            fixed = list(dict.fromkeys(READ_FORM.get(x, x) for x in s.scopes
+                                       if x in READ_SCOPES or x in READ_FORM or x in READER_CLICKS))
             if fixed != s.scopes:
                 notes.append(f"subtask {s.id}: reader scopes {s.scopes} -> {fixed}")
                 s.scopes = fixed
@@ -88,8 +91,9 @@ def _subtask(s: Subtask, by_id: dict[str, Subtask], available: set[str]) -> list
     if set(s.scopes) - available:
         p.append(f"subtask {s.id}: FERB can't do {', '.join(sorted(set(s.scopes) - available))} yet")
     if s.role == "reader":
-        if set(s.scopes) - READ_SCOPES:
-            p.append(f"subtask {s.id}: a reader only reads (no {', '.join(sorted(set(s.scopes) - READ_SCOPES))})")
+        if set(s.scopes) - READ_SCOPES - READER_CLICKS:
+            extra = sorted(set(s.scopes) - READ_SCOPES - READER_CLICKS)
+            p.append(f"subtask {s.id}: a reader only reads (no {', '.join(extra)})")
         if not s.output_fields:
             p.append(f"subtask {s.id}: a reader must declare the typed fields it returns")
     elif s.output_fields:

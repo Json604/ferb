@@ -577,12 +577,13 @@ Build step 14a specifics (owner decisions after testing):
 Build step 8 specifics:
 - Acting needs seeing: an actor's act scope brings its read scope (`browser:act` → `browser:read`, `mac:act` →
   `mac:read`, `fs:write` → `fs:read`), since the act tools work on element ids from its own snapshots (found in a
-  real run: a plan granting only `browser:act` left the worker unable to open or read the page). Readers still get
-  read scopes only.
+  real run: a plan granting only `browser:act` left the worker unable to open or read the page). Readers get read
+  scopes, plus `browser:act` / `mac:act` when they must click to read — open an email, a "View here" link (owner's
+  run 2026-10-01: a reader without them couldn't open the email it was sent to read).
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
-  A reader the planner gave acting scopes (browser:act, mac:act, fs:write) gets their read-only forms in code before
-  validation, instead of a model repair round (owner's runs 2026-10-01: it cost a round each time).
+  A reader may still click (the gateway keeps it to opening and looking); other acting scopes the planner gives a
+  reader (fs:write) become their read-only forms in code before validation, instead of a model repair round.
   Opening an app in the background (`mac.open`) is part of reading — a reader that finds an app closed opens it and
   looks, rather than reporting "not running" (owner decision 2026-10-01).
 - Reader output is typed fields (string / number / boolean / string list / email / URL); strings default to 500
@@ -988,7 +989,7 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   written ("notes/2025 folder in desktop" names Desktop/notes/2025; the usual home folders may be implied — owner's report
   2026-10-01). Paths resolve where the owner means them: "Desktop/…", "Documents/…", "Downloads/…" are their folders
   (other relative paths are FERB's workspace), and a name Finder shows with "/" is found by its on-disk ":" form
-  (notes/2025 is notes:2025), so the folder-access question names the real folder. The owner's home prefix (/Users/<them>, ~) is never a name they must have typed. When the whole message is a paste — or a paste with only a greeting typed
+  (notes/2025 is notes:2025), so the folder-access question names the real folder. The owner's home prefix (/Users/<them>, ~) is never a name they must have typed. The folder-access question also comes for a folder named in the owner's own words this request even if the plan left it out of the intent — never for a bare home folder (all of Desktop), never from content FERB read. When the whole message is a paste — or a paste with only a greeting typed
   around it ("hey " + the paste; owner's report 2026-10-01) — `ferb chat` asks, in the owner's own terminal, whether
   it's their request; a yes sends it as their words.
   **Misspelled names (owner decision 2026-10-01):** before planning, a word in the owner's own words that is one or

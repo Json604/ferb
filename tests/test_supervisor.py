@@ -607,6 +607,6 @@ def test_a_reader_given_acting_scopes_is_fixed_in_code_not_sent_back() -> None:
     p = Plan.model_validate(plan([sub("r", role="reader", scopes=("browser:act", "browser:read", "fs:write"),
                                       fields=(("x", "string"),))], verbs=("summarize",)))
     notes = dag.tidy(p)
-    assert p.subtasks[0].scopes == ["browser:read", "fs:read"] and notes
+    assert p.subtasks[0].scopes == ["browser:act", "browser:read", "fs:read"] and notes   # clicks to read stay
     actor = Plan.model_validate(plan([sub("a", scopes=("browser:act",))], verbs=("summarize",)))
     assert dag.tidy(actor) == [] and actor.subtasks[0].scopes == ["browser:act"]      # actors untouched

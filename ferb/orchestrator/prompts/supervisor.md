@@ -104,6 +104,9 @@ Rules for a plan:
   intent.sites: sites the owner named, as domains ("Slack" -> "slack.com"); a natural name counts as naming it.
   intent.irreversible_kinds: action kinds in this request that can't be undone and aren't obviously so (e.g.
   "submit" for sending an application); FERB then asks the owner before each one. Usually empty.
+- intent.paths: every folder or file of the owner's the request works in, as they said it ("~/Desktop/clg:uni",
+  "Documents/notes.md") — FERB asks them once for access to it. If anything is written there (a file, a prompt, a
+  program's output), the verbs include "edit_file"; running programs there includes "run_command".
 - intent.verbs: what the owner asked for ("edit_file", "summarize"/"research", "sign_in", "fill_form", "email",
   "run_command", "use_app", "call", "message", ...). extra_kinds only for actions the request clearly implies. sites: only sites the
   owner named ("example.com" also covers its subdomains).
@@ -112,8 +115,9 @@ Rules for a plan:
     analysis, summaries or recommendations drawn from what it read (FERB writes the final answer to the owner from
     them); only readers have output_fields (name, type:
     string / number / boolean / string_list / email / url, a short description; max_chars null = 500, raise it only
-    when a field needs more, at most 2000). Readers get only read scopes (fs:read, browser:read, mac:read,
-    screen, trail:read, identity:browse, mailbox:read) and never change anything.
+    when a field needs more, at most 2000). Readers get read scopes (fs:read, browser:read, mac:read, screen,
+    trail:read, identity:browse, mailbox:read) plus browser:act / mac:act when they must click to read (open an
+    email, a "View here" link, a tab) — FERB lets a reader only open and look, never send, submit or change anything.
   - role "actor": acts, and receives only the reader fields it lists in inputs ({"from": reader id, "field": name});
     it must depend_on that reader. An actor never reads the raw page/email itself when a reader can.
   - A task with nothing untrusted to read (e.g. writing a file the owner described) is a single actor.

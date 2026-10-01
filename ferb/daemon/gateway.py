@@ -76,6 +76,7 @@ class Gateway:
         self.seen = contacts.Seen()
         self._sent: dict[str, dict[str, str]] = {}      # task tree -> who was sent a message -> what (9.4)
         self.owner_words: Callable[[str, str], str] = lambda request_id, name: ""
+        self.request_words: Callable[[str], str] = lambda request_id: ""    # this request's own words only
         self._picked: dict[tuple[str, str], str] = {}     # the owner's answer, for the next attempt of that one action
         self.name_of: Callable[[str], str] = lambda target: target    # bundle id -> app name, for plain questions
 
@@ -368,6 +369,8 @@ class Gateway:
         reads can't trigger it); a yes goes to config ([fs] owner_roots). An unattended run queues the question."""
         req = self.engine.intents.get(action.request_id)
         named = next((p for p in (req.paths if req else ()) if path == p or path.startswith(p.rstrip("/") + "/")), None)
+        if named is None:                       # not in the plan's intent, but named in the owner's own words?
+            named = _named_folder(path, self.request_words(action.request_id))
         if named is None:
             return None
         folder = named if not os.path.splitext(named)[1] else os.path.dirname(named)
@@ -509,3 +512,20 @@ def _send_to(t: Any) -> str | None:
         return str(t.contact)
     people = sorted(str(r) for r in t.recipients if r)
     return ", ".join(people) if people else None
+
+
+def _named_folder(path: str, own_words: str) -> str | None:
+    """The deepest folder on `path` that the owner named in their own words this request ("clg:uni folder in
+    desktop" names ~/Desktop/clg:uni) — never a bare home folder (all of Desktop) and never from content FERB read
+    (owner's report 2026-10-01: the access question never came because the plan left the folder out)."""
+    from ferb.sanitize.untrusted import HOME_FOLDERS, targets_in_own_words
+    if not own_words:
+        return None
+    home = os.path.expanduser("~")
+    p = os.path.normpath(os.path.expanduser(path))
+    while p.startswith(home + os.sep):
+        rel = p[len(home) + 1:]
+        if rel.lower() not in HOME_FOLDERS and not targets_in_own_words([rel], own_words):
+            return p
+        p = os.path.dirname(p)
+    return None

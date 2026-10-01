@@ -445,6 +445,8 @@ class Daemon:
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.grant_folder, self.gateway.queue_question = self._grant_folder, self._queue_question
         self.gateway.owner_words = self._owner_words
+        self.gateway.request_words = lambda rid: str((self.supervisor._env.get(rid) or {}).get("words", "")) \
+            if self.supervisor is not None else ""
         self.gateway.name_of = lambda t: next((n for b, n in self._installed_apps() if b.lower() == t.lower()), t)
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, engine=self.engine,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,

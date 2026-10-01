@@ -400,6 +400,7 @@ class Supervisor(WorkerRuns):
         avail = self.availability()                             # what's usable right now (the backstop too)
         available = avail.scopes
         env = self.environment(plan_words)                     # routes decided in code (9.3, build step 16)
+        env = {**env, "words": plan_words}                   # this request's own words (the folder question)
         self._env[request_id] = env
         try:
             out = await self._supervise(session, m.for_model, request_id, recalled)

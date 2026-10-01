@@ -129,3 +129,31 @@ def test_finder_names_and_home_folders(tmp_path: Path, monkeypatch: Any) -> None
     assert normalize_path("~/Desktop/clg/uni", "/ws") == str(tmp_path / "Desktop" / "clg:uni")
     assert owner_path("notes.md", "/ws") == Path("/ws/notes.md")            # other relative paths: the workspace
     assert owner_path("Desktop/new/x", "/ws") == tmp_path / "Desktop" / "new" / "x"   # nothing there: as written
+
+
+def test_the_folder_question_comes_for_a_folder_named_in_the_owners_words() -> None:
+    """Owner's run (2026-10-01): the plan left ~/Desktop/clg:uni out of its intent, so FERB never asked for access and
+    every use was refused. A folder named in the owner's own words now gets the question; all of Desktop never does."""
+    import os
+
+    from ferb.daemon.gateway import _named_folder
+    home = os.path.expanduser("~")
+    said = "make a prompt for a claude session you will manage in clg:uni folder in desktop"
+    assert _named_folder(f"{home}/Desktop/clg:uni/prompt.md", said) == f"{home}/Desktop/clg:uni"
+    assert _named_folder(f"{home}/Desktop", said) is None                  # never the whole Desktop
+    assert _named_folder(f"{home}/Desktop/other/x.md", said) is None       # not a folder they named
+    assert _named_folder(f"{home}/Desktop/clg:uni", "") is None            # no words, no question
+
+
+def test_a_reader_may_click_to_read() -> None:
+    """Opening an email or its "View here" link is a click; a reader keeps browser:act / mac:act (the gateway only
+    lets it open and look), and only fs:write is turned into fs:read."""
+    from ferb.orchestrator import dag
+    from ferb.orchestrator.schemas import Plan
+    from tests.test_supervisor import plan, sub
+    p = Plan.model_validate(plan([sub("r", role="reader", scopes=("browser:act", "browser:read", "fs:write"),
+                                      fields=(("x", "string"),))], verbs=("summarize",)))
+    dag.tidy(p)
+    assert p.subtasks[0].scopes == ["browser:act", "browser:read", "fs:read"]
+    assert not [x for x in dag.validate(p, "summarize it", {"browser:act", "browser:read", "fs:read"})
+                if "reader only reads" in x]
