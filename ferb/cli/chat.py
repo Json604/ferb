@@ -7,6 +7,9 @@
   the plan, each step, tools and checks.
 - Ctrl-C while FERB works stops that task ("stopped by you"). Closing chat (Ctrl-D, /quit, closing the terminal)
   never stops anything: tasks keep running, their answers wait for next time (and arrive as a macOS notification).
+- A loader while FERB thinks or works (owner request, 2026-10-01): an animated line ("FERB is thinking…", then
+  "FERB is working… (12s)" once a task starts), on the terminal only, cleared before anything is printed and while
+  FERB asks a question.
 - On opening: answers that arrived while chat was closed, tasks still running, and any question waiting for the
   owner.
 """
@@ -14,6 +17,7 @@
 import secrets
 import sys
 import threading
+import time
 from typing import Any, Callable, TextIO
 
 from ferb.cli.client import Client
@@ -149,10 +153,59 @@ def question(d: dict[str, Any]) -> str:
     return f"   ? OK for FERB to {what}? {d.get('reason', '')} [y/N] "
 
 
+class Spinner:
+    """The loader: one animated line on a terminal, redrawn in place; never in piped output or logs."""
+    FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, out: TextIO | None, interval: float = 0.1) -> None:
+        self.out, self.interval = out, interval
+        self.enabled = out is not None and hasattr(out, "isatty") and out.isatty()
+        self.label, self.since = "", time.monotonic()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def begin(self) -> None:
+        """A new request: the elapsed time counts from here."""
+        self.since = time.monotonic()
+
+    def start(self, label: str) -> None:
+        self.label = label
+        if not self.enabled or self._thread is not None:
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        assert self.out is not None
+        i = 0
+        while not self._stop.is_set():
+            secs = int(time.monotonic() - self.since)
+            elapsed = f" ({secs}s)" if secs >= 3 else ""
+            self.out.write(f"\r\x1b[2K{self.FRAMES[i % len(self.FRAMES)]} FERB is {self.label}…{elapsed}")
+            self.out.flush()
+            i += 1
+            self._stop.wait(self.interval)
+
+    def stop(self) -> None:
+        if self._thread is None:
+            return
+        self._stop.set()
+        self._thread.join()
+        self._thread = None
+        assert self.out is not None
+        self.out.write("\r\x1b[2K")                       # clear the loader line before anything is printed
+        self.out.flush()
+
+
+FINAL = ("outcome", "reply", "clarify", "error")
+
+
 class Chat:
     def __init__(self, connect: Callable[[], Client], out: TextIO, ask: Callable[[str], str],
-                 verbose: bool = False) -> None:
+                 verbose: bool = False, spinner_out: TextIO | None = None) -> None:
         self.connect, self.out, self.ask, self.verbose = connect, out, ask, verbose
+        self.spinner = Spinner(spinner_out)
         self.session_id = secrets.token_hex(6)
 
     def say(self, line: str) -> None:
@@ -197,21 +250,29 @@ class Chat:
     def turn(self, msg: str) -> None:
         client = self.connect()
         tasks: list[str] = []
+        spin = self.spinner
+        spin.begin()
+        spin.start("thinking")
         try:
             for ev in client.stream("chat.send", {"session_id": self.session_id, "text": msg}):
+                spin.stop()                                       # never draw over a line or a question
                 if ev.get("type") == "plan" and ev.get("task_id"):
                     tasks.append(ev["task_id"])
                 if ev.get("type") == "event" and ev["topic"] == "approval.requested":
                     self.answer_approval(ev["data"])
-                    continue
-                line = render(ev, self.verbose)
-                if line:
-                    self.say(line)
+                else:
+                    line = render(ev, self.verbose)
+                    if line:
+                        self.say(line)
+                if ev.get("type") not in FINAL:
+                    spin.start("working" if tasks else "thinking")
         except KeyboardInterrupt:                             # Ctrl-C: stop what FERB is doing for this message
+            spin.stop()
             if tasks:
                 self.call("task.stop", {"task_ids": tasks})
                 self.say("ferb> Stopped.")
         finally:
+            spin.stop()
             client.close()
 
 
@@ -268,7 +329,7 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False) -> int:
     def ask(q: str) -> str:
         return session.prompt(q, multiline=False, key_bindings=None)
 
-    chat = Chat(connect, sys.stdout, ask, verbose)
+    chat = Chat(connect, sys.stdout, ask, verbose, spinner_out=sys.__stdout__)   # the loader draws on the terminal
     with patch_stdout():
         chat.say("FERB — Ctrl-D or /quit to leave (tasks keep running). Option-Enter for a new line.")
         chat.opening()

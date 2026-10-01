@@ -563,6 +563,9 @@ Build step 14a specifics (owner decisions after testing):
   held for undo is cancelled too). A restart records interrupted tasks for the owner.
 - Chat takes one request at a time (a "several at once" chat was tried on 2026-09-30 and removed at the owner's
   request: questions arriving mid-typing were confusing). The daemon itself still runs turns independently.
+- A loader while FERB thinks or works (owner request, 2026-10-01): one animated terminal line, "FERB is thinking…"
+  and then "FERB is working… (12s)" once a task starts; cleared before every printed line and every question; never
+  in piped output.
 
 Build step 8 specifics:
 - Acting needs seeing: an actor's act scope brings its read scope (`browser:act` → `browser:read`, `mac:act` →

@@ -62,3 +62,49 @@ def test_chat_shows_reminders_it_hasnt_shown_yet() -> None:
     out = io.StringIO()
     reminders(lambda: C(), out)                                              # type: ignore[arg-type,return-value]
     assert "⏰ reminder: call Mom (due 5 min ago)" in out.getvalue()
+
+
+# ---------- the loader (owner request, 2026-10-01) ----------
+
+class Tty(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+class Slow:
+    """A chat.send stream with pauses between events, like FERB thinking and then working."""
+
+    def __init__(self, events: list[Any], pause: float = 0.25) -> None:
+        self.events, self.pause = events, pause
+
+    def stream(self, method: str, params: Any) -> Any:
+        import time as _t
+        for ev in self.events:
+            _t.sleep(self.pause)
+            yield ev
+
+    def close(self) -> None:
+        pass
+
+
+def test_the_loader_shows_while_ferb_thinks_and_works_and_clears_before_each_line() -> None:
+    from ferb.cli.chat import Chat
+    out, term = io.StringIO(), Tty()
+    events = [{"type": "plan", "text": "Scrolling now.", "task_id": "t1"},
+              {"type": "outcome", "status": "done", "answer": "Counted 23."}]
+    chat = Chat(lambda: Slow(events), out, lambda q: "", spinner_out=term)  # type: ignore[arg-type,return-value]
+    chat.turn("count the comments")
+    drawn = term.getvalue()
+    assert "FERB is thinking…" in drawn and "FERB is working…" in drawn     # before the plan, then during the task
+    assert drawn.endswith("\r\x1b[2K")                                       # cleared at the end, nothing left behind
+    assert chat.spinner._thread is None                                      # not running after the answer
+    assert out.getvalue().splitlines() == ["ferb> Scrolling now.", "ferb> Counted 23."]   # lines untouched
+
+
+def test_no_loader_when_output_isnt_a_terminal() -> None:
+    from ferb.cli.chat import Chat
+    out = io.StringIO()
+    chat = Chat(lambda: Slow([{"type": "reply", "text": "Hi."}]), out, lambda q: "",  # type: ignore[arg-type,return-value]
+                spinner_out=io.StringIO())
+    chat.turn("hi")
+    assert out.getvalue() == "ferb> Hi.\n" and not chat.spinner.enabled
