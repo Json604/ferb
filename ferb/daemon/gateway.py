@@ -130,7 +130,8 @@ class Gateway:
             return reply({"error": why}, True)
 
         spec = cap.describe(args)
-        if rec.task.role == "reader" and spec.kind not in REVERSIBLE:      # readers read; they never act (7.4)
+        reader_click = hasattr(cap, "reader_ok") and cap.reader_ok(args)  # opening a chat / link / tab to read it
+        if rec.task.role == "reader" and spec.kind not in REVERSIBLE and not reader_click:   # readers read (7.4)
             return reply({"error": f"blocked by FERB policy: a reader subtask can't {spec.kind}"}, True)
         labels = self.taint.labels_for(rec.tree_id, spec.content)          # owner data inside this content (10.2)
         if labels:

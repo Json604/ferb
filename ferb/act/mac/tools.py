@@ -20,6 +20,13 @@ from ferb.policy.rules import Kind
 
 
 CALL_LABEL = re.compile(r"\b(video call|voice call|audio call|start (a )?call|call|facetime( audio| video)?|dial)\b", re.I)
+# A reader may press a button to open something and read it (a chat, a link, a tab) — owner decision 2026-10-01 —
+# but never one whose label sounds consequential, and never an unlabeled one.
+RISKY_LABEL = re.compile(r"\b(send|call|delete|remove|block|report|archive|leave|exit|clear|mute|unsubscribe|pay|"
+                         r"buy|purchase|order|submit|confirm|accept|decline|reject|allow|approve|grant|install|update|"
+                         r"agree|sign ?out|log ?out|forward|share|post|reply|react|pin|star|like|follow|invite|add|"
+                         r"create|new|edit|save|rename|move|upload|attach|record|video|voice|camera|microphone|"
+                         r"download|print|copy|paste|cut|undo|redo|settings|quit|close)\b", re.I)
 SEARCH_LABEL = re.compile(r"\bsearch\b|^\s*name, number", re.I)   # WhatsApp: "Search", "Name, number, @username"
 SEND_LABEL = re.compile(r"^\s*send\b", re.I)
 
@@ -185,6 +192,18 @@ class MacAct(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(self._kind(args), Target(site=self._bundle(args)), content=getattr(args, "text"))
+
+    def reader_ok(self, args: BaseModel) -> bool:
+        """A reader's press / click that only opens something to read: a labeled control whose label isn't risky."""
+        if getattr(args, "action") not in ("press", "click") or not getattr(args, "element"):
+            return False
+        try:
+            n = self.driver.node(self._bundle(args), str(getattr(args, "element")))
+        except Exception:
+            return False
+        label = (n.label or "").strip()
+        return bool(label) and n.role in ("button", "link", "tab", "menuitem") and not RISKY_LABEL.search(label) \
+            and call_or_send(label) is None
 
     def _kind(self, args: BaseModel) -> str:
         """Pressing an app's call / send button is a call / a send: held for undo like other sends (step 16). Typing

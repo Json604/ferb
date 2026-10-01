@@ -207,3 +207,27 @@ def test_typing_a_search_is_a_search_and_a_missing_input_skips_the_step(daemon: 
     out = outcome(chat(daemon, "summarize it"))
     assert "skipped: an earlier step found no find.url" in out["subtasks"]["open"]["summary"]
     assert not [k for m, k, *_ in script.contexts if k == "open"]                # never ran on an empty value
+
+
+def test_a_reader_may_open_a_chat_but_never_press_anything_consequential() -> None:
+    """Owner's run: the WhatsApp reader couldn't open a chat to find the syllabus link. A reader may press a
+    labeled button whose label isn't risky; send / delete / call / unlabeled stay refused (actors unchanged)."""
+    from ferb.act.mac.accessibility import AxNode
+    from ferb.act.mac.tools import MacAct
+    nodes = {"s1e1": AxNode("r", "button", "SST Students Community", None, (0, 0, 1, 1), False, True),
+             "s1e2": AxNode("r", "button", "Delete chat", None, (0, 0, 1, 1), False, True),
+             "s1e3": AxNode("r", "button", "Send", None, (0, 0, 1, 1), False, True),
+             "s1e4": AxNode("r", "button", "", None, (0, 0, 1, 1), False, True),
+             "s1e5": AxNode("r", "button", "Voice call", None, (0, 0, 1, 1), False, True),
+             "s1e6": AxNode("r", "link", "https://docs.google.com/document/d/x", None, (0, 0, 1, 1), False, True)}
+
+    class Driver:
+        def node(self, bundle: str, el: str) -> AxNode:
+            return nodes[el]
+    tool = MacAct.__new__(MacAct)
+    tool.driver = Driver()                                                       # type: ignore[assignment]
+    tool._bundle = lambda args: "net.whatsapp.WhatsApp"                          # type: ignore[method-assign]
+    ok = lambda el: tool.reader_ok(tool.Input(app="WhatsApp", action="press", element=el))   # noqa: E731
+    assert ok("s1e1") and ok("s1e6")
+    assert not ok("s1e2") and not ok("s1e3") and not ok("s1e4") and not ok("s1e5")
+    assert not tool.reader_ok(tool.Input(app="WhatsApp", action="set_value", element="s1e1", text="x"))

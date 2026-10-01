@@ -583,6 +583,10 @@ Build step 8 specifics:
   (2026-10-01), after the risk was laid out:** readers keep these three widenings — opening a Mac app to look,
   clicking to read, typing into a search box — accepting that a steered reader could follow a link that carries what
   it read; everything consequential stays refused for readers in the gateway.
+  In Mac apps a reader's press counts as "clicking to read" only on a labeled button, link, tab or menu item whose
+  label isn't consequential (send, call, delete, block, forward, share, allow, install, pay, sign out, …); unlabeled
+  or risky ones stay refused. The reader's own instructions (`prompts/reader.md`) say exactly this — a reader told
+  "you can't change anything" gave up without trying (owner's run 2026-10-01).
 - Depth ≤ 2 means: request → subtasks → the verification / reconciliation workers under a subtask; workers can't
   start workers. Readers can't act: the gateway blocks any non-reversible kind for a reader task, whatever its scopes.
   A reader may still click (the gateway keeps it to opening and looking); other acting scopes the planner gives a
