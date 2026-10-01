@@ -201,10 +201,35 @@ class Check:
     hint: str = ""
 
 
+def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
+    """Sign in FERB's own Codex home (owner decision, 2026-10-01): the pinned Codex, with CODEX_HOME set to
+    ~/.ferb/codex-home, so FERB's runs never load the owner's personal Codex settings or skills."""
+    import os
+    from ferb.runtimes.codex_exec import codex_binary
+    home = env.inst.home / "codex-home"
+    home.mkdir(parents=True, exist_ok=True)
+    os.chmod(home, 0o700)
+    try:
+        binary = codex_binary(env.inst.home)
+    except Exception as e:
+        env.say(f"FERB's pinned Codex isn't installed: {e}")
+        return 1
+    env.say("Signing in FERB's own Codex (a browser window opens)…")
+    rc = run([str(binary), "login"], env={**os.environ, "CODEX_HOME": str(home)}).returncode
+    ok = (home / "auth.json").exists()
+    env.say("Done: FERB now uses its own Codex home." if rc == 0 and ok else "Not signed in; nothing changed.")
+    return 0 if ok else 1
+
+
 def doctor(env: Env) -> int:
-    inst, checks = env.inst, []
+    inst = env.inst
+    checks: list[Check] = []
     add = checks.append
     add(Check("home", "ok" if (inst.home / MARKER).exists() else "fail", str(inst.home), "run `ferb setup`"))
+    own = (inst.home / "codex-home" / "auth.json").exists()
+    add(Check("codex home", "ok" if own else "warn",
+              "FERB's own (~/.ferb/codex-home)" if own else "using your personal Codex setup",
+              "`ferb setup --codex-login` signs in FERB's own Codex"))
     try:
         Config(inst.home).load()
         add(Check("config permissions", "ok", "owner-only"))

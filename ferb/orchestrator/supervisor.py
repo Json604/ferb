@@ -37,7 +37,7 @@ from ferb.orchestrator.schemas import (RECONCILE_SCHEMA, SUPERVISOR_SCHEMA, VERI
                                        VerifierOutcome, WorkerOutcome, reader_schema)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import Checks, ConditionResult
-from ferb.orchestrator.worker import RuntimeViolation, WorkerRuns
+from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
 from ferb.policy.engine import PolicyEngine
 from ferb.policy.intent import RequestIntent
 from ferb.policy.rules import with_reads
@@ -92,7 +92,8 @@ def _wants_me(recipients: list[str]) -> bool:
 
 SINCE_GAP_S, SINCE_ITEMS = 3600, 6
 PLAN_REPAIRS = 2                               # an invalid plan goes back to the model this many times, silently
-CONTINUITY_HOURS, CONTINUITY_TURNS = 24, 20
+CONTINUITY_HOURS, CONTINUITY_TURNS = 24, 8      # the last 8 entries verbatim; the rest of the day summarized (speed)
+EARLIER_MAX, VERBATIM_CHARS = 12, 400
 SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
 SORRY_PLAN = ("I couldn't work out a safe way to do that as asked. Could you say it a bit differently, naming the apps or "
               "sites involved?")
@@ -390,9 +391,10 @@ class Supervisor(WorkerRuns):
             self.journal.append("chat.failed", {"request_id": request_id, "why": str(e)})
             yield {"type": "reply", "text": SORRY}
             return
-        except (ValidationError, ValueError) as e:
-            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__})
-            yield {"type": "reply", "text": SORRY}
+        except (ValidationError, ValueError) as e:              # the reason is kept, and told plainly when it's the
+            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # service's
+                                                "detail": str(e)[:400]})
+            yield {"type": "reply", "text": service_problem(str(e)) if isinstance(e, ServiceError) else SORRY}
             return
         for saved in self.remember(out.remember, owner_words, entry.id):          # the owner's words, quote-checked
             yield {"type": "memory", "text": saved}
@@ -466,30 +468,36 @@ class Supervisor(WorkerRuns):
         """Continuity (14a), bounded: the last day's conversation and tasks, tagged with absolute times only (their
         relative ages are computed at the prompt's end, 13). Stable text first keeps prompts cache-friendly."""
         since = self.clock.now() - timedelta(hours=CONTINUITY_HOURS)
-        items: list[tuple[datetime, str]] = []
+        items: list[tuple[datetime, str, str]] = []
         for e in self.journal.entries(since):
             d = e.data
             if d.get("request_id") == current_request:
                 continue
             if e.kind == "chat.message":
-                items.append((e.at, f"Owner: {str(d.get('text', ''))[:600]}"))
+                items.append((e.at, "Owner", str(d.get("text", ""))))
             elif e.kind in ("chat.reply", "chat.clarify"):
-                items.append((e.at, f"FERB: {str(d.get('text', ''))[:600]}"))
+                items.append((e.at, "FERB", str(d.get("text", ""))))
             elif e.kind == "task.answer":
-                items.append((e.at, f"FERB (task result, {d.get('status')}): {str(d.get('text', ''))[:600]}"))
+                items.append((e.at, f"FERB (task result, {d.get('status')})", str(d.get("text", ""))))
         ages: dict[str, datetime] = {}
         lines = []
-        for n, (at, text) in enumerate(items[-CONTINUITY_TURNS:], 1):
+        older, latest = items[:-CONTINUITY_TURNS], items[-CONTINUITY_TURNS:]
+        if older:                                    # earlier today, one short line each: what came up, not every word
+            gist = [f"{at.astimezone():%H:%M} {who.split(' ')[0].lower()}: {' '.join(text.split())[:70]}"
+                    for at, who, text in older if who != "FERB"][-EARLIER_MAX:]
+            if gist:
+                lines.append("Earlier (summarized): " + " · ".join(gist))
+        for n, (at, who, text) in enumerate(latest, 1):
             ages[f"c{n}"] = at
-            lines.append(f"[c{n}] ({at.astimezone():%a %d %b %H:%M}) {text}")
+            lines.append(f"[c{n}] ({at.astimezone():%a %d %b %H:%M}) {who}: {text[:VERBATIM_CHARS]}")
         tasks = []
-        for n, r in enumerate(self.tasks.recent_roots(since.isoformat())[-10:], 1):
+        for n, r in enumerate(self.tasks.recent_roots(since.isoformat())[-8:], 1):
             state = TASK_STATE.get(r["status"], r["status"])
             if r["status"] == "cancelled" and "stopped by you" in str(r.get("outcome_json", "")):
                 state = "stopped by the owner (Ctrl-C)"
             at = datetime.fromisoformat(r["updated_at"])
             ages[f"t{n}"] = at
-            tasks.append(f"- [t{n}] {r['goal'][:200]} — {state} (last update {at.astimezone():%a %d %b %H:%M})")
+            tasks.append(f"- [t{n}] {r['goal'][:140]} — {state} (last update {at.astimezone():%a %d %b %H:%M})")
         out = "Recent conversation (from FERB's journal, oldest first):\n" + ("\n".join(lines) or "(none)")
         if tasks:
             out += "\n\nTasks in the last day:\n" + "\n".join(tasks)

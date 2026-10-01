@@ -26,6 +26,24 @@ NO_TOOLS_HINT = ("\n\nNote from FERB: a previous attempt said its FERB tools wer
                  "tool_search (query \"ferb\", or the tool name) first to load them, then use them.")
 
 
+class ServiceError(ValueError):
+    """The model service (Codex / Claude) itself failed: its message is kept and told to the owner plainly."""
+
+
+def service_problem(message: str) -> str:
+    """The owner-facing sentence for a model-service failure."""
+    m = message.lower()
+    if any(k in m for k in ("usage limit", "rate limit", "quota", "too many requests", "429", "limit reached")):
+        return ("The AI service I use (Codex) says your usage limit is reached, so I couldn't start. It works again "
+                "once the limit resets.")
+    if any(k in m for k in ("login", "logged in", "unauthorized", "401", "auth", "token expired")):
+        return ("The AI service I use (Codex) isn't signed in for me, so I couldn't start. `ferb doctor` shows how "
+                "to sign in.")
+    if any(k in m for k in ("timed out", "timeout", "connection", "network", "dns", "unreachable")):
+        return "I couldn't reach the AI service I use (Codex) — the connection failed. Please try again in a moment."
+    return f"The AI service I use (Codex) returned an error, so I couldn't start: {message[:160]}"
+
+
 class RuntimeViolation(Exception):
     pass
 
@@ -149,7 +167,7 @@ class WorkerRuns:
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
                 elif ev.kind == "error":
-                    raise ValueError(str(ev.data.get("message")))
+                    raise ServiceError(str(ev.data.get("message")))
                 elif ev.kind == "final":
                     final = str(ev.data.get("text", ""))
         finally:

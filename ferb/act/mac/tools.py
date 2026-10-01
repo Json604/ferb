@@ -117,8 +117,17 @@ class MacOpen(_Base):
         bid = str(getattr(args, "bundle_id"))
         if bid.lower() in {e.lower() for e in self.driver.excluded()}:
             return _err(f"{bid} is on the owner's exclusion list")
+        before = self.driver.apps.frontmost()               # where the owner is (their desktop / Space)
         if not self.driver.apps.launch(bid):
             return _err(f"no installed app {bid}")
+        if before is not None and before.bundle_id.lower() != bid.lower():
+            for _ in range(15):                              # macOS may switch to the new app's desktop: take the
+                await asyncio.sleep(0.1)                     # owner back to theirs
+                now = self.driver.apps.frontmost()
+                if now is not None and now.bundle_id.lower() == bid.lower():
+                    self.driver.on_activate(before.bundle_id, ctx.task_id)
+                    self.driver.apps.activate(before.bundle_id)
+                    break
         return ToolResult({"opened": bid})
 
 

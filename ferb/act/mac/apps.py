@@ -30,6 +30,16 @@ def find(name_or_bundle: str) -> RunningApp | None:
 
 
 def frontmost() -> RunningApp | None:
+    """The app the owner is in. Accessibility's focused application first: NSWorkspace's "active" flag goes stale in
+    a long-running daemon (found in step 10), which made FERB "put back" the wrong app and leave the owner on another
+    desktop (owner's report, 2026-10-01)."""
+    try:
+        from ferb.sense.watchers.base import focused_app
+        f = focused_app()
+    except Exception:
+        f = None
+    if f is not None:
+        return RunningApp(f.bundle_id, f.name, f.pid, True)
     return next((a for a in running() if a.active), None)
 
 

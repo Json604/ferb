@@ -112,7 +112,7 @@ All commands talk to the daemon over `~/.ferb/run/ferb.sock` (owner-only permiss
 
 | Command                                                                                    | What it does                                                                                                    |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `ferb chat [--verbose]`                                                                  | Talk to FERB                                                                                                    |
+| `ferb chat [--verbose] [--speak]`                                                                  | Talk to FERB                                                                                                    |
 | `ferb logs [--tasks] [--trail] [--tools] [--browsers] [--policy] [--actions] [--timers]` | Live stream from the daemon's bus, optionally filtered                                                          |
 | `ferb trace <task_id>`                                                                   | Span tree for one task                                                                                          |
 | `ferb timeline [--since YYYY-MM-DD]`                                                     | The journal: chats, task outcomes, daily summaries                                                              |
@@ -137,7 +137,7 @@ All commands talk to the daemon over `~/.ferb/run/ferb.sock` (owner-only permiss
 | `ferb ps` / `ferb kill <id>`                                                           | Background processes FERB started / stop one                                                                    |
 | `ferb decide stats`                                                                      | Jev's answers next to FERB's decisions, per question                                                            |
 | `ferb decide enable <question>` / `disable <question>`                                 | Let Jev's stricter answers act for one question, or go back to shadow mode                                      |
-| `ferb setup [--update] [--identity [--profile P]] [--jev]`                               | Install / update / identity profile / Jev key                                                                   |
+| `ferb setup [--update] [--identity [--profile P]] [--jev] [--codex-login]`                               | Install / update / identity profile / Jev key                                                                   |
 | `ferb doctor`                                                                            | Check the installation, permissions (from inside the daemon), browsers, identity, and run the self-test         |
 | `ferb uninstall [--purge]`                                                               | Remove the LaunchAgent and native-host files;`--purge` also deletes `~/.ferb` (asks you to type `delete`) |
 | `ferb daemon run`                                                                        | Run the daemon in the foreground (development)                                                                  |

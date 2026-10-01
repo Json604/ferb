@@ -601,6 +601,17 @@ runtime unregistered.
 When Codex is the supervisor it gets no FERB tools, runs in the read-only sandbox (its non-removable `apply_patch`
 can't write) on the pinned `gpt-5.5`, and keeps conversation continuity by re-sending the chat history each turn
 (ephemeral: no FERB conversation is written into the owner's `~/.codex` session history).
+Speed, within the owner's Codex subscription (owner decisions, 2026-10-01): supervisor-mode runs (planner, answer
+writer, distillation — no tools) use `model_reasoning_effort = low`, FERB's own instructions in place of Codex's
+built-in ones (`model_instructions_file`; about half the input tokens) and none of Codex's environment / permissions /
+apps / collaboration blocks, and end at `turn.completed` without waiting for Codex to exit. Tasks (worker mode) keep
+their normal settings. FERB runs Codex with its own home (`~/.ferb/codex-home`, signed in once with
+`ferb setup --codex-login`) so the owner's personal Codex settings and skills never load; until then the default home
+is used and `ferb doctor` says so. The prompt stays bounded: the last 8 conversation entries verbatim (≤ 400
+characters each), the rest of the day as one summarized line. Measured floor: the model service answers a trivial
+request in about 4 s through Codex whatever the model or prompt size; Codex picks a new cache key per run, so prompt
+caching hits only sometimes. When the model service fails, FERB records its message and tells the owner the reason in
+plain words (usage limit, not signed in, connection).
 
 ## 8. Setup and device profile
 
@@ -685,6 +696,9 @@ hello), FERB tells the owner — pairing the owner's real profiles waits for the
 after which `ferb chat` offers to pair — and doesn't fall back to screenshots of that browser (build step 14a).
 Windows on other Spaces or in full screen are found (all windows, not just on-screen ones); to act, FERB activates the
 app, raises that exact window and waits for it to be on screen before any click.
+The owner stays where they are (owner report, 2026-10-01): FERB reads the app the owner is in from Accessibility's
+focused application (NSWorkspace's flag goes stale in the daemon), and after opening an app or acting with real input
+it activates that app again, which brings the owner back to their own desktop.
 
 Browsers prefer the extension: `mac.screenshot` / `mac.click` (screenshot + click) are the fallback for what the
 extension can't do (browser UI such as permission prompts, canvas-only pages). While a paired owner profile of that
@@ -1209,10 +1223,10 @@ Build step 11 specifics (owner decisions):
 
 | Command | Purpose |
 |---------|---------|
-| `ferb chat [--verbose]` | Conversation with FERB: a line editor (paste as one message, Option-Enter for a new line), approvals inline, results of tasks that finished while chat was closed; Ctrl-C stops the running task, closing chat doesn't; `--verbose` shows plans, workers and tools |
+| `ferb chat [--verbose] [--speak]` | Conversation with FERB: a line editor (paste as one message, Option-Enter for a new line), approvals inline, results of tasks that finished while chat was closed; Ctrl-C stops the running task, closing chat doesn't; `--verbose` shows plans, workers and tools; `--speak`: FERB also says its own words out loud (the Mac's voice, `say`; behind an interface for a later TTS API) |
 | `ferb logs [--tasks --trail --tools --browsers --policy --actions --timers]` | Live stream from the bus (redacted) |
 | `ferb trace <task-id>` | Span tree for one task |
-| `ferb setup [--update]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent) / health, permissions, extension connectivity |
+| `ferb setup [--update] [--codex-login]` / `ferb doctor` | Onboarding (`--update`: reinstall FERB into the venv + restart the agent; `--codex-login`: sign in FERB's own Codex home) / health, permissions, extension connectivity |
 | `ferb uninstall [--purge]` | Remove the LaunchAgent (and native-host files); `--purge` also deletes `~/.ferb` after confirmation |
 | `ferb device [scan]` / `ferb browsers` | Device profile (apps, scriptable apps, browsers with live pairing status; `scan` rescans) / browser drivers + connection status |
 | `ferb reminders [cancel <id>]` | Pending reminders and timers; cancel one |

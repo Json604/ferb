@@ -347,3 +347,27 @@ def test_yielding_to_the_owner_can_be_switched_off(daemon: RunningDaemon) -> Non
     assert real_input.owner_active() is True
     d.config.set("mac", "yield_to_owner", False)
     assert real_input.owner_active() is False
+
+
+def test_opening_an_app_takes_the_owner_back_to_where_they_were(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """Owner's report (2026-10-01): opening an app moved them to its desktop. FERB now puts their app back."""
+    from tests.test_mac_vision import _fake_mac
+    _fake_mac(daemon, monkeypatch)
+    apps = daemon.daemon.mac.apps                                           # type: ignore[union-attr]
+    apps.apps = [RunningApp("com.brave.Browser", "Brave", 12, True)]       # the owner is in Brave
+
+    def launch(bid: str) -> bool:                                           # macOS brings the new app forward
+        apps.apps = [RunningApp(a.bundle_id, a.name, a.pid, False) for a in apps.apps] + \
+                    [RunningApp(bid, "Notes", 11, True)]
+        return True
+    apps.launch = launch
+    real_activate = apps.activate
+
+    def activate(bid: str) -> bool:
+        apps.apps = [RunningApp(a.bundle_id, a.name, a.pid, a.bundle_id == bid) for a in apps.apps]
+        return real_activate(bid)
+    apps.activate = activate
+    g = task(daemon, "o", Identity.OWNER, {"mac:act"}, {"use_app"})
+    r = call(daemon, g, "mac.open", bundle_id="com.apple.Notes")
+    assert not r["is_error"], r
+    assert apps.activated[-1] == "com.brave.Browser" and apps.frontmost().bundle_id == "com.brave.Browser"
