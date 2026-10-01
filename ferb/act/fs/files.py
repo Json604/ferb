@@ -29,10 +29,44 @@ def _roots(ctx: ToolContext) -> list[Path]:
     return [r.resolve() for r in roots]
 
 
+HOME_DIRS = ("Desktop", "Documents", "Downloads")
+
+
+def owner_path(path: str, workspace: str) -> Path:
+    """Where a path the owner or a plan wrote points: ~ expanded; "Desktop/…", "Documents/…", "Downloads/…" are the
+    owner's own folders (owner's report 2026-10-01: Desktop/clg/uni landed in FERB's workspace); other relative paths
+    are in the workspace. A name Finder shows with "/" is stored with ":" ("clg/uni" is clg:uni on disk): when the path
+    doesn't exist as written, the name that does is used."""
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        first = p.parts[0] if p.parts else ""
+        home = next((h for h in HOME_DIRS if first.lower() == h.lower()), None)
+        p = (Path.home() / home / Path(*p.parts[1:])) if home else Path(workspace) / p
+    return finder_name(p)
+
+
+def finder_name(p: Path) -> Path:
+    """`~/Desktop/clg/uni` -> `~/Desktop/clg:uni` when only the colon form exists (macOS stores Finder's "/" as ":").
+    Tries every split, so a plain `clg` folder next to `clg:uni` doesn't hide it; as written if nothing exists."""
+    if p.exists():
+        return p
+    parts = list(p.parts)
+
+    def walk(cur: Path, i: int) -> Path | None:
+        if i == len(parts):
+            return cur
+        for k in range(1, min(5, len(parts) - i + 1)):           # this name alone, or joined with the next ones
+            nxt = cur / ":".join(parts[i:i + k])
+            if nxt.exists():
+                found = walk(nxt, i + k)
+                if found is not None:
+                    return found
+        return None
+    return walk(Path(parts[0]), 1) or p
+
+
 def resolve(path: str, ctx: ToolContext, must_exist: bool) -> Path:
-    raw = Path(path).expanduser()
-    if not raw.is_absolute():
-        raw = Path(ctx.workspace) / raw                          # relative paths are relative to the workspace
+    raw = owner_path(path, ctx.workspace)                        # relative: the workspace, or the owner's Desktop…
     if any(part == ".." for part in raw.parts):
         raise PathRefused("'..' is not allowed in paths")
     p = raw.resolve() if (must_exist or raw.exists()) else raw.parent.resolve() / raw.name
@@ -214,8 +248,5 @@ CAPABILITIES = [FsList(), FsRead(), FsWrite(), FsEdit(), FsTrash()]
 
 
 def normalize_path(path: str, workspace: str) -> str:
-    """One form for policy comparisons: ~ expanded, relative paths under the workspace, normalized."""
-    p = Path(path).expanduser()
-    if not p.is_absolute():
-        p = Path(workspace) / p
-    return os.path.normpath(str(p))
+    """One form for policy comparisons: the same place `resolve` uses (owner_path), normalized."""
+    return os.path.normpath(str(owner_path(path, workspace)))

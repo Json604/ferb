@@ -983,7 +983,9 @@ are rare (10.3). Everything else is enforced automatically by the gateway.
   derived only from the owner's own words around it, and code checks that every intent target (recipient, site,
   account, path) appears in those words. A path counts when each of its folder / file names is in their words, however
   written ("clg/uni folder in desktop" names Desktop/clg/uni; the usual home folders may be implied — owner's report
-  2026-10-01). When the whole message is a paste — or a paste with only a greeting typed
+  2026-10-01). Paths resolve where the owner means them: "Desktop/…", "Documents/…", "Downloads/…" are their folders
+  (other relative paths are FERB's workspace), and a name Finder shows with "/" is found by its on-disk ":" form
+  (clg/uni is clg:uni), so the folder-access question names the real folder. When the whole message is a paste — or a paste with only a greeting typed
   around it ("hey " + the paste; owner's report 2026-10-01) — `ferb chat` asks, in the owner's own terminal, whether
   it's their request; a yes sends it as their words.
   **Misspelled names (owner decision 2026-10-01):** before planning, a word in the owner's own words that is one or

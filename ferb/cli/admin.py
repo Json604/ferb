@@ -1,6 +1,7 @@
 """Admin commands. Build step 1: `ferb trace <task-id>` and `ferb daemon run`."""
 
 import json
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -9,34 +10,83 @@ from typing import Any, Callable, TextIO
 from ferb.cli.client import Client
 
 
-def render_trace(result: dict[str, Any]) -> list[str]:
+ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\x1b[78=>]|[\x00-\x08\x0e-\x1f]")
+ARG_KEYS = ("url", "path", "command", "text", "query", "app", "bundle_id", "action", "element", "profile", "tab", "id")
+
+
+def _clip(s: str, n: int, full: bool) -> str:
+    s = " ".join(str(s).split())
+    return s if full or len(s) <= n else s[: n - 1] + "…"
+
+
+def _plain(text: str) -> str:
+    """Terminal output as text: screen-control codes removed, blank and repeated lines dropped (Claude Code etc.)."""
+    lines, seen = [], set()
+    for line in ANSI.sub("", text).replace("\r", "\n").splitlines():
+        t = line.strip()
+        if len(t) > 2 and not set(t) <= set("─│╭╮╰╯·✻✽✶✢✳ ") and t not in seen:
+            seen.add(t)
+            lines.append(t)
+    return "\n".join(lines)
+
+
+def _span_text(node: dict[str, Any], full: bool) -> tuple[str, list[str]]:
+    """(the span's one-line label, the lines under it: what came back)."""
+    inp, out = node.get("input") or {}, node.get("output") or {}
+    if node["kind"] == "tool.call":
+        args = inp.get("args") or {}
+        shown = [f"{k}={_clip(args[k], 120, full)}" for k in ARG_KEYS if args.get(k) not in (None, "")]
+        label = f"{inp.get('tool', '?')}  {'  '.join(shown)}"
+        if inp.get("why"):
+            label += f"  (why: {_clip(inp['why'], 100, full)})"
+        if node["error"]:
+            return label, [f"✗ {_clip(node['error'], 300, full)}"]
+        body = out.get("output") if isinstance(out, dict) else None
+        if isinstance(body, str):
+            text = _plain(body).splitlines()
+            return label, ["→ " + ln for ln in (text if full else text[-6:])]
+        keys = ("title", "url", "error", "detail", "opened", "tab", "matches", "met", "path")
+        brief = [f"{k}={_clip(out[k], 100, full)}" for k in keys if isinstance(out, dict) and k in out]
+        return label, (["→ " + "  ".join(brief)] if brief else [])
+    goal = inp.get("goal") or inp.get("tool") or ""
+    label = f"{node['kind']}  {_clip(goal, 140, full)}"
+    lines: list[str] = []
+    if node["error"]:
+        lines.append(f"✗ {_clip(node['error'], 300, full)}")
+    result = out.get("result") if isinstance(out, dict) else None
+    if isinstance(result, str):
+        try:
+            r = json.loads(result)
+            lines.append(f"→ {r.get('status', '')}: {_clip(r.get('summary', ''), 400, full)}".rstrip(": "))
+        except ValueError:
+            lines.append("→ " + _clip(result, 300, full))
+    return label, lines
+
+
+def render_trace(result: dict[str, Any], full: bool = False) -> list[str]:
+    """`ferb trace`: a task and all its steps — each worker's goal and result, every tool call with what it opened,
+    typed or ran and what came back (terminal output as plain text). `full`: nothing shortened."""
     if not result["spans"]:
         return [f"no spans for task {result['task_id']}"]
     lines = [f"task {result['task_id']}"]
 
-    def walk(node: dict[str, Any], prefix: str, last: bool) -> None:
+    def walk(node: dict[str, Any], depth: int) -> None:
         start = datetime.fromisoformat(node["started_at"])
-        if node["ended_at"]:
-            dur = f"{(datetime.fromisoformat(node['ended_at']) - start).total_seconds():.3f}s"
-        else:
-            dur = "running"
-        status = f" ERROR {node['error']}" if node["error"] else ""
-        args = json.dumps(node["input"], separators=(",", ":"), ensure_ascii=False)
-        if len(args) > 60:
-            args = args[:57] + "..."
-        lines.append(f"{prefix}{'└─' if last else '├─'} {node['kind']} [{node['id']}] {dur}{status} {args}")
-        kids = node["children"]
-        for i, child in enumerate(kids):
-            walk(child, prefix + ("   " if last else "│  "), i == len(kids) - 1)
-
-    roots = result["spans"]
-    for i, root in enumerate(roots):
-        walk(root, "", i == len(roots) - 1)
+        dur = (f"{(datetime.fromisoformat(node['ended_at']) - start).total_seconds():.1f}s" if node["ended_at"]
+               else "running")
+        label, under = _span_text(node, full)
+        pad = "  " * depth
+        lines.append(f"{pad}{start.strftime('%H:%M:%S')}  {label}  [{dur}]")
+        lines.extend(f"{pad}    {u}" for u in under)
+        for child in node["children"]:
+            walk(child, depth + 1)
+    for root in result["spans"]:
+        walk(root, 0)
     return lines
 
 
-def trace(client: Client, task_id: str, out: TextIO) -> int:
-    for line in render_trace(client.call("trace.get", {"task_id": task_id})):
+def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False) -> int:
+    for line in render_trace(client.call("trace.get", {"task_id": task_id or "last"}), full):
         print(line, file=out)
     return 0
 

@@ -1835,9 +1835,15 @@ class Daemon:
                 "stopped": self.engine.stopped}
 
     async def _trace(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        task_id = str(params.get("task_id", ""))
-        if self.spans is None:
+        task_id = str(params.get("task_id") or "last")
+        if self.spans is None or self.db is None:
             raise FerbError("daemon not started")
+        if task_id == "last" or (len(task_id) >= 6 and "." not in task_id):     # the latest, or a short id
+            pattern = "%" if task_id == "last" else f"{task_id}%"
+            row = self.db.conn.execute("SELECT id FROM tasks WHERE id NOT LIKE '%.%' AND id LIKE ? "
+                                       "ORDER BY created_at DESC LIMIT 1", (pattern,)).fetchone()
+            if row is not None:
+                task_id = str(row["id"])
         return {"task_id": task_id, "spans": [_node_json(n) for n in self.spans.tree(task_id)]}
 
     async def _stop_engage(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

@@ -46,9 +46,10 @@ class SpanStore:
         return span
 
     def tree(self, task_id: str) -> list[SpanNode]:
-        """All spans of a task as a forest (roots = spans whose parent isn't in the task), in start order."""
-        rows = self._db.conn.execute("SELECT * FROM spans WHERE task_id = ? ORDER BY started_at, rowid",
-                                     (task_id,)).fetchall()
+        """All spans of a task and its steps (<id>.<step>…) as a forest (roots = spans whose parent isn't among
+        them), in start order."""
+        rows = self._db.conn.execute("SELECT * FROM spans WHERE task_id = ? OR task_id LIKE ? "
+                                     "ORDER BY started_at, rowid", (task_id, f"{task_id}.%")).fetchall()
         nodes = {r["id"]: SpanNode(_row_to_span(r)) for r in rows}
         roots = []
         for node in nodes.values():

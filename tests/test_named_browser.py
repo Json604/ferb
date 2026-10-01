@@ -110,3 +110,17 @@ def test_naming_a_profile_counts_as_asking_for_their_own_browser(bd: Any) -> Non
         return bool(d.daemon._owner_browser(words))
     assert d.run(owner_browser("open my Personal gmail account in chrome and search it"))
     assert not d.run(owner_browser("search the web for budgeting tips"))
+
+
+def test_finder_names_and_home_folders(tmp_path: Path, monkeypatch: Any) -> None:
+    """macOS stores a Finder name "clg/uni" as clg:uni on disk; "Desktop/…" is the owner's Desktop, not FERB's
+    workspace (owner's report 2026-10-01: FERB made a new empty clg/uni instead)."""
+    from ferb.act.fs.files import normalize_path, owner_path
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))                               # ~ too
+    (tmp_path / "Desktop" / "clg:uni").mkdir(parents=True)
+    (tmp_path / "Desktop" / "clg").mkdir()                                  # a plain clg folder doesn't hide it
+    assert owner_path("Desktop/clg/uni", "/ws") == tmp_path / "Desktop" / "clg:uni"
+    assert normalize_path("~/Desktop/clg/uni", "/ws") == str(tmp_path / "Desktop" / "clg:uni")
+    assert owner_path("notes.md", "/ws") == Path("/ws/notes.md")            # other relative paths: the workspace
+    assert owner_path("Desktop/new/x", "/ws") == tmp_path / "Desktop" / "new" / "x"   # nothing there: as written

@@ -87,8 +87,8 @@ def test_redacted_trace_stays_readable() -> None:
     red = r(trace)
     text = "\n".join(render_trace(red))
     assert "hunter2" not in text and "abcdefghijklmnopqrstu" not in text and "token=abc" not in text
-    assert "task t-42" in text and "task [s-1]" in text and "tool.call [s-2]" in text      # structure + ids
-    assert "ERROR login failed for [redacted]" in text                                     # error still useful
+    assert "task t-42" in text and "task  log in and check inbox" in text and "browser.fill" in text  # structure
+    assert "✗ login failed for [redacted]" in text                                         # error still useful
     assert red["spans"][0]["children"][0]["input"]["session_id"] == "sess-7"             # internal id kept
     assert red["spans"][0]["children"][0]["input"]["tool"] == "browser.fill"
     assert red["spans"][0]["input"]["goal"] == "log in and check inbox"

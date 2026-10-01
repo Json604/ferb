@@ -24,8 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     vp.add_argument("switch", nargs="?", choices=["on", "off"],
                     help="on: start push-to-talk (after `ferb setup --voice`); off: stop it and quit FERB.app")
 
-    tp = sub.add_parser("trace", help="span tree for one task")
-    tp.add_argument("task_id")
+    tp = sub.add_parser("trace", help="what a task did, step by step (default: the latest task)")
+    tp.add_argument("task_id", nargs="?", help="a task id or its first characters (default: the latest task)")
+    tp.add_argument("--full", action="store_true", help="show everything, nothing shortened")
 
     dp = sub.add_parser("daemon", help="run the daemon")
     dp.add_argument("action", choices=["run"])
@@ -169,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "voice":
                 return logs.voice(client, sys.stdout)
             if args.cmd == "trace":
-                return admin.trace(client, args.task_id, sys.stdout)
+                return admin.trace(client, args.task_id, sys.stdout, args.full)
             if args.cmd == "stop":
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":

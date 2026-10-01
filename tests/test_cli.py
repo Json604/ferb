@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 
 from ferb.cli import main as cli_main
+import json
+
 from ferb.cli.admin import render_trace
 from ferb.cli.client import Client
 from ferb.cli.logs import run as logs_run
@@ -18,9 +20,10 @@ from tests.conftest import RunningDaemon
 
 GOLDEN_TRACE = """\
 task t1
-└─ task [id-000002] 5.000s {"goal":"demo"}
-   ├─ tool.call [id-000003] 1.500s {"tool":"fs.read"}
-   └─ tool.call [id-000004] 0.000s ERROR denied {"tool":"shell"}"""   # id-000001: daemon.started entry
+09:00:00  task  demo  [5.0s]
+  09:00:00  fs.read    [1.5s]
+  09:00:01  shell    [0.0s]
+      ✗ denied"""
 
 
 def seed_trace(d: RunningDaemon) -> None:
@@ -116,3 +119,25 @@ def test_ferbs_own_profile_is_described_plainly() -> None:
     assert "FERB's own profile, connected, extension 0.6.5" in listing(True)
     assert "not paired yet (`ferb setup --identity`)" in listing(False, paired=False)
     assert "build step" not in listing(False) + listing(True)
+
+
+def test_trace_shows_every_step_and_what_came_back(daemon: RunningDaemon) -> None:
+    """Owner's request (2026-10-01): see the whole trail — steps run as their own tasks (<id>.<step>) and were
+    missing; terminal output (Claude Code) is shown as plain text."""
+    async def go() -> None:
+        sp = daemon.daemon.spans
+        assert sp is not None
+        root = sp.start("task", task_id="t2", input={"goal": "do the assignment"})
+        w = sp.start("worker", task_id="t2.run_claude", parent_id=root.id, input={"goal": "drive Claude"})
+        t = sp.start("tool.call", task_id="t2.run_claude", parent_id=w.id,
+                     input={"tool": "shell.read", "args": {"id": "p-1"}})
+        sp.finish(t, output={"output": "\x1b[2K\x1b[3GI couldn't get the brief\r\n\x1b[?25l✻ Working…\r\n"})
+        sp.finish(w, output={"result": json.dumps({"status": "failed", "summary": "brief needs sign-in"})})
+        sp.finish(root)
+    daemon.run(go())
+    c = Client(daemon.sock)
+    text = "\n".join(render_trace(c.call("trace.get", {"task_id": "t2"})))
+    c.close()
+    assert "worker  drive Claude" in text and "shell.read  id=p-1" in text
+    assert "→ I couldn't get the brief" in text and "\x1b" not in text
+    assert "→ failed: brief needs sign-in" in text
