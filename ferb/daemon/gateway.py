@@ -74,6 +74,7 @@ class Gateway:
         self.queue_question: Callable[[str, str, str], None] = lambda kind, target, text: None
         # Contacts (build step 16a): what this task's snapshots showed; the owner's words for a request + name
         self.seen = contacts.Seen()
+        self._sent: dict[str, dict[str, str]] = {}      # task tree -> who was sent a message -> what (9.4)
         self.owner_words: Callable[[str, str], str] = lambda request_id, name: ""
         self._picked: dict[tuple[str, str], str] = {}     # the owner's answer, for the next attempt of that one action
         self.name_of: Callable[[str], str] = lambda target: target    # bundle id -> app name, for plain questions
@@ -160,6 +161,11 @@ class Gateway:
             if isinstance(got, str):
                 return reply({"error": got}, True)
             action, spec = got, dataclasses.replace(spec, target=got.target)
+        tree = rec.tree_id or grant.task_id
+        if spec.kind == Kind.SEND and (to := _send_to(action.target)) and to in self._sent.get(tree, {}):
+            refused = await self._send_again(name, to, self._sent[tree][to], spec.content, action, grant)
+            if refused:
+                return reply({"error": refused}, True)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": name, "args": arguments} | ({"why": why} if why else {}))
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id})
@@ -247,6 +253,8 @@ class Gateway:
             return reply({"error": f"{name} failed ({type(e).__name__}); outcome unknown"}, True)
         if intent_id:
             self.ledger.mark(intent_id, "failed" if result.is_error else "done", [span.id])
+        if spec.kind == Kind.SEND and not result.is_error and (to := _send_to(action.target)):
+            self._sent.setdefault(rec.tree_id or grant.task_id, {}).setdefault(to, spec.content or "")
         for kind, source_id in result.read_sources:
             self.taint.read(grant.worker_id, kind, source_id)
             if self.engine.exposure.read(grant.worker_id, kind, source_id):
@@ -284,6 +292,23 @@ class Gateway:
         self.engine.intents.extend(action.request_id, target)
         self.publish("plan.extended", {"task_id": grant.task_id, "request_id": action.request_id, "target": target,
                                        "why": why})
+        return None
+
+    async def _send_again(self, name: str, to: str, first: str, text: str | None, action: ActionRequest,
+                          grant: RunGrant) -> str | None:
+        """A second message to the same contact in one task (owner decision 2026-10-01): never a retry by default —
+        the worker checks by reading the chat; sending again needs the owner's OK, with both texts shown."""
+        said = f": “{first[:120]}”" if first else ""
+        new = f": “{text[:120]}”" if text else ""
+        question = f"FERB already sent {to} a message in this task{said}. Send another one{new}?"
+        ask = dataclasses.replace(action, kind="send_again", flagged_irreversible=True)
+        ap = self.engine.approvals.request(ask, question)
+        self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": "send_again",
+                                            "reason": question, "task_id": grant.task_id})
+        answer = await self._wait_answer(grant, ap.id)
+        if answer != "granted":
+            return (_declined(answer, action.request_id in self.engine.approvals.unattended) +
+                    f"; the first message to {to} stands — check it by reading the chat, don't send again")
         return None
 
     def _needs_contact(self, kind: str, request_id: str) -> bool:
@@ -476,3 +501,11 @@ def _target_dict(t: Any) -> dict[str, Any]:
     return {k: v for k, v in {"account": t.account, "site": t.site, "recipients": list(t.recipients),
                               "path": t.path, "amount": t.amount, "contact": t.contact}.items()
             if v not in (None, [], ())}
+
+
+def _send_to(t: Any) -> str | None:
+    """Who a send goes to, for the one-message-per-contact rule: the exact contact, else the recipients."""
+    if t.contact:
+        return str(t.contact)
+    people = sorted(str(r) for r in t.recipients if r)
+    return ", ".join(people) if people else None

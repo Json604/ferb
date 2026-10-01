@@ -164,8 +164,7 @@ final class Listener {
         }
         if st != noErr { return "couldn't open the microphone (\(st))" }
         device = dev.id; procID = pid; request = req
-        AudioDeviceStart(dev.id, pid)
-        NSSound(named: "Tink")?.play()
+        AudioDeviceStart(dev.id, pid)                   // silent: the daemon sends "chime" once it's a real hold
         return nil
     }
 
@@ -174,14 +173,14 @@ final class Listener {
         procID = nil
     }
 
-    func stop() -> String {
+    func stop(sound: Bool) -> String {
         close()
         appendQ.sync { request?.endAudio() }
         _ = done.wait(timeout: .now() + 3)
         let f = finalText ?? ""
         let text = f.isEmpty ? lastPartial : f            // an empty final keeps what was heard
         task = nil; request = nil
-        NSSound(named: "Pop")?.play()
+        if sound { NSSound(named: "Pop")?.play() }
         return text
     }
 
@@ -229,8 +228,10 @@ func serve() {
             case "start":
                 if let err = listener.start(uid: cmd["device_uid"] as? String ?? "") {
                     _ = connectAsVoice()?.call(3, "voice.transcript", ["text": "", "error": err]) }
+            case "chime":
+                NSSound(named: "Tink")?.play()
             case "stop":
-                let text = listener.stop()
+                let text = listener.stop(sound: cmd["sound"] as? Bool ?? true)
                 _ = connectAsVoice()?.call(3, "voice.transcript", ["text": text])
             case "discard":
                 listener.discard()

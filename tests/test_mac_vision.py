@@ -171,7 +171,9 @@ def test_clicks_map_image_pixels_to_the_window_and_refuse_stale_moved_or_covered
     r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))              # image px at 2x
     assert r.ok and posted == ["move 300.0,200.0", "click 300.0,200.0"]
     assert getattr(d.ax, "raised", 0) >= 1                               # the window itself was raised first
-    assert apps.activated == ["com.apple.Notes", "com.brave.Browser"]   # brought forward, owner's app put back
+    assert apps.activated == ["com.apple.Notes"]                         # brought forward for the stretch
+    d.restore_owner()
+    assert apps.activated == ["com.apple.Notes", "com.brave.Browser"]   # then the owner's app put back, once
     with pytest.raises(Refused, match="outside"):
         asyncio.run(d.click_at("Notes", shot.id, 1600, 10))
     asyncio.run(d.screenshot("Notes"))
@@ -224,7 +226,7 @@ def test_clicks_yield_to_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
     asyncio.run(d.screenshot("Notes"))
     with pytest.raises(Yielded):
         asyncio.run(d.click_at("Notes", "shot1", 10, 10))
-    assert posted == [] and apps.activated[-1] == "com.brave.Browser"   # nothing clicked, owner's app back
+    assert posted == [] and apps.activated == []                         # nothing clicked, the owner never moved
 
 
 # ---------- through the gateway ----------

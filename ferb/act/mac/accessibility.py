@@ -207,6 +207,31 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int) -> None:
         _walk(child, tree, texts, depth + 1)
 
 
+def value(el: Any) -> str | None:
+    """A text box's current value (to check that typing arrived), or None if it doesn't expose one."""
+    v = _attr(el, "AXValue")
+    return None if v is None else str(v)
+
+
+def has_focus(pid: int, el: Any) -> bool | None:
+    """Is this element the app's keyboard focus? (Keystrokes go to the focus, not to the element FERB means: a sheet
+    or dialog can hold it.) None when the app doesn't say."""
+    import ApplicationServices as AX
+    import CoreFoundation as CF
+    focused = _attr(AX.AXUIElementCreateApplication(pid), "AXFocusedUIElement")
+    return None if focused is None else bool(CF.CFEqual(focused, el))
+
+
+def focused_role(pid: int) -> str | None:
+    """The role (as in snapshots) of the app's focused element, read in the background; None when unknown."""
+    import ApplicationServices as AX
+    el = _attr(AX.AXUIElementCreateApplication(pid), "AXFocusedUIElement")
+    if el is None:
+        return None
+    role, subrole = str(_attr(el, "AXRole") or ""), str(_attr(el, "AXSubrole") or "")
+    return "searchbox" if subrole == "AXSearchField" else ROLES.get(role)
+
+
 def press(el: Any) -> bool:
     import ApplicationServices as AX
     return bool(AX.AXUIElementPerformAction(el, "AXPress") == 0)

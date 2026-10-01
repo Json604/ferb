@@ -95,3 +95,76 @@ class OwnerInput:
         if self._loop is not None:
             Quartz.CFRunLoopStop(self._loop)
         self._tap = self._loop = None
+
+
+class InputGuard:
+    """While FERB has an app forward (10.5, 9.4 step 3): the owner's key presses and clicks are held back — never
+    delivered to FERB's app — and `on_owner` is told at once (FERB puts the owner's app back). A filtering tap, so it
+    is enabled only for those windows; mouse movement passes through. FERB's own marked events always pass."""
+
+    def __init__(self, on_owner: Callable[[], None] = lambda: None) -> None:
+        self.on_owner = on_owner
+        self.engaged = False
+        self.held = 0                                             # owner events held back (tests, the trail)
+        self._tap: Any = None
+
+    def _start(self) -> bool:
+        if self._tap is not None:
+            return True
+        import Quartz
+        kinds = (Quartz.kCGEventKeyDown, Quartz.kCGEventKeyUp, Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp,
+                 Quartz.kCGEventRightMouseDown, Quartz.kCGEventRightMouseUp, Quartz.kCGEventMouseMoved)
+        mask = 0
+        for k in kinds:
+            mask |= Quartz.CGEventMaskBit(k)
+        ready = threading.Event()
+        blocking = (Quartz.kCGEventKeyDown, Quartz.kCGEventKeyUp, Quartz.kCGEventLeftMouseDown,
+                    Quartz.kCGEventLeftMouseUp, Quartz.kCGEventRightMouseDown, Quartz.kCGEventRightMouseUp)
+
+        def cb(proxy: Any, etype: int, event: Any, refcon: Any) -> Any:
+            if etype in (Quartz.kCGEventTapDisabledByTimeout, Quartz.kCGEventTapDisabledByUserInput):
+                if self.engaged and self._tap is not None:
+                    Quartz.CGEventTapEnable(self._tap, True)
+                return event
+            if not self.engaged or Quartz.CGEventGetIntegerValueField(
+                    event, Quartz.kCGEventSourceUserData) == FERB_EVENT_MARK:
+                return event
+            try:
+                self.on_owner()
+            except Exception:
+                pass
+            if etype in blocking:                                 # never lands in FERB's app
+                self.held += 1
+                return None
+            return event
+
+        def run() -> None:
+            self._tap = Quartz.CGEventTapCreate(Quartz.kCGSessionEventTap, Quartz.kCGHeadInsertEventTap,
+                                                Quartz.kCGEventTapOptionDefault, mask, cb, None)
+            if self._tap is not None:
+                src = Quartz.CFMachPortCreateRunLoopSource(None, self._tap, 0)
+                Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), src, Quartz.kCFRunLoopCommonModes)
+                Quartz.CGEventTapEnable(self._tap, False)          # off until FERB brings an app forward
+            ready.set()
+            if self._tap is not None:
+                Quartz.CFRunLoopRun()
+
+        threading.Thread(target=run, name="ferb-input-guard", daemon=True).start()
+        ready.wait(5)
+        return self._tap is not None
+
+    def engage(self) -> bool:
+        """On before FERB brings its app forward. False if the tap couldn't be made (no Accessibility)."""
+        if not self._start():
+            return False
+        import Quartz
+        self.engaged = True
+        Quartz.CGEventTapEnable(self._tap, True)
+        return True
+
+    def release(self) -> None:
+        """Off once the owner's app is back in front."""
+        self.engaged = False
+        if self._tap is not None:
+            import Quartz
+            Quartz.CGEventTapEnable(self._tap, False)

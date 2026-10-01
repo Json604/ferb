@@ -1,10 +1,12 @@
 """MacComputerDriver (section 5 ComputerDriver): takes an action on an app, resolves the method, calls the parts.
 
-Element actions try Accessibility first (press / set value / focus: no focus change, nothing for the owner to
-notice); only if the app ignores that does FERB fall back to real input — activating the app, one marked event at a
-time under the GUI lock, yielding to the owner — and then puts the previously frontmost app back. Element ids come
-from the latest snapshot of that app and go stale with a newer one. Excluded apps are never read or acted on;
-browsers are read-only here (ax_browser).
+Input order, every app (9.4, spike 18): Accessibility with the app in the background (press / set value / focus);
+then keystrokes posted to the app's own process, still in the background (checked by what changed; an app that
+ignores them is remembered); only then the foreground — bring the app forward once per stretch of work, one marked
+event at a time under the GUI lock, the owner's input held back by the guard and winning (10.5), and the owner's app
+put back once the task moves on or has been idle there for STRETCH_IDLE_S. Arrow keys in a text box and Return where
+a Send button belongs are refused. Element ids come from the latest snapshot of that app and go stale with a newer
+one. Excluded apps are never read or acted on; browsers are read-only here (ax_browser).
 """
 
 import asyncio
@@ -15,7 +17,8 @@ from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
 from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
-from ferb.act.mac.input import RealInput, Step, click_steps, key_steps, type_steps, valid_combo
+from ferb.act.mac.input import (RealInput, Step, click_steps, is_arrow, is_enter, key_steps, type_steps,
+                                valid_combo)
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
 
@@ -25,6 +28,22 @@ UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "
 
 
 PASSWORD_REFUSED = "that window shows a password field; FERB doesn't capture it (the frame was dropped)"
+
+
+STRETCH_IDLE_S = 3.0          # the owner's app comes back after this long without foreground work in FERB's app
+SETTLE_S = 0.4                # after background keystrokes, before checking what changed
+FOCUS_ELSEWHERE = ("something else in the app has the keyboard focus (a dialog or sheet may be open), so nothing was "
+                   "typed; take a new snapshot")
+ARROW_REFUSED = ("arrow keys in a text box aren't used: set the box's whole value again (action set_value) instead "
+                 "of moving the cursor to edit it")
+
+
+class _NoGuard:
+    def engage(self) -> bool:
+        return False
+
+    def release(self) -> None:
+        return None
 
 
 @dataclass(frozen=True)
@@ -55,6 +74,12 @@ class MacComputerDriver:
         self.on_activate: Callable[[str, str | None], None] = lambda bundle, task: None   # the trail's attribution
         self._state: dict[str, _AppState] = {}
         self.snapshot_images: Callable[[], bool] = lambda: True   # `[mac] snapshot_image` (owner request, 2026-10-01)
+        self.communication: Callable[[str], bool] = lambda bundle: False  # messaging / calling apps (9.3)
+        self.guard: Any = _NoGuard()                    # holds back the owner's input while FERB's app is forward
+        self._background_ok: dict[str, bool] = {}       # does this app take keystrokes in the background?
+        self._forward_app: str | None = None            # the app FERB brought forward, while a stretch lasts
+        self._owner_app: Any = None                     # the app the owner was in, to put back
+        self._restore_at: asyncio.TimerHandle | None = None
 
     def app(self, name_or_bundle: str) -> Any:
         a = self.apps.find(name_or_bundle)
@@ -201,7 +226,8 @@ class MacComputerDriver:
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
                 raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, cmd+s)")
-            return await self._real(a, key_steps(action.text), holder, action.text, task)
+            await self._key_rules(a, action.text)
+            return await self._key(a, action.text, holder, task)
         if action.element is None:
             raise Refused("this action needs an element id from a snapshot")
         n = self.node(a.bundle_id, action.element)
@@ -218,12 +244,78 @@ class MacComputerDriver:
         if action.kind == "set_value":
             if await asyncio.to_thread(self.ax.set_value, n.ref, action.text or ""):
                 return ActionResult(True, "value set")
-            await asyncio.to_thread(self.ax.focus, n.ref)
-            return await self._real(a, type_steps(action.text or ""), holder, "typing", task)
+            return await self._type(a, n, action.text or "", holder, task)
         if action.kind == "type":
-            await asyncio.to_thread(self.ax.focus, n.ref)
-            return await self._real(a, type_steps(action.text or ""), holder, "typing", task)
+            return await self._type(a, n, action.text or "", holder, task)
         raise Refused(f"unknown action {action.kind}")
+
+    # ---------- keys and typing: in the background first (9.4 step 2) ----------
+
+    async def _key_rules(self, a: Any, combo: str) -> None:
+        """Buttons over keystrokes, whole values over cursor editing (owner decision 2026-10-01, every app)."""
+        if not (is_arrow(combo) or is_enter(combo)):
+            return
+        if await asyncio.to_thread(self.ax.focused_role, a.pid) not in ("textbox", "searchbox"):
+            return
+        if is_arrow(combo):
+            raise Refused(ARROW_REFUSED)
+        send = self._send_button(a.bundle_id)
+        if send is not None:
+            raise Refused(f"don't press Return in a text box: press the Send button ({send}) instead")
+        if self.communication(a.bundle_id):
+            raise Refused("in a messaging app Return would send without FERB's checks: press the Send button instead "
+                          "(take a new snapshot to find it — it may appear only once there's text)")
+
+    def _send_button(self, bundle_id: str) -> str | None:
+        from ferb.act.mac.tools import SEND_LABEL
+        st = self._state.get(bundle_id)
+        for eid, n in (st.nodes.items() if st else ()):
+            if n.role == "button" and n.enabled and SEND_LABEL.search(n.label or ""):
+                return eid
+        return None
+
+    async def _signature(self, a: Any) -> tuple[Any, ...]:
+        """What the window shows, to tell whether a background keystroke did anything (snapshot ids untouched)."""
+        tree = await asyncio.to_thread(self.ax.read_tree, a.pid, False)
+        return tree.title, tree.text, tuple((n.role, n.label, n.value) for n in tree.nodes)
+
+    async def _key(self, a: Any, combo: str, holder: str, task: str | None) -> ActionResult:
+        if self._background_ok.get(a.bundle_id) is not False:
+            before = await self._signature(a)
+            await self.input.to_process(key_steps(combo, a.pid), holder)
+            await asyncio.sleep(SETTLE_S)
+            if await self._signature(a) != before:
+                self._background_ok[a.bundle_id] = True
+                return ActionResult(True, f"{combo} (in the background)")
+            if self._background_ok.get(a.bundle_id):            # the app takes them; this key just showed nothing
+                return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
+            self._background_ok[a.bundle_id] = False
+            return ActionResult(False, f"{combo} went to {a.name} in the background but nothing changed; if it "
+                                       "should have, do it again (FERB will bring the app forward this time)")
+        return await self._real(a, key_steps(combo), holder, combo, task)
+
+    async def _type(self, a: Any, n: Any, text: str, holder: str, task: str | None) -> ActionResult:
+        """Keystrokes go to the app's keyboard focus: typed only once that is the box FERB means (a Save sheet or a
+        dialog can hold it — then nothing is typed, here or in the foreground)."""
+        await asyncio.to_thread(self.ax.focus, n.ref)
+        focused = await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref)
+        if focused and self._background_ok.get(a.bundle_id) is not False:
+            before = await asyncio.to_thread(self.ax.value, n.ref)
+            sig = await self._signature(a) if before is None else None
+            await self.input.to_process(type_steps(text, a.pid), holder)
+            await asyncio.sleep(SETTLE_S)
+            after = await asyncio.to_thread(self.ax.value, n.ref)
+            landed = (after != before) if before is not None or after is not None else await self._signature(a) != sig
+            if landed:
+                self._background_ok[a.bundle_id] = True
+                return ActionResult(True, "typed (in the background)")
+            self._background_ok[a.bundle_id] = False          # nothing arrived: the foreground, once
+
+        async def focus_it() -> None:                          # in front now: focus the box, and check it took
+            await asyncio.to_thread(self.ax.focus, n.ref)
+            if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is False:
+                raise Refused(FOCUS_ELSEWHERE)
+        return await self._real(a, type_steps(text), holder, "typing", task, prepare=focus_it)
 
     async def _bring_forward(self, a: Any, shot: Shot) -> None:
         """After activating the app: raise the captured window itself and wait (~3 s) for it to be on screen — the
@@ -235,26 +327,67 @@ class MacComputerDriver:
                 return
             await asyncio.sleep(0.25)
 
+    # ---------- the foreground, last resort (9.4 step 3) ----------
+
     async def _real(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None = None,
                     prepare: Callable[[], Awaitable[None]] | None = None) -> ActionResult:
-        """Real input goes to the frontmost app: bring this one forward, act, then put the owner's app back. Both
-        switches are FERB's (the trail attributes them to the task)."""
+        """Real input goes to the frontmost app: bring this one forward (once per stretch of work), act, and leave it
+        there a moment for the next step; the owner's app comes back when the stretch ends. Every switch is FERB's
+        (the trail attributes it to the task)."""
         if not self.input.available():
             return ActionResult(False, "FERB is paused (`ferb resume`): no real mouse / keyboard input")
-        before = self.apps.frontmost()
-        if before is None or before.bundle_id != a.bundle_id:
+        await self.input.quiet(holder, what)                      # the owner is busy: don't pull them away now
+        await self._forward(a, task)
+
+        async def aside() -> None:                                # the owner touched the mouse / keyboard
+            self.restore_owner(task)
+
+        async def back() -> None:
+            await self._forward(a, task)
+            if prepare is not None:
+                await prepare()
+        try:
+            if prepare is not None:
+                await prepare()
+            n = await self.input.run(steps, holder, what, aside=aside, back=back)
+        finally:
+            self._restore_later(task)
+        return ActionResult(True, f"{what} ({n} steps, real input)")
+
+    async def _forward(self, a: Any, task: str | None) -> None:
+        if self._restore_at is not None:
+            self._restore_at.cancel()
+            self._restore_at = None
+        front = self.apps.frontmost()
+        if self._forward_app is None and front is not None and front.bundle_id != a.bundle_id:
+            self._owner_app = front                               # where the owner was: put back at the end
+        if front is None or front.bundle_id != a.bundle_id:
+            if self._forward_app is None:
+                self.guard.engage()                               # before the switch: none of their input lands
             self.on_activate(a.bundle_id, task)
             self.apps.activate(a.bundle_id)
             await asyncio.sleep(0.3)
-        if prepare is not None:
-            await prepare()
-        try:
-            n = await self.input.run(steps, holder, what)
-        finally:
-            if before is not None and before.bundle_id != a.bundle_id:
-                self.on_activate(before.bundle_id, task)
-                self.apps.activate(before.bundle_id)
-        return ActionResult(True, f"{what} ({n} steps, real input)")
+        self._forward_app = a.bundle_id
+
+    def restore_owner(self, task: str | None = None) -> None:
+        """End of a stretch, or the owner stepped in: their app in front again, the guard off."""
+        if self._restore_at is not None:
+            self._restore_at.cancel()
+            self._restore_at = None
+        if self._forward_app is None:
+            return
+        owner, self._owner_app, self._forward_app = self._owner_app, None, None
+        if owner is not None:
+            self.on_activate(owner.bundle_id, task)
+            self.apps.activate(owner.bundle_id)
+        self.guard.release()
+
+    def _restore_later(self, task: str | None) -> None:
+        if self._forward_app is None:
+            return
+        if self._restore_at is not None:
+            self._restore_at.cancel()
+        self._restore_at = asyncio.get_running_loop().call_later(STRETCH_IDLE_S, self.restore_owner, task)
 
 
 def _same(a: tuple[float, ...], b: tuple[float, ...]) -> bool:

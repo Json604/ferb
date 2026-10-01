@@ -4,6 +4,9 @@ An action is a list of single events (one mouse event, one keystroke). Before ea
 they're using the mouse or keyboard, FERB waits until they've been quiet for the quiet period, then continues; if
 that takes longer than `yield_after_s`, the action stops and says where (`Yielded`: the gateway treats the partial
 effect as outcome-unknown). Long text is typed per keystroke, never pasted in one event, so it can stop mid-way.
+
+Keystrokes can also go straight to one app's process (`pid`), with the app in the background (9.4 step 2, spike 18):
+those never meet the owner's typing, so they don't wait for the owner.
 """
 
 import asyncio
@@ -39,7 +42,11 @@ class RealInput:
         self.sleep, self.poll_s, self.on_wait = sleep, poll_s, on_wait     # on_wait: the owner's time isn't a stall
         self.available = available                                         # False while FERB is paused
 
-    async def run(self, steps: list[Step], holder: str, what: str) -> int:
+    async def run(self, steps: list[Step], holder: str, what: str,
+                  aside: Callable[[], Awaitable[None]] | None = None,
+                  back: Callable[[], Awaitable[None]] | None = None) -> int:
+        """Foreground input. When the owner touches the mouse or keyboard: `aside` (put their app back), wait until
+        they've been quiet, `back` (bring FERB's app forward again), carry on (10.5)."""
         if not self.available():
             raise Refused("FERB is paused (`ferb resume`): it can't tell when you're using the mouse or keyboard, "
                           "so it doesn't use real input")
@@ -48,6 +55,8 @@ class RealInput:
                 waited = 0.0
                 if self.owner_active():
                     self.on_wait(holder, True)
+                    if aside is not None:
+                        await aside()
                     try:
                         while self.owner_active():           # the owner wins: wait for them to be quiet
                             if waited >= self.yield_after_s:
@@ -56,6 +65,32 @@ class RealInput:
                             waited += self.poll_s
                     finally:
                         self.on_wait(holder, False)
+                    if back is not None:
+                        await back()
+                step.post()
+                await self.sleep(STEP_S)
+        return len(steps)
+
+    async def quiet(self, holder: str, what: str) -> None:
+        """Before bringing an app forward: if the owner is using the Mac, wait until they've been quiet."""
+        waited = 0.0
+        if not self.owner_active():
+            return
+        self.on_wait(holder, True)
+        try:
+            while self.owner_active():
+                if waited >= self.yield_after_s:
+                    raise Yielded(0, 1, what)
+                await self.sleep(self.poll_s)
+                waited += self.poll_s
+        finally:
+            self.on_wait(holder, False)
+
+    async def to_process(self, steps: list[Step], holder: str) -> int:
+        """Keystrokes posted to one app's process in the background: no owner wait (they can't collide), still under
+        the GUI lock so two workers' keystrokes don't interleave."""
+        async with self.gui.hold(holder):
+            for step in steps:
                 step.post()
                 await self.sleep(STEP_S)
         return len(steps)
@@ -63,10 +98,13 @@ class RealInput:
 
 # ---------- the real events (Quartz), each marked ----------
 
-def _post(ev: Any) -> None:
+def _post(ev: Any, pid: int | None = None) -> None:
     import Quartz
     Quartz.CGEventSetIntegerValueField(ev, Quartz.kCGEventSourceUserData, FERB_EVENT_MARK)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+    if pid is None:
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+    else:
+        Quartz.CGEventPostToPid(pid, ev)                     # to that app only, wherever it is (spike 18)
 
 
 def click_steps(x: float, y: float) -> list[Step]:
@@ -84,7 +122,7 @@ def click_steps(x: float, y: float) -> list[Step]:
             Step("click", ev(Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp))]
 
 
-def type_steps(text: str) -> list[Step]:
+def type_steps(text: str, pid: int | None = None) -> list[Step]:
     import Quartz
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
     steps: list[Step] = []
@@ -93,7 +131,7 @@ def type_steps(text: str) -> list[Step]:
             for down in (True, False):
                 ev = Quartz.CGEventCreateKeyboardEvent(src, 0, down)
                 Quartz.CGEventKeyboardSetUnicodeString(ev, len(ch), ch)
-                _post(ev)
+                _post(ev, pid)
         steps.append(Step(f"type {len(steps) + 1}/{len(text)}", key))
     return steps
 
@@ -103,7 +141,7 @@ KEYCODES = {"return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53, "l
 MODIFIERS = {"cmd": 1 << 20, "shift": 1 << 17, "alt": 1 << 19, "ctrl": 1 << 18}
 
 
-def key_steps(combo: str) -> list[Step]:
+def key_steps(combo: str, pid: int | None = None) -> list[Step]:
     """e.g. "cmd+s", "return". Unknown keys are refused by the caller."""
     import Quartz
     parts = combo.lower().split("+")
@@ -117,8 +155,19 @@ def key_steps(combo: str) -> list[Step]:
         for down in (True, False):
             ev = Quartz.CGEventCreateKeyboardEvent(src, code, down)
             Quartz.CGEventSetFlags(ev, flags)
-            _post(ev)
+            _post(ev, pid)
     return [Step(combo, press)]
+
+
+ARROWS = {"left", "right", "up", "down"}
+
+
+def is_arrow(combo: str) -> bool:
+    return combo.lower().split("+")[-1] in ARROWS
+
+
+def is_enter(combo: str) -> bool:
+    return combo.lower() in ("return", "enter")
 
 
 def valid_combo(combo: str) -> bool:

@@ -147,7 +147,7 @@ def test_key_drives_the_app_with_an_allowed_mic() -> None:
     assert speaker.stops == 2                                          # the owner talks: FERB stops speaking
     assert q.get_nowait() == {"op": "start", "device_uid": "builtin", "device": "MacBook Air Microphone"}
     v.on_key(RIGHT_OPTION, False, 3.0)
-    assert q.get_nowait() == {"op": "stop"}
+    assert q.get_nowait() == {"op": "stop", "sound": True}
     v.on_key(RIGHT_OPTION, True, 4.0)
     v.on_key(RIGHT_OPTION, False, 4.1)                                 # a tap: what was heard is dropped
     q.get_nowait()
@@ -193,6 +193,7 @@ def test_a_voice_request_is_a_chat_turn_and_the_reply_is_spoken(daemon: RunningD
     install(daemon, [sup("reply", "It's 31 degrees in Delhi.")])
     speaker = FakeSpeaker()
     daemon.daemon.voice.speaker = speaker
+    daemon.daemon._ptt = True                                          # push-to-talk on
     assert daemon.run(daemon.daemon.voice.transcript("  what's the weather   in Delhi "))["handled"] == "request"
     deadline = time.time() + 10
     while not speaker.said and time.time() < deadline:
@@ -258,3 +259,36 @@ def test_questions_are_shown_and_spoken_in_voice_words() -> None:
     assert shown[1] == "📞 Calling Rahul Sharma in 10 s… (say stop to cancel)"
     assert speaker.said[1] == "Calling Rahul Sharma in 10 seconds. Say stop to cancel."
     assert published[0] == ("voice.heard", "tell Rahul I'm running late")
+
+
+def test_the_start_sound_only_for_a_real_hold_and_never_with_sounds_off() -> None:
+    async def run(sounds: bool, hold_s: float) -> list[dict[str, Any]]:
+        v, _, _ = _voice()
+        v.sounds = lambda: sounds
+        q = v.attach([{"uid": "builtin", "name": "Mic", "transport": "bltn", "default": True}], {})
+        v.on_key(RIGHT_OPTION, True, 0.0)
+        await asyncio.sleep(hold_s)
+        v.on_key(RIGHT_OPTION, False, hold_s)
+        await asyncio.sleep(0.4)
+        return [q.get_nowait() for _ in range(q.qsize())]
+    tap = asyncio.run(run(True, 0.1))
+    assert [c["op"] for c in tap] == ["start", "discard"]               # a tap: silent
+    hold = asyncio.run(run(True, 0.5))
+    assert [c["op"] for c in hold] == ["start", "chime", "stop"] and hold[-1]["sound"] is True
+    quiet = asyncio.run(run(False, 0.5))
+    assert [c["op"] for c in quiet] == ["start", "stop"] and quiet[-1]["sound"] is False
+
+
+def test_turning_push_to_talk_off_silences_replies_still_running() -> None:
+    from ferb.cli.chat import render
+    v, speaker, _ = _voice()
+    published: list[Any] = []
+    v.publish = lambda t, d: published.append(d["text"])
+    v.render = render
+    v.enabled = lambda: False
+
+    async def go() -> None:
+        await v.transcript("what's the time")
+        await asyncio.sleep(0.05)
+    asyncio.run(go())
+    assert speaker.said == [] and "It's 31°C in Delhi." in published     # shown in `ferb voice`, not spoken

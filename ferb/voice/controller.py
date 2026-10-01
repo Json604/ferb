@@ -11,7 +11,7 @@ import time
 from typing import Any, AsyncIterator, Callable
 
 from ferb.voice.mic import InputDevice, choose
-from ferb.voice.push_to_talk import TalkKey
+from ferb.voice.push_to_talk import MIN_HOLD_S, TalkKey
 from ferb.voice.speak import spoken
 
 YES = re.compile(r"^\s*(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|approve[d]?|allow|confirm)\b", re.I)
@@ -38,11 +38,14 @@ class Voice:
                  render: Callable[[dict[str, Any]], str | None] = lambda ev: None,
                  question: Callable[[dict[str, Any]], str] = lambda d: "",
                  cancel_countdown: Callable[[], bool] = lambda: False,
-                 publish: Callable[[str, dict[str, Any]], None] = lambda topic, data: None) -> None:
+                 publish: Callable[[str, dict[str, Any]], None] = lambda topic, data: None,
+                 enabled: Callable[[], bool] = lambda: True, sounds: Callable[[], bool] = lambda: True) -> None:
         self.run_turn, self.pending, self.answer = run_turn, pending, answer
         self.speaker, self.journal = speaker, journal
         self.launch_app, self.mode, self.render, self.question = launch_app, mode, render, question
         self.cancel_countdown, self.publish = cancel_countdown, publish
+        self.enabled, self.sounds = enabled, sounds          # push-to-talk on? `[voice] sounds`?
+        self._chime: asyncio.TimerHandle | None = None
         self.key = TalkKey()
         self.devices: list[InputDevice] = []
         self.permissions: dict[str, Any] = {}
@@ -50,8 +53,9 @@ class Voice:
         self.listening = False
 
     def _say(self, words: str, line: str | None = None) -> None:
-        """Speak, and show it in `ferb voice` (the chat-style line when there is one)."""
-        self.speaker.say(words)
+        """Speak (only while push-to-talk is on), and show it in `ferb voice` (the chat-style line when there is one)."""
+        if self.enabled():
+            self.speaker.say(words)
         self.publish("voice.said", {"text": (line or words).strip()})
 
     # ---------- FERB.app ----------
@@ -85,10 +89,24 @@ class Voice:
                 self._say("I can't find a microphone I'm allowed to use.")
                 return act
             self.listening = True
-            self.app.put_nowait({"op": "start", "device_uid": device.uid, "device": device.name})
-        elif act in ("send", "ignore", "discard") and self.listening and self.app is not None:
-            self.listening = False
-            self.app.put_nowait({"op": "stop" if act == "send" else "discard"})
+            self.app.put_nowait({"op": "start", "device_uid": device.uid, "device": device.name})   # silent
+            if self.sounds():                                    # the start sound once it's a real hold, not a tap
+                app = self.app
+
+                def chime() -> None:
+                    if self.key.held:
+                        app.put_nowait({"op": "chime"})
+                try:
+                    self._chime = asyncio.get_running_loop().call_later(MIN_HOLD_S, chime)
+                except RuntimeError:                             # no event loop (only outside the daemon)
+                    self._chime = None
+        elif act in ("send", "ignore", "discard"):
+            if self._chime is not None:
+                self._chime.cancel()
+                self._chime = None
+            if self.listening and self.app is not None:
+                self.listening = False
+                self.app.put_nowait({"op": "stop", "sound": self.sounds()} if act == "send" else {"op": "discard"})
         return act
 
     # ---------- what the owner said ----------

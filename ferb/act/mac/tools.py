@@ -160,8 +160,11 @@ class MacSnapshot(_Base):
 class MacAct(_Base):
     name = "mac.act"
     description = ("Act on an app: press / focus / set_value (text) / click / type (text) on an element id from "
-                   "its latest snapshot, or key (e.g. return, cmd+s). Uses Accessibility where the app supports it, "
-                   "real mouse/keyboard otherwise (it pauses while the owner is using theirs). Never types passwords.")
+                   "its latest snapshot, or key (e.g. escape, cmd+s). Works with the app in the background where it "
+                   "can; brings it forward only when it must. Prefer buttons to keystrokes: press the Send button "
+                   "(never Return in a message box). To change text, set_value the whole text again (never arrow "
+                   "keys to edit). After sending, check it went by taking a snapshot of the chat — never send again "
+                   "to check; a second message to the same person needs the owner's OK. Never types passwords.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
 

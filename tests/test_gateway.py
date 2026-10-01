@@ -128,9 +128,12 @@ def test_one_approval_covers_the_same_target_and_type_for_the_rest_of_the_reques
     try:
         for text in ("one", "two", "three"):                             # an unnamed recipient: asked once
             assert not daemon.run(send_to("bob@y.com", text), timeout=20)["is_error"]
-        assert len(yes.asked) == 1 and send.calls == 3
+        scope = [ap for ap in yes.asked if ap.kind != "send_again"]
+        assert len(scope) == 1 and send.calls == 3
+        again = [ap for ap in yes.asked if ap.kind == "send_again"]     # one message per person per task (9.4)
+        assert len(again) == 2 and "“one”" in again[0].reason and "“two”" in again[0].reason
         assert not daemon.run(send_to("carol@z.com", "x"), timeout=20)["is_error"]
-        assert len(yes.asked) == 2                                       # a different recipient: a new question
+        assert len([ap for ap in yes.asked if ap.kind != "send_again"]) == 2   # a different recipient: a new question
     finally:
         yes.stop()
 
@@ -145,12 +148,17 @@ def test_send_waits_out_the_undo_window_and_undo_cancels(daemon: RunningDaemon) 
     assert send.calls == 0 and not fut.done()                       # held
     daemon.call_soon(daemon.daemon.clock.advance, 11)                # window passes -> released
     assert not fut.result(5)["is_error"] and send.calls == 1
-    fut2 = __import__("asyncio").run_coroutine_threadsafe(
-        daemon.daemon.gateway.call(grant, "fake.send", {"text": "second"}), daemon.loop)
-    time.sleep(0.3)
-    hold = daemon.daemon.engine.holds.pending()[0]
-    daemon.call_soon(daemon.daemon.engine.undo, hold.id)
-    r = fut2.result(5)
+    from tests.conftest import Answers
+    yes = Answers(daemon)                                            # "send alice another one?" (9.4): yes
+    try:
+        fut2 = __import__("asyncio").run_coroutine_threadsafe(
+            daemon.daemon.gateway.call(grant, "fake.send", {"text": "second"}), daemon.loop)
+        time.sleep(0.5)
+        hold = daemon.daemon.engine.holds.pending()[0]
+        daemon.call_soon(daemon.daemon.engine.undo, hold.id)
+        r = fut2.result(5)
+    finally:
+        yes.stop()
     assert r["is_error"] and "cancelled by the owner" in r["content"]["error"] and send.calls == 1
 
 

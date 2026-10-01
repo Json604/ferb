@@ -309,3 +309,64 @@ def test_a_web_pages_text_and_an_open_chat_dont_count_as_more_contacts() -> None
            "text": "Chats Rahul Verma · +91 98200 22222 · Gym Priya Nair Rahul Verma +91 98200 22222"}
     assert contacts.matching("Rahul", contacts.entries(one)) == ["Rahul Verma · +91 98200 22222 · Gym"]
     assert contacts.check(Contact(**VERMA), [contacts.entries(one)], "video call rahul").decision == "ok"
+
+
+# ---------- one message per contact per task (owner decision 2026-10-01) ----------
+
+class Send:
+    name, description, identities = "mac.act", "fake send button", {Identity.OWNER}
+    scopes, risk, reversible = {"mac:act"}, RiskLevel.MEDIUM, False
+
+    class Input(BaseModel):
+        app: str
+        text: str | None = None
+        contact: Contact | None = None
+
+    def __init__(self) -> None:
+        self.sent: list[str | None] = []
+
+    def _bundle(self, args: BaseModel) -> str:
+        return WA
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.SEND, Target(site=WA), content=getattr(args, "text"))
+
+    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        self.sent.append(getattr(args, "text"))
+        return ToolResult({"ok": True})
+
+
+def send(d: RunningDaemon, grant: Any, text: str) -> dict[str, Any]:
+    async def go() -> dict[str, Any]:
+        job = asyncio.create_task(d.daemon.gateway.call(grant, "mac.act", {"app": "WhatsApp", "text": text,
+                                                                           "contact": VERMA}))
+        for _ in range(100):                                            # past the undo window
+            await asyncio.sleep(0.05)
+            d.daemon.clock.advance(1)
+            if job.done():
+                break
+        return await asyncio.wait_for(job, 5)
+    return d.run(go(), timeout=20)
+
+
+def test_a_second_message_to_the_same_contact_needs_the_owners_ok(daemon: RunningDaemon) -> None:
+    snap, tool = Snap(), Send()
+    snap.screens = [ONE_RAHUL]
+    grant, _ = setup(daemon, {"mac:read", "mac:act"}, RequestIntent.from_plan(
+        "req-1", {"message"}, recipients=frozenset({"Rahul"}), sites=frozenset({WA.lower()})), [snap, tool])  # type: ignore[list-item]
+    daemon.daemon.gateway.owner_words = lambda rid, name: "message rahul on whatsapp: running late"
+    assert not daemon.run(daemon.daemon.gateway.call(grant, "mac.snapshot", {"app": "WhatsApp"}))["is_error"]
+    owner = Answers(daemon, granted=False)                             # the owner says no to a second one
+    try:
+        assert not send(daemon, grant, "running late")["is_error"] and tool.sent == ["running late"]
+        assert [ap for ap in owner.asked if ap.kind == "send_again"] == []     # the first one isn't asked about
+        again = send(daemon, grant, "running late!")
+        assert again["is_error"] and "check it by reading the chat" in again["content"]["error"]
+        assert tool.sent == ["running late"]                            # nothing sent twice
+        asked = [ap for ap in owner.asked if ap.kind == "send_again"]
+        assert asked and "running late" in asked[0].reason and "running late!" in asked[0].reason
+        assert question({"kind": "send_again", "reason": asked[0].reason}).endswith("[y/N] ")
+        owner.granted = True                                           # yes: the second one goes
+        assert not send(daemon, grant, "running late!")["is_error"] and tool.sent == ["running late", "running late!"]
+    finally:
+        owner.stop()

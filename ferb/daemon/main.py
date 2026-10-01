@@ -288,7 +288,8 @@ class Daemon:
                            self.voice_speaker or SaySpeaker(),
                            self._journal(), self._launch_voice_app,
                            mode=lambda: str(self.config.get("voice", "mic", "auto")), render=render, question=question,
-                           cancel_countdown=self._cancel_countdown, publish=self._publish)
+                           cancel_countdown=self._cancel_countdown, publish=self._publish,
+                           enabled=lambda: self._ptt, sounds=lambda: bool(self.config.get("voice", "sounds", True)))
         loop = asyncio.get_running_loop()
 
         def on_key(code: int, down: bool) -> None:               # the tap's thread: hand off to the loop
@@ -362,6 +363,8 @@ class Daemon:
         self._load_config()
         if self._ptt:
             self._launch_voice_app()
+        elif self.voice is not None:
+            self.voice.speaker.stop()                     # off: stop speaking replies to voice requests now
         return {"push_to_talk": self._ptt}
 
     def _load_config(self) -> None:
@@ -458,12 +461,23 @@ class Daemon:
                 self.supervisor.activity.waiting(holder, on)
         def available() -> bool:                                  # paused: no owner-input tap, so no real input
             return not (self.sense is not None and self.sense.paused)
-        def owner_active() -> bool:                    # `[mac] yield_to_owner = false`: keep going while the owner types
-            return bool(self.config.get("mac", "yield_to_owner", True)) and self.owner_input.active()
+        def owner_active() -> bool:                    # foreground input always yields (10.5; yield_to_owner retired)
+            return self.owner_input.active()
         self.mac = MacComputerDriver(device, RealInput(owner_active, self.gui, on_wait=owner_wait,
                                                        available=available),
                                      excluded=self.config.exclude_apps, web_password=self._web_password)
         self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree
+        from ferb.policy.services import communication_bundles
+        self.mac.communication = lambda bundle: bundle.lower() in communication_bundles()
+        if self.watch_owner_input:                     # the guard: the owner's input never lands in FERB's app (10.5)
+            from ferb.sense.watchers.owner_input import InputGuard
+            loop = asyncio.get_running_loop()
+            mac = self.mac
+
+            def stepped_in() -> None:                  # on the guard's thread: note it, hand the rest to the loop
+                self.owner_input.owner_event()
+                loop.call_soon_threadsafe(mac.restore_owner, None)
+            self.mac.guard = InputGuard(stepped_in)
         add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected, self._unpaired_note)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)

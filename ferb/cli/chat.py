@@ -148,7 +148,7 @@ def question(d: dict[str, Any]) -> str:
         return f"   ? {d.get('reason', '')}\n{opts}\n   number (Enter to cancel): "
     if d.get("kind") == "route_change":                   # FERB found a better route while exploring (10.3)
         return f"   ? {d.get('reason', '')} [y/N] "
-    if d.get("kind") == "folder_access":
+    if d.get("kind") in ("folder_access", "send_again"):
         return f"   ? {d.get('reason', '')} [y/N] "
     what = KIND_TEXT.get(str(d.get("kind")), str(d.get("kind") or "do this"))
     return f"   ? OK for FERB to {what}? {d.get('reason', '')} [y/N] "

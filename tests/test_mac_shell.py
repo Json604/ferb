@@ -294,7 +294,9 @@ def test_mac_driver_prefers_accessibility_and_falls_back_to_real_input(monkeypat
     ids2 = {e["label"]: e["id"] for e in out2["elements"]}
     r = asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"])))
     assert r.ok and "real input" in r.detail and posted2 == ["click 10.0,10.0"]
-    assert apps2.activated == ["com.apple.Notes", "com.brave.Browser"]         # brought forward, then put back
+    assert apps2.activated == ["com.apple.Notes"]                              # brought forward for the stretch
+    d2.restore_owner()
+    assert apps2.activated == ["com.apple.Notes", "com.brave.Browser"]         # then put back, once
     asyncio.run(d2.snapshot("Notes"))
     with pytest.raises(StaleRef):
         asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"])))     # a newer snapshot supersedes
@@ -339,14 +341,14 @@ def test_reading_a_background_downloads_output_later_also_exposes(daemon: Runnin
     assert call(daemon, h, "shell.read", id=pid)["is_error"]                     # not their process
 
 
-def test_yielding_to_the_owner_can_be_switched_off(daemon: RunningDaemon) -> None:
-    """Owner request (2026-09-30): `[mac] yield_to_owner = false` keeps FERB's real input going while they type."""
+def test_foreground_input_always_yields_to_the_owner(daemon: RunningDaemon) -> None:
+    """Owner decision (2026-10-01): whenever an app is brought forward, the owner's input wins — the 2026-09-30
+    `[mac] yield_to_owner = false` switch is retired (background input never meets their typing)."""
     d = daemon.daemon
     real_input = d.mac.input                                                  # type: ignore[union-attr]
     d.owner_input.active = lambda: True                                      # type: ignore[method-assign]
-    assert real_input.owner_active() is True
     d.config.set("mac", "yield_to_owner", False)
-    assert real_input.owner_active() is False
+    assert real_input.owner_active() is True
 
 
 def test_opening_an_app_takes_the_owner_back_to_where_they_were(daemon: RunningDaemon, monkeypatch: Any) -> None:

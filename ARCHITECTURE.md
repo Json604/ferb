@@ -535,9 +535,11 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
     keeps changing isn't a loop), a stalled worker (no sign of life for 180 s, not counting waits on
     the owner), and generous caps — 4 hours, 50 worker runs, 1,000 tool calls. The owner hears about a guard only
     when it actually stops something. Distillation and shadow decisions run unmetered.
-11. Owner priority: while the owner uses mouse/keyboard, GUI actions pause; extension and background work continue.
-    Switchable (owner request, 2026-09-30): `[mac] yield_to_owner = false` keeps FERB's real input going while the
-    owner uses the Mac (default true; the owner turned it off for now).
+11. Owner priority: FERB's Mac input goes to apps in the background wherever it can (9.4, spike 18), so it never meets
+    the owner's typing. Whenever an app has to be brought forward, FERB's input there always yields to the owner
+    (10.5): the owner's keystrokes never land in the app FERB is working in. (`[mac] yield_to_owner`, the owner's
+    2026-09-30 switch, is retired: it only governed foreground input, which now always yields — owner decision
+    2026-10-01.)
 12. `ferb stop` (or the stop hotkey) halts everything immediately (section 10.5).
 13. **Environment summary** (build step 16): each turn the planner gets a short summary of this Mac — macOS version,
     the paired browser profiles FERB can use, and the installed apps relevant to what the owner named — plus the
@@ -696,11 +698,25 @@ Watchers emit `device.changed` on app install/removal (FSEvents on /Applications
 If the FERB extension is installed in a browser but no profile of it is paired (an unpaired install still says
 hello), FERB tells the owner — pairing the owner's real profiles waits for the §21 gate (`[gates] owner_profiles`),
 after which `ferb chat` offers to pair — and doesn't fall back to screenshots of that browser (build step 14a).
-Windows on other Spaces or in full screen are found (all windows, not just on-screen ones); to act, FERB activates the
-app, raises that exact window and waits for it to be on screen before any click.
-The owner stays where they are (owner report, 2026-10-01): FERB reads the app the owner is in from Accessibility's
-focused application (NSWorkspace's flag goes stale in the daemon), and after opening an app or acting with real input
-it activates that app again, which brings the owner back to their own desktop.
+Windows on other Spaces or in full screen are found (all windows, not just on-screen ones; when Accessibility lists
+none, the app's main / focused window — spike 18).
+**Input order, every app (owner decision 2026-10-01, spike 18):**
+1. Accessibility, with the app in the background: press buttons, set a text box's whole value, focus.
+2. Keystrokes posted to the app's own process (`CGEventPostToPid`), still in the background — typing, and keys such
+   as Escape or a shortcut. Typing is checked by reading the box back; a key, by whether the window changed. An app
+   whose keystrokes don't arrive is remembered (for the daemon's life) and goes to step 3.
+3. Last resort — clicks by position, and apps that ignore background keystrokes: bring the app forward **once per
+   stretch of work** (raise that exact window, wait for it to be on screen), keep it there while the task keeps
+   acting in it, and put the owner's app back once — when the task moves to another app or has done nothing there
+   for 3 s. While the app is forward, the owner's input wins (10.5).
+FERB reads the app the owner is in from Accessibility's focused application (NSWorkspace's flag goes stale in the
+daemon); opening an app (`mac.open`) takes the owner back to their own desktop at once.
+**Editing and sending (owner decision 2026-10-01, every app):** buttons over keystrokes, and whole values over
+cursor editing. Arrow keys while a text box has focus are refused ("set the whole value again instead"). Return /
+Enter in a text box is refused when the window has a Send button (press it instead) — and always in a communication
+app, where Return would send without the countdown or the contact check (10.3). After a send, the worker checks by
+reading the chat, never by sending again: a second send to the same contact (or the same recipients) in one task
+needs the owner's OK, with both texts shown.
 The image with the tree (owner request, 2026-10-01): with the `screen` scope, `mac.snapshot` also returns an image of
 that one window with each control's box outlined and numbered ("12" = element s<gen>e12), drawn in memory before
 encoding, so the model acts on what it sees. Same rules as `mac.screenshot`: excluded apps and windows showing a
@@ -1028,6 +1044,11 @@ snapshots of that app / tab showed (the last 10 each, in memory only) and checks
   private marker, so unmarked events are the owner (the system idle timer can't be used — FERB's own input resets
   it). GUI actions are made of small steps (one keystroke / one mouse event) and check before each; they yield
   within one step and resume only after a quiet period (default 1.5 s). A yielded action reports where it stopped.
+- While FERB has an app forward (9.4 step 3), a second, filtering tap is on: the owner's first key press or click is
+  held back (never delivered to FERB's app), FERB puts the owner's app back at once, waits until they've been quiet
+  for the quiet period, brings its app forward again and carries on. Mouse movement alone isn't held back; it just
+  makes FERB step aside. The filtering tap is off outside those windows. Background input (9.4 steps 1–2) doesn't
+  pause for the owner — it never reaches what they're typing in.
 
 ### 10.6 Sanitization pipeline (`sanitize/redact.py`)
 
@@ -1294,6 +1315,9 @@ Build step 11 specifics (owner decisions):
     existing event tap (hold Right Option to talk, release to send; taps under ~0.3 s ignored; another key pressed while
     it's down = a shortcut, the recording discarded); and whether permissions survive a rebuild ad-hoc signed vs signed
     with a local self-signed certificate (created only if needed — owner approved).
+18. Background input (owner-added 2026-10-01): can FERB act in an app that stays in the background — (a) Accessibility:
+    set a text box's value and press buttons; (b) keystrokes posted to the app's process (`CGEventPostToPid`) — tested
+    in WhatsApp (draft-only: the New Chat search box, never a chat, never Send) and TextEdit.
 
 ## 18. Build order inside Block 1
 
@@ -1483,6 +1507,19 @@ nothing in Block 1 blocks it.
     with a local self-signed certificate ("FERB Local Code Signing", login Keychain, created with the owner's approval)
     the designated requirement is the bundle id + certificate leaf, and permissions survived a rebuild with a new CDHash.
     FERB.app is signed with that certificate.
+- **Spike 18 results (2026-10-01, background input):** with WhatsApp on another desktop and the owner's app in front
+  the whole time (checked after every step):
+  - Accessibility reads the window even when `AXWindows` is empty (WhatsApp on another Space lists none):
+    `AXMainWindow` / `AXFocusedWindow` give it. Button presses work in the background (a tab, New Chat; the app's
+    "Open main window" menu item reopened a closed window without coming forward).
+  - (a) Setting a text box's value through Accessibility worked, and WhatsApp reacted (its search filtered to "No
+    results found", seen in a capture of its window). (b) Keystrokes posted to its process worked the same way, after
+    focusing the box through Accessibility. TextEdit: both worked too (its autocorrect capitalized the posted text).
+  - The front app never changed, in either app.
+  - Caution: Escape posted to WhatsApp closed its whole window, not the panel — a background key can do more than
+    intended, so keys are checked by what changed, and closing things is done by pressing their button.
+  - Not tested, on purpose: pressing WhatsApp's Send button (it would send a real message from the owner's account);
+    it's an ordinary Accessibility press like the ones that worked.
 
 ### 20.1 Push-to-talk (Unit 4, owner decisions 2026-10-01)
 
@@ -1508,6 +1545,9 @@ nothing in Block 1 blocks it.
   session — same journal, continuity and every policy rule as typed chat. Replies to voice requests are always spoken
   (`say` now, swappable), and also appear in `ferb logs`. While FERB is waiting on a question, a spoken "yes", "no" or
   a number answers the oldest one.
+- **Sounds (owner decision 2026-10-01):** the start sound plays only once a hold passes 0.3 s (a tap or a Right Option
+  shortcut makes no sound); `[voice] sounds = false` turns both sounds off. Turning push-to-talk off also stops FERB
+  speaking replies to voice requests still running.
 - **Setup / doctor:** `ferb setup --voice` builds, signs and installs FERB.app, records the signature requirement,
   asks for Microphone and Speech Recognition once, and turns `[voice] push_to_talk` on; the daemon opens FERB.app at
   start when push-to-talk is on. `ferb doctor` reports whether FERB.app is connected and its permissions.
