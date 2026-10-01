@@ -163,6 +163,8 @@ class MacMenu(_Base):
         items = self._items(args)
         if not items:
             return ActionSpec(Kind.READ, Target(site=self._bundle(args)))
+        if self.reader_ok(args):                 # File > Search, View > …: opens something — navigation
+            return ActionSpec(Kind.NAVIGATE, Target(site=self._bundle(args)))
         return ActionSpec(call_or_send(items[-1]) or Kind.MAC_INPUT, Target(site=self._bundle(args)))
 
     def reader_ok(self, args: BaseModel) -> bool:
@@ -263,6 +265,8 @@ class MacAct(_Base):
             label = self.driver.node(self._bundle(args), str(getattr(args, "element"))).label
         except Exception:
             return Kind.MAC_INPUT
+        if self.reader_ok(args):                 # opening a chat / link / tab to read it: navigation (2026-10-01)
+            return Kind.NAVIGATE
         return call_or_send(label) or Kind.MAC_INPUT
 
     def locks(self, args: BaseModel) -> list[str]:

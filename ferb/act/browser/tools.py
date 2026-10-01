@@ -332,7 +332,9 @@ class BrowserAct(_Base):
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
         if kind in (Kind.FILL_FORM, Kind.SUBMIT) and security_page(self.driver.tab_url(str(getattr(args, "tab", "")))):
-            kind = Kind.ACCOUNT_SECURITY                                 # always asks, every time (10.3)
+            kind = Kind.ACCOUNT_SECURITY                                 # always asks, every time (10.3) — first
+        elif kind == Kind.SUBMIT and self.reader_ok(args):   # opening an email row / tab / harmless link: navigation
+            kind = Kind.NAVIGATE                               # (owner's run 2026-10-01: "submit was not requested")
         return self._spec(kind, args, content=text if action in ("type", "select") else None)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:

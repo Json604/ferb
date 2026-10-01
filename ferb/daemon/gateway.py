@@ -130,8 +130,10 @@ class Gateway:
             return reply({"error": why}, True)
 
         spec = cap.describe(args)
-        reader_click = (hasattr(cap, "reader_ok") and cap.reader_ok(args)) \
-            or self._reader_types_own_words(name, args, rec.task.request_id)  # opening to read; searching their words
+        types_own = rec.task.role == "reader" and self._reader_types_own_words(name, args, rec.task.request_id)
+        if types_own and spec.kind not in REVERSIBLE:      # a reader typing the owner's own words: a search, for the
+            spec = dataclasses.replace(spec, kind=Kind.SEARCH)     # intent check too (not "mac_input")
+        reader_click = (hasattr(cap, "reader_ok") and cap.reader_ok(args)) or types_own
         if rec.task.role == "reader" and spec.kind not in REVERSIBLE and not reader_click:   # readers read (7.4)
             why_not = f"blocked by FERB policy: a reader subtask can't {spec.kind}"
             if name == "mac.act":                         # say what a reader CAN do (owner's run: it gave up instead)

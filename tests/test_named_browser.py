@@ -231,6 +231,11 @@ def test_a_reader_may_open_a_chat_but_never_press_anything_consequential() -> No
     assert ok("s1e1") and ok("s1e6")
     assert not ok("s1e2") and not ok("s1e3") and not ok("s1e4") and not ok("s1e5")
     assert not tool.reader_ok(tool.Input(app="WhatsApp", action="set_value", element="s1e1", text="x"))
+    from ferb.policy.rules import Kind
+    kind = lambda el: tool._kind(tool.Input(app="WhatsApp", action="press", element=el))   # noqa: E731
+    assert kind("s1e1") == Kind.NAVIGATE and kind("s1e6") == Kind.NAVIGATE    # opening a chat / link: navigation
+    assert kind("s1e2") == Kind.MAC_INPUT and kind("s1e4") == Kind.MAC_INPUT  # delete / unlabeled: input
+    assert kind("s1e3") == Kind.SEND and kind("s1e5") == Kind.CALL
 
 
 def test_mac_menu_reads_freely_and_presses_only_harmless_items_for_readers() -> None:
@@ -306,3 +311,55 @@ def test_a_reader_may_open_an_email_row_but_never_submit_on_a_page() -> None:
     assert tool.reader_ok(A("row")) and tool.reader_ok(A("link"))
     assert not tool.reader_ok(A("send")) and not tool.reader_ok(A("archive")) and not tool.reader_ok(A("submitbtn"))
     assert not tool.reader_ok(A("field")) and not tool.reader_ok(A("row", action="type"))
+
+
+def test_click_to_read_is_navigation_and_a_reader_searching_their_words_is_a_search(daemon: RunningDaemon) -> None:
+    """Owner's run: after readers were allowed to click to read, the click was still a "submit", so the request's
+    intent (a reading request) blocked it. Click-to-read is navigation; a reader typing the owner's own words is a
+    search — both pass a reading request's intent; a real submit / unrelated typing still don't."""
+    import dataclasses
+
+    from ferb.act.browser.tools import BrowserAct
+    from ferb.core.types import Identity, PageElement
+    from ferb.policy.intent import RequestIntent
+    from ferb.policy.rules import Kind
+    from tests.test_gateway import FakeCap, setup
+
+    row = PageElement("e1", "f0", "row", "Student Alert Computer Vision Course – Kaggle Assignment 2", None,
+                      (0, 0, 1, 1), True)
+    btn = PageElement("e2", "f0", "button", "Submit", None, (0, 0, 1, 1), True, form="other")
+    pick = {"e1": row, "e2": btn}
+
+    class Driver:
+        url = "https://mail.google.com/mail/u/0/#inbox"
+
+        def element_info(self, tab: str, el: str) -> PageElement:
+            return pick[el]
+
+        def tab_url(self, tab: str) -> str:
+            return self.url
+
+        def tab_profile(self, tab: str) -> None:
+            return None
+    tool = BrowserAct.__new__(BrowserAct)
+    tool.driver = Driver()                                                     # type: ignore[assignment]
+    tool.family = type("F", (), {"identity": Identity.OWNER})()                # type: ignore[assignment]
+    click = lambda el: tool.Input(tab="t1", element=el, action="click")        # noqa: E731
+    assert tool.describe(click("e1")).kind == Kind.NAVIGATE                    # opening the email: navigation
+    assert tool.describe(click("e2")).kind == Kind.SUBMIT                      # a real submit stays a submit
+    tool.driver.url = "https://myaccount.google.com/security"
+    assert tool.describe(click("e1")).kind == Kind.ACCOUNT_SECURITY            # security pages: always ask, first
+
+    class Typing(FakeCap):
+        class Input(FakeCap.Input):
+            action: str = "set_value"
+    typing = Typing("mac.act", Kind.MAC_INPUT, {"mac:read"})
+    grant, _ = setup(daemon, {"mac:read"}, RequestIntent.from_plan("req-1", {"summarize"}), [typing])   # type: ignore[list-item]
+    record = daemon.daemon.tasks.get("task-1")
+    assert record is not None
+    record.task = dataclasses.replace(record.task, role="reader")
+    daemon.daemon.gateway.request_words = lambda rid: "search my whatsapp for syllabus sheet"
+    ok = daemon.run(daemon.daemon.gateway.call(grant, "mac.act", {"text": "syllabus sheet"}))
+    assert not ok["is_error"], ok                                               # a search, allowed
+    no = daemon.run(daemon.daemon.gateway.call(grant, "mac.act", {"text": "transfer money"}))
+    assert no["is_error"]                                                       # not their words: still refused
