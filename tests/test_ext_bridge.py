@@ -150,7 +150,7 @@ async def _issue(d: RunningDaemon, name: str) -> str:
 
 def test_ferbs_identity_profile_is_never_paired_or_routed_as_owner(bd: Any) -> None:
     d, launched = bd
-    with pytest.raises(Exception, match="FERB's identity profile"):
+    with pytest.raises(Exception, match="FERB's own profile"):
         Client(d.sock).call("browsers.pair", {"profile": "FERB"})
     g = task(d, "f", OWNER, {"research"})
     r = call(d, g, "browser.open", url="https://example.com/", profile="FERB")
