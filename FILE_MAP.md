@@ -242,10 +242,10 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 | File | What it is |
 |---|---|
-| `manifest.json` | MV3 manifest (version 0.6.6). |
-| `background.js` | Service worker: native messaging, pairing keys, tab control, debugger sessions, tab events. |
-| `content.js` | Page snapshot and element lookup, and the per-site account extractors. |
-| `protocol.js` | Message format (mirrors `ferb/act/browser/ext_protocol.py`). |
+| `manifest.json` | MV3 manifest (version 0.7.0, protocol 3). |
+| `background.js` | Service worker: native messaging, pairing keys, FERB's minimized window per profile, task tabs, the debugger session per task tab (trusted input, wheel scrolls, dialogs, uploads, screenshots), tab events. |
+| `content.js` | Viewport-aware page snapshot (in_view, scrollers, shadow roots, iframe rects), element lookup, page-mode actions, and the per-site account extractors. |
+| `protocol.js` | Message format (mirrors `ferb/act/browser/ext_protocol.py`), the CDP allowlist, the key table. |
 | `pair.html`, `pair.js` | The blank pairing page: hands the one-time token to the service worker and closes. |
 
 ## `macapp/FERB/`: FERB.app (push-to-talk microphone and speech)
@@ -268,7 +268,8 @@ lists what each decided.
 | File | What it is |
 |---|---|
 | `conftest.py` | Fixtures: a real daemon (`RunningDaemon`) in a temporary home folder, with fake runtimes and clocks. |
-| `fake_extension.py` | A fake extension speaking the real protocol through the real native host. |
+| `fake_extension.py` | A fake extension speaking the real protocol through the real native host (models FERB's window, debugger attach / Cancel, dialogs, pings). |
+| `chromelab.py` | A throwaway lab Chrome (own data dir, pipe-driven only to load the unpacked extension), its native-host wiring, and a frontmost-app watcher for real browser tests. |
 | `browserkit.py` | Shared browser-test kit (temporary keychain, fake inbox feed). |
 | `probe_window.py` | A throwaway window for the real screenshot-and-click tests. |
 | `test_*.py` | Offline tests, one file per area (policy, gateway, supervisor, time, spelling, …). |

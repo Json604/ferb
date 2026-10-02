@@ -3,6 +3,8 @@
 ext -> daemon: `{install_id, type, body_json, seq?, mac?}`. Once paired, every message carries a strictly
 increasing `seq` and `mac` = base64 HMAC-SHA256(key, "install_id|seq|type|body_json") (section 9.6).
 daemon -> ext: `{type: "cmd", id, gen, op, args, timeout_ms}` for commands; `paired` / `refused` for control.
+Protocol 3 (extension 0.7.0): FERB's own minimized window, a debugger session per task tab, `event` messages
+(dialogs, a detached debugger), container scrolls, uploads, chunked screenshots.
 """
 
 import base64
@@ -13,14 +15,27 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
+MIN_EXTENSION_VERSION = "0.7.0"                # older extensions are refused at hello (reload the unpacked one)
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
-ExtType = Literal["hello", "pair", "result", "error", "tab_event"]
-Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "attach_debugger",
-             "detach_debugger", "cdp", "account", "wake_close", "frame_origin", "fill",
-             "read_source", "window_password", "scroll", "find"]
+ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
+Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
+             "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
+             "upload", "ping"]
+
+
+def version_tuple(v: str) -> tuple[int, ...]:
+    out = []
+    for part in v.split("."):
+        digits = "".join(ch for ch in part if ch.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out)
+
+
+def version_ok(v: str, minimum: str = MIN_EXTENSION_VERSION) -> bool:
+    return version_tuple(v) >= version_tuple(minimum)
 
 
 class ExtMessage(BaseModel):
@@ -61,6 +76,17 @@ class TabEvent(BaseModel):
     title: str | None = None
     active: bool | None = None
     incognito: bool | None = None
+
+
+class Event(BaseModel):
+    """Something that happened to a task tab without a command asking: a JS dialog the extension answered, or the
+    debugger leaving the tab (the owner pressed Cancel on the infobar, or the tab closed)."""
+    event: Literal["dialog", "detached"]
+    tab_id: int
+    type: str | None = None                    # dialog: alert | confirm | prompt | beforeunload
+    message: str | None = None
+    handled: str | None = None                 # dialog: accepted | dismissed
+    reason: str | None = None                  # detached: canceled_by_user | target_closed | ...
 
 
 def mac_text(install_id: str, seq: int, mtype: str, body_json: str) -> bytes:

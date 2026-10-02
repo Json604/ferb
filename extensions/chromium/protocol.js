@@ -1,26 +1,65 @@
 // FERB extension protocol (ARCHITECTURE.md 9.4), mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 2;
+const FERB_PROTOCOL = 3;
 const FERB_HOST = "com.ferb.native_host";
+
+// Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
+// the renderer interprets a shortcut like ⌘A only through these (PLATFORM_BROWSER.md 2.4, probe S7). Anything
+// else in `commands` is refused by the allowlist below.
+const EDIT_COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "redo", "deleteBackward", "deleteForward",
+  "deleteWordBackward", "deleteWordForward", "deleteToBeginningOfLine", "deleteToEndOfLine",
+  "moveLeft", "moveRight", "moveUp", "moveDown", "moveWordLeft", "moveWordRight",
+  "moveToBeginningOfLine", "moveToEndOfLine", "moveToBeginningOfDocument", "moveToEndOfDocument",
+  "moveToBeginningOfLineAndModifySelection", "moveToEndOfLineAndModifySelection",
+  "moveWordLeftAndModifySelection", "moveWordRightAndModifySelection",
+  "moveLeftAndModifySelection", "moveRightAndModifySelection", "moveUpAndModifySelection", "moveDownAndModifySelection",
+  "moveToBeginningOfDocumentAndModifySelection", "moveToEndOfDocumentAndModifySelection",
+  "insertNewline", "insertTab", "cancelOperation"]);
 
 // The exact CDP allowlist, enforced here even if the daemon asks for more (9.4). Each entry checks the params
 // shape; anything not listed is refused: cookies/storage, other targets, free-form script evaluation.
+// Every method is used by background.js; the comment says where and why (PLATFORM_BROWSER.md section 13).
 const CDP_ALLOW = {
+  // 13.2: the per-tab session setup, in this order, right after chrome.debugger.attach.
+  "Page.enable": (p) => Object.keys(p).length === 0,                      // dialog events (2.6)
+  "Emulation.setFocusEmulationEnabled": (p) => typeof p.enabled === "boolean",   // input lands only with it (2.2)
+  "Target.setAutoAttach": (p) => p.autoAttach === true && p.waitForDebuggerOnStart === false && p.flatten === true
+    && Object.keys(p).length === 3,                                         // OOPIFs through the tab session (2.5);
+                                                                            // the only Target.* call ever allowed
+  "Emulation.setDeviceMetricsOverride": (p) => p.width === 1280 && p.height === 900 && p.deviceScaleFactor === 1
+    && p.mobile === false && Object.keys(p).length === 4,                   // layout independent of the window (2.8)
+  // 13.4 / 13.6: trusted input. Coordinates are CSS px of the top viewport (2.3).
   "Input.dispatchMouseEvent": (p) => ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"].includes(p.type)
-    && Number.isFinite(p.x) && Number.isFinite(p.y),
-  "Input.dispatchKeyEvent": (p) => ["keyDown", "keyUp", "rawKeyDown", "char"].includes(p.type),
+    && Number.isFinite(p.x) && Number.isFinite(p.y)
+    && (p.button === undefined || ["none", "left", "middle", "right"].includes(p.button))
+    && (p.modifiers === undefined || (Number.isInteger(p.modifiers) && p.modifiers >= 0 && p.modifiers <= 15))
+    && (p.clickCount === undefined || [0, 1, 2, 3].includes(p.clickCount))
+    && (p.deltaX === undefined || Number.isFinite(p.deltaX)) && (p.deltaY === undefined || Number.isFinite(p.deltaY)),
+  "Input.dispatchKeyEvent": (p) => ["keyDown", "keyUp", "rawKeyDown", "char"].includes(p.type)
+    && (p.modifiers === undefined || (Number.isInteger(p.modifiers) && p.modifiers >= 0 && p.modifiers <= 15))
+    && (p.commands === undefined || (Array.isArray(p.commands) && p.commands.every((c) => EDIT_COMMANDS.has(c)))),
   "Input.insertText": (p) => typeof p.text === "string",
-  "Emulation.setFocusEmulationEnabled": (p) => typeof p.enabled === "boolean",
-  "Page.captureScreenshot": (p) => !p.format || ["png", "jpeg"].includes(p.format),
-  "Page.getFrameTree": () => true,
-  "DOM.getDocument": (p) => p.depth === undefined || p.depth <= 2,
-  "Accessibility.getFullAXTree": () => true,
+  // 13.5: dialogs are owned by the extension (2.6); accept only when the act declared it.
+  "Page.handleJavaScriptDialog": (p) => typeof p.accept === "boolean"
+    && (p.promptText === undefined || typeof p.promptText === "string"),
+  // 13.3: screenshot on request (2.7); jpeg so it fits the 1 MB native-messaging line.
+  "Page.captureScreenshot": (p) => (!p.format || ["png", "jpeg"].includes(p.format))
+    && (p.quality === undefined || (Number.isInteger(p.quality) && p.quality >= 1 && p.quality <= 100)),
+  // 13.3: the AX fallback for canvas / ARIA pages (2.9), with rects per node.
+  "Accessibility.getFullAXTree": (p) => p.depth === undefined || (Number.isInteger(p.depth) && p.depth > 0),
+  "DOM.getBoxModel": (p) => Number.isInteger(p.backendNodeId) && Object.keys(p).length === 1,
+  // 13.7: file uploads on a FERB-stamped element (2.8). depth 0 = the document node only, never the DOM.
+  "DOM.getDocument": (p) => p.depth === 0 && Object.keys(p).length === 1,
+  "DOM.querySelector": (p) => Number.isInteger(p.nodeId) && /^\[data-ferb-node="[a-f0-9]{16}"\]$/.test(p.selector),
+  "DOM.setFileInputFiles": (p) => Number.isInteger(p.nodeId) && Array.isArray(p.files)
+    && p.files.every((f) => typeof f === "string" && f.startsWith("/")),
 };
-const CDP_RETURN_FIELDS = {                 // filtered return fields (only these keys reach the daemon)
+const CDP_RETURN_FIELDS = {                 // filtered return fields (only these keys leave the sendCommand wrapper)
   "Page.captureScreenshot": ["data"],
-  "Page.getFrameTree": ["frameTree"],
-  "DOM.getDocument": ["root"],
   "Accessibility.getFullAXTree": ["nodes"],
+  "DOM.getBoxModel": ["model"],
+  "DOM.getDocument": ["root"],
+  "DOM.querySelector": ["nodeId"],
 };
 
 function cdpAllowed(method, params) {
@@ -35,6 +74,78 @@ function cdpFilter(method, result) {
   const out = {};
   for (const k of keep) if (result && k in result) out[k] = result[k];
   return out;
+}
+
+// ---------- keys (13.6): a press like "Enter", "cmd+a", "shift+Tab" -> Input.dispatchKeyEvent params ----------
+// Modifiers bitmask: Alt 1, Ctrl 2, Meta/Cmd 4, Shift 8 (CDP Input domain). Printables carry `text` so the
+// renderer inserts the character; mac editing shortcuts carry `commands` (probe S7: ⌘A selects only with it).
+const MOD_BITS = { alt: 1, opt: 1, option: 1, ctrl: 2, control: 2, meta: 4, cmd: 4, command: 4, shift: 8 };
+const NAMED_KEYS = {   // key -> [code, windowsVirtualKeyCode, text]
+  Enter: ["Enter", 13, "\r"], Tab: ["Tab", 9], Escape: ["Escape", 27], Backspace: ["Backspace", 8],
+  Delete: ["Delete", 46], Space: ["Space", 32, " "], ArrowDown: ["ArrowDown", 40], ArrowUp: ["ArrowUp", 38],
+  ArrowLeft: ["ArrowLeft", 37], ArrowRight: ["ArrowRight", 39], Home: ["Home", 36], End: ["End", 35],
+  PageUp: ["PageUp", 33], PageDown: ["PageDown", 34], Insert: ["Insert", 45],
+  F1: ["F1", 112], F2: ["F2", 113], F3: ["F3", 114], F4: ["F4", 115], F5: ["F5", 116], F6: ["F6", 117],
+  F7: ["F7", 118], F8: ["F8", 119], F9: ["F9", 120], F10: ["F10", 121], F11: ["F11", 122], F12: ["F12", 123],
+};
+const KEY_ALIASES = { enter: "Enter", return: "Enter", tab: "Tab", esc: "Escape", escape: "Escape",
+  backspace: "Backspace", delete: "Delete", del: "Delete", space: "Space", spacebar: "Space",
+  down: "ArrowDown", up: "ArrowUp", left: "ArrowLeft", right: "ArrowRight", arrowdown: "ArrowDown",
+  arrowup: "ArrowUp", arrowleft: "ArrowLeft", arrowright: "ArrowRight", home: "Home", end: "End",
+  pageup: "PageUp", pagedown: "PageDown", insert: "Insert" };
+const PUNCT = { "-": ["Minus", 189], "=": ["Equal", 187], ",": ["Comma", 188], ".": ["Period", 190],
+  "/": ["Slash", 191], ";": ["Semicolon", 186], "'": ["Quote", 222], "[": ["BracketLeft", 219],
+  "]": ["BracketRight", 221], "\\": ["Backslash", 220], "`": ["Backquote", 192] };
+const SHIFTED = { "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
+  "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'", "<": ",", ">": ".", "?": "/", "~": "`" };
+// mac editing commands by "modifiers+key" (Blink editor command names; matched case-insensitively by Blink).
+const MAC_COMMANDS = {
+  "4+a": ["selectAll"], "4+c": ["copy"], "4+x": ["cut"], "4+v": ["paste"], "4+z": ["undo"], "12+z": ["redo"],
+  "0+Backspace": ["deleteBackward"], "0+Delete": ["deleteForward"], "1+Backspace": ["deleteWordBackward"],
+  "1+Delete": ["deleteWordForward"], "4+Backspace": ["deleteToBeginningOfLine"], "4+Delete": ["deleteToEndOfLine"],
+  "0+ArrowLeft": ["moveLeft"], "0+ArrowRight": ["moveRight"], "0+ArrowUp": ["moveUp"], "0+ArrowDown": ["moveDown"],
+  "1+ArrowLeft": ["moveWordLeft"], "1+ArrowRight": ["moveWordRight"],
+  "4+ArrowLeft": ["moveToBeginningOfLine"], "4+ArrowRight": ["moveToEndOfLine"],
+  "4+ArrowUp": ["moveToBeginningOfDocument"], "4+ArrowDown": ["moveToEndOfDocument"],
+  "8+ArrowLeft": ["moveLeftAndModifySelection"], "8+ArrowRight": ["moveRightAndModifySelection"],
+  "8+ArrowUp": ["moveUpAndModifySelection"], "8+ArrowDown": ["moveDownAndModifySelection"],
+  "9+ArrowLeft": ["moveWordLeftAndModifySelection"], "9+ArrowRight": ["moveWordRightAndModifySelection"],
+  "12+ArrowLeft": ["moveToBeginningOfLineAndModifySelection"], "12+ArrowRight": ["moveToEndOfLineAndModifySelection"],
+  "12+ArrowUp": ["moveToBeginningOfDocumentAndModifySelection"], "12+ArrowDown": ["moveToEndOfDocumentAndModifySelection"],
+  "0+Escape": ["cancelOperation"],
+};
+
+// "cmd+shift+a" -> { key, code, keyCode, text, modifiers, commands } or null when the key isn't known.
+function keyEvent(spec) {
+  if (spec === " ") spec = "Space";
+  const parts = String(spec || "").trim().split("+").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  let modifiers = 0, raw = parts[parts.length - 1];
+  for (const m of parts.slice(0, -1)) {
+    const bit = MOD_BITS[m.toLowerCase()];
+    if (!bit) return null;
+    modifiers |= bit;
+  }
+  let key, code, keyCode, text;
+  const named = NAMED_KEYS[raw] ? raw : KEY_ALIASES[raw.toLowerCase()];
+  if (named) {
+    [code, keyCode, text] = NAMED_KEYS[named];
+    key = named === "Space" ? " " : named;
+  } else if (raw.length === 1) {
+    let ch = raw;
+    if (SHIFTED[ch]) { modifiers |= 8; ch = SHIFTED[ch]; }
+    else if (/[A-Z]/.test(ch)) { modifiers |= 8; ch = ch.toLowerCase(); }
+    if (/[a-z]/.test(ch)) { code = "Key" + ch.toUpperCase(); keyCode = ch.toUpperCase().charCodeAt(0); }
+    else if (/[0-9]/.test(ch)) { code = "Digit" + ch; keyCode = ch.charCodeAt(0); }
+    else if (PUNCT[ch]) [code, keyCode] = PUNCT[ch];
+    else if (ch === " ") { code = "Space"; keyCode = 32; }
+    else return null;
+    key = modifiers & 8 && /[a-z]/.test(ch) ? ch.toUpperCase() : raw;
+    text = (modifiers & ~8) ? undefined : raw;           // ⌘/⌃/⌥ + key inserts nothing
+  } else return null;
+  if (text !== undefined && (modifiers & ~8)) text = undefined;
+  const commands = MAC_COMMANDS[`${modifiers}+${named || key.toLowerCase()}`] || MAC_COMMANDS[`${modifiers}+${named || key}`];
+  return { key, code, keyCode, text, modifiers, commands: commands ? commands.slice() : undefined };
 }
 
 // Sealed secrets (10.1): AES-GCM, key = HKDF-SHA256(pairing key, label "ferb seal v1"), AAD "<command id>|<origin>".
@@ -63,8 +174,9 @@ async function unseal(pairingKeyB64, sealed, commandId, origin) {
 
 const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page read_source may return
 
-const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "attach_debugger",
-             "detach_debugger", "cdp", "account", "wake_close", "frame_origin", "fill", "read_source",
-             "window_password", "scroll", "find"];
+const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
+             "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
+             "upload", "ping"];
 
-if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal, FEED_URL };
+if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
+                                                      FEED_URL, keyEvent, EDIT_COMMANDS };

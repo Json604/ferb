@@ -1530,7 +1530,7 @@ class Daemon:
         if current is not None and not params.get("confirm"):
             raise FerbError("FERB's identity profile is already paired; re-pairing needs your confirmation")
         before = self.hub.bridges.get(prof) if self.hub else None
-        gen0 = before.gen if before is not None else 0
+        hellos0 = before.hellos if before is not None else 0
         token = self.pairings.issue_token(prof[0], prof[1], Identity.FERB)
         wake = await self._open_pairing(prof[0], prof[1], token)
         end = self.clock.monotonic() + float(params.get("timeout_s", 60))
@@ -1540,7 +1540,7 @@ class Daemon:
             # its own token and a connection attached after it (not a changed binding: re-pairing the same install
             # gives an identical one, and its bridge may still hold the connection from before)
             if token in self.pairings.paired and b is not None and b.identity is Identity.FERB and br is not None \
-                    and br.conn and (br is not before or br.gen > gen0):
+                    and br.conn and (br is not before or br.hellos > hellos0):
                 await self._close_wake(br, wake)
                 self._attach_identity_if_paired()
                 return {"paired": True, "profile": prof[1]}

@@ -14,6 +14,7 @@
 
 import asyncio
 import json
+import os
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,7 +22,8 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from ferb.act.browser import accounts
-from ferb.act.browser.ext_protocol import PROTOCOL_VERSION, Hello, Op, Result, TabEvent, command, parse
+from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, Event, Hello, Op, Result, TabEvent,
+                                           command, parse, version_ok)
 from ferb.act.browser.pairing import Binding, Pairings
 from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
 from ferb.act.browser.resolver import NeedsOwner, Resolver
@@ -38,6 +40,8 @@ from ferb.orchestrator.ledger import Ledger
 Publish = Callable[[str, dict[str, Any]], None]
 CMD_TIMEOUT_S, WAKE_TIMEOUT_S = 30.0, 20.0
 WINDOWLESS_WAIT_S = 8.0          # a profile loaded with no window: its extension connects by then (spike 19)
+KEEPALIVE_S = 15.0               # while a task tab is open: a ping keeps the MV3 worker awake (idle limit 30 s, 1.1)
+TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "press"})   # real input by default
 
 
 class OutcomeUnknown(DriverError):
@@ -68,6 +72,11 @@ class Bridge:
     tabs: dict[int, tuple[str, bool]] = field(default_factory=dict)   # chrome tab id -> (host, active)
     navs: dict[int, int] = field(default_factory=dict)      # chrome tab id -> loads seen (stale-ref detection)
     connected: asyncio.Event = field(default_factory=asyncio.Event)
+    detached: dict[int, str] = field(default_factory=dict)  # chrome tab id -> why the debugger left (Cancel, ...)
+    account_cache: dict[str, str] = field(default_factory=dict)   # site -> account seen signed in (this connection)
+    holds: int = 0                                           # task tabs open on this bridge (keepalive while > 0)
+    hellos: int = 0                                          # hellos attached so far (pairing waits for a new one)
+    _keepalive: "asyncio.Task[None] | None" = None
 
     @property
     def name(self) -> str:
@@ -86,6 +95,7 @@ class Bridge:
         try:
             r = await asyncio.wait_for(fut, timeout + 5)
         except asyncio.TimeoutError:
+            self.lost.add(cid)                            # the next hello's seen / owned ids settle it (never resent)
             raise OutcomeUnknown(f"{op} timed out in {self.name}") from None
         finally:
             self.pending.pop(cid, None)
@@ -98,23 +108,55 @@ class Bridge:
         raise DriverError(r.error or f"{op} failed")
 
     def attach(self, conn: _Conn, hello: Hello) -> None:
+        self.hellos += 1
+        if conn is self.conn:                            # a second hello on the same connection (e.g. right after
+            conn.bridge, self.version = self, hello.version   # pairing): same generation, in-flight commands stay
+            self._reconcile(hello)
+            return
         self.gen += 1
         conn.gen, conn.bridge = self.gen, self
         old, self.conn, self.version = self.conn, conn, hello.version
-        if old is not None and old is not conn:
+        self.detached.clear()
+        self.account_cache.clear()
+        if old is not None:
             self.drop(old)
         self._reconcile(hello)
         self.connected.set()
+        self._keep()
 
     def drop(self, conn: _Conn) -> None:
         if self.conn is conn:
             self.conn = None
             self.connected.clear()
+            if self._keepalive is not None:
+                self._keepalive.cancel()
         for cid, fut in list(self.pending.items()):
             if not fut.done():
                 self.lost.add(cid)
                 fut.set_exception(OutcomeUnknown(f"{self.name} disconnected mid-command; outcome unknown"))
         self.pending.clear()
+
+    def hold(self) -> None:
+        """A task tab is open here: keep the extension's worker awake until the last one closes."""
+        self.holds += 1
+        self._keep()
+
+    def unhold(self) -> None:
+        self.holds = max(0, self.holds - 1)
+        if self.holds == 0 and self._keepalive is not None:
+            self._keepalive.cancel()
+
+    def _keep(self) -> None:
+        if self.holds > 0 and self.conn is not None and (self._keepalive is None or self._keepalive.done()):
+            self._keepalive = asyncio.get_running_loop().create_task(self._keepalive_loop())
+
+    async def _keepalive_loop(self) -> None:
+        while self.holds > 0 and self.conn is not None:
+            try:
+                await self.call("ping", {}, timeout=5)
+            except (DriverError, OSError):                # a dropped connection: the next hello restarts the loop
+                pass
+            await asyncio.sleep(KEEPALIVE_S)
 
     def _reconcile(self, hello: Hello) -> None:
         seen = {s.get("id"): s.get("status") for s in hello.seen}
@@ -217,8 +259,9 @@ class Hub:
                 hello = Hello.model_validate(body)
             except ValueError:
                 return
-            if hello.protocol != PROTOCOL_VERSION:
-                why = f"extension protocol {hello.protocol}, FERB {PROTOCOL_VERSION}: reload the FERB extension"
+            if hello.protocol != PROTOCOL_VERSION or not version_ok(hello.version):
+                why = (f"extension {hello.version} (protocol {hello.protocol}), FERB needs {MIN_EXTENSION_VERSION} "
+                       f"(protocol {PROTOCOL_VERSION}): reload the FERB extension")
                 self.refused[m.install_id] = why
                 conn.writer.write(json.dumps({"type": "refused", "reason": why}).encode() + b"\n")
                 await conn.writer.drain()
@@ -245,6 +288,19 @@ class Hub:
             fut = br.pending.get(r.id)
             if fut is not None and not fut.done() and r.gen == conn.gen:
                 fut.set_result(r)
+        elif m.type == "event":
+            try:
+                ev = Event.model_validate(body)
+            except ValueError:
+                return
+            if ev.event == "detached":
+                br.detached[ev.tab_id] = ev.reason or "unknown"
+                self.publish("browser.debugger_detached", {"profile": br.name, "tab_id": ev.tab_id,
+                                                           "reason": ev.reason or "unknown",
+                                                           "by_owner": ev.reason == "canceled_by_user"})
+            else:
+                self.publish("browser.dialog", {"profile": br.name, "tab_id": ev.tab_id, "type": ev.type,
+                                                "message": (ev.message or "")[:300], "handled": ev.handled})
         elif m.type == "tab_event":
             try:
                 e = TabEvent.model_validate(body)
@@ -385,6 +441,7 @@ class _TabDriver:
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, str(v.get("url") or url))
+        br.hold()
         return ref
 
     def owner_of(self, br: Bridge, chrome_id: int) -> str | None:
@@ -400,14 +457,22 @@ class _TabDriver:
         return [t.ref for t in self._tabs.values()]
 
     async def close(self, tab: TabRef) -> None:
-        t = self._tabs.pop(tab.tab_id, None)
-        if t is not None and t.attached:
-            return                                            # the owner's tab: FERB lets go of it, never closes it
-        if t is not None and t.bridge.conn is not None:
-            try:
-                await t.bridge.call("close", {"tab_id": t.chrome_id}, timeout=10)
-            except DriverError:
-                pass
+        t = self._tabs.get(tab.tab_id)
+        if t is None:
+            return
+        if t.attached or t.bridge.conn is None or t.bridge.gen != tab.generation:
+            self._tabs.pop(tab.tab_id, None)                  # the owner's tab: FERB lets go of it, never closes it;
+            if not t.attached:                                # or a browser FERB can't reach any more
+                t.bridge.unhold()
+            return
+        try:
+            await t.bridge.call("close", {"tab_id": t.chrome_id}, timeout=10)
+        except OutcomeUnknown:
+            return                                            # not confirmed: still FERB's tab until the browser says
+        except DriverError:
+            pass                                              # a definite answer (e.g. no such tab): it's gone
+        self._tabs.pop(tab.tab_id, None)                      # forgotten only once Chrome confirmed
+        t.bridge.unhold()
 
     async def snapshot(self, tab: TabRef) -> PageSnapshot:
         t = self._tab(tab)
@@ -416,25 +481,73 @@ class _TabDriver:
         v = await t.bridge.call("snapshot", {"tab_id": t.chrome_id, "snap": gen}, timeout=30)
         elements: dict[str, tuple[int, int, int, PageElement]] = {}
         text, title, url, truncated = "", "", t.url, False
+        scroll: dict[str, Any] | None = None
+        scrollers: list[dict[str, Any]] = []
         for f in v["frames"]:
+            fid = int(f["frame_id"])
             for raw in f.get("elements", []):
                 eid = f"s{gen}e{len(elements) + 1}"
-                elements[eid] = (int(f["frame_id"]), gen, int(raw["id"]), page_element(eid, str(f["frame_id"]), raw))
-            if f["frame_id"] == 0:
+                elements[eid] = (fid, gen, int(raw["id"]), page_element(eid, str(fid), raw))
+            if fid == 0:
                 text, title, url = f.get("text", ""), f.get("title", ""), f.get("url", url)
                 truncated = bool(f.get("truncated"))
+                scroll = f.get("scroll") or None
+            for sc in f.get("scrollers", []):
+                scrollers.append({k: sc[k] for k in ("id", "label", "y", "height", "viewport_h", "at_end") if k in sc}
+                                 | ({"frame": fid} if fid else {}))
+        dialogs = [f"{d.get('type')}: {str(d.get('message') or '')[:200]} ({d.get('handled')})"
+                   for d in v.get("dialogs", []) if isinstance(d, dict)]
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
-        return PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated)
+        return PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
+                            scroll, scrollers)
 
     async def act(self, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
         if action.kind == "type" and info.secret:
             raise Refused("that's a password/code field; FERB never types into it")
-        v = await t.bridge.call("act", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
-                                        "kind": action.kind, "text": action.text, "trusted": action.trusted},
-                                timeout=30, cid=intent_id or None)
+        if action.kind == "upload":
+            return await self._upload(t, frame, snap, local, action.files, intent_id)
+        args: dict[str, Any] = {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
+                                "kind": action.kind, "text": action.text,
+                                # real (debugger-dispatched) input is the default (13.6); page events on request
+                                "page_mode": bool(action.page_mode and not action.trusted and action.kind in TRUSTED_KINDS)}
+        if action.expect_dialog:
+            args["expect_dialog"] = action.expect_dialog
+            if action.dialog_text is not None:
+                args["dialog_text"] = action.dialog_text
+        try:
+            v = await t.bridge.call("act", args, timeout=30, cid=intent_id or None)
+        except DriverError as e:
+            if str(e).startswith("detached:"):
+                raise OutcomeUnknown(self._detached_msg(str(e)[9:])) from None
+            raise
         if v.get("detail") == "stale":
             raise StaleRef(f"element {el.element_id} is gone; take a new snapshot")
+        return ActionResult(bool(v.get("ok")), str(v.get("detail", "")))
+
+    @staticmethod
+    def _detached_msg(reason: str) -> str:
+        if reason == "canceled_by_user":
+            return "the owner cancelled FERB's debugger on that tab mid-action; outcome unknown"
+        return f"the debugger left the tab mid-action ({reason}); outcome unknown"
+
+    async def _upload(self, t: _Tab, frame: int, snap: int, local: int, files: tuple[str, ...],
+                      intent_id: str) -> ActionResult:
+        paths = [os.path.abspath(os.path.expanduser(f)) for f in files]
+        if not paths:
+            raise Refused("upload needs at least one file path")
+        for p in paths:
+            if not os.path.isfile(p):
+                raise Refused(f"no such file to upload: {p}")
+        try:
+            v = await t.bridge.call("upload", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
+                                               "paths": paths}, timeout=30, cid=intent_id or None)
+        except DriverError as e:
+            if str(e).startswith("detached:"):
+                raise OutcomeUnknown(self._detached_msg(str(e)[9:])) from None
+            raise
+        if v.get("detail") == "stale":
+            raise StaleRef("the file field is gone; take a new snapshot")
         return ActionResult(bool(v.get("ok")), str(v.get("detail", "")))
 
     async def find(self, tab: TabRef, text: str) -> dict[str, Any]:
@@ -450,17 +563,31 @@ class _TabDriver:
         return {"matches": int(v.get("count", 0)), "lines_on_page": int(v.get("lines", 0)),
                 "examples": [str(x)[:160] for x in v.get("examples", [])][:20]}
 
-    async def scroll(self, tab: TabRef, direction: str) -> dict[str, Any]:
-        """Scroll the whole page about one screen; where it is now and whether it reached the end."""
+    async def scroll(self, tab: TabRef, direction: str, container: str | None = None) -> dict[str, Any]:
+        """Scroll the page, or one scroll container from the latest snapshot, about one screen (a real wheel event
+        at the scroller's centre); where that scroller is now and whether it reached the end."""
         t = self._tab(tab)
+        if container and not any(e.container == container for *_, e in t.elements.values()):
+            raise StaleRef(f"no container {container} in the latest snapshot")
+        args: dict[str, Any] = {"tab_id": t.chrome_id, "direction": direction}
+        if container:
+            args["container"] = container
         try:
-            v = await t.bridge.call("scroll", {"tab_id": t.chrome_id, "direction": direction}, timeout=10)
+            v = await t.bridge.call("scroll", args, timeout=15)
         except DriverError as e:
-            if "unknown op" in str(e):
-                raise Refused("the FERB extension in that browser is older than FERB: reload it (0.6.4 or later)") \
+            if str(e).startswith("detached:"):
+                raise OutcomeUnknown(self._detached_msg(str(e)[9:])) from None
+            if "unknown op" in str(e):                    # belt and braces: hello already refuses old extensions
+                raise Refused("the FERB extension in that browser is older than FERB: reload it (0.7.0 or later)") \
                     from None
             raise
-        return {"y": int(v.get("y", 0)), "page_height": int(v.get("height", 0)), "at_end": bool(v.get("at_end"))}
+        out: dict[str, Any] = {"y": int(v.get("y", 0)), "page_height": int(v.get("height", 0)),
+                               "at_end": bool(v.get("at_end"))}
+        if v.get("viewport_h") is not None:
+            out["viewport_h"] = int(v["viewport_h"])
+        if container:
+            out["container"] = container
+        return out
 
     async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool:
         t = self._tab(tab)
@@ -472,9 +599,17 @@ class _TabDriver:
         return bool(v.get("met"))
 
     async def screenshot(self, tab: TabRef) -> bytes:
+        """A jpeg of the tab (works minimized / in the background, 2.7), fetched in parts when one message would
+        come near the 1 MB native-messaging line."""
         import base64
         t = self._tab(tab)
-        return base64.b64decode((await t.bridge.call("screenshot", {"tab_id": t.chrome_id}))["data"])
+        v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id})
+        if "data" in v:
+            return base64.b64decode(v["data"])
+        parts = []
+        for i in range(int(v.get("parts", 0))):
+            parts.append(str((await t.bridge.call("screenshot_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
+        return base64.b64decode("".join(parts))
 
     def claim(self, tab: TabRef, owner: str) -> None:
         self._tab(tab).owner = owner
@@ -531,7 +666,8 @@ class _TabDriver:
 
     async def release(self, owner: str) -> None:
         for alias in [a for a, t in self._tabs.items() if t.owner == owner]:
-            await self.close(self._tabs[alias].ref)
+            if alias in self._tabs:
+                await self.close(self._tabs[alias].ref)
 
     async def shutdown(self) -> None:
         for alias in list(self._tabs):
@@ -600,6 +736,8 @@ class Router(_TabDriver):
                 continue                                              # the owner named another profile
             v = await br.call("list_tabs", {}, timeout=10)
             for t in v.get("tabs", []):
+                if t.get("ferb"):
+                    continue                                  # FERB's own minimized window: never the owner's
                 mine = next((x for x in self._tabs.values() if x.bridge is br and x.chrome_id == int(t["tab_id"])
                              and x.attached and task is not None and x.owner == task), None)
                 if mine is None and self.owner_of(br, int(t["tab_id"])) is not None:
@@ -664,17 +802,23 @@ class Router(_TabDriver):
             return                                            # can't be checked: policy asked once instead
         result = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=10)
         if result.get("account") == "signed_in_unknown" and host in accounts.ACCOUNT_PAGES:
-            helper = await self._open_in(t.bridge, accounts.ACCOUNT_PAGES[host], owner=None)
-            try:
-                h = self._tab(helper)
-                await t.bridge.call("wait", {"tab_id": h.chrome_id, "until": "text", "value": "Signed in as"},
-                                    timeout=10)
-                result = await t.bridge.call("account", {"tab_id": h.chrome_id}, timeout=10)
-            except DriverError:
-                pass                                          # still "unknown": refused below, never guessed
-            finally:
-                await self.close(helper)
+            cached = t.bridge.account_cache.get(host)         # the account page was read once this connection
+            if cached is not None:
+                result = {"supported": True, "account": cached}
+            else:
+                helper = await self._open_in(t.bridge, accounts.ACCOUNT_PAGES[host], owner=None)
+                try:
+                    h = self._tab(helper)
+                    await t.bridge.call("wait", {"tab_id": h.chrome_id, "until": "text", "value": "Signed in as"},
+                                        timeout=10)
+                    result = await t.bridge.call("account", {"tab_id": h.chrome_id}, timeout=10)
+                except DriverError:
+                    pass                                      # still "unknown": refused below, never guessed
+                finally:
+                    await self.close(helper)
         accounts.check(result, host, p.email, f"{tab.browser}/{p.display_name}")
+        if result.get("account") and result["account"] != "signed_in_unknown":
+            t.bridge.account_cache[host] = str(result["account"])   # a match: not re-read per action (a mismatch is)
 
     def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
         """(browser, folder, the profile's Chrome account) for the account-check decision in describe()."""

@@ -501,9 +501,10 @@ trail_retention_days = 30      # raw trail kept this long once each day is summa
 - Every bus event has a class. **Critical** (never dropped): `task.*`, `approval.*`, `device.changed`,
   `browser.profile_paired`, `timer.fired`, `memory.committed`. **Telemetry** (may be dropped under pressure):
   `tool.called`, `trail.event`, `browser.connected`, `browser.disconnected`, `browser.profiles_changed`,
-  `memory.proposed`. Also critical: `policy.blocked`, `worker.exposed`, `action.held` (undo countdown),
+  `browser.dialog` (a JS dialog the extension answered on a task tab), `memory.proposed`. Also critical: `policy.blocked`, `worker.exposed`, `action.held` (undo countdown),
   `action.released`, `action.undone`, `stop.engaged`, `stop.lifted`, `sense.paused`, `sense.resumed`,
-  `sense.watcher_failed`, `contact.selected` (who a call or message went to, step 16a), `plan.extended` (the
+  `sense.watcher_failed`, `contact.selected` (who a call or message went to, step 16a), `browser.debugger_detached`
+  (the owner pressed Cancel on the "started debugging" bar: the act in flight is unknown), `plan.extended` (the
   owner's yes to a route found while exploring), `voice.heard` / `voice.said` (push-to-talk: what the owner said, as
   recognized, and what FERB said back — shown live by `ferb voice`). Subscriber queues are bounded and the publisher never blocks: when a queue is full, the
   oldest telemetry is dropped and the subscriber is told how many; if a queue is full of critical events, that
