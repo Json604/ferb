@@ -422,3 +422,41 @@ def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
     if not rows:
         print("  (no schedules)", file=out)
     return 0
+
+
+def stats(home: Any, out: TextIO, days: int = 7) -> int:
+    """How FERB is really doing (audit 2026-10-02): task outcomes, the top tool-error reasons, model runs. Read
+    straight from the database, read-only, so it works whether or not the daemon runs."""
+    import sqlite3
+    from datetime import timedelta, timezone
+    from pathlib import Path as _P
+    db = _P(str(home)) / "ferb.db"
+    if not db.exists():
+        print(f"no database at {db}", file=out)
+        return 1
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        outcomes = c.execute("SELECT status, COUNT(*) FROM tasks WHERE parent_id IS NULL AND created_at >= ? "
+                             "GROUP BY status ORDER BY 2 DESC", (since,)).fetchall()
+        total = sum(n for _, n in outcomes)
+        done = next((n for s_, n in outcomes if s_ == "done"), 0)
+        print(f"Requests in the last {days} day(s): {total}" + (f" — done {done} ({100 * done // total}%)" if total else ""),
+              file=out)
+        for status, n in outcomes:
+            print(f"  {status:<12}{n}", file=out)
+        calls, errors = c.execute("SELECT COUNT(*), SUM(error IS NOT NULL) FROM spans WHERE kind = 'tool.call' "
+                                  "AND started_at >= ?", (since,)).fetchone()
+        print(f"Tool calls: {calls or 0}, errored: {errors or 0}", file=out)
+        for reason, n in c.execute("SELECT substr(error, 1, 90), COUNT(*) FROM spans WHERE kind = 'tool.call' AND "
+                                   "error IS NOT NULL AND started_at >= ? GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
+                                   (since,)):
+            print(f"  {n:>4}  {reason}", file=out)
+        runs = c.execute("SELECT kind, COUNT(*), ROUND(AVG((julianday(ended_at) - julianday(started_at)) * 86400), 1) "
+                         "FROM spans WHERE kind IN ('model.turn', 'worker') AND started_at >= ? GROUP BY kind",
+                         (since,)).fetchall()
+        for kind, n, avg in runs:
+            print(f"Model runs ({kind}): {n}, avg {avg or 0} s", file=out)
+    finally:
+        c.close()
+    return 0

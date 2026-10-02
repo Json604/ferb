@@ -116,3 +116,24 @@ def test_extension_wait_and_backoff_are_bounded() -> None:
 def test_worker_prompt_matches_the_gateway_on_approvals() -> None:
     md = Path("ferb/orchestrator/prompts/worker.md").read_text()
     assert "call the exact same tool again" in md and "wait for nothing" not in md
+
+
+def test_stats_reads_outcomes_and_errors_from_the_database(tmp_path: Path) -> None:
+    import io
+    from ferb.cli.admin import stats
+    from ferb.store.db import Database
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    now = "2099-01-01T00:00:00+00:00"
+    db.conn.execute("INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, created_at, "
+                    "updated_at) VALUES ('t1','t1','r','g','owner','mixed','[]','done',?,?)", (now, now))
+    db.conn.execute("INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, created_at, "
+                    "updated_at) VALUES ('t2','t2','r','g','owner','mixed','[]','failed',?,?)", (now, now))
+    db.conn.execute("INSERT INTO spans (id, kind, started_at, input_json, error) VALUES ('s1','tool.call',?,'{}',"
+                    "'blocked by FERB policy: x')", (now,))
+    db.conn.commit()
+    out = io.StringIO()
+    assert stats(tmp_path, out, days=36500) == 0
+    text = out.getvalue()
+    assert "done 1 (50%)" in text and "blocked by FERB policy: x" in text
+    assert stats(tmp_path / "nowhere", io.StringIO()) == 1
