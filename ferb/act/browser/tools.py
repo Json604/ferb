@@ -374,6 +374,10 @@ def act_kind(action: str, text: str | None, el: PageElement | None) -> str:
     if el is None:
         return Kind.CLICK                                 # unknown element: the driver refuses a stale id anyway
     search = el.form == "search"
+    if action == "hover":
+        return Kind.READ                                  # pointing at something changes nothing
+    if action == "upload" or el.input_type == "file":
+        return Kind.FILL_FORM                             # attaching a file fills a field; submitting is separate
     if action in ("type", "select"):
         return Kind.SEARCH if search else Kind.FILL_FORM
     if action == "press":

@@ -79,8 +79,10 @@ def test_debugger_attaches_on_the_first_action_and_stays_until_the_tab_closes(bd
     assert not r["is_error"] and "(trusted)" in r["content"]["detail"]           # real input by default
     assert cid in ext.attached and ext.attaches == 1
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "browser.act", tab=tab, element=snap["elements"][1]["id"], action="click")
-    assert not r["is_error"] and ext.attaches == 1                               # kept, not re-attached per action
+    r = call(d, g, "browser.act", tab=tab, element=snap["elements"][1]["id"], action="click", effect="send",
+             why="submitting the form the owner asked for")                      # a form's Submit is a send
+    assert not r["is_error"], r                                                   # kept, not re-attached per action
+    assert ext.attaches == 1
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     r = call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="type", text="B", page_mode=True)
     assert "(page events)" in r["content"]["detail"] and ext.acts[-1]["page_mode"] is True
@@ -96,7 +98,8 @@ def test_the_owners_cancel_on_the_debugger_bar_makes_the_act_in_flight_unknown(b
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     ext.hold = True
     fut = asyncio.run_coroutine_threadsafe(d.daemon.gateway.call(g, "browser.act", {"tab": tab, "element": snap["elements"][1]["id"],
-                                                                                    "action": "click"}), d.loop)
+                                                                                    "action": "click", "effect": "send",
+                                                                                    "why": "submitting the form"}), d.loop)
     ext.wait_for(lambda: any(m["op"] == "act" for m in ext.held))
     intent = next(m["id"] for m in ext.held if m["op"] == "act")
     ext.cancel_debugger(cid)                                                     # the owner pressed Cancel
@@ -167,7 +170,8 @@ def test_uploads_go_through_the_stamped_file_field_and_only_real_files(bd: Any, 
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     field = next(e["id"] for e in snap["elements"] if e.get("type") == "file")
     r = call(d, g, "browser.act", tab=tab, element=field, action="upload", files=[str(f)])
-    assert not r["is_error"] and ext.uploads[-1]["paths"] == [str(f)] and "1 file(s)" in r["content"]["detail"]
+    assert not r["is_error"], r
+    assert ext.uploads[-1]["paths"] == [str(f)] and "1 file(s)" in r["content"]["detail"]
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     field = next(e["id"] for e in snap["elements"] if e.get("type") == "file")
     r = call(d, g, "browser.act", tab=tab, element=field, action="upload", files=[str(tmp_path / "nope.pdf")])
