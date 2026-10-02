@@ -7,6 +7,7 @@ from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, Br
                                    BrowserFind, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    MailboxSend, OWNER_BROWSER)
+from ferb.act.ask import OwnerAsk
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.tools import (MacApps, MacAct, MacAppleScript, MacClick, MacMenu, MacOpen, MacScreenshot,
@@ -36,6 +37,7 @@ def build() -> Registry:
     r.add(FsWrite())
     r.add(FsEdit())
     r.add(FsTrash())
+    r.add(OwnerAsk())                 # a worker's question to the owner (every identity, no scopes)
     # runtimes — one line each (section 5 AgentRuntime); config chooses per role
     r.runtimes["codex"] = "ferb.runtimes.codex_exec"
     r.runtimes["claude"] = "ferb.runtimes.claude_sdk"

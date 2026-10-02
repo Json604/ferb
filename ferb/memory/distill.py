@@ -144,7 +144,7 @@ class Distiller:
         ctx = (f"Day: {day}\n\nEvidence (cite handles):\n" + "\n".join(ev.lines) +
                "\n\nWhat FERB already remembers (reuse a key to update a fact):\n" + ("\n".join(known) or "(nothing)"))
         rt = self.make_runtime("worker", mode="supervisor", tool_names=[], schema=DISTILL_SCHEMA)
-        task = Task(f"distill-{day}", None, "distill", self.device_id, Identity.OWNER, set(), "reader",
+        task = Task(f"distill-{day}", None, "distill", self.device_id, Identity.OWNER, set(), "verifier",
                     f"distill-{day}", [], None)
         run = await rt.start(task, PROMPT.read_text(), ctx, "")
         final = ""

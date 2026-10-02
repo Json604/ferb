@@ -1,5 +1,5 @@
-"""Policy (section 10): identity, intent, exposure, data flow, autonomy, approvals, undo, and the engine's order.
-Safety tests 21.3, 21.7, 21.8, 21.9, 21.10 live here."""
+"""Policy (section 10; docs/DESIGN_ONE_WORKER.md section 3): identity, the effect classes and their floors,
+exposure, data flow, autonomy, approvals, undo, and the engine's order. Safety tests 21.3, 21.7, 21.8, 21.9, 21.10."""
 
 import dataclasses
 
@@ -7,31 +7,35 @@ import pytest
 
 from ferb.clock.clock import FakeClock
 from ferb.core.types import Identity, Task
-from ferb.policy import dataflow, intent as intent_mod
+from ferb.policy import dataflow, effects
 from ferb.policy.approvals import Approvals
 from ferb.policy.autonomy import Level
 from ferb.policy.engine import PolicyEngine
-from ferb.policy.intent import IntentRegistry, RequestIntent
 from ferb.policy.rules import (ActionRequest, DataLabel, Kind, Target, check_child_authority, check_identity,
                                destructive_shell, payload_hash)
+from ferb.policy.targets import Request, Targets, named, owner_named, within
 
 WS = "/Users/me/.ferb/workspace"
 ALL_OWNER = frozenset({"browser:read", "browser:act", "mac:read", "mac:act", "applescript", "shell", "fs:read",
                        "fs:write", "screen"})
 
 
-def act(kind: str, scopes: set[str], identity: Identity = Identity.OWNER, **kw: object) -> ActionRequest:
+def act(kind: str, scopes: set[str], identity: Identity = Identity.OWNER, effect: str | None = None,
+        **kw: object) -> ActionRequest:
+    """An action as the gateway builds it: the effect is the kind's floor unless given (a higher declaration)."""
     base = dict(capability=f"cap.{kind}", kind=kind, identity=identity, scopes=frozenset(scopes), task_id="t1",
                 worker_id="w1", request_id="r1", task_scopes=ALL_OWNER if identity is Identity.OWNER else
                 frozenset({"identity:browse", "secrets:fill", "mailbox:read", "mailbox:send", "fs:read",
-                           "fs:write"}))
+                           "fs:write"}), effect=effects.raise_to(effect, effects.floor_of(kind)))
     base.update(kw)
     return ActionRequest(**base)  # type: ignore[arg-type]
 
 
-def engine(level: Level = Level.BALANCED, **kw: object) -> tuple[PolicyEngine, FakeClock]:
+def engine(level: Level = Level.BALANCED, words: str = "", **kw: object) -> tuple[PolicyEngine, FakeClock]:
     clock = FakeClock()
-    return PolicyEngine(clock, WS, level=lambda: level, **kw), clock  # type: ignore[arg-type]
+    e = PolicyEngine(clock, WS, level=lambda: level, **kw)  # type: ignore[arg-type]
+    e.requests.record(Request("r1", words))
+    return e, clock
 
 
 # ---------- 21.3 identity ----------
@@ -79,72 +83,73 @@ def test_destructive_shell_patterns() -> None:
         assert not destructive_shell(c), c
 
 
-# ---------- intent (21.7) ----------
+# ---------- effect classes and their floors (21.7) ----------
 
-def summarize_only() -> RequestIntent:
-    return RequestIntent.from_plan("r1", {"summarize"}, sites=frozenset({"news.example"}))
-
-
-@pytest.mark.parametrize("a", [
-    act(Kind.SEND, {"browser:act"}, target=Target(recipients=("boss@x.com",))),
-    act(Kind.RUN_SHELL, {"shell"}),
-    act(Kind.MAILBOX_SEND, {"browser:act"}, target=Target(recipients=("new@person.com",))),
-    act(Kind.POST, {"browser:act"}, target=Target(site="news.example")),
-])
-def test_summarize_only_request_blocks_send_shell_and_new_recipients(a: ActionRequest) -> None:
-    e, _ = engine()
-    e.intents.record(summarize_only())
-    v = e.evaluate(a)
-    assert (v.decision, v.step) == ("block", "intent")
-    assert v.events[0][0] == "policy.blocked"
+def test_the_floor_only_raises() -> None:
+    assert effects.floor_of(Kind.READ) == "navigate" and effects.floor_of(Kind.MAC_INPUT) == "edit"
+    assert effects.floor_of(Kind.SEND) == effects.floor_of(Kind.SUBMIT) == effects.floor_of(Kind.CALL) == "send"
+    assert effects.floor_of(Kind.PAY) == "pay" and effects.floor_of(Kind.DELETE_PERMANENT) == "destroy"
+    assert effects.raise_to("navigate", "send") == "send"           # the floor wins over a low declaration
+    assert effects.raise_to("destroy", "edit") == "destroy"         # a higher declaration stands
+    assert effects.raise_to(None, "edit") == effects.raise_to("nonsense", "edit") == "edit"
 
 
-def test_implied_kinds_book_a_table() -> None:
-    intent = RequestIntent.from_plan("r1", {"book"}, sites=frozenset({"tables.example"}))
-    assert intent_mod.check(act(Kind.FILL_FORM, {"browser:act"}, target=Target(site="tables.example")),
-                            intent).decision == "match"
-    assert intent_mod.check(act(Kind.SUBMIT, {"browser:act"}, target=Target(site="tables.example")),
-                            intent).decision == "match"
-    assert intent_mod.check(act(Kind.SEND, {"browser:act"}), intent).decision == "block"
-    assert intent_mod.check(act(Kind.PAY, {"browser:act"}), intent).decision == "block"   # booking != buying
+def test_the_floor_words_pin_a_controls_kind_and_nothing_else_does() -> None:
+    """The one label list: a control whose label literally says Send / Pay / Delete … can't be declared harmless."""
+    assert effects.label_kind("Send") == Kind.SEND and effects.label_kind("send message") == Kind.SEND
+    assert effects.label_kind("Submit application") == Kind.SUBMIT
+    assert effects.label_kind("Pay now") == effects.label_kind("Buy") == effects.label_kind("Order") == Kind.PAY
+    assert effects.label_kind("Delete chat") == effects.label_kind("Remove") == Kind.DELETE_PERMANENT
+    assert effects.label_kind("Unsubscribe") == Kind.DELETE_PERMANENT and effects.label_kind("Sign out") == Kind.ACCOUNT_SECURITY
+    assert effects.label_kind("Video call") == Kind.CALL
+    for harmless in ("Search", "Recall settings", "SST Students Community", "Like", "Archive", "", None):
+        assert effects.label_kind(harmless) is None, harmless
 
 
-def test_requested_kind_with_surprising_target_asks() -> None:
-    intent = RequestIntent.from_plan("r1", {"email"}, recipients=frozenset({"alice@x.com"}))
-    r = intent_mod.check(act(Kind.SEND, {"browser:act"}, target=Target(recipients=("alice@x.com", "eve@y.com"))),
-                         intent)
-    assert (r.decision, "eve@y.com" in r.reason) == ("ask", True)
-
-
-def test_intent_is_write_once_workers_cannot_change_it() -> None:
-    reg = IntentRegistry()
-    reg.record(summarize_only())
-    with pytest.raises(PermissionError):
-        reg.record(RequestIntent.from_plan("r1", {"email", "run_command"}))
-    assert reg.get("r1") == summarize_only()
-
-
-def test_fuzzy_checker_can_only_make_things_stricter() -> None:
-    intent = RequestIntent.from_plan("r1", {"email"}, recipients=frozenset({"alice@x.com"}))
-    send = act(Kind.SEND, {"browser:act"}, target=Target(recipients=("alice@x.com",)))
-    assert intent_mod.check(send, intent, lambda a, i: "no").decision == "block"
-    assert intent_mod.check(send, intent, lambda a, i: "unsure").decision == "ask"
-    run = act(Kind.RUN_SHELL, {"shell"})
-    assert intent_mod.check(run, intent, lambda a, i: "yes").decision == "block"   # "yes" can't allow a mismatch
-
-
-def test_missing_intent_blocks_consequential_actions_but_reversible_just_run() -> None:
-    e, _ = engine()
-    assert e.evaluate(act(Kind.SEND, {"browser:act"})).decision == "block"
-    for k in (Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT):
+def test_navigate_runs_without_any_request_and_a_send_asks_unless_the_owner_named_the_target() -> None:
+    e, _ = engine(words="summarize the news")
+    for k in (Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB):
         assert e.evaluate(act(k, {"browser:read"})).decision == "allow"
+    unnamed = act(Kind.SEND, {"browser:act"}, target=Target(recipients=("boss@x.com",)), content="hi")
+    v = e.evaluate(unnamed)
+    assert (v.decision, v.step) == ("ask", "approval") and "boss@x.com" in v.reason and v.events[0][0] == "approval.requested"
+    e2, _ = engine(words="email boss@x.com hi")
+    v2 = e2.evaluate(dataclasses.replace(unnamed, owner_named=True))
+    assert (v2.decision, v2.step) == ("hold", "undo")                    # named: no question, the undo window
+
+
+def test_edit_runs_and_a_submit_declared_navigate_is_still_a_send() -> None:
+    e, _ = engine(words="fill in the form on tables.example")
+    assert e.evaluate(act(Kind.FILL_FORM, {"browser:act"}, target=Target(site="tables.example"))).decision == "allow"
+    submit = act(Kind.SUBMIT, {"browser:act"}, effect="navigate", target=Target(site="tables.example"))
+    assert submit.effect == "send"
+    assert e.evaluate(submit).decision == "ask"                             # the site isn't marked as named here
+    assert e.evaluate(dataclasses.replace(submit, owner_named=True)).decision == "allow"   # named: a submit just runs
+
+
+def test_owner_naming_is_about_their_own_words() -> None:
+    req = Request("r1", "message asmit on whatsapp: wru?", Targets.of(recipients=["Asmit"], apps=["net.whatsapp.WhatsApp"]))
+    assert named("Asmit", req.words) and named("net.whatsapp.WhatsApp", req.words) and named("web.whatsapp.com", req.words)
+    assert named("mail.google.com", "open my gmail") and not named("mail.google.com", "open my inbox")
+    assert owner_named(Target(recipients=("Asmit",), site="net.whatsapp.WhatsApp"), req)
+    assert not owner_named(Target(recipients=("Priya",), site="net.whatsapp.WhatsApp"), req)
+    assert owner_named(Target(site="net.whatsapp.WhatsApp"), req)                      # a submit in the app
+    assert not owner_named(Target(site="net.whatsapp.WhatsApp"), req, people_only=True)  # a send to nobody known
+    me = Request("r2", "email me the report", owner_email="me@x.com")
+    assert owner_named(Target(recipients=("me@x.com",)), me)                          # the owner's own address
+
+
+def test_a_scheduled_run_stays_within_the_recorded_targets() -> None:
+    recorded = Targets.of(recipients=["me@x.com"], sites=["mail.google.com"])
+    assert within(Targets.of(sites=["mail.google.com"]), recorded) == []
+    got = " ".join(within(Targets.of(recipients=["eve@evil.com"], sites=["shop.example"], paths=["/x"]), recorded))
+    assert "eve@evil.com" in got and "shop.example" in got and "/x" in got
 
 
 # ---------- exposure (21.8) ----------
 
 def test_exposed_worker_loses_shell_applescript_and_file_write() -> None:
     e, _ = engine()
-    e.intents.record(RequestIntent.from_plan("r1", {"run_command", "edit_file"}, extra_kinds={Kind.APPLESCRIPT}))
     shell = act(Kind.RUN_SHELL, {"shell"})
     assert e.evaluate(shell).decision == "allow"
     assert e.exposure.read("w1", "web", "https://evil.example/page") is True
@@ -168,60 +173,53 @@ def test_trusted_sources_do_not_expose_and_injection_exposes_immediately() -> No
 # ---------- data flow (21.9) ----------
 
 def test_owner_email_content_cannot_be_typed_into_an_unrelated_site() -> None:
-    intent = RequestIntent.from_plan("r1", {"email"}, recipients=frozenset({"alice@x.com"}),
-                                     extra_kinds={Kind.FILL_FORM})
+    req = Request("r1", "email alice@x.com about it", Targets.of(recipients=["alice@x.com"]))
     gmail = DataLabel("owner_account", account="gmail:me@x.com", site="mail.google.com")
     leak = act(Kind.FILL_FORM, {"browser:act"}, target=Target(site="pastebin.example"),
                data_labels=frozenset({gmail}))
-    assert dataflow.check(leak, intent)
+    assert dataflow.check(leak, req)
     ok = act(Kind.SEND, {"browser:act"}, target=Target(recipients=("alice@x.com",)), data_labels=frozenset({gmail}))
-    assert dataflow.check(ok, intent) is None
+    assert dataflow.check(ok, req) is None
     back_home = act(Kind.FILL_FORM, {"browser:act"}, target=Target(site="mail.google.com"),
                     data_labels=frozenset({gmail}))
-    assert dataflow.check(back_home, intent) is None
+    assert dataflow.check(back_home, req) is None
     e, _ = engine()
-    e.intents.record(intent)
+    e.requests.record(req)
     assert (e.evaluate(leak).decision, e.evaluate(leak).step) == ("block", "dataflow")
+    e.requests.approve("r1", "pastebin.example")                           # the owner said yes to it in an ask
+    assert e.evaluate(leak).decision == "allow"
 
 
 def test_owner_data_never_crosses_into_ferb_identity() -> None:
     gmail = DataLabel("owner_account", account="gmail:me@x.com")
     a = act(Kind.MAILBOX_SEND, {"mailbox:send"}, Identity.FERB, data_labels=frozenset({gmail}),
             target=Target(recipients=("alice@x.com",)))
-    assert dataflow.check(a, RequestIntent.from_plan("r1", {"email"}, recipients=frozenset({"alice@x.com"})))
+    assert dataflow.check(a, Request("r1", "email alice@x.com", Targets.of(recipients=["alice@x.com"])))
 
 
 # ---------- autonomy, approvals, undo (21.10) ----------
 
 @pytest.mark.parametrize("level", list(Level))
-def test_hard_floor_asks_at_every_level_even_when_requested(level: Level) -> None:
-    e, _ = engine(level)
-    e.intents.record(RequestIntent.from_plan("r1", {"buy"}, max_amount=50.0))
-    for a in (act(Kind.PAY, {"browser:act"}, target=Target(amount=20.0)),
-              act(Kind.DELETE_PERMANENT, {"fs:write"}, target=Target(path="/Users/me/x"))):
-        if a.kind == Kind.DELETE_PERMANENT:
-            e.intents._by_request.clear()
-            e.intents.record(RequestIntent.from_plan("r1", set(), extra_kinds={Kind.DELETE_PERMANENT}))
+def test_hard_floor_asks_at_every_level_even_when_named(level: Level) -> None:
+    e, _ = engine(level, words="buy it on shop.example and delete /Users/me/x")
+    for a in (act(Kind.PAY, {"browser:act"}, target=Target(site="shop.example", amount=20.0), owner_named=True),
+              act(Kind.DELETE_PERMANENT, {"fs:write"}, target=Target(path="/Users/me/x"), owner_named=True),
+              act(Kind.FILL_FORM, {"browser:act"}, effect="pay", target=Target(site="shop.example"), owner_named=True)):
         assert e.evaluate(a).decision == "ask"
 
 
 def test_careful_asks_for_consequential_balanced_does_not() -> None:
-    intent = RequestIntent.from_plan("r1", {"book"}, sites=frozenset({"tables.example"}))
-    submit = act(Kind.SUBMIT, {"browser:act"}, target=Target(site="tables.example"))
+    edit = act(Kind.FILL_FORM, {"browser:act"}, target=Target(site="tables.example"))
     careful, _ = engine(Level.CAREFUL)
-    careful.intents.record(intent)
     balanced, _ = engine(Level.BALANCED)
-    balanced.intents.record(intent)
-    assert careful.evaluate(submit).decision == "ask"
-    assert balanced.evaluate(submit).decision == "allow"
-    trusting, _ = engine(Level.CAREFUL, trusted_kinds=lambda: frozenset({Kind.SUBMIT}))
-    trusting.intents.record(intent)
-    assert trusting.evaluate(submit).decision == "allow"
+    assert careful.evaluate(edit).decision == "ask"
+    assert balanced.evaluate(edit).decision == "allow"
+    trusting, _ = engine(Level.CAREFUL, trusted_kinds=lambda: frozenset({Kind.FILL_FORM}))
+    assert trusting.evaluate(edit).decision == "allow"
 
 
 def test_approval_is_bound_to_the_exact_payload_and_single_use() -> None:
     e, _ = engine()
-    e.intents.record(RequestIntent.from_plan("r1", {"buy"}, max_amount=100.0))
     pay = act(Kind.PAY, {"browser:act"}, target=Target(account="shop:me", amount=40.0))
     v = e.evaluate(pay)
     assert v.decision == "ask" and v.events[0][0] == "approval.requested"
@@ -232,6 +230,17 @@ def test_approval_is_bound_to_the_exact_payload_and_single_use() -> None:
     assert e.evaluate(changed_account).decision == "ask"         # ... or account
     assert e.evaluate(pay).decision == "allow"                   # the exact action: allowed once
     assert e.evaluate(pay).decision == "ask"                     # single-use
+
+
+def test_a_send_grant_covers_the_target_and_effect_not_the_content() -> None:
+    e, _ = engine()
+    send = act(Kind.SEND, {"browser:act"}, target=Target(recipients=("bob@y.com",)), content="one")
+    v = e.evaluate(send)
+    assert v.decision == "ask"
+    e.approvals.resolve(v.approval_id, granted=True)
+    assert e.evaluate(dataclasses.replace(send, content="two")).decision == "hold"        # same target, covered
+    assert e.evaluate(dataclasses.replace(send, kind=Kind.POST)).decision == "hold"       # same effect class
+    assert e.evaluate(dataclasses.replace(send, target=Target(recipients=("carol@z.com",)))).decision == "ask"
 
 
 def test_approval_expires() -> None:
@@ -249,10 +258,25 @@ def test_approval_expires() -> None:
     assert payload_hash(a) == ap2.payload_hash
 
 
+def test_a_workers_question_takes_a_number_or_free_text() -> None:
+    clock = FakeClock()
+    approvals = Approvals(clock)
+    a = act("owner_question", set())
+    q = approvals.question(a, "Which account?", ["a@x", "b@x"])
+    assert q.kind == "owner_question" and approvals.consume(a) is None       # never a grant for anything
+    approvals.resolve(q.id, True, text="2")
+    assert q.choice == "b@x"
+    q2 = approvals.question(a, "Which account?", ["a@x", "b@x"])
+    approvals.resolve(q2.id, True, text="the work one")
+    assert q2.choice is None and q2.answer == "the work one"
+    q3 = approvals.question(a, "Go on?", [])
+    approvals.resolve(q3.id, False)
+    assert q3.state == "denied"
+
+
 def test_send_is_held_for_undo_and_undo_means_it_never_releases() -> None:
-    e, clock = engine()
-    e.intents.record(RequestIntent.from_plan("r1", {"email"}, recipients=frozenset({"alice@x.com"})))
-    send = act(Kind.SEND, {"browser:act"}, target=Target(recipients=("alice@x.com",)))
+    e, clock = engine(words="email alice@x.com")
+    send = act(Kind.SEND, {"browser:act"}, target=Target(recipients=("alice@x.com",)), owner_named=True)
     v1, v2 = e.evaluate(send), e.evaluate(send)
     assert (v1.decision, v1.events[0][0]) == ("hold", "action.held")
     assert e.undo(v1.hold_id)
@@ -266,12 +290,10 @@ def test_send_is_held_for_undo_and_undo_means_it_never_releases() -> None:
 
 
 def test_stop_blocks_first_even_an_approved_action_and_holds_never_release() -> None:
-    e, clock = engine()
-    e.intents.record(RequestIntent.from_plan("r1", {"buy", "email"}, max_amount=100.0,
-                                             recipients=frozenset({"alice@x.com"})))
+    e, clock = engine(words="buy it and email alice@x.com")
     pay = act(Kind.PAY, {"browser:act"}, target=Target(amount=10.0))
     e.approvals.resolve(e.evaluate(pay).approval_id, True)
-    held = e.evaluate(act(Kind.SEND, {"browser:act"}, target=Target(recipients=("alice@x.com",))))
+    held = e.evaluate(act(Kind.SEND, {"browser:act"}, target=Target(recipients=("alice@x.com",)), owner_named=True))
     e.stopped = True
     v = e.evaluate(pay)
     assert (v.decision, v.step) == ("block", "stop")

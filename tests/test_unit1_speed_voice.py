@@ -76,7 +76,7 @@ def test_planner_and_answer_writer_know_what_ferb_can_do(daemon: RunningDaemon) 
 
     async def system(prompt: str) -> str:
         return str(s._system(prompt))                                       # type: ignore[union-attr]
-    for prompt in ("supervisor.md", "answer.md"):
+    for prompt in ("supervisor.md",):
         text = daemon.run(system(prompt))
         assert "What workers can do right now" in text and "Who FERB is" in text, prompt
         assert "Never present the limits of one task" in text and "{capabilities}" not in text

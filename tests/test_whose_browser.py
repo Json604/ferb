@@ -1,73 +1,17 @@
-"""Whose browser (owner decision, 2026-09-30), the owner's open tabs, and scrolling that isn't a loop.
-- the owner's browser only when their words point at it ("in my brave … the current youtube tab"); a plain "do X on
-  YouTube" is FERB's own browser; plan validation refuses an owner-browser plan without it;
-- "Brave" is the owner's Brave profile, never an app route; a service is announced once;
+"""The owner's open tabs, and scrolling that isn't a loop.
 - the owner's open tabs can be listed and taken over; FERB lets go of an attached tab and never closes it;
-- the loop guard stops a cycle only when its results repeat too.
+- the loop guard stops a cycle only when its results repeat too;
+- an alias ("wa") or a catalogue name counts as naming the app or site in the owner's words.
 """
 
 import asyncio
-from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
 from ferb.act.browser.ext_bridge import Router
 from ferb.core.types import Identity
-from ferb.orchestrator import dag
 from ferb.orchestrator.guards import TreeGuard
-from ferb.orchestrator.schemas import Plan
-from ferb.policy import services as svc
-from ferb.policy.services import Environment, owner_browser_named
-from tests.test_supervisor import plan, sub
-
-NOW = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
-OWNER_SAID = "ok, in my brave keep scorlling for comments in the current youtube tab"
-
-
-# ---------- whose browser ----------
-
-def test_the_owners_words_decide_whose_browser() -> None:
-    for words in (OWNER_SAID, "summarize this tab", "open it in my browser", "check my linkedin messages",
-                  "open example.com in my Work profile", "use brave to open youtube", "in my chrome, open x.com"):
-        assert owner_browser_named(words, ["Work"]), words
-    for words in ("play some lofi on youtube", "post this on linkedin", "find the latest AI news on x.com",
-                  "keep scrolling the comments", "in chrome open x.com"):
-        assert not owner_browser_named(words, ["Work"]), words
-
-
-def env(owner_browser: bool, **kw: Any) -> Environment:
-    base: dict[str, Any] = {"apps": [("com.brave.Browser", "Brave Browser"), ("net.whatsapp.WhatsApp", "WhatsApp")],
-                            "paired": [("brave", "Default", "Work")], "owner_browser": owner_browser}
-    return Environment(**(base | kw))
-
-
-def yt() -> svc.Service:
-    return next(s for s in svc.CATALOGUE if s.name == "YouTube")
-
-
-def test_a_plain_request_on_a_site_is_ferbs_own_browser() -> None:
-    r = svc.route(yt(), env(False, usage_web={("www.youtube.com", "brave", "Default"): (40, NOW)}))
-    assert r is not None and r.browser == svc.FERB                                   # the owner's usage doesn't pull it
-    assert r.say() == "Using YouTube on the web (youtube.com) in FERB's own browser"
-    mine = svc.route(yt(), env(True))
-    assert mine is not None and (mine.browser, mine.profile_name) == ("brave", "Work")
-    wa = next(s for s in svc.CATALOGUE if s.name == "WhatsApp")
-    assert svc.route(wa, env(False)).kind == "app"                                   # type: ignore[union-attr]
-
-
-def test_brave_is_never_an_app_route_and_a_service_is_announced_once() -> None:
-    e = env(True, usage_web={("www.youtube.com", "brave", "Default"): (3, NOW)})
-    named = [s.name for s in svc.services_named(OWNER_SAID, e)]
-    assert named == ["YouTube"], named                                               # no "Brave Browser", no "Youtube"
-
-
-def test_plan_validation_refuses_the_owners_browser_unless_they_asked() -> None:
-    p = Plan.model_validate(plan([sub("a", identity="owner", scopes=("browser:read", "browser:act"))],
-                                 verbs=("summarize",)) | {})
-    avail = {"browser:read", "browser:act", "identity:browse"}
-    problems = dag.validate(p, "summarize the comments on youtube", avail, owner_browser=False)
-    assert any("didn't ask for their own browser" in x for x in problems), problems
-    assert not any("own browser" in x for x in dag.validate(p, OWNER_SAID, avail, owner_browser=True))
+from ferb.policy.targets import named
 
 
 # ---------- the owner's open tabs ----------
@@ -187,15 +131,8 @@ def test_find_searches_the_whole_page() -> None:
     assert got["matches"] == 23 and got["lines_on_page"] == 900 and len(got["examples"]) == 20
 
 
-def test_an_app_alias_counts_as_naming_the_app() -> None:
-    from ferb.policy.names import app_named
-    assert app_named("WhatsApp", "now call aditya scaler in wa")                     # the owner's session
-    assert not app_named("WhatsApp", "call aditya")
-
-
-def test_a_word_in_a_contacts_name_is_not_a_site_from_history() -> None:
-    """The owner's session: "whatsapp voice call to aditya scaler" routed to scaler.com from the trail."""
-    e = env(False, usage_web={("www.scaler.com", "brave", "Default"): (3, NOW)})
-    assert [s.name for s in svc.services_named("whatsapp voice call to aditya scaler", e)] == ["WhatsApp"]
-    for said in ("open my class on scaler", "check the scaler website", "go to scaler.com"):
-        assert "Scaler" in [s.name for s in svc.services_named(said, e)], said
+def test_an_alias_or_catalogue_name_counts_as_naming_the_target() -> None:
+    assert named("net.whatsapp.WhatsApp", "now call aditya scaler in wa")           # the owner's session
+    assert not named("net.whatsapp.WhatsApp", "call aditya")
+    assert named("www.youtube.com", "keep scrolling the comments in my current youtube tab")
+    assert named("slack.com", "check my slack messages") and not named("slack.com", "check my messages")

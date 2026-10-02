@@ -21,7 +21,7 @@ from ferb.core.types import Identity, SecretSpec, Task
 from ferb.identity.seal import seal, seal_key
 from ferb.identity.secrets import KeychainSecretStore
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.intent import RequestIntent
+from ferb.policy.targets import Request
 from tests.browserkit import PASSWORD, REF, feed
 from tests.conftest import RunningDaemon
 from tests.fake_extension import FakeExtension
@@ -86,8 +86,7 @@ def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], verbs
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})
         d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        if verbs is not None:
-            d.daemon.engine.intents.record(RequestIntent.from_plan(f"req-{tid}", verbs))
+        d.daemon.engine.requests.record(Request(f"req-{tid}", verbs if isinstance(verbs, str) else ""))
         return d.daemon.tokens.validate(d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, identity, ttl_s=600))
     return d.run(go())
 

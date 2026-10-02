@@ -1,4 +1,4 @@
-"""Build step 15, offline: schedules (recurrence across daylight saving, missed-run policy, runs held to the intent
+"""Build step 15, offline: schedules (recurrence across daylight saving, missed-run policy, runs held to the targets
 recorded from the owner's words, unattended approvals, three failures pause, cancel / pause / resume), progressive
 setup ("email me" asks once and remembers; a folder the owner named is asked about once; unattended runs queue the
 question), and time awareness (fresh relative ages at the end of the prompt, "since we last talked", idle-held
@@ -18,9 +18,9 @@ import pytest
 from ferb.cli.client import Client
 from ferb.clock.context import ago
 from ferb.orchestrator.schedules import MAX_LATE_S, Rule, ScheduleError
-from ferb.policy.intent import RequestIntent, within
+from ferb.policy.targets import Request, Targets, within
 from tests.conftest import Answers, RunningDaemon
-from tests.test_supervisor import chat, install, plan, sub, sup, writes
+from tests.test_supervisor import chat, install, sup, task, writes
 
 NY = ZoneInfo("America/New_York")
 
@@ -55,15 +55,11 @@ def test_how_late_a_missed_run_may_still_run() -> None:
     assert Rule.build("none", first, tz=NY).late_limit_s() == MAX_LATE_S                      # a one-off: 12 h
 
 
-def test_a_run_may_only_stay_within_the_recorded_intent() -> None:
-    recorded = RequestIntent.from_plan("r", {"summarize", "email"}, recipients=frozenset({"me@x.com"}),
-                                       sites=frozenset({"mail.google.com"}))
-    ok = RequestIntent.from_plan("r2", {"summarize"}, sites=frozenset({"mail.google.com"}))
-    assert within(ok, recorded) == []
-    more = RequestIntent.from_plan("r3", {"email", "buy"}, recipients=frozenset({"eve@evil.com"}),
-                                   sites=frozenset({"shop.example"}))
-    got = " ".join(within(more, recorded))
-    assert "pay" in got and "eve@evil.com" in got and "shop.example" in got
+def test_a_run_may_only_stay_within_the_recorded_targets() -> None:
+    recorded = Targets.of(recipients=["me@x.com"], sites=["mail.google.com"])
+    assert within(Targets.of(sites=["mail.google.com"]), recorded) == []
+    got = " ".join(within(Targets.of(recipients=["eve@evil.com"], sites=["shop.example"]), recorded))
+    assert "eve@evil.com" in got and "shop.example" in got
 
 
 # ---------- schedules from chat ----------
@@ -74,13 +70,13 @@ def mins(delta: timedelta) -> dict[str, Any]:
 
 
 def schedule_reply(d: RunningDaemon, request: str, quote: str, first: datetime, repeat: str = "none",
-                   recipients: tuple[str, ...] = (), verbs: tuple[str, ...] = ("edit_file",),
-                   paths: tuple[str, ...] = ("report.md",), every: int | None = None) -> str:
-    return json.dumps({"kind": "reply", "text": "Scheduled.", "plan": None, "remember": [], "timers": [],
+                   recipients: tuple[str, ...] = (), paths: tuple[str, ...] = ("report.md",),
+                   every: int | None = None) -> str:
+    return json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": [], "timers": [],
                        "schedule": {"request": request, "when": mins(first - d.daemon.clock.now()), "repeat": repeat,
                                     "weekday": None, "every_minutes": every, "quote": quote,
-                                    "intent": {**plan([sub("a")], verbs=verbs, paths=paths)["intent"],
-                                               "recipients": list(recipients)}},
+                                    "targets": {"apps": [], "sites": [], "paths": list(paths),
+                                                "recipients": list(recipients)}},
                        "schedule_changes": []})
 
 
@@ -102,8 +98,8 @@ def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: Runnin
 def test_email_me_asks_once_then_uses_the_remembered_address(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     ask = schedule_reply(daemon, "email me the report", "every morning at 9 email me the report",
-                         now + timedelta(hours=10), "daily", recipients=("me",), verbs=("email",), paths=())
-    install(daemon, [ask, json.dumps({"kind": "reply", "text": "Got it.", "plan": None, "timers": [],
+                         now + timedelta(hours=10), "daily", recipients=("me",), paths=())
+    install(daemon, [ask, json.dumps({"kind": "reply", "text": "Got it.", "task": None, "timers": [],
                                       "schedule": None, "schedule_changes": [], "remember": [
                                           {"kind": "fact", "subject": "owner", "key": "email",
                                            "content": "The owner's email is me@owner.example",
@@ -114,17 +110,15 @@ def test_email_me_asks_once_then_uses_the_remembered_address(daemon: RunningDaem
     evs = chat(daemon, "every morning at 9 email me the report")
     assert [e["text"] for e in evs if e["type"] == "timer"][0].startswith("🗓 scheduled")
     s = run(daemon, daemon.daemon.schedules.all)[0]
-    assert s.intent["recipients"] == ["me@owner.example"] and "every day at" in s.rule.describe()
+    assert s.targets["recipients"] == ["me@owner.example"] and "every day at" in s.rule.describe()
 
 
 # ---------- runs ----------
 
-def make_schedule(d: RunningDaemon, request: str, own: str, intent: RequestIntent, first: datetime,
+def make_schedule(d: RunningDaemon, request: str, own: str, targets: Targets, first: datetime,
                   repeat: str = "daily") -> Any:
-    from ferb.policy.intent import to_json
-
     def go() -> Any:
-        s = d.daemon.schedules.add(request, own, to_json(intent), Rule.build(repeat, first), first)
+        s = d.daemon.schedules.add(request, own, targets.to_json(), Rule.build(repeat, first), first)
         t = d.daemon.timers.add("schedule", first, s.id)
         d.daemon.schedules.set_timer(s.id, t.id, first)
         return s
@@ -148,35 +142,51 @@ def fire(d: RunningDaemon, seconds: float) -> None:
         time.sleep(0.05)
 
 
-def test_a_run_is_held_to_the_recorded_intent_and_its_answer_waits(daemon: RunningDaemon) -> None:
+def test_a_run_is_held_to_the_recorded_targets_and_its_answer_waits(daemon: RunningDaemon) -> None:
     notes: list[tuple[str, str]] = []
 
     async def note(title: str, text: str) -> None:
         notes.append((title, text))
     daemon.daemon.notify = note
     now = daemon.daemon.clock.now()
-    rec = RequestIntent.from_plan("r0", {"edit_file"},
-                                  paths=frozenset({str(daemon.daemon.home / "workspace" / "report.md")}))
+    rec = Targets.of(paths=[str(daemon.daemon.home / "workspace" / "report.md")])
     own = "every day at 9 write report.md (my colleague is eve@evil.com)"   # named, but not in what was scheduled
     s = make_schedule(daemon, "write report.md", own, rec, now + timedelta(minutes=1))
-    install(daemon, [sup("plan", "Writing it.", plan([sub("a")], paths=("report.md",)))],
-            {"a": writes(daemon.sock, "report.md", "daily"), "answer": json.dumps({"text": "Wrote report.md."})})
+    install(daemon, [sup("task", "Writing it.", task("write report.md", paths=("report.md",)))],
+            {"worker": writes(daemon.sock, "report.md", "daily")})
     fire(daemon, 61)
     assert (daemon.daemon.home / "workspace" / "report.md").read_text() == "daily"
-    assert [r["answer"] for r in results(daemon)] == ["Wrote report.md."] and notes          # notified, waits for chat
+    assert [r["answer"] for r in results(daemon)] == ["wrote report.md"] and notes          # notified, waits for chat
     nxt = run(daemon, lambda: daemon.daemon.schedules.get(s.id)).next_run
     assert nxt is not None and nxt > daemon.daemon.clock.now()                               # the next one is set
-    # the next run's plan wants to email someone: not in the recorded intent -> not run
-    install(daemon, [sup("plan", "x", plan([sub("a", scopes=("fs:read", "fs:write"))], verbs=("email",),
-                                             recipients=("eve@evil.com",), paths=("report.md",)))])
+    # the next run's task wants to email someone: not in the recorded targets -> not run
+    install(daemon, [sup("task", "x", task("write report.md and email eve@evil.com", recipients=("eve@evil.com",),
+                                           paths=("report.md",)))])
     fire(daemon, (nxt - daemon.daemon.clock.now()).total_seconds() + 1)
     blocked = results(daemon)
     assert blocked and "didn't include when you scheduled it" in blocked[0]["answer"]
 
 
+def test_a_scheduled_run_never_asks_the_owner_a_question(daemon: RunningDaemon) -> None:
+    """Nobody is at chat during a scheduled run: owner_ask is declined at once, with a note for the worker."""
+    now = daemon.daemon.clock.now()
+    from tests.test_supervisor import tool
+    seen: dict[str, Any] = {}
+
+    def worker(token: str) -> str:
+        seen["r"] = tool(daemon.sock, token, "owner.ask", question="Which report?", options=["a", "b"])
+        return json.dumps({"status": "done", "summary": "wrote it", "artifacts": [], "evidence": []})
+    make_schedule(daemon, "write report.md", "every day at 9 write report.md",
+                  Targets.of(paths=[str(daemon.daemon.home / "workspace" / "report.md")]), now + timedelta(minutes=1))
+    install(daemon, [sup("task", "x", task("write report.md", paths=("report.md",)))], {"worker": worker})
+    fire(daemon, 61)
+    assert seen["r"]["content"] == {"declined": True, "reason": seen["r"]["content"]["reason"]}
+    assert "scheduled run" in seen["r"]["content"]["reason"]
+
+
 def test_a_run_missed_by_too_much_is_skipped_and_reported(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
-    rec = RequestIntent.from_plan("r0", {"edit_file"}, paths=frozenset({"report.md"}))
+    rec = Targets.of(paths=["report.md"])
     make_schedule(daemon, "write report.md", "every day at 9 write report.md", rec, now + timedelta(minutes=1))
     install(daemon, [])                                                     # no model call may happen
     fire(daemon, 13 * 3600)                                                 # asleep for 13 h: past the 12 h limit
@@ -186,7 +196,7 @@ def test_a_run_missed_by_too_much_is_skipped_and_reported(daemon: RunningDaemon)
 
 def test_three_failures_in_a_row_pause_a_schedule(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
-    rec = RequestIntent.from_plan("r0", {"edit_file"}, paths=frozenset({"report.md"}))
+    rec = Targets.of(paths=["report.md"])
     s = make_schedule(daemon, "write report.md", "every 30 minutes write report.md", rec,
                       now + timedelta(minutes=1), "none")
     sched = run(daemon, lambda: daemon.daemon.schedules.get(s.id))
@@ -230,8 +240,7 @@ def test_a_folder_the_owner_named_is_asked_about_once(daemon: RunningDaemon, tmp
                  None)
 
         async def rec() -> None:
-            daemon.daemon.engine.intents.record(RequestIntent.from_plan("req-f1", {"summarize"},
-                                                                        paths=frozenset({str(projects)})))
+            daemon.daemon.engine.requests.record(Request("req-f1", "summarize my notes", Targets.of(paths=[str(projects)])))
         daemon.run(rec())
         yes = Answers(daemon)
         try:

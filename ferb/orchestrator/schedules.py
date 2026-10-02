@@ -1,7 +1,7 @@
 """Scheduled and recurring tasks (section 18 step 15).
 
-A schedule keeps the owner's words and the intent recorded from them at scheduling time; each run plans afresh (pages
-and inboxes change) but is held to that intent. Rules: once, daily at HH:MM, weekdays at HH:MM, weekly on a day at
+A schedule keeps the owner's words and the targets recorded from them at scheduling time; each run is decided afresh (pages
+and inboxes change) but is held to those targets. Rules: once, daily at HH:MM, weekdays at HH:MM, weekly on a day at
 HH:MM, or every N minutes (N >= 15), in the owner's local time zone (so a daily 09:00 stays 09:00 across daylight-
 saving changes). Each next run is a durable timer (exactly once, step 14).
 
@@ -96,7 +96,7 @@ class Schedule:
     id: str
     request: str
     own_words: str
-    intent: dict[str, Any]
+    targets: dict[str, Any]          # recorded from the owner's words at scheduling time (stored as intent_json)
     rule: Rule
     next_run: datetime | None
     timer_id: str | None
@@ -116,14 +116,14 @@ class Schedules:
                         datetime.fromisoformat(r["next_run"]) if r["next_run"] else None, r["timer_id"], r["state"],
                         int(r["failures"]), first)
 
-    def add(self, request: str, own_words: str, intent: dict[str, Any], rule: Rule, first: datetime) -> Schedule:
+    def add(self, request: str, own_words: str, targets: dict[str, Any], rule: Rule, first: datetime) -> Schedule:
         if first <= self.clock.now():
             raise ScheduleError("the first run must be in the future")
         sid = "sc-" + self.ids.new_id()[:10]
         self.db.conn.execute(
             "INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
-            (sid, request[:1000], own_words[:4000], json.dumps(intent), json.dumps(rule.__dict__ | {
+            (sid, request[:1000], own_words[:4000], json.dumps(targets), json.dumps(rule.__dict__ | {
                 "first": first.astimezone(timezone.utc).isoformat()}),
              first.astimezone(timezone.utc).isoformat(), self.clock.now().isoformat()))
         s = self.get(sid)

@@ -1,5 +1,5 @@
 """Measured task durations (section 13, build step 14): how long finished worker runs of the same kind took, from the
-spans. The kind is the subtask's route (from its scopes: browser / mac / shell / mixed) and role (reader / actor). A
+spans. The kind is the task's route (from its scopes: browser / mac / shell / mixed) and role (worker / verifier). A
 worker's time header gets one line, once there are MIN_SAMPLES."""
 
 import json

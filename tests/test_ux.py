@@ -1,11 +1,10 @@
-"""Build step 14a, offline: the owner's names count as targets ("Brave", "Slack"); an app the owner named is no
-surprise at the gateway; the irreversible floor (payments, deletion, account/security pages) and the model's flag ask
-every time; continuity from the journal across chat sessions and restarts; a closed chat never stops a task (its
-answer waits and a notification goes out); Ctrl-C stops it as "stopped by you" (a held send goes too); an installed
-but unpaired extension is reported instead of silently falling back; windows on other Spaces are found.
+"""Build step 14a, offline: an app the owner named is no surprise at the gateway; the irreversible floor (payments,
+deletion, account/security pages) asks every time; continuity from the journal across chat sessions and restarts;
+a closed chat never stops a task (its answer waits and a notification goes out); Ctrl-C stops it as "stopped by
+you" (a held send goes too); an installed but unpaired extension is reported instead of silently falling back;
+windows on other Spaces are found.
 """
 
-import asyncio
 import json
 import threading
 import time
@@ -15,69 +14,47 @@ from typing import Any
 import pytest
 
 from ferb.cli.client import Client
-from ferb.core.types import Identity
-from ferb.orchestrator import dag
-from ferb.orchestrator.schemas import Plan
-from ferb.policy.intent import RequestIntent
-from ferb.policy.names import app_named, resolve_apps, site_named
+from ferb.core.types import ActionSpec, Target
 from tests.conftest import Answers, RunningDaemon
-from tests.test_gateway import FakeCap, setup
-from tests.test_supervisor import STALL, chat, install, plan, sub, sup, writes
-
-APPS = [("com.brave.Browser", "Brave Browser"), ("com.google.Chrome", "Google Chrome"), ("com.apple.Notes", "Notes"),
-        ("com.tinyspeck.slackmacgap", "Slack")]
+from tests.test_gateway import FakeCap, request, setup
+from tests.test_supervisor import STALL, chat, install, sup, task, writes
 
 
-# ---------- names ----------
-
-def test_natural_names_count_as_targets() -> None:
-    words = "control my brave browser already opened and scroll to the end of this slack thread"
-    assert site_named("slack.com", words) and site_named("app.slack.com", words)
-    assert not site_named("evil.com", words)
-    assert site_named("mail.google.com", "check my gmail") and site_named("youtu.be", "that youtube video")
-    assert app_named("Brave Browser", "open brave") and not app_named("Google Chrome", "open brave")
-    found, missing = resolve_apps(["Brave"], APPS, words)
-    assert found == {"Brave": "com.brave.Browser"} and missing == []
-    assert resolve_apps(["Chrome"], APPS, words)[1] == ["Chrome"]           # not in the owner's words
-    p = Plan.model_validate(plan([sub("a", identity="owner", scopes=("mac:act",))], sites=("slack.com",)) |
-                            {"intent": {**plan([sub("a")])["intent"], "sites": ["slack.com"], "apps": ["Brave"],
-                                        "verbs": ["use_app"]}})
-    assert dag.validate(p, words, {"mac:act"}, APPS) == []
-
+# ---------- naming ----------
 
 def test_an_app_the_owner_named_is_no_surprise(daemon: RunningDaemon) -> None:
-    """The owner's session: "in my Brave … slack" asked about com.brave.Browser on every call. Not any more."""
+    """The owner's session: "in my Brave … slack" asked about com.brave.Browser on every call. Not any more: input in
+    an app is an edit and just runs; a submit in an app the owner named is auto-granted."""
     class MacInput(FakeCap):
         def describe(self, args: Any) -> Any:
-            from ferb.core.types import ActionSpec, Target
-            return ActionSpec("mac_input", Target(site="com.brave.browser"))
+            return ActionSpec(self.kind, Target(site="com.brave.browser"))
     cap = MacInput("fake.mac", "mac_input", {"mac:act"})
-    intent = RequestIntent.from_plan("req-1", {"use_app"}, sites=frozenset({"slack.com", "com.brave.browser"}))
-    grant, _ = setup(daemon, {"mac:act"}, intent, [cap])
+    submit = MacInput("fake.submit", "submit", {"mac:act"})
+    grant, _ = setup(daemon, {"mac:act"}, request("in my brave, join the slack thread"), [cap, submit])
     asked = Answers(daemon)
     try:
         for _ in range(3):
-            assert not daemon.run(daemon.daemon.gateway.call(grant, "fake.mac", {}))["is_error"]
+            assert not daemon.run(daemon.daemon.gateway.call(grant, "fake.mac", {"effect": "edit"}))["is_error"]
+        assert not daemon.run(daemon.daemon.gateway.call(grant, "fake.submit", {"why": "joining the thread"}))["is_error"]
     finally:
         asked.stop()
-    assert asked.asked == [] and cap.calls == 3
+    assert asked.asked == [] and cap.calls == 3 and submit.calls == 1
 
 
 # ---------- the irreversible floor ----------
 
-def test_account_security_pages_and_model_flagged_kinds_ask_every_time(daemon: RunningDaemon) -> None:
+def test_account_security_pages_and_declared_destroys_ask_every_time(daemon: RunningDaemon) -> None:
     from ferb.act.browser.tools import security_page
     assert security_page("https://myaccount.google.com/security") and not security_page("https://shop.example/buy")
-    submit = FakeCap("fake.submit", "submit", {"browser:act"})
-    intent = RequestIntent.from_plan("req-1", {"fill_form"}, irreversible=frozenset({"submit"}))
-    grant, _ = setup(daemon, {"browser:act"}, intent, [submit])
+    change = FakeCap("fake.security", "account_security", {"browser:act"}, site="myaccount.google.com")
+    grant, _ = setup(daemon, {"browser:act"}, request("change my google password"), [change])
     yes = Answers(daemon)
     try:
         for _ in range(2):
-            assert not daemon.run(daemon.daemon.gateway.call(grant, "fake.submit", {}))["is_error"]
+            assert not daemon.run(daemon.daemon.gateway.call(grant, "fake.security", {"to": "", "why": "changing it"}))["is_error"]
     finally:
         yes.stop()
-    assert len(yes.asked) == 2 and submit.calls == 2                      # flagged: asked each time
+    assert len(yes.asked) == 2 and change.calls == 2                      # the floor: asked each time, even when named
 
 
 # ---------- continuity ----------
@@ -100,9 +77,10 @@ def test_a_closed_chat_never_stops_a_task_and_its_answer_waits(daemon: RunningDa
 
     def slow(token: str) -> str:
         gate.wait(10)
-        return writes(daemon.sock, "todo.md", "milk")(token)
-    install(daemon, [sup("plan", "On it.", plan([sub("a")], paths=("todo.md",)))],
-            {"a": slow, "answer": json.dumps({"text": "I made todo.md with milk."})})
+        writes(daemon.sock, "todo.md", "milk")(token)
+        return json.dumps({"status": "done", "summary": "I made todo.md with milk.", "artifacts": ["todo.md"],
+                           "evidence": []})
+    install(daemon, [sup("task", "On it.", task("write todo.md", paths=("todo.md",)))], {"worker": slow})
     c = Client(daemon.sock, timeout=30)
     stream = c.stream("chat.send", {"session_id": "s", "text": "create todo.md with milk"})
     first = next(stream)
@@ -126,7 +104,7 @@ def test_a_closed_chat_never_stops_a_task_and_its_answer_waits(daemon: RunningDa
 
 
 def test_ctrl_c_stops_the_task_as_stopped_by_you(daemon: RunningDaemon) -> None:
-    install(daemon, [sup("plan", "On it.", plan([sub("a")], paths=("todo.md",)))], {"a": STALL})
+    install(daemon, [sup("task", "On it.", task("write todo.md", paths=("todo.md",)))], {"worker": STALL})
     c = Client(daemon.sock, timeout=30)
     stream = c.stream("chat.send", {"session_id": "s", "text": "create todo.md with milk"})
     tid = next(stream)["task_id"]
@@ -214,8 +192,8 @@ def test_a_window_on_another_space_is_still_found(monkeypatch: pytest.MonkeyPatc
 def test_a_second_message_is_answered_while_the_first_task_runs(daemon: RunningDaemon) -> None:
     """Several at once (owner request, 2026-09-30): the daemon takes a new message in the same chat session while an
     earlier task is still working."""
-    install(daemon, [sup("plan", "On it.", plan([sub("a")], paths=("todo.md",))), sup("reply", "It's 9 am.")],
-            {"a": STALL})
+    install(daemon, [sup("task", "On it.", task("write todo.md", paths=("todo.md",))), sup("reply", "It's 9 am.")],
+            {"worker": STALL})
     first: list[dict[str, Any]] = []
 
     def long_one() -> None:

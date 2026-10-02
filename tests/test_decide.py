@@ -19,10 +19,9 @@ from pydantic import BaseModel
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.decide.decider import JevClient, JevUnavailable, may_enable
 from ferb.decide.questions import QUESTIONS
-from ferb.policy.intent import RequestIntent
 from ferb.sense.trail import Observation
 from tests.conftest import RunningDaemon
-from tests.test_gateway import setup
+from tests.test_gateway import request, setup
 
 KEY = "jev-test-key-7f3a9c"
 
@@ -93,11 +92,11 @@ class Shell:
 
 def shell_call(d: RunningDaemon, cap: Shell, cmd: str = "ls") -> dict[str, Any]:
     grant = getattr(d, "_shell_grant", None)
-    if grant is None:                                                       # the request's intent is write-once
-        grant, _ = setup(d, {"shell"}, RequestIntent.from_plan("req-1", {"run_command"}), [])
+    if grant is None:                                                       # one task per test daemon
+        grant, _ = setup(d, {"shell"}, request("run the build"), [])
         d._shell_grant = grant                                             # type: ignore[attr-defined]
     d.daemon.registry.capabilities[cap.name] = cap
-    return d.run(d.daemon.gateway.call(grant, cap.name, {"cmd": cmd}), timeout=20)  # type: ignore[no-any-return]
+    return d.run(d.daemon.gateway.call(grant, cap.name, {"cmd": cmd, "effect": "edit"}), timeout=20)  # type: ignore[no-any-return]
 
 
 def rows(d: RunningDaemon, q: str | None = None) -> list[dict[str, Any]]:
@@ -156,10 +155,11 @@ def test_an_action_ferb_blocks_is_never_even_offered_to_jev(jd: Any) -> None:
     d, fake = jd
     enable(d, "action.matches_request")
     fake.answers = {"action.matches_request": "yes"}
-    grant, _ = setup(d, {"shell"}, RequestIntent.from_plan("req-1", {"summarize"}), [])   # no shell in the request
+    grant, _ = setup(d, {"shell"}, request("check that page"), [])
+    d.daemon.engine.exposure.read(grant.worker_id, "web", "https://evil.example/")   # exposed: shell is blocked
     cap = Shell()
     d.daemon.registry.capabilities[cap.name] = cap
-    r = d.run(d.daemon.gateway.call(grant, cap.name, {"cmd": "ls"}))
+    r = d.run(d.daemon.gateway.call(grant, cap.name, {"cmd": "ls", "effect": "edit"}))
     assert r["is_error"] and cap.calls == 0 and fake.requests == []
 
 

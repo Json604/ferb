@@ -1,16 +1,15 @@
-"""Verification and reconciliation (section 7 steps 8-9).
+"""Verification and reconciliation (section 7 steps 8-9, docs/DESIGN_ONE_WORKER.md section 5).
 
-Verification checks each success condition with fresh reads, after the actors finish. Conditions with a
-code-checkable form are checked by code — file exists / contains, the subtask's ledger rows are done, a tab's URL,
-the signed-in account — and only conditions that need judgment go to a read-only verifier worker. Each result
+Verification checks each success condition with fresh reads, after the worker finishes. Conditions with a
+code-checkable form are checked by code — file exists / contains, the task's ledger rows are done, a tab's URL,
+the signed-in account — and only conditions that need judgment go to a read-only verifier run. Each result
 records which path it took ("code" or "verifier") and its evidence. A worker's own claim is evidence, never
-verification.
+verification. A check code can't decide (no ledger rows; an unknown row) goes to the verifier, never fails the task.
 
 Reconciliation settles an `unknown` action (e.g. Send clicked, connection lost) by re-reading the target with a
-read-only worker: happened -> done, didn't -> failed, unclear -> stays unknown and the owner decides. Never retried.
+read-only run: happened -> done, didn't -> failed, unclear -> stays unknown and the owner decides. Never retried.
 """
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -19,8 +18,6 @@ from ferb.act.fs.files import PathRefused, resolve
 from ferb.core.types import ToolContext
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.schemas import Condition
-
-REF = re.compile(r"\{([a-z][a-z0-9_-]*)\.([a-z][a-z0-9_-]*)\}")
 
 
 @dataclass
@@ -37,14 +34,14 @@ class ConditionResult:
 
 
 class Checks:
-    """The deterministic checks. `urls_of` / `account_of` come from the browser drivers (a subtask's tabs)."""
+    """The deterministic checks. `urls_of` / `account_of` come from the browser drivers (a task's tabs)."""
 
     def __init__(self, ledger: Ledger, urls_of: Callable[[str], list[str]],
                  account_of: Callable[[str, str], Awaitable[str | None]]) -> None:
         self.ledger, self.urls_of, self.account_of = ledger, urls_of, account_of
 
     def code_checkable(self, c: Condition, task_id: str | None = None) -> bool:
-        """`ledger_done` is about actions FERB took: when the subtask took none (it only read — "WhatsApp is
+        """`ledger_done` is about actions FERB took: when the task took none (it only read — "WhatsApp is
         running"), the condition is a reading one and goes to the verifier instead (owner's report 2026-10-01)."""
         k = c.check
         if k.kind == "ledger_done":
@@ -52,15 +49,8 @@ class Checks:
         return (k.kind == "file_exists" and bool(k.path)) or (k.kind == "file_contains" and bool(k.path and k.text)) \
             or (k.kind == "tab_url" and bool(k.url_contains)) or (k.kind == "account" and bool(k.site and k.expected))
 
-    async def run(self, i: int, c: Condition, task_id: str, ctx: ToolContext,
-                  fields: dict[str, dict[str, Any]] | None = None) -> ConditionResult:
+    async def run(self, i: int, c: Condition, task_id: str, ctx: ToolContext) -> ConditionResult:
         k = c.check
-        if k.text and REF.search(k.text):                   # {reader.field}: the value a reader actually found
-            missing = [m.group(0) for m in REF.finditer(k.text)
-                       if not isinstance((fields or {}).get(m.group(1), {}).get(m.group(2)), str)]
-            if missing:
-                return ConditionResult(i, c.text, False, "code", f"no reader value for {', '.join(missing)}")
-            k = k.model_copy(update={"text": REF.sub(lambda m: str((fields or {})[m.group(1)][m.group(2)]), k.text)})
         if k.kind in ("file_exists", "file_contains"):
             try:
                 p = resolve(k.path or "", ctx, must_exist=True)
@@ -73,8 +63,8 @@ class Checks:
             return ConditionResult(i, c.text, found, "code", f"{p} {'contains' if found else 'does not contain'} "
                                                            f"the expected text")
         if k.kind == "ledger_done":
-            # `expected` is ignored: the planner writes free text there ("Spotify like current track") and the model
-            # never sees the ledger's capability names, so matching on it marked done work as failed (audit 2026-10-02)
+            # `expected` is ignored: the model writes free text there ("Spotify like current track") and never sees
+            # the ledger's capability names, so matching on it marked done work as failed (audit 2026-10-02)
             rows = self.ledger.for_task(task_id)
             states = sorted({r.intent.state for r in rows})
             met: bool | None = bool(rows) and states == ["done"]

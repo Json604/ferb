@@ -37,7 +37,7 @@ class Task:
     device_id: str
     identity: Identity
     scopes: set[str]
-    role: Literal["reader", "actor", "mixed"]
+    role: Literal["worker", "verifier", "mixed"]   # worker: one per request; verifier: read-only checks
     request_id: str
     success_conditions: list[str]
     deadline: datetime | None                # the tree's runaway time limit (section 7 step 10)

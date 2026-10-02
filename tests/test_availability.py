@@ -7,10 +7,11 @@ and a plan that needed something missing ends in a plain "can't do that right no
 from types import SimpleNamespace
 from typing import Any
 
+from ferb.cli.client import Client
 from ferb.core.types import Identity
 from ferb.orchestrator.availability import build
 from tests.conftest import RunningDaemon
-from tests.test_supervisor import chat, install, plan, sub, sup
+from tests.test_supervisor import STALL, chat, install, sup, task
 
 REGISTERED = {"fs:read", "fs:write", "browser:read", "browser:act", "mac:read", "mac:act", "applescript", "screen",
               "shell", "time", "trail:read"}
@@ -94,12 +95,24 @@ async def _system(dm: Any) -> str:
     return str(dm.supervisor._system("supervisor.md"))
 
 
-def test_a_plan_needing_something_missing_gets_a_plain_answer(daemon: RunningDaemon) -> None:
+def test_the_worker_gets_only_what_is_usable_now(daemon: RunningDaemon) -> None:
+    """The backstop behind the prompt's "Unavailable" line: a task's worker gets its identity's scopes minus what
+    isn't usable — with the owner's browsers not connected, no browser tools at all."""
     dm = rig(daemon, [WORK], set())
     dm.supervisor.availability = dm._availability
-    p = plan([sub("a", identity="owner", scopes=("browser:act",))], verbs=("fill_form",), sites=("example.com",))
-    install(daemon, [sup("plan", "On it.", p)] * 3)                         # the model keeps planning it
-    evs = chat(daemon, "fill the form on example.com")
-    text = [e["text"] for e in evs if e["type"] == "reply"]
-    assert text == ["I can't do that right now. Unavailable: the owner's browsers (Brave “Work” paired but not open "
-                    "— open it and FERB reconnects within 30 s)."], evs
+    install(daemon, [sup("task", "On it.", task("fill the form on example.com", "owner", sites=("example.com",)))],
+            {"worker": STALL})
+    c = Client(daemon.sock, timeout=30)
+    try:
+        for ev in c.stream("chat.send", {"session_id": "s", "text": "fill the form on example.com"}):
+            if ev["type"] == "plan":
+                t = daemon.daemon.tasks.get(ev["task_id"] + ".worker")
+                assert t is not None and not {"browser:read", "browser:act"} & set(t.task.scopes)
+                assert {"fs:read", "fs:write", "mac:read", "mac:act", "shell"} <= set(t.task.scopes)
+                c2 = Client(daemon.sock)
+                c2.call("task.stop", {"task_ids": [ev["task_id"]]})
+                c2.close()
+            if ev["type"] == "outcome":
+                break
+    finally:
+        c.close()

@@ -151,7 +151,7 @@ def chat(d: RunningDaemon, text: str) -> list[dict[str, Any]]:
 
 def problems(d: RunningDaemon, since: str = "") -> list[Any]:
     async def go() -> list[Any]:
-        out: list[Any] = [e.data for e in d.daemon._journal().entries() if e.kind in ("plan.repair", "chat.failed")]
+        out: list[Any] = [e.data for e in d.daemon._journal().entries() if e.kind in ("task.repair", "chat.failed")]
         out += [(r["input_json"][:300], (r["output_json"] or "")[:200], r["error"]) for r in d.daemon.db.conn.execute(
             "SELECT input_json, output_json, error FROM spans WHERE kind = 'tool.call' AND started_at >= ? ORDER BY started_at",
             (since,))]

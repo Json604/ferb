@@ -31,8 +31,8 @@ KIND_TEXT = {"call": "start a call", "send": "send a message", "post": "post", "
              "pay": "make a payment", "delete_permanent": "permanently delete something",
              "account_security": "change account or security settings", "run_shell": "run a command",
              "applescript": "control an app with AppleScript", "mac_input": "use the mouse and keyboard in an app",
-             "fill_form": "fill in a form", "submit": "submit something", "write_file": "change a file",
-             "fill_secret": "fill in a password", "mailbox_read": "read FERB's inbox"}
+             "fill_form": "fill in a form", "submit": "submit something", "click": "click something on a page",
+             "write_file": "change a file", "fill_secret": "fill in a password", "mailbox_read": "read FERB's inbox"}
 
 
 def read_message(inp: TextIO) -> str | None:
@@ -105,9 +105,7 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
     if t == "plan":
         if not verbose:
             return f"ferb> {ev['text']}"
-        subs = "".join(f"\n        {s['id']} ({s['role']}{', after ' + ', '.join(s['depends_on']) if s['depends_on'] else ''})"
-                       f": {s['goal']}" for s in ev.get("subtasks", []))
-        return f"ferb: {ev['text']}  [task {ev['task_id']}]{subs}"
+        return f"ferb: {ev['text']}  [task {ev['task_id']}, {ev.get('identity', 'owner')}]: {ev.get('goal', '')}"
     if t == "subtask":
         if not verbose:
             return None
@@ -158,11 +156,14 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
 
 def question(d: dict[str, Any]) -> str:
     """An approval in plain words."""
+    if d.get("kind") == "owner_question":                 # a worker's question to the owner (owner.ask)
+        if d.get("options"):
+            opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
+            return f"   ? {d.get('reason', '')}\n{opts}\n   number or your answer (Enter to skip): "
+        return f"   ? {d.get('reason', '')}\n   your answer (Enter to skip): "
     if d.get("options"):                                  # "Which Rahul did you mean?" (16a)
         opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
         return f"   ? {d.get('reason', '')}\n{opts}\n   number (Enter to cancel): "
-    if d.get("kind") == "route_change":                   # FERB found a better route while exploring (10.3)
-        return f"   ? {d.get('reason', '')} [y/N] "
     if d.get("kind") in ("folder_access", "send_again"):
         return f"   ? {d.get('reason', '')} [y/N] "
     what = KIND_TEXT.get(str(d.get("kind")), str(d.get("kind") or "do this"))
@@ -241,12 +242,13 @@ class Chat:
         self.speaker.say(question(d))
         reply = self.ask(question(d)).strip()
         self.speaker.stop()
-        if d.get("options"):
+        if d.get("kind") == "owner_question":             # a number picks an option; anything else is the answer
+            r = self.call("chat.answer", {"approval_id": d["approval_id"], "text": reply})
+        elif d.get("options"):
             n = int(reply) if reply.isdigit() and 1 <= int(reply) <= len(d["options"]) else None
-            params: dict[str, Any] = {"approval_id": d["approval_id"], "granted": n is not None, "choice": n}
+            r = self.call("chat.approve", {"approval_id": d["approval_id"], "granted": n is not None, "choice": n})
         else:
-            params = {"approval_id": d["approval_id"], "granted": reply.lower() in ("y", "yes")}
-        r = self.call("chat.approve", params)
+            r = self.call("chat.approve", {"approval_id": d["approval_id"], "granted": reply.lower() in ("y", "yes")})
         if self.verbose:
             self.say(f"   {r['state']}")
 
