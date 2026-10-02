@@ -1,4 +1,4 @@
-# Code tour (0.20.0)
+# Code tour (0.20.1)
 
 The flows through FERB's code, in the order they run, by `path:function` (no line numbers; `rg -n "def name"`
 finds them). The design contract behind every piece is [ARCHITECTURE.md](ARCHITECTURE.md); section numbers (§) refer
@@ -335,3 +335,11 @@ the extension, inspect the service worker from the browser's extensions page and
   `Bridge._cancel_pointer` → `commands.pointer_cancel`: cancellation propagates from Python into extension cleanup.
 - `MacPointer` → `MacComputerDriver.pointer_at` → `pointer_steps` → `RealInput.to_process`: exact pixel mapping,
   app/window guards, process-directed input and release cleanup inside the GUI lock.
+
+## 0.20.1 browser defaults
+
+- `Daemon._named_browser` uses explicit-only name matching; `Supervisor._decide` repairs unauthorized owner-web
+  routes; `run_tree` removes personal-browser scopes without owner direction. `Gateway._call` blocks Mac-browser
+  fallback when those scopes are absent.
+- `Router.open_tabs` separates disconnected pairings from an empty tab inventory. `_TabDriver._connected` stops
+  after windowless startup times out; it no longer creates a visible wake tab.

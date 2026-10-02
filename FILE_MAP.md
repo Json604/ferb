@@ -1,6 +1,6 @@
 # File map
 
-What the source folders and files in FERB are for, as of version 0.20.0 (2026-10-02). Package markers and tests
+What the source folders and files in FERB are for, as of version 0.20.1 (2026-10-02). Package markers and tests
 are grouped where they share a purpose. For how the pieces run together,
 see [CODE_TOUR.md](CODE_TOUR.md). For the design, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -311,3 +311,6 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 - `tests/test_persistent_chat.py`: restart, legacy migration, scope isolation and unknown-outcome retry regressions.
 - `tests/test_pointer.py`, `tests/test_mac_pointer.py`: exact coordinates, stale refusal, cancellation cleanup and destination policy floors.
 - `docs/POINTER_CONTINUITY_020.md`: behavior, validation, deployment and remaining limits.
+
+0.20.1: `tests/test_browser_default.py` covers explicit profile authority and retry corrections;
+`docs/BROWSER_DEFAULT_0201.md` records the owner incident and the fixes.

@@ -1349,7 +1349,7 @@ class Daemon:
         from ferb.act.browser.profiles import named_in
         ferb = self._identity_profile()
         owners = [p for p in self._profiles() if (p.browser, p.folder) != ferb]
-        return named_in(own_words, owners)
+        return named_in(own_words, owners, explicit_only=True)
 
     def _profile_state(self, p: Any) -> str:
         """connected / paired (FERB opens it) / installed, not paired / no extension."""

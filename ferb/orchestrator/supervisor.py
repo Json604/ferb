@@ -250,6 +250,19 @@ class Supervisor(WorkerRuns):
         out = await self._supervise(session, message, request_id, recalled)
         def problems_for(candidate: SupervisorOutcome) -> list[str]:
             problems = dag.validate(candidate.task, available, self.workspace) if candidate.kind == "task" and candidate.task else []
+            if candidate.task and candidate.task.identity == "owner":
+                words = self._env.get(request_id, {}).get("words", "")
+                if candidate.control:
+                    prior = self.continuity.load(candidate.control.task_id, session.id)
+                    if prior:
+                        words = prior[1].words + "\n" + words
+                named = self.environment(words).get("named_browser")
+                targets = candidate.task.targets
+                if targets.sites and not targets.apps and not targets.paths and named is None:
+                    problems.append("Use identity ferb for web work by default. No personal browser/profile was "
+                                    "explicitly requested. Account details, phone numbers and earlier agent choices "
+                                    "do not grant that permission. If owner-account access cannot be done in FERB's "
+                                    "profile under the identity rules, explain the boundary and ask; never switch profiles.")
             if candidate.control and self.continuity.load(candidate.control.task_id, session.id) is None:
                 problems.append("Unknown task_id. Use an exact id from the resumable attempts list. If ambiguous, ask which goal; never invent an id.")
             return problems
@@ -385,7 +398,7 @@ class Supervisor(WorkerRuns):
                 self._env.pop(request_id, None)
                 return
             if out.task is not None:
-                if out.task.identity != prior_spec.identity:
+                if out.task.identity != prior_spec.identity and out.task.identity != "ferb":
                     yield {"type": "reply", "text": "That retry would change whose account I use. Please specify the account."}
                     self._env.pop(request_id, None)
                     return
@@ -560,6 +573,10 @@ class Supervisor(WorkerRuns):
         limit = now + timedelta(minutes=MAX_MINUTES)                          # the runaway time limit, shared
         identity = Identity(spec.identity)
         scopes = dag.scopes_for(identity, self.availability().scopes)
+        if identity is Identity.OWNER:
+            words = self.engine.requests.get(request_id).words
+            if self.environment(words).get("named_browser") is None:
+                scopes -= {"browser:read", "browser:act"}
         root = Task(tree_id, None, spec.goal, self.device_id, Identity.OWNER, set(), "mixed", request_id, [], limit)
         worker = Task(f"{tree_id}.{WORKER}", tree_id, spec.goal, self.device_id, identity, scopes, "worker",
                       request_id, [c.text for c in spec.success_conditions], limit)

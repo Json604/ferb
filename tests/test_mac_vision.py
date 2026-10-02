@@ -309,7 +309,7 @@ def test_screenshots_of_browsers_and_messages_expose_the_worker(daemon: RunningD
     _fake_mac(daemon, monkeypatch)
     daemon.daemon.mac.apps.apps.append(RunningApp("com.apple.mail", "Mail", 15, False))   # type: ignore[union-attr]
     for tid, app in (("b", "Brave"), ("m", "Mail")):
-        g = task(daemon, tid, Identity.OWNER, {"screen"}, {"use_app"})
+        g = task(daemon, tid, Identity.OWNER, {"screen", "browser:read"}, {"use_app"})
         assert not call(daemon, g, "mac.screenshot", app=app)["is_error"]
         assert daemon.daemon.engine.exposure.state(f"w-{tid}").exposed, app
 
@@ -326,7 +326,7 @@ def test_browsers_go_through_the_extension_first(daemon: RunningDaemon, monkeypa
     connected = {"brave"}
     for cap in ("mac.screenshot", "mac.click"):
         daemon.daemon.gateway.caps[cap].extension_ready = lambda b: b in connected     # type: ignore[attr-defined]
-    g = task(daemon, "e", Identity.OWNER, {"screen", "mac:act"}, {"use_app"})
+    g = task(daemon, "e", Identity.OWNER, {"screen", "mac:act", "browser:read"}, {"use_app"})
     r = call(daemon, g, "mac.screenshot", app="Brave")
     assert r["is_error"] and "browser_* tools" in r["content"]["error"]
     r = call(daemon, g, "mac.screenshot", app="Brave", fallback_reason="the permission prompt is browser UI")

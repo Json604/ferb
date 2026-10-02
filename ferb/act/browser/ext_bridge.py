@@ -413,9 +413,7 @@ class _TabDriver:
         self._n = 0
 
     async def _connected(self, br: Bridge) -> Bridge:
-        """Wake a sleeping extension with a unique local page in that profile. The page stays open until FERB's own
-        tab is open there (`_open_in`): if it were the profile's only window, closing it first would unload the
-        profile and drop the connection before any work started."""
+        """Try loading the profile without a window; never create a visible wake tab to force a connection."""
         if br.conn is None and self.wake is not None:
             kwargs: dict[str, Any] = {"launch": self.launch} if self.launch else {}
             kwargs["is_running"] = self.is_running
@@ -426,14 +424,9 @@ class _TabDriver:
                 try:
                     await asyncio.wait_for(br.connected.wait(), WINDOWLESS_WAIT_S)
                 except asyncio.TimeoutError:
-                    # 2) the profile was already loaded with its extension asleep: a wake page starts it (a window)
-                    url = self.wake.url()
-                    open_known_profile(br.binding.browser, br.binding.folder, url, self.profiles(), **kwargs)
-                    try:
-                        await asyncio.wait_for(br.connected.wait(), WAKE_TIMEOUT_S)
-                    except asyncio.TimeoutError:
-                        raise DriverError(f"{br.name} didn't connect (is the FERB extension enabled there?)") from None
-                    br.wake_url = url
+                    reason = self.hub.refused.get(br.binding.install_id) or "reload the FERB extension in that profile"
+                    raise DriverError(f"{br.name} didn't connect without opening a window; {reason}. "
+                                      "No visible wake tab was opened.") from None
             finally:
                 self._back(owner)
         if br.conn is None:
@@ -791,12 +784,12 @@ class Router(_TabDriver):
     async def open(self, url: str, background: bool = True) -> TabRef:
         return await self.open_for(url, owner="")
 
-    def _owner_bridges(self, profile: str | None) -> list[Bridge]:
+    def _owner_bridges(self, profile: str | None, *, connected_only: bool = True) -> list[Bridge]:
         """Connected owner profiles (FERB's identity profile never), optionally only the one the owner named."""
         names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
         out = []
         for br in self.hub.bridges.values():
-            if br.conn is None or br.binding.identity is not Identity.OWNER:
+            if (connected_only and br.conn is None) or br.binding.identity is not Identity.OWNER:
                 continue
             shown = names.get((br.binding.browser, br.binding.folder), br.binding.folder)
             if profile and profile.lower() not in (shown.lower(), br.binding.folder.lower(), br.binding.browser.lower()):
@@ -810,6 +803,15 @@ class Router(_TabDriver):
         names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
         named = self.named_for(task) if self.named_for and task else None
         out = []
+        selected = [br for br in self._owner_bridges(profile, connected_only=False)
+                    if named is None or named.allows(br.binding.browser, br.binding.folder)]
+        missing = [br for br in selected if br.conn is None]
+        if missing:
+            details = "; ".join(f"{br.name}: " + (self.hub.refused.get(br.binding.install_id) or
+                               "paired but not connected; reload the FERB extension in that profile, then retry")
+                               for br in missing)
+            raise Refused(details + ". No tab inventory is available for these profiles. Do not open another "
+                          "profile or try Mac browser controls; this is a connection problem, not an empty tab list.")
         for br in self._owner_bridges(profile):
             if named is not None and not named.allows(br.binding.browser, br.binding.folder):
                 continue                                              # the owner named another profile

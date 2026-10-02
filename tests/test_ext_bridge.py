@@ -417,32 +417,24 @@ def test_a_profile_is_woken_with_no_window_first(bd: Any) -> None:
     assert list(ext.tabs.values())[-1] == "https://example.com/"
 
 
-def test_an_asleep_extension_in_a_loaded_profile_gets_a_wake_page_then_it_is_closed(
+def test_disconnected_profile_does_not_open_a_visible_wake_tab(
         bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     import ferb.act.browser.ext_bridge as eb
-    monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.3)
+    monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.05)
+    monkeypatch.setattr(eb, "WAKE_TIMEOUT_S", 0.05)
     d, launched = bd
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
-    ext.kill()                                                                  # worker asleep / disconnected
+    ext.kill()
     d.run(_start_wake(d))
-    closed: list[str] = []
-    ext.op_wake_close = lambda a, cid: (closed.append(a["url"]) if ext.tabs else None, {"closed": 1})[1]  # type: ignore[method-assign]
-
-    def on_launch(args: list[str]) -> None:
-        launched.append(args)
-        if "/wake/" in args[-1]:                                                # only a page restarts the worker
-            ext.connect()
-    d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
-    g = task(d, "w", OWNER, {"research"})
+    before = len(launched)
+    d.daemon.router.launch = launched.append
+    g = task(d, "w", OWNER, "use my Work profile")
     r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
-    assert not r["is_error"], r
-    assert launched[-2][-1] == "--no-startup-window"                            # tried without a window first
-    wake = launched[-1][-1]
-    assert launched[-1][:2] == ["open", "-g"] and "--profile-directory=Profile 1" in launched[-1]   # in the background
-    assert "/wake/" in wake and wake.startswith("http://127.0.0.1:")
-    assert closed == [wake]                                                     # exactly that page, nothing else
-    assert list(ext.tabs.values())[-1] == "https://example.com/"               # ...after FERB's own tab was open
+    assert r["is_error"] and "reload" in r["content"]["error"]
+    assert len(launched) == before + 1
+    assert launched[-1][-1] == "--no-startup-window"
+    assert not any("/wake/" in arg for argv in launched[before:] for arg in argv)
 
 
 async def _start_wake(d: RunningDaemon) -> None:
@@ -565,3 +557,17 @@ def test_waking_a_profile_never_leaves_the_owner_in_the_browser() -> None:
         assert calls == ["com.microsoft.VSCode"]                           # the owner was in Chrome: leave it
     finally:
         real.frontmost, real.activate = saved                              # type: ignore[assignment]
+
+
+def test_tab_listing_reports_disconnected_pairing_instead_of_empty_tabs(bd):
+    d, launched = bd
+    ext = pair(d, launched, 'Work')
+    ext.kill()
+    deadline = time.monotonic() + 3
+    while d.daemon.hub.bridges[('chrome','Profile 1')].conn is not None and time.monotonic() < deadline:
+        time.sleep(.02)
+    grant = task(d, 'disconnected', OWNER, 'use my Work profile')
+    result = call(d, grant, 'browser.tabs', profile='Work')
+    assert result['is_error']
+    assert 'paired but not connected' in result['content']['error']
+    assert 'reload' in result['content']['error']

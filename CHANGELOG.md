@@ -10,6 +10,19 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.20.1 — 2026-10-02 — Personal browsers require explicit direction
+
+- Default web requests to FERB's own profile. Repair an owner-web classification without explicit personal-browser
+  direction. Remove personal-browser scopes from owner tasks without that direction, including retries; an earlier
+  agent's goal/profile choice cannot grant access. Explicit owner-to-FERB route correction can proceed.
+- Use explicit browser/profile naming for authority; account names and matching site domains alone no longer count.
+  Guard native Mac browser tools against bypassing absent personal-browser scopes.
+- Report disconnected paired profiles as connection failures when listing tabs, including recorded version refusal
+  details. Do not return an empty tab list and invite profile guessing or Mac fallbacks.
+- Remove the visible wake-page fallback after a windowless connection attempt times out. Opening a new visible
+  browser window and then switching the owner back is not reliable background operation.
+- Diagnosis, migration and limits: `docs/BROWSER_DEFAULT_0201.md`. No installed daemon restart or owner-profile action.
+
 ## 0.20.0 — 2026-10-02 — Durable conversations and exact pointer gestures
 
 - Resume the last chat across CLI and daemon restarts; add `ferb chat --new` and `--resume ID`. Persist redacted

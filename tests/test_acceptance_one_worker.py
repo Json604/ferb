@@ -361,7 +361,7 @@ def test_6_a_payment_asks_every_time_and_a_no_is_reported_as_failed(daemon: Runn
     install(daemon, [sup("task", "On it.", t)] * 2, {"worker": worker})
     no = Answers(daemon, granted=False)
     try:
-        out = outcome(chat(daemon, "buy the cheapest one on shop.example"))
+        out = outcome(chat(daemon, "in my browser, buy the cheapest one on shop.example"))
     finally:
         no.stop()
     assert len(no.asked) == 1 and "pay" in no.asked[0].reason and "199" in no.asked[0].reason
@@ -369,7 +369,7 @@ def test_6_a_payment_asks_every_time_and_a_no_is_reported_as_failed(daemon: Runn
     assert out["status"] == "failed" and "I didn't buy it" in out["answer"]
     yes = Answers(daemon)                                                 # even a yes is per call: asked each time
     try:
-        out2 = outcome(chat(daemon, "buy the cheapest one on shop.example", session="s2"))
+        out2 = outcome(chat(daemon, "in my browser, buy the cheapest one on shop.example", session="s2"))
     finally:
         yes.stop()
     assert len(yes.asked) == 1 and out2["status"] == "done" and len(br.acted) == 1
@@ -396,7 +396,7 @@ def test_7_a_worker_that_read_a_web_page_cannot_run_shell(daemon: RunningDaemon)
         return report("done", "Read the page.")
     t = task("read today's news on news.example and run the build", "owner", sites=("news.example",))
     install(daemon, [sup("task", "Reading.", t)], {"worker": worker})
-    outcome(chat(daemon, "read today's news on news.example then run the build"))
+    outcome(chat(daemon, "in my browser, read today's news on news.example then run the build"))
     assert seen["before"] is True and seen["after"] is False
     assert seen["shell"]["is_error"] and "not available" in seen["shell"]["content"]["error"]
 

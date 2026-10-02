@@ -1,4 +1,4 @@
-# FERB architecture (version 0.20.0)
+# FERB architecture (version 0.20.1)
 
 This file describes what the code on this branch does, and only that. Every claim names the file (and where it
 helps, the function) that implements it; a claim the author could not confirm in code is marked "unverified".
@@ -1049,3 +1049,15 @@ coordinates and a 30-second screenshot lease. It requires the current Space, che
 the owner is using that app. It never activates or uses the global cursor. Partial interruptions remain unknown.
 AX actions remain preferred. Input delivery always requires a fresh observation to establish task success.
 Native on-screen pointer acceptance remains pending; evidence and limitations are in `docs/POINTER_CONTINUITY_020.md`.
+
+## 0.20.1 browser authority and connection failures
+
+`named_in(..., explicit_only=True)` is used for owner-browser permission; site/account-derived profile matches
+remain discovery hints only. `Supervisor._decide` repairs web-only owner tasks without explicit direction;
+`run_tree` removes owner browser scopes absent such direction. The gateway rejects native Mac browser access
+without those scopes. Retry context restores owner words, never permission from a model-written goal.
+
+`Router.open_tabs` reports disconnected matching pairings instead of returning a misleading empty list.
+`_TabDriver._connected` may load a profile with no startup window, but times out with a diagnostic instead of
+opening a visible wake page. Historical wake-page descriptions above are superseded for automatic task startup;
+explicit pairing/setup still opens its own page. See `docs/BROWSER_DEFAULT_0201.md`.

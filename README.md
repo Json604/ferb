@@ -8,7 +8,7 @@ Mac while it works. Every tool call the worker makes goes through one gateway th
 really does, whether it runs, is held for undo, or needs your yes. What works per app is learned from doing, not
 written into the code.
 
-- **Version:** 0.20.0 (see [CHANGELOG.md](CHANGELOG.md)). Built and tested by one
+- **Version:** 0.20.1 (see [CHANGELOG.md](CHANGELOG.md)). Built and tested by one
   person on one Mac. Expect rough edges.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed on macOS 26.
 - **Interface:** the CLI, plus push-to-talk. No GUI, menu-bar item or web dashboard. FERB.app (for push-to-talk)
@@ -332,3 +332,8 @@ area you're changing. Never read or reuse `vibed/`.
 - Browser snapshots use Chromium Accessibility first, backed by DOM targets. `browser.screenshot` and `browser.point` resolve missing visible controls in the exact task tab; the normal action policy still gates the click.
 - Only the Mac and browser drivers have recorded real test runs after the 0.17/0.18 rework; the legacy safety suite was last run for
   real at 0.1.0 and has been re-run offline since.
+
+Browser routing defaults to FERB's own profile. Personal profiles require explicit direction such as "in my Brave"
+or "my Work profile"; a site, phone number or saved address is not permission. Disconnected profiles report a
+connection error; FERB no longer opens a visible wake tab to force a connection. See
+[0.20.1 browser routing notes](docs/BROWSER_DEFAULT_0201.md).

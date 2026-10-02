@@ -1,4 +1,4 @@
-# What FERB can do (0.20.0)
+# What FERB can do (0.20.1)
 
 A checklist for trying FERB out. Each row gives an example request, what it needs, how it is verified, and known
 limits. Every row was checked against the code or the recorded runs on 2026-10-02.
@@ -60,9 +60,10 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 
 ## Browser (your paired profiles)
 
-FERB uses your browser when the request is about your apps, accounts or profiles ("my Gmail", "in Brave", "the current
-tab"): the model picks identity `owner`. A plain "do X on YouTube" is a `ferb` task in FERB's own browser. The code
-floor: a `ferb` task never gets your browsers, Mac or folders. The profile you name is the only one used.
+FERB's own profile is the default for web work. Your profiles require explicit browser/profile direction, such as
+"in my Brave" or "my Work profile". Owner-account details alone do not grant personal-browser scopes. A named
+profile never silently becomes another; a disconnected one reports its connection problem. The existing identity
+split still prevents FERB's profile from holding owner accounts; unsupported login requests must be clarified.
 
 | Capability | Example request | Needs | Verified | Known limits |
 |---|---|---|---|---|
@@ -202,3 +203,7 @@ floor: a `ferb` task never gets your browsers, Mac or folders. The profile you n
 - **Learned trust:** FERB doesn't offer to stop asking about an action type; edit `[policy] trusted_kinds`.
 - **Other platforms, other users, a GUI, sync across devices**: no.
 - **Arbitrary code isolation:** the shell runs as you, inside FERB's rules; no sandbox per resource.
+
+0.20.1: offline regressions cover default-profile authority, corrected legacy retries, native-browser bypass refusal,
+disconnected tab diagnostics and no visible wake page after connection timeout. Live extension recovery remains
+owner-operated; no new background/no-Space-shift claim is made.

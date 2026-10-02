@@ -1,6 +1,11 @@
 # FERB progress
 
-## Where we are — version 0.20.0, branch `astra/version` (2026-10-02)
+## Where we are — version 0.20.1, branch `astra/version` (2026-10-02)
+
+Personal-browser authority and wake behavior are corrected in 0.20.1 (`docs/BROWSER_DEFAULT_0201.md`). The owner's
+Zomato retry was incorrectly routed to owner profiles; the later explicit-Brave scrolling request failed because
+its paired extension was disconnected. Default-profile scopes, retry handling and connection diagnostics are
+covered offline. Visible wake tabs are no longer opened automatically. Validation: **516 offline tests passed, 50 deselected** (116.60 s); core mypy and `git diff --check` passed.
 
 Durable conversation/task context now survives CLI and daemon restarts, with legacy attempt recovery and fresh
 retry authority. Browser visual actions preserve exact pixels and support bounded dragging; native `mac.pointer`

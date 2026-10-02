@@ -152,7 +152,7 @@ GENERIC_PROFILE_WORDS = {"default", "person", "profile", "personal", "user", "gu
                          "main", "work", "home", "test"}
 
 
-def named_in(own_words: str, known: list[BrowserProfile]) -> Named | None:
+def named_in(own_words: str, known: list[BrowserProfile], *, explicit_only: bool = False) -> Named | None:
     """Which browser / profile the owner named, if any. A profile counts by its name ("scaler profile", "my scaler
     gmail") or its account ("sst.scaler.com", the account's name before @) — everyday words like "work" only as
     "<name> profile" or "my <name>". The browser counts as "chrome" / "brave" in their words."""
@@ -164,9 +164,9 @@ def named_in(own_words: str, known: list[BrowserProfile]) -> Named | None:
         if browser and p.browser != browser:
             continue
         name = str(getattr(p, "display_name", "")).lower().strip()
-        tokens = {name} if name and " " not in name else set()
+        tokens = {name} if name and (explicit_only or " " not in name) else set()
         email = str(getattr(p, "email", "") or "")
-        if email:
+        if email and not explicit_only:
             local, _, domain = email.partition("@")
             tokens |= {t for t in domain.split(".") if len(t) >= 4 and t not in ("gmail", "googlemail", "yahoo",
                                                                                    "outlook", "hotmail", "icloud")}
@@ -175,9 +175,11 @@ def named_in(own_words: str, known: list[BrowserProfile]) -> Named | None:
             if not t or len(t) < 3:
                 continue
             strong = re.search(rf"\b({re.escape(t)} profile|my {re.escape(t)})\b", lw)
-            if strong or (t in words and t not in GENERIC_PROFILE_WORDS):
+            if strong or (not explicit_only and t in words and t not in GENERIC_PROFILE_WORDS):
                 hits.append(p)
                 break
     if not hits and browser is None:
+        if explicit_only and re.search(r"\b(?:my|current) browser\b", lw):
+            return Named(None, ())
         return None
     return Named(browser, tuple(hits))

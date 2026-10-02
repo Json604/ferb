@@ -15,6 +15,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `CODE_TOUR.md` | the flows, by `path:function` |
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
+| `docs/BROWSER_DEFAULT_0201.md` | Personal profiles only on explicit direction; disconnected extension diagnostics and no visible wake fallback |
 | `docs/POINTER_CONTINUITY_020.md` | 0.20.0 durable conversations and exact pointer gestures, verification and limits |
 | `docs/RELIABILITY_019.md` | 0.19.0 browser, login, truthful-outcome and stop/retry fixes, evidence and remaining limits |
 | `docs/REWORK_PLAN.md` | the phases of the 2026-10-02 rework and the rule on hardcoding |

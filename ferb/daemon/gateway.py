@@ -170,6 +170,12 @@ class Gateway:
             return reply(await self._ask_owner(grant, rec, args), False)
 
         spec = cap.describe(args)
+        if name.startswith("mac."):
+            from ferb.act.mac.ax_browser import BROWSER_BUNDLES
+            if (spec.target.site or "").lower() in {b.lower() for b in BROWSER_BUNDLES} and not (
+                    {"browser:read", "browser:act"} & grant.scopes):
+                return reply({"error": "Personal browser access was not explicitly requested; use FERB's own "
+                              "browser. Mac tools cannot bypass this restriction."}, True)
         floor = effects.floor_of(spec.kind)
         effect = effects.raise_to(declared if isinstance(declared, str) else None, floor)
         if self._acts(cap) and effect in NEEDS_WHY and not why:
