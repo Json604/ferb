@@ -77,6 +77,19 @@ def _front() -> str | None:
         return None
 
 
+def _range(v: Any) -> tuple[int, int] | None:
+    """An AXValue CFRange as (location, length); pyobjc hands it back as a plain tuple, not a struct."""
+    import ApplicationServices as AX
+    if v is None:
+        return None
+    ok, rng = AX.AXValueGetValue(v, AX.kAXValueCFRangeType, None)
+    if not ok:
+        return None
+    if hasattr(rng, "location"):
+        return int(rng.location), int(rng.length)
+    return int(rng[0]), int(rng[1])
+
+
 def _mouse() -> tuple[float, float]:
     import Quartz
     p = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
@@ -273,11 +286,8 @@ class MacTest:
         _set(self.area, "AXFocused", True)
         _run_steps(key_steps("cmd+a", self.pid))
         time.sleep(0.5)
-        v = _attr(self.area, "AXSelectedTextRange")
-        length = None
-        if v is not None:
-            ok, rng = AX.AXValueGetValue(v, AX.kAXValueCFRangeType, None)
-            length = int(rng.length) if ok else None
+        r = _range(_attr(self.area, "AXSelectedTextRange"))
+        length = r[1] if r else None
         total = len(str(_attr(self.area, "AXValue") or ""))
         _run_steps(key_steps("right", self.pid))                 # collapse the selection again
         return {"selected_chars": length, "document_chars": total, "landed": bool(length) and length == total}
@@ -287,12 +297,8 @@ class MacTest:
         time.sleep(0.5)
 
     def _visible(self) -> Any:
-        import ApplicationServices as AX
-        v = _attr(self.area, "AXVisibleCharacterRange")
-        if v is None:
-            return None
-        ok, rng = AX.AXValueGetValue(v, AX.kAXValueCFRangeType, None)
-        return [int(rng.location), int(rng.length)] if ok else None
+        r = _range(_attr(self.area, "AXVisibleCharacterRange"))
+        return list(r) if r else None
 
     def scroll_keys(self) -> dict[str, Any]:
         from ferb.act.mac.input import KEYCODES, key_steps
@@ -334,11 +340,8 @@ class MacTest:
         time.sleep(0.3)
 
         def caret() -> Any:
-            v = _attr(self.area, "AXSelectedTextRange")
-            if v is None:
-                return None
-            ok, rng = AX.AXValueGetValue(v, AX.kAXValueCFRangeType, None)
-            return int(rng.location) if ok else None
+            r = _range(_attr(self.area, "AXSelectedTextRange"))
+            return r[0] if r else None
         before = caret()
         src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
         for kind in (Quartz.kCGEventMouseMoved, Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
@@ -361,13 +364,20 @@ class MacTest:
         return _ax().app_window(self.calc_pid)
 
     def _calc_display(self) -> str | None:
-        win = self._calc_window()
-        el = _find(win, lambda e: _attr(e, "AXRole") in ("AXStaticText", "AXGroup") and
-                   (_attr(e, "AXDescription") or "").lower().startswith("input") or
-                   (_attr(e, "AXRole") == "AXStaticText" and str(_attr(e, "AXValue") or "").strip() != ""))
-        if el is None:
-            return None
-        return str(_attr(el, "AXValue") or _attr(el, "AXDescription") or "")
+        """Everything Calculator shows as text (the expression line and the result), direction marks stripped."""
+        texts: list[str] = []
+
+        def walk(e: Any, d: int) -> None:
+            if e is None or d > 25:
+                return
+            if _attr(e, "AXRole") in ("AXStaticText", "AXTextField"):
+                v = _attr(e, "AXValue")
+                if v not in (None, ""):
+                    texts.append(str(v).replace("\u200e", "").replace("\u200f", ""))
+            for c in _attr(e, "AXChildren") or []:
+                walk(c, d + 1)
+        walk(self._calc_window(), 0)
+        return " | ".join(texts) if texts else None
 
     def _calc_button(self, label: str) -> Any:
         win = self._calc_window()
@@ -379,7 +389,10 @@ class MacTest:
         import ApplicationServices as AX
         pressed = []
         for label in ("clear", "7", "multiply", "6", "equals"):
-            b = self._calc_button(label) or self._calc_button({"clear": "AC", "multiply": "×", "equals": "="}.get(label, label))
+            alts = {"clear": ("all clear", "AC", "C", "Clear"), "multiply": ("×", "*", "times"), "equals": ("=",)}
+            b = self._calc_button(label)
+            for alt in alts.get(label, ()):
+                b = b or self._calc_button(alt)
             if b is None:
                 pressed.append(f"{label}: not found")
                 continue
@@ -390,7 +403,7 @@ class MacTest:
 
     def calc_type(self) -> dict[str, Any]:
         from ferb.act.mac.input import KEYCODES, key_steps, type_steps
-        b = self._calc_button("clear") or self._calc_button("AC")
+        b = self._calc_button("clear") or self._calc_button("all clear") or self._calc_button("AC")
         if b is not None:
             import ApplicationServices as AX
             AX.AXUIElementPerformAction(b, "AXPress")
@@ -398,7 +411,12 @@ class MacTest:
         _run_steps(type_steps("12+3", self.calc_pid), pause=0.08)
         _run_steps(key_steps("return", self.calc_pid))
         time.sleep(0.6)
-        return {"display": self._calc_display(), "landed": "15" in (self._calc_display() or "")}
+        shown = self._calc_display() or ""
+        if "15" not in shown:                                   # Return ignored? try "=" as a typed character
+            _run_steps(type_steps("=", self.calc_pid), pause=0.08)
+            time.sleep(0.6)
+            shown = self._calc_display() or ""
+        return {"display": shown, "landed": "15" in shown}
 
     def cleanup(self) -> dict[str, Any]:
         """Close the documents this test created: the window's close button, then the sheet's Delete / Don't Save."""
@@ -504,8 +522,10 @@ class BrowserTest:
         self.port = 0
 
     def _serve(self) -> str:
-        handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(HERE))
-        handler.log_message = lambda *a, **k: None          # type: ignore[attr-defined]
+        class Quiet(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, *a: Any, **k: Any) -> None:
+                return None
+        handler = functools.partial(Quiet, directory=str(HERE))
         self.srv = socketserver.TCPServer(("127.0.0.1", 0), handler)
         self.port = self.srv.server_address[1]
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
