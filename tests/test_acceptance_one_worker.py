@@ -71,7 +71,7 @@ class StubMac:
     def snapshot_images(self) -> bool:
         return False
 
-    async def snapshot(self, name: str) -> tuple[RunningApp, dict[str, Any]]:
+    async def snapshot(self, name: str, window: str | None = None) -> tuple[RunningApp, dict[str, Any]]:
         a = self.app(name)
         nodes = {f"s1e{i + 1}": n for i, n in enumerate(self.windows.get(a.bundle_id, []))}
         self._nodes[a.bundle_id] = nodes
@@ -93,7 +93,7 @@ class StubMac:
         return None
 
     async def click_at(self, app: str, shot: str, x: float, y: float, holder: str = "",
-                       task: str | None = None) -> ActionResult:
+                       task: str | None = None, allow_foreground: bool = False) -> ActionResult:
         self.clicked.append((app, x, y))
         return ActionResult(True, "clicked")
 
