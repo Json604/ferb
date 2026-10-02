@@ -552,3 +552,29 @@ whether `CGEventPostToPid` mouse/scroll and the app hit test work for occluded s
 point" rung). Also worth adding: `AXScrollToVisible` on a table row, `AXShowMenu` + `AXMenu` placement, modifier
 combos to pid, ScreenCaptureKit capture of an other-Space window, and an Electron app (`has_actions_on_groups`,
 `AXManualAccessibility`) using the FERB test profile of a browser or a throwaway Electron app.
+
+## Owner-verified runs (`ferb watch`, 2026-10-02, macOS 26.6.2, owner in full-screen VS Code)
+
+Three runs, 25 distinct steps, the owner watching: **0 steps moved the desktop, raised a window, or touched the
+mouse**; the notification detector and the Accessibility frontmost poll agreed. Facts the drivers rely on:
+
+| Mechanism | Result | Tag |
+|---|---|---|
+| `open -g -b` for an app that isn't running | starts in the background | [owner] |
+| Menu-bar item via AXPress (File > New) | works; new document created | [owner] |
+| `AXValue` set on a text area; `AXSelectedText` insert at the caret | works | [owner] |
+| Unicode keystrokes via `CGEventPostToPid` (43 chars) | land in the focused text view | [owner] |
+| Page Down keycode via `CGEventPostToPid` | scrolls the text view (visible range 0 → 671) | [owner] |
+| Scroll-wheel events via `CGEventPostToPid` (window on another Space) | nothing | [owner] |
+| Mouse down/up via `CGEventPostToPid` (window on another Space) | nothing (caret unchanged) | [owner] |
+| AXPress on Calculator buttons (7 × 6 =) | 42 | [owner] |
+| Typed `12+3` + Return keycode to Calculator's process | 15 | [owner] |
+| ⌘A via `CGEventPostToPid` to TextEdit in the background | **nothing, and the app beeps**: its Edit > Select All item reports `AXEnabled: false` while the app has no key window, so the key equivalent has no handler | [owner] |
+| Right-arrow keycode at the end of the text | the app beeps | [owner] |
+| Chromium: `windows.create({state:"minimized"})`, `tabs.create({active:false})`, `debugger.attach` + focus emulation, trusted click / insertText / Enter / mouseWheel, `Page.captureScreenshot`, `tabs.update(url)`, and even `windows.create({focused:false})` (normal state) | all worked, nothing visible | [owner] |
+
+Rules drawn from this: (1) shortcuts in a background app go through the menu item they map to
+(`AXMenuItemCmdChar` / `AXMenuItemCmdModifiers`), and only when that item is `AXEnabled`; otherwise the edit is done
+through the text attributes (`AXSelectedTextRange`, `AXSelectedText`, `AXValue`); (2) never post arrow keys blind
+into a text view; (3) scroll a background text view with Page Up/Down keycodes or `AXVisibleCharacterRange`, not
+scroll-wheel events; (4) pixel clicks are a last resort that needs the window on the current Space.

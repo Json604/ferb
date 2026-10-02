@@ -280,22 +280,47 @@ class MacTest:
         after = str(_attr(self.area, "AXValue") or "")
         return {"ax_error": err, "landed": "[inserted through AXSelectedText]" in after and after != before}
 
+    def _menu_item_for(self, cmd_char: str, modifiers: int = 0) -> Any:
+        """The menu item a shortcut maps to (AXMenuItemCmdChar / AXMenuItemCmdModifiers), or None."""
+        import ApplicationServices as AX
+        bar = _attr(AX.AXUIElementCreateApplication(self.pid), "AXMenuBar")
+        for top in _attr(bar, "AXChildren") or []:
+            for menu in _attr(top, "AXChildren") or []:
+                for item in _attr(menu, "AXChildren") or []:
+                    if str(_attr(item, "AXMenuItemCmdChar") or "") == cmd_char and \
+                            int(_attr(item, "AXMenuItemCmdModifiers") or 0) == modifiers:
+                        return item
+        return None
+
     def key_combo(self) -> dict[str, Any]:
+        """A shortcut in the background: only when the app validates its menu item (a background app often has no
+        first responder, so Edit items are disabled and the keystroke just beeps — the owner heard it, 2026-10-02).
+        Otherwise the same edit through Accessibility attributes."""
         from ferb.act.mac.input import key_steps
         import ApplicationServices as AX
         if not str(_attr(self.area, "AXValue") or ""):
             _set(self.area, "AXValue", "FERB watch test: some text to select.\n")
             time.sleep(0.3)
-        _set(self.area, "AXFocused", True)
-        _run_steps(key_steps("cmd+a", self.pid))
-        time.sleep(0.5)
-        r = _range(_attr(self.area, "AXSelectedTextRange"))
-        length = r[1] if r else None
         total = len(str(_attr(self.area, "AXValue") or ""))
-        # collapse the selection through Accessibility, never with an arrow key: at the end of the text an arrow
-        # makes TextEdit beep (the owner heard it, 2026-10-02) — sound is a disturbance too
+        item = self._menu_item_for("A", 0)
+        enabled = bool(_attr(item, "AXEnabled")) if item is not None else None
+        out: dict[str, Any] = {"menu_item": str(_attr(item, "AXTitle")) if item is not None else None,
+                               "menu_item_enabled_in_background": enabled, "document_chars": total}
+        if enabled:
+            _set(self.area, "AXFocused", True)
+            _run_steps(key_steps("cmd+a", self.pid))
+            time.sleep(0.5)
+            r = _range(_attr(self.area, "AXSelectedTextRange"))
+            out["via"], out["selected_chars"] = "keystroke cmd+A to the process", r[1] if r else None
+        else:
+            err = _set(self.area, "AXSelectedTextRange", AX.AXValueCreate(AX.kAXValueCFRangeType, (0, total)))
+            time.sleep(0.3)
+            r = _range(_attr(self.area, "AXSelectedTextRange"))
+            out["via"], out["ax_error"], out["selected_chars"] = "AXSelectedTextRange (shortcut unavailable)", err, \
+                r[1] if r else None
+        out["landed"] = bool(out["selected_chars"]) and out["selected_chars"] == total
         _set(self.area, "AXSelectedTextRange", AX.AXValueCreate(AX.kAXValueCFRangeType, (total, 0)))
-        return {"selected_chars": length, "document_chars": total, "landed": bool(length) and length == total}
+        return out
 
     def _fill_long(self) -> None:
         _set(self.area, "AXValue", "".join(f"line {i}\n" for i in range(1, 400)))
@@ -456,7 +481,7 @@ def mac_steps(t: MacTest) -> list[Step]:
         Step("M3", "TextEdit: set the document's text through Accessibility (AXValue)", t.set_value),
         Step("M4", "TextEdit: type with keystrokes posted to its process (CGEventPostToPid)", t.type_pid),
         Step("M5", "TextEdit: insert text at the caret (AXSelectedText)", t.selected_text),
-        Step("M6", "TextEdit: keyboard shortcut cmd+A posted to its process", t.key_combo),
+        Step("M6", "TextEdit: select all — shortcut to its process if its menu item is enabled, else Accessibility", t.key_combo),
         Step("M7", "TextEdit: scroll with Page Down keys posted to its process", t.scroll_keys),
         Step("M8", "TextEdit: scroll-wheel events posted to its process", t.scroll_wheel_pid, experimental=True),
         Step("M9", "TextEdit: mouse click posted to its process (caret should move)", t.click_pid, experimental=True),
