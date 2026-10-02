@@ -5,8 +5,9 @@ they're using the mouse or keyboard, FERB waits until they've been quiet for the
 that takes longer than `yield_after_s`, the action stops and says where (`Yielded`: the gateway treats the partial
 effect as outcome-unknown). Long text is typed per keystroke, never pasted in one event, so it can stop mid-way.
 
-Keystrokes can also go straight to one app's process (`pid`), with the app in the background (9.4 step 2, spike 18):
-those never meet the owner's typing, so they don't wait for the owner.
+Events can also go straight to one app's process (`pid`, `CGEventPostToPid`), with the app in the background
+(PLATFORM_MACOS.md §4): keys reach the app's first responder wherever its window is; mouse and scroll events reach
+only a window on the current Space. Those never meet the owner's input, so they don't wait for the owner.
 """
 
 import asyncio
@@ -87,7 +88,7 @@ class RealInput:
             self.on_wait(holder, False)
 
     async def to_process(self, steps: list[Step], holder: str) -> int:
-        """Keystrokes posted to one app's process in the background: no owner wait (they can't collide), still under
+        """Events posted to one app's process in the background: no owner wait (they can't collide), still under
         the GUI lock so two workers' keystrokes don't interleave."""
         async with self.gui.hold(holder):
             for step in steps:
@@ -107,7 +108,9 @@ def _post(ev: Any, pid: int | None = None) -> None:
         Quartz.CGEventPostToPid(pid, ev)                     # to that app only, wherever it is (spike 18)
 
 
-def click_steps(x: float, y: float) -> list[Step]:
+def click_steps(x: float, y: float, pid: int | None = None) -> list[Step]:
+    """A move then a click at a screen point: real input, or posted to the app's process (reaches a window on the
+    current Space only — PLATFORM_MACOS.md §11)."""
     import Quartz
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
     pt = (x, y)
@@ -115,11 +118,25 @@ def click_steps(x: float, y: float) -> list[Step]:
     def ev(*kinds: int) -> Callable[[], None]:
         def post() -> None:
             for kind in kinds:
-                _post(Quartz.CGEventCreateMouseEvent(src, kind, pt, Quartz.kCGMouseButtonLeft))
+                e = Quartz.CGEventCreateMouseEvent(src, kind, pt, Quartz.kCGMouseButtonLeft)
+                Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, 1)
+                _post(e, pid)
         return post
     # down + up are one step: a yield or a failed check never leaves the button held down
     return [Step("move", ev(Quartz.kCGEventMouseMoved)),
             Step("click", ev(Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp))]
+
+
+def wheel_steps(x: float, y: float, lines: int, pid: int | None = None) -> list[Step]:
+    """Scroll-wheel events at a point (negative lines = down), real or posted to the app's process."""
+    import Quartz
+    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
+
+    def post() -> None:
+        ev = Quartz.CGEventCreateScrollWheelEvent(src, Quartz.kCGScrollEventUnitLine, 1, lines)
+        Quartz.CGEventSetLocation(ev, (x, y))
+        _post(ev, pid)
+    return [Step(f"scroll {lines:+d}", post)]
 
 
 def type_steps(text: str, pid: int | None = None) -> list[Step]:
@@ -136,15 +153,50 @@ def type_steps(text: str, pid: int | None = None) -> list[Step]:
     return steps
 
 
-KEYCODES = {"return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53, "left": 123, "right": 124,
-            "down": 125, "up": 126, "a": 0, "s": 1, "c": 8, "v": 9, "x": 7, "z": 6, "w": 13, "n": 45, "f": 3}
-MODIFIERS = {"cmd": 1 << 20, "shift": 1 << 17, "alt": 1 << 19, "ctrl": 1 << 18}
+# Virtual key codes (Carbon Events.h, US layout) — platform facts.
+KEYCODES: dict[str, int] = {
+    **dict(zip("asdfhgzxcvbqweryt", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17])),
+    **dict(zip("123465=97-80]ou[ip", [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35])),
+    **dict(zip("lj'k;\\,/nm.`", [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 50])),
+    "return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53, "forwarddelete": 117,
+    "home": 115, "end": 119, "pageup": 116, "pagedown": 121, "help": 114,
+    "left": 123, "right": 124, "down": 125, "up": 126,
+    "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97, "f7": 98, "f8": 100, "f9": 101, "f10": 109,
+    "f11": 103, "f12": 111, "f13": 105, "f14": 107, "f15": 113, "f16": 106, "f17": 64, "f18": 79, "f19": 80,
+    "capslock": 57, "fn": 63, "volumeup": 72, "volumedown": 73, "mute": 74,
+    "keypad0": 82, "keypad1": 83, "keypad2": 84, "keypad3": 85, "keypad4": 86, "keypad5": 87, "keypad6": 88,
+    "keypad7": 89, "keypad8": 91, "keypad9": 92, "keypadenter": 76, "keypadplus": 69, "keypadminus": 78,
+    "keypadmultiply": 67, "keypaddivide": 75, "keypaddecimal": 65, "keypadequals": 81, "keypadclear": 71,
+}
+KEY_ALIASES = {"enter": "return", "esc": "escape", "backspace": "delete", "del": "forwarddelete",
+               "fwddelete": "forwarddelete", "pgup": "pageup", "pgdn": "pagedown", "pgdown": "pagedown",
+               "spacebar": "space", "comma": ",", "period": ".", "slash": "/", "semicolon": ";", "quote": "'",
+               "minus": "-", "equals": "=", "equal": "=", "plus": "=", "backslash": "\\", "grave": "`",
+               "leftbracket": "[", "rightbracket": "]", "arrowleft": "left", "arrowright": "right", "arrowup": "up",
+               "arrowdown": "down"}
+MODIFIERS = {"cmd": 1 << 20, "shift": 1 << 17, "alt": 1 << 19, "ctrl": 1 << 18, "fn": 1 << 23}
+MODIFIER_ALIASES = {"command": "cmd", "meta": "cmd", "super": "cmd", "option": "alt", "opt": "alt",
+                    "control": "ctrl", "ctl": "ctrl", "function": "fn"}
+
+
+def normalize(combo: str) -> list[str]:
+    """"Cmd+Shift+S" -> ["cmd", "shift", "s"]; aliases resolved, modifiers in a fixed order, the key last."""
+    parts = [p.strip().lower() for p in combo.replace(" ", "").split("+") if p.strip()]
+    if combo.strip() == "+":
+        parts = ["="]
+    if not parts:
+        return []
+    mods = sorted({MODIFIER_ALIASES.get(p, p) for p in parts[:-1]}, key=list(MODIFIERS).index) \
+        if all(MODIFIER_ALIASES.get(p, p) in MODIFIERS for p in parts[:-1]) else [MODIFIER_ALIASES.get(p, p)
+                                                                                   for p in parts[:-1]]
+    key = KEY_ALIASES.get(parts[-1], parts[-1])
+    return mods + [key]
 
 
 def key_steps(combo: str, pid: int | None = None) -> list[Step]:
-    """e.g. "cmd+s", "return". Unknown keys are refused by the caller."""
+    """e.g. "cmd+s", "return", "pagedown". Unknown keys are refused by the caller (valid_combo)."""
     import Quartz
-    parts = combo.lower().split("+")
+    parts = normalize(combo)
     flags = 0
     for m in parts[:-1]:
         flags |= MODIFIERS[m]
@@ -163,19 +215,42 @@ ARROWS = {"left", "right", "up", "down"}
 
 
 def switches_apps(combo: str) -> bool:
-    """⌘Tab and Control+arrows act on the owner's whole Mac (switch apps / desktops), not on one app."""
-    parts = combo.lower().split("+")
-    return (parts[-1] == "tab" and "cmd" in parts) or (parts[-1] in ARROWS and "ctrl" in parts)
+    """⌘Tab and Control+arrows act on the owner's whole Mac (switch apps / desktops), not on one app; so do the
+    Mission Control / Spotlight keys."""
+    parts = normalize(combo)
+    if not parts:
+        return False
+    key, mods = parts[-1], set(parts[:-1])
+    return (key == "tab" and "cmd" in mods) or (key in ARROWS and "ctrl" in mods) \
+        or (key == "space" and "cmd" in mods) or (key in ("f3", "f4") and not mods)
+
+
+def quits_or_hides(combo: str) -> bool:
+    """⌘Q quits the app (never: a background app with unsaved work wedges on its save sheet — PLATFORM_MACOS.md §3),
+    ⌘H / ⌥⌘H hide it and ⌘M minimises its window: the owner's screen, not FERB's."""
+    parts = normalize(combo)
+    if not parts:
+        return False
+    key, mods = parts[-1], set(parts[:-1])
+    return (key == "q" and mods == {"cmd"}) or (key == "h" and "cmd" in mods) or (key == "m" and mods == {"cmd"})
 
 
 def is_arrow(combo: str) -> bool:
-    return combo.lower().split("+")[-1] in ARROWS
+    parts = normalize(combo)
+    return bool(parts) and parts[-1] in ARROWS
 
 
 def is_enter(combo: str) -> bool:
-    return combo.lower() in ("return", "enter")
+    parts = normalize(combo)
+    return bool(parts) and parts[-1] == "return" and not parts[:-1]
+
+
+def is_shortcut(combo: str) -> bool:
+    """A key equivalent (⌘ with a key): in a background app it goes through the menu item it maps to."""
+    parts = normalize(combo)
+    return bool(parts) and "cmd" in parts[:-1]
 
 
 def valid_combo(combo: str) -> bool:
-    parts = combo.lower().split("+")
-    return parts[-1] in KEYCODES and all(m in MODIFIERS for m in parts[:-1])
+    parts = normalize(combo)
+    return bool(parts) and parts[-1] in KEYCODES and all(m in MODIFIERS for m in parts[:-1])

@@ -265,6 +265,12 @@ class PageSnapshot:
 
 @dataclass(frozen=True)
 class ComputerAction:
-    kind: Literal["press", "set_value", "focus", "click", "type", "key"]
+    kind: Literal["press", "set_value", "focus", "click", "type", "key", "edit", "scroll", "select"]
     element: str | None = None               # element id from the latest snapshot of that app
-    text: str | None = None                  # set_value / type: the text; key: a combo like "cmd+s"
+    text: str | None = None                  # set_value / type / edit: the text; key: a combo like "cmd+s";
+                                             # select: the pop-up item's title
+    select: Any = None                       # edit: (start, length) | "all" | "end" | None (at the caret)
+    direction: str | None = None             # scroll: up / down / left / right
+    amount: int | None = None                # scroll: pages (keys) or steps (slider / scroll bar)
+    window: str | None = None                # scroll with no element: the window (title or id) to scroll
+    allow_foreground: bool = False           # may bring the app forward (the owner's screen moves) as the last resort
