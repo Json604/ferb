@@ -31,10 +31,9 @@ def codex() -> Iterator[RunningDaemon]:
     env = svc.Environment([("com.apple.Notes", "Notes")], [("brave", "Default", "Work")])
 
     def environment(words: str) -> dict[str, Any]:
-        env.owner_browser = svc.owner_browser_named(words, ["Work"])
         named = svc.services_named(words, env)
         stable, live = svc.summary(env, "26.0", named, set())
-        return {"routes": [r for s in named if (r := svc.route(s, env))], "stable": stable, "live": live}
+        return {"stable": stable, "live": live}
     d.daemon.supervisor.environment = environment                                  # type: ignore[union-attr]
     d.daemon.supervisor.apps = lambda: env.apps                                    # type: ignore[union-attr]
     sup = d.daemon.supervisor
@@ -55,12 +54,13 @@ class _StandIn:
         return None
 
 
-def plan_of(d: RunningDaemon, text: str) -> str:
-    """What chat shows first; a planned task is stopped right away."""
-    c, first = Client(d.sock, timeout=900), ""
+def plan_of(d: RunningDaemon, text: str) -> dict[str, Any]:
+    """The task as chat shows it first (identity, goal); the task is stopped right away."""
+    c = Client(d.sock, timeout=900)
+    first: Any = {}
     try:
         for ev in c.stream("chat.send", {"session_id": "s", "text": text}):
-            first = first or str(ev.get("text", ""))
+            first = first or ev
             if ev["type"] == "plan":
                 c2 = Client(d.sock)
                 c2.call("task.stop", {"task_ids": [ev["task_id"]]})
@@ -70,20 +70,20 @@ def plan_of(d: RunningDaemon, text: str) -> str:
     return first
 
 
-def test_the_notes_app_route(codex: RunningDaemon) -> None:
-    text = plan_of(codex, "make a note in Notes titled 'ferb route test' saying hello")
-    assert text.startswith("Using the Notes app"), text
+def test_the_notes_app_is_an_owner_task(codex: RunningDaemon) -> None:
+    ev = plan_of(codex, "make a note in Notes titled 'ferb route test' saying hello")
+    assert ev.get("identity") == "owner" and "Notes" in ev.get("goal", ""), ev
 
 
-def test_a_plain_request_on_a_site_uses_ferbs_own_browser(codex: RunningDaemon) -> None:
-    text = plan_of(codex, "play some lofi music on youtube")
-    assert text.startswith("Using YouTube on the web (youtube.com) in FERB's own browser"), (text, codex.run(_why(codex)))
+def test_a_plain_request_on_a_site_is_a_ferb_task(codex: RunningDaemon) -> None:
+    ev = plan_of(codex, "play some lofi music on youtube")
+    assert ev.get("identity") == "ferb", (ev, codex.run(_why(codex)))
 
 
 def test_the_owners_profile_when_they_say_so(codex: RunningDaemon) -> None:
-    text = plan_of(codex, "in my Work profile, play some lofi music on youtube")
-    assert text.startswith("Using YouTube on the web (youtube.com) in your Brave (Work) profile"), text
+    ev = plan_of(codex, "in my Work profile, play some lofi music on youtube")
+    assert ev.get("identity") == "owner" and "Work" in ev.get("goal", ""), ev
 
 
 async def _why(d: RunningDaemon) -> list[Any]:
-    return [e.data for e in d.daemon._journal().entries() if e.kind in ("plan.repair", "chat.failed")]
+    return [e.data for e in d.daemon._journal().entries() if e.kind in ("task.repair", "chat.failed")]

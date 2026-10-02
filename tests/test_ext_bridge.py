@@ -22,7 +22,7 @@ from ferb.act.browser.resolver import NeedsOwner, Resolver
 from ferb.cli.client import Client
 from ferb.core.types import Identity, Task
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.intent import RequestIntent
+from ferb.policy.targets import Request, Targets
 from tests.conftest import RunningDaemon
 from tests.fake_extension import FakeExtension
 
@@ -78,15 +78,16 @@ def pair(d: RunningDaemon, launched: list[list[str]], name: str) -> FakeExtensio
     return ext
 
 
-def task(d: RunningDaemon, tid: str, scopes: set[str], verbs: set[str] | None = None, sites: frozenset[str] = frozenset()) -> Any:
-    t = Task(tid, None, "g", "dev", Identity.OWNER, scopes, "actor", f"req-{tid}", [],
+def task(d: RunningDaemon, tid: str, scopes: set[str], words: Any = None, sites: frozenset[str] = frozenset()) -> Any:
+    """A running owner task; the sites (and `words`, when a string) count as named by the owner for its request."""
+    t = Task(tid, None, "g", "dev", Identity.OWNER, scopes, "worker", f"req-{tid}", [],
              d.daemon.clock.now() + timedelta(minutes=10))
+    own = " ".join([words] if isinstance(words, str) else []) + " " + " ".join(sorted(sites))
 
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})
         d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        if verbs is not None:
-            d.daemon.engine.intents.record(RequestIntent.from_plan(f"req-{tid}", verbs, sites=sites))
+        d.daemon.engine.requests.record(Request(f"req-{tid}", own.strip(), Targets.of(sites=sites)))
         return d.daemon.tokens.validate(d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, Identity.OWNER, ttl_s=600))
     return d.run(go())
 
@@ -204,7 +205,8 @@ def test_disconnect_mid_command_is_unknown_then_reconciled_never_replayed(bd: An
     ext.hold = True
     import asyncio
     fut = asyncio.run_coroutine_threadsafe(d.daemon.gateway.call(g, "browser.act", {"tab": tab, "element": snap["elements"][1]["id"],
-                                                                                    "action": "click"}), d.loop)
+                                                                                    "action": "click", "effect": "send",
+                                                                                    "why": "submitting the form"}), d.loop)
     ext.wait_for(lambda: any(v == "started" for v in ext.seen.values()))
     cid = next(k for k, v in ext.seen.items() if v == "started")
     ext.kill()                                                                  # worker dies mid-command
@@ -218,7 +220,8 @@ def test_disconnect_mid_command_is_unknown_then_reconciled_never_replayed(bd: An
     time.sleep(0.2)
     assert d.run(_state(d, cid)) == "done"
     assert len(ext.acts) == 0                                                   # never resent
-    r2 = call(d, g, "browser.act", tab=tab, element=snap["elements"][1]["id"], action="click")
+    r2 = call(d, g, "browser.act", tab=tab, element=snap["elements"][1]["id"], action="click", effect="send",
+              why="submitting the form")
     assert r2["is_error"] and "older browser connection" in r2["content"]["error"]   # 21.13 after reconnect
 
 
@@ -226,14 +229,15 @@ def test_command_never_received_reconciles_failed(bd: Any) -> None:
     d, launched = bd
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
-    g = task(d, "n", OWNER, {"fill_form"})
+    g = task(d, "n", OWNER, {"fill_form"}, sites=frozenset({"shop.example"}))
     d.daemon.config.set("policy", "trusted_accounts", ["shop.example @ chrome/Profile 1"])
     tab = call(d, g, "browser.open", url="https://shop.example/form")["content"]["tab"]
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     ext.hold = True
     import asyncio
     fut = asyncio.run_coroutine_threadsafe(d.daemon.gateway.call(g, "browser.act", {"tab": tab, "element": snap["elements"][1]["id"],
-                                                                                    "action": "click"}), d.loop)
+                                                                                    "action": "click", "effect": "send",
+                                                                                    "why": "submitting the form"}), d.loop)
     ext.wait_for(lambda: any(v == "started" for v in ext.seen.values()))
     cid = next(k for k, v in ext.seen.items() if v == "started")
     ext.kill()

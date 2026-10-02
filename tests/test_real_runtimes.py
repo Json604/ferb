@@ -24,7 +24,7 @@ from ferb.clock.clock import SystemClock
 from ferb.core.types import Identity, Task
 from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA, WORKER_SCHEMA, SupervisorOutcome, WorkerOutcome
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.intent import RequestIntent
+from ferb.policy.targets import Request
 from ferb.runtimes.claude_sdk import STRUCTURED_OUTPUT
 from ferb.runtimes.codex_exec import BASE_TOOLS
 from tests.conftest import RunningDaemon
@@ -100,13 +100,13 @@ def test_worker_tools_equal_allowlist_and_every_native_path_fails(rt_daemon) -> 
 
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    task = Task("t-w", None, "probe", "dev", Identity.OWNER, {"fs:read", "fs:write"}, "actor", "r-w", [],
+    task = Task("t-w", None, "probe", "dev", Identity.OWNER, {"fs:read", "fs:write"}, "worker", "r-w", [],
                 SystemClock().now() + timedelta(minutes=10))
 
     async def setup_task() -> str:
         root = d.daemon.spans.start("task", task_id=task.id, input={})
         d.daemon.tasks.add(TaskRecord(task, d.daemon.clock.now(), root.id))
-        d.daemon.engine.intents.record(RequestIntent.from_plan(task.request_id, {"edit_file", "run_command"}))
+        d.daemon.engine.requests.record(Request(task.request_id, "probe the sandbox"))
         return d.daemon.tokens.issue(task.id, "w-real", task.scopes, task.identity, ttl_s=600)
     token = d.run(setup_task())
     marker = base / "marker_native.txt"

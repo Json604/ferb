@@ -1,8 +1,11 @@
-"""Tool gateway (section 7 step 6): run token -> identity + scope -> policy (intent / exposure / dataflow /
-autonomy / approvals / undo) -> ledger intent -> capability -> sanitize -> span -> result + time footer.
+"""Tool gateway (section 7 step 6): run token -> identity + scope -> effect class (declared, raised to the floor) ->
+policy (exposure / data flow / the effect gate / undo) -> ledger intent -> capability -> sanitize -> span -> result
++ time footer.
 
 Every model action reaches the Mac only through here (rule 12). Failures are values: the worker always gets a
-result, never an exception.
+result, never an exception. The gate (docs/DESIGN_ONE_WORKER.md section 3): every act call declares `effect` and
+`why`; the gateway computes `max(declared, floor)`; navigate and edit run, send asks once per (request, effect,
+target) unless the owner's own message names the target, pay and destroy ask every time.
 """
 
 import asyncio
@@ -25,15 +28,18 @@ from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskTree
+from ferb.policy import contacts, effects, targets as targets_mod
 from ferb.policy.engine import PolicyEngine, Verdict
 from ferb.policy.exposure import LOST_WHEN_EXPOSED
-from ferb.policy import contacts
-from ferb.policy.intent import site_matches
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.store.spans import SpanStore
 
 Publish = Callable[[str, dict[str, Any]], None]
 Redact = Callable[[Any], Any]
+
+OWNER_ASK = "owner.ask"
+PEOPLE_KINDS = {Kind.SEND, Kind.CALL, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND}   # go to someone: who matters
+NEEDS_WHY = {"send", "pay", "destroy"}
 
 
 @dataclass
@@ -76,9 +82,13 @@ class Gateway:
         self.seen = contacts.Seen()
         self._sent: dict[str, dict[str, str]] = {}      # task tree -> who was sent a message -> what (9.4)
         self.owner_words: Callable[[str, str], str] = lambda request_id, name: ""
-        self.request_words: Callable[[str], str] = lambda request_id: ""    # this request's own words only
         self._picked: dict[tuple[str, str], str] = {}     # the owner's answer, for the next attempt of that one action
         self.name_of: Callable[[str], str] = lambda target: target    # bundle id -> app name, for plain questions
+
+    @staticmethod
+    def _acts(cap: Any) -> bool:
+        """An act-class tool: it can change something, so its calls declare an effect."""
+        return not getattr(cap, "reversible", True)
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
         """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
@@ -90,7 +100,10 @@ class Gateway:
             if exposed and cap.scopes & LOST_WHEN_EXPOSED:
                 continue
             schema = cap.Input.model_json_schema()
-            schema.setdefault("properties", {})["why"] = {"type": "string", "description": WHY_HELP}
+            props = schema.setdefault("properties", {})
+            if self._acts(cap):
+                props["effect"] = {"type": "string", "enum": list(effects.EFFECTS), "description": EFFECT_HELP}
+            props["why"] = {"type": "string", "description": WHY_HELP}
             out.append({"name": cap.name, "description": cap.description, "input_schema": schema})
         return out
 
@@ -121,67 +134,58 @@ class Gateway:
         if rec is None:
             return reply({"error": "task is not running"}, True)
         arguments = dict(arguments)
-        why = str(arguments.pop("why", "") or "").strip()[:400]         # the worker's stated reason (10.2 / 10.3)
+        why = str(arguments.pop("why", "") or "").strip()[:400]         # the worker's stated reason (kept in the trail)
+        declared = arguments.pop("effect", None)
+        if declared is not None and not effects.is_valid(declared):
+            return reply({"error": f"effect must be one of {', '.join(effects.EFFECTS)}"}, True)
         try:
             args = cap.Input.model_validate(arguments)
         except ValidationError as e:
             return reply({"error": "invalid arguments", "details": e.errors(include_url=False)}, True)
-        if hasattr(cap, "precheck") and (why := cap.precheck(args)):       # refused before any policy step
-            return reply({"error": why}, True)
+        if hasattr(cap, "precheck") and (refused := cap.precheck(args)):   # refused before any policy step
+            return reply({"error": refused}, True)
+        if name == OWNER_ASK:                                             # a question for the owner, not an action
+            return reply(await self._ask_owner(grant, rec, args), False)
 
         spec = cap.describe(args)
-        types_own = rec.task.role == "reader" and self._reader_types_own_words(name, args, rec.task.request_id)
-        if types_own and spec.kind not in REVERSIBLE:      # a reader typing the owner's own words: a search, for the
-            spec = dataclasses.replace(spec, kind=Kind.SEARCH)     # intent check too (not "mac_input")
-        reader_click = (hasattr(cap, "reader_ok") and cap.reader_ok(args)) or types_own
-        if rec.task.role == "reader" and spec.kind not in REVERSIBLE and not reader_click:   # readers read (7.4)
-            why_not = f"blocked by FERB policy: a reader subtask can't {spec.kind}"
-            if name == "mac.act":                         # say what a reader CAN do (owner's run: it gave up instead)
-                why_not += (". A reader may press a labeled control that only opens something, and may type the "
-                            "owner's own words into a box with action set_value — that also runs a search, even in a "
-                            "box that looks like a button (e.g. WhatsApp's search). Try that.")
-            refusal = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id,   # in the trail
-                                       device_id=self.device_id, input={"tool": name, "args": arguments})
-            self.spans.finish(refusal, error=why_not)
-            return reply({"error": why_not}, True)
-        labels = self.taint.labels_for(rec.tree_id, spec.content)          # owner data inside this content (10.2)
+        floor = effects.floor_of(spec.kind)
+        effect = effects.raise_to(declared if isinstance(declared, str) else None, floor)
+        if self._acts(cap) and effect in NEEDS_WHY and not why:
+            raised = f" (the control is a {spec.kind}: at least {floor})" if effects.RANK[floor] > effects.RANK.get(
+                str(declared), -1) else ""
+            return reply({"error": f"this call would {effect}{raised}: call again with effect \"{effect}\" and why = "
+                                   "one sentence for the owner"}, True)
+        # one worker reads and acts: what it types or sends after reading owner-account data may carry that data
+        labels = self.taint.labels_of(grant.worker_id) if spec.content else frozenset()        # (10.2, 21.9)
         if labels:
             spec = dataclasses.replace(spec, data_labels=spec.data_labels | labels)
-        if spec.target.path is not None:                 # the same path form the intent was recorded in
+        if spec.target.path is not None:                 # the same path form the request's targets use
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
-        req_intent = self.engine.intents.get(rec.task.request_id)
+        req = self.engine.requests.get(rec.task.request_id)
         action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity, scopes=frozenset(cap.scopes),
                                task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                                task_scopes=grant.scopes, target=spec.target, content=spec.content,
                                data_labels=spec.data_labels, unverified_account=spec.unverified_account,
-                               flagged_irreversible=bool(req_intent and spec.kind in req_intent.irreversible))
-        if beyond_plan(spec.target.site, req_intent):                     # exploring / a route outside the plan
-            blocked = self.engine.blocker(action) if spec.kind not in REVERSIBLE else None
-            if blocked is not None:                                      # never offered: policy forbids it anyway
-                self.publish("policy.blocked", {"step": blocked[0], "reason": blocked[1], "capability": name,
-                                                "task_id": grant.task_id, "worker_id": grant.worker_id})
-                return reply({"error": f"blocked by FERB policy: {blocked[1]}"}, True)
-            if not why:
-                return reply({"error": EXPLORE_NEEDS_WHY if spec.kind in REVERSIBLE else ROUTE_NEEDS_WHY}, True)
-            if spec.kind not in REVERSIBLE:                              # acting there: the owner decides
-                refused = await self._route_change(name, spec.target.site or "", why, action, grant)
-                if refused:
-                    return reply({"error": refused}, True)
+                               effect=effect, why=why)
         if spec.kind in (Kind.CALL, Kind.SEND) and "contact" in type(args).model_fields \
-                and self._needs_contact(spec.kind, rec.task.request_id):        # never guess between contacts (16a)
-            got = await self._contact(cap, name, args, action, grant, rec)
+                and self._needs_contact(spec.kind, req):                   # never guess between contacts (16a)
+            got = await self._contact(cap, name, args, action, grant, rec, req)
             if isinstance(got, str):
                 return reply({"error": got}, True)
             action, spec = got, dataclasses.replace(spec, target=got.target)
+        action = dataclasses.replace(action, owner_named=targets_mod.owner_named(
+            action.target, req, people_only=spec.kind in PEOPLE_KINDS))
         tree = rec.tree_id or grant.task_id
         if spec.kind == Kind.SEND and (to := _send_to(action.target)) and to in self._sent.get(tree, {}):
             refused = await self._send_again(name, to, self._sent[tree][to], spec.content, action, grant)
             if refused:
                 return reply({"error": refused}, True)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                                input={"tool": name, "args": arguments} | ({"why": why} if why else {}))
-        self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id})
+                                input={"tool": name, "args": arguments, "effect": effect}
+                                | ({"why": why} if why else {}))
+        self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
+                                     "effect": effect})
 
         verdict = self.engine.evaluate(action)
         self._events(verdict)
@@ -195,22 +199,22 @@ class Gateway:
             return reply({"needs_owner_approval": verdict.approval_id, "reason": verdict.reason,
                           "next": "The owner has been asked in `ferb chat`. Retry the exact same call after they "
                                   "approve; don't change it."}, True)
-        if self.jev is not None and spec.kind not in REVERSIBLE:          # Jev: only ever stricter (section 12)
-            stricter = await self._jev_action(cap, name, spec, action, rec, span.id)
+        if self.jev is not None and effect != "navigate":                # Jev: only ever stricter (section 12)
+            stricter = await self._jev_action(cap, name, spec, action, rec, req, span.id)
             if stricter is not None:
                 if verdict.decision == "hold":
                     self.engine.undo(verdict.hold_id or "")
-                kind, why = stricter
+                kind, jev_why = stricter
                 if kind == "block":
-                    self.spans.finish(span, error=f"blocked (jev): {why}")
-                    self.publish("policy.blocked", {"step": "jev", "reason": why, "capability": name,
+                    self.spans.finish(span, error=f"blocked (jev): {jev_why}")
+                    self.publish("policy.blocked", {"step": "jev", "reason": jev_why, "capability": name,
                                                     "task_id": grant.task_id, "worker_id": grant.worker_id})
-                    return reply({"error": f"blocked by FERB policy: {why}"}, True)
+                    return reply({"error": f"blocked by FERB policy: {jev_why}"}, True)
                 flagged = dataclasses.replace(action, flagged_irreversible=True)     # Jev: ask every time
                 if self.engine.approvals.consume(flagged) is None:
-                    ap = self.engine.approvals.request(flagged, why)
+                    ap = self.engine.approvals.request(flagged, jev_why)
                     self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": spec.kind,
-                                                        "reason": why, "task_id": grant.task_id})
+                                                        "effect": effect, "reason": jev_why, "task_id": grant.task_id})
                     answer = await self._wait_answer(grant, ap.id)
                     if answer != "granted" or self.engine.approvals.consume(flagged) is None:
                         self.spans.finish(span, error=f"not approved ({answer})")
@@ -288,24 +292,35 @@ class Gateway:
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
 
-    async def _route_change(self, name: str, target: str, why: str, action: ActionRequest,
-                            grant: RunGrant) -> str | None:
-        """An action outside the plan's apps / sites: the worker's plain-words proposal goes to the owner ("Your Brave
-        had no call button. The WhatsApp app does. Call Rahul from there?"). A yes adds that app / site to this
-        request for the rest of it; then normal policy runs. Returns why not, or None to carry on."""
-        ask = dataclasses.replace(action, kind="route_change", content=None, flagged_irreversible=False)
-        question = f"{why} (FERB would {KIND_WORDS.get(action.kind, action.kind)} in {self.name_of(target)}.)"   # facts from code
-        ap = self.engine.approvals.request(ask, question)
-        self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": "route_change",
-                                            "reason": question, "task_id": grant.task_id})
-        answer = await self._wait_answer(grant, ap.id)
+    async def _ask_owner(self, grant: RunGrant, rec: Any, args: Any) -> dict[str, Any]:
+        """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits
+        for the answer. A scheduled run (nobody at chat) is declined at once."""
+        question = " ".join(str(getattr(args, "question")).split())
+        options = [str(o).strip()[:80] for o in getattr(args, "options", []) if str(o).strip()]
+        span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
+                                input={"tool": OWNER_ASK, "args": {"question": question, "options": options}})
+        self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
+        if rec.task.request_id in self.engine.approvals.unattended:
+            self.spans.finish(span, output={"declined": True, "unattended": True})
+            return {"declined": True, "reason": "the owner isn't here (a scheduled run): decide yourself or report "
+                                                "what's missing"}
+        ask = ActionRequest(capability=OWNER_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
+                            task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
+                            task_scopes=grant.scopes, content=question, effect="navigate")
+        ap = self.engine.approvals.question(ask, question, options)
+        self.publish("approval.requested", {"approval_id": ap.id, "capability": OWNER_ASK, "kind": "owner_question",
+                                            "reason": question, "options": options, "task_id": grant.task_id})
+        self.observer.tool_call(grant, done=False)
+        try:
+            answer = await self._wait_answer(grant, ap.id)
+        finally:
+            self.observer.tool_call(grant, done=True)
         if answer != "granted":
-            return (_declined(answer, action.request_id in self.engine.approvals.unattended) +
-                    "; stay within the plan's apps and sites")
-        self.engine.intents.extend(action.request_id, target)
-        self.publish("plan.extended", {"task_id": grant.task_id, "request_id": action.request_id, "target": target,
-                                       "why": why})
-        return None
+            self.spans.finish(span, output={"declined": True, "state": answer})
+            return {"declined": True}
+        text = ap.choice or ap.answer or ""
+        self.spans.finish(span, output={"answer": text})
+        return {"answer": text}
 
     async def _send_again(self, name: str, to: str, first: str, text: str | None, action: ActionRequest,
                           grant: RunGrant) -> str | None:
@@ -324,13 +339,12 @@ class Gateway:
                     f"; the first message to {to} stands — check it by reading the chat, don't send again")
         return None
 
-    def _needs_contact(self, kind: str, request_id: str) -> bool:
-        """Calls always name their contact; a send does when the owner named a person rather than an address."""
+    @staticmethod
+    def _needs_contact(kind: str, req: targets_mod.Request) -> bool:
+        """Calls always name their contact; a send does when the request names a person rather than an address."""
         if kind == Kind.CALL:
             return True
-        req = self.engine.intents.get(request_id)
-        return any("@" not in r and r.strip().lower() not in ("me", "myself", "owner") for r in
-                   (req.recipients if req else ()))
+        return any("@" not in r and r.strip().lower() not in ("me", "myself", "owner") for r in req.targets.recipients)
 
     def _where(self, cap: Any, name: str, args: Any, content: dict[str, Any] | None) -> str:
         if name.startswith("mac."):
@@ -341,22 +355,22 @@ class Gateway:
         return f"{name.split('.')[0]}:{tab}"
 
     async def _contact(self, cap: Any, name: str, args: Any, action: ActionRequest, grant: RunGrant,
-                       rec: Any) -> ActionRequest | str:
+                       rec: Any, req: targets_mod.Request) -> ActionRequest | str:
         """The selected contact must have been on screen; several matches (and nothing the owner said picks one)
         means asking "Which Rahul?". The owner's answer is for this one action. Returns the action (its target now
-        naming the exact contact) or why not."""
+        naming the exact contact) or why not. A person the owner never named isn't refused here: the send then
+        isn't auto-granted, and the owner is asked with the message shown."""
         c: contacts.Contact | None = getattr(args, "contact")
         if c is None:
             return ("say who this is for: contact = {name as the owner said it, selected as the screen shows it, "
                     "detail (number / username / subtitle) as the screen shows it}")
-        req = self.engine.intents.get(action.request_id)
-        rname = next((r for r in (req.recipients if req else ()) if r.strip().lower() == c.name.strip().lower()), None)
-        if rname is None:
-            named = ", ".join(sorted(req.recipients)) if req and req.recipients else "nobody"
-            return f"“{c.name}” isn't someone the owner named in this request (they named: {named})"
+        rname = next((r for r in req.targets.recipients if r.strip().lower() == c.name.strip().lower()), None)
+        if rname is None and targets_mod.named(c.name, req.words):
+            rname = c.name.strip()
         shots = self.seen.shots(grant.task_id, self._where(cap, name, args, None))
         words = self.owner_words(action.request_id, c.name)
-        res = contacts.check(c, shots, words, self._picked.pop((grant.task_id, rname.lower()), None))
+        key = (grant.task_id, c.name.strip().lower())
+        res = contacts.check(c, shots, words, self._picked.pop(key, None))
         how = "on screen"
         if res.decision == "ask":
             ap = self.engine.approvals.request_choice(action, res.why, res.options)
@@ -368,32 +382,21 @@ class Gateway:
                 return _declined(answer, action.request_id in self.engine.approvals.unattended)
             res, how = contacts.check(c, shots, words, ap.choice), "the owner chose"
             if res.decision != "ok":
-                self._picked[(grant.task_id, rname.lower())] = ap.choice          # the retry of this one action
+                self._picked[key] = ap.choice                                  # the retry of this one action
         if res.decision != "ok":
             return res.why
         shown = contacts.display(c)
         self.publish("contact.selected", {"task_id": grant.task_id, "name": c.name, "contact": shown, "how": how})
-        return dataclasses.replace(action, target=dataclasses.replace(action.target, recipients=(rname,),
-                                                                      contact=shown))
-
-    def _reader_types_own_words(self, name: str, args: Any, request_id: str) -> bool:
-        """A reader may type into an app only text from the owner's own words this request ("syllabus") — whatever the
-        box is (WhatsApp's search box reports itself as an unlabeled button). Their own words can't leak anything, and
-        a reader still can't press Send / Return. Owner's audit 2026-10-01: background search had worked as set_value;
-        a box-type guess refused it."""
-        if name != "mac.act" or getattr(args, "action", None) not in ("set_value", "type"):
-            return False
-        text = " ".join(str(getattr(args, "text", "") or "").lower().split())
-        words = " ".join(self.request_words(request_id).lower().split())
-        return bool(text) and len(text) <= 100 and text in words
+        return dataclasses.replace(action, target=dataclasses.replace(
+            action.target, recipients=(rname,) if rname else (c.name.strip(),), contact=shown))
 
     async def _folder_access(self, grant: RunGrant, action: ActionRequest, path: str) -> str | None:
         """"Allow FERB to access ~/Projects?" — asked only for a folder the owner named in this request (content FERB
         reads can't trigger it); a yes goes to config ([fs] owner_roots). An unattended run queues the question."""
-        req = self.engine.intents.get(action.request_id)
-        named = next((p for p in (req.paths if req else ()) if path == p or path.startswith(p.rstrip("/") + "/")), None)
-        if named is None:                       # not in the plan's intent, but named in the owner's own words?
-            named = _named_folder(path, self.request_words(action.request_id))
+        req = self.engine.requests.get(action.request_id)
+        named = next((p for p in req.targets.paths if path == p or path.startswith(p.rstrip("/") + "/")), None)
+        if named is None:                       # not among the targets, but named in the owner's own words?
+            named = _named_folder(path, req.words)
         if named is None:
             return None
         folder = named if not os.path.splitext(named)[1] else os.path.dirname(named)
@@ -402,7 +405,7 @@ class Gateway:
             self.queue_question("folder_access", folder, f"Allow FERB to access {shown}?")
             return None
         ask = dataclasses.replace(action, kind="folder_access", target=dataclasses.replace(action.target, path=folder),
-                                  content=None, flagged_irreversible=False)
+                                  content=None, flagged_irreversible=False, effect="edit")
         ap = self.engine.approvals.request(ask, f"Allow FERB to access {shown}?")
         self.publish("approval.requested", {"approval_id": ap.id, "capability": "fs", "kind": "folder_access",
                                             "reason": ap.reason, "task_id": grant.task_id})
@@ -413,10 +416,14 @@ class Gateway:
 
     async def _await_owner(self, grant: RunGrant, action: ActionRequest, verdict: Verdict) -> Verdict:
         """The tool call waits for the owner's answer (their time is never a stall), then policy runs again: a grant
-        covers this call (and, unless it's irreversible, the same target and type for the rest of the request)."""
+        covers this call (and, unless it's irreversible, the same effect and target for the rest of the request).
+        A yes also makes the action's destination one the owner approved (data flow)."""
         answer = await self._wait_answer(grant, verdict.approval_id or "")
         if answer != "granted":
             return Verdict("block", _declined(answer, action.request_id in self.engine.approvals.unattended), "approval")
+        for d in (action.target.site, action.target.account, *action.target.recipients):
+            if d:
+                self.engine.requests.approve(action.request_id, d)
         again = self.engine.evaluate(action)
         self._events(again)
         return again
@@ -438,15 +445,15 @@ class Gateway:
             self.observer.waiting(grant.worker_id, False)
 
     async def _jev_action(self, cap: Capability, name: str, spec: Any, action: ActionRequest, rec: Any,
-                          span_id: str) -> tuple[str, str] | None:
+                          req: targets_mod.Request, span_id: str) -> tuple[str, str] | None:
         """action.matches_request + action.risk in one request; ("block" | "ask", why) only when Jev is stricter."""
         from ferb.decide.decider import Ask
-        req = self.engine.intents.get(action.request_id)
-        state = {"request": {"goal": rec.task.goal, "allowed_kinds": sorted(req.kinds) if req else [],
-                             "recipients": sorted(req.recipients) if req else [], "sites": sorted(req.sites) if req else [],
-                             "paths": sorted(req.paths) if req else []},
-                 "action": {"tool": name, "kind": spec.kind, "target": _target_dict(spec.target),
-                            "content": (spec.content or "")[:2000]}}
+        t = req.targets
+        state = {"request": {"goal": rec.task.goal, "owner_words": req.words[:1000],
+                             "recipients": sorted(t.recipients), "sites": sorted(t.sites | t.apps),
+                             "paths": sorted(t.paths)},
+                 "action": {"tool": name, "kind": spec.kind, "effect": action.effect, "why": action.why,
+                            "target": _target_dict(spec.target), "content": (spec.content or "")[:2000]}}
         ref = f"span:{span_id}"
         got = await self.jev.ask(state, [Ask("action.matches_request", "yes", ref),
                                          Ask("action.risk", getattr(cap.risk, "name", "LOW").lower(), ref)])
@@ -498,22 +505,15 @@ class Gateway:
             self.publish(topic, data)
 
 
-KIND_WORDS = {"call": "start a call", "send": "send a message", "mac_input": "click and type",
-              "submit": "click / submit", "fill_form": "type", "post": "post", "reply": "reply",
-              "write_file": "write a file", "applescript": "run AppleScript"}
-WHY_HELP = ("Only when this goes outside the plan's apps and sites. Opening / reading there: a short reason. Acting "
-            "there: one or two plain sentences for the owner — what you found and what you want to do, e.g. \"Your "
-            "Brave had no call button. The WhatsApp app does. Call Rahul from there?\"")
-EXPLORE_NEEDS_WHY = ("this app / site isn't in the plan: you may look, with a short reason — call again with why = "
-                     "why you're looking here")
-ROUTE_NEEDS_WHY = ("acting here is outside the plan's apps and sites. If it's the better route, call again with why = "
-                   "one or two plain sentences for the owner: what you found and what you want to do (e.g. \"Your "
-                   "Brave had no call button. The WhatsApp app does. Call Rahul from there?\"); FERB asks them")
-
-
-def beyond_plan(site: str | None, intent: Any) -> bool:
-    """A target outside the request's apps / sites (only when the plan named some)."""
-    return bool(site and intent is not None and intent.sites and not site_matches(site, intent.sites))
+EFFECT_HELP = ("What this call does to the owner's world. navigate: opens, scrolls, switches, searches, reads — "
+               "nothing of theirs changes. edit: changes something that can be changed back or only affects the "
+               "task's own targets (typing, filling fields, saving a draft, a setting, a file in a granted folder, "
+               "liking a song). send: anything that leaves the Mac or reaches another person or service (send, post, "
+               "reply, submit a form that applies / registers / orders, call, publish, share, invite). pay: money. "
+               "destroy: permanent deletion, account security, anything that can't be undone. FERB raises it when "
+               "the control says otherwise (a Send button is a send).")
+WHY_HELP = ("One sentence for the owner saying what this does and why — required when the effect is send, pay or "
+            "destroy (it's shown with the question when FERB asks them), optional otherwise (kept in the trail).")
 
 
 def _declined(answer: str, unattended: bool = False) -> str:

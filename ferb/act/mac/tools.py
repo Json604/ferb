@@ -1,8 +1,11 @@
 """mac.* capabilities (OWNER tasks only, section 10.1): list/open apps, read an app's window (Accessibility), act on
-it (Accessibility first, real input as the fallback under the GUI lock), and AppleScript for scriptable apps."""
+it (Accessibility first, real input as the fallback under the GUI lock), and AppleScript for scriptable apps.
+
+Kinds are facts about the control (docs/DESIGN_ONE_WORKER.md section 3): typing is input, pressing a control is
+input unless its label hits the floor words (Send / Pay / Delete …, `policy/effects.py`), Return is a submit, a
+search box is a search. The worker declares the effect; the gateway raises it to the floor."""
 
 import asyncio
-import re
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
@@ -15,29 +18,11 @@ from ferb.act.mac.resolve import scriptable
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionSpec, ComputerAction, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.contacts import Contact
+from ferb.policy.effects import label_kind
 from ferb.policy.services import communication_bundles
 from ferb.policy.rules import Kind
 
-
-CALL_LABEL = re.compile(r"\b(video call|voice call|audio call|start (a )?call|call|facetime( audio| video)?|dial)\b", re.I)
-# A reader may press a button to open something and read it (a chat, a link, a tab) — owner decision 2026-10-01 —
-# but never one whose label sounds consequential, and never an unlabeled one.
-RISKY_LABEL = re.compile(r"\b(send|call|delete|remove|block|report|archive|leave|exit|clear|mute|unsubscribe|pay|"
-                         r"buy|purchase|order|submit|confirm|accept|decline|reject|allow|approve|grant|install|update|"
-                         r"agree|sign ?out|log ?out|forward|share|post|reply|react|pin|star|like|follow|invite|add|"
-                         r"create|new|edit|save|rename|move|upload|attach|record|video|voice|camera|microphone|"
-                         r"download|print|copy|paste|cut|undo|redo|settings|quit|close)\b", re.I)
-SEARCH_LABEL = re.compile(r"\bsearch\b|^\s*name, number", re.I)   # WhatsApp: "Search", "Name, number, @username"
-SEND_LABEL = re.compile(r"^\s*send\b", re.I)
-
-
-def call_or_send(label: str) -> str | None:
-    """A button's label says it starts a call or sends a message (Mac apps and web pages alike)."""
-    if CALL_LABEL.search(label or ""):
-        return Kind.CALL
-    if SEND_LABEL.search(label or ""):
-        return Kind.SEND
-    return None
+ENTER = frozenset({"return", "enter"})
 
 
 def _err(msg: str) -> ToolResult:
@@ -151,7 +136,8 @@ class MacMenu(_Base):
                    "(\"File > Search\"), press that item. Many apps keep commands only in their menus — e.g. "
                    "WhatsApp's search opens from File > Search, then mac_snapshot shows the search box. Take a new "
                    "snapshot after pressing.")
-    scopes = {"mac:read"}             # listing is reading; pressing is checked per item (reader_ok / mac:act)
+    scopes = {"mac:read"}             # listing is reading; pressing an item needs mac:act (checked in _run)
+    reversible = False                # it can press: the gateway adds effect / why to its schema
 
     class Input(_App):
         path: str | None = Field(default=None, description='menu path, e.g. "File > Search"; empty to list menus')
@@ -163,14 +149,7 @@ class MacMenu(_Base):
         items = self._items(args)
         if not items:
             return ActionSpec(Kind.READ, Target(site=self._bundle(args)))
-        if self.reader_ok(args):                 # File > Search, View > …: opens something — navigation
-            return ActionSpec(Kind.NAVIGATE, Target(site=self._bundle(args)))
-        return ActionSpec(call_or_send(items[-1]) or Kind.MAC_INPUT, Target(site=self._bundle(args)))
-
-    def reader_ok(self, args: BaseModel) -> bool:
-        """A reader may press a menu item that only opens or shows something (Search, View, Find…), never a risky one."""
-        items = self._items(args)
-        return bool(items) and not RISKY_LABEL.search(items[-1]) and call_or_send(items[-1]) is None
+        return ActionSpec(label_kind(items[-1]) or Kind.MAC_INPUT, Target(site=self._bundle(args)))
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
@@ -180,7 +159,7 @@ class MacMenu(_Base):
         app = str(getattr(args, "app"))
         if not items:
             return ToolResult({"menus": await self.driver.menus(app)})
-        if not self.reader_ok(args) and "mac:act" not in ctx.scopes:
+        if "mac:act" not in ctx.scopes:
             return _err(f"pressing “{items[-1]}” is acting, which needs mac:act")
         ok = await self.driver.press_menu(app, items)
         return ToolResult({"pressed": " > ".join(items)} if ok else {"error": f"no menu item {' > '.join(items)}"},
@@ -218,10 +197,12 @@ class MacAct(_Base):
     name = "mac.act"
     description = ("Act on an app: press / focus / set_value (text) / click / type (text) on an element id from "
                    "its latest snapshot, or key (e.g. escape, cmd+s). Works with the app in the background where it "
-                   "can; brings it forward only when it must. Prefer buttons to keystrokes: press the Send button "
-                   "(never Return in a message box). To change text, set_value the whole text again (never arrow "
-                   "keys to edit). After sending, check it went by taking a snapshot of the chat — never send again "
-                   "to check; a second message to the same person needs the owner's OK. Never types passwords.")
+                   "can; brings it forward only when it must. To search an app, set_value your search words on its "
+                   "search box (even one that shows as an unlabeled button). Prefer buttons to keystrokes: press "
+                   "the Send button (never Return in a message box). To change text, set_value the whole text again "
+                   "(never arrow keys to edit). After sending, check it went by taking a snapshot of the chat — "
+                   "never send again to check; a second message to the same person needs the owner's OK. Never "
+                   "types passwords.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
 
@@ -235,39 +216,26 @@ class MacAct(_Base):
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(self._kind(args), Target(site=self._bundle(args)), content=getattr(args, "text"))
 
-    def reader_ok(self, args: BaseModel) -> bool:
-        """A reader's press / click that only opens something to read: a labeled control whose label isn't risky."""
-        if getattr(args, "action") not in ("press", "click") or not getattr(args, "element"):
-            return False
+    def _node(self, args: BaseModel) -> Any:
         try:
-            n = self.driver.node(self._bundle(args), str(getattr(args, "element")))
+            return self.driver.node(self._bundle(args), str(getattr(args, "element")))
         except Exception:
-            return False
-        label = (n.label or "").strip()
-        return bool(label) and n.role in ("button", "link", "tab", "menuitem") and not RISKY_LABEL.search(label) \
-            and call_or_send(label) is None
+            return None
 
     def _kind(self, args: BaseModel) -> str:
-        """Pressing an app's call / send button is a call / a send: held for undo like other sends (step 16). Typing
-        into a search box is a search — it sends nothing, so a reader may do it (owner's run 2026-10-01: searching
-        WhatsApp for "syllabus" was blocked)."""
-        if getattr(args, "action") in ("set_value", "type") and getattr(args, "element"):
-            try:
-                n = self.driver.node(self._bundle(args), str(getattr(args, "element")))
-            except Exception:
-                return Kind.MAC_INPUT
-            if n.role == "searchbox" or SEARCH_LABEL.search(n.label or ""):
-                return Kind.SEARCH
-            return Kind.MAC_INPUT
-        if getattr(args, "action") not in ("press", "click") or not getattr(args, "element"):
-            return Kind.MAC_INPUT
-        try:
-            label = self.driver.node(self._bundle(args), str(getattr(args, "element"))).label
-        except Exception:
-            return Kind.MAC_INPUT
-        if self.reader_ok(args):                 # opening a chat / link / tab to read it: navigation (2026-10-01)
+        """Facts about the control: typing is input (a search box: a search); pressing a control is input unless its
+        label hits the floor words (Send → a send, held for undo; Pay; Delete …); Return is a submit; focusing is
+        nothing."""
+        action = getattr(args, "action")
+        if action == "focus":
             return Kind.NAVIGATE
-        return call_or_send(label) or Kind.MAC_INPUT
+        if action == "key":
+            combo = str(getattr(args, "text") or "").lower().strip()
+            return Kind.SUBMIT if combo.split("+")[-1] in ENTER else Kind.MAC_INPUT
+        n = self._node(args) if getattr(args, "element") else None
+        if action in ("set_value", "type"):
+            return Kind.SEARCH if n is not None and n.role == "searchbox" else Kind.MAC_INPUT
+        return (label_kind(n.label) if n is not None else None) or Kind.MAC_INPUT
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
@@ -342,9 +310,18 @@ class MacClick(_Base):
         return None
 
     def describe(self, args: BaseModel) -> ActionSpec:
+        """The declared purpose (call / send) in a messaging app; the control under the point raises it when its
+        label hits the floor words (a "Send" button declared "other" is still a send)."""
         purpose = getattr(args, "purpose")
         kind = {"call": Kind.CALL, "send": Kind.SEND}.get(purpose or "", Kind.MAC_INPUT) \
             if self._communication(args) else Kind.MAC_INPUT
+        if kind == Kind.MAC_INPUT:
+            try:
+                label = self.driver.label_at(str(getattr(args, "app")), str(getattr(args, "shot")),
+                                             float(getattr(args, "x")), float(getattr(args, "y")))
+            except Exception:
+                label = None
+            kind = label_kind(label) or kind
         return ActionSpec(kind, Target(site=self._bundle(args)))
 
     def locks(self, args: BaseModel) -> list[str]:
@@ -355,10 +332,6 @@ class MacClick(_Base):
             return _err(why)
         app, shot, x, y = (str(getattr(args, "app")), str(getattr(args, "shot")), float(getattr(args, "x")),
                            float(getattr(args, "y")))
-        if self._communication(args) and getattr(args, "purpose") == "other":
-            label = await asyncio.to_thread(self.driver.label_at, app, shot, x, y)
-            if call_or_send(label or ""):                  # declared "other" but it's a call / send button
-                return _err(f"that point is a “{label}” control: declare purpose call or send, with the contact")
         r = await self.driver.click_at(app, shot, x, y, holder=ctx.worker_id, task=ctx.task_id)
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new screenshot to see the result"},
                           is_error=not r.ok)

@@ -10,6 +10,27 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.17.0 — 2026-10-02 — One worker per request, gated at the action
+Phase 4 of `docs/REWORK_PLAN.md`, as designed in `docs/DESIGN_ONE_WORKER.md`.
+- The supervisor answers with a reply, one question, or a task (goal, identity, informational targets, success
+  conditions). No subtasks, readers, actors, verbs or scopes; the only check left in code is the identity floor
+  (one repair round, then a question). One worker runs the whole request with every tool its identity allows, in
+  the background; its summary is the owner's answer (the separate answer run is gone).
+- Every act call declares an `effect` (navigate / edit / send / pay / destroy) and `why`. The gateway raises the
+  declaration to the control's floor: tool kinds are facts (a plain click is a click, a search box is a search,
+  Return is a submit, a form's button submits it) and one label list of floor words (Send / Submit / Call / Pay /
+  Buy / Order / Delete / Remove / Unsubscribe / Sign out). Navigate and edit run; a send asks once per (request,
+  effect, target) with the worker's reason unless the owner's own message names the target; pay and destroy ask
+  every time. Hard floor, undo hold, duplicate-send and contact checks unchanged. Owner data read in the request may
+  only go to a target of it, something the owner named, or something they approved.
+- `owner_ask`: a worker's question to the owner, shown in `ferb chat` with numbered options or a free-text prompt
+  (`chat.answer`); declined at once during a scheduled run.
+- Schedules record targets from the owner's words; a run is held to them.
+- Deleted: the intent registry and verb tables, the reader label lists, the owner-browser phrase gate, the
+  own-words typing rule, the spelling corrector, the route picker (the catalogue stays for the environment line).
+- Tests: `test_policy`, `test_supervisor`, `test_routes`, `test_ux`, `test_gateway` rewritten; `test_explore` and
+  `test_spelling` deleted; the acceptance set in `test_acceptance_one_worker.py` replays eight real failures.
+
 ## 0.16.1 — 2026-10-02
 - Reminders: the planner's quote is checked against the words as typed. Before, the typo fix ran first, read "looks"
   as the Books app and dropped a test reminder. Word forms like "looks" and "minutes" now count as English.

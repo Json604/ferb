@@ -20,7 +20,7 @@ from ferb.act.browser.tools import MailboxSend
 from ferb.clock.durations import typical
 from ferb.clock.timers import Timers
 from ferb.core.types import Identity
-from ferb.policy.intent import RequestIntent
+from ferb.policy.targets import Request, Targets
 from ferb.store.db import Database
 from tests.conftest import RunningDaemon
 from tests.test_mac_shell import call, task
@@ -197,11 +197,12 @@ class FakeMail:
         return "sent"
 
 
-def ferb_task(d: RunningDaemon, tid: str, verbs: set[str], recipients: frozenset[str] = frozenset()) -> Any:
+def ferb_task(d: RunningDaemon, tid: str, words: str, recipients: frozenset[str] = frozenset()) -> Any:
+    """A FERB task whose owner's words are `words` (the recipients they named are in them)."""
     g = task(d, tid, Identity.FERB, {"mailbox:send"}, None)
 
     async def rec() -> None:
-        d.daemon.engine.intents.record(RequestIntent.from_plan(f"req-{tid}", verbs, recipients=recipients))
+        d.daemon.engine.requests.record(Request(f"req-{tid}", words, Targets.of(recipients=recipients)))
     d.run(rec())
     return g
 
@@ -209,11 +210,12 @@ def ferb_task(d: RunningDaemon, tid: str, verbs: set[str], recipients: frozenset
 def test_mailbox_send_follows_the_normal_autonomy_rules(daemon: RunningDaemon) -> None:
     mail = FakeMail()
     daemon.daemon.registry.capabilities["mailbox.send"] = MailboxSend(mail)
-    g = ferb_task(daemon, "m1", {"email"}, frozenset({"alice@x.com"}))
+    g = ferb_task(daemon, "m1", "email alice@x.com about lunch", frozenset({"alice@x.com"}))
 
     async def send(to: str, advance: float = 11) -> dict[str, Any]:
         job = asyncio.create_task(daemon.daemon.gateway.call(g, "mailbox.send", {"to": [to], "subject": "Hi",
-                                                                                  "body": "Lunch?"}))
+                                                                                  "body": "Lunch?",
+                                                                                  "why": "emailing as asked"}))
         await asyncio.sleep(0.1)
         daemon.daemon.clock.advance(advance)                             # the undo window passes
         return await asyncio.wait_for(job, 5)
@@ -226,10 +228,14 @@ def test_mailbox_send_follows_the_normal_autonomy_rules(daemon: RunningDaemon) -
     finally:
         no.stop()
     assert "declined" in r["content"]["error"] and len(mail.sent) == 1 and len(no.asked) == 1   # not named: asks
-    g2 = ferb_task(daemon, "m2", {"summarize"})
-    r = call(daemon, g2, "mailbox.send", to=["alice@x.com"], subject="Hi", body="x")
-    assert r["is_error"] and "blocked" in r["content"]["error"] and len(mail.sent) == 1   # not requested: blocked
-    owner = task(daemon, "o1", Identity.OWNER, {"shell"}, {"email"})
+    g2 = ferb_task(daemon, "m2", "summarize my week")
+    no2 = Answers(daemon, granted=False)
+    try:
+        r = call(daemon, g2, "mailbox.send", to=["alice@x.com"], subject="Hi", body="x", why="sending the summary")
+    finally:
+        no2.stop()
+    assert r["is_error"] and "declined" in r["content"]["error"] and len(mail.sent) == 1   # nobody named: asks
+    owner = task(daemon, "o1", Identity.OWNER, {"shell"}, "email alice")
     assert "mailbox.send" not in {t["name"] for t in daemon.daemon.gateway.tools_for(owner)}   # FERB's only
 
 
@@ -237,11 +243,12 @@ def test_an_unconfirmed_send_is_unknown_and_never_retried_blindly(daemon: Runnin
     mail = FakeMail()
     mail.unknown = True
     daemon.daemon.registry.capabilities["mailbox.send"] = MailboxSend(mail)
-    g = ferb_task(daemon, "m3", {"email"}, frozenset({"alice@x.com"}))
+    g = ferb_task(daemon, "m3", "email alice@x.com", frozenset({"alice@x.com"}))
 
     async def send() -> dict[str, Any]:
         job = asyncio.create_task(daemon.daemon.gateway.call(g, "mailbox.send", {"to": ["alice@x.com"],
-                                                                                  "subject": "Hi", "body": "x"}))
+                                                                                  "subject": "Hi", "body": "x",
+                                                                                  "why": "emailing alice"}))
         await asyncio.sleep(0.1)
         daemon.daemon.clock.advance(11)
         return await asyncio.wait_for(job, 5)

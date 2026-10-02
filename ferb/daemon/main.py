@@ -200,6 +200,7 @@ class Daemon:
                          ("autonomy.set", self._autonomy_set), ("doctor.check", self._doctor_check),
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
+                         ("chat.answer", self._chat_answer),
                          ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
                          ("browsers.pair", self._browsers_pair), ("browsers.installed", self._browsers_installed), ("browsers.unpair", self._browsers_unpair),
                          ("identity.pair", self._identity_pair), ("ps.list", self._ps_list),
@@ -445,8 +446,6 @@ class Daemon:
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.grant_folder, self.gateway.queue_question = self._grant_folder, self._queue_question
         self.gateway.owner_words = self._owner_words
-        self.gateway.request_words = lambda rid: str((self.supervisor._env.get(rid) or {}).get("words", "")) \
-            if self.supervisor is not None else ""
         self.gateway.name_of = lambda t: next((n for b, n in self._installed_apps() if b.lower() == t.lower()), t)
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, engine=self.engine,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
@@ -700,7 +699,6 @@ class Daemon:
             self.supervisor.pasted_is_data = lambda: bool(self.config.get("policy", "pasted_text_is_data", True))
             self.supervisor.environment = self._environment
             self.supervisor.availability = self._availability
-            self.supervisor.owner_browser = self._owner_browser
             self.supervisor.recall = lambda words: context_block(self.memory, words)
             self.supervisor.remember = self._remember
         if self.run_distill:
@@ -1004,37 +1002,26 @@ class Daemon:
         return None
 
     def _schedule_create(self, spec: Any, own_words: str, request_id: str) -> str:
-        """From chat: the owner's words (quote-checked), the intent recorded now, the first run in the future."""
-        from ferb.orchestrator import dag
+        """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future."""
         from ferb.orchestrator.schedules import Rule, ScheduleError
         from ferb.orchestrator.supervisor import _wants_me
-        from ferb.policy.intent import to_json
-        from ferb.policy.names import resolve_apps
+        from ferb.policy.targets import Targets
         norm = " ".join(own_words.lower().split())
         if len(spec.quote.strip()) < 3 or " ".join(spec.quote.lower().split()) not in norm:
             self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
             return "I couldn't set that up — could you ask me again in your own words?"
-        problems = dag.validate_intent(spec.intent, own_words, self._installed_apps())
-        if problems:
-            return "To schedule that, please name the sites, apps or people involved yourself."
-        if _wants_me(spec.intent.recipients) and self._owner_email() is None:
+        if _wants_me(spec.targets.recipients) and self._owner_email() is None:
             return "What email address should I use for you? Tell me, then ask me to schedule it again."
         try:
             from ferb.clock.when import resolve
             first = resolve(spec.when, self.clock.now())                        # code computes the date, not the model
             rule = Rule.build(spec.repeat, first, spec.weekday, spec.every_minutes)
             me = self._owner_email()
-            bundles = set(resolve_apps(spec.intent.apps, self._installed_apps(), own_words)[0].values())
-            from ferb.policy.intent import RequestIntent
-            i = spec.intent
-            recorded = RequestIntent.from_plan(
-                request_id, set(i.verbs), set(i.extra_kinds),
-                recipients=frozenset(me if (me and r.strip().lower() in {"me", "myself", "owner"}) else r
-                                     for r in i.recipients),
-                sites=frozenset(i.sites) | frozenset(b.lower() for b in bundles), accounts=frozenset(i.accounts),
-                paths=frozenset(normalize_path(p, str(self.home / "workspace")) for p in i.paths),
-                max_amount=i.max_amount, irreversible=frozenset(i.irreversible_kinds))
-            s = self.schedules.add(spec.request, own_words, to_json(recorded), rule, first)
+            t = spec.targets
+            recorded = Targets.of(
+                t.apps, t.sites, [normalize_path(p, str(self.home / "workspace")) for p in t.paths],
+                [me if (me and r.strip().lower() in {"me", "myself", "owner"}) else r for r in t.recipients])
+            s = self.schedules.add(spec.request, own_words, recorded.to_json(), rule, first)
         except (ScheduleError, ValueError) as e:
             return f"I couldn't schedule that: {e}."
         t = self.timers.add("schedule", first, s.id)
@@ -1326,31 +1313,18 @@ class Daemon:
         return out
 
     def _environment(self, own_words: str) -> dict[str, Any]:
-        """Routes for what the owner named, and the environment summary (9.3, build step 16)."""
+        """The environment summary for the supervisor (9.3): what's installed and paired for what the owner named,
+        what's running, and the browser / profile they named. Informational: the model decides the route."""
         import platform
         from ferb.act.mac import apps as appsm
         from ferb.policy import services as svc
-        assert self.db is not None
-        since = (self.clock.now() - timedelta(days=14)).isoformat()
-        rows = self.db.conn.execute(
-            "SELECT at, source, data_json FROM trail WHERE actor = 'owner' AND source IN ('app_focus', "
-            "'browser_tab') AND at >= ?", (since,)).fetchall()                    # the owner's own activity only
-        usage_apps, usage_web = svc.usage_from_trail(rows)
         ferb = self._identity_profile()
         names = {(p.browser, p.folder): p.display_name for p in self._profiles()} if self.pairings else {}
         paired = [(b.browser, b.folder, names.get((b.browser, b.folder), b.folder))
                   for b in (self.pairings.all() if self.pairings else [])
                   if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
-        prefs = {}
-        if self.memory is not None:
-            for it in self.memory.items("active", "owner"):
-                if it.key.startswith("route_") or it.key.startswith("route:"):
-                    prefs["route:" + it.key.split(":", 1)[-1].removeprefix("route_").replace("_", " ")] = it.content
-        env = svc.Environment(self._installed_apps(), paired, usage_apps, usage_web, prefs,
-                              owner_browser=self._owner_browser(own_words))
+        env = svc.Environment(self._installed_apps(), paired)
         named = svc.services_named(own_words, env)
-        routes = [r for s in named if (r := svc.route(s, env)) is not None]
-        unknown = [s.name for s in named if svc.route(s, env) is None]
         try:
             running = {a.bundle_id for a in appsm.running()}
         except Exception:
@@ -1359,7 +1333,7 @@ class Daemon:
         chosen = self._named_browser(own_words)
         if chosen is not None:
             stable += " " + self._named_note(chosen)
-        return {"routes": routes, "stable": stable, "live": live, "unknown": unknown, "named_browser": chosen}
+        return {"stable": stable, "live": live, "named_browser": chosen}
 
     def _named_for_task(self, task_id: str) -> Any:
         rec = self.tasks.get(task_id) or self.tasks.get(task_id.rsplit(".", 1)[0])
@@ -1401,14 +1375,6 @@ class Daemon:
                else "FERB's extension is installed but not paired")
         return (f"The owner named {named}, but FERB can't use it yet: {why}. Don't use another browser or profile "
                 f"instead — reply (no plan) that {how} connects it (FERB walks them through it), then ask again.")
-
-    def _owner_browser(self, own_words: str) -> bool:
-        """The owner's words point at their own browser (a paired profile's name counts: "in my Work profile")."""
-        from ferb.policy.services import owner_browser_named
-        names = [p.display_name for p in self._profiles()] if self.pairings else []
-        if self._named_browser(own_words) is not None:     # "my scaler gmail in chrome": a profile / browser of theirs
-            return True
-        return owner_browser_named(own_words, names)
 
     def _owner_words(self, request_id: str, name: str) -> str:
         """For the contact check (16a): this request's own words, the owner's messages over the last day, and what the
@@ -1722,7 +1688,7 @@ class Daemon:
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)
-        if topic in ("contact.selected", "plan.extended"):                # who a call went to; a route the owner OK'd
+        if topic == "contact.selected":                                  # who a call / message went to
             self._journal().append(topic, self.redact(data))
 
     def _runtime_violation(self, runtime: str, detail: str) -> None:
@@ -1765,9 +1731,15 @@ class Daemon:
         return self._resolve_approval(str(params["approval_id"]), bool(params["granted"]),
                                       int(choice) if choice is not None else None)
 
-    def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None) -> dict[str, Any]:
+    async def _chat_answer(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """The owner's free-text answer to a worker's question (owner.ask); empty text declines."""
+        text = str(params.get("text") or "").strip()
+        return self._resolve_approval(str(params["approval_id"]), bool(text), None, text or None)
+
+    def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None,
+                          text: str | None = None) -> dict[str, Any]:
         """The owner's answer to a question, typed (`ferb chat`) or spoken (push-to-talk)."""
-        ap = self.engine.approvals.resolve(approval_id, granted, choice)
+        ap = self.engine.approvals.resolve(approval_id, granted, choice, text)
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,
                                                      "capability": ap.capability})
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})

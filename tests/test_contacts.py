@@ -16,8 +16,8 @@ from ferb.cli.chat import question, render
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy import contacts
 from ferb.policy.contacts import Contact
-from ferb.policy.intent import RequestIntent
 from ferb.policy.rules import Kind
+from ferb.policy.targets import Request, Targets
 from tests.conftest import Answers, RunningDaemon
 from tests.test_gateway import setup
 
@@ -76,8 +76,8 @@ class Call:
 def rig(d: RunningDaemon, *screens: dict[str, Any], words: str = "video call rahul on whatsapp") -> tuple[Any, Call]:
     snap, call = Snap(), Call()
     snap.screens = list(screens)
-    grant, _ = setup(d, {"mac:read", "mac:act"}, RequestIntent.from_plan(
-        "req-1", {"call"}, recipients=frozenset({"Rahul"}), sites=frozenset({WA.lower()})), [snap, call])  # type: ignore[list-item]
+    grant, _ = setup(d, {"mac:read", "mac:act"},
+                     Request("req-1", words, Targets.of(recipients=["Rahul"], apps=[WA])), [snap, call])  # type: ignore[list-item]
     d.daemon.gateway.owner_words = lambda rid, name: words
     for _ in screens:
         assert not d.run(d.daemon.gateway.call(grant, "mac.snapshot", {"app": "WhatsApp"}))["is_error"]
@@ -86,7 +86,8 @@ def rig(d: RunningDaemon, *screens: dict[str, Any], words: str = "video call rah
 
 def press_call(d: RunningDaemon, grant: Any, contact: dict[str, Any] | None) -> dict[str, Any]:
     async def go() -> dict[str, Any]:
-        job = asyncio.create_task(d.daemon.gateway.call(grant, "mac.act", {"app": "WhatsApp", "contact": contact}))
+        job = asyncio.create_task(d.daemon.gateway.call(grant, "mac.act", {"app": "WhatsApp", "contact": contact,
+                                                                           "effect": "send", "why": "calling Rahul"}))
         for _ in range(100):                                            # past the undo window
             await asyncio.sleep(0.05)
             d.daemon.clock.advance(1)
@@ -195,12 +196,19 @@ def test_the_owners_words_resolve_it_without_asking(daemon: RunningDaemon) -> No
         watch.stop()
 
 
-def test_a_call_must_say_who_and_only_someone_the_owner_named(daemon: RunningDaemon) -> None:
+def test_a_call_must_say_who_and_someone_the_owner_never_named_is_asked_about(daemon: RunningDaemon) -> None:
+    """A call names its contact. Calling someone the owner never named isn't refused outright: it's a send to a
+    stranger, so FERB asks the owner (with the worker's reason) and a no stops it."""
     grant, call = rig(daemon, ONE_RAHUL)
     r = press_call(daemon, grant, None)
     assert r["is_error"] and "say who this is for" in r["content"]["error"]
-    r = press_call(daemon, grant, {**VERMA, "name": "Priya"})
-    assert r["is_error"] and "isn't someone the owner named" in r["content"]["error"] and call.calls == 0
+    no = Answers(daemon, granted=False)
+    try:
+        r = press_call(daemon, grant, {**VERMA, "name": "Priya"})
+    finally:
+        no.stop()
+    assert r["is_error"] and "declined" in r["content"]["error"] and call.calls == 0
+    assert len(no.asked) == 1 and "calling Rahul" in no.asked[0].reason
 
 
 def test_the_choice_question_reads_as_numbered_options() -> None:
@@ -225,13 +233,13 @@ def _whatsapp(d: RunningDaemon, mp: Any, cells: list[tuple[str, str]], at_point:
     mac.ax.tree = AxTree(nodes=[AxNode(None, "AXCell", n, v, (0, 0, 10, 10), False, True) for n, v in cells])  # type: ignore[union-attr]
     mac.ax.label_at = lambda x, y: at_point                                      # type: ignore[union-attr]
     d.daemon.gateway.owner_words = lambda rid, name: "video call rahul on whatsapp"
-    t = Task("wa", None, "g", "dev", Identity.OWNER, {"screen", "mac:act"}, "actor", "req-wa", [],
+    t = Task("wa", None, "g", "dev", Identity.OWNER, {"screen", "mac:act"}, "worker", "req-wa", [],
              d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go() -> Any:
         d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), d.daemon.spans.start("task", task_id="wa", input={}).id))
-        d.daemon.engine.intents.record(RequestIntent.from_plan("req-wa", {"call"}, recipients=frozenset({"Rahul"}),
-                                                               sites=frozenset({WA.lower()})))
+        d.daemon.engine.requests.record(Request("req-wa", "video call rahul on whatsapp",
+                                                Targets.of(recipients=["Rahul"], apps=[WA])))
         return d.daemon.tokens.validate(d.daemon.tokens.issue("wa", "w-wa", t.scopes, Identity.OWNER, ttl_s=600))
     return d.run(go()), posted
 
@@ -241,7 +249,8 @@ def _click(d: RunningDaemon, grant: Any, **args: Any) -> dict[str, Any]:
         shot = await d.daemon.gateway.call(grant, "mac.screenshot", {"app": "WhatsApp"})
         assert not shot["is_error"], shot
         job = asyncio.create_task(d.daemon.gateway.call(
-            grant, "mac.click", {"app": "WhatsApp", "shot": shot["content"]["shot"], "x": 400, "y": 300, **args}))
+            grant, "mac.click", {"app": "WhatsApp", "shot": shot["content"]["shot"], "x": 400, "y": 300,
+                                 "why": "the call button", **args}))
         for _ in range(100):                                                     # past the undo window
             await asyncio.sleep(0.05)
             d.daemon.clock.advance(1)
@@ -257,10 +266,12 @@ def test_an_undeclared_click_in_a_messaging_app_is_refused(daemon: RunningDaemon
     assert r["is_error"] and "messaging / calling app" in r["content"]["error"] and posted == []
 
 
-def test_other_on_a_call_button_is_refused(daemon: RunningDaemon, monkeypatch: Any) -> None:
+def test_other_on_a_call_button_is_still_a_call(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """The control under the point says "Video call": the floor makes it a call whatever the worker declared, and
+    a call needs its contact."""
     grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Verma", "+91 98200 22222")], at_point="Video call")
     r = _click(daemon, grant, purpose="other")
-    assert r["is_error"] and "declare purpose call or send" in r["content"]["error"] and posted == []
+    assert r["is_error"] and "say who this is for" in r["content"]["error"] and posted == []
 
 
 def test_a_declared_call_click_goes_through_the_contact_check_and_countdown(daemon: RunningDaemon,
@@ -339,7 +350,8 @@ class Send:
 def send(d: RunningDaemon, grant: Any, text: str) -> dict[str, Any]:
     async def go() -> dict[str, Any]:
         job = asyncio.create_task(d.daemon.gateway.call(grant, "mac.act", {"app": "WhatsApp", "text": text,
-                                                                           "contact": VERMA}))
+                                                                           "contact": VERMA, "effect": "send",
+                                                                           "why": "messaging Rahul"}))
         for _ in range(100):                                            # past the undo window
             await asyncio.sleep(0.05)
             d.daemon.clock.advance(1)
@@ -352,8 +364,9 @@ def send(d: RunningDaemon, grant: Any, text: str) -> dict[str, Any]:
 def test_a_second_message_to_the_same_contact_needs_the_owners_ok(daemon: RunningDaemon) -> None:
     snap, tool = Snap(), Send()
     snap.screens = [ONE_RAHUL]
-    grant, _ = setup(daemon, {"mac:read", "mac:act"}, RequestIntent.from_plan(
-        "req-1", {"message"}, recipients=frozenset({"Rahul"}), sites=frozenset({WA.lower()})), [snap, tool])  # type: ignore[list-item]
+    grant, _ = setup(daemon, {"mac:read", "mac:act"},
+                     Request("req-1", "message rahul on whatsapp: running late",
+                             Targets.of(recipients=["Rahul"], apps=[WA])), [snap, tool])  # type: ignore[list-item]
     daemon.daemon.gateway.owner_words = lambda rid, name: "message rahul on whatsapp: running late"
     assert not daemon.run(daemon.daemon.gateway.call(grant, "mac.snapshot", {"app": "WhatsApp"}))["is_error"]
     owner = Answers(daemon, granted=False)                             # the owner says no to a second one

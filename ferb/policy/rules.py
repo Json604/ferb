@@ -24,15 +24,17 @@ class Kind:
     TIMER = "timer"                                       # a reminder / timer for the owner (cancelable)
     ACCOUNT_SECURITY = "account_security"                 # passwords, 2FA, recovery settings, account deletion
     CALL = "call"                                         # starting a voice / video call (build step 16)
+    CLICK = "click"                                       # a plain click on a page control (no floor word, no form)
 
 
-# Reversible actions just run (section 10.2) once identity/scope/exposure pass.
+# Reversible kinds never get a ledger row (section 10.2): nothing of the owner's changes.
 REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER}
 # The irreversible floor (10.3): ask every single time, every autonomy level; nothing can remove a kind from it.
 HARD_FLOOR = {Kind.PAY, Kind.DELETE_PERMANENT, Kind.ACCOUNT_SECURITY}
+HARD_EFFECTS = {"pay", "destroy"}                               # the same floor, by effect class
 UNDO_WINDOW = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND, Kind.CALL}   # held ~10 s before executing
 OUTBOUND = {Kind.SEND, Kind.POST, Kind.REPLY, Kind.FILL_FORM, Kind.SUBMIT, Kind.MAILBOX_SEND, Kind.WRITE_FILE,
-            Kind.PAY}                                           # moves data somewhere (data-flow checks)
+            Kind.PAY, Kind.CLICK, Kind.MAC_INPUT}                 # moves data somewhere (data-flow checks)
 
 
 @dataclass(frozen=True)
@@ -50,25 +52,29 @@ class ActionRequest:
     content: str | None = None
     data_labels: frozenset[DataLabel] = field(default_factory=frozenset)
     unverified_account: str | None = None    # "site @ browser/folder" whose signed-in account FERB can't check (9.3)
-    flagged_irreversible: bool = False       # the model (request intent) or Jev marked this action irreversible
+    flagged_irreversible: bool = False       # Jev marked this action irreversible: ask every time, bound to it
+    effect: str = "edit"                     # the effective effect class: max(declared, floor) (effects.py)
+    owner_named: bool = False                # the owner's own message names where this goes (targets.owner_named)
+    why: str = ""                            # the worker's one-sentence reason (shown with an ask)
 
 
 def scope_key(a: ActionRequest) -> str:
-    """What one approval covers (10.3): this request, this action type, this target — whatever the content."""
-    canon = json.dumps({"request": a.request_id, "kind": a.kind, "identity": a.identity.value,
+    """What one approval covers (10.3): this request, this effect class, this target — whatever the content."""
+    canon = json.dumps({"request": a.request_id, "effect": a.effect, "identity": a.identity.value,
                         "account": a.target.account, "site": a.target.site, "recipients": sorted(a.target.recipients),
                         "path": a.target.path, "amount": a.target.amount}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canon.encode()).hexdigest()
 
 
 def irreversible(a: ActionRequest) -> bool:
-    """The floor, plus what the model or Jev flagged for this action: asks every time, one call at a time."""
-    return a.kind in HARD_FLOOR or a.flagged_irreversible
+    """The floor (pay / destroy, by kind or by declared effect), plus what Jev flagged: asks every time, one call at
+    a time, bound to the exact action."""
+    return a.kind in HARD_FLOOR or a.effect in HARD_EFFECTS or a.flagged_irreversible
 
 
 def payload_hash(a: ActionRequest) -> str:
     """Binds approvals and ledger rows to the exact action: any change to target/content/amount changes it."""
-    canon = json.dumps({"capability": a.capability, "kind": a.kind, "identity": a.identity.value,
+    canon = json.dumps({"capability": a.capability, "kind": a.kind, "effect": a.effect, "identity": a.identity.value,
                         "account": a.target.account, "site": a.target.site,
                         "recipients": sorted(a.target.recipients), "path": a.target.path,
                         "amount": a.target.amount, "content": a.content}, sort_keys=True, separators=(",", ":"))

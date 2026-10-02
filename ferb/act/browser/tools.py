@@ -7,9 +7,11 @@
   `fill_otp` (FERB's Keychain secrets and inbox codes; the worker never sees them).
 
 A task sees and uses only the tabs it opened; its tabs close when it ends. Only http(s) URLs to public hosts are
-opened (checked here, before any driver sees them). Policy kinds come from what the element would do (last
-snapshot): following a link is `navigate`; typing into / submitting a search form is `search`; other form input is
-`fill_form`; pressing a button or Enter elsewhere is `submit` (so it must be in the request's intent).
+opened (checked here, before any driver sees them). Policy kinds are facts about the element (last snapshot):
+following a link is `navigate`; typing into / submitting a search form is `search`; other typing is `fill_form`;
+a plain click is `click`; a form's submit control, Enter in a non-search form, or a label that hits the floor
+words (Send / Pay / Delete …, `policy/effects.py`) is a `submit` / `send` / `pay` / `delete_permanent`. The worker
+declares the effect; the gateway raises it to the floor.
 """
 
 import ipaddress
@@ -310,31 +312,11 @@ class BrowserAct(_Base):
     def _scopes(self) -> set[str]:
         return {self.family.act}
 
-    def reader_ok(self, args: BaseModel) -> bool:
-        """A reader may click to open something and read it — an email row, a link, a tab — never a form control and
-        never a control whose label sounds consequential (owner decision 2026-10-01; owner's run: opening an email in
-        Gmail was refused as a "submit")."""
-        from ferb.act.mac.tools import RISKY_LABEL, call_or_send
-        if getattr(args, "action", None) != "click":
-            return False
-        el = self._element(args)
-        if el is None or el.form not in (None, "", "search") or el.role in FORM_ROLES:
-            return False
-        label = (el.label or "").strip()
-        if not label:
-            return False
-        if el.role in ("row", "listitem", "option", "cell", "gridcell", "article", "tab", "treeitem"):
-            return True                    # content: clicking opens it (an email row's label is its whole preview)
-        return el.role in ("link", "menuitem", "button") and not RISKY_LABEL.search(label) \
-            and call_or_send(label) is None and not READER_RISKY.search(label)   # the label is the action
-
     def describe(self, args: BaseModel) -> ActionSpec:
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
-        if kind in (Kind.FILL_FORM, Kind.SUBMIT) and security_page(self.driver.tab_url(str(getattr(args, "tab", "")))):
+        if kind not in REVERSIBLE and security_page(self.driver.tab_url(str(getattr(args, "tab", "")))):
             kind = Kind.ACCOUNT_SECURITY                                 # always asks, every time (10.3) — first
-        elif kind == Kind.SUBMIT and self.reader_ok(args):   # opening an email row / tab / harmless link: navigation
-            kind = Kind.NAVIGATE                               # (owner's run 2026-10-01: "submit was not requested")
         return self._spec(kind, args, content=text if action in ("type", "select") else None)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
@@ -366,33 +348,32 @@ def security_page(url: str | None) -> bool:
     return bool(SECURITY_PAGE.search(where)) and bool(ACCOUNT_CONTEXT.search(context))
 
 
-READER_RISKY = re.compile(r"\b(submit|sign in|log in|login|register|subscribe|checkout|apply|enroll|vote|"
-                          r"book|reserve|unsend|discard|empty trash|mark as)\b", re.I)   # web-only risky words
-
-
 def act_kind(action: str, text: str | None, el: PageElement | None) -> str:
+    """Facts about the element: what this action at least does."""
+    from ferb.policy.effects import label_kind
     if action == "scroll":
         return Kind.READ
     if el is None:
-        return Kind.SUBMIT                                # unknown element: the strictest reading (run will refuse)
+        return Kind.CLICK                                 # unknown element: the driver refuses a stale id anyway
     search = el.form == "search"
     if action in ("type", "select"):
         return Kind.SEARCH if search else Kind.FILL_FORM
     if action == "press":
         if (text or "Enter") == "Enter":
-            return Kind.SEARCH if search else Kind.SUBMIT
+            return Kind.SEARCH if search else Kind.SUBMIT   # Return in a message box or a form submits it
         return Kind.FILL_FORM if text in ("Backspace", "Space") else Kind.READ
+    floor = label_kind(el.label)
+    if floor is not None:                                 # "Send", "Pay", "Delete" …: the label is the action
+        return floor
     if el.role == "link" and el.href:
         return Kind.NAVIGATE
     if el.role in ("tab", "treeitem"):
         return Kind.NAVIGATE
     if el.role in FORM_ROLES:
         return Kind.FILL_FORM
-    if action == "click" and el.role == "button":
-        from ferb.act.mac.tools import CALL_LABEL
-        if CALL_LABEL.search(el.label or ""):
-            return Kind.CALL                                # held for undo like a send (build step 16)
-    return Kind.SEARCH if search else Kind.SUBMIT
+    if el.form not in (None, "", "search") and (el.role == "button" or el.input_type == "submit"):
+        return Kind.SUBMIT                                # a form's button submits it (HTML's default)
+    return Kind.SEARCH if search else Kind.CLICK
 
 
 class BrowserWait(_Base):

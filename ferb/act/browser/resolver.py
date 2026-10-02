@@ -19,7 +19,7 @@ from ferb.act.browser.pairing import Binding
 from ferb.act.browser.profiles import BROWSERS, BrowserProfile, resolve
 from ferb.core.errors import Refused
 from ferb.core.types import Identity
-from ferb.policy.intent import site_matches
+from ferb.policy.targets import site_matches
 
 
 class NeedsOwner(Refused):

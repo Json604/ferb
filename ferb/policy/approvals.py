@@ -32,6 +32,7 @@ class Approval:
     kind: str = ""
     options: tuple[str, ...] = ()          # a choice question ("Which Rahul?"): the owner picks one
     choice: str | None = None
+    answer: str | None = None              # a worker's question to the owner (owner.ask): their free-text answer
 
 
 class Approvals:
@@ -55,12 +56,29 @@ class Approvals:
         ap.payload_hash = "choice:" + ap.id                                # consume() can never match it
         return ap
 
-    def resolve(self, approval_id: str, granted: bool, choice: int | None = None) -> Approval:
+    def question(self, a: ActionRequest, question: str, options: list[str]) -> Approval:
+        """A worker's question to the owner (owner.ask): numbered options or free text; for this call only."""
+        ap = self.request_choice(a, question, options)
+        ap.kind = "owner_question"
+        return ap
+
+    def resolve(self, approval_id: str, granted: bool, choice: int | None = None, text: str | None = None) -> Approval:
+        """The owner's answer: yes / no, an option's number, or (a worker's question) free text."""
         ap = self._items[approval_id]
+        text = (text or "").strip() or None
+        if text is not None and choice is None and ap.options:
+            choice = next((i for i, o in enumerate(ap.options, 1) if o.strip().lower() == text.lower()), None)
+            if choice is None and text.isdigit() and 1 <= int(text) <= len(ap.options):
+                choice = int(text)
         if ap.options and granted:
-            if choice is None or not 1 <= choice <= len(ap.options):
+            if choice is None and ap.kind != "owner_question":
                 raise ValueError(f"pick one of 1–{len(ap.options)}")
-            ap.choice = ap.options[choice - 1]
+            if choice is not None:
+                if not 1 <= choice <= len(ap.options):
+                    raise ValueError(f"pick one of 1–{len(ap.options)}")
+                ap.choice = ap.options[choice - 1]
+        if granted and text is not None:
+            ap.answer = text
         if ap.state != "pending":
             raise ValueError(f"approval {approval_id} is {ap.state}")
         if self._clock.monotonic() >= ap.expires_at:

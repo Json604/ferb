@@ -31,7 +31,8 @@ class Role(Enum):
 METHODS: dict[Role, frozenset[str]] = {
     Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift", "undo",
                          "autonomy.get", "autonomy.set", "doctor.check", "automation.request", "chat.send",
-                         "chat.approve", "identity.check", "identity.pair", "browsers.list", "browsers.pair",
+                         "chat.approve", "chat.answer", "identity.check", "identity.pair", "browsers.list",
+                         "browsers.pair",
                          "browsers.unpair", "browsers.installed", "ps.list", "ps.kill", "sense.pause", "sense.resume", "sense.status",
                          "memory.list", "memory.show", "memory.add", "memory.confirm", "memory.edit",
                          "memory.retract", "memory.forget", "memory.distill", "timeline.get",

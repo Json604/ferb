@@ -22,7 +22,7 @@ from ferb.act.mac.input import RealInput, Step, Yielded
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ComputerAction, Identity, Task
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.intent import RequestIntent
+from ferb.policy.targets import Request
 from tests.conftest import RunningDaemon
 
 OWNER_SHELL = {"shell", "fs:read"}
@@ -96,16 +96,16 @@ def test_gui_lock_allows_one_actor_at_a_time() -> None:
 
 # ---------- shell through the gateway ----------
 
-def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], verbs: set[str] | None,
-         extra: set[str] | None = None) -> Any:
-    t = Task(tid, None, "g", "dev", identity, scopes, "actor", f"req-{tid}", [],
+def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], words: Any = None) -> Any:
+    """A running task with a run token; `words` (a string) are the owner's own words for its request (what counts
+    as named at the gateway); anything else records a request with no words."""
+    t = Task(tid, None, "g", "dev", identity, scopes, "worker", f"req-{tid}", [],
              d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})
         d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        if verbs is not None:
-            d.daemon.engine.intents.record(RequestIntent.from_plan(f"req-{tid}", verbs, extra))
+        d.daemon.engine.requests.record(Request(f"req-{tid}", words if isinstance(words, str) else ""))
         return d.daemon.tokens.validate(d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, identity, ttl_s=600))
     return d.run(go())
 
@@ -167,15 +167,15 @@ def test_shell_jail_and_refusals(daemon: RunningDaemon, tmp_path: Any) -> None:
     assert "sk-ant-abcdefghijklmnopqrstuvwx" not in str(r)                     # redacted before the worker sees it
 
 
-def test_destructive_commands_are_permanent_deletion_blocked_or_always_asked(daemon: RunningDaemon, tmp_path: Any) -> None:
-    g = task(daemon, "x", Identity.OWNER, OWNER_SHELL, {"run_command"})
-    r = call(daemon, g, "shell.run", command="rm -rf build")
-    assert r["is_error"] and "'delete_permanent' was not requested" in r["content"]["error"]
-    h = task(daemon, "y", Identity.OWNER, OWNER_SHELL, {"run_command"}, {"delete_permanent"})
+def test_destructive_commands_are_permanent_deletion_and_always_ask(daemon: RunningDaemon, tmp_path: Any) -> None:
+    """The shell floor: a destructive command is a `destroy`, whatever the worker declared — asked every time."""
+    g = task(daemon, "x", Identity.OWNER, OWNER_SHELL, "clean the build folder")
+    r = call(daemon, g, "shell.run", command="rm -rf build", effect="edit")
+    assert r["is_error"] and 'effect "destroy"' in r["content"]["error"]      # sent back for a reason first
     from tests.conftest import Answers
     no = Answers(daemon, granted=False)
     try:
-        r = call(daemon, h, "shell.run", command="rm -rf build")
+        r = call(daemon, g, "shell.run", command="rm -rf build", effect="edit", why="removing the build folder")
         assert r["is_error"] and "declined" in r["content"]["error"]
         assert "can't be undone" in no.asked[0].reason                        # asked, even when requested
     finally:

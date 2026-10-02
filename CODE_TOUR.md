@@ -40,7 +40,7 @@ a tool to a worker whose token holds its scopes and identity (`Gateway.tools_for
 
 ## Flow 1: a chat request
 
-`ferb chat` → daemon → supervisor → task graph → runtime → `ferb mcp` → gateway → policy engine → tool → sanitize → trace.
+`ferb chat` → daemon → supervisor → one worker → runtime → `ferb mcp` → gateway (the effect gate) → policy engine → tool → sanitize → trace.
 
 ```mermaid
 sequenceDiagram
@@ -61,15 +61,15 @@ sequenceDiagram
     Srv->>D: _stream → _chat_send
     D->>Sup: send(session_id, text)
     Sup->>Sup: mark() untrusted pastes, recall memory,<br/>availability(), environment()
-    Sup->>RT: _supervise: planner run (mode="supervisor", no tools)
-    RT-->>Sup: SupervisorOutcome (reply | clarify | plan)
-    Sup->>Sup: dag.validate (+ up to 2 silent repairs),<br/>_intent → IntentRegistry.record (write-once)
-    Sup->>Sup: run_tree → _execute (dag.ready) → _subtask
+    Sup->>RT: _supervise: supervisor run (mode="supervisor", no tools)
+    RT-->>Sup: SupervisorOutcome (reply | clarify | task)
+    Sup->>Sup: dag.validate (identity floor; one repair),<br/>engine.requests.record (own words + targets)
+    Sup->>Sup: run_tree → one worker task with every tool its identity allows
     Sup->>RT: WorkerRuns.run_worker: token (scopes, identity), tools_for, start
-    RT->>MCP: spawns `ferb mcp` (FERB_RUN_TOKEN)
+    RT->>MCP: spawns `ferb mcp` (FERB_RUN_TOKEN_FILE)
     MCP->>Srv: "tools.list" / "tools.call"
     Srv->>GW: Daemon._tools_call → Gateway.call
-    GW->>GW: validate args, strip `why`, describe() → ActionSpec,<br/>taint labels, exploring / route change, contact check
+    GW->>GW: validate args, strip `effect` + `why`, describe() → ActionSpec,<br/>effect = max(declared, floor), taint labels, contact check, duplicate send
     GW->>PE: evaluate(ActionRequest)
     PE-->>GW: allow | hold (undo) | ask | block
     GW->>DB: span start; ledger.intend (non-reversible)
@@ -79,9 +79,9 @@ sequenceDiagram
     GW->>DB: span finish, ledger mark done/failed
     GW-->>MCP: content + time footer (+ image)
     MCP-->>RT: tool result
-    RT-->>Sup: worker's final JSON (typed Outcome)
-    Sup->>Sup: _verify_all (code checks, verifier worker), _answer
-    Sup-->>D: events: plan, subtask, outcome
+    RT-->>Sup: worker's final JSON (status, summary, evidence, artifacts)
+    Sup->>Sup: verify (code checks, verifier run); the summary is the answer
+    Sup-->>D: events: plan, subtask, verification, outcome
     D-->>CLI: streamed events (+ bus events for this task)
     CLI-->>Owner: render(): FERB's answer, questions, countdowns
 ```
@@ -89,117 +89,102 @@ sequenceDiagram
 ### Step by step
 
 **The CLI**
-- `ferb/cli/__init__.py:main` (15) parses the command. `chat` goes to `cli/chat.py:main_chat` (396) →
-  `run_tty` (316).
-- `run_tty` uses a prompt_toolkit line editor. Pastes arrive whole; `wrap_pastes` (85) marks them.
-- `Chat.turn` (271) calls `Client.stream("chat.send", …)` (`cli/client.py:67`) and prints each event through
-  `render` (97).
-- Approval questions come back as `approval.requested` events. `Chat.answer_approval` (240) asks (`question`, 159)
-  and replies with `chat.approve`.
+- `ferb/cli/__init__.py:main` parses the command. `chat` goes to `cli/chat.py:main_chat` → `run_tty`.
+- `run_tty` uses a prompt_toolkit line editor. Pastes arrive whole; `wrap_pastes` marks them.
+- `Chat.turn` calls `Client.stream("chat.send", …)` (`cli/client.py`) and prints each event through `render`.
+- Questions come back as `approval.requested` events. `Chat.answer_approval` asks (`question`) and replies with
+  `chat.approve` (yes / no / an option's number) — or, for a worker's own question (`owner.ask`, kind
+  `owner_question`), with `chat.answer {approval_id, text}`: a number picks an option, anything else is the answer,
+  Enter skips.
 
 **The daemon's server**
-- `ferb/daemon/server.py:Server._connection` (133) checks the peer uid, then `_hello` (169) authenticates the role:
-  the CLI, a runtime carrying a run token, or the native host.
-- `_dispatch` (204) handles calls and `_stream` (230) handles streams.
-- The daemon registers its methods in `Daemon.start` (`daemon/main.py:156`, method table around 185–207).
+- `ferb/daemon/server.py:Server._connection` checks the peer uid, then `_hello` authenticates the role: the CLI, a
+  runtime carrying a run token, or the native host. `_dispatch` handles calls and `_stream` handles streams.
+- The daemon registers its methods in `Daemon.start` (`daemon/main.py`, the method table).
 
 **One chat turn**
-- `Daemon._chat_send` (`daemon/main.py:1774`) runs the turn as its own asyncio task. It merges the supervisor's
-  events with bus events for the task (tool calls, approvals, undo countdowns, blocks).
-- Closing chat detaches the stream but never cancels the task. Ctrl-C calls `task.stop` (`_task_stop`, 978).
+- `Daemon._chat_send` runs the turn as its own asyncio task. It merges the supervisor's events with bus events for
+  the task (tool calls, approvals, undo countdowns, blocks).
+- Closing chat detaches the stream but never cancels the task. Ctrl-C calls `task.stop` (`_task_stop`).
 
-**Planning**
-- `Supervisor.send` (`orchestrator/supervisor.py:379`) starts the turn.
-  - `mark` (`sanitize/untrusted.py:24`) separates your own words from pasted or quoted text (unless
-    `[policy] pasted_text_is_data = false`).
-  - `spelling.fix` (`policy/spelling.py:67`) reads a near-miss app name in your words as the one app it's close to
-    ("salck" → Slack, said in the reply), or asks "Did you mean …?" when it's close to several.
-  - `recall` / `recall_items` fetch memory.
-  - `self.availability()` (the daemon's `_availability`, `daemon/main.py:1441`) builds the capability list the
-    planner sees and the scopes validation allows.
-  - `self.environment()` (`_environment`, 1326) picks routes for named services (`policy/services.py`) and adds
-    the browser / profile you named (`_named_note`, 1385; `act/browser/profiles.py:named_in`, 146): use only
-    that one, or say why it isn't connected yet.
-- `_supervise` (488) builds the planner prompt. It comes from `prompts/supervisor.md` with `{capabilities}` filled in
-  by `_system` (220), then the recent conversation, memory, environment and the message, with the time block last.
-  It runs the orchestrator runtime in supervisor mode with no tools.
-- `dag.tidy` (`orchestrator/dag.py:30`) first fixes what has one safe answer (a reader given acting scopes gets
-  their read-only forms), with no model round-trip.
-- `dag.validate` (`orchestrator/dag.py:44`) checks the plan: cycles, depth, fan-out, scopes against availability,
-  reader rules, and that targets appear in your own words (`validate_intent`, 67; paths count by their folder
-  names, `sanitize/untrusted.py:targets_in_own_words`). Problems go back to the model (`PLAN_REPAIRS`). If the plan
-  is still invalid, you get the real reason in plain words (a name only in pasted text, a name FERB couldn't find,
-  or "a problem on my side"), never the internals.
-- `_intent` (585) turns the plan's intent into a `RequestIntent`, and `engine.intents.record` stores it write-once
-  (`policy/intent.py`, `IntentRegistry`).
+**Deciding** (`Supervisor.send`, `orchestrator/supervisor.py`)
+- `mark` (`sanitize/untrusted.py`) separates your own words from pasted or quoted text (unless
+  `[policy] pasted_text_is_data = false`). `recall` fetches memory.
+- `self.availability()` (the daemon's `_availability`) builds the capability list the supervisor sees and the
+  scopes a worker may get. `self.environment()` (`_environment`) adds one informational line: what's installed and
+  paired for the services you named (`policy/services.py`, the catalogue), what's running, and the browser / profile
+  you named (`_named_note`; `act/browser/profiles.py:named_in`).
+- `_supervise` builds the prompt from `prompts/supervisor.md` (`{capabilities}` filled in by `_system`), the recent
+  conversation, memory, the environment line and the message, with the time block last. It runs the orchestrator
+  runtime in supervisor mode with no tools. The model answers with exactly one of `reply`, `clarify` (one question;
+  your next message continues the request) or `task`: the goal in plain words, the identity (`owner` for your apps,
+  files, browsers and accounts; `ferb` for FERB's own), the targets it understood (apps, sites, paths, recipients —
+  informational) and optional success conditions.
+- `dag.validate` (`orchestrator/dag.py`) keeps one check: the identity floor (a `ferb` task can't name your
+  folders). A problem goes back to the model once (`_decide`); if it's still wrong you get a plain question.
+- `engine.requests.record` (`policy/targets.py:Requests`) stores the request's facts for the gateway: your own words
+  (never pasted text), the targets, your own email address. They're forgotten when the task ends.
 
-**Running the task graph**
-- `run_tree` (603) creates the root task, subtasks (an actor's act scope brings its read scope via
-  `rules.with_reads`), spans and persisted rows (`orchestrator/tree.py:TaskTree`).
-- `_execute` (660) starts whatever `dag.ready` (125) returns, concurrently.
-- `_subtask` (719) runs one subtask: readers get `_reader_context`, actors get `_actor_context` with the readers'
-  typed fields wrapped as untrusted data.
-
-**Workers**
-- `WorkerRuns.run_worker` (`orchestrator/worker.py:82`) checks the guards, issues a run token (`daemon/auth.py`,
-  `RunTokens.issue`, 76) and computes the tool list (`gateway.tools_for`).
-- `make_runtime` is `Daemon._make_runtime` (1732). The prompt is `prompts/worker.md` plus context plus the time
-  block.
-- `CodexRuntime._cmd` (`runtimes/codex_exec.py:84`) runs `codex exec` in a read-only sandbox, with its native tools
-  disabled and FERB's MCP server (`ferb mcp`) configured with the run token. `events` (137) parses the JSON stream.
-  The tool list the model actually saw is checked on every run, and a violation unregisters the runtime.
-- The Claude equivalent is `runtimes/claude_sdk.py:ClaudeRuntime`, with a localhost proxy (`runtimes/proxy.py`)
-  that records tool names.
+**One worker** (`run_tree`, `_execute`, `_worker`)
+- One worker task per request, `<tree>.worker`, with every scope its identity allows that FERB has right now
+  (`dag.scopes_for`; `rules.SCOPES_BY_IDENTITY`, reads included via `with_reads`). Its context is the goal, the
+  success conditions, what you named, and the workspace (`_context`).
+- `WorkerRuns.run_worker` (`orchestrator/worker.py`) checks the guards, issues a run token (`daemon/auth.py`,
+  `RunTokens.issue`) and computes the tool list (`gateway.tools_for`: everything whose scopes fit, minus what
+  exposure removed). The prompt is `prompts/worker.md` plus context plus the time block.
+- `CodexRuntime._cmd` (`runtimes/codex_exec.py`) runs `codex exec` in a read-only sandbox with its native tools
+  disabled and FERB's MCP server (`ferb mcp`) configured with the run token. The tool list the model actually saw is
+  checked on every run; a violation unregisters the runtime. The Claude equivalent is `runtimes/claude_sdk.py`.
+- The worker's `summary` is what you read: there is no separate answer-writing run. A `needs_user` report is for
+  the case where the worker must stop; for a choice that is yours it calls `owner.ask` (`act/ask.py`) and carries on
+  with your answer.
 
 **The MCP shim**
-- `cli/mcp.py:Shim.list_tools` (44) and `call_tool` (50) forward to the daemon's `tools.list` / `tools.call` with
-  the run token.
-- The daemon's `_tools_call` (1756) validates the session's grant and calls `Gateway.call`.
+- `cli/mcp.py:Shim.list_tools` and `call_tool` forward to the daemon's `tools.list` / `tools.call` with the run
+  token (read from `FERB_RUN_TOKEN_FILE`). The daemon's `_tools_call` validates the session's grant and calls
+  `Gateway.call`.
 
-**The gateway** (`daemon/gateway.py:Gateway._call`, 108) checks, in order:
+**The gateway** (`daemon/gateway.py:Gateway._call`) checks, in order:
 1. The tool is in this worker's list and the task is running.
-2. The arguments validate. `why` is stripped from them (it's recorded in the span).
-3. `cap.precheck` (e.g. `mac.click` purpose in messaging apps).
-4. `cap.describe` gives the `ActionSpec`. Readers are limited to reversible kinds. Taint labels are added.
-5. Exploring beyond the plan: a reversible look needs a `why`. An action outside the plan needs a `why` and becomes
-   `_route_change` (278), after `engine.blocker` confirms policy wouldn't forbid it anyway.
-6. The contact check for calls and sends (`_contact`, 330; `policy/contacts.py`).
-7. `engine.evaluate`.
-8. `ask` → `_await_owner` (388).
-9. Jev's stricter-only check.
-10. `hold` → `_wait_hold` (the undo window).
-11. Resource locks → `_execute` (223).
+2. `effect` and `why` are stripped from the arguments (both are recorded in the span); the rest validate.
+3. `cap.precheck` (e.g. `mac.click` purpose in messaging apps). `owner.ask` is answered here: the question goes to
+   chat as an approval (`Approvals.question`), the call waits (`_ask_owner`), the answer comes back as
+   `{answer}` or `{declined}`. A scheduled run is declined at once.
+4. `cap.describe` gives the `ActionSpec`; its `kind` is a fact about the control (`policy/effects.py:FLOOR_BY_KIND`;
+   for a button, `label_kind`: the one floor word list — Send / Submit / Call / Pay / Buy / Order / Delete / Remove /
+   Unsubscribe / Sign out). `effective = max(declared, floor)`. A send / pay / destroy without a `why` is sent back
+   for one.
+5. Taint labels: a worker that read owner-account data carries them onto anything it types or sends.
+6. The contact check for calls and sends (`_contact`; `policy/contacts.py`: "Which Rahul?"), then whether your own
+   message names where this goes (`policy/targets.py:owner_named`).
+7. The duplicate-send check (`_send_again`: a second message to the same person asks).
+8. `engine.evaluate`; `ask` → `_await_owner` (a yes also makes that destination one you approved, for data flow).
+9. Jev's stricter-only check. 10. `hold` → `_wait_hold` (the undo window). 11. Resource locks → `_execute`.
 
-**The policy engine** (`policy/engine.py:PolicyEngine.evaluate`, 67) runs a fixed order:
-1. Stop.
-2. Identity and scopes (`rules.check_identity`, 98; `check_scopes`, 116).
-3. Exposure (`policy/exposure.py`).
-4. Reversible kinds are allowed at this point.
-5. Intent (`intent.check`, 104).
-6. Data flow (`dataflow.check`, 10).
-7. `autonomy.ask_reason` (14): the hard floor, flagged irreversible actions, surprising targets, careful mode.
-8. Approvals (`policy/approvals.py`: scoped grants, or exact one-use grants for irreversible actions).
-9. The undo window for sends, posts, replies and calls.
+**The policy engine** (`policy/engine.py:PolicyEngine.evaluate`) runs a fixed order:
+1. Stop. 2. Identity and scopes (`rules.check_identity`, `check_scopes`). 3. Exposure (`policy/exposure.py`).
+4. `navigate` just runs. 5. Data flow (`dataflow.check`: owner data only to a target of the request, something you
+   named, or something you approved). 6. `autonomy.ask_reason`: pay / destroy ask every time (the hard floor, exact
+   action, used once); send asks once per (request, effect, target) unless you named the target; injection signals
+   and careful mode. 7. Approvals (`policy/approvals.py`: scoped grants by request + effect + target, or exact
+   one-use grants for the floor). 8. The undo window for sends, posts, replies and calls.
 
-**Execution and the trace** (`Gateway._execute`, 223)
-- For non-reversible actions, a ledger row is written *before* running (`orchestrator/ledger.py:Ledger.intend`, 47).
+**Execution and the trace** (`Gateway._execute`)
+- For non-reversible kinds, a ledger row is written *before* running (`orchestrator/ledger.py:Ledger.intend`).
 - Then `cap.run` runs. An exception marks the ledger `unknown`, to be reconciled later, never retried blindly.
-- Read sources feed the taint and exposure trackers.
-- The result is redacted (`sanitize/redact.py:Redactor.__call__`, 63).
-- The span is finished (`store/spans.py:SpanStore.finish`, 36; spans are redacted before storage).
-- The ledger is marked done or failed.
-- The reply carries the time footer (`clock/context.py`).
+- Read sources feed the taint and exposure trackers. The result is redacted (`sanitize/redact.py`), the span is
+  finished (`store/spans.py`), the ledger is marked done or failed, and the reply carries the time footer.
 
 **Finishing the task**
-- `_verify_all` (836) checks each success condition in code where possible, and with a read-only verifier worker
-  where it needs judgment.
-- `_reconcile` (804) handles `unknown` outcomes.
-- `_answer` (326) writes your answer from the readers' fields.
+- `verify` checks each success condition in code where possible (`orchestrator/verify.py:Checks`: file, ledger,
+  tab URL, account) and with a read-only verifier run (`prompts/verifier.md`) where it needs judgment; a check code
+  can't decide goes to the verifier, never fails the task.
+- `_reconcile` handles `unknown` outcomes with a read-only re-read.
+- `_final` builds the outcome: the worker's summary is the answer, with what verification found appended.
 - `run_tree` journals `task.answer` / `task.outcome` and yields the final event.
 
-`ferb trace [task]` renders a task and all its steps (`Daemon._trace`, 1837 → `SpanStore.tree`, 48, which also
-collects the `<task>.<step>` tasks; `cli/admin.py:render_trace`, 66, shows each tool call's arguments and result,
-with terminal output as plain text). No argument means the latest task; a short id works.
+`ferb trace [task]` renders a task and all its steps (`Daemon._trace` → `SpanStore.tree`; `cli/admin.py:render_trace`
+shows each tool call's arguments, effect, why and result). No argument means the latest task; a short id works.
 
 ### Breakpoints (`ferb daemon run` in the foreground)
 
@@ -212,10 +197,10 @@ FERB_HOME=/tmp/ferb-dev uv run ferb chat        # in another terminal
 
 Put `breakpoint()` (or your IDE's breakpoint) at:
 - `Daemon._chat_send`: every turn enters here.
-- `Supervisor._supervise`: the exact planner prompt (`ctx`) and the parsed outcome.
-- `dag.validate`: why a plan is rejected.
-- `Supervisor._subtask` / `WorkerRuns.run_worker`: what each worker gets (scopes, tool list, context).
-- `Gateway._call` right after `spec = cap.describe(args)`: every tool call's `ActionSpec`.
+- `Supervisor._supervise`: the exact supervisor prompt (`ctx`) and the parsed outcome.
+- `dag.validate`: why a task went back to the model.
+- `Supervisor._worker` / `WorkerRuns.run_worker`: what the worker gets (scopes, tool list, context).
+- `Gateway._call` right after `effect = effects.raise_to(...)`: every tool call's kind, floor and effective effect.
 - `PolicyEngine.evaluate`: why something was allowed, held, asked or blocked.
 - `Gateway._execute` before `cap.run`: the call about to happen.
 
@@ -243,7 +228,7 @@ sequenceDiagram
 
     W->>GW: tools.call browser.act {tab, element, action, contact?}
     GW->>T: describe(): act_kind() → click = submit / call / navigate…,<br/>security pages → account_security
-    GW->>GW: policy (intent, data flow, contact check, undo hold)
+    GW->>GW: policy (effect gate, data flow, contact check, undo hold)
     GW->>T: run()
     T->>R: owned_by(tab, task) (only this task's tabs)
     T->>R: _account_ok: account extractor before consequential actions
@@ -446,7 +431,10 @@ A worker calls `mac.act` (press / set_value / type / key / click on an element f
    `restore_owner` (402) puts your app back when the stretch ends (3 s idle) or you step in.
 - `_key_rules` (284) refuses arrow keys in a text box, Return where a Send button belongs, and keys that switch
   apps or desktops.
-- In the gateway, a second send to the same person in one task asks you first (`Gateway._send_again`, 297).
+- In the gateway, the kind of a `mac.act` call is a fact about the control (`MacAct._kind`): typing is input, a
+  search box is a search, Return is a submit, and a press is input unless the control's label hits the floor words
+  (a "Send" button is a send, "Delete chat" a permanent deletion). The worker declares the effect; the floor raises
+  it. A second send to the same person in one task asks you first (`Gateway._send_again`).
 
 ### Breakpoints
 - `MacComputerDriver.act`: which path an action took (detail says "in the background" or "real input").

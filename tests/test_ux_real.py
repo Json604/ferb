@@ -83,7 +83,7 @@ def test_3_one_approval_per_target_and_the_task_finishes(codex: RunningDaemon) -
 
 
 async def _repairs(d: RunningDaemon) -> list[Any]:
-    return [e.data for e in d.daemon._journal().entries() if e.kind in ("plan.repair", "chat.failed")]
+    return [e.data for e in d.daemon._journal().entries() if e.kind in ("task.repair", "chat.failed")]
 
 
 async def _reload(d: RunningDaemon) -> None:

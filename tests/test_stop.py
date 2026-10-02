@@ -14,12 +14,12 @@ from ferb.cli.logs import run as logs_run
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
-from ferb.policy.intent import RequestIntent
 from ferb.policy.rules import ActionRequest, Kind, Target
+from ferb.policy.targets import Request
 from tests.conftest import RunningDaemon
 
 SEND = ActionRequest("gmail.send", Kind.SEND, Identity.OWNER, frozenset({"browser:act"}), "t1", "w1", "r1",
-                     frozenset({"browser:act"}), Target(recipients=("alice@x.com",)))
+                     frozenset({"browser:act"}), Target(recipients=("alice@x.com",)), effect="send", owner_named=True)
 
 
 def test_stop_revokes_shim_tokens_within_a_second_and_blocks_actions(daemon: RunningDaemon) -> None:
@@ -41,7 +41,7 @@ def test_stop_revokes_shim_tokens_within_a_second_and_blocks_actions(daemon: Run
 
 
 async def _record_intent(d: RunningDaemon) -> None:
-    d.daemon.engine.intents.record(RequestIntent.from_plan("r1", {"email"}, recipients=frozenset({"alice@x.com"})))
+    d.daemon.engine.requests.record(Request("r1", "email alice@x.com"))
 
 
 def test_stop_survives_a_daemon_restart_until_lifted(home: Path) -> None:

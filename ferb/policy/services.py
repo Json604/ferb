@@ -1,26 +1,13 @@
-"""Environment-aware resolution (section 9.3, build step 16): how to reach a service or app the owner names.
+"""The service catalogue (section 9.3): facts about common services — their Mac apps and websites.
 
-A service is found by name in: the catalogue below (~30 common services: their Mac apps and websites); else an
-installed app (device profile); else a site the owner has visited (trail). Unknown: FERB asks once and remembers.
-
-The route, decided in code, never by the model:
-0. the owner's explicit correction ("use the web version"), stored as an owner-stated preference — always wins;
-1. how the owner actually uses it: the most used of its app / website (per browser profile) over the last 14 days of
-   the owner's own activity (FERB's never counts), ties broken by the most recent;
-2. an installed native app;
-3. the website: in the owner's paired browser profile only when the owner's words point at their browser
-   (`owner_browser_named`: "my Brave", "my browser", "my Work profile", "the current tab", "my LinkedIn"…);
-   otherwise in FERB's own browser (owner decision, 2026-09-30);
-4. nothing workable: ask.
-A route FERB can't drive (a website only in an unpaired profile) is never chosen. A browser is never an app route.
+Used for the environment line the supervisor model sees ("WhatsApp: app WhatsApp; web web.whatsapp.com"), for
+naming checks ("Gmail" names mail.google.com, `policy/targets.py`), and for the messaging / calling apps where a
+screenshot click must say what it's for (`communication_bundles`). It decides nothing about how a request is
+carried out: the model picks the app or the site, the floors protect.
 """
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any
-
-from ferb.policy.names import app_named
 
 
 @dataclass(frozen=True)
@@ -69,77 +56,23 @@ CATALOGUE: tuple[Service, ...] = (
 )
 
 
-# Service names that are also everyday words: they count only in context ("on Zoom", "in Notes", "the Teams app").
-COMMON_WORDS = frozenset({"meet", "notes", "messages", "reminders", "calendar", "zoom", "teams", "signal", "music",
-                          "mail", "x", "wa", "ig", "insta"})
-
-
 # Messaging and calling services: in their apps a screenshot click must say what it's for (build step 16a).
 COMMUNICATION = frozenset({"WhatsApp", "Slack", "Zoom", "Microsoft Teams", "FaceTime", "Messages", "Telegram",
                            "Discord", "Signal", "Skype"})
+
+BROWSER_BUNDLE_IDS = frozenset({"com.brave.browser", "com.google.chrome", "com.apple.safari", "org.mozilla.firefox",
+                                "company.thebrowser.browser", "com.microsoft.edgemac", "com.operasoftware.opera"})
 
 
 def communication_bundles() -> frozenset[str]:
     return frozenset(b.lower() for s in CATALOGUE if s.name in COMMUNICATION for b in s.bundles)
 
 
-@dataclass(frozen=True)
-class Route:
-    service: str
-    kind: str                     # "app" | "web"
-    target: str                   # bundle id (app) or domain (web)
-    browser: str | None = None
-    profile: str | None = None    # browser profile folder (web)
-    profile_name: str | None = None
-    reason: str = ""
-
-    def say(self) -> str:
-        """The route in plain words, shown when FERB starts."""
-        if self.kind == "app":
-            return f"Using the {self.service} app"
-        if self.browser == FERB:
-            return f"Using {self.service} on the web ({self.target}) in FERB's own browser"
-        where = f" in your {self.browser.capitalize()} ({self.profile_name or self.profile}) profile" \
-            if self.browser else ""
-        return f"Using {self.service} on the web ({self.target}){where}"
-
-
 @dataclass
 class Environment:
-    """What resolution needs to know about the Mac right now."""
+    """What the environment line needs to know about the Mac right now."""
     apps: list[tuple[str, str]]                                   # (bundle id, name) installed
-    paired: list[tuple[str, str, str]]                            # (browser, folder, display name) owner profiles
-    usage_apps: dict[str, tuple[int, datetime]] = field(default_factory=dict)          # bundle -> (count, last)
-    usage_web: dict[tuple[str, str, str], tuple[int, datetime]] = field(default_factory=dict)  # (host, b, f)
-    preferences: dict[str, str] = field(default_factory=dict)     # "route:<service>" -> owner's words
-    owner_browser: bool = False                                   # the owner's words point at their browser
-
-
-FERB = "ferb"                                  # Route.browser for FERB's own browser (identity "ferb")
-BROWSER_NAMES = ("brave", "chrome", "browser")
-BROWSER_BUNDLE_IDS = frozenset({"com.brave.browser", "com.google.chrome", "com.apple.safari", "org.mozilla.firefox",
-                                "company.thebrowser.browser", "com.microsoft.edgemac", "com.operasoftware.opera"})
-
-
-def owner_browser_named(own_words: str, profile_names: list[str] = ()) -> bool:  # type: ignore[assignment]
-    """The owner's own words point at THEIR browser (owner decision, 2026-09-30): "my browser", "my Brave",
-    "in Brave", "my Chrome", "my <profile name> profile", "this / the current / the open (…) tab", "my <service>".
-    Anything else on a website is FERB's own browser."""
-    lw = " ".join(own_words.lower().split())
-    if re.search(r"\bmy (own )?(web )?(browser|brave|chrome|tabs?|profile)\b", lw):
-        return True
-    if re.search(r"\b(in|on|using|use|with|open) (the )?brave\b", lw):          # Brave is only ever the owner's
-        return True
-    if re.search(r"\b(this|that|current|open|opened|active|same|my) ([\w.'-]+ ){0,2}tabs?\b", lw):
-        return True
-    for n in profile_names:
-        if n and re.search(rf"\b{re.escape(n.lower())} profile\b", lw):
-            return True
-    for s in CATALOGUE:
-        for a in (s.name.lower(), *s.aliases):
-            if len(a) > 2 and re.search(rf"\bmy {re.escape(a)}\b", lw):
-                return True
-    return False
+    paired: list[tuple[str, str, str]] = field(default_factory=list)   # (browser, folder, display name) owner profiles
 
 
 def _words(text: str) -> set[str]:
@@ -147,95 +80,28 @@ def _words(text: str) -> set[str]:
 
 
 def services_named(own_words: str, env: Environment) -> list[Service]:
-    """Services the owner named: the catalogue, then installed apps and visited sites by name."""
+    """Services the owner's words mention, for the environment line: the catalogue by name or alias, then any
+    installed app by its name. Informational only."""
     lw, words = own_words.lower(), _words(own_words)
     found: list[Service] = []
 
-    def named(alias: str) -> bool:
-        if alias in COMMON_WORDS:                   # "meet John", "take notes": only "on Zoom", "in Notes", "the Notes app"
-            return re.search(rf"\b(on|in|via|using|with|open)\s+{re.escape(alias)}\b|\b{re.escape(alias)}"
-                             rf"\s+app\b", lw) is not None
+    def said(alias: str) -> bool:
         return (alias in words) if " " not in alias else (alias in lw)
     for s in CATALOGUE:
-        if named(s.name.lower()) or any(named(a) for a in s.aliases):
+        if said(s.name.lower()) or any(said(a) for a in s.aliases):
             found.append(s)
-    known = {b.lower() for s in CATALOGUE for b in s.bundles} | BROWSER_BUNDLE_IDS   # browsers are never app routes
-    for bundle, name in env.apps:                                   # anything installed, by its name
-        if bundle.lower() not in known and len(name) >= 3 and app_named(name, own_words) \
-                and name.lower() not in ("mail", "music", "notes", "photos", "preview", "finder"):
+    known = {b.lower() for s in CATALOGUE for b in s.bundles} | BROWSER_BUNDLE_IDS
+    for bundle, name in env.apps:
+        first = re.findall(r"[a-z0-9]+", name.lower())
+        if bundle.lower() not in known and len(name) >= 3 and (name.lower() in lw or (
+                first and len(first[0]) >= 4 and first[0] in words)):
             found.append(Service(name, (), (bundle,), ()))
-    seen = {d for s in found for d in s.domains}
-    for (host, _b, _f) in env.usage_web:                            # anything visited, by its name
-        label = [x for x in host.split(".") if x not in ("www", "app", "web", "com", "co", "in", "org", "io")]
-        name = label[-1] if label else ""
-        said_as_site = bool(name) and (host in lw or f"{name}." in lw or re.search(               # "Aditya Scaler" is
-            rf"\b(on|in|at|via|using|open|visit|from) (the )?{re.escape(name)}\b|\b{re.escape(name)} "  # a person,
-            r"(website|site|web|page|account)\b", lw) is not None)                                # not scaler.com
-        if len(name) >= 4 and said_as_site and not _host_is(host, tuple(seen)) \
-                and not any(_host_is(d, (host,)) for d in seen):                        # one service, announced once
-            found.append(Service(label[-1].capitalize(), (label[-1],), (), (host,)))
-            seen.add(host)
     return found
 
 
-def _host_is(host: str, domains: tuple[str, ...]) -> bool:
-    return any(host == d or host.endswith("." + d) for d in domains)
-
-
-def route(s: Service, env: Environment) -> Route | None:
-    """The owner's correction first; then the most used (14 days, ties: most recent); then app; then the web — in the
-    owner's profile only when their words point at their browser, else in FERB's own browser."""
-    installed = {b.lower() for b, _ in env.apps}
-    my_apps = [b for b in s.bundles if b.lower() in installed]
-    pref = next((env.preferences[k] for k in (f"route:{a}" for a in (s.name.lower(), *s.aliases))
-                 if k in env.preferences), "").lower()
-    web_options = [(b, f, n) for (b, f, n) in env.paired] if s.domains and env.owner_browser else []
-
-    def web(reason: str) -> Route | None:
-        if not s.domains:
-            return None
-        if env.owner_browser:
-            if not web_options:
-                return None
-            wb, wf, wn = _best_profile(s, env, web_options)
-            return Route(s.name, "web", s.domains[0], wb, wf, wn, reason)
-        return Route(s.name, "web", s.domains[0], FERB, None, None, "FERB's own browser")
-    if pref:
-        if ("web" in pref or "browser" in pref or "site" in pref) and s.domains:
-            r = web("you asked for the web version")
-            if r is not None:
-                return r
-        if "app" in pref and my_apps:
-            return Route(s.name, "app", my_apps[0], reason="you asked for the app")
-    candidates: list[tuple[int, datetime, Route]] = []
-    for b in my_apps:
-        if b in env.usage_apps:
-            n, last = env.usage_apps[b]
-            candidates.append((n, last, Route(s.name, "app", b, reason="how you use it")))
-    paired = {(b, f): name for (b, f, name) in env.paired}
-    if env.owner_browser:                                           # the owner's web usage only for their browser
-        for (host, b, f), (n, last) in env.usage_web.items():
-            if _host_is(host, s.domains) and (b, f) in paired:      # only a profile FERB can drive
-                candidates.append((n, last, Route(s.name, "web", host, b, f, paired[(b, f)], "how you use it")))
-    if candidates:
-        candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)   # most used, then most recent
-        return candidates[0][2]
-    if my_apps and not (env.owner_browser and web_options and not s.bundles):
-        return Route(s.name, "app", my_apps[0], reason="installed")
-    return web("your browser" if env.owner_browser else "FERB's own browser")
-
-
-def _best_profile(s: Service, env: Environment, options: list[tuple[str, str, str]]) -> tuple[str, str, str]:
-    used = [((n, last), (b, f)) for (host, b, f), (n, last) in env.usage_web.items() if _host_is(host, s.domains)]
-    for _, bf in sorted(used, reverse=True):
-        hit = next((o for o in options if (o[0], o[1]) == bf), None)
-        if hit:
-            return hit
-    return options[0]
-
-
 def summary(env: Environment, macos: str, relevant: list[Service], running: set[str]) -> tuple[str, str]:
-    """The environment summary for the planner: (stable part, the part that changes — running apps — for the end)."""
+    """The environment summary for the supervisor: (stable part, the part that changes — running apps — for the
+    end)."""
     installed = {b.lower(): n for b, n in env.apps}
     rel = []
     for s in relevant:
@@ -248,20 +114,3 @@ def summary(env: Environment, macos: str, relevant: list[Service], running: set[
         stable += " Relevant here — " + "; ".join(rel) + "."
     live = [installed[b.lower()] for s in relevant for b in s.bundles if b.lower() in installed and b in running]
     return stable, (f"Running now: {', '.join(sorted(set(live)))}." if live else "")
-
-
-def usage_from_trail(rows: list[Any]) -> tuple[dict[str, tuple[int, datetime]], dict[tuple[str, str, str], tuple[int, datetime]]]:
-    """The owner's own app_focus / browser_tab rows -> counts and last use (FERB's rows never passed in)."""
-    import json
-    apps: dict[str, tuple[int, datetime]] = {}
-    web: dict[tuple[str, str, str], tuple[int, datetime]] = {}
-    for r in rows:
-        d, at = json.loads(r["data_json"]), datetime.fromisoformat(r["at"])
-        if r["source"] == "app_focus" and d.get("bundle_id"):
-            n, last = apps.get(d["bundle_id"], (0, at))
-            apps[d["bundle_id"]] = (n + 1, max(last, at))
-        elif r["source"] == "browser_tab" and d.get("host") and d.get("profile"):
-            k = (str(d["host"]).lower(), str(d.get("browser")), str(d["profile"]))
-            n, last = web.get(k, (0, at))
-            web[k] = (n + 1, max(last, at))
-    return apps, web

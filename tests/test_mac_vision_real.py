@@ -34,7 +34,7 @@ from ferb.core.errors import StaleRef
 from ferb.core.types import Identity, Task
 from ferb.orchestrator.schemas import WORKER_SCHEMA, WorkerOutcome
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.intent import RequestIntent
+from ferb.policy.targets import Request
 from ferb.sense.watchers.owner_input import OwnerInput
 from tests.conftest import RunningDaemon
 from tests.test_real_runtimes import run_direct
@@ -173,13 +173,13 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
         return a, shot, jpeg
     mac.screenshot = recording                                             # type: ignore[method-assign]
     started = time.time()
-    task = Task("t-v", None, "look", "dev", Identity.OWNER, {"screen"}, "reader", "r-v", [],
+    task = Task("t-v", None, "look", "dev", Identity.OWNER, {"screen"}, "worker", "r-v", [],
                 SystemClock().now() + timedelta(minutes=10))
 
     async def setup() -> str:
         root = d.daemon.spans.start("task", task_id=task.id, input={})
         d.daemon.tasks.add(TaskRecord(task, d.daemon.clock.now(), root.id))
-        d.daemon.engine.intents.record(RequestIntent.from_plan(task.request_id, {"use_app"}))
+        d.daemon.engine.requests.record(Request(task.request_id, "look at the FERB Probe app"))
         return d.daemon.tokens.issue(task.id, "w-v", task.scopes, task.identity, ttl_s=600)
     token = d.run(setup())
     prompt = ("Take a screenshot of the app named 'FERB Probe' with the mac_screenshot tool. Its window shows one "

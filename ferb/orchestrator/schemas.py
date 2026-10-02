@@ -1,23 +1,18 @@
-"""Typed outcomes the supervisor and workers must return (section 7 steps 2-4, section 4 Outcome).
+"""Typed outcomes the supervisor and workers must return (section 7, docs/DESIGN_ONE_WORKER.md section 1).
 
 JSON schemas in strict structured-output form (every property required, no extra properties, null where optional),
-plus pydantic models that validate what comes back. A plan is one intent (from the owner's own words) and a small
-graph of subtasks; readers return typed fields, actors receive only those fields (section 7 step 4).
+plus pydantic models that validate what comes back. A chat turn is a reply, one clarifying question, or a task: the
+goal in plain words, the identity, the targets the model understood (informational), and success conditions.
 """
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ferb.clock.when import WHEN_SCHEMA, When
-from ferb.policy.intent import IMPLIES
-from ferb.policy.rules import SCOPES_BY_IDENTITY, Kind
+from ferb.policy.targets import Targets
 
-KINDS = sorted(v for k, v in vars(Kind).items() if not k.startswith("_") and isinstance(v, str))
-ALL_SCOPES = sorted(set().union(*SCOPES_BY_IDENTITY.values()))
-FIELD_TYPES = ["string", "number", "boolean", "string_list", "email", "url"]
 CHECK_KINDS = ["none", "file_exists", "file_contains", "ledger_done", "tab_url", "account"]
-DEFAULT_FIELD_CHARS, MAX_FIELD_CHARS = 500, 2000
 
 
 def _strings(enum: list[str] | None = None) -> dict[str, Any]:
@@ -35,12 +30,7 @@ def _obj(props: dict[str, Any]) -> dict[str, Any]:
     return {"type": "object", "additionalProperties": False, "required": list(props), "properties": props}
 
 
-INTENT_SCHEMA = _obj({
-    "verbs": _strings(sorted(IMPLIES)), "extra_kinds": _strings(KINDS),
-    "recipients": _strings(), "sites": _strings(), "accounts": _strings(), "paths": _strings(),
-    "apps": _strings(), "irreversible_kinds": _strings(KINDS),
-    "max_amount": _nullable("number"),
-})
+TARGETS_SCHEMA = _obj({"apps": _strings(), "sites": _strings(), "paths": _strings(), "recipients": _strings()})
 CONDITION_SCHEMA = _obj({
     "text": {"type": "string"},
     # a code-checkable form when the condition allows one (verified without a model); kind "none" otherwise
@@ -48,21 +38,11 @@ CONDITION_SCHEMA = _obj({
                    "text": _nullable("string"), "url_contains": _nullable("string"), "site": _nullable("string"),
                    "expected": _nullable("string")}),
 })
-SUBTASK_SCHEMA = _obj({
-    "id": {"type": "string"}, "goal": {"type": "string"},
+TASK_SCHEMA: dict[str, Any] = _obj({
+    "goal": {"type": "string"},
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
-    "role": {"type": "string", "enum": ["reader", "actor"]},
-    "scopes": _strings(ALL_SCOPES),
-    "depends_on": _strings(),
-    "inputs": {"type": "array", "items": _obj({"from": {"type": "string"}, "field": {"type": "string"}})},
-    "output_fields": {"type": "array", "items": _obj({
-        "name": {"type": "string"}, "type": {"type": "string", "enum": FIELD_TYPES}, "description": {"type": "string"},
-        "max_chars": _nullable("integer")})},
+    "targets": TARGETS_SCHEMA,
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA},
-})
-PLAN_SCHEMA: dict[str, Any] = _obj({
-    "goal": {"type": "string"}, "intent": INTENT_SCHEMA,
-    "subtasks": {"type": "array", "items": SUBTASK_SCHEMA},
 })
 
 REMEMBER_SCHEMA = _obj({
@@ -75,16 +55,16 @@ SCHEDULE_SCHEMA = _obj({
     "request": {"type": "string"}, "when": WHEN_SCHEMA,
     "repeat": {"type": "string", "enum": ["none", "daily", "weekdays", "weekly", "every"]},
     "weekday": _nullable("string"), "every_minutes": _nullable("integer"), "quote": {"type": "string"},
-    "intent": INTENT_SCHEMA,
+    "targets": TARGETS_SCHEMA,
 })
 SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
                                "action": {"type": "string", "enum": ["cancel", "pause", "resume"]},
                                "quote": {"type": "string"}})
 REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
-    "kind": {"type": "string", "enum": ["reply", "clarify", "plan"]},
+    "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
     "text": {"type": "string"},
-    "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
+    "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "remember": {"type": "array", "items": REMEMBER_SCHEMA},
     "timers": {"type": "array", "items": TIMER_SCHEMA},
     "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
@@ -107,16 +87,14 @@ RECONCILE_SCHEMA: dict[str, Any] = _obj({
 })
 
 
-class Intent(BaseModel):
-    verbs: list[str]
-    extra_kinds: list[str]
-    recipients: list[str]
-    sites: list[str]
-    accounts: list[str]
-    paths: list[str]
-    max_amount: float | None
-    apps: list[str] = []                     # Mac apps the owner named ("Brave"), resolved to bundle ids by code
-    irreversible_kinds: list[str] = []       # action types the model judges can't be undone here: ask every time
+class TargetsSpec(BaseModel):
+    apps: list[str] = []
+    sites: list[str] = []
+    paths: list[str] = []
+    recipients: list[str] = []
+
+    def targets(self, paths: list[str] | None = None) -> Targets:
+        return Targets.of(self.apps, self.sites, self.paths if paths is None else paths, self.recipients)
 
 
 class Check(BaseModel):
@@ -133,38 +111,11 @@ class Condition(BaseModel):
     check: Check
 
 
-class InputRef(BaseModel):
-    from_: str = Field(alias="from")
-    field: str
-
-
-class OutputField(BaseModel):
-    name: str
-    type: Literal["string", "number", "boolean", "string_list", "email", "url"]
-    description: str
-    max_chars: int | None
-
-    @property
-    def limit(self) -> int:
-        return min(self.max_chars or DEFAULT_FIELD_CHARS, MAX_FIELD_CHARS)
-
-
-class Subtask(BaseModel):
-    id: str
+class TaskSpec(BaseModel):
     goal: str
     identity: Literal["owner", "ferb"]
-    role: Literal["reader", "actor"]
-    scopes: list[str]
-    depends_on: list[str]
-    inputs: list[InputRef]
-    output_fields: list[OutputField]
-    success_conditions: list[Condition]
-
-
-class Plan(BaseModel):
-    goal: str
-    intent: Intent
-    subtasks: list[Subtask]
+    targets: TargetsSpec = TargetsSpec()
+    success_conditions: list[Condition] = []
 
 
 class Remember(BaseModel):
@@ -177,9 +128,9 @@ class Remember(BaseModel):
 
 
 class SupervisorOutcome(BaseModel):
-    kind: Literal["reply", "clarify", "plan"]
+    kind: Literal["reply", "clarify", "task"]
     text: str
-    plan: Plan | None
+    task: TaskSpec | None = None
     remember: list[Remember] = []
     timers: list["TimerRequest"] = []
     schedule: "ScheduleRequest | None" = None
@@ -188,14 +139,14 @@ class SupervisorOutcome(BaseModel):
 
 
 class ScheduleRequest(BaseModel):
-    """A task to run later or repeatedly: in the owner's words, with the intent recorded now (build step 15)."""
+    """A task to run later or repeatedly: in the owner's words, with the targets recorded now (build step 15)."""
     request: str
     when: When                   # the first run, as the owner said it; code computes the time
     repeat: Literal["none", "daily", "weekdays", "weekly", "every"]
     weekday: str | None = None
     every_minutes: int | None = None
     quote: str
-    intent: Intent
+    targets: TargetsSpec = TargetsSpec()
 
 
 class ScheduleChange(BaseModel):
@@ -241,20 +192,3 @@ class VerifierOutcome(BaseModel):
 class ReconcileOutcome(BaseModel):
     happened: Literal["yes", "no", "unclear"]
     evidence: str
-
-
-def reader_schema(fields: list[OutputField]) -> dict[str, Any]:
-    """A reader's output: its status plus exactly the typed fields the plan asked for (strict, capped)."""
-    props: dict[str, Any] = {}
-    for f in fields:
-        if f.type in ("string", "email", "url"):
-            props[f.name] = {"type": ["string", "null"], "maxLength": f.limit}
-        elif f.type == "number":
-            props[f.name] = _nullable("number")
-        elif f.type == "boolean":
-            props[f.name] = _nullable("boolean")
-        else:
-            props[f.name] = {"type": ["array", "null"], "items": {"type": "string", "maxLength": f.limit},
-                             "maxItems": 50}
-    return _obj({"status": {"type": "string", "enum": ["done", "failed", "needs_user"]},
-                 "summary": {"type": "string", "maxLength": 1000}, "fields": _obj(props)})

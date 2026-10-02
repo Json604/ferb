@@ -1,7 +1,7 @@
 """browser.* tools through a real daemon + gateway, on the in-memory identity driver (tests/browserkit.py).
 
 Safety tests: 21.3 (identity separation of tool sets), 21.5 (a filled password or code appears nowhere FERB
-writes, and never in a worker's results), intent gating of submits (10.2), tabs private to their task and closed
+writes, and never in a worker's results), the effect gate on form submits (10.2), tabs private to their task and closed
 with it, `ferb stop` closes FERB's browser, local/private URLs refused before any driver sees them.
 """
 
@@ -17,8 +17,8 @@ from ferb.cli.client import Client
 from ferb.core.errors import Refused
 from ferb.core.types import Identity, PageElement, SecretSpec, Task
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.intent import RequestIntent, site_matches
 from ferb.policy.rules import Kind
+from ferb.policy.targets import Request, site_matches
 from tests.browserkit import PASSWORD, REF, FakeIdentityDriver, fake_driver, feed
 from tests.conftest import RunningDaemon
 
@@ -35,15 +35,15 @@ def bd(daemon: RunningDaemon, keychain: Any) -> Iterator[tuple[RunningDaemon, Fa
     yield daemon, drv
 
 
-def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], intent: RequestIntent | None) -> Any:
-    t = Task(tid, None, "g", "dev", identity, scopes, "actor", f"req-{tid}", [],
+def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], words: str | None = None) -> Any:
+    """A running task; `words` are the owner's own words for its request (what counts as named at the gateway)."""
+    t = Task(tid, None, "g", "dev", identity, scopes, "worker", f"req-{tid}", [],
              d.daemon.clock.now() + timedelta(minutes=10))
 
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})
         d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        if intent:
-            d.daemon.engine.intents.record(RequestIntent(f"req-{tid}", intent.kinds, sites=intent.sites))
+        d.daemon.engine.requests.record(Request(f"req-{tid}", words or ""))
         token = d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, identity, ttl_s=600)
         return d.daemon.tokens.validate(token)
     return d.run(go())
@@ -87,7 +87,7 @@ def test_no_browser_tools_until_a_driver_is_attached(daemon: RunningDaemon) -> N
 def test_sign_in_through_the_gateway_and_the_password_is_nowhere(bd: Any) -> None:
     """21.5: after a sign-in, the password is in no tool result, span, journal row, ledger row or log."""
     d, drv = bd
-    g = task(d, "s", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-s", {"sign_in"}))
+    g = task(d, "s", Identity.FERB, FERB_SCOPES, "sign in to login.example.com")
     results = [call(d, g, "ferb_browser.open", url=f"{SITE}/login")]
     tab = results[0]["content"]["tab"]
     results.append(call(d, g, "ferb_browser.snapshot", tab=tab))
@@ -98,7 +98,8 @@ def test_sign_in_through_the_gateway_and_the_password_is_nowhere(bd: Any) -> Non
     results.append(call(d, g, "ferb_browser.snapshot", tab=tab))
     snap2 = results[-1]["content"]
     assert el(snap2, type="password", sensitive=True, filled=True)
-    results.append(call(d, g, "ferb_browser.act", tab=tab, element=el(snap2, role="button"), action="click"))
+    results.append(call(d, g, "ferb_browser.act", tab=tab, element=el(snap2, role="button"), action="click",
+                        effect="send", why="signing in"))                  # a form submit: send, site named
     results.append(call(d, g, "ferb_browser.wait", tab=tab, until="text", value="Welcome back"))
     assert all(not r["is_error"] for r in results), [r for r in results if r["is_error"]]
     assert results[-1]["content"]["met"] is True
@@ -111,7 +112,7 @@ def test_fill_otp_code_goes_to_the_field_never_to_the_worker(bd: Any) -> None:
     d, drv = bd
     now = datetime.now(timezone.utc)
     drv.feed_xml = feed([("noreply@login.example.com", "Your code", "Your sign-in code is 482913.", now)])
-    g = task(d, "o", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-o", {"sign_in"}))
+    g = task(d, "o", Identity.FERB, FERB_SCOPES, "sign in")
     tab = call(d, g, "ferb_browser.open", url=f"{SITE}/otp")["content"]["tab"]
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
     r = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
@@ -125,16 +126,19 @@ def test_fill_otp_code_goes_to_the_field_never_to_the_worker(bd: Any) -> None:
 
 def test_fill_refused_on_a_page_the_secret_isnt_for(bd: Any) -> None:
     d, drv = bd
-    g = task(d, "f", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-f", {"sign_in"}))
+    g = task(d, "f", Identity.FERB, FERB_SCOPES, "sign in")
     tab = call(d, g, "ferb_browser.open", url=f"{SITE}/framed")["content"]["tab"]
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
     r = call(d, g, "ferb_browser.fill_secret", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
     assert r["is_error"] and "isn't allowed" in r["content"]["error"] and drv.value(tab, 0) == ""
 
 
-def test_submits_need_the_intent_but_searches_do_not(bd: Any) -> None:
+def test_a_form_submit_on_a_site_the_owner_did_not_name_asks_but_a_search_runs(bd: Any) -> None:
+    """A search is navigation: it just runs. A form's submit button is a send: on a site the owner never named it
+    asks them, and a no means nothing is posted."""
+    from tests.conftest import Answers
     d, drv = bd
-    g = task(d, "r", Identity.FERB, FERB_SCOPES, RequestIntent.from_plan("req-r", {"research"}))
+    g = task(d, "r", Identity.FERB, FERB_SCOPES, "look up the weather")
     tab = call(d, g, "ferb_browser.open", url=f"{SITE}/search")["content"]["tab"]
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
     q = el(snap, form="search", role="searchbox")
@@ -142,20 +146,22 @@ def test_submits_need_the_intent_but_searches_do_not(bd: Any) -> None:
     assert not call(d, g, "ferb_browser.act", tab=tab, element=q, action="press", text="Enter")["is_error"]
     call(d, g, "ferb_browser.navigate", tab=tab, url=f"{SITE}/search")
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "ferb_browser.act", tab=tab, element=el(snap, label="Join"), action="click")
-    assert r["is_error"] and "'submit' was not requested" in r["content"]["error"]
-    call(d, g, "ferb_browser.navigate", tab=tab, url=f"{SITE}/login")
-    snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "ferb_browser.fill_secret", tab=tab, element=el(snap, type="password"), secret=REF.key)
-    assert r["is_error"] and "'fill_secret' was not requested" in r["content"]["error"]
+    r = call(d, g, "ferb_browser.act", tab=tab, element=el(snap, label="Join"), action="click", effect="edit")
+    assert r["is_error"] and 'effect "send"' in r["content"]["error"]           # the floor: a form submit is a send
+    no = Answers(d, granted=False)
+    try:
+        r = call(d, g, "ferb_browser.act", tab=tab, element=el(snap, label="Join"), action="click", effect="send",
+                 why="joining the list")
+    finally:
+        no.stop()
+    assert r["is_error"] and "declined" in r["content"]["error"] and len(no.asked) == 1
+    assert "login.example.com" in no.asked[0].reason and "joining the list" in no.asked[0].reason
     assert [p for p in drv.posted if "Join" in p] == []
 
 
 def test_stale_element_ids_are_refused(bd: Any) -> None:
     d, _ = bd
-    # With a "research" intent the old id is already blocked (an unknown element counts as a submit); allow submits
-    # so the call reaches the driver, which must refuse the stale id.
-    g = task(d, "st", Identity.FERB, {"identity:browse"}, RequestIntent.from_plan("req-st", {"sign_in"}))
+    g = task(d, "st", Identity.FERB, {"identity:browse"}, "sign in")
     tab = call(d, g, "ferb_browser.open", url=f"{SITE}/login")["content"]["tab"]
     old = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
     call(d, g, "ferb_browser.snapshot", tab=tab)
@@ -211,19 +217,28 @@ def test_site_matching_covers_subdomains_only() -> None:
     assert not site_matches("example.com.evil.io", sites) and not site_matches("badexample.com", sites)
 
 
-def test_action_kinds_follow_what_the_element_does() -> None:
-    def e(role: str, form: str | None = None, href: str | None = None) -> PageElement:
-        return PageElement("s1e1", "f", role, "x", None, (0, 0, 1, 1), True, href=href, form=form)
+def test_action_kinds_are_facts_about_the_element() -> None:
+    def e(role: str, form: str | None = None, href: str | None = None, label: str = "x",
+          input_type: str | None = None) -> PageElement:
+        return PageElement("s1e1", "f", role, label, None, (0, 0, 1, 1), True, href=href, form=form,
+                           input_type=input_type)
     assert act_kind("click", None, e("link", href="https://x")) == Kind.NAVIGATE
     assert act_kind("click", None, e("button", "search")) == Kind.SEARCH
-    assert act_kind("click", None, e("button", "other")) == Kind.SUBMIT
-    assert act_kind("click", None, e("button")) == Kind.SUBMIT
+    assert act_kind("click", None, e("button", "other")) == Kind.SUBMIT           # a form's button submits it
+    assert act_kind("click", None, e("button", input_type="submit")) == Kind.CLICK   # no form: nothing to submit
+    assert act_kind("click", None, e("button")) == Kind.CLICK                     # a plain button: a click
+    assert act_kind("click", None, e("row", label="FMI assignment — new post")) == Kind.CLICK   # an email row
+    assert act_kind("click", None, e("button", label="Send")) == Kind.SEND          # the floor words
+    assert act_kind("click", None, e("button", label="Pay now")) == Kind.PAY
+    assert act_kind("click", None, e("button", label="Delete")) == Kind.DELETE_PERMANENT
+    assert act_kind("click", None, e("button", label="Archive")) == Kind.CLICK     # not on the floor
     assert act_kind("click", None, e("checkbox", "other")) == Kind.FILL_FORM
     assert act_kind("type", "hi", e("textbox", "search")) == Kind.SEARCH
     assert act_kind("type", "hi", e("textbox", "login")) == Kind.FILL_FORM
     assert act_kind("press", "Enter", e("textbox", "other")) == Kind.SUBMIT
+    assert act_kind("press", "Enter", e("textbox", None)) == Kind.SUBMIT          # Return in a message box: a send
     assert act_kind("press", "Tab", e("textbox", "other")) == Kind.READ
-    assert act_kind("click", None, None) == Kind.SUBMIT                     # unknown element: strictest
+    assert act_kind("click", None, None) == Kind.CLICK                             # unknown element: the driver refuses
 
 
 def _nowhere(d: RunningDaemon, value: str) -> None:

@@ -312,10 +312,11 @@ class MacComputerDriver:
                           "(take a new snapshot to find it — it may appear only once there's text)")
 
     def _send_button(self, bundle_id: str) -> str | None:
-        from ferb.act.mac.tools import SEND_LABEL
+        from ferb.policy.effects import label_kind
+        from ferb.policy.rules import Kind
         st = self._state.get(bundle_id)
         for eid, n in (st.nodes.items() if st else ()):
-            if n.role == "button" and n.enabled and SEND_LABEL.search(n.label or ""):
+            if n.role == "button" and n.enabled and label_kind(n.label) == Kind.SEND:
                 return eid
         return None
 

@@ -25,8 +25,7 @@ def test_pasted_pieces_are_marked_untrusted_where_they_are() -> None:
 
 
 def test_default_output_is_ferbs_words_without_internals() -> None:
-    plan = {"type": "plan", "text": "Looking at your storage now.", "task_id": "t1",
-            "subtasks": [{"id": "read_storage", "role": "reader", "goal": "g", "depends_on": []}]}
+    plan = {"type": "plan", "text": "Looking at your storage now.", "task_id": "t1", "goal": "g", "identity": "owner"}
     outcome = {"type": "outcome", "status": "done", "summary": "wrote it", "answer": "Your Downloads folder is 40 GB.",
                "artifacts": ["a.md"], "verified": False, "verification": []}
     shown = [render(e) for e in (plan, outcome, {"type": "subtask", "id": "r", "status": "started"},
@@ -47,7 +46,32 @@ def test_verbose_shows_the_internals() -> None:
     ver = render({"type": "verification", "results": [
         {"condition": "a.md exists", "met": True, "path": "code", "evidence": "exists"}]}, verbose=True)
     assert "✓ a.md exists  [code: exists]" in ver
-    assert "▸ r started" in render({"type": "subtask", "id": "r", "status": "started"}, verbose=True)
+    assert "▸ worker started" in render({"type": "subtask", "id": "worker", "status": "started"}, verbose=True)
+
+
+def test_a_workers_question_is_asked_in_chat_and_answered_in_the_owners_words() -> None:
+    """owner.ask: options are numbered; a number picks one, anything else is the answer; Enter skips."""
+    from ferb.cli.chat import Chat
+    q = question({"kind": "owner_question", "reason": "Which account?", "options": ["a@x", "b@x"]})
+    assert "1) a@x" in q and "2) b@x" in q and q.rstrip().endswith("number or your answer (Enter to skip):")
+    free = question({"kind": "owner_question", "reason": "Go on with the second match?", "options": []})
+    assert "Go on with the second match?" in free and "your answer (Enter to skip)" in free
+    calls: list[tuple[str, Any]] = []
+
+    class C:
+        def call(self, method: str, params: Any = None) -> Any:
+            calls.append((method, params))
+            return {"state": "granted"}
+
+        def close(self) -> None:
+            pass
+    chat = Chat(lambda: C(), io.StringIO(), lambda prompt: "the work one")        # type: ignore[arg-type,return-value]
+    chat.answer_approval({"approval_id": "ap1", "kind": "owner_question", "reason": "Which account?",
+                          "options": ["a@x", "b@x"]})
+    assert calls == [("chat.answer", {"approval_id": "ap1", "text": "the work one"})]
+    yes_no = Chat(lambda: C(), io.StringIO(), lambda prompt: "y")                 # type: ignore[arg-type,return-value]
+    yes_no.answer_approval({"approval_id": "ap2", "kind": "send", "reason": "bob@y.com: “hi”"})
+    assert calls[-1] == ("chat.approve", {"approval_id": "ap2", "granted": True})
 
 
 def test_chat_shows_reminders_it_hasnt_shown_yet() -> None:

@@ -29,7 +29,8 @@ to fix it.
 | Tasks outlive the chat window | close chat mid-task, reopen later | – | Offline | Finished answers show once; a macOS notification goes out when chat is closed |
 | Stop a task | Ctrl-C while it works | – | Verified (stop through the same call) | A send held for undo is cancelled too |
 | Pasted text is data, not instructions | paste an email, then `summarize this` | – | Offline | Targets (recipients, sites) must be in your own words, not the paste; a whole-message paste (or "hey" + a paste) asks whether it's your request; `[policy] pasted_text_is_data = false` turns the rule off |
-| Misspelled app names | `check if ive got any salck messages` | – | Offline | One close app → used and said ("Using Slack, from 'salck'"); several → "Did you mean …?" |
+| One worker per request, gated at the action | `search WhatsApp for the syllabus sheet and tell me the gym timing` | – | Offline (acceptance set replays the run history) | The worker has every tool its identity allows; each act call declares an effect (navigate / edit / send / pay / destroy) that FERB raises to the control's floor |
+| A worker's question in chat | `sign in to my account` (two accounts on screen) | – | Offline | `owner_ask`: numbered options or your own words; Enter skips; never during a scheduled run |
 | See what a task did | `ferb trace` / `ferb trace a1b2c3d4` | – | Verified (rendered a real run, including a driven Claude Code session) | Latest task by default; `--full` shows everything |
 | Speak replies | `ferb chat --speak` | – | Verified (owner use) | The Mac's built-in voice (`say`) |
 | Inline approvals | a request in `careful` mode | – | Verified (one question per target and action type) | Unanswered questions expire after 10 min (1 h for scheduled runs) |
@@ -50,16 +51,16 @@ to fix it.
 | Screenshot one window, click by position | `in <app>, click the blue Export button` | Mac, Screen | Verified (probe window: window-only capture, clicks within 2 pt; reading an image: Codex 4/5) | Windows showing a password field aren't captured; excluded apps refused; images never saved |
 | Windows on other Spaces / full screen | an app in full screen on another Space | Mac, Screen | Offline | – |
 | Yield to you | move the mouse while FERB clicks | Mac (Input Monitoring if needed) | Verified (marked vs unmarked input told apart) | Only matters in the foreground; FERB puts your app back, waits until you stop, then continues or says where it stopped |
-| Pick the app for a named service | `video call Rahul on WhatsApp` | the app installed | Verified (route chosen and shown; planning only) | Uses your last 14 days of activity; your correction wins |
+| Pick the app or the site for a named service | `video call Rahul on WhatsApp` | the app installed | Offline | The model decides from an environment line (what's installed, paired and running); nothing in code picks a route |
 | Calls and messages in Mac apps | `message Priya on WhatsApp: running late` | Mac | Offline | Contact must be on screen; several matches → "Which Priya?"; Send button, never Return; 10 s undo countdown; a second message to the same person asks |
 | No arrow-key editing, no app switching | (automatic) | Mac | Offline | Text is replaced whole; ⌘Tab, Control+arrows and AppleScript `activate` are refused |
 
 ## Browser (your paired profiles)
 
-FERB uses your browser only when your words point at it: "my browser", "my Brave", "in Brave", "my Chrome", "my
-<profile> profile", a profile's name or account ("my school gmail in chrome"), "this / the current tab", or "my
-<service>" ("my LinkedIn"). A plain "do X on YouTube" uses FERB's own browser (next section). The browser or profile
-you name is the only one used.
+FERB uses your browser when the request is about your apps, accounts or profiles ("my Gmail", "in Brave", "my
+school gmail in chrome", "the current tab"): the model picks identity `owner`; a plain "do X on YouTube" is a
+`ferb` task in FERB's own browser (next section). The code floor: a `ferb` task never gets your browsers, Mac or
+folders. The browser or profile you name is the only one used.
 
 | Capability | Example request | Needs | Status | Known limits |
 |---|---|---|---|---|
@@ -69,7 +70,7 @@ you name is the only one used.
 | The profile you name, and only that one | `open my school gmail in chrome and find the latest assignment email` | Paired | Verified (owner's run: the named Chrome profile's Gmail searched, the email and its form opened) | Not connected → FERB says why and how (`ferb browsers pair`), never another browser |
 | Install + pair the extension in a profile | `ferb browsers pair school` | Chrome/Brave | Offline (the profile was paired by hand before the guide existed) | Chrome allows only Load unpacked by hand; FERB opens the page, copies the path, shows the clicks, waits, pairs |
 | Wake a browser without moving you | any browser task with Chrome closed or open | Paired | Verified (owner watching, with an event detector: windowless wake; owner's search run) | A first window is created minimized; if a browser still jumps forward, your app comes back |
-| Your profile when you say so | `in my <profile> profile, play some lofi on youtube` | Paired | Offline (real run pending) | Only paired profiles are ever routes |
+| Your profile when you say so | `in my <profile> profile, play some lofi on youtube` | Paired | Offline (real run pending) | Only paired profiles are ever used |
 | Use a tab you already have open | `in my brave, keep scrolling the comments in the current youtube tab` | Paired | Offline (real run pending) | FERB lets go of the tab afterwards and never closes it; scrolling a changing page isn't treated as a loop |
 | Account check before consequential actions | a send on a site where two accounts are signed in | Paired | Offline (extractors verified on FERB's own Gmail/YouTube) | Extractors exist for Gmail and YouTube; other sites ask once per site + profile |
 | Calls in web chat, contacts checked | `video call Rahul` on a chat page | Paired | Verified (local fake chat page; 8/10 over the final 5 runs) | The worker sometimes stops to ask you itself instead of letting FERB ask (safe, not a guess) |
@@ -150,12 +151,11 @@ you name is the only one used.
 
 | Behavior | How to see it | Status | Notes |
 |---|---|---|---|
-| Unrequested actions blocked | ask for a summary; FERB never sends | Offline (runtime lockdown verified) | Intent is fixed from your words at plan time |
+| Sends to people you didn't name ask first | ask for a summary; the worker wants to reply to someone | Offline (acceptance set) | Navigate and edit run; a send asks once per target with the worker's reason unless your own message names the target (pasted text never counts) |
 | Undo countdown for sends and calls | `📞 Calling … in 10 s… (Ctrl-C to cancel)` | Verified | `ferb undo` also cancels |
-| Irreversible actions always ask | a payment, `rm -rf`, a password change | Offline | Even inside a request that asked for it |
-| One approval per target and type | `careful` mode, three edits to one file | Verified | A different target is a new question |
-| Exploring with a stated reason; route change asks | "Your Brave had no call button. The WhatsApp app does. Call Rahul from there?" | Offline | A yes adds that app/site for the rest of the request |
-| Untrusted content can't steer actors | a page containing instructions | Verified (reader → actor, typed fields) | Reduced, not eliminated |
+| Irreversible actions always ask | a payment, `rm -rf`, a password change, a "Delete" button | Offline | Even inside a request that asked for it; a control whose label says Send / Pay / Delete can't be declared harmless |
+| One approval per target and effect | a send to one unnamed person, three messages | Offline | A different target is a new question |
+| Untrusted content can't steer the worker | a page containing instructions | Offline | Owner data read in the request may only go to a target of it, something you named, or something you approved; a worker that read a web page loses shell, AppleScript and file-write |
 | Password fields and FERB's secrets protected | any sign-in page | Verified (web password check, sealed secrets) | – |
 | Emergency stop | `ferb stop` / `ferb resume-tasks` | Offline | Survives restarts |
 | Runaway guards | a stuck task | Offline | Same failing action 3×, loops, 4 h / 50 workers / 1,000 tool calls |
