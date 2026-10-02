@@ -10,7 +10,9 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
-## Unreleased (branch `rework/human-control`, phase 3 browser) — 2026-10-02
+## 0.18.0 — 2026-10-02 — Background first: the drivers rebuilt on what the owner watched work
+
+### Browser
 - Browser driver rebuilt background-first (PLATFORM_BROWSER.md 13), extension 0.7.0 / protocol 3: one FERB window
   per profile born minimized and kept, task tabs never active; a debugger session per task tab for its life (real
   input by default, mac shortcuts, dialogs answered by the extension, uploads, jpeg screenshots in parts); snapshots
@@ -40,7 +42,7 @@ Phase 4 of `docs/REWORK_PLAN.md`, as designed in `docs/DESIGN_ONE_WORKER.md`.
 - Tests: `test_policy`, `test_supervisor`, `test_routes`, `test_ux`, `test_gateway` rewritten; `test_explore` and
   `test_spelling` deleted; the acceptance set in `test_acceptance_one_worker.py` replays eight real failures.
 
-## Unreleased — rework/human-control, phase 3 (Mac)
+### Mac
 - Snapshots show what is really there: a control is anything that exposes an action (pressable rows, groups, cells
   and images included), with its actions, role, value and disabled / selected / expanded state; headings and the
   window title; an open sheet, dialog, pop-up menu or popover is in the snapshot with its place; the app's windows
