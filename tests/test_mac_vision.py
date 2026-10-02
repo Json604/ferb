@@ -38,6 +38,7 @@ class FakeShots:
     top: int | None = None                         # window id at any point (None: the captured window itself)
     captured: list[int] = field(default_factory=list)
     on_capture: Any = None
+    takes_pid_clicks: bool = True                  # a click posted to the app's process changes something
 
     def front_window(self, pid: int, like: Any = None) -> Window | None:
         return Window(pid * 10, pid, self.bounds, "w")
@@ -62,8 +63,15 @@ class FakeShots:
 class VisionAx(FakeAx):
     def __init__(self) -> None:
         super().__init__(AxTree())
-        self.secure: list[bool | None] = []        # answers to has_secure_field, in order (then False)
+        self.secure: list[bool | None] = []        # the password-field answer of each walk, in order (then False)
         self.hit_answer: Any = None                # None: Accessibility can't hit-test (the window list decides)
+        self.hit_el: Any = None                    # the app's own hit test: the element under the point
+        self.clicks = 0                            # clicks posted to the app's process that it took
+
+    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
+        secure = self.secure.pop(0) if self.secure else False
+        return AxTree(self.tree.nodes, f"{self.tree.text} clicks={self.clicks}", self.tree.title, secure=secure,
+                      window="win")
 
     def app_window(self, pid: int) -> Any:
         return "win"
@@ -77,12 +85,15 @@ class VisionAx(FakeAx):
     def hit(self, x: float, y: float) -> Any:
         return self.hit_answer
 
+    def hit_element(self, pid: int, x: float, y: float) -> Any:
+        return self.hit_el
+
+    def describe(self, el: Any) -> str:
+        return f"button “{el}”"
+
     def raise_window(self, pid: int, bounds: Any) -> bool:
         self.raised = getattr(self, "raised", 0) + 1
         return True
-
-    def has_secure_field(self, win: Any, browser: bool = False) -> bool | None:
-        return self.secure.pop(0) if self.secure else False
 
 
 def vision(mp: pytest.MonkeyPatch, owner: Any = lambda: False,
@@ -96,8 +107,17 @@ def vision(mp: pytest.MonkeyPatch, owner: Any = lambda: False,
     d = MacComputerDriver("dev", RealInput(owner, GuiLock(), sleep=no_sleep, yield_after_s=0.2, poll_s=0.1),
                           excluded=excluded, ax=ax, apps=apps, shots=shots)
     import ferb.act.mac.driver as drv
-    mp.setattr(drv, "click_steps", lambda x, y: [Step("move", lambda: posted.append(f"move {x},{y}")),
-                                                  Step("click", lambda: posted.append(f"click {x},{y}"))])
+    mp.setattr(drv, "SETTLE_S", 0)
+
+    def clicks(x: float, y: float, pid: int | None = None) -> list[Step]:
+        where = " to pid" if pid else ""
+
+        def click() -> None:
+            posted.append(f"click {x},{y}{where}")
+            if pid and shots.takes_pid_clicks:                 # the window is on this Space: the app took it
+                ax.clicks += 1
+        return [Step("move", lambda: posted.append(f"move {x},{y}{where}")), Step("click", click)]
+    mp.setattr(drv, "click_steps", clicks)
     return d, ax, shots, apps, posted
 
 
@@ -133,7 +153,7 @@ def test_a_detectable_password_field_drops_the_frame_and_unknown_is_allowed(monk
     ax.secure = [False, True]
     with pytest.raises(Refused, match="password"):
         asyncio.run(d.screenshot("Notes"))                               # appeared during capture: dropped
-    assert d._state.get("com.apple.Notes") is None                      # no shot recorded to click on
+    assert d._state["com.apple.Notes"].shot is None                      # no shot recorded to click on
     ax.secure = [None, None]
     _, shot, jpeg = asyncio.run(d.screenshot("Notes"))                   # the tree can't tell: allowed
     assert jpeg == shots.jpeg and shot.id == "shot1" and shot.size == IMG
@@ -169,7 +189,14 @@ def test_clicks_map_image_pixels_to_the_window_and_refuse_stale_moved_or_covered
     d, _, shots, apps, posted = vision(monkeypatch)
     _, shot, _ = asyncio.run(d.screenshot("Notes"))
     r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))              # image px at 2x
-    assert r.ok and posted == ["move 300.0,200.0", "click 300.0,200.0"]
+    assert r.ok and "background" in r.detail and posted == ["move 300.0,200.0 to pid", "click 300.0,200.0 to pid"]
+    assert apps.activated == []                                          # the window took it: nothing moved
+    posted.clear()
+    shots.takes_pid_clicks = False                                       # it didn't: the real mouse, by leave only
+    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))
+    assert not r.ok and "allow_foreground" in r.detail and apps.activated == []
+    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300, allow_foreground=True))
+    assert r.ok and posted[-2:] == ["move 300.0,200.0", "click 300.0,200.0"]
     assert getattr(d.ax, "raised", 0) >= 1                               # the window itself was raised first
     assert apps.activated == ["com.apple.Notes"]                         # brought forward for the stretch
     d.restore_owner()
@@ -187,46 +214,65 @@ def test_clicks_map_image_pixels_to_the_window_and_refuse_stale_moved_or_covered
     shots.bounds = BOUNDS
     shots.top = 999                                                      # another window over that point
     with pytest.raises(StaleRef, match="another window"):
-        asyncio.run(d.click_at("Notes", "shot2", 10, 10))
-    assert posted == []
+        asyncio.run(d.click_at("Notes", "shot2", 10, 10, allow_foreground=True))
+    assert posted[-1].endswith("to pid")                                 # nothing reached the real mouse
+
+
+def test_a_click_at_a_point_tries_the_apps_own_hit_test_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The point becomes an element (AXUIElementCopyElementAtPosition on the app element) and is pressed through
+    Accessibility: no mouse event at all, in front or behind."""
+    d, ax, shots, apps, posted = vision(monkeypatch)
+    _, shot, _ = asyncio.run(d.screenshot("Notes"))
+    ax.hit_el = "Export"
+    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))
+    assert r.ok and "pressed the button “Export” under (400, 300)" in r.detail
+    assert posted == [] and apps.activated == [] and ax.calls[-1] == "ax.press"
+    assert d.profiles.prefers("com.apple.Notes", "hit_test") and d.profiles.prefers("com.apple.Notes", "ax_press")
+    ax.press_ok = False                                                  # the element refuses: the pid click next
+    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))
+    assert r.ok and posted == ["move 300.0,200.0 to pid", "click 300.0,200.0 to pid"]
 
 
 def test_the_accessibility_hit_test_decides_when_it_can(monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, shots, _, posted = vision(monkeypatch)
+    shots.takes_pid_clicks = False                                       # the foreground path (by leave)
     asyncio.run(d.screenshot("Notes"))
     shots.top = 999                                                      # the window list sees an overlay...
     ax.hit_answer = (11, BOUNDS)                                         # ...that ignores clicks: Notes gets it
-    assert asyncio.run(d.click_at("Notes", "shot1", 10, 10)).ok and posted
+    assert asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True)).ok and posted
     posted.clear()
     shots.top = None
     for answer in ((12, BOUNDS), (11, (110.0, 60.0, 160.0, 160.0)), (11, None)):   # another app / window / a menu
         ax.hit_answer = answer
         with pytest.raises(StaleRef):
-            asyncio.run(d.click_at("Notes", "shot1", 10, 10))
-    assert posted == []
+            asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True))
+    assert not [p for p in posted if not p.endswith("to pid")]
 
 
 def test_the_topmost_check_runs_before_every_event(monkeypatch: pytest.MonkeyPatch) -> None:
     d, _, shots, _, posted = vision(monkeypatch)
+    shots.takes_pid_clicks = False
     asyncio.run(d.screenshot("Notes"))
     import ferb.act.mac.driver as drv
 
     def cover() -> None:
         posted.append("move")
         shots.top = 999                                                  # a window pops up after the move
-    monkeypatch.setattr(drv, "click_steps", lambda x, y: [Step("move", cover),
-                                                          Step("click", lambda: posted.append("click"))])
+    monkeypatch.setattr(drv, "click_steps", lambda x, y, pid=None: [Step("move", cover if pid is None else
+                                                                         lambda: posted.append("move to pid")),
+                                                                    Step("click", lambda: posted.append("click"))])
     with pytest.raises(StaleRef):
-        asyncio.run(d.click_at("Notes", "shot1", 10, 10))
-    assert posted == ["move"]                                            # the click itself never happened
+        asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True))
+    assert posted == ["move to pid", "click", "move"]                    # the real click itself never happened
 
 
 def test_clicks_yield_to_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
-    d, _, _, apps, posted = vision(monkeypatch, owner=lambda: True)
+    d, _, shots, apps, posted = vision(monkeypatch, owner=lambda: True)
+    shots.takes_pid_clicks = False
     asyncio.run(d.screenshot("Notes"))
     with pytest.raises(Yielded):
-        asyncio.run(d.click_at("Notes", "shot1", 10, 10))
-    assert posted == [] and apps.activated == []                         # nothing clicked, the owner never moved
+        asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True))
+    assert not [p for p in posted if not p.endswith("to pid")] and apps.activated == []   # the owner never moved
 
 
 # ---------- through the gateway ----------
@@ -248,7 +294,7 @@ def test_the_image_reaches_the_model_and_nothing_else(daemon: RunningDaemon, mon
     assert not r["is_error"] and base64.b64decode(r["image"]["data"]) == shots.jpeg
     assert r["image"]["mime"] == "image/jpeg" and r["content"]["shot"] == "shot1"
     r = call(daemon, owner, "mac.click", app="Notes", shot="shot1", x=400, y=300)
-    assert not r["is_error"] and posted[-1] == "click 300.0,200.0", r
+    assert not r["is_error"] and posted[-1] == "click 300.0,200.0 to pid", r
     b64 = base64.b64encode(shots.jpeg)
     daemon.run(_checkpoint(daemon))
     for p in daemon.daemon.home.rglob("*"):                             # database, WAL, logs, anything
