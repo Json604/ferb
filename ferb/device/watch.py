@@ -283,13 +283,18 @@ class MacTest:
     def key_combo(self) -> dict[str, Any]:
         from ferb.act.mac.input import key_steps
         import ApplicationServices as AX
+        if not str(_attr(self.area, "AXValue") or ""):
+            _set(self.area, "AXValue", "FERB watch test: some text to select.\n")
+            time.sleep(0.3)
         _set(self.area, "AXFocused", True)
         _run_steps(key_steps("cmd+a", self.pid))
         time.sleep(0.5)
         r = _range(_attr(self.area, "AXSelectedTextRange"))
         length = r[1] if r else None
         total = len(str(_attr(self.area, "AXValue") or ""))
-        _run_steps(key_steps("right", self.pid))                 # collapse the selection again
+        # collapse the selection through Accessibility, never with an arrow key: at the end of the text an arrow
+        # makes TextEdit beep (the owner heard it, 2026-10-02) — sound is a disturbance too
+        _set(self.area, "AXSelectedTextRange", AX.AXValueCreate(AX.kAXValueCFRangeType, (total, 0)))
         return {"selected_chars": length, "document_chars": total, "landed": bool(length) and length == total}
 
     def _fill_long(self) -> None:
@@ -361,6 +366,9 @@ class MacTest:
         return r
 
     def _calc_window(self) -> Any:
+        if self.calc_pid is None:                                 # `--only M11`: open it first
+            self.open_calc()
+            time.sleep(1.0)
         return _ax().app_window(self.calc_pid)
 
     def _calc_display(self) -> str | None:
@@ -403,6 +411,7 @@ class MacTest:
 
     def calc_type(self) -> dict[str, Any]:
         from ferb.act.mac.input import KEYCODES, key_steps, type_steps
+        self._calc_window()
         b = self._calc_button("clear") or self._calc_button("all clear") or self._calc_button("AC")
         if b is not None:
             import ApplicationServices as AX
