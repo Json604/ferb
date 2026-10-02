@@ -382,13 +382,13 @@
     for (const el of document.querySelectorAll(`[data-ferb-node="${token}"]`)) el.removeAttribute("data-ferb-node");
     return true;
   }
-  function scroller(cid) {           // where a trusted wheel event must land to scroll that container (or the window)
-    if (!cid) return { x: innerWidth / 2, y: innerHeight / 2, ...scrollState(null) };
+  function scroller(cid) {           // where a trusted wheel event must land (px, py) to scroll that container (or the window)
+    if (!cid) return { px: innerWidth / 2, py: innerHeight / 2, ...scrollState(null) };
     const ref = containers.get(cid), sc = ref && ref.deref();
     if (!sc || !sc.isConnected) return { error: "stale" };
     const r = sc.getBoundingClientRect();
-    return { x: Math.min(Math.max(r.x + r.width / 2, 1), innerWidth - 1), y: Math.min(Math.max(r.y + r.height / 2, 1), innerHeight - 1),
-             ...scrollState(sc) };
+    return { px: Math.min(Math.max(r.x + r.width / 2, 1), innerWidth - 1), py: Math.min(Math.max(r.y + r.height / 2, 1), innerHeight - 1),
+             ...scrollState(sc) };                                  // (scrollState's y is the scroll position)
   }
   function scrolled(cid) {
     if (!cid) return scrollState(null);

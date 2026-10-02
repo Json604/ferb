@@ -7,7 +7,7 @@ restored afterwards. Local pages only (127.0.0.1); no real sites, no accounts.
 Checks: pairing via the extension's own page; background tab (never activated); snapshot sanitized in the page
 (password value, hidden input, URL token); page-mode typing; trusted click + typing in the background tab via the
 debugger (every event isTrusted, tab stays inactive); the native host dying -> reconnect with a new generation ->
-old element ids refused (21.13); the extension refuses non-allowlisted CDP (21.6).
+old element ids refused (21.13). The lab variant (tests/test_browser_lab_real.py) needs no installed profile.
 """
 
 import asyncio
@@ -27,7 +27,7 @@ import pytest
 from ferb.act.browser.profiles import discover_all
 from ferb.cli.client import Client
 from ferb.clock.clock import SystemClock
-from ferb.core.errors import DriverError, StaleRef
+from ferb.core.errors import StaleRef
 from ferb.core.types import BrowserAction
 from tests.conftest import RunningDaemon, without_owner_mac
 
@@ -133,14 +133,7 @@ def test_real_extension_end_to_end(rd: RunningDaemon, target: tuple[str, str], s
         out["trusted_value"] = next(e.value for e in s.elements if e.label == "Trusted")
         tabs = await t.bridge.call("list_tabs", {})
         out["active_after_input"] = next(x["active"] for x in tabs["tabs"] if x["tab_id"] == t.chrome_id)
-        await t.bridge.call("attach_debugger", {"tab_id": t.chrome_id})
-        try:
-            await t.bridge.call("cdp", {"tab_id": t.chrome_id, "method": "Network.getAllCookies", "params": {}})
-            out["cookies_refused"] = False
-        except DriverError as e:
-            out["cookies_refused"] = "not allowed" in str(e)
-        finally:
-            await t.bridge.call("detach_debugger", {"tab_id": t.chrome_id})
+        # (the CDP allowlist has no daemon-facing op any more: tests/test_browser_background.py checks it in node)
         old_gen, keep = t.bridge.gen, router.element_ref(tab, user)
         subprocess.run(["pkill", "-f", "ferb.native_host.main"], capture_output=True)   # the host dies
         for _ in range(100):
@@ -168,5 +161,4 @@ def test_real_extension_end_to_end(rd: RunningDaemon, target: tuple[str, str], s
     assert out["trusted_click"] and "clicked trusted=true" in out["page_after_click"]
     assert out["trusted_type"] and out["trusted_value"] == "xyz"
     assert out["active_after_input"] is False                                   # never activated
-    assert out["cookies_refused"]
     assert out["reconnected"] and out["stale_refused"]

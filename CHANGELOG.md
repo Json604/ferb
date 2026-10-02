@@ -10,6 +10,15 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## Unreleased (branch `rework/human-control`, phase 3 browser) — 2026-10-02
+- Browser driver rebuilt background-first (PLATFORM_BROWSER.md 13), extension 0.7.0 / protocol 3: one FERB window
+  per profile born minimized and kept, task tabs never active; a debugger session per task tab for its life (real
+  input by default, mac shortcuts, dialogs answered by the extension, uploads, jpeg screenshots in parts); snapshots
+  with in_view / occluded / scroll containers / shadow roots / iframe offsets; container scrolls by real wheel;
+  bridge fixes from the audit (timeouts reconciled, outbox order, same-connection hello, confirmed close, YouTube
+  account read once). Real lab test: `tests/test_browser_lab_real.py` (throwaway Chrome, frontmost app never
+  changed). (`3937d45`, plus the lab-test commit)
+
 ## 0.16.1 — 2026-10-02
 - Reminders: the planner's quote is checked against the words as typed. Before, the typo fix ran first, read "looks"
   as the Books app and dropped a test reminder. Word forms like "looks" and "minutes" now count as English.

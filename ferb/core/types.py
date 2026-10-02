@@ -218,7 +218,7 @@ class DriverFeatures:
 @dataclass(frozen=True)
 class BrowserAction:
     kind: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload"]
-    text: str | None = None                  # type: the text; select: option label or value; press: key (e.g. "cmd+a");
+    text: str | None = None                  # for type: the text; select: option label or value; press: key ("cmd+a");
                                              # scroll: up|down
     trusted: bool = False                    # kept for callers that insist; real input is the default for click/type/press
     page_mode: bool = False                  # scripted (untrusted) page events instead of real input

@@ -581,7 +581,8 @@ class _TabDriver:
                 raise Refused("the FERB extension in that browser is older than FERB: reload it (0.7.0 or later)") \
                     from None
             raise
-        out = {"y": int(v.get("y", 0)), "page_height": int(v.get("height", 0)), "at_end": bool(v.get("at_end"))}
+        out: dict[str, Any] = {"y": int(v.get("y", 0)), "page_height": int(v.get("height", 0)),
+                               "at_end": bool(v.get("at_end"))}
         if v.get("viewport_h") is not None:
             out["viewport_h"] = int(v["viewport_h"])
         if container:

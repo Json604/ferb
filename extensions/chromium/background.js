@@ -186,6 +186,8 @@ async function ferbWindow() {
   // alive when FERB's last task tab closes, so a window is created once per browser session, not per task.
   const w = await chrome.windows.create({ url: "about:blank", state: "minimized", focused: false });
   const s2 = await session(); s2.windowId = w.id; await saveSession(s2);
+  const got = await chrome.windows.get(w.id);                // create() may report "normal" (probe E5): verify
+  if (got.state !== "minimized") await chrome.windows.update(w.id, { state: "minimized" });
   return w.id;
 }
 
@@ -510,7 +512,10 @@ const commands = {
     if (target && target.error) throw new Error(target.error === "stale" ? "that container is from an older snapshot" : target.error);
     if (target) {
       const step = Number.isFinite(dy) ? dy : Math.round(target.viewport_h * 0.85) * (direction === "up" ? -1 : 1);
-      await cdp(tab_id, "Input.dispatchMouseEvent", { type: "mouseWheel", x: target.x, y: target.y, deltaX: 0, deltaY: step });
+      // the move first: under the device-metrics override a bare wheel isn't targeted at the scroller under it
+      // (lab probe 2026-10-02: box 0 without the move, 170 with it; the window scrolled instead)
+      await cdp(tab_id, "Input.dispatchMouseEvent", { type: "mouseMoved", x: target.px, y: target.py });
+      await cdp(tab_id, "Input.dispatchMouseEvent", { type: "mouseWheel", x: target.px, y: target.py, deltaX: 0, deltaY: step });
       const s = await settled(tab_id, cid);
       if (!s.error) return { container: cid, y: s.y, height: s.height, viewport_h: s.viewport_h, at_end: direction === "up" ? s.y <= 0 : s.at_end };
     }

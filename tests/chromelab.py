@@ -40,7 +40,7 @@ class ChromeLab:
         args = [CHROME, "--remote-debugging-pipe", f"--user-data-dir={user_data_dir}", "--no-first-run",
                 "--no-default-browser-check", "--no-startup-window", "--enable-unsafe-extension-debugging",
                 *(extra_args or [])]
-        self.proc = subprocess.Popen(args, preexec_fn=child_fds, pass_fds=(3, 4), stdout=subprocess.DEVNULL,
+        self.proc = subprocess.Popen(args, preexec_fn=child_fds, close_fds=False, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
         os.close(to_chrome_r)
         os.close(from_chrome_w)
@@ -104,11 +104,23 @@ class ChromeLab:
         return r.get("result", {}).get("value")
 
     def window_state(self, url_contains: str) -> str | None:
-        """windowState of the window holding the page whose url contains the text (None: no such page)."""
+        """windowState of the window holding the page whose url contains the text (None: no such page). CDP says
+        "normal" for a window that was never shown (probe F0b), so judge by the extension API and the screen too."""
         for t in self.targets():
             if t["type"] == "page" and url_contains in t["url"]:
                 return str(self.send("Browser.getWindowForTarget", {"targetId": t["targetId"]})["bounds"].get("windowState"))
         return None
+
+    def ext_window(self, session: str, window_id: int) -> dict[str, Any]:
+        """What chrome.windows.get says about that window, asked in the extension's worker (lab only)."""
+        return dict(self.evaluate(session, f"chrome.windows.get({int(window_id)}).then((w) => ({{state: w.state, focused: w.focused}}))"))
+
+    def on_screen(self) -> list[tuple[str, int]]:
+        """This Chrome's windows that macOS currently shows (name, layer); [] when nothing of it is on screen."""
+        import Quartz
+        rows = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID) or []
+        return [(str(r.get("kCGWindowName", "")), int(r.get("kCGWindowLayer", 0))) for r in rows
+                if int(r.get("kCGWindowOwnerPID", 0)) == self.pid]
 
     def close(self) -> None:
         try:
