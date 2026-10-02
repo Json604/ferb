@@ -76,7 +76,6 @@ async function ensurePort() {
     setTimeout(ensurePort, retryMs);
     retryMs = Math.min(retryMs * 2, 60000);
   });
-  retryMs = 1000;
   const st = await install(), s = await session();
   await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                         browser: navigator.brave ? "brave" : "chrome", paired: !!st.key,
@@ -85,7 +84,7 @@ async function ensurePort() {
 }
 
 async function onDaemon(m) {
-  if (m.type === "welcome") { gen = m.gen; return; }
+  if (m.type === "welcome") { gen = m.gen; retryMs = 1000; return; }   // backoff resets only once the daemon answered
   if (m.type === "paired" && m.key) {
     await serially(async () => {
       const st = await install();
@@ -120,7 +119,8 @@ async function onCommand(m) {
   let body;
   try {
     if (!handler) throw new Error(`unknown op ${m.op}`);
-    const value = await withTimeout(handler(m.args || {}, m.id), m.timeout_ms || 30000);
+    const value = await withTimeout(handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000 }, m.id),
+                                    m.timeout_ms || 30000);
     body = { id: m.id, gen, status: "ok", value };
   } catch (e) {
     body = { id: m.id, gen, status: "error", error: String((e && e.message) || e).slice(0, 300) };
@@ -312,9 +312,11 @@ const commands = {
     }
     return inFrame(tab_id, frame_id, (g, i, k, t) => window.__ferb.act(g, i, k, t), [snap, el, kind, text ?? null]);
   },
-  async wait({ tab_id, until, value }) {
-    for (;;) {
-      const t = await chrome.tabs.get(tab_id);
+  async wait({ tab_id, until, value, _timeout_ms }) {
+    const deadline = Date.now() + Math.max(250, (_timeout_ms || 30000) - 500);   // answers before the daemon gives up
+    while (Date.now() < deadline) {
+      let t;
+      try { t = await chrome.tabs.get(tab_id); } catch (_) { return { met: false, detail: "tab closed" }; }
       if (until === "load" && t.status === "complete") return { met: true };
       if (until === "url" && (t.url || "").includes(value || "")) return { met: true };
       if (until === "text" && t.status === "complete") {
@@ -323,6 +325,7 @@ const commands = {
       }
       await new Promise((r) => setTimeout(r, 250));
     }
+    return { met: false, detail: "timeout" };
   },
   async account({ tab_id }) { return inFrame(tab_id, 0, () => window.__ferb.account(), []); },
   async screenshot({ tab_id }) {

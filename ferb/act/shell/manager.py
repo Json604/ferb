@@ -43,7 +43,10 @@ class ShellManager:
 
     def _env(self) -> dict[str, str]:
         env = {k: os.environ[k] for k in CLEAN_ENV_KEYS if k in os.environ}
-        env.setdefault("PATH", "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin")
+        # launchd gives the daemon a bare PATH; the owner's tools (brew, node, uv, gh) live in these (audit 2026-10-02)
+        extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", str(Path.home() / ".local" / "bin")]
+        system = env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
+        env["PATH"] = ":".join(dict.fromkeys([e for e in extras if os.path.isdir(e)] + system))
         env["TERM"] = "dumb"
         return env
 
@@ -62,9 +65,11 @@ class ShellManager:
             raise Refused(f"no process {h.id} for this task")
         return hit[0]
 
-    async def read(self, h: ProcHandle, since: int = 0) -> tuple[str, int]:
-        text, offset, _ = self._get(h).read(since)
-        return text, offset
+    async def read(self, h: ProcHandle, since: int = 0, limit: int | None = None) -> tuple[str, int, int]:
+        """(text, the offset after it, total bytes so far): page forward with `since` = the returned offset."""
+        p = self._get(h)
+        text, offset, _ = p.read(since, limit)
+        return text, offset, p.total
 
     async def send(self, h: ProcHandle, data: str) -> None:
         self._get(h).send(data)

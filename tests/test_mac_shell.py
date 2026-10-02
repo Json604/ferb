@@ -204,7 +204,7 @@ async def _expose(d: RunningDaemon, worker: str) -> None:
 
 def test_applescript_stays_inside_one_app() -> None:
     assert applescript.wrap("com.apple.Notes", "get name of every note").startswith('tell application id "com.apple.Notes"')
-    for body in ('do shell script "rm -rf ~"', 'tell application "Finder" to delete every file',
+    for body in ('do shell script "rm -rf ~"', 'do script "rm -rf ~"', 'tell application "Finder" to delete every file',
                  'tell application "System Events" to keystroke "x"', 'run script "beep"',
                  "«event aevtodoc»", "using terms from application \"Mail\"\nend using terms from"):
         with pytest.raises(Refused):

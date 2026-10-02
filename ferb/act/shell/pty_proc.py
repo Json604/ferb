@@ -65,11 +65,14 @@ class PtyProc:
             pass
         self._done.set()
 
-    def read(self, since: int = 0) -> tuple[str, int, bool]:
-        """(text since offset, new offset, whether older output was dropped)."""
+    def read(self, since: int = 0, limit: int | None = None) -> tuple[str, int, bool]:
+        """(text since offset, the offset after it, whether older output was dropped). With `limit`, at most that
+        many bytes: the caller pages forward with the returned offset."""
         start = max(since, self.start_offset)
         chunk = bytes(self.buf[start - self.start_offset:])
-        return chunk.decode(errors="replace"), self.total, since < self.start_offset
+        if limit is not None:
+            chunk = chunk[:limit]
+        return chunk.decode(errors="replace"), start + len(chunk), since < self.start_offset
 
     def send(self, text: str) -> None:
         if self.exit_code is None and self._master >= 0:

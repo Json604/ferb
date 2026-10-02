@@ -166,21 +166,53 @@ def test_typing_and_keys_go_to_the_app_in_the_background(monkeypatch: pytest.Mon
 
 def test_an_app_that_ignores_background_keys_is_brought_forward_once_per_stretch(
         monkeypatch: pytest.MonkeyPatch) -> None:
+    """Typing that never lands goes to the foreground within the same call. Only after BG_MISS_LIMIT such misses in
+    a row is the app remembered as ignoring background keystrokes (audit 2026-10-02: one no-op key used to brand an
+    app foreground-only for the daemon's life). A key with nothing to act on never counts."""
     ax = Ax(takes_background=False, focused="button")
     d, apps, posted = setup(monkeypatch, ax)
     e = ids(d)
 
     async def work() -> None:
-        r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "hi"))
-        assert r.ok and "real input" in r.detail and ax.box == "hi"     # nothing arrived in the background: forward
-        await d.act("WhatsApp", ComputerAction("key", None, "tab"))      # remembered: straight to the foreground
+        for _ in range(drv.BG_MISS_LIMIT):
+            r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "hi"))
+            assert r.ok and "real input" in r.detail                         # background first, then forward
+        assert d._background_ok[CHAT] is False                               # remembered now
+        r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "!"))
+        assert r.ok and "real input" in r.detail
+        assert posted[-1] == "type '!' foreground" and posted[-2] != "type '!' to pid"   # straight to the front
         await d.act("WhatsApp", ComputerAction("key", None, "tab"))
-        assert apps.activated == [CHAT]                                  # one switch for the whole stretch
+        assert apps.activated == [CHAT]                                      # one switch for the whole stretch
         d.restore_owner()
     asyncio.run(work())
-    assert apps.activated == [CHAT, "com.microsoft.VSCode"]              # and one switch back
-    assert posted == ["type 'hi' to pid", "guard on", "type 'hi' foreground", "key tab foreground",
-                      "key tab foreground", "guard off"]                 # the guard covers the whole window
+    assert apps.activated == [CHAT, "com.microsoft.VSCode"]                  # and one switch back
+    assert posted[0] == "type 'hi' to pid" and posted[1] == "guard on" and posted[-1] == "guard off"
+
+
+def test_a_key_with_no_visible_effect_never_brands_the_app_foreground_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    ax = Ax(takes_background=False, focused="button")                        # escape changes nothing here
+    d, apps, posted = setup(monkeypatch, ax)
+    r = asyncio.run(d.act("WhatsApp", ComputerAction("key", None, "escape")))
+    assert r.ok and "nothing visibly changed" in r.detail
+    assert CHAT not in d._background_ok and apps.activated == []             # not remembered, not brought forward
+
+
+def test_a_later_background_success_forgets_earlier_misses(monkeypatch: pytest.MonkeyPatch) -> None:
+    ax = Ax(takes_background=False, focused="button")
+    d, apps, posted = setup(monkeypatch, ax)
+    e = ids(d)
+
+    async def work() -> None:
+        for _ in range(drv.BG_MISS_LIMIT):
+            await d.act("WhatsApp", ComputerAction("type", e["Message"], "hi"))
+        assert d._background_ok[CHAT] is False
+        ax.takes_background = True                                            # the app takes them again (a dialog went)
+        d._background_ok[CHAT] = True                                         # e.g. a probe or a later success
+        d._bg_success(CHAT)
+        r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "yo"))
+        assert "in the background" in r.detail and d._bg_misses[CHAT] == 0
+        d.restore_owner()
+    asyncio.run(work())
 
 
 def test_the_owners_app_comes_back_after_the_stretch_goes_idle(monkeypatch: pytest.MonkeyPatch) -> None:

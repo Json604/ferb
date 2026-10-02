@@ -865,7 +865,11 @@ class Supervisor(WorkerRuns):
         judged: list[tuple[int, Condition]] = []
         for i, c in enumerate(s.success_conditions):
             if self.checks is not None and self.checks.code_checkable(c, task.id):
-                results.append(await self.checks.run(i, c, task.id, ctx, tree.fields))
+                r = await self.checks.run(i, c, task.id, ctx, tree.fields)
+                if r.met is None:                     # code couldn't decide: a fresh read decides, not a failure
+                    judged.append((i, c))
+                else:
+                    results.append(r)
             else:
                 judged.append((i, c))
         if judged:
@@ -904,9 +908,12 @@ class Supervisor(WorkerRuns):
             status, summary = "failed", tree.stop
         elif any(o.status == "needs_user" for o in outs.values()):
             status, summary = "needs_user", "; ".join(o.summary for o in outs.values() if o.status == "needs_user")
-        elif all_done and results and not verified:
+        elif all_done and any(r.met is False for r in results):
             status, summary = "failed", "the work finished but verification didn't confirm it: " + "; ".join(
-                f"{r.text} ({r.evidence})" for r in results if r.met is not True)
+                f"{r.text} ({r.evidence})" for r in results if r.met is False)
+        elif all_done and results and not verified:           # only undecided checks: done, said plainly
+            status, summary = "done", "; ".join(o.summary for o in outs.values()) + " (couldn't confirm: " + \
+                "; ".join(f"{r.text} ({r.evidence})" for r in results if r.met is None) + ")"
         elif all_done:
             status, summary = "done", "; ".join(o.summary for o in outs.values())
         else:

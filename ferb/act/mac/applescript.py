@@ -10,6 +10,7 @@ from ferb.core.errors import Refused
 
 FORBIDDEN = [
     (re.compile(r"\bdo\s+shell\s+script\b", re.I), "shell commands (use the shell tool)"),
+    (re.compile(r"\bdo\s+script\b", re.I), "running commands through Terminal / scripts (`do script`)"),
     (re.compile(r"\b(run|load|store)\s+script\b", re.I), "running other scripts"),
     (re.compile(r"\btell\b", re.I), "addressing other apps"),
     (re.compile(r"\bSystem Events\b", re.I), "System Events (it reaches every app)"),

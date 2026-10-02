@@ -73,7 +73,9 @@ class Checks:
             return ConditionResult(i, c.text, found, "code", f"{p} {'contains' if found else 'does not contain'} "
                                                            f"the expected text")
         if k.kind == "ledger_done":
-            rows = [r for r in self.ledger.for_task(task_id) if not k.expected or r.intent.capability == k.expected]
+            # `expected` is ignored: the planner writes free text there ("Spotify like current track") and the model
+            # never sees the ledger's capability names, so matching on it marked done work as failed (audit 2026-10-02)
+            rows = self.ledger.for_task(task_id)
             states = sorted({r.intent.state for r in rows})
             met: bool | None = bool(rows) and states == ["done"]
             if "unknown" in states:

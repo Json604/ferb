@@ -63,15 +63,19 @@ class ShellRun(_Base):
         h = await self.shells.start(["/bin/sh", "-c", cmd], cwd, ctx.task_id, bool(getattr(args, "background")),
                                     network)
         code = await self.shells.wait(h, float(getattr(args, "timeout_s")))
-        text, offset = await self.shells.read(h)
-        out = {"id": h.id, "running": code is None, "exit_code": code, "output": text[-TAIL:], "offset": offset}
+        text, offset, total = await self.shells.read(h)
+        out = {"id": h.id, "running": code is None, "exit_code": code, "output": text[-TAIL:], "offset": offset,
+               "total": total}
         if len(text) > TAIL:
-            out["output_truncated"] = True
+            out["output_truncated"] = True              # the end is shown; the whole output pages from the start
+            out["next"] = "shell_read with since=0 reads from the beginning, a page at a time"
+
         return ToolResult(out, is_error=code not in (None, 0), read_sources=_untrusted(network, cmd))
 
 
 class ShellRead(_Base):
-    name, description = "shell.read", "Read a running (or finished) command's output since an offset."
+    name, description = ("shell.read", "Read a command's output from a byte offset, a page at a time: start at "
+                         "since=0 and continue from the returned offset while more is true.")
     risk, reversible = RiskLevel.LOW, True
 
     class Input(BaseModel):
@@ -83,9 +87,10 @@ class ShellRead(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = self.shells.handle(str(getattr(args, "id")), ctx.task_id)
-        text, offset = await self.shells.read(h, int(getattr(args, "since")))
+        text, offset, total = await self.shells.read(h, int(getattr(args, "since")), TAIL)
         info = self.shells.info(h)
-        return ToolResult({"output": text[-TAIL:], "offset": offset},
+        return ToolResult({"output": text, "offset": offset, "total": total, "more": offset < total,
+                           "running": info.running},
                           read_sources=_untrusted(info.network, info.command))
 
 

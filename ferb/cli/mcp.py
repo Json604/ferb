@@ -29,6 +29,12 @@ SHIM_TIMEOUT_S = 3600.0
 class Shim:
     def __init__(self) -> None:
         token = os.environ.get("FERB_RUN_TOKEN")
+        token_file = os.environ.get("FERB_RUN_TOKEN_FILE")
+        if not token and token_file:                  # Codex: the token lives in a 0600 file, never in argv
+            try:
+                token = open(token_file).read().strip()
+            except OSError:
+                token = None
         if not token:
             raise SystemExit("ferb mcp: FERB_RUN_TOKEN is not set (only runtimes started by FERB may use this)")
         self._token = token

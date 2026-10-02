@@ -31,7 +31,7 @@ from ferb.core.types import RunHandle, RuntimeEvent, RuntimeFeatures, Task
 from ferb.runtimes.tooltrace import tools_in
 
 CODEX_VERSION = "0.157.1"
-MODEL = "gpt-6-astra"
+MODEL = "gpt-5.5"
 _NATIVE_BIN = Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
 DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "multi_agent_v2", "apps", "plugins",
             "remote_plugin", "tool_suggest", "skill_search", "hooks", "browser_use", "browser_use_external",
@@ -112,7 +112,7 @@ class CodexRuntime:
         self.shim_cmd, self.output_schema, self.model, self.timeout_s = shim_cmd, output_schema, model, timeout_s
         self.allowed = BASE_TOOLS | {f"mcp__ferb.{mcp_name(n)}" for n in (tool_names or [])}
 
-    def _cmd(self, schema_file: Path | None, run_token: str, instructions: Path | None = None) -> list[str]:
+    def _cmd(self, schema_file: Path | None, token_file: Path | None, instructions: Path | None = None) -> list[str]:
         cmd = [str(self.binary), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config",
                "--ignore-rules", "--strict-config", "-s", "read-only", "-C", str(self.workdir), "-m", self.model,
                "-c", 'approval_policy="never"', "-c", 'web_search="disabled"']
@@ -123,7 +123,11 @@ class CodexRuntime:
         if self.mode == "worker":
             if not self.shim_cmd:
                 raise ValueError("worker mode needs the ferb mcp shim")
-            env = "{" + ",".join(f'{k}="{v}"' for k, v in {"FERB_RUN_TOKEN": run_token,
+            if token_file is None:
+                raise ValueError("worker mode needs a run token file")
+            # the token itself never goes on the command line (visible in `ps` to every local process): the shim
+            # reads it from a file only the owner can read (audit 2026-10-02)
+            env = "{" + ",".join(f'{k}="{v}"' for k, v in {"FERB_RUN_TOKEN_FILE": str(token_file),
                                                             "FERB_HOME": str(self.ferb_home)}.items()) + "}"
             cmd += ["-c", f"mcp_servers.ferb.command={json.dumps(self.shim_cmd[0])}",
                     "-c", f"mcp_servers.ferb.args={json.dumps(self.shim_cmd[1:])}",
@@ -146,6 +150,15 @@ class CodexRuntime:
             with os.fdopen(fd, "w") as f:
                 json.dump(self.output_schema, f)
             schema_file = Path(name)
+        token_file = None
+        if self.mode == "worker":
+            run_dir = self.ferb_home / "run"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            fd, tname = tempfile.mkstemp(prefix="token-", dir=run_dir)
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(run_token)
+            token_file = Path(tname)
         instructions = None
         if self.mode == "supervisor" and system:               # a stable prefix: FERB's instructions, then the context
             fd, iname = tempfile.mkstemp(prefix="ferb-instructions-", suffix=".md")
@@ -157,15 +170,15 @@ class CodexRuntime:
         if home is not None:
             env["CODEX_HOME"] = str(home)                       # the owner's personal Codex setup never loads
         proc = await asyncio.create_subprocess_exec(
-            *self._cmd(schema_file, run_token, instructions), "-", stdin=asyncio.subprocess.PIPE,
+            *self._cmd(schema_file, token_file, instructions), "-", stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, limit=64 * 1024 * 1024)
         assert proc.stdin is not None
         proc.stdin.write((context if instructions is not None else f"{system}\n\n{context}").encode())
         await proc.stdin.drain()
         proc.stdin.close()
         return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
-                         {"proc": proc, "schema_file": schema_file, "instructions": instructions, "seen": set(),
-                          "violation": None})
+                         {"proc": proc, "schema_file": schema_file, "instructions": instructions,
+                          "token_file": token_file, "seen": set(), "violation": None})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         proc: asyncio.subprocess.Process = run.state["proc"]
@@ -206,7 +219,7 @@ class CodexRuntime:
             yield RuntimeEvent("error", {"message": f"timed out after {self.timeout_s:.0f}s"})
             return
         finally:
-            for key in ("schema_file", "instructions"):
+            for key in ("schema_file", "instructions", "token_file"):
                 if run.state.get(key):
                     Path(run.state[key]).unlink(missing_ok=True)
         if run.state["violation"]:

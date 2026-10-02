@@ -31,6 +31,8 @@ PASSWORD_REFUSED = "that window shows a password field; FERB doesn't capture it 
 
 
 STRETCH_IDLE_S = 3.0          # the owner's app comes back after this long without foreground work in FERB's app
+BG_MISS_LIMIT = 3             # typing that never lands this many times in a row: the app is remembered as
+                              # ignoring background keystrokes (any later success forgets that; audit 2026-10-02)
 SETTLE_S = 0.4                # after background keystrokes, before checking what changed
 FOCUS_ELSEWHERE = ("something else in the app has the keyboard focus (a dialog or sheet may be open), so nothing was "
                    "typed; take a new snapshot")
@@ -77,6 +79,7 @@ class MacComputerDriver:
         self.communication: Callable[[str], bool] = lambda bundle: False  # messaging / calling apps (9.3)
         self.guard: Any = _NoGuard()                    # holds back the owner's input while FERB's app is forward
         self._background_ok: dict[str, bool] = {}       # does this app take keystrokes in the background?
+        self._bg_misses: dict[str, int] = {}            # typing attempts in a row that never arrived
         self._forward_app: str | None = None            # the app FERB brought forward, while a stretch lasts
         self._owner_app: Any = None                     # the app the owner was in, to put back
         self._restore_at: asyncio.TimerHandle | None = None
@@ -341,7 +344,7 @@ class MacComputerDriver:
             await self.input.to_process(key_steps(combo, a.pid), holder)
             await asyncio.sleep(SETTLE_S)
             if await self._signature(a) != before:
-                self._background_ok[a.bundle_id] = True
+                self._bg_success(a.bundle_id)
                 return ActionResult(True, f"{combo} (in the background)")
             if self._background_ok.get(a.bundle_id):            # the app takes them; this key just showed nothing
                 return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
@@ -350,10 +353,20 @@ class MacComputerDriver:
                 await asyncio.sleep(SETTLE_S + 0.4)
                 if await self._signature(a) != before:
                     return ActionResult(True, f"{combo} (in the background, Accessibility keyboard)")
-            self._background_ok[a.bundle_id] = False
-            return ActionResult(False, f"{combo} went to {a.name} in the background but nothing changed; if it "
-                                       "should have, do it again (FERB will bring the app forward this time)")
+            # A key with nothing to act on (escape with no dialog, cmd+s on a saved document) changes nothing and
+            # proves nothing: it never marks the app as ignoring background input (audit 2026-10-02).
+            return ActionResult(True, f"{combo} sent to {a.name} in the background; nothing visibly changed (take a "
+                                      "snapshot to check)")
         return await self._real(a, key_steps(combo), holder, combo, task)
+
+    def _bg_success(self, bundle_id: str) -> None:
+        self._background_ok[bundle_id] = True
+        self._bg_misses[bundle_id] = 0
+
+    def _bg_miss(self, bundle_id: str) -> None:
+        self._bg_misses[bundle_id] = self._bg_misses.get(bundle_id, 0) + 1
+        if self._bg_misses[bundle_id] >= BG_MISS_LIMIT:
+            self._background_ok[bundle_id] = False
 
     async def _type(self, a: Any, n: Any, text: str, holder: str, task: str | None) -> ActionResult:
         """Keystrokes go to the app's keyboard focus: typed only once that is the box FERB means (a Save sheet or a
@@ -368,11 +381,12 @@ class MacComputerDriver:
             after = await asyncio.to_thread(self.ax.value, n.ref)
             landed = (after != before) if before is not None or after is not None else await self._signature(a) != sig
             if landed:
-                self._background_ok[a.bundle_id] = True
+                self._bg_success(a.bundle_id)
                 return ActionResult(True, "typed (in the background)")
-            self._background_ok[a.bundle_id] = False          # nothing arrived: try the Accessibility keyboard
+            self._bg_miss(a.bundle_id)                        # nothing arrived: try the Accessibility keyboard
 
         if await self._ax_type(a, n, text):
+            self._bg_success(a.bundle_id)
             return ActionResult(True, "typed (in the background, Accessibility keyboard)")
         if n.role not in ("textbox", "searchbox"):
             # Not a real text field (WhatsApp's search box reports itself as an unlabeled button and only searches on
