@@ -50,16 +50,16 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `main.py` | The daemon itself (about 2,000 lines). Startup and shutdown; every RPC method (`chat.send`, `trace.get`, `voice.switch`, `memory.*`, …); wiring of the supervisor, gateway, timers, watchers, voice, browsers and Jev. |
 | `server.py` | Owner-only Unix socket, newline-delimited JSON-RPC. The first message must be `auth.hello` with a role. |
 | `auth.py` | Connection roles (cli, mcp_shim, native_host, voice), the methods each role may call, and run tokens for workers. |
-| `gateway.py` | The tool gateway. Every model action reaches the Mac only through here: token → scopes → reader rules → intent / route checks → policy engine → approvals / undo window → locks → the tool → redaction → trace span. |
+| `gateway.py` | The tool gateway. Every model action reaches the Mac only through here: token → scopes → the effect gate (declared effect raised to the control's floor) → contact and duplicate-send checks → policy engine → approvals / undo window → locks → the tool → redaction → trace span. Also answers `owner.ask`. |
 
 ### `orchestrator/`: turning a chat message into work
 
 | File | What it is |
 |---|---|
-| `supervisor.py` | One chat turn: reply, clarify or plan. Runs a plan as a small task graph, then the checks, then FERB's answer to the owner. Also reminders and schedules from chat. |
+| `supervisor.py` | One chat turn: reply, clarify or task. Runs one worker per request with every tool its identity allows, then the checks; the worker's summary is FERB's answer. Also reminders and schedules from chat. |
 | `worker.py` | Runs one worker: issues its run token, starts the runtime, watches heartbeats and runaway guards, parses its typed result. Mixed into the supervisor. |
-| `dag.py` | Checks a plan in code before anything runs: ids, dependencies, no cycles, fan-out ≤ 6, depth ≤ 2, scope rules, every target in the owner's words. Also tidies small mistakes. |
-| `schemas.py` | JSON schemas and pydantic models for every model output (supervisor outcome, plan, reader fields, worker result, verifier, answer). |
+| `dag.py` | The identity floor before anything runs: a `ferb` task never gets owner scopes or folders; the worker's scopes are its identity's, minus what isn't usable now. |
+| `schemas.py` | JSON schemas and pydantic models for every model output (supervisor outcome, task with targets and conditions, worker result, verifier, reconcile). |
 | `availability.py` | Builds the planner's "what workers can do right now" list in code from what's actually connected and permitted. |
 | `guards.py` | Runaway guards: the same failing call 3×, loops between steps, and tree caps (4 h, 50 worker runs, 1,000 tool calls). No token or dollar budgets. |
 | `ledger.py` | Action ledger: intended → executing → done / failed / unknown. Prevents a lost acknowledgement from becoming a second send. |
@@ -67,10 +67,9 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `tree.py` | The running task tree, persisted, for the gateway, `ferb trace` and restarts. |
 | `schedules.py` | Scheduled and recurring tasks: rules, missed-run handling, pausing after three failures. |
 | `stop.py` | Emergency stop: revoke tokens, block actions, cancel held sends, run stop hooks. |
-| `prompts/supervisor.md` | Instructions for the planner (the orchestrator model). |
-| `prompts/reader.md` | Instructions for read-only workers (also used by verifiers and reconcilers). |
-| `prompts/worker.md` | Instructions for actor workers. |
-| `prompts/answer.md` | Instructions for writing FERB's final answer from what the workers found. |
+| `prompts/supervisor.md` | Instructions for the supervisor model: reply, clarify or task. |
+| `prompts/worker.md` | Instructions for the one worker: what it can do, the effect classes, `owner_ask`, the report that is the owner's answer. |
+| `prompts/verifier.md` | Instructions for the read-only checks (verifiers and reconcilers). |
 
 ### `runtimes/`: the model processes FERB starts
 
@@ -85,18 +84,17 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 | File | What it is |
 |---|---|
-| `engine.py` | The fixed order of checks: stop → identity and scopes → exposure → intent → data flow → hard floor / autonomy → undo window. The first check that decides wins. |
+| `engine.py` | The fixed order of checks: stop → identity and scopes → exposure → navigate runs → data flow → the effect gate (send asks once per request / effect / target unless the owner named it; pay / destroy ask every time) → undo window. The first check that decides wins. |
 | `rules.py` | Action kinds (`Kind`), the `REVERSIBLE` set, scopes, identity rules, hard floor, destructive patterns. |
-| `intent.py` | The request's intent, recorded once at plan time from the owner's words. Checks each action against it. |
-| `names.py` | App and site names the owner uses ("Brave", "slack") count as targets. |
-| `spelling.py` | One close misspelling of an app or service name is corrected and said; several are asked about. Word forms count as English. |
+| `effects.py` | The effect classes (navigate / edit / send / pay / destroy), the floor each kind is at least, and the one floor word list for control labels (Send / Pay / Delete …). |
+| `targets.py` | What a request is about: the owner's own words and the targets the model understood; whether the owner named a target; a scheduled run's targets. |
 | `exposure.py` | A worker that read untrusted content loses shell, AppleScript and file-write for the rest of its run. |
-| `taint.py` | Labels data read from the owner's accounts, so it can be followed into later actions. |
-| `dataflow.py` | Owner data may only go to destinations the request involves. |
-| `approvals.py` | Approval questions to the owner, and the undo window for sends. |
+| `taint.py` | Labels a worker that read the owner's account data, so what it then types or sends is checked. |
+| `dataflow.py` | Owner data may only go to a target of the request, something the owner named, or something they approved in an ask. |
+| `approvals.py` | Approval questions to the owner (yes / no, a numbered choice, or a worker's question with free-text answers), and the undo window for sends. |
 | `autonomy.py` | When FERB asks: rarely. The owner's instruction is the approval. |
 | `contacts.py` | Never guess between contacts: checks the contact against what was on screen, and asks "Which Rahul?" when needed. |
-| `services.py` | How to reach a named service (its app or a website in a profile), decided in code from usage. |
+| `services.py` | The service catalogue (apps and websites of common services) for the environment line, naming checks and the messaging / calling apps. Decides no route. |
 
 ### `sanitize/`
 
@@ -109,6 +107,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 | File | What it is |
 |---|---|
+| `ask.py` | `owner.ask`: a worker's question to the owner, answered in chat (every identity, no scopes; the gateway answers it). |
 | `locks.py` | Resource locks (tab, account, file, app), always taken in one fixed order. |
 | `gui_lock.py` | One real-input actor at a time. |
 | **`act/mac/`** | **Controlling Mac apps** |
