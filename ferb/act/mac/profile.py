@@ -28,6 +28,7 @@ class Mechanism:
     landed: int = 0
     failed: int = 0
     streak: int = 0              # failures in a row since the last success
+    attempted_at: str | None = None
     last: str | None = None      # "landed" / "failed"
 
 
@@ -71,13 +72,20 @@ class Profiles:
     def skips(self, bundle: str, mechanism: str) -> bool:
         """Failed MISS_LIMIT times in a row with no success since: not worth another try until something changes."""
         m = self.get(bundle).mechanisms.get(mechanism)
-        return bool(m and m.streak >= MISS_LIMIT)
+        if not m or m.streak < MISS_LIMIT or not m.attempted_at:
+            return False
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(m.attempted_at)).total_seconds()
+        except (ValueError, TypeError):
+            return False
+        return age < 3600
 
     # ---- writing
 
     def record(self, bundle: str, mechanism: str, landed: bool) -> None:
         p = self.get(bundle)
         m = p.mech(mechanism)
+        m.attempted_at = _now()
         if landed:
             m.landed, m.streak, m.last = m.landed + 1, 0, "landed"
         else:
@@ -123,7 +131,7 @@ class Profiles:
             return None
         try:
             raw = json.loads(path.read_text())
-            mechs = {k: Mechanism(**{f: int(v) if f != "last" else v for f, v in d.items() if f in Mechanism.__dataclass_fields__})
+            mechs = {k: Mechanism(**{f: int(v) if f in {"landed", "failed", "streak"} else v for f, v in d.items() if f in Mechanism.__dataclass_fields__})
                      for k, d in (raw.get("mechanisms") or {}).items()}
             return AppProfile(bundle, mechs, str(raw.get("updated") or ""), raw.get("seeded_from"))
         except (OSError, ValueError, TypeError):

@@ -18,7 +18,7 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
 from ferb.act.browser import accounts
@@ -34,7 +34,7 @@ from ferb.identity.seal import seal, seal_key, unseal
 from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
 from ferb.core.errors import DriverError, Refused, StaleRef
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
-                             PageSnapshot, SecretRef, SecretSpec, TabRef, WaitCondition)
+                             PageSnapshot, SecretRef, SecretSpec, TabRef, ToolContext, WaitCondition)
 from ferb.orchestrator.ledger import Ledger
 
 Publish = Callable[[str, dict[str, Any]], None]
@@ -94,6 +94,9 @@ class Bridge:
         await conn.writer.drain()
         try:
             r = await asyncio.wait_for(fut, timeout + 5)
+        except asyncio.CancelledError:
+            self.lost.add(cid)
+            raise
         except asyncio.TimeoutError:
             self.lost.add(cid)                            # the next hello's seen / owned ids settle it (never resent)
             raise OutcomeUnknown(f"{op} timed out in {self.name}") from None
@@ -105,6 +108,9 @@ class Bridge:
             raise StaleRef("the browser reconnected; take a new snapshot")
         if r.status == "duplicate":
             raise DriverError(f"{op} was already sent once; not repeating it")
+        if r.outcome == "unknown" or r.error == "timeout" or str(r.error or "").startswith("detached:"):
+            self.lost.add(cid)
+            raise OutcomeUnknown(f"{op}: {r.error}; outcome unknown")
         raise DriverError(r.error or f"{op} failed")
 
     def attach(self, conn: _Conn, hello: Hello) -> None:
@@ -172,6 +178,8 @@ class Bridge:
                 continue
             if seen.get(cid) == "done" or cid in owned:
                 self.ledger.reconcile(cid, "done", [f"{self.name} reported it done after reconnecting"])
+            elif seen.get(cid) == "failed":
+                self.ledger.reconcile(cid, "failed", [f"{self.name} reported failure after reconnecting"])
             elif cid not in seen:
                 self.ledger.reconcile(cid, "failed", [f"{self.name} never received it"])
             else:
@@ -372,6 +380,7 @@ class _Tab:
     owner: str | None
     url: str
     snap_gen: int = 0
+    visual: tuple[str, int, int, float, int, int] | None = None
     snap_nav: int = -1
     attached: bool = False          # the owner's own tab, taken over for a task: forgotten after, never closed
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
@@ -485,16 +494,19 @@ class _TabDriver:
         scrollers: list[dict[str, Any]] = []
         for f in v["frames"]:
             fid = int(f["frame_id"])
+            truncated = truncated or bool(f.get("truncated"))
             for raw in f.get("elements", []):
                 eid = f"s{gen}e{len(elements) + 1}"
                 elements[eid] = (fid, gen, int(raw["id"]), page_element(eid, str(fid), raw))
             if fid == 0:
                 text, title, url = f.get("text", ""), f.get("title", ""), f.get("url", url)
-                truncated = bool(f.get("truncated"))
                 scroll = f.get("scroll") or None
             for sc in f.get("scrollers", []):
                 scrollers.append({k: sc[k] for k in ("id", "label", "y", "height", "viewport_h", "at_end") if k in sc}
                                  | ({"frame": fid} if fid else {}))
+        child_text = [str(f.get("text", "")) for f in v["frames"] if int(f["frame_id"]) != 0 and f.get("text")]
+        if child_text:
+            text = (text[:4000] + "\n[Embedded frames]\n" + "\n".join(child_text))[:8000]
         dialogs = [f"{d.get('type')}: {str(d.get('message') or '')[:200]} ({d.get('handled')})"
                    for d in v.get("dialogs", []) if isinstance(d, dict)]
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
@@ -578,7 +590,7 @@ class _TabDriver:
             if str(e).startswith("detached:"):
                 raise OutcomeUnknown(self._detached_msg(str(e)[9:])) from None
             if "unknown op" in str(e):                    # belt and braces: hello already refuses old extensions
-                raise Refused("the FERB extension in that browser is older than FERB: reload it (0.7.0 or later)") \
+                raise Refused("the FERB extension in that browser is older than FERB: reload it (0.8.0 or later)") \
                     from None
             raise
         out: dict[str, Any] = {"y": int(v.get("y", 0)), "page_height": int(v.get("height", 0)),
@@ -610,6 +622,39 @@ class _TabDriver:
         for i in range(int(v.get("parts", 0))):
             parts.append(str((await t.bridge.call("screenshot_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
         return base64.b64decode("".join(parts))
+
+    async def visual_snapshot(self, tab: TabRef) -> tuple[str, bytes, int, int]:
+        import Quartz
+        snapshot = await self.snapshot(tab)
+        if snapshot.truncated or any(e.secret for e in snapshot.elements):
+            raise Refused("cannot capture a page with sensitive fields or an incomplete field inventory")
+        jpeg = await self.screenshot(tab)
+        image = Quartz.CGImageSourceCreateWithData(jpeg, None)
+        props = Quartz.CGImageSourceCopyPropertiesAtIndex(image, 0, None)
+        width, height = int(props["PixelWidth"]), int(props["PixelHeight"])
+        t = self._tab(tab)
+        shot = "bs-" + secrets.token_hex(8)
+        t.visual = (shot, t.snap_gen, t.snap_nav, asyncio.get_running_loop().time(), width, height)
+        return shot, jpeg, width, height
+
+    async def point(self, tab: TabRef, shot: str, x: float, y: float) -> PageElement:
+        t = self._tab(tab)
+        v = t.visual
+        if not v or v[0] != shot or v[1] != t.snap_gen or v[2] != t.bridge.navs.get(t.chrome_id, 0) \
+                or asyncio.get_running_loop().time() - v[3] > 30:
+            raise StaleRef("the screenshot is stale; take another browser screenshot")
+        if not (0 <= x < v[4] and 0 <= y < v[5]):
+            raise Refused("point outside the screenshot")
+        raw = await t.bridge.call("point", {"tab_id": t.chrome_id, "snap": t.snap_gen, "x": x, "y": y,
+                                            "image_width": v[4], "image_height": v[5]})
+        if raw.get("error"):
+            raise StaleRef(str(raw["error"]))
+        local, frame = int(raw["element"]["id"]), int(raw["frame_id"])
+        eid = f"s{t.snap_gen}e{len(t.elements) + 1}"
+        info = page_element(eid, str(frame), raw["element"])
+        t.elements[eid] = (frame, t.snap_gen, local, info)
+        t.visual = None                  # resolve once; actions still pass through normal policy and hit testing
+        return info
 
     def claim(self, tab: TabRef, owner: str) -> None:
         self._tab(tab).owner = owner
@@ -685,6 +730,8 @@ class Router(_TabDriver):
         # the browser / profile the owner named for this task (daemon-set; None: they didn't name one)
         self.named_for: Callable[[str], Any] | None = None
         self.resolver = resolver
+        self.ask_code: Callable[[ToolContext, str], Awaitable[str | None]] | None = None
+        self.add_secret_value: Callable[[str], None] = lambda value: None
         self.secrets: Secrets = _NoSecrets()
 
     jev: Any = None                                    # browser.profile_match (build step 13): a suggestion only
@@ -827,6 +874,34 @@ class Router(_TabDriver):
             return None
         p = next((p for p in self.profiles() if (p.browser, p.folder) == (t.ref.browser, t.ref.profile)), None)
         return t.ref.browser, t.ref.profile, p.email if p else ""
+
+    async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:
+        t, frame, snap, local, info = self._resolve(el)
+        self.owned_by(el.tab.tab_id, ctx.task_id)
+        if not info.secret or info.input_type == "password":
+            raise Refused("select a visible verification-code field, not a password or ordinary text field")
+        if self.ask_code is None:
+            raise Refused("hidden login-code input is unavailable")
+        v = await t.bridge.call("frame_origin", {"tab_id": t.chrome_id, "frame_id": frame}, timeout=10)
+        origin = normalize_origin(str(v.get("origin") or ""))
+        if not origin.startswith("https://"):
+            raise Refused("login codes require an HTTPS destination")
+        value = await self.ask_code(ctx, origin)
+        if not value:
+            return ActionResult(False, "login code declined")
+        try:
+            self._resolve(el)                     # same generation, element and tab after waiting for the owner
+            self.add_secret_value(value)
+            key = self.hub.pairings.key(t.bridge.binding.install_id)
+            if key is None:
+                raise Refused("the browser is no longer paired")
+            cid = ctx.intent_id or "f-" + secrets.token_hex(8)
+            sealed = seal(seal_key(key), value, cid, origin)
+            result = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap,
+                                                 "el": local, "sealed": sealed, "origin": origin, "code_only": True}, timeout=15, cid=cid)
+            return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
+        finally:
+            del value
 
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         raise Refused("FERB's secrets are never used in the owner's profiles")

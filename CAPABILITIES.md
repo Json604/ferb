@@ -1,4 +1,4 @@
-# What FERB can do (0.18.0)
+# What FERB can do (0.19.0)
 
 A checklist for trying FERB out. Each row gives an example request, what it needs, how it is verified, and known
 limits. Every row was checked against the code or the recorded runs on 2026-10-02.
@@ -12,7 +12,7 @@ limits. Every row was checked against the code or the recorded runs on 2026-10-0
 
 **Needs**
 - **Mac** = Accessibility granted to FERB's interpreter. **Screen** = Screen Recording.
-- **Paired** = a paired, open Chrome/Brave profile with the FERB extension (0.7.0).
+- **Paired** = a paired Chrome/Brave profile (connected or wakeable) with the FERB extension (0.8.0).
 - **FERB's browser** = FERB's own Chrome profile (`ferb setup --identity`), paired.
 - **Folder** = you said yes to FERB using that folder (asked once).
 
@@ -68,19 +68,20 @@ floor: a `ferb` task never gets your browsers, Mac or folders. The profile you n
 | Background by construction | any browser task | Paired | Owner-verified run (`ferb watch` B1–B4) + real test (`test_browser_lab_real`: throwaway Chrome, frontmost app never changed) + offline (`test_browser_background`) | One FERB window per profile, born minimized and kept; task tabs never active; a debugger session attached on a tab's first action and kept for its life; FERB never un-minimizes or focuses its window |
 | Click, type, press, hover with real input | `search for 'standing desk' on <site>` | Paired | Owner-verified run (`ferb watch` B5–B7) + real test (`test_browser_lab_real`) | Input is trusted (debugger-dispatched) by default; `page_mode=true` sends scripted events; `<select>` and scroll are page mode; password / code fields are never typed into |
 | Scroll the page or one container | `keep scrolling the comments` | Paired | Real test (`test_browser_lab_real`); offline | A real wheel event at the scroller's centre; snapshots list `scrollers` with position and `at_end` |
-| Snapshots with viewport semantics | (automatic) | Paired | Offline test (`test_browser_background`) | `in_view`, `offscreen`, `occluded`, `container`, states; open shadow roots walked; iframe rects composed; an Accessibility-tree fallback when the DOM walk finds almost nothing; 400 elements, in-view first |
+| Snapshots with viewport semantics | (automatic) | Paired | Offline test (`test_browser_background`) | `in_view`, `offscreen`, `occluded`, `container`, states; open shadow roots walked; iframe rects composed; Accessibility-first roles, names and ordering, with DOM-backed identities and redacted field metadata; 400 elements, in-view first |
+| Owner login codes | `browser.login_code` | Paired, interactive CLI | Offline integration (`test_owner_login`, `test_chat_cli`); real site unverified | Hidden input, exact HTTPS frame origin and sensitive non-password field; sealed fill; no code in model results or database logs |
 | JavaScript dialogs | a confirm after a click | Paired | Real test (`test_browser_lab_real`); offline | Dismissed by the extension unless the act declared `expect_dialog`; `beforeunload` accepted only while FERB leaves the page; reported with the next snapshot |
 | Uploads | `attach report.pdf to the form` | Paired | Real test (`test_browser_lab_real`); offline | `browser.act upload` with absolute paths of existing files; top frame only |
-| Screenshots of a background tab (driver only) | – | Paired | Real test (`test_browser_lab_real`) | JPEG, fetched in parts under the native-messaging limit; no registered worker tool yet |
+| Screenshots and visual target resolution | `browser.screenshot`, `browser.point` | Paired | Real test (`test_browser_lab_real`) | Exact task-tab JPEG; point returns a normal element id for the policy-gated act tool. Sensitive/incomplete inventories refuse capture |
 | Choose the profile when you didn't name one | `check my email` | Paired | Offline test (`test_ext_bridge`) | Open tab → your trail → default browser → ask |
-| The profile you name, and only that one | `open my school gmail in chrome …` | Paired | Owner-verified run (0.12.0) + offline (`test_named_browser`) | Not connected → FERB says why and how (`ferb browsers pair`), never another browser |
+| The profile you name, and only that one | `open my school gmail in chrome …` | Paired | Owner-verified run (0.12.0) + offline (`test_named_browser`) | Paired but disconnected → the wake service is tried; an unavailable named profile never silently becomes another profile |
 | Install + pair the extension in a profile | `ferb browsers pair school` | Chrome/Brave | Offline test (`test_named_browser`) | Load unpacked by hand; FERB opens the page, copies the path, waits, pairs |
 | Wake a browser without moving you | a browser task with Chrome closed | Paired | Owner-verified run (spike 19, 0.11.0) | `open -g --no-startup-window`, then a wake page; if a browser still jumps forward, your app is put back |
 | Use a tab you already have open | `in my brave, keep scrolling the current youtube tab` | Paired | Real test (`test_tabs_real`, needs a "FERB Test" profile) | FERB lets go afterwards and never closes it; its real viewport is kept |
 | Account check before consequential actions | a send where two accounts are signed in | Paired | Offline test (`test_ext_bridge` 21.12) | Extractors for Gmail and YouTube; other sites ask once per site + profile |
 | Calls in web chat, contacts checked | `video call Rahul` | Paired | Real test (`test_contacts_real`, local fake chat page) | The worker sometimes stops to ask instead of letting FERB ask |
 | Account and security pages always ask | `turn on 2FA in <site> settings` | Paired | Offline test (`test_ux`) | Every non-reversible action there is `destroy` |
-| Read your web email | `what are my unread emails in Gmail?` | Paired | Unverified | A signed-out page stops the task; FERB never signs in as you |
+| Read your web email | `what are my unread emails in Gmail?` | Paired | Unverified | Owner-requested OTP login has a hidden CLI handoff; passwords and CAPTCHAs need the owner |
 | The debugger bar | – | – | Owner-verified probe (`PLATFORM_BROWSER.md` §2.1) | While FERB is attached to a tab of one of your profiles, that profile's visible windows show "FERB started debugging this browser"; FERB's own minimized window shows nothing; pressing Cancel makes the act in flight unknown and the task re-reads |
 
 ## FERB's own identity

@@ -1,7 +1,7 @@
 """Verification and reconciliation (section 7 steps 8-9, docs/DESIGN_ONE_WORKER.md section 5).
 
 Verification checks each success condition with fresh reads, after the worker finishes. Conditions with a
-code-checkable form are checked by code — file exists / contains, the task's ledger rows are done, a tab's URL,
+code-checkable form are checked by code — file exists / contains, a tab's URL,
 the signed-in account — and only conditions that need judgment go to a read-only verifier run. Each result
 records which path it took ("code" or "verifier") and its evidence. A worker's own claim is evidence, never
 verification. A check code can't decide (no ledger rows; an unknown row) goes to the verifier, never fails the task.
@@ -63,14 +63,11 @@ class Checks:
             return ConditionResult(i, c.text, found, "code", f"{p} {'contains' if found else 'does not contain'} "
                                                            f"the expected text")
         if k.kind == "ledger_done":
-            # `expected` is ignored: the model writes free text there ("Spotify like current track") and never sees
-            # the ledger's capability names, so matching on it marked done work as failed (audit 2026-10-02)
             rows = self.ledger.for_task(task_id)
             states = sorted({r.intent.state for r in rows})
-            met: bool | None = bool(rows) and states == ["done"]
-            if "unknown" in states:
-                met = None
-            return ConditionResult(i, c.text, met, "code", f"ledger rows: {', '.join(states) or 'none'}")
+            return ConditionResult(i, c.text, None, "code",
+                                   f"ledger rows: {', '.join(states) or 'none'}; input completion does not prove the goal")
+
         if k.kind == "tab_url":
             urls = self.urls_of(task_id)
             hit = next((u for u in urls if (k.url_contains or "") in u), None)

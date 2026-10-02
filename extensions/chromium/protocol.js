@@ -1,6 +1,6 @@
 // FERB extension protocol (ARCHITECTURE.md 9.4), mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 3;
+const FERB_PROTOCOL = 4;
 const FERB_HOST = "com.ferb.native_host";
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
@@ -46,7 +46,15 @@ const CDP_ALLOW = {
   "Page.captureScreenshot": (p) => (!p.format || ["png", "jpeg"].includes(p.format))
     && (p.quality === undefined || (Number.isInteger(p.quality) && p.quality >= 1 && p.quality <= 100)),
   // 13.3: the AX fallback for canvas / ARIA pages (2.9), with rects per node.
-  "Accessibility.getFullAXTree": (p) => p.depth === undefined || (Number.isInteger(p.depth) && p.depth > 0),
+  "Accessibility.getFullAXTree": (p) => (p.depth === undefined || (Number.isInteger(p.depth) && p.depth > 0))
+    && (p.frameId === undefined || typeof p.frameId === "string") && Object.keys(p).every(k => ["depth", "frameId"].includes(k)),
+  "Page.getFrameTree": (p) => Object.keys(p).length === 0,
+  "DOM.getFrameOwner": (p) => typeof p.frameId === "string" && Object.keys(p).length === 1,
+  "DOM.describeNode": (p) => Number.isInteger(p.backendNodeId) && [0, 1].includes(p.depth) && Object.keys(p).length === 2,
+  "DOM.pushNodesByBackendIdsToFrontend": (p) => Array.isArray(p.backendNodeIds) && p.backendNodeIds.length === 1
+    && Number.isInteger(p.backendNodeIds[0]) && Object.keys(p).length === 1,
+  "DOM.setAttributeValue": (p) => Number.isInteger(p.nodeId) && p.name === "data-ferb-ax"
+    && /^[a-f0-9]{16}$/.test(p.value) && Object.keys(p).length === 3,
   "DOM.getBoxModel": (p) => Number.isInteger(p.backendNodeId) && Object.keys(p).length === 1,
   // 13.7: file uploads on a FERB-stamped element (2.8). depth 0 = the document node only, never the DOM.
   "DOM.getDocument": (p) => p.depth === 0 && Object.keys(p).length === 1,
@@ -58,6 +66,10 @@ const CDP_RETURN_FIELDS = {                 // filtered return fields (only thes
   "Page.captureScreenshot": ["data"],
   "Accessibility.getFullAXTree": ["nodes"],
   "DOM.getBoxModel": ["model"],
+  "Page.getFrameTree": ["frameTree"],
+  "DOM.getFrameOwner": ["backendNodeId"],
+  "DOM.describeNode": ["node"],
+  "DOM.pushNodesByBackendIdsToFrontend": ["nodeIds"],
   "DOM.getDocument": ["root"],
   "DOM.querySelector": ["nodeId"],
 };
@@ -176,7 +188,7 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
              "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "ping"];
+             "upload", "ping", "point"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS };

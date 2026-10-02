@@ -156,6 +156,8 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
 
 def question(d: dict[str, Any]) -> str:
     """An approval in plain words."""
+    if d.get("kind") == "owner_login_code":
+        return f"   ? {d.get('reason', '')} "
     if d.get("kind") == "owner_question":                 # a worker's question to the owner (owner.ask)
         if d.get("options"):
             opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
@@ -240,9 +242,20 @@ class Chat:
 
     def answer_approval(self, d: dict[str, Any]) -> None:
         self.speaker.say(question(d))
-        reply = self.ask(question(d)).strip()
+        if d.get("kind") == "owner_login_code":
+            import getpass
+            # Never let getpass fall back to echoing a code through a pipe or chat history.
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", getpass.GetPassWarning)
+                try:
+                    reply = getpass.getpass(question(d)).strip() if sys.stdin.isatty() else ""
+                except (getpass.GetPassWarning, EOFError):
+                    reply = ""
+        else:
+            reply = self.ask(question(d)).strip()
         self.speaker.stop()
-        if d.get("kind") == "owner_question":             # a number picks an option; anything else is the answer
+        if d.get("kind") in ("owner_question", "owner_login_code"):  # a number picks an option; anything else is the answer
             r = self.call("chat.answer", {"approval_id": d["approval_id"], "text": reply})
         elif d.get("options"):
             n = int(reply) if reply.isdigit() and 1 <= int(reply) <= len(d["options"]) else None

@@ -1,4 +1,4 @@
-# Code tour (0.18.0)
+# Code tour (0.19.0)
 
 The flows through FERB's code, in the order they run, by `path:function` (no line numbers; `rg -n "def name"`
 finds them). The design contract behind every piece is [ARCHITECTURE.md](ARCHITECTURE.md); section numbers (§) refer
@@ -205,12 +205,11 @@ processes (`Daemon._task_end`) and forgets the request (`Requests.forget`).
   `commands.open` creates the tab inactive in FERB's window of that profile (`ferbWindow`: one per profile, born
   minimized, re-minimized if you restore it; `ferbGroup`). `commands.act` → `attach` (on first use, kept for the
   tab's life: `Page.enable`, focus emulation, auto-attach, a fixed viewport for FERB's own tabs, `ready`) →
-  `trusted` (`pointerClick`, `pressKey`, `Input.insertText` after an `isActive` check; `axAct` for elements from the
-  Accessibility fallback) — or, with `page_mode`, `inFrame` → `content.js:act`. `commands.scroll` asks
+  `trusted` (`pointerClick`, `pressKey`, `Input.insertText` after an `isActive` check) — or, with `page_mode`, `inFrame` → `content.js:act`. `commands.scroll` asks
   `content.js:scroller` where the container is and sends a real wheel there (`settled` reads where it landed);
   `commands.snapshot` runs `content.js:snapshot` in every frame (`describe`: `in_view`, `occluded`, `container`,
-  states; `pageText`), `composeFrames` turns child-frame rects into top-viewport ones, and `axElements` adds an
-  Accessibility-tree fallback when the DOM walk finds almost nothing; `commands.upload` → `content.js:stamp` +
+  states; `pageText`), `ax.js:accessibilitySnapshot` makes AX the primary semantic view and binds backend nodes to
+  those DOM references. `composeFrames` uses CDP frame-owner identities, and `topPoint` refreshes offsets before input; `commands.upload` → `content.js:stamp` +
   `DOM.setFileInputFiles`; `commands.screenshot` / `screenshot_part` fetch a JPEG in parts. The
   `chrome.debugger.onEvent` listener answers `Page.javascriptDialogOpening` (dismissed unless the act declared
   `expect_dialog`; `beforeunload` accepted only while leaving) and `onDetach` reports the owner's Cancel; `cdp` allows
@@ -241,12 +240,12 @@ processes (`Daemon._task_end`) and forgets the request (`Requests.forget`).
 ## 5. Verification
 
 `Supervisor.verify` runs after a `done` worker with success conditions: `ferb/orchestrator/verify.py:Checks.code_checkable`
-/ `Checks.run` decide by evidence where code can (`file_exists`, `file_contains`, `ledger_done` = at least one ledger row
-and every row done, `tab_url`, `account`); a check code can't decide goes to `_verifier` (a
+/ `Checks.run` decide by evidence where code can (`file_exists`, `file_contains`, `tab_url`, `account`); a check code can't decide goes to `_verifier` (a
 read-only run with `prompts/verifier.md` and only read scopes, `dag.READ_SCOPES`), instead of immediately failing the task.
 `_reconcile` re-reads the target for `unknown` ledger rows (`Ledger.reconcile`; `needs_user` if still unclear).
 `_final` combines the worker's summary with what verification found: unmet → failed; undecided → done, said plainly.
-A done worker with no success conditions also gets `verified=true`; no independent verification ran in that case.
+`ledger_done` requires a fresh verifier read; tool completion alone cannot verify the requested goal.
+A done worker without success conditions has `verified=false`.
 
 ## 6. A scheduled run
 
@@ -312,3 +311,15 @@ call's kind, floor and effect), `PolicyEngine.evaluate`, `Gateway._execute` befo
 `Trail.record`, `Memory.propose`. A pause in `pdb` stops the whole loop; runtimes keep running as subprocesses, so a
 long pause trips the 180 s stall watchdog. `ferb logs --tools --policy` shows the same decisions without stopping. For
 the extension, inspect the service worker from the browser's extensions page and break in `onCommand`.
+
+## 0.19.0 recovery paths
+
+- `BrowserScreenshot` → `_TabDriver.visual_snapshot`: capture the task tab after checking the field inventory.
+  `BrowserPoint` → `_TabDriver.point` → `commands.point` → `content.js:point`: resolve a visible target into an id;
+  `BrowserAct` applies the usual policy and trusted input.
+- `BrowserLoginCode` → `Router.owner_code` → `Gateway.ask_login_code`: exact HTTPS origin shown in chat;
+  `Chat.answer_approval` uses hidden input; `chat.answer` registers redaction; the driver sends a sealed fill.
+- `Supervisor.send` consumes structured `control` (stop/retry/continue), validates the task belongs to this chat,
+  cancels and waits, retains original request authority/context for follow-ups, and blocks retries of unknown outcomes.
+- `observation_digest` removes snapshot generation bookkeeping; `TreeGuard` detects unchanged action loops and
+  stops repeated consequential actions after one retry. `Profiles` re-probes failed input mechanisms after an hour.

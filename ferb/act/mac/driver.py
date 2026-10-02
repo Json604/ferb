@@ -475,12 +475,17 @@ class MacComputerDriver:
                 return False, after
             await asyncio.sleep(0.05)
 
+    @staticmethod
+    def _text_field(n: axm.AxNode) -> bool:
+        return n.ax_role in {"AXTextField", "AXTextArea", "AXComboBox"} if n.ax_role else n.role in TEXT_KINDS
+
     async def _set_value(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None,
                          fg: bool) -> ActionResult:
         # only a real text field takes a value that the app then acts on (WhatsApp's search "button" accepts a
         # set value but never searches on it — Sept 30 trail); anything else is focused / pressed and typed into
-        if n.role in TEXT_KINDS:
+        if self._text_field(n):
             ok = await asyncio.to_thread(self.ax.set_value, n.ref, text)
+            ok = ok and await asyncio.to_thread(self.ax.value, n.ref) == text
             self.profiles.record(a.bundle_id, "ax_value", ok)
             if ok:
                 return ActionResult(True, "value set")
@@ -489,9 +494,11 @@ class MacComputerDriver:
     async def _type(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None, fg: bool) -> ActionResult:
         """Keystrokes go to the app's keyboard focus: typed only once that is the box FERB means (a Save sheet or a
         dialog can hold it — then nothing is typed, here or in the foreground)."""
+        if not self._text_field(n):
+            await asyncio.to_thread(self.ax.press, n.ref)
         await asyncio.to_thread(self.ax.focus, n.ref)
         focused = await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref)
-        if focused is False and n.role in TEXT_KINDS:          # a box that isn't a text field can't tell (spike 20)
+        if focused is False:          # a different control or dialog holds the keyboard
             raise Refused(FOCUS_ELSEWHERE)
         before = await asyncio.to_thread(self.ax.value, n.ref)
         if focused and not self.profiles.skips(a.bundle_id, "pid_keys"):
@@ -505,18 +512,19 @@ class MacComputerDriver:
             self.profiles.record(a.bundle_id, "pid_keys", landed)
             if landed:
                 return ActionResult(True, "typed (in the background)")
-        if self.profiles.prefers(a.bundle_id, "ax_keyboard") or self.profiles.untried(a.bundle_id, "ax_keyboard"):
+        if not self.profiles.skips(a.bundle_id, "ax_keyboard"):
             landed = await self._ax_type(a, n, text)
             self.profiles.record(a.bundle_id, "ax_keyboard", landed)
             if landed:
                 return ActionResult(True, "typed (in the background, Accessibility keyboard)")
-        if n.role in TEXT_KINDS:                                      # replace the whole value, the edit applied
+        if self._text_field(n):                                      # replace the whole value, the edit applied
             new = (before or "") + text
             ok = await asyncio.to_thread(self.ax.set_value, n.ref, new)
+            ok = ok and await asyncio.to_thread(self.ax.value, n.ref) == new
             self.profiles.record(a.bundle_id, "ax_value", ok)
-            if ok and await asyncio.to_thread(self.ax.value, n.ref) == new:
+            if ok:
                 return ActionResult(True, "typed by setting the box's value (Accessibility)")
-        if n.role not in TEXT_KINDS:
+        if not self._text_field(n):
             # Not a real text field (WhatsApp's search box reports itself as an unlabeled button and only searches on
             # real typing — Sept 30 trail): click it in front, then type, as a person would.
             return await self._foreground(a, click_steps(*self.ax.center(n)) + type_steps(text), holder,
@@ -532,12 +540,14 @@ class MacComputerDriver:
     async def _ax_type(self, a: Any, n: axm.AxNode, text: str) -> bool:
         """Spike 20: press (a box that isn't a text field) or focus it through Accessibility, then type through the
         Accessibility keyboard API — still in the background. True once the window shows the change."""
-        before = await self._signature(a)
-        if n.role in TEXT_KINDS:
+        if self._text_field(n):
             await asyncio.to_thread(self.ax.focus, n.ref)
         else:
             await asyncio.to_thread(self.ax.press, n.ref)                # WhatsApp's search "button" focuses its box
         await asyncio.sleep(0.3)
+        if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is not True:
+            return False
+        before = await self._signature(a)              # focus changes are not evidence of text arriving
         if not await asyncio.to_thread(self.ax.post_text, a.pid, text):
             return False
         await asyncio.sleep(SETTLE_S + 0.6)                              # the app filters / updates
@@ -628,7 +638,7 @@ class MacComputerDriver:
                 return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
             # A key with nothing to act on (escape with no dialog, cmd+s on a saved document) changes nothing and
             # proves nothing: it never marks the app as ignoring background input (audit 2026-10-02).
-        if self.profiles.prefers(a.bundle_id, "ax_keyboard") or self.profiles.untried(a.bundle_id, "ax_keyboard"):
+        if not self.profiles.skips(a.bundle_id, "ax_keyboard"):
             before = await self._signature(a)
             if await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[key], mods):
                 await asyncio.sleep(SETTLE_S + 0.4)

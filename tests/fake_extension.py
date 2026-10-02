@@ -286,6 +286,7 @@ class FakeExtension:
                          for t, u in self.tabs.items()]}
 
     def op_snapshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        self._attach(a["tab_id"])
         url = self.tabs[a["tab_id"]]
         p = page(url)
         frames: dict[int, list[dict[str, Any]]] = {}

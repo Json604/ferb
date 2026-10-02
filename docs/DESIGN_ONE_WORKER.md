@@ -103,9 +103,9 @@ accept free text for these (today it accepts yes/no/number); add `chat.answer {a
 ## 5. Verification and the outcome
 
 `success_conditions` from the task (if any) are checked as today: code checks (`verify.Checks`) first, judgment
-conditions by a read-only verifier run. `ledger_done` means "this task has at least one ledger row and every row
-is done"; unknown rows go to the verifier, and no rows means code cannot check this condition. Undecided →
-done-unconfirmed (phase 2). The outcome row keeps `verified`.
+conditions by a read-only verifier run. In 0.19.0, `ledger_done` always requires a fresh outcome read: a completed
+input call does not prove the owner's goal. No success conditions means unverified. Undecided → done-unconfirmed.
+The outcome row keeps `verified`. See `RELIABILITY_019.md` for task control and the hidden OTP handoff.
 
 ## 6. What must still pass (the floors)
 
@@ -120,7 +120,7 @@ Replays of the real failures from the run history, each a test with a scripted w
 1. "open the FMI assignment email in my Chrome scaler profile and get the submission link": the worker clicks the
    email row (browser.act click on a `button` with no floor word) → runs; `summary` carries the link.
 2. "add the current song in Spotify to my liked songs": `mac.click` with effect edit → runs; ledger row done;
-   `ledger_done` → met; outcome done + verified.
+   `ledger_done` → fresh verifier read of the selected heart; only observed success gives done + verified.
 3. "search WhatsApp for the syllabus sheet and tell me the gym timing": set_value on an unlabeled box → runs;
    press on a chat row → runs; no asks.
 4. "message Asmit on WhatsApp: wru?": press Send with effect send, target Asmit named by the owner → auto-grant →

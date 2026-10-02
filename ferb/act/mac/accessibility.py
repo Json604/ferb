@@ -553,7 +553,15 @@ def has_focus(pid: int, el: Any) -> bool | None:
     """Is this element the app's keyboard focus? (Keystrokes go to the focus, not to the element FERB means: a sheet
     or dialog can hold it.) None when the app doesn't say."""
     focused = focused_element(pid)
-    return None if focused is None else _same(focused, el)
+    if focused is None:
+        return None
+    for _ in range(30):
+        if _same(focused, el):
+            return True
+        focused = _attr(focused, "AXParent")
+        if focused is None:
+            break
+    return False
 
 
 def focused_role(pid: int) -> str | None:

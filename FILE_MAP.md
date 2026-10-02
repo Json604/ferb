@@ -1,6 +1,6 @@
 # File map
 
-What the source folders and files in FERB are for, as of version 0.18.0 (2026-10-02). Package markers and tests
+What the source folders and files in FERB are for, as of version 0.19.0 (2026-10-02). Package markers and tests
 are grouped where they share a purpose. For how the pieces run together,
 see [CODE_TOUR.md](CODE_TOUR.md). For the design, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -258,7 +258,8 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 | File | What it is |
 |---|---|
-| `manifest.json` | MV3 manifest (version 0.7.0, protocol 3). |
+| `manifest.json` | MV3 manifest (version 0.8.0, protocol 4). |
+| `ax.js` | AX-first semantic ordering/names, DOM binding/adoption, CDP frame identities and child-session traversal. |
 | `background.js` | Service worker: native messaging, pairing keys, FERB's minimized window per profile, task tabs, the debugger session per task tab (trusted input, wheel scrolls, dialogs, uploads, screenshots), tab events. |
 | `content.js` | Viewport-aware page snapshot (in_view, scrollers, shadow roots, iframe rects), element lookup, page-mode actions, and the per-site account extractors. |
 | `protocol.js` | Message format (mirrors `ferb/act/browser/ext_protocol.py`), the CDP allowlist, the key table. |
@@ -296,3 +297,8 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 | `test_mac_background_real.py`, `test_browser_lab_real.py` | Rebuilt drivers against safe apps / throwaway Chrome, with frontmost-app polling. |
 | Other `test_*.py` | Tests by area (policy, gateway, supervisor, time, memory, …); markers decide which run offline. |
 | `test_*_real.py` | Real tests against real apps and browsers. Locked down by default; Codex only unless `-m real_claude`. |
+
+0.19.0 additions: `docs/RELIABILITY_019.md` records the recovery contracts and limits;
+`tests/test_browser_recovery.py` executes the actual JS worker with mocked Chrome APIs;
+`tests/test_task_recovery.py` covers truthful outcomes, input, loops and stop/retry;
+`tests/test_owner_login.py` covers sealed owner codes, origin changes and absence from results/logs.

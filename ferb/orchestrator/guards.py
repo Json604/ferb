@@ -15,6 +15,7 @@ the worker is paused, and the clock restarts when the last wait closes.
 
 import hashlib
 import json
+import re
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -25,8 +26,23 @@ REPEATED_FAILURES, LOOP_REPEATS, LOOP_MAX_PERIOD = 3, 5, 4
 GUARD_NOTE = "a safety guard against stuck tasks"
 
 
+def stable_observation(value: Any, key: str = "") -> Any:
+    """Discard snapshot bookkeeping, preserving the actual page/app state and action target ordinal."""
+    if isinstance(value, dict):
+        return {k: stable_observation(v, k) for k, v in value.items() if k not in {"generation", "snap_gen"}}
+    if isinstance(value, list):
+        return [stable_observation(v, key) for v in value]
+    if key in {"id", "element"} and isinstance(value, str) and re.fullmatch(r"s[0-9]+e[0-9]+", value):
+        return re.sub(r"^s[0-9]+", "s", value)
+    return value
+
+
+def observation_digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(stable_observation(value), sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
 def call_key(tool: str, args: dict[str, Any]) -> str:
-    return tool + ":" + hashlib.sha256(json.dumps(args, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    return tool + ":" + observation_digest({k: v for k, v in args.items() if k != "why"})
 
 
 @dataclass
@@ -37,11 +53,23 @@ class TreeGuard:
     _failed: dict[str, dict[str, int]] = field(default_factory=lambda: defaultdict(lambda: defaultdict(int)))
     _recent: dict[str, deque[str]] = field(default_factory=lambda: defaultdict(
         lambda: deque(maxlen=LOOP_REPEATS * LOOP_MAX_PERIOD)))
+    _observations: dict[tuple[str, str], str] = field(default_factory=dict)
+    _mutations: dict[tuple[str, str, str], int] = field(default_factory=lambda: defaultdict(int))
 
     def call(self, worker: str, tool: str, args: dict[str, Any], failed: bool, result: str = "") -> str | None:
         """Record one finished tool call (`result`: a digest of what it returned); a reason if this worker must stop."""
         self.tool_calls += 1
         key = call_key(tool, args)
+        surface = str(args.get("tab") or args.get("app") or "")
+        if tool.endswith(".snapshot") and not failed and result:
+            self._observations[worker, surface] = result
+        if args.get("effect") in {"send", "pay", "destroy"} and not failed:
+            observation = self._observations.get((worker, surface))
+            if observation:
+                repeat = (worker, key, observation)
+                self._mutations[repeat] += 1
+                if self._mutations[repeat] >= 2:
+                    return f"it repeated a consequential action without observed progress ({tool})"
         if failed:
             self._failed[worker][key] += 1
             if self._failed[worker][key] >= REPEATED_FAILURES:

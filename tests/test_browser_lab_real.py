@@ -41,6 +41,7 @@ PAGE = """<!doctype html><title>FERB lab</title>
 <input type=file id=f aria-label=Attach onchange="document.getElementById('o4').textContent='files='+this.files.length">
 </form>
 <p id=o0>not clicked</p><p id=o1>-</p><p id=o2>-</p><p id=o3>-</p><p id=o4>-</p>
+<div id=custom style="width:90px;height:30px" onclick="this.textContent='Added '+event.isTrusted">ADD</div>
 <div id=box aria-label=messages role=list>%s</div>
 <div class=tall>tall filler</div><a href="#end" id=end>End link</a>
 """ % "".join(f"<div role=listitem>message {i}</div>" for i in range(1, 21))
@@ -53,7 +54,17 @@ def site() -> Iterator[str]:
             self.send_response(200)
             self.send_header("content-type", "text/html")
             self.end_headers()
-            self.wfile.write(PAGE.encode())
+            if self.path == "/frames":
+                page = ('<title>Frames</title><iframe style="margin:40px" src="/inside"></iframe>'
+                        f'<iframe style="margin:100px" src="http://localhost:{self.server.server_port}/inside"></iframe>')
+            elif self.path == "/inside":
+                page = ('<button onclick="this.textContent=event.isTrusted ? \'Reached\' : \'Untrusted\'">Frame action</button>'
+                        f'<iframe src="http://127.0.0.1:{self.server.server_port}/deep"></iframe>')
+            elif self.path == "/deep":
+                page = '<button onclick="this.textContent=event.isTrusted ? \'Deep reached\' : \'Untrusted\'">Deep action</button>'
+            else:
+                page = PAGE
+            self.wfile.write(page.encode())
 
         def log_message(self, *a: Any) -> None:
             pass
@@ -111,6 +122,57 @@ def _wait(cond: Any, timeout: float, what: str) -> None:
         if time.monotonic() > end:
             raise AssertionError(what)
         time.sleep(0.1)
+
+
+def test_ax_targets_in_same_process_and_cross_site_frames(lab: Any, site: str) -> None:
+    d, chrome, _ = lab
+    router = d.daemon.router
+
+    async def go() -> None:
+        tab = await router.open_for(f"{site}/frames", "frames", "Lab")
+        try:
+            snap = await router.snapshot(tab)
+            assert "Accessibility view incomplete" not in snap.text, snap.text
+            targets = [e for e in snap.elements if e.label == "Frame action"]
+            assert len(targets) == 2
+            assert len({e.frame_id for e in targets}) == 2
+            for target in targets:
+                r = await router.act(router.element_ref(tab, target.id), BrowserAction("click"), "")
+                assert r.ok, r.detail
+            snap = await router.snapshot(tab)
+            assert len([e for e in snap.elements if e.label == "Reached"]) == 2
+            deep = [e for e in snap.elements if e.label == "Deep action"]
+            assert len(deep) == 2
+            for target in deep:
+                result = await router.act(router.element_ref(tab, target.id), BrowserAction("click"), "")
+                assert result.ok, result.detail
+            assert len([e for e in (await router.snapshot(tab)).elements if e.label == "Deep reached"]) == 2
+        finally:
+            await router.close(tab)
+    d.run(go(), timeout=90)
+
+
+def test_visual_target_becomes_a_normal_policy_checked_element(lab: Any, site: str) -> None:
+    d, chrome, _ = lab
+    router = d.daemon.router
+
+    async def go() -> None:
+        tab = await router.open_for(f"{site}/page", "visual", "Lab")
+        try:
+            shot, jpeg, width, height = await router.visual_snapshot(tab)
+            assert jpeg[:3] == b"\xff\xd8\xff" and width > 0 and height > 0
+            # Position comes from the test fixture's rendered geometry, as a model would read its screenshot.
+            t = router._tabs[tab.tab_id]
+            coords = chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target: {{tabId: {t.chrome_id}}}, "
+                "func: () => {const r = document.getElementById('custom').getBoundingClientRect(); return [r.x+10, r.y+10];}}).then(r => r[0].result)")
+            target = await router.point(tab, shot, *coords)
+            assert target.label == "ADD", target.label
+            result = await router.act(router.element_ref(tab, target.id), BrowserAction("click"), "")
+            assert result.ok, result.detail
+            assert "Added true" in (await router.snapshot(tab)).text
+        finally:
+            await router.close(tab)
+    d.run(go(), timeout=90)
 
 
 def test_everything_happens_in_a_minimized_window_and_the_owner_is_never_moved(

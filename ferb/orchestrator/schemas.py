@@ -65,6 +65,8 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
     "text": {"type": "string"},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
+    "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
+                  "action": {"type": "string", "enum": ["stop", "retry", "continue"]}})]},
     "remember": {"type": "array", "items": REMEMBER_SCHEMA},
     "timers": {"type": "array", "items": TIMER_SCHEMA},
     "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
@@ -127,7 +129,13 @@ class Remember(BaseModel):
     quote: str
 
 
+class TaskControl(BaseModel):
+    task_id: str
+    action: Literal["stop", "retry", "continue"]
+
+
 class SupervisorOutcome(BaseModel):
+    control: TaskControl | None = None
     kind: Literal["reply", "clarify", "task"]
     text: str
     task: TaskSpec | None = None

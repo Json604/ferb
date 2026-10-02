@@ -22,6 +22,7 @@ capability profile; it never ships a hand-written one.
 ### 0. Branch and plan (done)
 
 Status 2026-10-02: phases 1–4 done (see PROGRESS.md "Where we are"); phase 5 not started; owner acceptance B–H pending.
+Follow-up on `astra/version`: 0.19.0 recovery contracts are in `RELIABILITY_019.md`; live owner acceptance remains pending.
 
 ### 1. Learn the platform before touching control
 Two documents, written from Apple / Chromium documentation plus live probes on this Mac (safe apps only:

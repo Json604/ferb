@@ -76,7 +76,7 @@ def test_shell_path_includes_the_owners_tool_folders(tmp_path: Path, monkeypatch
             assert extra in parts[:-4]
 
 
-def test_ledger_done_ignores_the_planners_free_text_expected(tmp_path: Path) -> None:
+def test_completed_ledger_rows_do_not_prove_the_requested_goal(tmp_path: Path) -> None:
     """The planner wrote "Spotify like current track" in `expected`; the code compared it to the ledger's capability
     name and reported a succeeded task as failed (run 34ca95b3, 2 Oct 08:41)."""
     from ferb.clock.clock import FakeClock
@@ -97,7 +97,7 @@ def test_ledger_done_ignores_the_planners_free_text_expected(tmp_path: Path) -> 
                                                  site=None, expected="Spotify like current track"))
     ctx = ToolContext("task1", "verifier", "r", Identity.OWNER, frozenset(), "dev", None, str(tmp_path), (), ())
     r = asyncio.run(checks.run(0, cond, "task1", ctx))
-    assert r.met is True and "done" in r.evidence
+    assert r.met is None and "done" in r.evidence
 
 
 async def _no_account(task_id: str, site: str) -> str | None:

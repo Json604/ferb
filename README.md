@@ -8,7 +8,7 @@ Mac while it works. Every tool call the worker makes goes through one gateway th
 really does, whether it runs, is held for undo, or needs your yes. What works per app is learned from doing, not
 written into the code.
 
-- **Version:** 0.18.0 (see [CHANGELOG.md](CHANGELOG.md)). Built and tested by one
+- **Version:** 0.19.0 (see [CHANGELOG.md](CHANGELOG.md)). Built and tested by one
   person on one Mac. Expect rough edges.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed on macOS 26.
 - **Interface:** the CLI, plus push-to-talk. No GUI, menu-bar item or web dashboard. FERB.app (for push-to-talk)
@@ -18,6 +18,8 @@ written into the code.
 walks the flows through the code. [ARCHITECTURE.md](ARCHITECTURE.md) is the design contract. The docs map is at the
 end of this file.
 
+See [the 0.19.0 reliability notes](docs/RELIABILITY_019.md) for the fixes, validation and remaining limits.
+
 ## Requirements
 
 | Needed for | Requirement |
@@ -25,7 +27,7 @@ end of this file.
 | Everything | macOS on Apple silicon; [uv](https://docs.astral.sh/uv/) (setup installs a dedicated Python 3.12 and FERB's venv) |
 | The default runtime | Node.js with `npm` (setup installs the pinned Codex 0.157.1 into `~/.ferb/node`); Codex signed in for your macOS user. The model is pinned in `ferb/runtimes/codex_exec.py` (`MODEL`) |
 | The Claude runtime (optional) | Claude signed in for your macOS user (the Agent SDK is a Python dependency; FERB clears `ANTHROPIC_API_KEY` for its runs) |
-| Browser control (optional) | Google Chrome and/or Brave, with the FERB extension (`extensions/chromium`, version 0.7.0) loaded unpacked in each profile you pair |
+| Browser control (optional) | Google Chrome and/or Brave, with the FERB extension (`extensions/chromium`, version 0.8.0) loaded unpacked in each profile you pair |
 | FERB's own accounts (optional) | A Chrome profile that holds only FERB's Google account |
 | Jev decisions (optional) | A Jev API key (shadow mode by default; ARCHITECTURE.md §5) |
 | Push-to-talk (optional) | Xcode command-line tools (`swiftc`) and a code-signing certificate named "FERB Local Code Signing" in your login keychain |
@@ -51,7 +53,7 @@ extension isn't installed there yet, pairing walks you through Load unpacked (Ch
 unpacked extension by hand), waits until the browser has it, then pairs. `ferb browsers` lists profiles and whether
 they're connected. `[gates] owner_profiles` changes unpaired-profile guidance; it does not enforce a pairing gate.
 After an extension update, reload
-the unpacked extension in each paired profile: the daemon refuses extensions older than 0.7.0 at hello.
+the unpacked extension in each paired profile: the daemon refuses extensions older than 0.8.0 at hello.
 
 **Push-to-talk.** `ferb setup --voice` builds and signs `~/.ferb/FERB.app`, asks once for Microphone and Speech
 Recognition, and turns push-to-talk on. Hold Right Option, speak, let go (a hold under 0.3 s is a tap and does
@@ -264,7 +266,7 @@ Start with `ferb doctor`; each problem comes with a hint.
 | "Unavailable: … paired but not open" | Open that browser profile; the extension reconnects within 30 s |
 | Mac control unavailable | Accessibility / Screen Recording not granted to FERB's interpreter |
 | A permission was just granted but still shows denied | Screen Recording applies after a restart: `ferb setup --update` |
-| "extension 0.6.x … FERB needs 0.7.0" | Reload the unpacked extension in that profile |
+| "extension 0.6.x … FERB needs 0.8.0" | Reload the unpacked extension in that profile |
 | A "started debugging this browser" bar in your own browser window | FERB is working in a tab of that profile; it goes when the tab closes. FERB's own window is minimized, so it shows nothing there |
 | An app ignores every background way | The result says what was tried; the worker may retry with `allow_foreground=true`, which moves your screen once |
 | Everything is blocked | Emergency stop: `ferb resume-tasks` |
@@ -319,12 +321,12 @@ area you're changing. Never read or reuse `vibed/`.
   While FERB works in one of your own profiles, that profile's visible windows show a "started debugging" bar.
 - Pixel clicks posted to an app in the background reach only windows on the current desktop; the real mouse needs
   `allow_foreground=true`. Electron apps and same-desktop occluded windows haven't been probed by the new driver.
-- FERB never signs in as you; a signed-out page stops the task. CAPTCHAs stop the task. No payment flow of its own.
+- Owner-requested OTP login uses hidden CLI input (`browser.login_code`); the code is sealed to the selected origin and never sent to the model. Password sign-in and CAPTCHAs still require the owner. Payments retain their approval floor.
 - Email from FERB's address is text only. Scheduled tasks run only while the daemon runs (a missed run happens once
   on wake, or is skipped if too late). No monthly schedules.
 - Prompt injection is reduced (pasted text as data, exposure, data flow, the effect floor), not eliminated. A
   network-fetching shell command exposes the worker like a web page does, so it loses the shell afterwards.
 - Learning by doing (procedure memory: how a task was done, reused next time) is designed but not built.
-- Browser screenshots exist in the driver and extension but have no registered worker tool yet.
+- Browser snapshots use Chromium Accessibility first, backed by DOM targets. `browser.screenshot` and `browser.point` resolve missing visible controls in the exact task tab; the normal action policy still gates the click.
 - Only the Mac and browser drivers have recorded real test runs after the 0.17/0.18 rework; the legacy safety suite was last run for
   real at 0.1.0 and has been re-run offline since.

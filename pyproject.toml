@@ -1,6 +1,6 @@
 [project]
 name = "ferb"
-version = "0.18.0"
+version = "0.19.0"
 description = "FERB: personal agent runtime for macOS"
 requires-python = ">=3.12,<3.13"
 dependencies = [

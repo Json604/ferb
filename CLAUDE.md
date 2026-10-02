@@ -15,6 +15,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `CODE_TOUR.md` | the flows, by `path:function` |
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
+| `docs/RELIABILITY_019.md` | 0.19.0 browser, login, truthful-outcome and stop/retry fixes, evidence and remaining limits |
 | `docs/REWORK_PLAN.md` | the phases of the 2026-10-02 rework and the rule on hardcoding |
 | `docs/DESIGN_ONE_WORKER.md` | the task loop and the gate at the action (effect classes) |
 | `docs/PLATFORM_MACOS.md`, `docs/PLATFORM_BROWSER.md` | how Mac apps and Chromium can be driven in the background, with probe results on this Mac; claims tagged [doc] / [probe] / [owner] / [belief] |

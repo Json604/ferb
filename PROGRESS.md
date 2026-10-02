@@ -1,6 +1,17 @@
 # FERB progress
 
-## Where we are — version 0.18.0, branch `rework/human-control` (2026-10-02)
+## Where we are — version 0.19.0, branch `astra/version` (2026-10-02)
+
+The recovery implementation is on `astra/version`: AX-first Chromium snapshots with DOM-backed actions,
+frame identity/session handling, strict trusted input, task-tab visual fallback, hidden owner OTP entry,
+truthful verification, stable loop detection, Mac text/focus fixes, browser waking, and stop/retry continuity.
+See `docs/RELIABILITY_019.md`. Extension **0.8.0 / protocol 4** must be reloaded after an owner-managed update.
+No installed daemon was changed and no branch was pushed. Real Zomato/WhatsApp acceptance is still outstanding.
+Validation: **495 offline tests passed, 46 deselected** (117.24 s); **3 isolated real-Chrome lab tests passed**,
+including trusted background input, nested/cross-site frames and visual targeting of a custom control.
+`mypy ferb/core` passed (5 files); extension JavaScript syntax and `git diff --check` passed.
+Stop regressions cover runtime startup, an active worker, verification and a pending hidden-code prompt.
+The table below records the preceding 0.18.0 rework; its historical statuses are not new owner acceptance.
 
 An independent audit of every code file on 2026-10-02 (run history: 11 of 66 requests done; reader-policy blocks the
 top tool error; a verification bug marking done work as failed) led to a rework in phases (`docs/REWORK_PLAN.md`):

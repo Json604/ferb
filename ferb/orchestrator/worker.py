@@ -86,7 +86,7 @@ class WorkerRuns:
         a model sometimes doesn't look) gets one more run with that spelled out — found in the owner's session."""
         result, worker_id = await self._run_worker_once(tree, task, prompt, ctx, schema, span)
         calls = getattr(self, "calls_by_worker", {}).get(worker_id, 0)
-        if (isinstance(result, dict) and result.get("status") in ("needs_user", "failed") and calls == 0
+        if (not tree.stop and isinstance(result, dict) and result.get("status") in ("needs_user", "failed") and calls == 0
                 and self.gateway.tools_for_task(task) and NO_TOOLS.search(json.dumps(result))):
             self.publish("task.retried", {"task_id": task.id, "why": "the worker didn't load its tools"})
             result, worker_id = await self._run_worker_once(tree, task, prompt, ctx + NO_TOOLS_HINT, schema, span)
@@ -94,6 +94,8 @@ class WorkerRuns:
 
     async def _run_worker_once(self, tree: "_Tree", task: Task, prompt: str, ctx: str, schema: dict[str, Any],
                                span: str) -> tuple[dict[str, Any] | Outcome, str]:
+        if tree.stop:
+            return Outcome(task.id, "cancelled", tree.stop, [], []), ""
         worker_id = "w-" + self.ids.new_id()
         if not tree.guard.can_start_worker():
             return Outcome(task.id, "failed", f"Stopped: it started over {MAX_WORKER_RUNS} worker runs ({GUARD_NOTE})",
@@ -157,6 +159,8 @@ class WorkerRuns:
         final = ""
         watchdog = asyncio.create_task(self._watch(rt, run, worker_id, tree)) if worker_id else None
         try:
+            if tree is not None and tree.stop:
+                raise ValueError("task stopped while the runtime was starting")
             async for ev in rt.events(run):
                 if worker_id:
                     self.activity.beat(worker_id)

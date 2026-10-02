@@ -1424,12 +1424,17 @@ class Daemon:
             if not owner:
                 problems["owner_browsers"] = "none of the owner's browser profiles is paired — `ferb browsers pair " \
                                              "<browser> \"<profile>\"`"
-            elif not live:
+            elif not live and not (self.router and self.router.wake):
                 shown = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                   for b in owner)
                 problems["owner_browsers"] = f"{shown} paired but not open — open it and FERB reconnects within 30 s"
             profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                  for b in live)
+            sleeping = [b for b in owner if b not in live]
+            if sleeping and self.router and self.router.wake:
+                wakeable = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
+                                     for b in sleeping)
+                profiles = (f"{profiles}; " if profiles else "none; ") + f"can wake paired profiles: {wakeable}"
         prof = self._identity_profile()
         if prof is not None and self.identity_browser is None:   # FERB's own browser is part of this FERB
             problems["ferb_browser"] = "not paired — run `ferb setup --identity`"
@@ -1491,6 +1496,8 @@ class Daemon:
                             last_used=lambda b: last_used_profile(b, data(b)))
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
+        self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
+        self.router.add_secret_value = self._add_secret_value
         add_owner_browsers(self.registry, self.router)
         pairings = self.pairings
         self.ferb_identity = FerbIdentity(self.hub, self._identity_profile, self.secrets, self._add_secret_value,
@@ -1736,6 +1743,9 @@ class Daemon:
     async def _chat_answer(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The owner's free-text answer to a worker's question (owner.ask); empty text declines."""
         text = str(params.get("text") or "").strip()
+        ap = self.engine.approvals.get(str(params["approval_id"]))
+        if ap is not None and ap.kind == "owner_login_code" and text:
+            self._add_secret_value(text)
         return self._resolve_approval(str(params["approval_id"]), bool(text), None, text or None)
 
     def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None,

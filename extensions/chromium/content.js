@@ -23,6 +23,52 @@
   let els = new Map();                 // local id -> WeakRef(element), for the latest snapshot only
   let containers = new Map();          // container id -> WeakRef(scroller element), for the latest snapshot only
   let snapGen = 0;
+  let bindings = new Map();
+  function bind(el) {
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
+    el.setAttribute("data-ferb-ax", token); bindings.set(token, new WeakRef(el));
+    return token;
+  }
+  function adopt(gen, token) {
+    if (gen !== snapGen) return null;
+    const find = root => {
+      const hit = root.querySelector(`[data-ferb-ax="${token}"]`);
+      if (hit) return hit;
+      for (const host of root.querySelectorAll("*")) if (host.shadowRoot) { const found = find(host.shadowRoot); if (found) return found; }
+    };
+    const el = find(document);
+    if (!el || !visible(el)) return null;
+    const id = els.size;
+    els.set(id, new WeakRef(el)); bindings.set(token, new WeakRef(el));
+    return {...describe(el, id), binding: token};
+  }
+  function point(gen, x, y) {
+    if (gen !== snapGen) return {error: "stale"};
+    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return {error: "outside_viewport"};
+    let el = document.elementFromPoint(x, y);
+    while (el && el.shadowRoot) {
+      const hit = el.shadowRoot.elementFromPoint(x, y);
+      if (!hit || hit === el) break;
+      el = hit;
+    }
+    if (!el || !visible(el)) return {error: "no_target"};
+    if (["IFRAME", "FRAME"].includes(el.tagName)) return {frame: el.getAttribute("data-ferb-ax")};
+    const control = el.closest(SEL);
+    if (control && admits(control)) el = control;
+    for (const [id, ref] of els) if (ref.deref() === el) return {element: describe(el, id)};
+    const id = els.size;
+    els.set(id, new WeakRef(el));
+    return {element: describe(el, id)};
+  }
+  function frameRect(token) {
+    const ref = bindings.get(token), el = ref && ref.deref();
+    if (!el || !el.isConnected) return {error: "frame_changed"};
+    const r = el.getBoundingClientRect();
+    // A scaled frame needs a full coordinate transform; refuse it instead of using a guessed offset.
+    if (Math.abs(r.width - el.offsetWidth) > 1 || Math.abs(r.height - el.offsetHeight) > 1)
+      return {error: "frame_transform_unsupported"};
+    return {x: r.x + el.clientLeft, y: r.y + el.clientTop, occluded: hitTest(el, r)};
+  }
 
   const clip = (s, n) => (s || "").replace(/\s+/g, " ").trim().slice(0, n);
   const round = (v) => Math.round(v * 10) / 10;
@@ -141,7 +187,7 @@
     const root = el.getRootNode();
     const hit = (root instanceof ShadowRoot ? root : document).elementFromPoint(cx, cy);
     if (!hit) return true;                                        // nothing painted there: treat as covered
-    return !(hit === el || el.contains(hit) || hit.contains(el));
+    return !(hit === el || el.contains(hit));
   }
 
   function describe(el, id) {
@@ -224,6 +270,11 @@
   }
 
   function snapshot(gen) {
+    for (const [token, ref] of bindings) {
+      const el = ref.deref();
+      if (el && el.getAttribute("data-ferb-ax") === token) el.removeAttribute("data-ferb-ax");
+    }
+    bindings = new Map();
     snapGen = gen;
     els = new Map(); containers = new Map(); scrollerCache.clear();
     const found = [];
@@ -233,7 +284,7 @@
     const inView = described.filter(([, e]) => e.in_view), rest = described.filter(([, e]) => !e.in_view);
     const picked = inView.concat(rest).slice(0, MAX_ELEMENTS);              // the cap keeps what's on screen
     picked.sort((a, b) => a[2] - b[2]);
-    const out = picked.map(([el, e], id) => { e.id = id; els.set(id, new WeakRef(el)); return e; });
+    const out = picked.map(([el, e], id) => { e.id = id; e.binding = bind(el); els.set(id, new WeakRef(el)); return e; });
     const usedContainers = new Set(out.map((e) => e.container).filter(Boolean));
     const scrollers = [];
     for (const [cid, ref] of containers) {
@@ -248,11 +299,11 @@
       const r = f.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) continue;
       const meets = r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
-      iframes.push({ name: f.name || "", src: maskUrl(f.src || ""), rect: [round(r.x), round(r.y), round(r.width), round(r.height)],
+      iframes.push({ binding: bind(f), name: f.name || "", src: maskUrl(f.src || ""), rect: [round(r.x), round(r.y), round(r.width), round(r.height)],
                      in_view: meets && !hitTest(f, r) });
     }
     const text = pageText();
-    return { gen, url: maskUrl(location.href), title: document.title, name: window.name || "", top: window === top,
+    return { gen, document_binding: bind(document.documentElement), url: maskUrl(location.href), title: document.title, name: window.name || "", top: window === top,
              viewport: [innerWidth, innerHeight], scroll: scrollState(null), scrollers, iframes, elements: out, text,
              truncated: described.length > MAX_ELEMENTS || text.length >= MAX_TEXT };
   }
@@ -348,7 +399,8 @@
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return { error: "not_visible" };
     const occluded = hitTest(el, r);
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height, occluded,
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height, occluded, secret: isSecret(el),
+             disabled: !!el.disabled || el.getAttribute("aria-disabled") === "true",
              editable: el.isContentEditable || el.tagName === "TEXTAREA"
                || (el.tagName === "INPUT" && !["button", "submit", "reset", "checkbox", "radio", "file", "image"].includes(el.type)),
              file: el.tagName === "INPUT" && el.type === "file" };
@@ -430,16 +482,17 @@
 
   // Sealed fill (10.1): the value arrives already opened by the service worker, for this element only. Re-check this
   // frame's origin in the same call that sets it; set it on that exact element (never typed into whatever has focus).
-  function fill(gen, id, expectedOrigin, value) {
+  function fill(gen, id, expectedOrigin, value, codeOnly = false) {
     if (location.origin !== expectedOrigin) return { ok: false, detail: "origin_changed" };
     const { el, error } = element(gen, id);
     if (error) return { ok: false, detail: error };
     if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return { ok: false, detail: "not_a_text_field" };
+    if (codeOnly && (!isSecret(el) || el.type === "password")) return {ok: false, detail: "code_field_changed"};
     setValue(el, value);
-    return { ok: true, detail: "filled" };
+    return { ok: el.value === value, detail: el.value === value ? "filled" : "field_rejected_value" };
   }
 
-  window.__ferb = { snapshot, act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
+  window.__ferb = { snapshot, adopt, point, frameRect, viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
                     scrolled, probeArm, probeSeen: () => probeSeen, account,
                     text: () => (document.body ? document.body.innerText : ""), url: () => location.href,
                     ready: () => document.readyState };

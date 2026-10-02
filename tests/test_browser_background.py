@@ -68,13 +68,13 @@ def test_tabs_open_inactive_in_one_minimized_ferb_window_that_the_owner_never_se
 
 # ---------- stage B: the debugger session per task tab ----------
 
-def test_debugger_attaches_on_the_first_action_and_stays_until_the_tab_closes(bd: Any) -> None:
+def test_debugger_attaches_on_the_first_snapshot_and_stays_until_the_tab_closes(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
     tab = call(d, g, "browser.open", url=f"{SHOP}/form")["content"]["tab"]
     cid = _chrome_id(d, tab)
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    assert not ext.attached                                                      # reading never attaches
+    assert cid in ext.attached and ext.attaches == 1                            # AX snapshot needs the debugger
     r = call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="type", text="Ada")
     assert not r["is_error"] and "(trusted)" in r["content"]["detail"]           # real input by default
     assert cid in ext.attached and ext.attaches == 1
@@ -289,7 +289,7 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.connect()
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
-    assert version_ok("0.7.0") and version_ok("0.10.2") and not version_ok("0.6.9")
+    assert version_ok("0.8.0") and not version_ok("0.7.0") and version_ok("0.10.2") and not version_ok("0.6.9")
     assert json.loads((EXT / "manifest.json").read_text())["version"] == MIN_EXTENSION_VERSION   # bumped together
 
 

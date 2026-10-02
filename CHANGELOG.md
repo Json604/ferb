@@ -10,6 +10,22 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.19.0 — 2026-10-02 — Reliable browser targets, login handoff and honest outcomes
+
+- Make Chromium Accessibility the primary semantic view, backed by isolated DOM element references. Bind frames
+  by CDP identity, route child debugger sessions, include embedded-frame text, and refresh frame positions before input.
+- Refuse covered/disabled targets and unconfirmed focus; never silently downgrade trusted input to page events.
+  Preserve failed and unknown extension outcomes (extension 0.8.0, protocol 4), including after reconnects.
+- Add task-tab screenshots and point-to-element resolution through the normal action policy. Add hidden owner OTP
+  input bound to a visible code field and HTTPS frame origin; values travel sealed and never enter model results/logs.
+- Require fresh outcome evidence for ledger-based goal verification; no conditions means unverified. Normalize
+  snapshot bookkeeping for loop detection and stop repeated consequential actions without observed progress.
+- Use raw Mac AX roles for text editing, verify set-value results and focus, and retry learned failed mechanisms
+  after an hour. Exclude comma-separated content previews from action-label floors while keeping call/pay/delete floors.
+- Keep wakeable paired browsers available. Structured chat stop/retry/continue cancels and waits for the old run,
+  preserves original request context and scoped authority, and blocks retries of unknown actions.
+- Validation and remaining limits: `docs/RELIABILITY_019.md`. Owner acceptance and installation remain separate.
+
 ## 0.18.0 — 2026-10-02 — Background first: the drivers rebuilt on what the owner watched work
 
 ### Documentation follow-up — 2026-10-02

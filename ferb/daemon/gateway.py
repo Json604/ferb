@@ -9,8 +9,6 @@ target) unless the owner's own message names the target, pay and destroy ask eve
 """
 
 import asyncio
-import hashlib
-import json
 import os
 import base64
 import dataclasses
@@ -71,6 +69,8 @@ class Gateway:
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
         self.locks = ResourceLocks()
+        self._in_flight: dict[asyncio.Task[Any], str] = {}
+        self._cancelled_tasks: set[str] = set()
         self.taint = Taint()
         self.observer: Observer = Observer()
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution (build step 10)
@@ -112,14 +112,36 @@ class Gateway:
         return [c.name for c in self.caps.values() if c.scopes <= set(task.scopes) and task.identity in c.identities]
 
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        r = await self._call(grant, name, arguments)
+        job = asyncio.current_task()
+        if job is not None:
+            self._in_flight[job] = grant.task_id
+        try:
+            r = await self._call(grant, name, arguments)
+        finally:
+            if job is not None:
+                self._in_flight.pop(job, None)
         content = r.get("content") or {}
         waiting_on_owner = isinstance(content, dict) and "needs_owner_approval" in content   # not a failure
-        digest = hashlib.sha256(json.dumps(content, sort_keys=True, default=str).encode()).hexdigest()[:16]
+        from ferb.orchestrator.guards import observation_digest
+        digest = observation_digest(content)
         self.observer.result(grant, name, arguments, bool(r.get("is_error")) and not waiting_on_owner, digest)
         return r
 
+    def in_flight(self, task_ids: set[str]) -> bool:
+        return any(tid in task_ids and not job.done() for job, tid in self._in_flight.items())
+
+    def cancel_tasks(self, task_ids: set[str]) -> None:
+        self._cancelled_tasks.update(task_ids)
+        for job, tid in list(self._in_flight.items()):
+            if tid in task_ids:
+                job.cancel()
+        for hold in self.engine.holds.pending():
+            if hold.action.task_id in task_ids:
+                self.engine.holds.undo(hold.id)
+
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if grant.task_id in self._cancelled_tasks:
+            return {"content": {"error": "task stopped by the owner"}, "is_error": True}
         rec = self.tasks.get(grant.task_id)
         started = rec.started_at if rec else None
         deadline = rec.task.deadline if rec else None
@@ -263,6 +285,11 @@ class Gateway:
                 if folder is not None:
                     ctx = dataclasses.replace(ctx, owner_roots=self.roots.owner_roots)
                     result = await cap.run(args, ctx)
+        except asyncio.CancelledError:
+            if intent_id:
+                self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])
+            self.spans.finish(span, error="cancelled; outcome unknown")
+            raise
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", [f"exception: {type(e).__name__}"])
@@ -291,6 +318,26 @@ class Gateway:
         if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
+
+    async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
+        """Owner-only hidden input, passed directly to a sealed fill; never returned in a tool result or span."""
+        if ctx.request_id in self.engine.approvals.unattended:
+            return None
+        ask = ActionRequest(capability="browser.login_code", kind="owner_login_code", identity=ctx.identity,
+                            scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
+                            request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
+        question = f"Enter the login code for {origin} (hidden; Enter cancels)."
+        ap = self.engine.approvals.question(ask, question, [])
+        ap.kind = "owner_login_code"
+        self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
+                                            "reason": question, "task_id": ctx.task_id})
+        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, ap.expires_at)
+        try:
+            state = await self._wait_answer(grant, ap.id)
+            return ap.answer if state == "granted" else None
+        finally:
+            ap.answer = None
+            ap.state = "used" if ap.state == "granted" else "denied"
 
     async def _ask_owner(self, grant: RunGrant, rec: Any, args: Any) -> dict[str, Any]:
         """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits

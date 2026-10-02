@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
-from ferb.act.browser.tools import (BrowserAct, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
+from ferb.act.browser.tools import (BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
                                    BrowserFind, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    MailboxSend, OWNER_BROWSER)
@@ -50,6 +50,8 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool 
     r.add(BrowserOpen(driver, f))
     r.add(BrowserNavigate(driver, f))
     r.add(BrowserSnapshot(driver, f))
+    r.add(BrowserScreenshot(driver, f))
+    r.add(BrowserPoint(driver, f))
     r.add(BrowserAct(driver, f))
     r.add(BrowserWait(driver, f))
     r.add(BrowserClose(driver, f))
@@ -66,6 +68,8 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
     r.add(BrowserOpen(router, f))
     r.add(BrowserNavigate(router, f))
     r.add(BrowserSnapshot(router, f))
+    r.add(BrowserScreenshot(router, f))
+    r.add(BrowserPoint(router, f))
     r.add(BrowserAct(router, f))
     r.add(BrowserWait(router, f))
     r.add(BrowserClose(router, f))
@@ -73,6 +77,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
     r.add(BrowserFind(router, f))
     r.add(BrowserTabs(router, f))                      # the owner's open tabs (owner decision, 2026-09-30)
     r.add(BrowserUseTab(router, f))
+    r.add(BrowserLoginCode(router, f))
 
 
 def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,

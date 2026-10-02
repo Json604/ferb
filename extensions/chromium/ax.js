@@ -1,0 +1,96 @@
+// Chromium's accessibility tree supplies names, roles and order. The isolated DOM walker supplies identity,
+// geometry, hit testing, forms and redacted values. All actions use that same DOM reference; never a blind AX click.
+const AX_ROLES = new Set(["button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio", "menuitem", "tab",
+  "option", "switch", "slider", "treeitem", "listitem", "row", "cell", "gridcell", "heading", "menuitemcheckbox", "menuitemradio"]);
+const bindingOf = (node) => {
+  const attrs = node && node.attributes || [];
+  const i = attrs.indexOf("data-ferb-ax");
+  return i >= 0 ? attrs[i + 1] : null;
+};
+
+async function accessibilitySnapshot(tabId, gen, frames) {
+  const st = tabState(tabId), bindings = new Map(), docs = new Map(), frameOwners = new Map();
+  for (const f of frames) {
+    docs.set(f.document_binding, f);
+    for (const e of f.elements) if (e.binding) bindings.set(e.binding, {frame: f, element: e});
+    for (const owner of f.iframes || []) if (owner.binding) frameOwners.set(owner.binding, {frame: f, owner});
+  }
+  const jobs = new Map(), byCdpFrame = new Map(), ordered = new Map();
+  const sessions = [undefined, ...st.sessions.keys()];
+  // Auto-attach only covers immediate children; each attached target enables it recursively.
+  await Promise.all(st.sessions.values());
+  for (const sessionId of sessions) {
+    try {
+      const {frameTree} = await cdp(tabId, "Page.getFrameTree", {}, sessionId);
+      const visit = (tree, parentId) => {
+        if (!tree) return;
+        jobs.set(tree.frame.id, {frameId: tree.frame.id, parentId: tree.frame.parentId || parentId, sessionId});
+        for (const child of tree.childFrames || []) visit(child, tree.frame.id);
+      };
+      visit(frameTree);
+    } catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
+  }
+  for (const job of jobs.values()) {
+    const {frameId, sessionId} = job;
+    try {
+      const {nodes} = await cdp(tabId, "Accessibility.getFullAXTree", {depth: 60, frameId}, sessionId);
+      const root = (nodes || []).find(n => n.role && n.role.value === "RootWebArea");
+      if (root && root.backendDOMNodeId) {
+        const {node} = await cdp(tabId, "DOM.describeNode", {backendNodeId: root.backendDOMNodeId, depth: 1}, sessionId);
+        const f = docs.get(bindingOf(node)) || (node.children || []).map(n => docs.get(bindingOf(n))).find(Boolean);
+        if (f) byCdpFrame.set(frameId, f);
+      }
+      for (const n of nodes || []) {
+        const role = n.role && n.role.value;
+        if (n.ignored || !AX_ROLES.has(role) || !n.backendDOMNodeId) continue;
+        const {node} = await cdp(tabId, "DOM.describeNode", {backendNodeId: n.backendDOMNodeId, depth: 0}, sessionId);
+        let bound = bindings.get(bindingOf(node));
+        if (!bound) bound = await adoptAXNode(tabId, gen, n.backendDOMNodeId, sessionId, frames);
+        if (!bound) { st.axErrors.push("AX target has no accessible DOM binding"); continue; }                       // stale/hidden/closed shadow root: never invent a click target
+        const {frame, element} = bound;
+        byCdpFrame.set(frameId, frame);
+        element.role = role;
+        if (n.name && n.name.value) element.label = String(n.name.value).replace(/\s+/g, " ").slice(0, 120);
+        // Never copy AX values: password and OTP metadata lives in the DOM, including autocomplete/name/type.
+        element.ax = true;
+        const list = ordered.get(frame) || [];
+        if (!list.includes(element)) list.push(element);
+        ordered.set(frame, list);
+      }
+    } catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
+  }
+  for (const [id, f] of byCdpFrame) {
+    if (f.frame_id === 0) continue;
+    const job = jobs.get(id), parent = jobs.get(job.parentId);
+    if (!parent) continue;
+    try {
+      const {backendNodeId} = await cdp(tabId, "DOM.getFrameOwner", {frameId: id}, parent.sessionId);
+      const {node} = await cdp(tabId, "DOM.describeNode", {backendNodeId, depth: 0}, parent.sessionId);
+      const bound = frameOwners.get(bindingOf(node));
+      if (bound) { f.parent_frame_id = bound.frame.frame_id; f.owner_binding = bound.owner.binding; }
+    } catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
+  }
+  for (const f of frames) {
+    const primary = ordered.get(f) || [];
+    f.elements = primary.concat(f.elements.filter(e => !primary.includes(e))).slice(0, 400);
+    f.ax = primary.length > 0;
+  }
+}
+
+async function adoptAXNode(tabId, gen, backendNodeId, sessionId, frames) {
+  await cdp(tabId, "DOM.getDocument", {depth: 0}, sessionId);
+  const {nodeIds} = await cdp(tabId, "DOM.pushNodesByBackendIdsToFrontend", {backendNodeIds: [backendNodeId]}, sessionId);
+  if (!nodeIds || !nodeIds[0]) return null;
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
+  await cdp(tabId, "DOM.setAttributeValue", {nodeId: nodeIds[0], name: "data-ferb-ax", value: token}, sessionId);
+  const results = await chrome.scripting.executeScript({target: {tabId, allFrames: true},
+    func: (g, t) => window.__ferb.adopt(g, t), args: [gen, token]});
+  for (const r of results) {
+    if (!r.result) continue;
+    const frame = frames.find(f => f.frame_id === r.frameId);
+    if (!frame) continue;
+    frame.elements.push(r.result);
+    return {frame, element: r.result};
+  }
+  return null;
+}

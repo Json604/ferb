@@ -205,7 +205,7 @@ def test_an_app_that_ignores_background_keys_is_never_brought_forward_without_le
             r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "hi"))
             assert not r.ok and "allow_foreground=true" in r.detail            # background only, and it says so
         assert apps.activated == [] and d.profiles.skips(CHAT, "pid_keys")    # remembered now
-        assert ax.calls.count("ax keys hi") == 1                              # the AX keyboard was tried once
+        assert ax.calls.count("ax keys hi") == MISS_LIMIT                              # each mechanism gets the same miss limit
         r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "!", allow_foreground=True))
         assert r.ok and "real input" in r.detail
         assert posted[-1] == "type '!' foreground" and "type '!' to pid" not in posted   # straight to the front
@@ -434,13 +434,13 @@ def test_a_search_box_that_isnt_a_text_field_is_typed_in_the_background_with_the
     """Spike 20: WhatsApp's search box (an unlabeled button) ignores a set value and keystrokes posted to its process,
     but pressed through Accessibility and typed into with the Accessibility keyboard, it searches in the background.
     The profile learns it, and the next time that rung comes first after the process keys."""
-    ax = Ax(takes_background=False, focused="button", box_has_focus=False, ax_keys=True)
+    ax = Ax(takes_background=False, focused="button", box_has_focus=True, ax_keys=True)
     d, apps, posted = setup(monkeypatch, ax)
     d._state[CHAT] = drv._AppState(gen=1, nodes={"s1e1": AxNode("btn", "button", "", None, (0, 0, 10, 10), False, True)})
     r = asyncio.run(d.act("WhatsApp", ComputerAction("set_value", "s1e1", "syllabus")))
     assert r.ok and "Accessibility keyboard" in r.detail and ax.box == "syllabus"
     assert "press" in ax.calls and "ax keys syllabus" in ax.calls                # pressed to focus, then typed
-    assert apps.activated == [] and posted == []                                 # never came forward
+    assert apps.activated == [] and posted == ["type 'syllabus' to pid"]         # never came forward
     assert d.profiles.prefers(CHAT, "ax_keyboard")
 
 
@@ -448,7 +448,7 @@ def test_a_box_that_takes_no_background_input_is_clicked_and_typed_in_front_only
         monkeypatch: pytest.MonkeyPatch) -> None:
     """The last resort for such a box: click it and type with the app in front, then put the owner back — and only
     when the call allows the foreground."""
-    ax = Ax(takes_background=False, focused="button", box_has_focus=False)
+    ax = Ax(takes_background=False, focused="button", box_has_focus=None)
     d, apps, posted = setup(monkeypatch, ax)
     d._state[CHAT] = drv._AppState(gen=1, nodes={"s1e1": AxNode("btn", "button", "", None, (0, 0, 10, 10), False, True)})
 

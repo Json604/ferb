@@ -254,7 +254,7 @@ class MacAct(_Base):
         n = self._node(args) if getattr(args, "element") else None
         if action in ("set_value", "type"):
             return Kind.SEARCH if n is not None and n.role == "searchbox" else Kind.MAC_INPUT
-        return (label_kind(n.label) if n is not None else None) or Kind.MAC_INPUT
+        return (label_kind(n.label) if n is not None and action in ("press", "click") else None) or Kind.MAC_INPUT
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]

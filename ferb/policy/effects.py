@@ -54,9 +54,16 @@ def raise_to(declared: str | None, floor: str) -> str:
 
 
 def label_kind(label: str | None) -> str | None:
-    """The kind a control's label pins it to (the floor), or None when the label says nothing listed."""
-    m = _FLOOR.search(label or "")
-    return FLOOR_WORDS[m.group(1).lower()] if m else None
+    """Use the control's name before its comma-separated descriptive preview.
+
+    Accessibility often appends unread counts and message previews to a control name. Those words describe
+    content, not the action. Keep all floors in the actual name (including "Video call" and "Confirm and pay").
+    The declaration still covers meaning that a label cannot establish.
+    """
+    name = (label or "").split(",", 1)[0]
+    matches = [FLOOR_WORDS[m.group(1).lower()] for m in _FLOOR.finditer(name)]
+    return max(matches, key=lambda kind: RANK[floor_of(kind)]) if matches else None
+
 
 
 def is_valid(effect: object) -> bool:

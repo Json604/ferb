@@ -379,7 +379,7 @@ def test_unknown_action_is_reconciled_not_retried(daemon: RunningDaemon) -> None
         return json.dumps({"status": "failed", "summary": r["content"]["error"], "artifacts": [], "evidence": []})
     t = task("email bob@x.com hi", "owner", recipients=("bob@x.com",), conds=(cond("the send happened", "ledger_done"),))
     yes = json.dumps({"happened": "yes", "evidence": "it's in Sent"})
-    install(daemon, [sup("task", "x", t)], {"worker": worker, "worker.reconcile": yes})
+    install(daemon, [sup("task", "x", t)], {"worker": worker, "worker.reconcile": yes, "worker.verify": json.dumps({"results": [{"index": 0, "met": True, "evidence": "message visible in Sent"}]})})
     out = outcome(chat(daemon, "email bob@x.com hi from my browser"))
     assert boom.calls == 1                                                          # never sent twice (21.11)
     assert out["subtasks"]["worker"]["status"] == "done" and out["verified"] is True

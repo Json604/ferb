@@ -33,6 +33,8 @@ def test_only_usable_groups_are_listed_and_missing_ones_get_one_line() -> None:
 def rig(d: RunningDaemon, paired: list[Any], connected: set[tuple[str, str]],
         perms: dict[str, bool] | None = None, identity: tuple[str, str] | None = None) -> Any:
     dm = d.daemon
+    if dm.router is not None:
+        dm.router.wake = None  # tests below cover a setup without the automatic profile wake service
     dm.pairings = SimpleNamespace(all=lambda: paired, for_profile=lambda b, f: None)          # type: ignore[assignment]
     dm.hub.bridges = {(b.browser, b.folder): SimpleNamespace(conn=object() if (b.browser, b.folder) in connected
                                                              else None) for b in paired}      # type: ignore[union-attr]
@@ -44,6 +46,16 @@ def rig(d: RunningDaemon, paired: list[Any], connected: set[tuple[str, str]],
 
 async def _avail(dm: Any) -> Any:
     return dm._availability()
+
+
+def test_a_paired_profile_with_a_wake_service_can_be_opened(daemon: RunningDaemon) -> None:
+    dm = rig(daemon, [WORK], set())
+    original = dm.router
+    dm.router = SimpleNamespace(wake=object(), shutdown=_noop)
+    a = daemon.run(_avail(dm))
+    assert "browser:act" in a.scopes
+    assert "can wake" in a.text and "connected now: Brave" not in a.text
+    dm.router = original
 
 
 def test_the_owners_browsers_only_when_a_paired_profile_is_connected(daemon: RunningDaemon) -> None:

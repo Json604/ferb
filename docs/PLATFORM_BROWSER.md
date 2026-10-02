@@ -1,3 +1,8 @@
+> Current implementation note (0.19.0): AX is now the primary semantic view, with DOM-backed references and
+> explicit fallback diagnostics. CDP frame identities replace URL matching; task-tab screenshot/point tools are
+> registered. Sections describing the earlier DOM-first plan remain historical probe notes.
+> See [0.19.0 recovery contracts](RELIABILITY_019.md) and ARCHITECTURE.md for the current implementation.
+
 # PLATFORM_BROWSER.md — controlling a Chromium browser in the background
 
 Engineering reference for the FERB browser driver rework (REWORK_PLAN.md phase 1). Scope: what an MV3 extension

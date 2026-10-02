@@ -49,6 +49,22 @@ def test_verbose_shows_the_internals() -> None:
     assert "▸ worker started" in render({"type": "subtask", "id": "worker", "status": "started"}, verbose=True)
 
 
+def test_login_code_uses_hidden_input_and_never_the_chat_input(monkeypatch: Any) -> None:
+    import getpass
+    import pytest
+    import sys
+    from types import SimpleNamespace
+    from ferb.cli.chat import Chat
+    calls = []
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: "482913")
+    c = SimpleNamespace(speaker=SimpleNamespace(say=lambda text: None, stop=lambda: None), verbose=False,
+                        ask=lambda prompt: pytest.fail("code went through normal chat input"),
+                        call=lambda method, args: calls.append((method, args)) or {"state": "granted"})
+    Chat.answer_approval(c, {"kind": "owner_login_code", "approval_id": "ap-code", "reason": "Code for https://shop.example"})
+    assert calls == [("chat.answer", {"approval_id": "ap-code", "text": "482913"})]
+
+
 def test_a_workers_question_is_asked_in_chat_and_answered_in_the_owners_words() -> None:
     """owner.ask: options are numbered; a number picks one, anything else is the answer; Enter skips."""
     from ferb.cli.chat import Chat

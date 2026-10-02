@@ -1,4 +1,4 @@
-# FERB architecture (version 0.18.0)
+# FERB architecture (version 0.19.0)
 
 This file describes what the code on this branch does, and only that. Every claim names the file (and where it
 helps, the function) that implements it; a claim the author could not confirm in code is marked "unverified".
@@ -120,7 +120,7 @@ The principles the code follows:
   (`~/.ferb/bin/ferb-native-host`, a shell launcher pointing at the venv; manifest in Chrome's and Brave's
   `NativeMessagingHosts` folders, `Installer.write_native_host`). It relays length-prefixed native messages to and
   from the daemon socket, checks nothing but size, logs nothing, and exits as soon as either side closes.
-- **The extension** (`extensions/chromium/`, MV3, version 0.7.0, protocol 3) is FERB's hands in the browser: it
+- **The extension** (`extensions/chromium/`, MV3, version 0.8.0, protocol 4) is FERB's hands in the browser: it
   executes daemon commands and reports tab events; it holds no policy. Its id is fixed by the key in
   `manifest.json` (`ferb/act/browser/ext_protocol.py:FERB_EXTENSION_ID`). The CDP allowlist is enforced in the
   extension itself (`protocol.js:CDP_ALLOW`), so the daemon can't ask for more.
@@ -163,9 +163,10 @@ identities (`ferb/act/ask.py`). A task never switches identity.
 FERB's credentials live in the macOS Keychain only (service `ferb`, account = the secret key such as
 `ferb/email/password`; `ferb/identity/secrets.py:KeychainSecretStore`). Their `SecretSpec` (allowed origins,
 account hint) is in `config.toml [secrets]`. There is no public reveal: `_reveal` is called only by the identity
-browser driver's origin-checked fill (section 7). The owner's credentials are never read, typed, stored or asked
-for; FERB never signs in as the owner (a signed-out page stops the task: `prompts/worker.md`, and the account check
-in `ferb/act/browser/accounts.py`).
+browser driver's origin-checked fill (section 7). Owner passwords are never requested or typed. For an owner-requested OTP login, `browser.login_code` obtains
+hidden CLI input through `Gateway.ask_login_code`, binds it to the selected HTTPS frame origin and code field,
+and sends a sealed fill through `Router.owner_code`. The model receives only the result, and the transient approval
+answer is cleared. The redactor learns the value to scrub page echoes. FERB's Keychain and inbox remain identity-only.
 
 ---
 
@@ -523,7 +524,7 @@ hands it to the service worker and closes), and the extension's `pair` message b
 and receives a per-install HMAC key. From then on every message carries a strictly increasing `seq` and an
 HMAC-SHA256 over install id, seq, type and body (`ext_protocol.authentic`); a replay or bad MAC is dropped. An
 unpaired install may only say hello and pair; it can't act or write trail events. A hello with an older protocol or
-version than `MIN_EXTENSION_VERSION` (0.7.0) is refused until the extension is reloaded. If the extension isn't
+version than `MIN_EXTENSION_VERSION` (0.8.0) is refused until the extension is reloaded. If the extension isn't
 installed in a profile (`profiles.has_extension` reads its preferences on disk), pairing opens that profile's
 extensions page and `ferb/cli/admin.py:_guide_install` walks the owner through Load unpacked (Chrome 137+ allows
 no other way), then pairs. The identity profile is paired as `ferb` by `ferb setup --identity` after
@@ -533,7 +534,7 @@ no other way), then pairs. The identity profile is paired as `ferb` by `ferb set
 generation; commands carry it and a command id; the extension answers an old generation "stale" and a seen id
 "duplicate", and records an id as started before running it (`background.js:onCommand`, in `storage.session`).
 A command in flight when the connection drops or times out (30 s) raises `OutcomeUnknown`; the next hello's seen
-and owned lists settle it (`Bridge._reconcile`: done → done, never seen → failed, started → stays unknown; never
+and owned lists settle it (`Bridge._reconcile`: done → done, failed → failed, never seen → failed, started/unknown → stays unknown; never
 resent). A profile whose extension is asleep is woken by loading it with no window (`profiles.open_known_profile`:
 `open -g -b … --no-startup-window`, or the binary when the browser already runs) and, only if that doesn't connect
 within 8 s, a unique blank local wake page (`ext_bridge.WakeServer`) closed once FERB's own tab is open. If a
@@ -575,8 +576,8 @@ request). Keys carry `key`, `code`, Windows and native key codes, modifiers (Alt
 the mac editing `commands` the renderer needs for shortcuts (⌘A `selectAll`, ⌘← `moveToBeginningOfLine`, ⌫
 `deleteBackward`, …; `protocol.js:MAC_COMMANDS`, allowlisted in `EDIT_COMMANDS`). `page_mode=true`, `select` and
 `scroll` use scripted (untrusted) events in the isolated world (`content.js:act`); a page the debugger can't attach
-to, or a frame whose offset is unknown, falls back to page mode. An element from the AX fallback (ids ≥ 100000) is
-acted on by coordinates (`axAct`).
+to, or a frame whose offset is unknown, returns a failure with its diagnostic. Synthetic page mode is explicit.
+Covered/disabled controls and unconfirmed keyboard focus are refused. AX targets use the same DOM references and checks.
 
 **Snapshots** (`content.js:snapshot`, composed in `commands.snapshot`, shaped by
 `ferb/act/browser/snapshot.py:for_model`): a DOM walk in the isolated world of every frame, open shadow roots
@@ -585,9 +586,13 @@ alt, text), value (password and one-time-code fields: filled or empty only), rec
 and `elementFromPoint` at its centre hits it), `offscreen` above / below / left / right, `occluded`, `container`
 (its nearest scrollable ancestor), `form` search / login / other, href (tokens masked), state and heading level;
 the page's `scroll` and a `scrollers` list (id, label, y, height, viewport height, at_end); the visible text
-nearest the viewport in document order (8,000 chars); dialogs dismissed since the last snapshot. When the DOM walk
-finds under 3 interactive elements (canvas or ARIA apps) and the tab can be attached, `Accessibility.getFullAXTree`
-plus `DOM.getBoxModel` add up to 120 named nodes (`axElements`). Ids `s<gen>e<n>` go stale after a newer snapshot
+nearest the viewport in document order (8,000 chars); dialogs dismissed since the last snapshot. `ax.js:accessibilitySnapshot` reads Chromium's AX tree on every snapshot, taking roles, names and ordering
+from AX while preserving the isolated DOM walk's redacted values, forms and hit testing. Backend nodes are bound
+to isolated-world element references using random `data-ferb-ax` markers and narrowly allowlisted DOM methods.
+Additional AX nodes are adopted into the same DOM reference map; there is no separate blind-coordinate AX actuator.
+CDP frame-tree/owner identities replace URL/name matching. Child debugger sessions are tracked and recursively
+auto-attached; fresh frame-owner rects are read for input. If AX fails, the DOM view carries an explicit diagnostic.
+Frame text is included in the daemon snapshot, so an embedded login dialog is not lost behind top-page text. Ids `s<gen>e<n>` go stale after a newer snapshot
 or a navigation (`_TabDriver._resolve`). Password values never leave the page.
 
 **Scrolling** (`commands.scroll`): a trusted `mouseMoved` then `mouseWheel` at the centre of the window or of a
@@ -604,13 +609,17 @@ dialog is reported as an event (`browser.dialog` on the bus) and in the next sna
 world, found by `DOM.querySelector` and filled with `DOM.setFileInputFiles` (absolute paths of existing files,
 checked in the daemon); top frame only. **Screenshots** (`commands.screenshot`): `Page.captureScreenshot` JPEG
 quality 70, in parts under the 1 MB native-messaging line. This is exposed on `_TabDriver.screenshot` and
-covered by the browser lab test; no screenshot capability is registered for model workers yet.
+exposed to workers by `browser.screenshot` / `ferb_browser.screenshot`. A `point` resolves image coordinates to a
+fresh element id without clicking; `act` then runs the normal policy and account gates. Shot references are tab-bound,
+one-use, expire after 30 seconds and invalidate on newer snapshots/navigation. Capture refuses sensitive or truncated inventories.
 
 **The CDP allowlist** (`protocol.js:CDP_ALLOW`) is exactly: `Page.enable`, `Emulation.setFocusEmulationEnabled`,
 `Target.setAutoAttach` (that shape only), `Emulation.setDeviceMetricsOverride` (1280×900 only),
 `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Input.insertText`, `Page.handleJavaScriptDialog`,
 `Page.captureScreenshot`, `Accessibility.getFullAXTree`, `DOM.getBoxModel`, `DOM.getDocument` (depth 0),
-`DOM.querySelector` (the FERB stamp only), `DOM.setFileInputFiles`; each with a parameter-shape check, and return
+`DOM.querySelector` (the FERB stamp only), `DOM.setFileInputFiles`, `Page.getFrameTree`, `DOM.getFrameOwner`,
+`DOM.describeNode` (depth 0/1), `DOM.pushNodesByBackendIdsToFrontend` (one backend id), `DOM.setAttributeValue`
+(only the random FERB AX binding marker); each with a parameter-shape check, and return
 values filtered to named fields (`CDP_RETURN_FIELDS`). Cookies, storage, free-form script evaluation and other
 targets are refused in the extension.
 
@@ -688,14 +697,13 @@ evidence; yes → `done`, no → `failed`, unclear → stays unknown and the out
 
 **Verification** (`Supervisor.verify`, `ferb/orchestrator/verify.py:Checks`): after a `done` outcome with success
 conditions, each condition with a code-checkable form is checked by code: `file_exists`, `file_contains` (through
-the fs resolver), `ledger_done` (the task's ledger rows exist and are all `done`; `expected` is ignored; no rows
-means the condition is a reading one and goes to the verifier; an unknown row means undecided), `tab_url` (a task
+the fs resolver), `ledger_done` (legacy: always requires a fresh outcome read; completed input is not proof of the goal), `tab_url` (a task
 tab's URL contains the text), `account` (the signed-in account on a task tab). Conditions needing judgement go to
 one read-only verifier run (`.verify` task, read scopes plus `fs:read`) that must see evidence itself; the worker's
 report is passed as data. A check code can't decide goes to the verifier instead of immediately failing the task. `_final`: an unmet
 condition turns the outcome `failed` with the reason; an undecided one keeps `done` and says "I couldn't confirm";
-`verified` is true for a done worker when all supplied conditions were met; with no conditions, a done report
-also sets it true. That flag alone does not prove an independent check ran.
+`verified` requires a done worker, at least one success condition, and every supplied condition confirmed.
+A report with no conditions stays unverified. The planner must express the requested result rather than an attempted action.
 
 ---
 
@@ -928,14 +936,17 @@ remembering, and safety, each with what FERB should do and what the owner checks
 result is right, nothing on the owner's screen moved, and FERB reported the right status. **The rule: the owner's
 eyes are the verifier.** Stale tests can't fool a person watching the screen; a step that moves the desktop,
 raises a window over theirs or touches their mouse or keyboard fails even if the task completed. Results go in
-`docs/OWNER_ACCEPTANCE_LOG.md`, tracked next to `ferb stats`. Sections B–H have not been run yet at 0.18.0
+`docs/OWNER_ACCEPTANCE_LOG.md`, tracked next to `ferb stats`. Sections B–H have not been run yet at 0.19.0
 (`PROGRESS.md`).
 
 ---
 
+The 0.19.0 recovery contracts, task control, hidden login-code flow, regression evidence and remaining limits are
+summarized in `docs/RELIABILITY_019.md`.
+
 ## 15. Known gaps and what's next
 
-Not built at 0.18.0:
+Not built at 0.19.0:
 
 - **Procedure memory** (`docs/REWORK_PLAN.md` phase 5): "how I did X in app Y" stored after a done task and
   recalled into the worker prompt. Nothing in `ferb/` implements it; the per-app profile learns mechanisms, not

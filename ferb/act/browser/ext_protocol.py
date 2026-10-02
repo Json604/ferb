@@ -3,7 +3,8 @@
 ext -> daemon: `{install_id, type, body_json, seq?, mac?}`. Once paired, every message carries a strictly
 increasing `seq` and `mac` = base64 HMAC-SHA256(key, "install_id|seq|type|body_json") (section 9.6).
 daemon -> ext: `{type: "cmd", id, gen, op, args, timeout_ms}` for commands; `paired` / `refused` for control.
-Protocol 3 (extension 0.7.0): FERB's own minimized window, a debugger session per task tab, `event` messages
+Protocol 4 (extension 0.8.0): AX-first snapshots, point resolution and explicit command outcomes.
+Protocol 3 introduced FERB's own minimized window, a debugger session per task tab, `event` messages
 (dialogs, a detached debugger), container scrolls, uploads, chunked screenshots.
 """
 
@@ -15,15 +16,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 3
-MIN_EXTENSION_VERSION = "0.7.0"                # older extensions are refused at hello (reload the unpacked one)
+PROTOCOL_VERSION = 4
+MIN_EXTENSION_VERSION = "0.8.0"                # older extensions are refused at hello (reload the unpacked one)
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
 ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
              "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "ping"]
+             "upload", "ping", "point"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -58,7 +59,7 @@ class Hello(BaseModel):
     browser: str = ""                          # what the extension believes (informational; binding wins)
     paired: bool = False
     owned: list[dict[str, Any]] = []           # resources it created, each tagged with its command id
-    seen: list[dict[str, Any]] = []            # recent command ids with "started" / "done" (reconciliation)
+    seen: list[dict[str, Any]] = []            # recent command ids with started / done / failed / unknown (reconciliation)
 
 
 class Result(BaseModel):
@@ -67,6 +68,7 @@ class Result(BaseModel):
     status: Literal["ok", "error", "stale", "duplicate"]
     value: Any = None
     error: str | None = None
+    outcome: Literal["done", "failed", "unknown"] | None = None
 
 
 class TabEvent(BaseModel):

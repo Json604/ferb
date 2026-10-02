@@ -238,7 +238,8 @@ def test_2_liking_the_current_song_in_spotify_is_an_edit_that_runs_and_is_verifi
                                                         "url_contains": None, "site": None,
                                                         "expected": "Spotify like current track"}},)
     t = task("add the current song in Spotify to the owner's liked songs", "owner", apps=("Spotify",), conds=conds)
-    install(daemon, [sup("task", "Liking it.", t)], {"worker": worker})
+    install(daemon, [sup("task", "Liking it.", t)], {"worker": worker,
+        "worker.verify": json.dumps({"results": [{"index": 0, "met": True, "evidence": "heart is selected in a fresh read"}]})})
     watch = Answers(daemon)
     try:
         out = outcome(chat(daemon, "add the current song in Spotify to my liked songs"))
@@ -246,7 +247,7 @@ def test_2_liking_the_current_song_in_spotify_is_an_edit_that_runs_and_is_verifi
         watch.stop()
     assert watch.asked == [] and mac.clicked == [("Spotify", 640.0, 560.0)]
     assert ledger_states(daemon, "mac.click") == ["done"]
-    assert out["verification"][0]["met"] is True and out["verification"][0]["path"] == "code"
+    assert out["verification"][0]["met"] is True and out["verification"][0]["path"] == "verifier"
     assert out["status"] == "done" and out["verified"] is True and out["answer"].startswith("Added the current song")
 
 

@@ -7,6 +7,7 @@
 // every task tab is created inactive inside it; the debugger stays attached to a task tab for its life with focus
 // emulation on, so trusted input, scrolling and screenshots work while the owner never sees a thing.
 importScripts("protocol.js");
+importScripts("ax.js");
 
 let port = null;
 let gen = null;                      // connection generation, assigned by the daemon ("welcome" / "paired")
@@ -131,7 +132,10 @@ async function onCommand(m) {
   } catch (e) {
     body = { id: m.id, gen, status: "error", error: String((e && e.message) || e).slice(0, 300) };
   }
-  const s2 = await session(); s2.seen[m.id] = "done"; await saveSession(s2);
+  // A handler error may follow partial input; a timeout does not cancel the renderer operation.
+  const outcome = body.status === "ok" ? (body.value && body.value.ok === false ? "failed" : "done") : "unknown";
+  body.outcome = outcome;
+  const s2 = await session(); s2.seen[m.id] = outcome; await saveSession(s2);
   await send("result", body);
 }
 
@@ -215,15 +219,15 @@ async function inFrame(tabId, frameId, func, args) {
 const TABS = new Map();          // tabId -> { attached, detached, dialogs, expect, leaving, frames, ax, shot }
 function tabState(tabId) {
   let t = TABS.get(tabId);
-  if (!t) { t = { attached: false, detached: null, dialogs: [], expect: null, leaving: false, frames: {}, ax: null, shot: null }; TABS.set(tabId, t); }
+  if (!t) { t = { attached: false, detached: null, dialogs: [], expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null }; TABS.set(tabId, t); }
   return t;
 }
 
-async function cdp(tabId, method, params) {
+async function cdp(tabId, method, params, sessionId) {
   if (!cdpAllowed(method, params)) throw new Error(`cdp method not allowed: ${method}`);
   const t = TABS.get(tabId);
   try {
-    return cdpFilter(method, await chrome.debugger.sendCommand({ tabId }, method, params || {}));
+    return cdpFilter(method, await chrome.debugger.sendCommand({ tabId, ...(sessionId ? {sessionId} : {}) }, method, params || {}));
   } catch (e) {
     if (t && t.detached) throw new Error(`detached:${t.detached}`);   // the owner pressed Cancel mid-action
     throw e;
@@ -235,14 +239,20 @@ async function attach(tabId) {
   if (t.attached) return t;
   await chrome.debugger.attach({ tabId }, "1.3");
   t.attached = true; t.detached = null;
-  await cdp(tabId, "Page.enable", {});
-  await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
-  await cdp(tabId, "Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
-  const s = await session(), tab = await chrome.tabs.get(tabId);
-  if (s.windowId != null && tab.windowId === s.windowId)     // FERB's own window: layout independent of its size.
-    await cdp(tabId, "Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
-  await ready(tabId);                                        // the owner's own tab keeps its real viewport
-  return t;
+  try {
+    await cdp(tabId, "Page.enable", {});
+    await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
+    await cdp(tabId, "Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+    const s = await session(), tab = await chrome.tabs.get(tabId);
+    if (s.windowId != null && tab.windowId === s.windowId)     // FERB's own window: layout independent of its size.
+      await cdp(tabId, "Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
+    await ready(tabId);                                        // the owner's own tab keeps its real viewport
+    return t;
+  } catch (e) {
+    t.attached = false;
+    try { await chrome.debugger.detach({tabId}); } catch (_) {}
+    throw e;
+  }
 }
 
 async function detach(tabId) {
@@ -263,6 +273,17 @@ chrome.debugger.onDetach.addListener((src, reason) => {
 // Dialogs (13.5): a background tab's dialog is invisible to the owner, so the extension answers it: dismissed,
 // unless the act in flight declared it expects one; beforeunload is accepted only while FERB itself leaves the page.
 chrome.debugger.onEvent.addListener((src, method, params) => {
+  if (method === "Target.attachedToTarget") {
+    const t = tabState(src.tabId), sid = params.sessionId;
+    if (params.targetInfo && params.targetInfo.type === "iframe") {
+      t.sessions.set(sid, cdp(src.tabId, "Target.setAutoAttach",
+        {autoAttach: true, waitForDebuggerOnStart: false, flatten: true}, sid).catch(e => {
+          t.axErrors.push(String(e.message || e));
+        }));
+    }
+    return;
+  }
+  if (method === "Target.detachedFromTarget") { tabState(src.tabId).sessions.delete(params.sessionId); return; }
   if (method !== "Page.javascriptDialogOpening") return;
   const t = TABS.get(src.tabId);
   if (!t) return;
@@ -319,9 +340,19 @@ async function topPoint(tabId, frameId, snap, el) {
   const r = await inFrame(tabId, frameId, (g, i) => window.__ferb.rect(g, i), [snap, el]);
   if (r.error) return { error: r.error };
   if (frameId !== 0) {
-    const f = (TABS.get(tabId) || {}).frames || {};
-    if (!f[frameId]) return { error: "frame_offset_unknown" };
-    r.x += f[frameId][0]; r.y += f[frameId][1];
+    const refs = tabState(tabId).frameRefs;
+    let fid = frameId;
+    const visited = new Set();
+    while (fid !== 0) {
+      if (visited.has(fid)) return {error: "frame_cycle"};
+      visited.add(fid);
+      const f = refs && refs.get(fid);
+      if (!f || f.parent_frame_id == null || !f.owner_binding) return {error: "frame_offset_unknown"};
+      const owner = await inFrame(tabId, f.parent_frame_id, token => window.__ferb.frameRect(token), [f.owner_binding]);
+      if (owner.error) return owner;
+      r.x += owner.x; r.y += owner.y; r.occluded = r.occluded || owner.occluded;
+      fid = f.parent_frame_id;
+    }
   }
   return r;
 }
@@ -334,6 +365,9 @@ async function trusted(tabId, a) {
   try {
     const p = await topPoint(tabId, a.frame_id, a.snap, a.el);
     if (p.error) return { ok: false, detail: p.error };
+    if (p.secret && a.kind === "type") return {ok: false, detail: "secret_field"};
+    if (p.disabled) return {ok: false, detail: "target_disabled"};
+    if (p.occluded) return { ok: false, detail: "target_occluded; take a fresh snapshot" };
     if (a.kind === "hover") { await mouse(tabId, "mouseMoved", p.x, p.y); return { ok: true, detail: "hovered (trusted)" }; }
     if (CLICKS[a.kind]) {
       await pointerClick(tabId, p.x, p.y, CLICKS[a.kind]);
@@ -356,8 +390,9 @@ async function trusted(tabId, a) {
       return { ok: true, detail: "typed (trusted)" };
     }
     if (a.kind === "press") {
-      const active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
-      if (!active) await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.focus(g, i), [a.snap, a.el]);
+      let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
+      if (!active) active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.focus(g, i), [a.snap, a.el]);
+      if (!active) return { ok: false, detail: "focus_failed" };
       if (!(await pressKey(tabId, a.text || "Enter"))) return { ok: false, detail: "unsupported_key" };
       return { ok: true, detail: `pressed ${a.text || "Enter"} (trusted)` };
     }
@@ -367,55 +402,7 @@ async function trusted(tabId, a) {
   }
 }
 
-// AX fallback (13.3): canvas / ARIA pages where the DOM walk finds almost nothing. Nodes with a name and an
-// actionable role, rects from DOM.getBoxModel; ids from AX_BASE up are acted on by coordinates, never by element.
-const AX_BASE = 100000, AX_MAX = 120;
-const AX_ROLES = new Set(["button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio", "menuitem", "tab",
-  "option", "switch", "slider", "treeitem", "listitem", "row", "cell", "gridcell", "heading", "menuitemcheckbox", "menuitemradio"]);
-async function axElements(tabId, gen) {
-  const { nodes } = await cdp(tabId, "Accessibility.getFullAXTree", { depth: 60 });
-  const out = [], map = {};
-  for (const n of nodes || []) {
-    if (out.length >= AX_MAX) break;
-    const role = n.role && n.role.value, name = n.name && n.name.value;
-    if (!role || !AX_ROLES.has(role) || !name || !n.backendDOMNodeId || n.ignored) continue;
-    if ((n.properties || []).some((p) => p.name === "hidden" && p.value && p.value.value === true)) continue;
-    let model;
-    try { ({ model } = await cdp(tabId, "DOM.getBoxModel", { backendNodeId: n.backendDOMNodeId })); } catch (_) { continue; }
-    if (!model || !model.content) continue;
-    const q = model.content, xs = [q[0], q[2], q[4], q[6]], ys = [q[1], q[3], q[5], q[7]];
-    const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(...xs) - x, h = Math.max(...ys) - y;
-    if (w <= 0 || h <= 0) continue;
-    const id = AX_BASE + out.length;
-    map[id] = n.backendDOMNodeId;
-    const meets = x + w > 0 && y + h > 0 && x < VIEWPORT.width && y < VIEWPORT.height;
-    out.push({ id, role, label: String(name).slice(0, 120), value: n.value && n.value.value != null ? String(n.value.value).slice(0, 200) : null,
-               rect: [x, y, w, h], in_view: meets, input_type: null, href: null, form: null, secret: false, ax: true,
-               ...(meets ? {} : { offscreen: y >= VIEWPORT.height ? "below" : "above" }) });
-  }
-  tabState(tabId).ax = { gen, map };
-  return out;
-}
-async function axAct(tabId, a) {
-  const t = await attach(tabId);
-  const ax = t.ax;
-  if (!ax || ax.gen !== a.snap || !ax.map[a.el]) return { ok: false, detail: "stale" };
-  const { model } = await cdp(tabId, "DOM.getBoxModel", { backendNodeId: ax.map[a.el] });
-  const q = model.content, x = (q[0] + q[4]) / 2, y = (q[1] + q[5]) / 2;
-  if (CLICKS[a.kind]) { await pointerClick(tabId, x, y, CLICKS[a.kind]); return { ok: true, detail: `${a.kind} (trusted, by position)` }; }
-  if (a.kind === "hover") { await mouse(tabId, "mouseMoved", x, y); return { ok: true, detail: "hovered (trusted, by position)" }; }
-  if (a.kind === "type") {
-    await pointerClick(tabId, x, y);
-    if (!a.append) await pressKey(tabId, "cmd+a");
-    await cdp(tabId, "Input.insertText", { text: a.text || "" });
-    return { ok: true, detail: "typed (trusted, by position)" };
-  }
-  if (a.kind === "press") { await pointerClick(tabId, x, y); await pressKey(tabId, a.text || "Enter"); return { ok: true, detail: `pressed ${a.text || "Enter"} (trusted)` }; }
-  return { ok: false, detail: "that action needs a DOM element" };
-}
-
-// Child-frame rects become top-viewport rects: a frame's offset is its <iframe> element's rect in the parent
-// (matched by URL, then by name) plus the parent's own offset (2.5).
+// Child-frame rects use the CDP frame owner bound to its isolated DOM reference, plus the parent offset.
 function composeFrames(frames) {
   const byId = new Map(frames.map((f) => [f.frame_id, f]));
   const offsets = {}, visible = {};
@@ -426,7 +413,8 @@ function composeFrames(frames) {
       if (f.frame_id in offsets) continue;
       for (const p of frames) {
         if (!(p.frame_id in offsets)) continue;
-        const hit = (p.iframes || []).find((i) => i.src && i.src === f.url) || (p.iframes || []).find((i) => f.name && i.name === f.name);
+        if (p.frame_id !== f.parent_frame_id) continue;
+        const hit = (p.iframes || []).find((i) => i.binding && i.binding === f.owner_binding);
         if (!hit) continue;
         offsets[f.frame_id] = [offsets[p.frame_id][0] + hit.rect[0], offsets[p.frame_id][1] + hit.rect[1]];
         visible[f.frame_id] = visible[p.frame_id] && hit.in_view;
@@ -545,35 +533,44 @@ const commands = {
   },
   async snapshot({ tab_id, snap }) {
     await inject(tab_id);
+    const st = tabState(tab_id);
+    st.axErrors = [];
+    let attached = false;
+    try { await attach(tab_id); attached = true; }
+    catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
     const results = await chrome.scripting.executeScript({ target: { tabId: tab_id, allFrames: true },
                                                            func: (g) => window.__ferb.snapshot(g), args: [snap] });
     const frames = results.filter((r) => r && r.result).map((r) => ({ frame_id: r.frameId, ...r.result }));
     const top = frames.find((f) => f.frame_id === 0);
     if (!top) throw new Error("snapshot failed in the page");
-    const st = tabState(tab_id);
+    if (attached) await accessibilitySnapshot(tab_id, snap, frames);
     st.frames = composeFrames(frames);
-    st.ax = null;
-    if (top.elements.filter((e) => e.role !== "heading").length < 3) {       // canvas / ARIA app: AX fallback
-      const s = await session(), tab = await chrome.tabs.get(tab_id);          // attaching FERB's own tab is invisible;
-      if (st.attached || (s.windowId != null && tab.windowId === s.windowId)) {   // an owner tab only once attached
-        try { await attach(tab_id); top.elements = top.elements.concat(await axElements(tab_id, snap)); top.ax = true; }
-        catch (_) { /* the DOM walk stands */ }
-      }
-    }
+    st.frameRefs = new Map(frames.map(f => [f.frame_id, f]));
+    if (st.axErrors.length) top.truncated = true;
+    if (st.axErrors.length) top.text = `[Accessibility view incomplete: ${st.axErrors.join("; ")}]\n${top.text}`;
     const dialogs = st.dialogs.splice(0);
     return { frames, dialogs };
   },
+  async point({tab_id, snap, x, y, image_width, image_height}) {
+    const [width, height] = await inFrame(tab_id, 0, () => window.__ferb.viewport(), []);
+    x *= width / image_width; y *= height / image_height;
+    const refs = tabState(tab_id).frameRefs;
+    let frame = 0;
+    for (let depth = 0; depth < 30; depth++) {
+      const hit = await inFrame(tab_id, frame, (g, px, py) => window.__ferb.point(g, px, py), [snap, x, y]);
+      if (hit.error || hit.element) return {...hit, frame_id: frame};
+      const child = refs && [...refs.values()].find(f => f.parent_frame_id === frame && f.owner_binding === hit.frame);
+      if (!child) return {error: "frame_offset_unknown"};
+      const r = await inFrame(tab_id, frame, token => window.__ferb.frameRect(token), [hit.frame]);
+      if (r.error || r.occluded) return {error: r.error || "frame_occluded"};
+      x -= r.x; y -= r.y; frame = child.frame_id;
+    }
+    return {error: "frame_depth"};
+  },
   async act({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
-    if (el >= AX_BASE) return axAct(tab_id, { snap, el, kind, text, append });
     const page = page_mode === true || kind === "select" || kind === "scroll";
     if (!page) {
-      let r = { ok: false, detail: "no_debugger" };
-      let attached = false;
-      try { await attach(tab_id); attached = true; }
-      catch (e) { if (String(e && e.message).startsWith("detached:")) throw e; }   // else: a page it can't attach to
-      if (attached) r = await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key });
-      if (r.ok || (r.detail !== "frame_offset_unknown" && r.detail !== "no_debugger")) return r;
-      // real input can't reach it (a frame FERB can't place, or a page the debugger may not attach to): page events
+      return trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key });
     }
     const r = await inFrame(tab_id, frame_id, (g, i, k, t) => window.__ferb.act(g, i, k, t), [snap, el, kind, text ?? null]);
     return r;
@@ -633,13 +630,13 @@ const commands = {
   },
   // FERB identity only (the daemon never sends it to owner profiles). The value is opened here, for this command id
   // and origin only, handed to that frame's isolated world, and never posted back or logged.
-  async fill({ tab_id, frame_id, snap, el, sealed, origin }, id) {
+  async fill({ tab_id, frame_id, snap, el, sealed, origin, code_only }, id) {
     const st = await install();
     if (!st.key) throw new Error("not paired");
     let value;
     try { value = await unseal(st.key, sealed, id, origin); }
     catch (_) { return { ok: false, detail: "seal_refused" }; }            // another command or origin: nothing filled
-    const r = await inFrame(tab_id, frame_id, (g, i, o, v) => window.__ferb.fill(g, i, o, v), [snap, el, origin, value]);
+    const r = await inFrame(tab_id, frame_id, (g, i, o, v, c) => window.__ferb.fill(g, i, o, v, c), [snap, el, origin, value, code_only === true]);
     value = null;
     return { ok: !!r.ok, detail: String(r.detail || "") };
   },

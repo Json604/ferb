@@ -24,7 +24,7 @@ GROUPS: tuple[Group, ...] = (
     Group("owner_browsers", "the owner's browsers", frozenset({"browser:read", "browser:act"}),
           "The owner's browsers (\"owner\" identity), connected now: {profiles} — open pages in their signed-in "
           "sessions, read them, click/type/select, or take over a tab the owner already has open. Only when the "
-          "owner's words point at their browser. FERB never signs in as the owner. If the owner names a profile "
+          "owner's words point at their browser. Owner-requested OTP login uses browser_login_code with hidden input; passwords require owner sign-in. If the owner names a profile "
           "(\"in my Work profile\"), put it in the goal."),
     Group("ferb_browser", "FERB's own browser", frozenset({"identity:browse", "secrets:fill", "mailbox:send"}),
           "FERB's own browser (\"ferb\" identity only; scopes {scopes} — never browser:read / browser:act, which "
