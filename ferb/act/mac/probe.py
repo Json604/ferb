@@ -14,7 +14,9 @@ change a view:
 The probe never quits an app, not even one it launched (`open -g -b`): quitting can raise save sheets. It reports
 `launched_by_probe` so the caller can decide.
 
-Run:  .venv/bin/python -m ferb.act.mac.probe com.apple.TextEdit [--pid=N] [--json-only]
+Run:  .venv/bin/python -m ferb.act.mac.probe com.apple.TextEdit [--pid=N] [--json-only] [--seed]
+      --seed writes the result into the app's learned profile (~/.ferb/device/apps/<bundle>.json), the one the
+      driver consults and updates with every action's outcome (ferb.act.mac.profile).
 """
 
 from __future__ import annotations
@@ -749,6 +751,12 @@ def main(argv: list[str]) -> int:
         return 2
     pid = next((int(a.split("=", 1)[1]) for a in argv if a.startswith("--pid=")), None)
     profile = Probe(argv[0], pid=pid).run()
+    if "--seed" in argv:
+        from ferb.act.mac.driver import profiles_dir
+        from ferb.act.mac.profile import Profiles
+        from ferb.paths import ferb_home
+        written = Profiles(profiles_dir(ferb_home())).seed(argv[0], profile)
+        profile["seeded"] = written
     if "--json-only" in argv:
         profile = {k: v for k, v in profile.items() if k != "steps"}
     print(json.dumps(profile, indent=1, default=str, ensure_ascii=False))

@@ -1,24 +1,37 @@
-"""MacComputerDriver (section 5 ComputerDriver): takes an action on an app, resolves the method, calls the parts.
+"""MacComputerDriver (section 5 ComputerDriver): takes an action on an app, background first, foreground by request.
 
-Input order, every app (9.4, spike 18): Accessibility with the app in the background (press / set value / focus);
-then keystrokes posted to the app's own process, still in the background (checked by what changed; an app that
-ignores them is remembered); only then the foreground — bring the app forward once per stretch of work, one marked
-event at a time under the GUI lock, the owner's input held back by the guard and winning (10.5), and the owner's app
-put back once the task moves on or has been idle there for STRETCH_IDLE_S. Arrow keys in a text box and Return where
-a Send button belongs are refused. Element ids come from the latest snapshot of that app and go stale with a newer
-one. Excluded apps are never read or acted on; browsers are read-only here (ax_browser).
+Order per primitive (docs/PLATFORM_MACOS.md §12 and the owner-verified rules), each rung tried only after the one
+before it verifiably did nothing, with the per-app learned profile (ferb.act.mac.profile) recording what landed:
+  press     AXPress → AXPress on the nearest ancestor that lists it → AXFocused + Return / Space to the process
+  type      AXFocused + unicode keys to the process (read back) → the Accessibility keyboard (apps the profile
+            marks) → AXValue → foreground
+  edit      AXSelectedTextRange + AXSelectedText → AXValue rewrite with the edit applied (no arrow keys, ever)
+  key       a ⌘ shortcut goes through the menu item it maps to, pressed only when that item is enabled (a disabled
+            key equivalent would only beep); Escape dismisses a sheet / dialog / menu with AXCancel; other keys go
+            to the process and are checked by what changed
+  scroll    AXScrollToVisible → slider / stepper AXIncrement → Page Up / Down keys with the scroll area focused →
+            the scroll bar's AXValue / AXIncrement → foreground
+  select    AXPress the pop-up button, then AXPress the menu item by title (AXValue where settable)
+  click at  the app's own hit test → AXPress; pixel click to the process only for a window on the current Space,
+            verified; foreground
+The foreground (real input, the app brought forward once per stretch, the owner's input held back and winning,
+their app put back) runs only when the call carries allow_foreground=true. Excluded apps are never read or acted
+on; browsers are read-only here (ax_browser). Element ids come from the latest snapshot of that app.
 """
 
 import asyncio
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Collection, Literal
 
 from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
 from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
-from ferb.act.mac.input import (KEYCODES, RealInput, Step, click_steps, is_arrow, is_enter, key_steps, switches_apps,
-                                type_steps, valid_combo)
+from ferb.act.mac.input import (KEYCODES, RealInput, Step, click_steps, is_arrow, is_enter, is_shortcut, key_steps,
+                                normalize, quits_or_hides, switches_apps, type_steps, valid_combo, wheel_steps)
+from ferb.act.mac.profile import Profiles
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
 
@@ -31,13 +44,15 @@ PASSWORD_REFUSED = "that window shows a password field; FERB doesn't capture it 
 
 
 STRETCH_IDLE_S = 3.0          # the owner's app comes back after this long without foreground work in FERB's app
-BG_MISS_LIMIT = 3             # typing that never lands this many times in a row: the app is remembered as
-                              # ignoring background keystrokes (any later success forgets that; audit 2026-10-02)
-SETTLE_S = 0.4                # after background keystrokes, before checking what changed
+SETTLE_S = 0.4                # after background events, before reading what changed (one read, from the walker)
+TREE_FRESH_S = 1.0            # a walk this recent serves a second reader (the snapshot's image check)
 FOCUS_ELSEWHERE = ("something else in the app has the keyboard focus (a dialog or sheet may be open), so nothing was "
                    "typed; take a new snapshot")
-ARROW_REFUSED = ("arrow keys in a text box aren't used: set the box's whole value again (action set_value) instead "
-                 "of moving the cursor to edit it")
+ARROW_REFUSED = ("arrow keys in a text box aren't used (a background text view beeps at them): use action edit "
+                 "with select (start, length) / \"all\" / \"end\" and text, or set_value for the whole text")
+FOREGROUND_HINT = ("nothing more can be done in the background; call again with allow_foreground=true to do it "
+                   "with the app in front (the owner's screen will move to it)")
+TEXT_KINDS = axm.TEXT_KINDS
 
 
 class _NoGuard:
@@ -62,6 +77,9 @@ class _AppState:
     nodes: dict[str, axm.AxNode] = field(default_factory=dict)
     shots: int = 0
     shot: Shot | None = None
+    tree: axm.AxTree | None = None                 # the latest walk (serves snapshot, signature, secure scan)
+    tree_at: float = 0.0
+    tree_unread: bool = False                      # a snapshot's walk the image's password check may still use
 
 
 class MacComputerDriver:
@@ -70,16 +88,15 @@ class MacComputerDriver:
     def __init__(self, device_id: str, real_input: RealInput, excluded: Callable[[], Collection[str]] = frozenset,
                  ax: Any = axm, apps: Any = appsm, shots: Any = shotm,
                  web_password: Callable[[str, tuple[float, float, float, float]], Awaitable[bool | None]] | None = None,
-                 ) -> None:
+                 profiles: Profiles | None = None) -> None:
         self.device_id, self.input, self.excluded, self.ax, self.apps = device_id, real_input, excluded, ax, apps
         self.shots, self.web_password = shots, web_password     # web_password: the extension's check (9.4)
+        self.profiles = profiles if profiles is not None else Profiles(None)   # what landed per app, learned
         self.on_activate: Callable[[str, str | None], None] = lambda bundle, task: None   # the trail's attribution
         self._state: dict[str, _AppState] = {}
         self.snapshot_images: Callable[[], bool] = lambda: True   # `[mac] snapshot_image` (owner request, 2026-10-01)
         self.communication: Callable[[str], bool] = lambda bundle: False  # messaging / calling apps (9.3)
         self.guard: Any = _NoGuard()                    # holds back the owner's input while FERB's app is forward
-        self._background_ok: dict[str, bool] = {}       # does this app take keystrokes in the background?
-        self._bg_misses: dict[str, int] = {}            # typing attempts in a row that never arrived
         self._forward_app: str | None = None            # the app FERB brought forward, while a stretch lasts
         self._owner_app: Any = None                     # the app the owner was in, to put back
         self._restore_at: asyncio.TimerHandle | None = None
@@ -106,7 +123,9 @@ class MacComputerDriver:
 
     async def press_menu(self, name_or_bundle: str, path: list[str]) -> bool:
         a = self.app(name_or_bundle)
-        return bool(await asyncio.to_thread(self.ax.press_menu, a.pid, path))
+        ok = bool(await asyncio.to_thread(self.ax.press_menu, a.pid, path))
+        self.profiles.record(a.bundle_id, "menu_press", ok)
+        return ok
 
     async def ensure_window(self, bundle_id: str, wait_s: float = 10.0) -> bool:
         """After opening an app: wait for its main window — one with a title; slow starters (Electron apps) show an
@@ -126,26 +145,68 @@ class MacComputerDriver:
             await asyncio.sleep(0.25)
         return untitled
 
-    async def snapshot(self, name_or_bundle: str) -> tuple[Any, dict[str, Any]]:
+    # ---------- the one walk ----------
+
+    async def _walk(self, a: Any, window: Any = None) -> axm.AxTree:
+        """One Accessibility walk of the app's window, cached per app: the snapshot, the signature before / after an
+        action and the password-field scan all read from it."""
+        if window is None:
+            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id))
+        else:
+            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id), window)
+        st = self._state.setdefault(a.bundle_id, _AppState())
+        st.tree, st.tree_at = tree, time.monotonic()
+        return tree
+
+    async def _signature(self, a: Any) -> tuple[Any, ...]:
+        """What the window shows, to tell whether a background event did anything (snapshot ids untouched)."""
+        return (await self._walk(a)).signature()
+
+    async def snapshot(self, name_or_bundle: str, window: str | None = None) -> tuple[Any, dict[str, Any]]:
         a = self.app(name_or_bundle)
         await self._expose(a)
-        tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id))
+        win = None
+        if window:
+            win = await asyncio.to_thread(self.ax.window_named, a.pid, window)
+            if win is None:
+                listed = await asyncio.to_thread(self.ax.windows, a.pid)
+                names = ", ".join(f"{w['title'] or '(untitled)'} [{w['id']}]" for w in listed) or "none"
+                raise Refused(f"{a.name} has no window {window!r} that Accessibility can reach right now "
+                              f"(its windows: {names}); a window on another Space is reachable only while it is "
+                              "the app's focused or main window")
+        tree = await self._walk(a, win)
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.gen += 1
+        st.tree_unread = True
         st.nodes = {f"s{st.gen}e{i + 1}": n for i, n in enumerate(tree.nodes)}
         els = []
         for eid, n in st.nodes.items():
             d: dict[str, Any] = {"id": eid, "role": n.role, "label": n.label}
+            if n.actions:
+                d["actions"] = list(n.actions)
             if n.secret:
                 d["sensitive"], d["filled"] = True, n.value == "filled"
             elif n.value not in (None, ""):
                 d["value"] = n.value
             if not n.enabled:
                 d["disabled"] = True
+            if n.selected:
+                d["selected"] = True
+            if n.expanded is not None:
+                d["expanded"] = n.expanded
+            if n.container:
+                d["in"] = n.container
             els.append(d)
-        out = {"app": a.name, "bundle_id": a.bundle_id, "window": tree.title, "elements": els, "text": tree.text}
-        if tree.truncated:
-            out["truncated"] = True
+        out: dict[str, Any] = {"app": a.name, "bundle_id": a.bundle_id, "window": tree.title, "elements": els,
+                               "text": tree.text}
+        if tree.windows:
+            out["windows"] = tree.windows
+        if tree.headings:
+            out["headings"] = tree.headings
+        if tree.containers:
+            out["open"] = sorted(set(tree.containers))      # a sheet / menu / dialog / popover is up: its
+        if tree.truncated:                                  # controls are in `elements` with "in"
+            out["truncated"] = tree.truncated_by or True
         return a, out
 
     def node(self, bundle_id: str, element: str) -> axm.AxNode:
@@ -162,6 +223,24 @@ class MacComputerDriver:
             return []
         return [(eid.split("e", 1)[1], n.rect) for eid, n in st.nodes.items() if n.rect[2] > 0 and n.rect[3] > 0]
 
+    # ---------- screenshots ----------
+
+    async def _secure(self, a: Any, bounds: tuple[float, float, float, float], fresh: bool) -> bool | None:
+        """Is there a password field in the captured window? From the walk just made for the snapshot when it's
+        recent and of that window (one walk serves both), else a new walk."""
+        st = self._state.get(a.bundle_id)
+        if not fresh and st is not None and st.tree is not None and st.tree_unread \
+                and time.monotonic() - st.tree_at <= TREE_FRESH_S:
+            st.tree_unread = False
+            f = await asyncio.to_thread(self.ax.frame, st.tree.window)
+            if f is not None and _same(f, bounds):
+                return st.tree.secure
+        win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, bounds)
+        if win is None:
+            return None
+        tree = await self._walk(a, win)
+        return tree.secure
+
     async def screenshot(self, name_or_bundle: str,
                          marks: list[tuple[str, tuple[float, float, float, float]]] | None = None
                          ) -> tuple[Any, Shot, bytes]:
@@ -177,9 +256,8 @@ class MacComputerDriver:
                 raise Refused(f"{a.name} has no window on screen")
             return w
 
-        async def check(w: Any) -> None:
-            win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, w.bounds)
-            if await asyncio.to_thread(self.ax.has_secure_field, win, browser is not None):
+        async def check(w: Any, fresh: bool) -> None:
+            if await self._secure(a, w.bounds, fresh):
                 raise Refused(PASSWORD_REFUSED)
             if browser and self.web_password is not None and await self.web_password(browser, w.bounds):
                 raise Refused(PASSWORD_REFUSED)
@@ -192,18 +270,20 @@ class MacComputerDriver:
             except (LookupError, RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
         w = await asyncio.to_thread(find)
-        await check(w)
+        await check(w, fresh=False)
         jpeg, width, height = await asyncio.to_thread(grab, w)
-        await check(w)                                        # appeared while capturing: the frame is dropped
+        await check(w, fresh=True)                            # appeared while capturing: the frame is dropped
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
         st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height))
         return a, st.shot, jpeg
 
     async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
-                       task: str | None = None) -> ActionResult:
-        """A click at (x, y) in the app's latest screenshot (image px), as marked real input that yields to the owner.
-        Before each event: the window is where it was when captured and a click at that point would reach it."""
+                       task: str | None = None, allow_foreground: bool = False) -> ActionResult:
+        """A click at (x, y) in the app's latest screenshot (image px). First the app's own hit test turns the point
+        into an element and presses it through Accessibility; then, for a window on the current Space, a click posted
+        to the app's process, kept only if something changed; the real mouse (the app brought forward, yielding to
+        the owner) only with allow_foreground."""
         a = self.app(name_or_bundle)
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
@@ -216,6 +296,33 @@ class MacComputerDriver:
             raise StaleRef("the window moved, resized or closed since the screenshot; take a new one")
         bx, by, bw, bh = shot.bounds
         px, py = bx + x * bw / shot.size[0], by + y * bh / shot.size[1]
+
+        # 1. the app's own hit test: the element under the point, pressed through Accessibility
+        el = await asyncio.to_thread(self.ax.hit_element, a.pid, px, py)
+        if el is not None:
+            win_frame = await asyncio.to_thread(lambda: self.ax.frame(axm._attr(el, "AXWindow")))
+            if win_frame is None or _same(win_frame, shot.bounds):
+                self.profiles.record(a.bundle_id, "hit_test", True)
+                if await asyncio.to_thread(self.ax.press, el):
+                    self.profiles.record(a.bundle_id, "ax_press", True)
+                    what = await asyncio.to_thread(self.ax.describe, el)
+                    return ActionResult(True, f"pressed the {what} under ({x:.0f}, {y:.0f}) through Accessibility")
+                pressed = await asyncio.to_thread(self.ax.press_ancestor, el)
+                if pressed:
+                    return ActionResult(True, f"pressed the {pressed} around ({x:.0f}, {y:.0f}) through Accessibility")
+            else:
+                self.profiles.record(a.bundle_id, "hit_test", False)
+        # 2. a click posted to the app's process: only reaches a window on the current Space; kept if it changed
+        #    something
+        if await asyncio.to_thread(self.shots.on_screen, shot.window) and not self.profiles.skips(a.bundle_id, "pid_mouse"):
+            before = await self._signature(a)
+            await self.input.to_process(click_steps(px, py, a.pid), holder)
+            await asyncio.sleep(SETTLE_S)
+            landed = await self._signature(a) != before
+            self.profiles.record(a.bundle_id, "pid_mouse", landed)
+            if landed:
+                return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id} (posted to the app in the background)")
+        # 3. the real mouse, only by request
 
         def reaches_the_window() -> bool:
             h = self.ax.hit(px, py)                       # the system's hit test: overlays that ignore clicks don't count
@@ -232,9 +339,12 @@ class MacComputerDriver:
                                    "screenshot")
                 step.post()
             return Step(step.what, post)
-        r = await self._real(a, [guarded(s) for s in click_steps(px, py)], holder, "click", task,
-                             prepare=lambda: self._bring_forward(a, shot))
-        return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id}; {r.detail}")
+        r = await self._foreground(a, [guarded(s) for s in click_steps(px, py)], holder, "click", task,
+                                   allow_foreground, f"no control under ({x:.0f}, {y:.0f}) could be pressed",
+                                   prepare=lambda: self._bring_forward(a, shot))
+        if r.ok:
+            return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id}; {r.detail}")
+        return r
 
     def label_at(self, name_or_bundle: str, shot_id: str, x: float, y: float) -> str | None:
         """What control is at (x, y) of the app's latest screenshot, by Accessibility (None: it can't tell)."""
@@ -251,50 +361,84 @@ class MacComputerDriver:
         """The window's Accessibility text, for FERB's own checks only (who was on screen): it doesn't change the
         element ids of the latest snapshot and never reaches the model."""
         a = self.app(name_or_bundle)
-        tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id))
+        tree = await self._walk(a)
         return {"bundle_id": a.bundle_id, "text": tree.text,
                 "elements": [{"role": n.role, "label": n.label, "value": None if n.secret else n.value}
                              for n in tree.nodes]}
+
+    # ---------- actions ----------
 
     async def act(self, app: str, action: ComputerAction, holder: str = "", task: str | None = None) -> ActionResult:
         a = self.app(app)
         if is_browser(a.bundle_id):
             raise Refused(ACT_REFUSED)
+        fg = bool(action.allow_foreground)
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
-                raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, cmd+s)")
+                raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, pagedown, cmd+s)")
             if switches_apps(action.text):
                 raise Refused(f"{action.text} switches the owner's apps or desktops; FERB works with {a.name} where it "
                               "is — no need to bring it forward")
+            if quits_or_hides(action.text):
+                raise Refused(f"{action.text} quits, hides or minimises {a.name}: FERB never does that (close what "
+                              "you opened with its close button instead)")
             await self._key_rules(a, action.text)
-            return await self._key(a, action.text, holder, task)
+            return await self._key(a, action.text, holder, task, fg)
+        if action.kind == "scroll":
+            return await self._scroll(a, action, holder, task, fg)
         if action.element is None:
             raise Refused("this action needs an element id from a snapshot")
         n = self.node(a.bundle_id, action.element)
-        if n.secret and action.kind in ("set_value", "type"):
+        if n.secret and action.kind in ("set_value", "type", "edit"):
             raise Refused("that's a password field; FERB never types passwords for the owner")
-        if action.kind == "press":
-            if await asyncio.to_thread(self.ax.press, n.ref):
-                return ActionResult(True, "pressed")
-            return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
-        if action.kind == "click":                                # a control: pressed in the background if it can be
-            if await asyncio.to_thread(self.ax.press, n.ref):
-                return ActionResult(True, "pressed")
-            return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
+        if action.kind in ("press", "click"):
+            return await self._press(a, n, holder, task, fg)
         if action.kind == "focus":
-            return ActionResult(await asyncio.to_thread(self.ax.focus, n.ref), "focused")
+            ok = await asyncio.to_thread(self.ax.focus, n.ref)
+            self.profiles.record(a.bundle_id, "ax_focus", ok)
+            return ActionResult(ok, "focused" if ok else "the element refused the focus")
         if action.kind == "set_value":
-            # only a real text field takes a value that the app then acts on (WhatsApp's search "button" accepts a
-            # set value but never searches on it — Sept 30 trail); anything else is clicked and typed into
-            if n.role in ("textbox", "searchbox", "combobox") and \
-                    await asyncio.to_thread(self.ax.set_value, n.ref, action.text or ""):
-                return ActionResult(True, "value set")
-            return await self._type(a, n, action.text or "", holder, task)
+            return await self._set_value(a, n, action.text or "", holder, task, fg)
         if action.kind == "type":
-            return await self._type(a, n, action.text or "", holder, task)
+            return await self._type(a, n, action.text or "", holder, task, fg)
+        if action.kind == "edit":
+            return await self._edit(a, n, action.select, action.text)
+        if action.kind == "select":
+            return await self._select(a, n, action.text or "")
         raise Refused(f"unknown action {action.kind}")
 
-    # ---------- keys and typing: in the background first (9.4 step 2) ----------
+    async def _foreground(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None, allow: bool,
+                          why: str, prepare: Callable[[], Awaitable[None]] | None = None) -> ActionResult:
+        """The last rung: only when the call allows the owner's screen to move; otherwise say what was tried."""
+        if not allow:
+            return ActionResult(False, f"{why}; {FOREGROUND_HINT}")
+        return await self._real(a, steps, holder, what, task, prepare)
+
+    # ---- press
+
+    async def _press(self, a: Any, n: axm.AxNode, holder: str, task: str | None, fg: bool) -> ActionResult:
+        if await asyncio.to_thread(self.ax.press, n.ref):
+            self.profiles.record(a.bundle_id, "ax_press", True)
+            return ActionResult(True, "pressed")
+        self.profiles.record(a.bundle_id, "ax_press", False)
+        pressed = await asyncio.to_thread(self.ax.press_ancestor, n.ref)
+        if pressed:
+            self.profiles.record(a.bundle_id, "ax_press", True)
+            return ActionResult(True, f"pressed (its enclosing {pressed} took the press)")
+        if not self.profiles.skips(a.bundle_id, "pid_keycodes"):      # keyboard: focus it, Return / Space
+            before = await self._signature(a)
+            if await asyncio.to_thread(self.ax.focus, n.ref):
+                key = "space" if n.role in ("checkbox", "radio") else "return"
+                await self.input.to_process(key_steps(key, a.pid), holder)
+                await asyncio.sleep(SETTLE_S)
+                landed = await self._signature(a) != before
+                self.profiles.record(a.bundle_id, "pid_keycodes", landed)
+                if landed:
+                    return ActionResult(True, f"pressed (focused, then {key} in the background)")
+        return await self._foreground(a, click_steps(*self.ax.center(n)), holder, "click", task, fg,
+                                      "it ignores Accessibility presses and the keyboard in the background")
+
+    # ---- typing
 
     async def _key_rules(self, a: Any, combo: str) -> None:
         """Buttons over keystrokes, whole values over cursor editing (owner decision 2026-10-01, every app)."""
@@ -320,16 +464,76 @@ class MacComputerDriver:
                 return eid
         return None
 
-    async def _signature(self, a: Any) -> tuple[Any, ...]:
-        """What the window shows, to tell whether a background keystroke did anything (snapshot ids untouched)."""
-        tree = await asyncio.to_thread(self.ax.read_tree, a.pid, False)
-        return tree.title, tree.text, tuple((n.role, n.label, n.value) for n in tree.nodes)
+    async def _value_changed(self, n: axm.AxNode, before: str | None) -> tuple[bool, str | None]:
+        """Poll the element's value until it changes or SETTLE_S passes (cheap: one attribute read per poll)."""
+        deadline = time.monotonic() + SETTLE_S
+        while True:
+            after = await asyncio.to_thread(self.ax.value, n.ref)
+            if after != before:
+                return True, after
+            if time.monotonic() >= deadline:
+                return False, after
+            await asyncio.sleep(0.05)
 
-    async def _ax_type(self, a: Any, n: Any, text: str) -> bool:
+    async def _set_value(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None,
+                         fg: bool) -> ActionResult:
+        # only a real text field takes a value that the app then acts on (WhatsApp's search "button" accepts a
+        # set value but never searches on it — Sept 30 trail); anything else is focused / pressed and typed into
+        if n.role in TEXT_KINDS:
+            ok = await asyncio.to_thread(self.ax.set_value, n.ref, text)
+            self.profiles.record(a.bundle_id, "ax_value", ok)
+            if ok:
+                return ActionResult(True, "value set")
+        return await self._type(a, n, text, holder, task, fg)
+
+    async def _type(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None, fg: bool) -> ActionResult:
+        """Keystrokes go to the app's keyboard focus: typed only once that is the box FERB means (a Save sheet or a
+        dialog can hold it — then nothing is typed, here or in the foreground)."""
+        await asyncio.to_thread(self.ax.focus, n.ref)
+        focused = await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref)
+        if focused is False and n.role in TEXT_KINDS:          # a box that isn't a text field can't tell (spike 20)
+            raise Refused(FOCUS_ELSEWHERE)
+        before = await asyncio.to_thread(self.ax.value, n.ref)
+        if focused and not self.profiles.skips(a.bundle_id, "pid_keys"):
+            sig = await self._signature(a) if before is None else None
+            await self.input.to_process(type_steps(text, a.pid), holder)
+            if before is not None:
+                landed, _ = await self._value_changed(n, before)
+            else:
+                await asyncio.sleep(SETTLE_S)
+                landed = await self._signature(a) != sig
+            self.profiles.record(a.bundle_id, "pid_keys", landed)
+            if landed:
+                return ActionResult(True, "typed (in the background)")
+        if self.profiles.prefers(a.bundle_id, "ax_keyboard") or self.profiles.untried(a.bundle_id, "ax_keyboard"):
+            landed = await self._ax_type(a, n, text)
+            self.profiles.record(a.bundle_id, "ax_keyboard", landed)
+            if landed:
+                return ActionResult(True, "typed (in the background, Accessibility keyboard)")
+        if n.role in TEXT_KINDS:                                      # replace the whole value, the edit applied
+            new = (before or "") + text
+            ok = await asyncio.to_thread(self.ax.set_value, n.ref, new)
+            self.profiles.record(a.bundle_id, "ax_value", ok)
+            if ok and await asyncio.to_thread(self.ax.value, n.ref) == new:
+                return ActionResult(True, "typed by setting the box's value (Accessibility)")
+        if n.role not in TEXT_KINDS:
+            # Not a real text field (WhatsApp's search box reports itself as an unlabeled button and only searches on
+            # real typing — Sept 30 trail): click it in front, then type, as a person would.
+            return await self._foreground(a, click_steps(*self.ax.center(n)) + type_steps(text), holder,
+                                          "click + typing", task, fg, "it takes no typing in the background")
+
+        async def focus_it() -> None:                          # in front now: focus the box, and check it took
+            await asyncio.to_thread(self.ax.focus, n.ref)
+            if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is False:
+                raise Refused(FOCUS_ELSEWHERE)
+        return await self._foreground(a, type_steps(text), holder, "typing", task, fg,
+                                      "it takes no typing in the background", prepare=focus_it)
+
+    async def _ax_type(self, a: Any, n: axm.AxNode, text: str) -> bool:
         """Spike 20: press (a box that isn't a text field) or focus it through Accessibility, then type through the
         Accessibility keyboard API — still in the background. True once the window shows the change."""
         before = await self._signature(a)
-        if n.role in ("textbox", "searchbox", "combobox"):
+        if n.role in TEXT_KINDS:
             await asyncio.to_thread(self.ax.focus, n.ref)
         else:
             await asyncio.to_thread(self.ax.press, n.ref)                # WhatsApp's search "button" focuses its box
@@ -339,68 +543,197 @@ class MacComputerDriver:
         await asyncio.sleep(SETTLE_S + 0.6)                              # the app filters / updates
         return await self._signature(a) != before
 
-    async def _key(self, a: Any, combo: str, holder: str, task: str | None) -> ActionResult:
-        if self._background_ok.get(a.bundle_id) is not False:
+    # ---- editing text in place
+
+    async def _edit(self, a: Any, n: axm.AxNode, select: Any, text: str | None) -> ActionResult:
+        """Insert or replace text at an exact range through AXSelectedTextRange + AXSelectedText (verified on this Mac
+        in the background), else rewrite the whole value with the edit applied. Never arrow keys."""
+        value = await asyncio.to_thread(self.ax.value, n.ref)
+        length = len(value or "")
+        if select in (None, "", "caret"):
+            rng = await asyncio.to_thread(self.ax.selected_range, n.ref) or (length, 0)
+        elif select == "all":
+            rng = (0, length)
+        elif select == "end":
+            rng = (length, 0)
+        elif select == "start":
+            rng = (0, 0)
+        elif isinstance(select, (list, tuple)) and len(select) == 2:
+            rng = (max(0, int(select[0])), max(0, int(select[1])))
+        else:
+            raise Refused(f"select must be (start, length), \"all\", \"end\" or \"start\", not {select!r}")
+        start, count = min(rng[0], length), min(rng[1], max(0, length - min(rng[0], length)))
+        ok = await asyncio.to_thread(self.ax.set_selected_range, n.ref, start, count)
+        if ok and text is None:
+            got = await asyncio.to_thread(self.ax.selected_range, n.ref)
+            self.profiles.record(a.bundle_id, "ax_selected_text", got == (start, count))
+            if got == (start, count):
+                return ActionResult(True, f"selected {count} characters from {start}")
+            return ActionResult(False, f"the selection didn't take (the box reports {got})")
+        if text is None:
+            return ActionResult(False, "that box doesn't let its selection be set")
+        expected = (value or "")[:start] + text + (value or "")[start + count:]
+        if ok and await asyncio.to_thread(self.ax.set_selected_text, n.ref, text):
+            landed, after = await self._value_changed(n, value)
+            if after == expected or (value is None and landed):
+                self.profiles.record(a.bundle_id, "ax_selected_text", True)
+                return ActionResult(True, f"edited: {count} characters at {start} replaced with the text "
+                                          f"({len(text)} characters)" if count else
+                                          f"inserted {len(text)} characters at {start}")
+        self.profiles.record(a.bundle_id, "ax_selected_text", False)
+        if value is not None and await asyncio.to_thread(self.ax.set_value, n.ref, expected):
+            if await asyncio.to_thread(self.ax.value, n.ref) == expected:
+                self.profiles.record(a.bundle_id, "ax_value", True)
+                return ActionResult(True, "edited by rewriting the box's whole value (the app's undo sees one change)")
+        return ActionResult(False, "that box takes neither a selection edit nor a new value through Accessibility; "
+                                   "set_value or type may still work")
+
+    # ---- keys
+
+    async def _key(self, a: Any, combo: str, holder: str, task: str | None, fg: bool) -> ActionResult:
+        parts = normalize(combo)
+        key, mods = parts[-1], parts[:-1]
+        if is_shortcut(combo):                                   # a key equivalent: the menu item it maps to
+            found = await asyncio.to_thread(self.ax.menu_item_for_shortcut, a.pid, key, mods)
+            if found is not None:
+                item, path, enabled = found
+                if not enabled:
+                    raise Refused(f"{combo} is the menu item “{path}”, which {a.name} reports disabled right now (an "
+                                  f"app in the background often has no key window, so the key would only beep). "
+                                  f"Instead: {_alternative(key, mods)}")
+                if await asyncio.to_thread(self.ax.press, item):
+                    self.profiles.record(a.bundle_id, "menu_press", True)
+                    return ActionResult(True, f"{combo}: pressed its menu item “{path}” (Accessibility, in the "
+                                              "background)")
+        if key == "escape":                                      # dismiss what's open, never a blind Escape
+            win = await asyncio.to_thread(self.ax.app_window, a.pid)
+            panels = await asyncio.to_thread(self.ax.open_panels, a.pid, win)
+            panels += [("menu", m) for m in await asyncio.to_thread(self.ax.open_menus, a.pid)]
+            for kind, el in panels:
+                if await asyncio.to_thread(self.ax.cancel, el):
+                    return ActionResult(True, f"escape: dismissed the {kind} (AXCancel)")
+            if panels:
+                return ActionResult(False, f"a {panels[0][0]} is open but didn't take AXCancel: press its Cancel / "
+                                           "Close button (take a snapshot: its buttons are listed with \"in\")")
+        changed = False
+        if not self.profiles.skips(a.bundle_id, "pid_keycodes"):
             before = await self._signature(a)
             await self.input.to_process(key_steps(combo, a.pid), holder)
             await asyncio.sleep(SETTLE_S)
-            if await self._signature(a) != before:
-                self._bg_success(a.bundle_id)
+            changed = await self._signature(a) != before
+            if changed:
+                self.profiles.record(a.bundle_id, "pid_keycodes", True)
                 return ActionResult(True, f"{combo} (in the background)")
-            if self._background_ok.get(a.bundle_id):            # the app takes them; this key just showed nothing
+            if self.profiles.prefers(a.bundle_id, "pid_keycodes"):      # the app takes them; this key showed nothing
                 return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
-            parts = combo.lower().split("+")                       # second background try: the AX keyboard
-            if await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[parts[-1]], parts[:-1]):
-                await asyncio.sleep(SETTLE_S + 0.4)
-                if await self._signature(a) != before:
-                    return ActionResult(True, f"{combo} (in the background, Accessibility keyboard)")
             # A key with nothing to act on (escape with no dialog, cmd+s on a saved document) changes nothing and
             # proves nothing: it never marks the app as ignoring background input (audit 2026-10-02).
-            return ActionResult(True, f"{combo} sent to {a.name} in the background; nothing visibly changed (take a "
-                                      "snapshot to check)")
-        return await self._real(a, key_steps(combo), holder, combo, task)
+        if self.profiles.prefers(a.bundle_id, "ax_keyboard") or self.profiles.untried(a.bundle_id, "ax_keyboard"):
+            before = await self._signature(a)
+            if await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[key], mods):
+                await asyncio.sleep(SETTLE_S + 0.4)
+                if await self._signature(a) != before:
+                    self.profiles.record(a.bundle_id, "ax_keyboard", True)
+                    return ActionResult(True, f"{combo} (in the background, Accessibility keyboard)")
+        if fg:
+            return await self._real(a, key_steps(combo), holder, combo, task)
+        return ActionResult(True, f"{combo} sent to {a.name} in the background; nothing visibly changed (take a "
+                                  "snapshot to check)")
 
-    def _bg_success(self, bundle_id: str) -> None:
-        self._background_ok[bundle_id] = True
-        self._bg_misses[bundle_id] = 0
+    # ---- scrolling
 
-    def _bg_miss(self, bundle_id: str) -> None:
-        self._bg_misses[bundle_id] = self._bg_misses.get(bundle_id, 0) + 1
-        if self._bg_misses[bundle_id] >= BG_MISS_LIMIT:
-            self._background_ok[bundle_id] = False
-
-    async def _type(self, a: Any, n: Any, text: str, holder: str, task: str | None) -> ActionResult:
-        """Keystrokes go to the app's keyboard focus: typed only once that is the box FERB means (a Save sheet or a
-        dialog can hold it — then nothing is typed, here or in the foreground)."""
-        await asyncio.to_thread(self.ax.focus, n.ref)
-        focused = await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref)
-        if focused and self._background_ok.get(a.bundle_id) is not False:
-            before = await asyncio.to_thread(self.ax.value, n.ref)
-            sig = await self._signature(a) if before is None else None
-            await self.input.to_process(type_steps(text, a.pid), holder)
+    async def _scroll(self, a: Any, action: ComputerAction, holder: str, task: str | None, fg: bool) -> ActionResult:
+        direction = (action.direction or "down").lower()
+        if direction not in ("up", "down", "left", "right"):
+            raise Refused("scroll direction must be up, down, left or right")
+        amount = max(1, int(action.amount or 1))
+        n = self.node(a.bundle_id, action.element) if action.element else None
+        if n is not None and "scroll_to_visible" in n.actions:
+            if await asyncio.to_thread(self.ax.perform, n.ref, "AXScrollToVisible"):
+                return ActionResult(True, "scrolled it into view (AXScrollToVisible)")
+        if n is not None and ("increment" in n.actions or "decrement" in n.actions):   # a slider / stepper
+            act = "AXIncrement" if direction in ("up", "right") else "AXDecrement"
+            done = 0
+            for _ in range(amount):
+                if not await asyncio.to_thread(self.ax.perform, n.ref, act):
+                    break
+                done += 1
+            if done:
+                return ActionResult(True, f"{act[2:].lower()}ed {done} step(s); value now "
+                                          f"{await asyncio.to_thread(self.ax.value, n.ref)}")
+        if n is not None:
+            area = await asyncio.to_thread(self.ax.scroll_area_of, n.ref)
+        else:
+            win = await asyncio.to_thread(self.ax.window_named, a.pid, action.window) if action.window else \
+                await asyncio.to_thread(self.ax.app_window, a.pid)
+            area = await asyncio.to_thread(self.ax.scroll_area_in, win) if win is not None else None
+        if area is None:
+            return ActionResult(False, "nothing scrollable there (no scroll area around it)")
+        content = n.ref if n is not None else await asyncio.to_thread(self.ax.scroll_content, area)
+        before = await asyncio.to_thread(self.ax.scroll_position, area, content)
+        vertical = direction in ("up", "down")
+        if vertical and content is not None and not self.profiles.skips(a.bundle_id, "pid_keycodes"):
+            await asyncio.to_thread(self.ax.focus, content)
+            steps = key_steps("pageup" if direction == "up" else "pagedown", a.pid) * amount
+            await self.input.to_process(steps, holder)
             await asyncio.sleep(SETTLE_S)
-            after = await asyncio.to_thread(self.ax.value, n.ref)
-            landed = (after != before) if before is not None or after is not None else await self._signature(a) != sig
+            after = await asyncio.to_thread(self.ax.scroll_position, area, content)
+            landed = after != before
+            self.profiles.record(a.bundle_id, "pid_keycodes", landed)
             if landed:
-                self._bg_success(a.bundle_id)
-                return ActionResult(True, "typed (in the background)")
-            self._bg_miss(a.bundle_id)                        # nothing arrived: try the Accessibility keyboard
+                return ActionResult(True, f"scrolled {direction} {amount} page(s) (Page {'Up' if direction == 'up' else 'Down'} "
+                                          "keys in the background)")
+        bar = await asyncio.to_thread(self.ax.scroll_bar, area, vertical)
+        if bar is not None:
+            act = "AXIncrement" if direction in ("down", "right") else "AXDecrement"
+            cur = await asyncio.to_thread(self.ax.value, bar)
+            moved = all([await asyncio.to_thread(self.ax.perform, bar, act) for _ in range(amount)])
+            if not moved and cur is not None:
+                moved = await asyncio.to_thread(self.ax.set_scroll_bar, bar,
+                                                float(cur) + (0.2 * amount if act == "AXIncrement" else -0.2 * amount))
+            after = await asyncio.to_thread(self.ax.scroll_position, area, content)
+            if after != before:
+                return ActionResult(True, f"scrolled {direction} through the scroll bar")
+        x, y = self.ax.center(axm.AxNode(area, "", "", None, self.ax.frame(area) or (0, 0, 0, 0), False, True)) \
+            if n is None else self.ax.center(n)
+        lines = -10 * amount if direction in ("down", "right") else 10 * amount
+        return await self._foreground(a, wheel_steps(x, y, lines), holder, "scroll", task, fg,
+                                      "it doesn't scroll through keys or its scroll bar in the background")
 
-        if await self._ax_type(a, n, text):
-            self._bg_success(a.bundle_id)
-            return ActionResult(True, "typed (in the background, Accessibility keyboard)")
-        if n.role not in ("textbox", "searchbox"):
-            # Not a real text field (WhatsApp's search box reports itself as an unlabeled button and only searches on
-            # real typing — Sept 30 trail): click it in front, then type, as a person would. Accessibility can't tell
-            # where its focus lands, so the focus check (for real text fields) can't apply here.
-            return await self._real(a, click_steps(*self.ax.center(n)) + type_steps(text), holder, "click + typing",
-                                    task)
+    # ---- pop-up buttons
 
-        async def focus_it() -> None:                          # in front now: focus the box, and check it took
-            await asyncio.to_thread(self.ax.focus, n.ref)
-            if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is False:
-                raise Refused(FOCUS_ELSEWHERE)
-        return await self._real(a, type_steps(text), holder, "typing", task, prepare=focus_it)
+    async def _select(self, a: Any, n: axm.AxNode, title: str) -> ActionResult:
+        """A pop-up button's item by title: open the menu with AXPress, press the AXMenuItem; AXValue where settable."""
+        want = title.strip().lower()
+        if not want:
+            raise Refused("select needs the item's title in text")
+        if await asyncio.to_thread(self.ax.press, n.ref):
+            menu, items = None, []
+            for _ in range(8):
+                await asyncio.sleep(0.2)
+                menu = await asyncio.to_thread(self.ax.popup_menu, n.ref, a.pid)
+                if menu is not None:
+                    items = await asyncio.to_thread(self.ax.menu_items, menu)
+                    if items:
+                        break
+            hit = next((el for el, t in items if t.lower() == want), None) or \
+                next((el for el, t in items if t.lower().startswith(want)), None)
+            if hit is not None and await asyncio.to_thread(self.ax.press, hit):
+                self.profiles.record(a.bundle_id, "ax_press", True)
+                await asyncio.sleep(0.3)
+                now = await asyncio.to_thread(self.ax.value, n.ref)
+                return ActionResult(True, f"selected “{title}”" + (f" (now shows {now!r})" if now else ""))
+            if menu is not None:
+                await asyncio.to_thread(self.ax.cancel, menu)
+            if items:
+                return ActionResult(False, f"no item {title!r} in that menu; it has: " +
+                                           ", ".join(t for _, t in items[:40]))
+        if await asyncio.to_thread(self.ax.settable, n.ref, "AXValue") and \
+                await asyncio.to_thread(self.ax.set_value, n.ref, title):
+            return ActionResult(True, f"set to {title!r} (AXValue)")
+        return ActionResult(False, "that control opened no menu through Accessibility and takes no value")
+
+    # ---------- the foreground, last resort, only by request ----------
 
     async def _bring_forward(self, a: Any, shot: Shot) -> None:
         """After activating the app: raise the captured window itself and wait (~3 s) for it to be on screen — the
@@ -411,8 +744,6 @@ class MacComputerDriver:
                 await asyncio.sleep(0.2)
                 return
             await asyncio.sleep(0.25)
-
-    # ---------- the foreground, last resort (9.4 step 3) ----------
 
     async def _real(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None = None,
                     prepare: Callable[[], Awaitable[None]] | None = None) -> ActionResult:
@@ -475,5 +806,20 @@ class MacComputerDriver:
         self._restore_at = asyncio.get_running_loop().call_later(STRETCH_IDLE_S, self.restore_owner, task)
 
 
+def _alternative(key: str, mods: list[str]) -> str:
+    """What does the same thing through Accessibility attributes when a key equivalent's menu item is disabled."""
+    if key in ("a", "c", "x", "v") and mods == ["cmd"]:
+        return ("action edit on the text box (select \"all\" / \"end\" / (start, length), with text to replace or "
+                "insert) works through AXSelectedTextRange and AXSelectedText without the key")
+    if key == "z":
+        return "there is no background undo; set_value or edit the text back instead"
+    return ("press the control or the menu item (mac_menu) once a snapshot shows it enabled, or use edit / set_value "
+            "on the element directly")
+
+
 def _same(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
     return all(abs(p - q) <= 1 for p, q in zip(a, b))
+
+
+def profiles_dir(home: Path) -> Path:
+    return home / "device" / "apps"

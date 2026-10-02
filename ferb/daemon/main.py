@@ -31,7 +31,8 @@ from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver, default_browser, last_used_profile
 from ferb.act.gui_lock import GuiLock
-from ferb.act.mac.driver import MacComputerDriver
+from ferb.act.mac.driver import MacComputerDriver, profiles_dir
+from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
 from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
@@ -518,7 +519,8 @@ class Daemon:
             return self.owner_input.active()
         self.mac = MacComputerDriver(device, RealInput(owner_active, self.gui, on_wait=owner_wait,
                                                        available=available),
-                                     excluded=self.config.exclude_apps, web_password=self._web_password)
+                                     excluded=self.config.exclude_apps, web_password=self._web_password,
+                                     profiles=Profiles(profiles_dir(self.home)))   # what landed per app, learned
         self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree
         from ferb.policy.services import communication_bundles
         self.mac.communication = lambda bundle: bundle.lower() in communication_bundles()

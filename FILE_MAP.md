@@ -112,8 +112,10 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `gui_lock.py` | One real-input actor at a time. |
 | **`act/mac/`** | **Controlling Mac apps** |
 | `mac/tools.py` | The `mac.*` tools: apps, open, snapshot, menu, act, screenshot, click, applescript. Each classifies its action kind for policy. |
-| `mac/driver.py` | Carries out a Mac action: Accessibility in the background first, then keystrokes to the app's process, then the Accessibility keyboard, then the foreground (once per stretch, with the owner's input winning). |
-| `mac/accessibility.py` | Reads an app window's Accessibility tree (max 400 elements, labels clipped to 120 chars) and presses / sets / focuses / types through it. |
+| `mac/driver.py` | Carries out a Mac action in the background, one ranked rung at a time per primitive (press, type, edit, key, scroll, select, click-at-point — `docs/PLATFORM_MACOS.md` §12), recording what landed in the app's learned profile; the foreground (once per stretch, with the owner's input winning) only when the call allows it. |
+| `mac/accessibility.py` | One walk of an app window (plus its sheet, the app's open menus, popovers and dialogs) that serves the snapshot, the before / after signature and the password scan: controls by available actions, roles and states as facts, windows listed and addressable; press / set / focus / select text / scroll / menus through Accessibility. |
+| `mac/profile.py` | Per-app learned capability profile: which background mechanisms landed or failed, counted, in memory and under `~/.ferb/device/apps/<bundle>.json`; seedable from the probe. |
+| `mac/probe.py` | Learns a running app's background capabilities on harmless targets (TextEdit, Calculator, Finder only); `--seed` writes the result into the app's profile. |
 | `mac/input.py` | Real mouse and keyboard events, marked as FERB's, under the GUI lock, yielding to the owner. |
 | `mac/screenshot.py` | Captures one app window into memory, with numbered marks drawn on the controls. |
 | `mac/apps.py` | Running apps: list, launch, find by name or bundle id. Never quits an app. |

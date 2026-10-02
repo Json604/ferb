@@ -224,12 +224,33 @@ class FakeAx:
     def __post_init__(self) -> None:
         self.calls: list[str] = []
 
-    def read_tree(self, pid: int, browser: bool = False) -> AxTree:
+    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
         return self.tree
 
     def expose_tree(self, pid: int) -> bool:
         self.calls.append("ax.expose")
         return False
+
+    def app_window(self, pid: int) -> Any:
+        return "win"
+
+    def has_focus(self, pid: int, el: Any) -> bool | None:
+        return None
+
+    def value(self, el: Any) -> str | None:
+        return None
+
+    def press_ancestor(self, el: Any) -> str | None:
+        return None
+
+    def open_panels(self, pid: int, win: Any) -> list[Any]:
+        return []
+
+    def open_menus(self, pid: int) -> list[Any]:
+        return []
+
+    def menu_item_for_shortcut(self, pid: int, key: str, mods: list[str]) -> Any:
+        return None
 
     def post_text(self, pid: int, text: str) -> bool:
         return True                                              # this fake app ignores the AX keyboard
@@ -287,8 +308,10 @@ def mac(mp: pytest.MonkeyPatch, press_ok: bool = True) -> tuple[MacComputerDrive
     ri = RealInput(lambda: False, GuiLock(), sleep=no_sleep)
     d = MacComputerDriver("dev", ri, excluded=lambda: {"com.secret.Vault"}, ax=ax, apps=apps)
     import ferb.act.mac.driver as drv
-    mp.setattr(drv, "click_steps", lambda x, y: [Step("click", lambda: posted.append(f"click {x},{y}"))])
-    mp.setattr(drv, "type_steps", lambda t: [Step("type", lambda: posted.append(f"type {t}"))])
+    mp.setattr(drv, "click_steps", lambda x, y, pid=None: [Step("click", lambda: posted.append(f"click {x},{y}"))])
+    mp.setattr(drv, "type_steps", lambda t, pid=None: [Step("type", lambda: posted.append(f"type {t}"))])
+    mp.setattr(drv, "key_steps", lambda c, pid=None: [Step(c, lambda: posted.append(f"key {c} to pid"))])
+    mp.setattr(drv, "SETTLE_S", 0)
     return d, ax, apps, posted
 
 
@@ -306,7 +329,10 @@ def test_mac_driver_prefers_accessibility_and_falls_back_to_real_input(monkeypat
     _, out2 = asyncio.run(d2.snapshot("Notes"))
     ids2 = {e["label"]: e["id"] for e in out2["elements"]}
     r = asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"])))
-    assert r.ok and "real input" in r.detail and posted2 == ["click 10.0,10.0"]
+    assert not r.ok and "allow_foreground" in r.detail                          # background rungs only, and it says
+    assert posted2 == ["key return to pid"] and apps2.activated == []            # focus + Return was tried
+    r = asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"], allow_foreground=True)))
+    assert r.ok and "real input" in r.detail and posted2[-1] == "click 10.0,10.0"
     assert apps2.activated == ["com.apple.Notes"]                              # brought forward for the stretch
     d2.restore_owner()
     assert apps2.activated == ["com.apple.Notes", "com.brave.Browser"]         # then put back, once
