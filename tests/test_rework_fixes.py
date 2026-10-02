@@ -137,3 +137,33 @@ def test_stats_reads_outcomes_and_errors_from_the_database(tmp_path: Path) -> No
     text = out.getvalue()
     assert "done 1 (50%)" in text and "blocked by FERB policy: x" in text
     assert stats(tmp_path / "nowhere", io.StringIO()) == 1
+
+
+def test_watch_harness_records_owner_verdict_next_to_the_detector(tmp_path: Path) -> None:
+    """`ferb watch`: the owner's answer is the verdict; the detector's observations sit beside it; a failing step is
+    a finding, not a crash. (The real steps act on TextEdit / Calculator / a throwaway Chrome: the owner runs them.)"""
+    import io
+    from ferb.device import watch
+    answers = iter(["", "s", "o", "the dock bounced"])
+    det = watch.Detector(tmp_path / "events.jsonl")
+    try:
+        sess = watch.Session(io.StringIO(), lambda prompt: next(answers), det, "com.example.owner")
+        ok = sess.do(watch.Step("X1", "a quiet step", lambda: {"landed": True}))
+        moved = sess.do(watch.Step("X2", "a step the owner saw", lambda: {"landed": False}))
+        boom = sess.do(watch.Step("X3", "a step that errors", lambda: (_ for _ in ()).throw(RuntimeError("nope"))))
+    finally:
+        det.stop()
+    assert ok["owner_saw"] == "nothing" and ok["result"] == {"landed": True} and "detector" in ok
+    assert moved["owner_saw"] == "desktop switched"
+    assert boom["owner_saw"] == "the dock bounced" and boom["error"].startswith("RuntimeError")
+    assert [r["id"] for r in sess.results] == ["X1", "X2", "X3"]
+
+
+def test_watch_dry_run_lists_steps_without_touching_anything(tmp_path: Path) -> None:
+    import io
+    from ferb.device import watch
+    out = io.StringIO()
+    assert watch.run(tmp_path, out, ask=lambda p: "", only="M4,B5", dry_run=True) == 0
+    text = out.getvalue()
+    assert "M4" in text and "B5" in text and "M1" in text and "B12" in text      # setup / teardown added
+    assert "M9" not in text

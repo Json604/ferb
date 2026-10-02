@@ -1,0 +1,48 @@
+<!doctype html><html><head><meta charset=utf-8><title>ferb probe</title>
+<style>
+body{margin:0;height:4000px;background:#fff;font-family:sans-serif}
+#btn{position:absolute;left:100px;top:300px;width:200px;height:50px;background:#c33;color:#fff;font-size:20px;border:0}
+#inp{position:absolute;left:100px;top:400px;width:300px;height:30px;font-size:18px}
+#ce{position:absolute;left:100px;top:460px;width:300px;height:60px;border:2px solid #000;font-size:18px}
+#far{position:absolute;left:100px;top:2500px;width:200px;height:50px;background:#36c;color:#fff}
+#box{position:absolute;left:500px;top:300px;width:200px;height:200px;overflow:auto;border:2px solid #000}
+#box div{height:2000px;background:linear-gradient(#0f0,#00f)}
+#lazy{position:absolute;left:100px;top:3500px}
+</style></head><body>
+<button id=btn>CLICK ME</button>
+<input id=inp placeholder="input">
+<div id=ce contenteditable=true></div>
+<div id=far>far away</div>
+<div id=box><div></div></div>
+<img id=lazy loading=lazy width=100 height=100 src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='orange'/%3E%3C/svg%3E">
+<script>
+const L = window.__log = {events:[], clicks:0, trusted_clicks:0, keys:[], ce:[], vis:[], focus:[], raf:0, timer:0, io:[], wheel:0, scrolls:0, boxscroll:0, lazy_loaded:false};
+const ev=(name)=>(e)=>{L.events.push([name, e.type, e.isTrusted, e.pointerType||"", Math.round(performance.now())]);};
+for (const t of ["pointerover","pointerenter","pointermove","pointerdown","mousedown","pointerup","mouseup","click","mouseover","mousemove","mouseenter","dblclick","focus"]) btn.addEventListener(t, ev("btn"));
+btn.addEventListener("click", e=>{L.clicks++; if(e.isTrusted) L.trusted_clicks++;});
+for (const t of ["keydown","keypress","keyup","beforeinput","input","compositionstart","compositionend"]) {
+  inp.addEventListener(t, e=>L.keys.push([t,e.isTrusted,e.key||e.data||e.inputType||"", inp.value]));
+  ce.addEventListener(t, e=>L.ce.push([t,e.isTrusted,e.key||e.data||e.inputType||"", ce.textContent]));
+}
+document.addEventListener("visibilitychange", ()=>L.vis.push([document.visibilityState, Math.round(performance.now())]));
+window.addEventListener("focus", ()=>L.focus.push(["win-focus", Math.round(performance.now())]));
+window.addEventListener("blur", ()=>L.focus.push(["win-blur", Math.round(performance.now())]));
+(function raf(){ L.raf++; requestAnimationFrame(raf); })();
+setInterval(()=>L.timer++, 100);
+new IntersectionObserver(es=>es.forEach(e=>L.io.push([e.isIntersecting, Math.round(performance.now())]))).observe(far);
+window.addEventListener("wheel", ()=>L.wheel++, {passive:true});
+window.addEventListener("scroll", ()=>L.scrolls++);
+box.addEventListener("scroll", ()=>L.boxscroll++);
+lazy.addEventListener("load", ()=>L.lazy_loaded=true);
+window.__state = () => {
+  const r = (el)=>{const b=el.getBoundingClientRect(); return [Math.round(b.x),Math.round(b.y),Math.round(b.width),Math.round(b.height)];};
+  return {visibilityState: document.visibilityState, hidden: document.hidden, hasFocus: document.hasFocus(),
+          activeElement: document.activeElement && (document.activeElement.id || document.activeElement.tagName),
+          scrollY: Math.round(scrollY), inner: [innerWidth, innerHeight], btn: r(btn), inp: r(inp), ce: r(ce), far: r(far), box: r(box),
+          boxTop: Math.round(box.scrollTop), raf: L.raf, timer: L.timer, clicks: L.clicks, trusted_clicks: L.trusted_clicks,
+          inpValue: inp.value, ceText: ce.textContent, wheel: L.wheel, scrolls: L.scrolls, boxscroll: L.boxscroll,
+          io: L.io, vis: L.vis, focus: L.focus, lazy_loaded: L.lazy_loaded, lazy_complete: lazy.complete,
+          webdriver: navigator.webdriver};
+};
+window.__take = () => { const e = L.events.splice(0), k = L.keys.splice(0), c = L.ce.splice(0); return {events:e, keys:k, ce:c}; };
+</script></body></html>
