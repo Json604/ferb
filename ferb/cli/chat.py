@@ -15,7 +15,6 @@
 """
 
 import re
-import secrets
 import sys
 import threading
 import time
@@ -222,11 +221,13 @@ FINAL = ("outcome", "reply", "clarify", "error")
 
 class Chat:
     def __init__(self, connect: Callable[[], Client], out: TextIO, ask: Callable[[str], str],
-                 verbose: bool = False, spinner_out: TextIO | None = None, speaker: Any = None) -> None:
+                 verbose: bool = False, spinner_out: TextIO | None = None, speaker: Any = None,
+                 new: bool = False, resume: str | None = None) -> None:
         self.connect, self.out, self.ask, self.verbose = connect, out, ask, verbose
         self.spinner = Spinner(spinner_out)
         self.speaker = speaker if speaker is not None else Silent()        # `--speak`: FERB's own words, out loud
-        self.session_id = secrets.token_hex(6)
+        self.session_id = resume or "owner"
+        self.new, self.resume = new, resume
 
     def say(self, line: str) -> None:
         print(line, file=self.out, flush=True)
@@ -268,9 +269,14 @@ class Chat:
     def opening(self) -> None:
         """What happened while chat was closed, what's still running, and questions waiting."""
         try:
-            self.call("chat.attach")
+            attached = self.call("chat.attach", {"new": self.new, "resume": self.resume})
+            self.session_id = attached.get("session_id", self.session_id)
+            if self.new or self.resume:
+                print(f"Conversation: {self.session_id}", file=self.out, flush=True)
             st = self.call("chat.status")
         except Exception:
+            if self.new or self.resume:
+                raise
             return
         for r in st.get("results", []):
             self.say(f"ferb> (while you were away) {r['answer']}")
@@ -314,9 +320,9 @@ class Chat:
 
 
 def run(connect: Callable[[], Client], inp: TextIO, out: TextIO, ask: Callable[[str], str],
-        verbose: bool = False, speaker: Any = None) -> int:
+        verbose: bool = False, speaker: Any = None, new: bool = False, resume: str | None = None) -> int:
     """Piped / non-terminal input (and tests): line by line."""
-    chat = Chat(connect, out, ask, verbose, speaker=speaker)
+    chat = Chat(connect, out, ask, verbose, speaker=speaker, new=new, resume=resume)
     chat.say("FERB — /quit to leave. Pasted text is treated as data, not instructions.")
     chat.opening()
     while True:
@@ -328,7 +334,7 @@ def run(connect: Callable[[], Client], inp: TextIO, out: TextIO, ask: Callable[[
             chat.turn(msg)
 
 
-def run_tty(connect: Callable[[], Client], verbose: bool = False, speaker: Any = None) -> int:
+def run_tty(connect: Callable[[], Client], verbose: bool = False, speaker: Any = None, new: bool = False, resume: str | None = None) -> int:
     """A terminal: the line editor, with pastes kept whole and marked untrusted."""
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import InMemoryHistory
@@ -367,7 +373,7 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False, speaker: Any =
         return session.prompt(q, multiline=False, key_bindings=None)
 
     chat = Chat(connect, sys.stdout, ask, verbose, spinner_out=sys.__stdout__,   # the loader draws on the terminal
-                speaker=speaker)
+                speaker=speaker, new=new, resume=resume)
     with patch_stdout():
         chat.say("FERB — Ctrl-D or /quit to leave (tasks keep running). Option-Enter for a new line.")
         chat.opening()
@@ -408,9 +414,10 @@ def _live_reminders(connect: Callable[[], Client], out: TextIO) -> None:
         return
 
 
-def main_chat(connect: Callable[[], Client], verbose: bool = False, speak: bool = False) -> int:
+def main_chat(connect: Callable[[], Client], verbose: bool = False, speak: bool = False,
+              new: bool = False, resume: str | None = None) -> int:
     from ferb.voice.speak import SaySpeaker
     speaker = SaySpeaker() if speak else None
     if sys.stdin.isatty() and sys.stdout.isatty():
-        return run_tty(connect, verbose, speaker)
-    return run(connect, sys.stdin, sys.stdout, input, verbose, speaker)
+        return run_tty(connect, verbose, speaker, new, resume)
+    return run(connect, sys.stdin, sys.stdout, input, verbose, speaker, new, resume)

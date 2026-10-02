@@ -94,6 +94,9 @@ def main(argv: list[str] | None = None) -> int:
     cp = sub.add_parser("chat", help="talk to FERB")
     cp.add_argument("--verbose", action="store_true", help="also show plans, steps, tools and checks")
     cp.add_argument("--speak", action="store_true", help="FERB also says its replies out loud (the Mac's voice)")
+    conversation = cp.add_mutually_exclusive_group()
+    conversation.add_argument("--new", action="store_true", help="start a separate conversation")
+    conversation.add_argument("--resume", metavar="ID", help="resume a conversation printed by --new")
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
     sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
@@ -137,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         from ferb.cli.chat import main_chat
         try:
             return main_chat(lambda: Client(socket_path(), timeout=1800), verbose=args.verbose,
-                             speak=args.speak)
+                             speak=args.speak, new=args.new, resume=args.resume)
         except NotRunning as e:
             print(f"ferb: {e}", file=sys.stderr)
             return 2

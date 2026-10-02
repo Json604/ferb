@@ -1,4 +1,4 @@
-# What FERB can do (0.19.0)
+# What FERB can do (0.20.0)
 
 A checklist for trying FERB out. Each row gives an example request, what it needs, how it is verified, and known
 limits. Every row was checked against the code or the recorded runs on 2026-10-02.
@@ -12,7 +12,7 @@ limits. Every row was checked against the code or the recorded runs on 2026-10-0
 
 **Needs**
 - **Mac** = Accessibility granted to FERB's interpreter. **Screen** = Screen Recording.
-- **Paired** = a paired Chrome/Brave profile (connected or wakeable) with the FERB extension (0.8.0).
+- **Paired** = a paired Chrome/Brave profile (connected or wakeable) with the FERB extension (0.9.0).
 - **FERB's browser** = FERB's own Chrome profile (`ferb setup --identity`), paired.
 - **Folder** = you said yes to FERB using that folder (asked once).
 
@@ -24,6 +24,7 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 |---|---|---|---|---|
 | Talk, answer, introduce itself | `hi, who are you and what can you do?` | – | Real test (`test_ux_real`) | Plain conversation never starts a worker |
 | Answer from an analysis of your Mac | `what apps take the most space on my mac?` | Mac, shell | Real test (`test_ux_real`) | – |
+| Durable conversation and task retry | `ferb chat`, `--new`, `--resume ID` | – | Offline daemon restart and legacy recovery (`test_persistent_chat`) | Redacted context, real task IDs and pending questions survive; approvals do not; unknown effects block retry |
 | One question when unclear | `send it to him` | – | Offline test (`test_supervisor`) | One question; your next message continues the request |
 | Continuity across chats and restarts | `what were you doing earlier? did you finish?` | – | Real test (`test_ux_real`) | Sees the recent conversation and tasks from the journal |
 | Tasks outlive the chat window | close chat mid-task, reopen later | – | Offline test (`test_ux`) | A macOS notification goes out; the answer shows next time |
@@ -51,6 +52,7 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 | Electron apps (Slack, Discord, VS Code, WhatsApp) | `open slack and check my messages` | Mac | Offline test; spikes 18 / 20 probes on WhatsApp (`PLATFORM_MACOS.md` §1) | FERB asks each for its full Accessibility tree and waits for the main window; not re-probed with the new driver |
 | AppleScript inside one scriptable app | `make a note in Notes titled 'groceries'` | Mac, Automation for that app | Offline test (`test_mac_shell`) | One app per script; no `activate`, System Events, shell, `do script` or nested `tell` |
 | Screenshot one window, click by position | `in <app>, click the blue Export button` | Mac, Screen | Real test (`test_mac_vision_real`: window-only capture, click lands within 2 pt, covered point refused); offline for the background rungs | The point is first turned into the control under it (the app's own hit test; current-desktop windows only) and pressed through Accessibility; a click posted to the app alone only for a window on the current desktop, kept if something changed; the real mouse only with `allow_foreground=true`; windows showing a password field aren't captured; images never saved |
+| Exact native pointer gestures | `mac.pointer`: click, dblclick, rightclick, hover, drag | Mac, Screen; window on current Space | Offline mapping, cancellation, destination floor; real other-Space refusal | No global cursor or activation; one fresh image per gesture; actual on-screen native gesture acceptance pending |
 | Yield to you | move the mouse while FERB clicks in front | Mac | Real test (`test_mac_real`: marked vs unmarked input) | Only matters in the foreground |
 | Pick the app or the site for a service | `video call Rahul on WhatsApp` | the app installed | Offline test (`test_routes`) | The model decides from an environment line (installed, paired, running); no route picker in code |
 | Calls and messages in Mac apps | `message Priya on WhatsApp: running late` | Mac | Offline test (`test_contacts`, `test_acceptance_one_worker` 4) | Contact must have been on screen; several matches → "Which Priya?"; the Send button, never Return; 10 s undo; a second message to the same person asks |
@@ -72,6 +74,7 @@ floor: a `ferb` task never gets your browsers, Mac or folders. The profile you n
 | Owner login codes | `browser.login_code` | Paired, interactive CLI | Offline integration (`test_owner_login`, `test_chat_cli`); real site unverified | Hidden input, exact HTTPS frame origin and sensitive non-password field; sealed fill; no code in model results or database logs |
 | JavaScript dialogs | a confirm after a click | Paired | Real test (`test_browser_lab_real`); offline | Dismissed by the extension unless the act declared `expect_dialog`; `beforeunload` accepted only while FERB leaves the page; reported with the next snapshot |
 | Uploads | `attach report.pdf to the form` | Paired | Real test (`test_browser_lab_real`); offline | `browser.act upload` with absolute paths of existing files; top frame only |
+| Exact browser pointer gestures | screenshot → point → act, with two points for drag | Paired | Real throwaway Chrome: canvas, cross-site frame, slider; offline cancellation and stale-image refusal | One image, 30 seconds; same-frame drag; exact pixels; no OS cursor; inspect result after every gesture |
 | Screenshots and visual target resolution | `browser.screenshot`, `browser.point` | Paired | Real test (`test_browser_lab_real`) | Exact task-tab JPEG; point returns a normal element id for the policy-gated act tool. Sensitive/incomplete inventories refuse capture |
 | Choose the profile when you didn't name one | `check my email` | Paired | Offline test (`test_ext_bridge`) | Open tab → your trail → default browser → ask |
 | The profile you name, and only that one | `open my school gmail in chrome …` | Paired | Owner-verified run (0.12.0) + offline (`test_named_browser`) | Paired but disconnected → the wake service is tried; an unavailable named profile never silently becomes another profile |

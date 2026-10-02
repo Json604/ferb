@@ -217,7 +217,7 @@ class DriverFeatures:
 
 @dataclass(frozen=True)
 class BrowserAction:
-    kind: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload"]
+    kind: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload", "drag"]
     text: str | None = None                  # for type: the text; select: option label or value; press: key ("cmd+a");
                                              # scroll: up|down
     trusted: bool = False                    # kept for callers that insist; real input is the default for click/type/press
@@ -225,6 +225,7 @@ class BrowserAction:
     expect_dialog: Literal["accept", "dismiss"] | None = None   # a JS dialog this action is expected to open
     dialog_text: str | None = None           # prompt() answer when accepting
     files: tuple[str, ...] = ()              # upload: absolute paths
+    end_element: str | None = None           # drag: another screenshot-resolved point in the same tab
 
 
 @dataclass(frozen=True)

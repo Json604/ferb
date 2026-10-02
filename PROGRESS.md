@@ -1,17 +1,25 @@
 # FERB progress
 
-## Where we are — version 0.19.0, branch `astra/version` (2026-10-02)
+## Where we are — version 0.20.0, branch `astra/version` (2026-10-02)
 
-The recovery implementation is on `astra/version`: AX-first Chromium snapshots with DOM-backed actions,
-frame identity/session handling, strict trusted input, task-tab visual fallback, hidden owner OTP entry,
-truthful verification, stable loop detection, Mac text/focus fixes, browser waking, and stop/retry continuity.
-See `docs/RELIABILITY_019.md`. Extension **0.8.0 / protocol 4** must be reloaded after an owner-managed update.
-No installed daemon was changed and no branch was pushed. Real Zomato/WhatsApp acceptance is still outstanding.
-Validation: **495 offline tests passed, 46 deselected** (117.24 s); **3 isolated real-Chrome lab tests passed**,
-including trusted background input, nested/cross-site frames and visual targeting of a custom control.
-`mypy ferb/core` passed (5 files); extension JavaScript syntax and `git diff --check` passed.
-Stop regressions cover runtime startup, an active worker, verification and a pending hidden-code prompt.
-The table below records the preceding 0.18.0 rework; its historical statuses are not new owner acceptance.
+Durable conversation/task context now survives CLI and daemon restarts, with legacy attempt recovery and fresh
+retry authority. Browser visual actions preserve exact pixels and support bounded dragging; native `mac.pointer`
+adds process-directed gestures on the current Space. Cancellation releases held input where the transport remains
+available, and partial outcomes remain unknown. See `docs/POINTER_CONTINUITY_020.md` for behavior and limits.
+
+Extension **0.9.0 / protocol 5** must be reloaded after an owner-managed `ferb setup --update`.
+No installed daemon was changed and no branch was pushed. Live Zomato/WhatsApp acceptance and on-screen native
+pointer acceptance remain outstanding. The native real probe safely refused a window on another Space.
+
+Validation: **510 offline tests passed, 50 deselected** (118.30 s); **7 isolated real-Chrome tests passed**
+(7.82 s), including precise canvas
+input, cross-site frame coordinates, dragging a range slider and stale-image refusal. The TextEdit/Calculator
+background regression passed (4.39 s) with no observed foreground changes. Core mypy, extension JS syntax and
+`git diff --check` passed. Restart/pending-question tests run against disposable daemon homes.
+
+The preceding 0.19.0 reliability fixes remain in place (`docs/RELIABILITY_019.md`): AX-first semantics, frame
+identity, hidden OTP entry, truthful verification, loop limits and stop handling. The table below records the
+preceding 0.18.0 rework; its historical statuses are not new owner acceptance.
 
 An independent audit of every code file on 2026-10-02 (run history: 11 of 66 requests done; reader-policy blocks the
 top tool error; a verification bug marking done work as failed) led to a rework in phases (`docs/REWORK_PLAN.md`):

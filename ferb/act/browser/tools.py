@@ -319,7 +319,9 @@ class BrowserScreenshot(_Base):
 class BrowserPoint(_Base):
     verb = "point"
     blurb = ("Resolve a point in a recent {p}_screenshot to an element id, without clicking. Check its label, then "
-             "use {p}_act with the appropriate effect. Coordinates are image pixels. Shot expires after 30 seconds.")
+             "use {p}_act with the appropriate effect. Click/hover preserve this exact pixel. For drag, resolve start and "
+             "end from the same shot, then act with action=drag and end_element. A gesture consumes the shot; "
+             "coordinates are image pixels, expiring after 30 seconds or a page change.")
 
     class Input(_Tab):
         shot: str
@@ -342,15 +344,16 @@ class BrowserAct(_Base):
     blurb = ("Act on one element from the latest snapshot ({whose}): click, dblclick, rightclick, hover, type "
              "(replaces the field's text), select (an option's label or value), press (a key like Enter, Tab, "
              "Escape, Backspace, ArrowDown, or a shortcut like cmd+a, shift+Tab), scroll (up/down, within the "
-             "element's own scroll area), upload (files into a file field). Input is real (as from a mouse and "
+             "element's own scroll area), upload (files into a file field), drag (between two screenshot points). Input is real (as from a mouse and "
              "keyboard) by default; page_mode=true sends scripted events instead. An element that isn't in_view "
              "is scrolled into view first. Never type passwords or codes.")
     risk, reversible = RiskLevel.MEDIUM, False
 
     class Input(_El):
-        action: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload"]
+        action: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload", "drag"]
         text: str | None = Field(default=None, description="type: the text; select: option; press: key; "
                                                            "scroll: up or down")
+        end_element: str | None = Field(default=None, description="drag only: destination id from a second browser_point on the same screenshot")
         trusted: bool = False
         page_mode: bool = Field(default=False, description="scripted page events instead of real input (only when "
                                                            "real input can't reach the element)")
@@ -368,9 +371,16 @@ class BrowserAct(_Base):
     def describe(self, args: BaseModel) -> ActionSpec:
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
+        if action == "drag":
+            from ferb.policy.effects import RANK, floor_of
+            end = self.driver.element_info(str(getattr(args, "tab")), str(getattr(args, "end_element", "")))
+            kind = max((Kind.FILL_FORM, kind, act_kind("click", None, end)), key=lambda k: RANK[floor_of(k)])
         if kind not in REVERSIBLE and security_page(self.driver.tab_url(str(getattr(args, "tab", "")))):
             kind = Kind.ACCOUNT_SECURITY                                 # always asks, every time (10.3) — first
-        return self._spec(kind, args, content=text if action in ("type", "select") else None)
+        content = text if action in ("type", "select") else None
+        if action in {"click", "dblclick", "rightclick", "hover", "drag"}:
+            content = f"{action}:{getattr(args, 'element')}:{getattr(args, 'end_element', '')}"
+        return self._spec(kind, args, content=content)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
@@ -381,7 +391,8 @@ class BrowserAct(_Base):
                                                     page_mode=bool(getattr(args, "page_mode", False)),
                                                     expect_dialog=getattr(args, "expect_dialog", None),
                                                     dialog_text=getattr(args, "dialog_text", None),
-                                                    files=tuple(getattr(args, "files", None) or ())),
+                                                    files=tuple(getattr(args, "files", None) or ()),
+                                                    end_element=getattr(args, "end_element", None)),
                                   ctx.intent_id or "")
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new snapshot to see the result"},
                           is_error=not r.ok)

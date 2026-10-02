@@ -24,6 +24,22 @@
   let containers = new Map();          // container id -> WeakRef(scroller element), for the latest snapshot only
   let snapGen = 0;
   let bindings = new Map();
+  const documentId = crypto.randomUUID();
+  let visualEpoch = 0;
+  let pointerSeen = null;
+  addEventListener("mousemove", e => {
+    if (e.isTrusted) pointerSeen = [e.clientX, e.clientY];
+  }, true);
+  const visualChanged = () => { visualEpoch++; };
+  new MutationObserver(records => {
+    if (records.some(r => r.type !== "attributes" || !["data-ferb-ax", "data-ferb-node"].includes(r.attributeName))) visualChanged();
+  }).observe(document, {subtree: true, childList: true, characterData: true, attributes: true});
+  addEventListener("scroll", visualChanged, true);
+  addEventListener("resize", visualChanged);
+  function visualState() {
+    return {documentId, generation: snapGen, epoch: visualEpoch, viewport: [innerWidth, innerHeight],
+            scroll: [scrollX, scrollY], scale: devicePixelRatio};
+  }
   function bind(el) {
     const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
     el.setAttribute("data-ferb-ax", token); bindings.set(token, new WeakRef(el));
@@ -492,7 +508,9 @@
     return { ok: el.value === value, detail: el.value === value ? "filled" : "field_rejected_value" };
   }
 
-  window.__ferb = { snapshot, adopt, point, frameRect, viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
+  window.__ferb = { snapshot, adopt, point, frameRect, visualState,
+    pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
+    viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
                     scrolled, probeArm, probeSeen: () => probeSeen, account,
                     text: () => (document.body ? document.body.innerText : ""), url: () => location.href,
                     ready: () => document.readyState };

@@ -1,4 +1,4 @@
-# Code tour (0.19.0)
+# Code tour (0.20.0)
 
 The flows through FERB's code, in the order they run, by `path:function` (no line numbers; `rg -n "def name"`
 finds them). The design contract behind every piece is [ARCHITECTURE.md](ARCHITECTURE.md); section numbers (§) refer
@@ -320,6 +320,18 @@ the extension, inspect the service worker from the browser's extensions page and
 - `BrowserLoginCode` → `Router.owner_code` → `Gateway.ask_login_code`: exact HTTPS origin shown in chat;
   `Chat.answer_approval` uses hidden input; `chat.answer` registers redaction; the driver sends a sealed fill.
 - `Supervisor.send` consumes structured `control` (stop/retry/continue), validates the task belongs to this chat,
-  cancels and waits, retains original request authority/context for follow-ups, and blocks retries of unknown outcomes.
+  cancels and waits, restores original context under fresh request authority for follow-ups, and blocks retries of unknown outcomes.
 - `observation_digest` removes snapshot generation bookkeeping; `TreeGuard` detects unchanged action loops and
   stops repeated consequential actions after one retry. `Profiles` re-probes failed input mechanisms after an hour.
+
+## 0.20.0 pointer and continuity paths
+
+- `Chat.opening` → `Daemon._chat_attach` → `Continuity.attach`: durable default conversation; explicit new/resume.
+- `Supervisor.run_tree` → `Continuity.save`: redacted specification and owner words persisted before work starts.
+  `Supervisor._supervise` supplies scoped history and real candidate IDs; `send` restores context, checks unknown
+  ledger entries, and creates fresh request authority. `Continuity._import_legacy` recovers older recorded chat tasks.
+- `BrowserPoint` → `_TabDriver.point`: opaque visual token plus policy-visible element ID. `_TabDriver._pointer` →
+  `Bridge.call` → `pointer.js:exactPointer`: fresh coordinates, trusted frame readiness, balanced gestures.
+  `Bridge._cancel_pointer` → `commands.pointer_cancel`: cancellation propagates from Python into extension cleanup.
+- `MacPointer` → `MacComputerDriver.pointer_at` → `pointer_steps` → `RealInput.to_process`: exact pixel mapping,
+  app/window guards, process-directed input and release cleanup inside the GUI lock.

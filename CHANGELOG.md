@@ -10,6 +10,19 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.20.0 — 2026-10-02 — Durable conversations and exact pointer gestures
+
+- Resume the last chat across CLI and daemon restarts; add `ferb chat --new` and `--resume ID`. Persist redacted
+  task context, prior attempts and pending questions. Recover older recorded chat attempts; pass real, scoped task
+  IDs to the supervisor. Retries keep original goal/profile context under fresh authority; unknown effects block replay.
+- Preserve browser screenshot coordinates through policy-gated clicks, double/right clicks, hover and same-frame
+  drag. Require fresh visual state and trusted frame-local mousemove readiness, including cross-site frames.
+- Add native `mac.pointer` for bounded process-directed gestures on the current Space, without OS cursor takeover.
+  Validate geometry/freshness, retain both drag-endpoint policy floors, and release held input on cancellation.
+- Carry pointer cancellation from the daemon to the extension; distinguish pre-input refusal from uncertain partial
+  input. Document input delivery separately from task success. Extension 0.9.0, protocol 5 requires owner reload.
+- Evidence, installation and remaining owner acceptance: `docs/POINTER_CONTINUITY_020.md`.
+
 ## 0.19.0 — 2026-10-02 — Reliable browser targets, login handoff and honest outcomes
 
 - Make Chromium Accessibility the primary semantic view, backed by isolated DOM element references. Bind frames

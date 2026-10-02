@@ -10,7 +10,7 @@ from ferb.act.browser.tools import (BrowserAct, BrowserScreenshot, BrowserPoint,
 from ferb.act.ask import OwnerAsk
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.act.mac.driver import MacComputerDriver
-from ferb.act.mac.tools import (MacApps, MacAct, MacAppleScript, MacClick, MacMenu, MacOpen, MacScreenshot,
+from ferb.act.mac.tools import (MacApps, MacAct, MacAppleScript, MacClick, MacPointer, MacMenu, MacOpen, MacScreenshot,
                                 MacSnapshot)
 from ferb.act.shell.manager import ShellManager
 from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRun, ShellSend
@@ -92,6 +92,7 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
     r.add(MacAppleScript(driver, device_profile))
     r.add(MacScreenshot(driver, device_profile, extension_ready, unpaired))
     r.add(MacClick(driver, device_profile, extension_ready, unpaired))
+    r.add(MacPointer(driver, device_profile, extension_ready, unpaired))
 
 
 def add_trail(r: Registry, trail: Callable[[], Any]) -> None:

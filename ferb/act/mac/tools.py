@@ -367,6 +367,46 @@ class MacClick(_Base):
                           is_error=not r.ok)
 
 
+class MacPointer(MacClick):
+    name = "mac.pointer"
+    description = ("Exact screenshot-pixel pointer input to a native app: click, dblclick, rightclick, hover or "
+                   "drag to end_x/end_y. Uses a fresh mac_screenshot, consumed by one gesture; expires after 30s. "
+                   "Background process input only, window on the current Space; never moves the global cursor or "
+                   "activates the app. Prefer AX actions for named controls. Input delivered is not task success: "
+                   "take a new screenshot to verify. Use browser tools for browser pages. Declare effect and why.")
+
+    class Input(MacClick.Input):
+        action: Literal["click", "dblclick", "rightclick", "hover", "drag"]
+        x: float = Field(ge=0, allow_inf_nan=False)
+        y: float = Field(ge=0, allow_inf_nan=False)
+        end_x: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+        end_y: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+        allow_foreground: Literal[False] = False
+
+    def precheck(self, args: BaseModel) -> str | None:
+        if getattr(args, "action") == "drag" and (getattr(args, "end_x") is None or getattr(args, "end_y") is None):
+            return "drag requires end_x and end_y from the same screenshot"
+        return super().precheck(args)
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        from ferb.policy.effects import RANK, floor_of
+        spec = super().describe(args)
+        kind = Kind.READ if getattr(args, "action") == "hover" else spec.kind
+        if getattr(args, "action") == "drag" and getattr(args, "end_x") is not None and getattr(args, "end_y") is not None:
+            end = args.model_copy(update={"x": getattr(args, "end_x"), "y": getattr(args, "end_y")})
+            kind = max((kind, super().describe(end).kind), key=lambda k: RANK[floor_of(k)])
+        return ActionSpec(kind, spec.target, content=str(args.model_dump(exclude={"contact"})))
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        app = str(getattr(args, "app"))
+        if self._bundle(args) in BROWSER_BUNDLES:
+            return _err("use browser screenshot/point/act for browser pointer input")
+        end = (getattr(args, "end_x"), getattr(args, "end_y")) if getattr(args, "action") == "drag" else None
+        r = await self.driver.pointer_at(app, getattr(args, "shot"), getattr(args, "x"), getattr(args, "y"),
+                                         getattr(args, "action"), end, ctx.worker_id)
+        return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a fresh screenshot to verify"}, is_error=not r.ok)
+
+
 class MacAppleScript(_Base):
     name = "mac.applescript"
     description = ("Run AppleScript statements inside one scriptable app (FERB wraps them in `tell application`; "

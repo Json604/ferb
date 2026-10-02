@@ -29,8 +29,8 @@ from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
 from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
-from ferb.act.mac.input import (KEYCODES, RealInput, Step, click_steps, is_arrow, is_enter, is_shortcut, key_steps,
-                                normalize, quits_or_hides, switches_apps, type_steps, valid_combo, wheel_steps)
+from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, click_steps, is_arrow, is_enter, is_shortcut, key_steps,
+                                normalize, pointer_steps, quits_or_hides, switches_apps, type_steps, valid_combo, wheel_steps)
 from ferb.act.mac.profile import Profiles
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
@@ -69,6 +69,8 @@ class Shot:
     window: int                                    # CGWindowID
     bounds: tuple[float, float, float, float]      # window, screen points
     size: tuple[int, int]                          # image px
+    at: float = field(default_factory=time.monotonic)
+    signature: tuple[Any, ...] | None = None
 
 
 @dataclass
@@ -275,8 +277,62 @@ class MacComputerDriver:
         await check(w, fresh=True)                            # appeared while capturing: the frame is dropped
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
-        st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height))
+        st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height),
+                       signature=st.tree.signature() if st.tree else None)
         return a, st.shot, jpeg
+
+    async def pointer_at(self, name: str, shot_id: str, x: float, y: float, kind: str,
+                         end: tuple[float, float] | None = None, holder: str = "") -> ActionResult:
+        """Exact visual input to an app process. Never activate or take over the global mouse."""
+        import math
+        a = self.app(name)
+        st = self._state.get(a.bundle_id)
+        shot = st.shot if st else None
+        if shot is None or shot.id != shot_id or time.monotonic() - shot.at > 30:
+            raise StaleRef("take a fresh screenshot before pointer input")
+        if kind == "drag" and end is None:
+            raise Refused("drag needs an end point")
+        points = [(x, y), end or (x, y)]
+        if any(not all(math.isfinite(v) for v in pt) or not (0 <= pt[0] < shot.size[0] and 0 <= pt[1] < shot.size[1]) for pt in points):
+            raise Refused("pointer point outside the screenshot")
+        bx, by, bw, bh = shot.bounds
+        start, finish = [(bx + px * bw / shot.size[0], by + py * bh / shot.size[1]) for px, py in points]
+
+        def window_ok() -> None:
+            w = self.shots.window(shot.window)
+            if w is None or not _same(w.bounds, shot.bounds):
+                raise StaleRef("the window moved or closed; take another screenshot")
+            if not self.shots.on_screen(shot.window):
+                raise Refused("pointer input needs this window on the current Space; no foreground switch was made")
+            front = self.apps.frontmost()
+            if self.input.owner_active() and front and front.pid == a.pid:
+                raise Refused("the owner is using this app; pointer input stopped")
+
+        window_ok()
+        if shot.signature is None or await self._signature(a) != shot.signature:
+            raise StaleRef("the app changed since the screenshot; take another screenshot")
+        steps, release = pointer_steps(start, finish, kind, a.pid)
+        attempted = False
+        def guarded(step: Step) -> Step:
+            def post() -> None:
+                nonlocal attempted
+                window_ok()
+                attempted = True
+                step.post()
+            return Step(step.what, post)
+        st.shot = None
+        try:
+            await self.input.to_process([guarded(step) for step in steps], holder, cleanup=release)
+        except (Refused, StaleRef) as error:
+            if attempted:
+                raise PointerInterrupted(f"pointer input interrupted; outcome unknown: {error}") from error
+            raise
+        await asyncio.sleep(SETTLE_S)
+        changed = await self._signature(a) != shot.signature
+        if kind != "hover":
+            self.profiles.record(a.bundle_id, "pid_pointer_" + kind, changed)
+        return ActionResult(True, f"{kind} input delivered to the app process; visible state "
+                            f"{'changed' if changed else 'not confirmed changed'}; verify with a fresh screenshot")
 
     async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
                        task: str | None = None, allow_foreground: bool = False) -> ActionResult:

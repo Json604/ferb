@@ -184,6 +184,27 @@ def test_textedit_and_calculator_are_driven_in_the_background_and_the_front_app_
         _, snap = run(d.snapshot("TextEdit", window=new["title"]))
         value = _elements(snap, role="textbox")[0].get("value", "")
         assert value.startswith("HELLO from ferb ") and value.endswith("(edited)"), value
+        # Exact native pointer: select part of this throwaway document without moving the owner's cursor.
+        import Quartz
+        cursor_before = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+        _, pointer_shot, _ = run(d.screenshot("TextEdit"))
+        node = d.node(TEXTEDIT, _elements(snap, role="textbox")[0]["id"])
+        rx, ry, rw, rh = node.rect
+        bx, by, bw, bh = pointer_shot.bounds
+        kx, ky = pointer_shot.size[0] / bw, pointer_shot.size[1] / bh
+        if d.shots.on_screen(pointer_shot.window):
+            r = run(d.pointer_at("TextEdit", pointer_shot.id, (rx + 8 - bx) * kx, (ry + 10 - by) * ky,
+                                 "drag", ((rx + min(rw - 8, 100) - bx) * kx, (ry + 10 - by) * ky)))
+            assert r.ok, r.detail
+            selected = str(ax._attr(node.ref, "AXSelectedText") or "")
+            assert selected, f"pointer drag did not select text: {r.detail}"
+        else:
+            from ferb.core.errors import Refused
+            with pytest.raises(Refused, match="current Space"):
+                run(d.pointer_at("TextEdit", pointer_shot.id, 10, 10, "hover"))
+            print("Native pointer correctly refused: the throwaway window is on another Space; selection probe pending.")
+        cursor_after = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+        assert (cursor_after.x, cursor_after.y) == (cursor_before.x, cursor_before.y)
         # a disabled shortcut is refused with the alternative named (Select All has no key window in the background)
         found = ax.menu_item_for_shortcut(te.pid, "a", ["cmd"])
         assert found is not None and "Select All" in found[1]

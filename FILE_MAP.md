@@ -1,6 +1,6 @@
 # File map
 
-What the source folders and files in FERB are for, as of version 0.19.0 (2026-10-02). Package markers and tests
+What the source folders and files in FERB are for, as of version 0.20.0 (2026-10-02). Package markers and tests
 are grouped where they share a purpose. For how the pieces run together,
 see [CODE_TOUR.md](CODE_TOUR.md). For the design, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -252,13 +252,14 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 |---|---|
 | `db.py` | The single SQLite connection (`~/.ferb/ferb.db`, WAL) and migrations. |
 | `spans.py` | Writes trace spans (redacted) and reads the span tree for `ferb trace`. |
+| `migrations/0011_conversations.sql` | Durable conversations, current conversation and redacted task context linked to attempts. |
 | `migrations/0001…0010_*.sql` | Table definitions: spans and journal, action ledger, browsers, tasks, trail, memory, Jev decisions, timers, task results, schedules. |
 
 ## `extensions/chromium/`: the FERB browser extension (Chrome and Brave)
 
 | File | What it is |
 |---|---|
-| `manifest.json` | MV3 manifest (version 0.8.0, protocol 4). |
+| `manifest.json` | MV3 manifest (version 0.9.0, protocol 5). |
 | `ax.js` | AX-first semantic ordering/names, DOM binding/adoption, CDP frame identities and child-session traversal. |
 | `background.js` | Service worker: native messaging, pairing keys, FERB's minimized window per profile, task tabs, the debugger session per task tab (trusted input, wheel scrolls, dialogs, uploads, screenshots), tab events. |
 | `content.js` | Viewport-aware page snapshot (in_view, scrollers, shadow roots, iframe rects), element lookup, page-mode actions, and the per-site account extractors. |
@@ -302,3 +303,11 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 `tests/test_browser_recovery.py` executes the actual JS worker with mocked Chrome APIs;
 `tests/test_task_recovery.py` covers truthful outcomes, input, loops and stop/retry;
 `tests/test_owner_login.py` covers sealed owner codes, origin changes and absence from results/logs.
+
+0.20.0 additions:
+
+- `ferb/orchestrator/continuity.py`: durable conversation attachment, pending questions, scoped task context and legacy recovery.
+- `extensions/chromium/pointer.js`: fresh visual target resolution, trusted coordinate readiness and bounded/cancellable pointer gestures.
+- `tests/test_persistent_chat.py`: restart, legacy migration, scope isolation and unknown-outcome retry regressions.
+- `tests/test_pointer.py`, `tests/test_mac_pointer.py`: exact coordinates, stale refusal, cancellation cleanup and destination policy floors.
+- `docs/POINTER_CONTINUITY_020.md`: behavior, validation, deployment and remaining limits.

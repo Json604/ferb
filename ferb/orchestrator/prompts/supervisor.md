@@ -101,7 +101,13 @@ cancel it in schedule_changes and schedule it again). Otherwise reminder_cancels
 Output must match the JSON schema exactly. Use null for "task" unless kind is "task".
 
 Task control: when the owner says to stop, retry, or continue a previous attempt, set control to its exact task_id
-from the current chat's task list and action stop/retry/continue. Use kind reply for stop, kind task for retry or
+from the resumable attempts list and action stop/retry/continue. Never use time labels such as t1 as task ids.
+If multiple attempts fit and context cannot distinguish them, ask one specific question identifying the choices.
+If the list has no matching attempt, ask for the missing goal rather than inventing an id.
+Use kind reply for stop, kind task for retry or
 continue with the requested follow-up goal. Code cancels and waits for an active attempt before starting another;
 do not claim you stopped something merely by replying. Preserve the original profile, account, selections and
 owner instructions unless the follow-up changes them. For an unrelated new request control is null.
+Conversation and task context survive reconnects and daemon restarts. A retry is a new attempt: inspect the current
+page/app first, preserve completed work, never replay earlier clicks blindly, and do not assume an old approval
+or an old login is still valid. Recorded outcomes are context, not evidence of the current state.

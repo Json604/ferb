@@ -8,6 +8,7 @@
 // emulation on, so trusted input, scrolling and screenshots work while the owner never sees a thing.
 importScripts("protocol.js");
 importScripts("ax.js");
+importScripts("pointer.js");
 
 let port = null;
 let gen = null;                      // connection generation, assigned by the daemon ("welcome" / "paired")
@@ -80,6 +81,7 @@ async function ensurePort() {
   port.onDisconnect.addListener(() => {
     void chrome.runtime.lastError;   // read it, or Chrome logs "Unchecked runtime.lastError" (spike 12)
     port = null; gen = null;
+    for (const [tabId, tab] of TABS) if (tab.gesture) cancelPointer(tabId, tab.gesture.id);
     setTimeout(ensurePort, retryMs);
     retryMs = Math.min(retryMs * 2, 60000);
   });
@@ -130,6 +132,7 @@ async function onCommand(m) {
                                     m.timeout_ms || 30000);
     body = { id: m.id, gen, status: "ok", value };
   } catch (e) {
+    if (m.op === "pointer") cancelPointer(m.args.tab_id, m.id);
     body = { id: m.id, gen, status: "error", error: String((e && e.message) || e).slice(0, 300) };
   }
   // A handler error may follow partial input; a timeout does not cancel the renderer operation.
@@ -532,6 +535,7 @@ const commands = {
                                       active: t.active, window_id: t.windowId, ferb: s.windowId != null && t.windowId === s.windowId })) };
   },
   async snapshot({ tab_id, snap }) {
+    tabState(tab_id).visual = null;
     await inject(tab_id);
     const st = tabState(tab_id);
     st.axErrors = [];
@@ -552,21 +556,20 @@ const commands = {
     return { frames, dialogs };
   },
   async point({tab_id, snap, x, y, image_width, image_height}) {
-    const [width, height] = await inFrame(tab_id, 0, () => window.__ferb.viewport(), []);
-    x *= width / image_width; y *= height / image_height;
-    const refs = tabState(tab_id).frameRefs;
-    let frame = 0;
-    for (let depth = 0; depth < 30; depth++) {
-      const hit = await inFrame(tab_id, frame, (g, px, py) => window.__ferb.point(g, px, py), [snap, x, y]);
-      if (hit.error || hit.element) return {...hit, frame_id: frame};
-      const child = refs && [...refs.values()].find(f => f.parent_frame_id === frame && f.owner_binding === hit.frame);
-      if (!child) return {error: "frame_offset_unknown"};
-      const r = await inFrame(tab_id, frame, token => window.__ferb.frameRect(token), [hit.frame]);
-      if (r.error || r.occluded) return {error: r.error || "frame_occluded"};
-      x -= r.x; y -= r.y; frame = child.frame_id;
-    }
-    return {error: "frame_depth"};
+    const visual = tabState(tab_id).visual;
+    await checkVisual(tab_id, visual);
+    if (snap !== visual.snap || ![x,y,image_width,image_height].every(Number.isFinite) ||
+        x < 0 || y < 0 || image_width <= 0 || image_height <= 0 || x >= image_width || y >= image_height)
+      throw new Error("invalid_visual_point");
+    const [width,height] = await inFrame(tab_id, 0, () => window.__ferb.viewport(), []);
+    const point = await resolveVisualPoint(tab_id, snap, x * width / image_width, y * height / image_height);
+    const token = crypto.randomUUID();
+    if (visual.points.size >= 32) throw new Error("too_many_visual_points; take another screenshot");
+    visual.points.set(token, point);
+    return {...point, pointer: token};
   },
+  pointer: exactPointer,
+  async pointer_cancel({tab_id, command_id}) { return cancelPointer(tab_id, command_id); },
   async act({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
     const page = page_mode === true || kind === "select" || kind === "scroll";
     if (!page) {
@@ -609,10 +612,16 @@ const commands = {
   },
   async account({ tab_id }) { return inFrame(tab_id, 0, () => window.__ferb.account(), []); },
   // jpeg, and split into parts when one message would come near the 1 MB native-messaging line (1.4).
-  async screenshot({ tab_id, format, quality }) {
+  async screenshot({ tab_id, format, quality, snap }) {
     await attach(tab_id);
+    const before = snap == null ? null : JSON.stringify(await visualStates(tab_id));
     const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: format || "jpeg", quality: quality || 70 });
     const st = tabState(tab_id);
+    st.visual = null;
+    if (before !== null) {
+      if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
+      st.visual = {at: Date.now(), snap, states: before, points: new Map()};
+    }
     if (data.length <= SHOT_PART) { st.shot = null; return { data, format: format || "jpeg" }; }
     st.shot = data;
     return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg" };

@@ -28,6 +28,10 @@ class Yielded(FerbError):
         self.done, self.total = done, total
 
 
+class PointerInterrupted(FerbError):
+    """Some pointer input may have landed; the gateway must keep its outcome unknown."""
+
+
 @dataclass
 class Step:
     what: str
@@ -87,17 +91,59 @@ class RealInput:
         finally:
             self.on_wait(holder, False)
 
-    async def to_process(self, steps: list[Step], holder: str) -> int:
+    async def to_process(self, steps: list[Step], holder: str, cleanup: Callable[[], None] | None = None) -> int:
         """Events posted to one app's process in the background: no owner wait (they can't collide), still under
         the GUI lock so two workers' keystrokes don't interleave."""
         async with self.gui.hold(holder):
-            for step in steps:
-                step.post()
-                await self.sleep(STEP_S)
+            try:
+                for step in steps:
+                    step.post()
+                    await self.sleep(STEP_S)
+            finally:
+                if cleanup is not None:
+                    cleanup()
         return len(steps)
 
 
 # ---------- the real events (Quartz), each marked ----------
+
+def pointer_steps(start: tuple[float, float], end: tuple[float, float], kind: str,
+                  pid: int) -> tuple[list[Step], Callable[[], None]]:
+    """A bounded process-directed gesture; cleanup releases before the GUI lock passes to another task."""
+    import Quartz as q
+    if kind not in {"click", "dblclick", "rightclick", "hover", "drag"}:
+        raise Refused("unsupported pointer action")
+    source = q.CGEventSourceCreate(q.kCGEventSourceStatePrivate)
+    button = q.kCGMouseButtonRight if kind == "rightclick" else q.kCGMouseButtonLeft
+    down = q.kCGEventRightMouseDown if kind == "rightclick" else q.kCGEventLeftMouseDown
+    up = q.kCGEventRightMouseUp if kind == "rightclick" else q.kCGEventLeftMouseUp
+    held, position = False, start
+
+    def post(event: int, pt: tuple[float, float], count: int = 1) -> None:
+        nonlocal held, position
+        position = pt
+        if event == down:
+            held = True
+        ev = q.CGEventCreateMouseEvent(source, event, pt, button)
+        q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, count)
+        _post(ev, pid)
+        if event == up:
+            held = False
+
+    def release() -> None:
+        if held:
+            post(up, position)
+
+    steps = [Step("pointer move", lambda: post(q.kCGEventMouseMoved, start))]
+    if kind != "hover":
+        for count in range(1, 3 if kind == "dblclick" else 2):
+            steps.append(Step("pointer down", lambda n=count: post(down, start, n)))
+            if kind == "drag":
+                for i in range(1, 21):
+                    pt = (start[0] + (end[0] - start[0]) * i / 20, start[1] + (end[1] - start[1]) * i / 20)
+                    steps.append(Step("pointer drag", lambda pt=pt: post(q.kCGEventLeftMouseDragged, pt)))
+            steps.append(Step("pointer up", lambda n=count: post(up, end if kind == "drag" else start, n)))
+    return steps, release
 
 def _post(ev: Any, pid: int | None = None) -> None:
     import Quartz

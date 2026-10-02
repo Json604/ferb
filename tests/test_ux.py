@@ -60,9 +60,16 @@ def test_account_security_pages_and_declared_destroys_ask_every_time(daemon: Run
 # ---------- continuity ----------
 
 def test_ferb_knows_what_it_was_doing_across_chat_sessions(daemon: RunningDaemon) -> None:
+    import io
+    from ferb.cli.chat import Chat
     script = install(daemon, [sup("reply", "Sure, I'll look into your storage."), sup("reply", "We talked about it.")])
-    chat(daemon, "can you analyse my mac storage?", session="first")
-    chat(daemon, "what were you doing before?", session="second")                   # a new chat
+    first = Chat(lambda: Client(daemon.sock), io.StringIO(), lambda _: "")
+    first.opening()
+    first.turn("can you analyse my mac storage?")
+    second = Chat(lambda: Client(daemon.sock), io.StringIO(), lambda _: "")
+    second.opening()                                  # a new CLI connection resumes the durable conversation
+    second.turn("what were you doing before?")
+    assert first.session_id == second.session_id
     ctx = script.contexts[1][2]
     assert "analyse my mac storage" in ctx and "I'll look into your storage" in ctx
 

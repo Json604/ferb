@@ -91,13 +91,17 @@ class Bridge:
         fut: asyncio.Future[Result] = asyncio.get_running_loop().create_future()
         self.pending[cid] = fut
         conn.writer.write(json.dumps(command(cid, conn.gen, op, args, int(timeout * 1000))).encode() + b"\n")
-        await conn.writer.drain()
         try:
+            await conn.writer.drain()
             r = await asyncio.wait_for(fut, timeout + 5)
         except asyncio.CancelledError:
             self.lost.add(cid)
+            if op == "pointer":
+                await self._cancel_pointer(args, cid)
             raise
         except asyncio.TimeoutError:
+            if op == "pointer":
+                await self._cancel_pointer(args, cid)
             self.lost.add(cid)                            # the next hello's seen / owned ids settle it (never resent)
             raise OutcomeUnknown(f"{op} timed out in {self.name}") from None
         finally:
@@ -112,6 +116,12 @@ class Bridge:
             self.lost.add(cid)
             raise OutcomeUnknown(f"{op}: {r.error}; outcome unknown")
         raise DriverError(r.error or f"{op} failed")
+
+    async def _cancel_pointer(self, args: dict[str, Any], cid: str) -> None:
+        try:
+            await asyncio.shield(self.call("pointer_cancel", {"tab_id": args["tab_id"], "command_id": cid}, timeout=2))
+        except (Exception, asyncio.CancelledError):
+            pass                                    # disconnected: the extension also cancels on disconnect
 
     def attach(self, conn: _Conn, hello: Hello) -> None:
         self.hellos += 1
@@ -381,6 +391,7 @@ class _Tab:
     url: str
     snap_gen: int = 0
     visual: tuple[str, int, int, float, int, int] | None = None
+    points: dict[str, str] = field(default_factory=dict)
     snap_nav: int = -1
     attached: bool = False          # the owner's own tab, taken over for a task: forgotten after, never closed
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
@@ -509,12 +520,17 @@ class _TabDriver:
             text = (text[:4000] + "\n[Embedded frames]\n" + "\n".join(child_text))[:8000]
         dialogs = [f"{d.get('type')}: {str(d.get('message') or '')[:200]} ({d.get('handled')})"
                    for d in v.get("dialogs", []) if isinstance(d, dict)]
+        t.visual = None
+        t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
         return PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
                             scroll, scrollers)
 
     async def act(self, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
+        if el.element_id in t.points or action.kind == "drag":
+            return await self._pointer(t, el, action, intent_id)
+        t.visual = None
         if action.kind == "type" and info.secret:
             raise Refused("that's a password/code field; FERB never types into it")
         if action.kind == "upload":
@@ -536,6 +552,22 @@ class _TabDriver:
         if v.get("detail") == "stale":
             raise StaleRef(f"element {el.element_id} is gone; take a new snapshot")
         return ActionResult(bool(v.get("ok")), str(v.get("detail", "")))
+
+    async def _pointer(self, t: _Tab, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
+        if action.page_mode or action.kind not in {"click", "dblclick", "rightclick", "hover", "drag"}:
+            raise Refused("visual points support trusted pointer actions; take a semantic snapshot for typing")
+        v = t.visual
+        if not v or v[1] != t.snap_gen or v[2] != t.bridge.navs.get(t.chrome_id, 0) or \
+                asyncio.get_running_loop().time() - v[3] > 30:
+            raise StaleRef("the visual target is stale; take a fresh screenshot and resolve its points")
+        start = t.points.get(el.element_id)
+        end = t.points.get(action.end_element or "")
+        if not start or (action.kind == "drag" and not end):
+            raise Refused("drag needs two points resolved from the same screenshot")
+        t.visual = None
+        result = await t.bridge.call("pointer", {"tab_id": t.chrome_id, "point": start, "end": end,
+                                                "kind": action.kind}, timeout=10, cid=intent_id or None)
+        return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
 
     @staticmethod
     def _detached_msg(reason: str) -> str:
@@ -615,7 +647,7 @@ class _TabDriver:
         come near the 1 MB native-messaging line."""
         import base64
         t = self._tab(tab)
-        v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id})
+        v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen})
         if "data" in v:
             return base64.b64decode(v["data"])
         parts = []
@@ -653,7 +685,7 @@ class _TabDriver:
         eid = f"s{t.snap_gen}e{len(t.elements) + 1}"
         info = page_element(eid, str(frame), raw["element"])
         t.elements[eid] = (frame, t.snap_gen, local, info)
-        t.visual = None                  # resolve once; actions still pass through normal policy and hit testing
+        t.points[eid] = str(raw["pointer"])       # two points can share a shot; the gesture consumes it
         return info
 
     def claim(self, tab: TabRef, owner: str) -> None:

@@ -8,7 +8,7 @@ Mac while it works. Every tool call the worker makes goes through one gateway th
 really does, whether it runs, is held for undo, or needs your yes. What works per app is learned from doing, not
 written into the code.
 
-- **Version:** 0.19.0 (see [CHANGELOG.md](CHANGELOG.md)). Built and tested by one
+- **Version:** 0.20.0 (see [CHANGELOG.md](CHANGELOG.md)). Built and tested by one
   person on one Mac. Expect rough edges.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed on macOS 26.
 - **Interface:** the CLI, plus push-to-talk. No GUI, menu-bar item or web dashboard. FERB.app (for push-to-talk)
@@ -18,7 +18,9 @@ written into the code.
 walks the flows through the code. [ARCHITECTURE.md](ARCHITECTURE.md) is the design contract. The docs map is at the
 end of this file.
 
-See [the 0.19.0 reliability notes](docs/RELIABILITY_019.md) for the fixes, validation and remaining limits.
+See [the 0.20.0 pointer and continuity notes](docs/POINTER_CONTINUITY_020.md) for current behavior, validation and limits.
+Plain `ferb chat` resumes the last conversation across CLI and daemon restarts; `--new` starts another, and
+`--resume ID` returns to an existing one. Browser screenshot targets now preserve exact coordinates and support dragging.
 
 ## Requirements
 
@@ -27,7 +29,7 @@ See [the 0.19.0 reliability notes](docs/RELIABILITY_019.md) for the fixes, valid
 | Everything | macOS on Apple silicon; [uv](https://docs.astral.sh/uv/) (setup installs a dedicated Python 3.12 and FERB's venv) |
 | The default runtime | Node.js with `npm` (setup installs the pinned Codex 0.157.1 into `~/.ferb/node`); Codex signed in for your macOS user. The model is pinned in `ferb/runtimes/codex_exec.py` (`MODEL`) |
 | The Claude runtime (optional) | Claude signed in for your macOS user (the Agent SDK is a Python dependency; FERB clears `ANTHROPIC_API_KEY` for its runs) |
-| Browser control (optional) | Google Chrome and/or Brave, with the FERB extension (`extensions/chromium`, version 0.8.0) loaded unpacked in each profile you pair |
+| Browser control (optional) | Google Chrome and/or Brave, with the FERB extension (`extensions/chromium`, version 0.9.0) loaded unpacked in each profile you pair |
 | FERB's own accounts (optional) | A Chrome profile that holds only FERB's Google account |
 | Jev decisions (optional) | A Jev API key (shadow mode by default; ARCHITECTURE.md §5) |
 | Push-to-talk (optional) | Xcode command-line tools (`swiftc`) and a code-signing certificate named "FERB Local Code Signing" in your login keychain |
@@ -53,7 +55,7 @@ extension isn't installed there yet, pairing walks you through Load unpacked (Ch
 unpacked extension by hand), waits until the browser has it, then pairs. `ferb browsers` lists profiles and whether
 they're connected. `[gates] owner_profiles` changes unpaired-profile guidance; it does not enforce a pairing gate.
 After an extension update, reload
-the unpacked extension in each paired profile: the daemon refuses extensions older than 0.8.0 at hello.
+the unpacked extension in each paired profile: the daemon refuses extensions older than 0.9.0 at hello.
 
 **Push-to-talk.** `ferb setup --voice` builds and signs `~/.ferb/FERB.app`, asks once for Microphone and Speech
 Recognition, and turns push-to-talk on. Hold Right Option, speak, let go (a hold under 0.3 s is a tap and does
@@ -266,7 +268,7 @@ Start with `ferb doctor`; each problem comes with a hint.
 | "Unavailable: … paired but not open" | Open that browser profile; the extension reconnects within 30 s |
 | Mac control unavailable | Accessibility / Screen Recording not granted to FERB's interpreter |
 | A permission was just granted but still shows denied | Screen Recording applies after a restart: `ferb setup --update` |
-| "extension 0.6.x … FERB needs 0.8.0" | Reload the unpacked extension in that profile |
+| "extension 0.6.x … FERB needs 0.9.0" | Reload the unpacked extension in that profile |
 | A "started debugging this browser" bar in your own browser window | FERB is working in a tab of that profile; it goes when the tab closes. FERB's own window is minimized, so it shows nothing there |
 | An app ignores every background way | The result says what was tried; the worker may retry with `allow_foreground=true`, which moves your screen once |
 | Everything is blocked | Emergency stop: `ferb resume-tasks` |

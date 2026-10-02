@@ -3,7 +3,8 @@
 ext -> daemon: `{install_id, type, body_json, seq?, mac?}`. Once paired, every message carries a strictly
 increasing `seq` and `mac` = base64 HMAC-SHA256(key, "install_id|seq|type|body_json") (section 9.6).
 daemon -> ext: `{type: "cmd", id, gen, op, args, timeout_ms}` for commands; `paired` / `refused` for control.
-Protocol 4 (extension 0.8.0): AX-first snapshots, point resolution and explicit command outcomes.
+Protocol 5 (extension 0.9.0): exact visual pointer gestures and cancellation.
+Protocol 4 introduced AX-first snapshots, point resolution and explicit command outcomes.
 Protocol 3 introduced FERB's own minimized window, a debugger session per task tab, `event` messages
 (dialogs, a detached debugger), container scrolls, uploads, chunked screenshots.
 """
@@ -16,15 +17,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 4
-MIN_EXTENSION_VERSION = "0.8.0"                # older extensions are refused at hello (reload the unpacked one)
+PROTOCOL_VERSION = 5
+MIN_EXTENSION_VERSION = "0.9.0"                # older extensions are refused at hello (reload the unpacked one)
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
 ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
              "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "ping", "point"]
+             "upload", "ping", "point", "pointer", "pointer_cancel"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:

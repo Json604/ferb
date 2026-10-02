@@ -1,6 +1,6 @@
 // FERB extension protocol (ARCHITECTURE.md 9.4), mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 4;
+const FERB_PROTOCOL = 5;
 const FERB_HOST = "com.ferb.native_host";
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
@@ -31,6 +31,7 @@ const CDP_ALLOW = {
   // 13.4 / 13.6: trusted input. Coordinates are CSS px of the top viewport (2.3).
   "Input.dispatchMouseEvent": (p) => ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"].includes(p.type)
     && Number.isFinite(p.x) && Number.isFinite(p.y)
+    && (p.buttons === undefined || (Number.isInteger(p.buttons) && p.buttons >= 0 && p.buttons <= 31))
     && (p.button === undefined || ["none", "left", "middle", "right"].includes(p.button))
     && (p.modifiers === undefined || (Number.isInteger(p.modifiers) && p.modifiers >= 0 && p.modifiers <= 15))
     && (p.clickCount === undefined || [0, 1, 2, 3].includes(p.clickCount))
@@ -188,7 +189,7 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
              "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "ping", "point"];
+             "upload", "ping", "point", "pointer", "pointer_cancel"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS };

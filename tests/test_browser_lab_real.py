@@ -46,6 +46,17 @@ PAGE = """<!doctype html><title>FERB lab</title>
 <div class=tall>tall filler</div><a href="#end" id=end>End link</a>
 """ % "".join(f"<div role=listitem>message {i}</div>" for i in range(1, 21))
 
+POINTER_PAGE = """<!doctype html><title>Pointer lab</title><style>body{margin:0}canvas{position:absolute;left:40px;top:40px}</style>
+<canvas width=300 height=200 aria-label="Drawing surface"></canvas><p id=result style="position:absolute;top:260px">Ready</p>
+<input type=range aria-label=Volume min=0 max=100 value=0 style="position:absolute;left:40px;top:320px;width:300px;margin:0">
+<script>
+const canvas=document.querySelector('canvas'); window.events=[];
+for(const type of ['pointerdown','pointermove','pointerup','click','dblclick','contextmenu']) canvas.addEventListener(type,e=>{
+  e.preventDefault(); events.push({type,x:Math.round(e.offsetX),y:Math.round(e.offsetY),buttons:e.buttons,trusted:e.isTrusted});
+  if(type==='pointerup') document.querySelector('#result').textContent='Released at '+e.offsetX+','+e.offsetY;
+});
+</script>"""
+
 
 @pytest.fixture(scope="module")
 def site() -> Iterator[str]:
@@ -54,7 +65,11 @@ def site() -> Iterator[str]:
             self.send_response(200)
             self.send_header("content-type", "text/html")
             self.end_headers()
-            if self.path == "/frames":
+            if self.path == "/pointer":
+                page = POINTER_PAGE
+            elif self.path == "/pointer-frame":
+                page = f'<iframe style="position:absolute;left:200px;top:100px;width:500px;height:500px;border:0" src="http://localhost:{self.server.server_port}/pointer"></iframe>'
+            elif self.path == "/frames":
                 page = ('<title>Frames</title><iframe style="margin:40px" src="/inside"></iframe>'
                         f'<iframe style="margin:100px" src="http://localhost:{self.server.server_port}/inside"></iframe>')
             elif self.path == "/inside":
@@ -170,6 +185,82 @@ def test_visual_target_becomes_a_normal_policy_checked_element(lab: Any, site: s
             result = await router.act(router.element_ref(tab, target.id), BrowserAction("click"), "")
             assert result.ok, result.detail
             assert "Added true" in (await router.snapshot(tab)).text
+        finally:
+            await router.close(tab)
+    d.run(go(), timeout=90)
+
+
+@pytest.mark.parametrize("path,offset", [("/pointer", (0, 0)), ("/pointer-frame", (200, 100))])
+def test_exact_pointer_canvas_and_drag_in_background(lab: Any, site: str, path, offset) -> None:
+    d, chrome, front = lab
+    router = d.daemon.router
+    before = len(front.changes)
+
+    async def go():
+        tab = await router.open_for(site + path, "pointer", "Lab")
+        try:
+            for kind in ("click", "dblclick", "rightclick", "hover", "drag"):
+                shot, _, width, height = await router.visual_snapshot(tab)
+                t = router._tabs[tab.tab_id]
+                viewport = chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target:{{tabId:{t.chrome_id}}},func:()=>[innerWidth,innerHeight]}}).then(r=>r[0].result)")
+                sx, sy = width / viewport[0], height / viewport[1]
+                start = await router.point(tab, shot, (offset[0] + 57) * sx, (offset[1] + 63) * sy)
+                end = await router.point(tab, shot, (offset[0] + 251) * sx, (offset[1] + 173) * sy) if kind == "drag" else None
+                result = await router.act(router.element_ref(tab, start.id),
+                                          BrowserAction(kind, end_element=end.id if end else None), "")
+                assert result.ok, result.detail
+                from ferb.core.errors import StaleRef
+                with pytest.raises(StaleRef):
+                    await router.act(router.element_ref(tab, start.id), BrowserAction("click"), "")
+            t = router._tabs[tab.tab_id]
+            frames = chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target:{{tabId:{t.chrome_id},allFrames:true}},world:'MAIN',func:()=>window.events||[]}})")
+            events = [e for f in frames for e in f["result"]]
+            assert any(e["type"] == "click" and (e["x"], e["y"]) == (17, 23) for e in events), json.dumps(events)
+            assert any(e["type"] == "dblclick" for e in events)
+            assert any(e["type"] == "contextmenu" for e in events)
+            assert any(e["type"] == "pointermove" and e["buttons"] == 1 for e in events)
+            assert (events[-1]["x"], events[-1]["y"]) == (211, 133)
+            assert all(e["trusted"] for e in events)
+        finally:
+            await router.close(tab)
+    d.run(go(), timeout=90)
+    assert len(front.changes) == before
+
+
+def test_pointer_refuses_dom_changes_since_screenshot(lab: Any, site: str) -> None:
+    d, chrome, _ = lab
+    router = d.daemon.router
+
+    async def go():
+        tab = await router.open_for(site + "/pointer", "stale-pointer", "Lab")
+        try:
+            shot, _, _, _ = await router.visual_snapshot(tab)
+            point = await router.point(tab, shot, 57, 63)
+            t = router._tabs[tab.tab_id]
+            chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target:{{tabId:{t.chrome_id}}},func:()=>document.querySelector('canvas').style.left='80px'}})")
+            result = await router.act(router.element_ref(tab, point.id), BrowserAction("click"), "")
+            assert not result.ok and "visual_stale" in result.detail
+        finally:
+            await router.close(tab)
+    d.run(go(), timeout=90)
+
+
+def test_pointer_drag_operates_a_real_slider(lab: Any, site: str) -> None:
+    d, chrome, _ = lab
+    router = d.daemon.router
+    async def go():
+        tab = await router.open_for(site + "/pointer", "slider", "Lab")
+        try:
+            shot, _, width, height = await router.visual_snapshot(tab)
+            t = router._tabs[tab.tab_id]
+            dims = chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target:{{tabId:{t.chrome_id}}},func:()=>{{const r=document.querySelector('input').getBoundingClientRect();return [innerWidth,innerHeight,r.x,r.y,r.width,r.height]}}}}).then(r=>r[0].result)")
+            vw, vh, x, y, w, h = dims
+            start = await router.point(tab, shot, (x + 8) * width / vw, (y + h / 2) * height / vh)
+            end = await router.point(tab, shot, (x + w - 8) * width / vw, (y + h / 2) * height / vh)
+            r = await router.act(router.element_ref(tab, start.id), BrowserAction("drag", end_element=end.id), "")
+            assert r.ok, r.detail
+            value = chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target:{{tabId:{t.chrome_id}}},func:()=>document.querySelector('input').value}}).then(r=>r[0].result)")
+            assert int(value) >= 95
         finally:
             await router.close(tab)
     d.run(go(), timeout=90)

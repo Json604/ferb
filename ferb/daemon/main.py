@@ -975,7 +975,9 @@ class Daemon:
         """Chat is open again: approvals for running tasks are asked there, not by notification."""
         for t, _ in (self.supervisor.running_trees() if self.supervisor else []):
             self._attached_trees.add(t)
-        return {"ok": True}
+        assert self.supervisor is not None
+        conversation = self.supervisor.continuity.attach(bool(params.get("new")), params.get("resume"))
+        return {"ok": True, "session_id": conversation}
 
     async def _task_stop(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Ctrl-C in ferb chat: stop the request's task, recorded as stopped by the owner."""

@@ -1,4 +1,4 @@
-# FERB architecture (version 0.19.0)
+# FERB architecture (version 0.20.0)
 
 This file describes what the code on this branch does, and only that. Every claim names the file (and where it
 helps, the function) that implements it; a claim the author could not confirm in code is marked "unverified".
@@ -120,7 +120,7 @@ The principles the code follows:
   (`~/.ferb/bin/ferb-native-host`, a shell launcher pointing at the venv; manifest in Chrome's and Brave's
   `NativeMessagingHosts` folders, `Installer.write_native_host`). It relays length-prefixed native messages to and
   from the daemon socket, checks nothing but size, logs nothing, and exits as soon as either side closes.
-- **The extension** (`extensions/chromium/`, MV3, version 0.8.0, protocol 4) is FERB's hands in the browser: it
+- **The extension** (`extensions/chromium/`, MV3, version 0.9.0, protocol 5) is FERB's hands in the browser: it
   executes daemon commands and reports tab events; it holds no policy. Its id is fixed by the key in
   `manifest.json` (`ferb/act/browser/ext_protocol.py:FERB_EXTENSION_ID`). The CDP allowlist is enforced in the
   extension itself (`protocol.js:CDP_ALLOW`), so the daemon can't ask for more.
@@ -178,6 +178,11 @@ approval requests, undo countdowns, blocks). Closing chat never stops a task (th
 and arrives as a macOS notification, `Daemon._task_result`); Ctrl-C calls `task.stop` (`Daemon._task_stop`), which
 cancels the tree and undoes any send held for it. Push-to-talk feeds the same path with session `voice`
 (`Daemon._voice_turn`).
+
+**Conversation storage.** `chat.attach` resumes the current durable conversation by default, or accepts `new` /
+`resume`. `Continuity` stores redacted task specifications, owner words, prior-attempt links and pending clarifications
+in SQLite. Real task IDs are shown to the supervisor; follow-ups restore context with fresh request authority,
+never old approval grants. Unknown earlier actions block replay. See `docs/POINTER_CONTINUITY_020.md`.
 
 **Before the model** (`ferb/orchestrator/supervisor.py:Supervisor.send`): pasted or quoted text is wrapped as
 untrusted data (`ferb/sanitize/untrusted.py:mark`: bracketed pastes, fenced blocks, `>` quotes; tags carry a random
@@ -277,7 +282,7 @@ Every tool call goes through `ferb/daemon/gateway.py:Gateway._call`, in this ord
 1. The tool must be in this worker's list (scopes, identity, not lost to exposure) and the task running.
 2. `why` (≤ 400 chars) and `effect` are stripped from the arguments; both are recorded in the call's span. The
    gateway adds both fields to the schema of every tool whose `reversible` is false (`Gateway.tools_for`,
-   `Gateway._acts`): `mac.menu`, `mac.act`, `mac.click`, `mac.applescript`, `browser.act`, `ferb_browser.act`,
+   `Gateway._acts`): `mac.menu`, `mac.act`, `mac.click`, `mac.pointer`, `mac.applescript`, `browser.act`, `ferb_browser.act`,
    `ferb_browser.fill_secret`, `fill_otp`, `mailbox.send`, `shell.run`, `shell.send`, `fs.write`, `fs.edit`. A
    bad `effect` value is refused. The remaining arguments are validated against the tool's `Input` model.
 3. `cap.precheck` runs before any policy step (today only `mac.click` in a messaging or calling app without a
@@ -524,7 +529,7 @@ hands it to the service worker and closes), and the extension's `pair` message b
 and receives a per-install HMAC key. From then on every message carries a strictly increasing `seq` and an
 HMAC-SHA256 over install id, seq, type and body (`ext_protocol.authentic`); a replay or bad MAC is dropped. An
 unpaired install may only say hello and pair; it can't act or write trail events. A hello with an older protocol or
-version than `MIN_EXTENSION_VERSION` (0.8.0) is refused until the extension is reloaded. If the extension isn't
+version than `MIN_EXTENSION_VERSION` (0.9.0) is refused until the extension is reloaded. If the extension isn't
 installed in a profile (`profiles.has_extension` reads its preferences on disk), pairing opens that profile's
 extensions page and `ferb/cli/admin.py:_guide_install` walks the owner through Load unpacked (Chrome 137+ allows
 no other way), then pairs. The identity profile is paired as `ferb` by `ferb setup --identity` after
@@ -1031,3 +1036,16 @@ Short, so they don't get built by accident:
 - **A direct-API worker runtime** replacing `codex exec`, where the model sees only FERB's tools.
 - **Hand-editable markdown memory**, embeddings behind `recall()`, per-resource process isolation for arbitrary
   code, trail encryption.
+
+## 0.20.0 exact pointer input
+
+Browser visual targets carry opaque point tokens alongside normal policy-visible element IDs. Screenshot image
+coordinates become viewport coordinates; `pointer.js` checks document/viewport freshness and frame-local trusted
+mousemove delivery before pressing. One bounded gesture consumes the image. Drag endpoints share one frame; both
+labels contribute policy floors. Cancellation requests stop movement and release held input in cleanup.
+
+`mac.pointer` delivers bounded click/double/right/hover/drag events to a native app process, using image-to-window
+coordinates and a 30-second screenshot lease. It requires the current Space, checks window geometry and yields if
+the owner is using that app. It never activates or uses the global cursor. Partial interruptions remain unknown.
+AX actions remain preferred. Input delivery always requires a fresh observation to establish task success.
+Native on-screen pointer acceptance remains pending; evidence and limitations are in `docs/POINTER_CONTINUITY_020.md`.
