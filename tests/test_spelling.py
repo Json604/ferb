@@ -75,3 +75,11 @@ def test_other_plan_problems_say_the_real_reason(daemon: RunningDaemon) -> None:
     evs = chat(daemon, "tidy notes.txt")
     assert evs[-1]["type"] == "reply" and evs[-1]["text"] == SORRY_PLAN               # the planner's mistake, said so
     assert "circle" not in evs[-1]["text"]                                              # without its internals
+
+
+def test_word_forms_are_english_too() -> None:
+    """The Mac's dictionary has "look" but not "looks": word forms must not become app names."""
+    names = NAMES + ["Books", "Music", "Maps"]
+    for text in ("see what the reminder looks like", "in two minutes", "it stopped", "maps of the hooks", "musics"):
+        assert fix(text, names).text == text, text
+    assert fix("open bookz", names).text == "open Books"

@@ -98,6 +98,8 @@ EARLIER_MAX, VERBATIM_CHARS = 12, 400
 SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
 SORRY_PLAN = ("I couldn't put together a working plan for that, so I didn't start anything — that's a problem on my "
               "side, not with how you asked. Could you try again?")
+REMINDER_NOT_SET = ("I couldn't set that reminder — a problem on my side, not with how you asked, so nothing is "
+                    "scheduled for it. Could you ask again?")
 
 
 def _unnamed(problems: list[str]) -> list[str]:
@@ -384,6 +386,7 @@ class Supervisor(WorkerRuns):
         # for planning checks only; quote checks (memory, reminders, schedules) stay on the owner's own words.
         answering = bool(session.pending)                       # this message answers FERB's question
         owner_words = f"{session.pending}\n{m.own_words}" if session.pending else m.own_words
+        typed = owner_words                                    # exactly as typed: what quotes are checked against
         spelled = spelling.fix(owner_words, self._names())     # "salck" -> Slack (owner decision 2026-10-01)
         owner_words = spelled.text
         endorsed = re.sub(r"\byour\b", "my", session.asked, flags=re.I)   # FERB's "your Brave" is the owner's "my Brave"
@@ -424,16 +427,20 @@ class Supervisor(WorkerRuns):
                                                 "detail": str(e)[:400]})
             yield {"type": "reply", "text": service_problem(str(e)) if isinstance(e, ServiceError) else SORRY}
             return
-        for saved in self.remember(out.remember, owner_words, entry.id):          # the owner's words, quote-checked
+        # Quotes are checked against what the owner typed, before any typo fix ("looks" must not have become "Books")
+        for saved in self.remember(out.remember, typed, entry.id):               # the owner's words, quote-checked
             yield {"type": "memory", "text": saved}
         for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
-            yield {"type": "timer", "text": self.on_reminder_cancel(rc, owner_words)}
-        for note in self._set_timers(out.timers, owner_words, request_id):
+            yield {"type": "timer", "text": self.on_reminder_cancel(rc, typed)}
+        notes = self._set_timers(out.timers, typed, request_id)
+        for note in notes:
             yield {"type": "timer", "text": note}
+        if len(notes) < len(out.timers) and out.kind == "reply":   # the reply mustn't claim a reminder that wasn't set
+            out = SupervisorOutcome(kind="reply", plan=None, text=REMINDER_NOT_SET)
         if out.schedule is not None:                                             # build step 15
-            yield {"type": "timer", "text": self.on_schedule(out.schedule, owner_words, request_id)}
+            yield {"type": "timer", "text": self.on_schedule(out.schedule, typed, request_id)}
         for ch in out.schedule_changes:
-            yield {"type": "timer", "text": self.on_schedule_change(ch, owner_words)}
+            yield {"type": "timer", "text": self.on_schedule_change(ch, typed)}
         if out.kind == "plan" and out.plan is not None and _wants_me(out.plan.intent.recipients) \
                 and self.owner_email() is None:                                  # progressive setup (section 8)
             out = SupervisorOutcome(kind="clarify", text="What email address should I use for you? I'll remember it.",

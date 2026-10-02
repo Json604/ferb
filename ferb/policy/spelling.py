@@ -44,6 +44,20 @@ def _english() -> frozenset[str]:
         return frozenset()
 
 
+def is_english(w: str, english: frozenset[str]) -> bool:
+    """The Mac's dictionary lists base words only: "looks", "minutes", "called", "reminding" count through their stem
+    (otherwise "looks" would read as the Books app)."""
+    if w in english or w in MODERN:
+        return True
+    stems = [w[:-1] if w.endswith("s") else "", w[:-2] if w.endswith(("es", "ed")) else "",
+             w[:-3] + "y" if w.endswith(("ies", "ied")) else "", w[:-1] if w.endswith("ed") else "",
+             w[:-3] if w.endswith("ing") else "", w[:-3] + "e" if w.endswith("ing") else "",
+             w[:-4] if w.endswith("ing") and len(w) > 5 and w[-4] == w[-5] else "",
+             w[:-3] if w.endswith("ed") and len(w) > 4 and w[-3] == w[-4] else "",
+             w[:-2] if w.endswith("'s") else "", w[:-2] if w.endswith(("er", "ly")) else ""]
+    return any(len(s) >= 3 and (s in english or s in MODERN) for s in stems)
+
+
 def distance(a: str, b: str) -> int:
     """Edits between two words, a swap of neighbours counting as one ("salck" -> "slack" = 1)."""
     d = [[0] * (len(b) + 1) for _ in range(len(a) + 1)]
@@ -78,7 +92,7 @@ def fix(own_words: str, names: list[str], english: frozenset[str] | None = None)
     seen: set[str] = set()
     for word in re.findall(r"[A-Za-z][A-Za-z0-9]+", own_words):
         w = word.lower()
-        if w in seen or len(w) < MIN_LEN or w in by_token or w in english or w in MODERN:
+        if w in seen or len(w) < MIN_LEN or w in by_token or is_english(w, english):
             continue
         seen.add(w)
         close = sorted({name for tok, name in by_token.items() if distance(w, tok) <= _allowed(tok)})

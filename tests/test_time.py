@@ -354,3 +354,19 @@ def test_a_corrected_time_word_is_remembered_and_the_wrong_reminder_replaced(dae
     facts = run(daemon, daemon.daemon._facts)
     assert "When the owner says “next friday”, they mean: the coming Friday, not next week's" in facts
     assert f"Reminder {left[0].id}: call Mom" in facts
+
+
+def test_a_test_reminder_survives_typo_fixing_and_a_refusal_is_told(daemon: RunningDaemon) -> None:
+    """2026-10-01: "…what the reminder looks like" — the typo fix read "looks" as the Books app, the quote no longer
+    matched, the reminder was dropped, and the reply still said it was set."""
+    daemon.daemon.supervisor.apps = lambda: [("com.apple.iBooksX", "Books")]          # type: ignore[union-attr]
+    said = "Can you send a test reminder in one minute so that I can see what the reminder looks like"
+    install(daemon, [json.dumps({"kind": "reply", "text": "I'll send you a test reminder in one minute.", "plan": None,
+                                 "remember": [], "timers": [{"when": mins(1), "message": "test", "quote": said}]})])
+    evs = chat(daemon, said)
+    assert [e["type"] for e in evs] == ["timer", "reply"] and evs[0]["text"].startswith("⏰ reminder")
+    assert len(run(daemon, daemon.daemon.timers.pending)) == 1
+    install(daemon, [json.dumps({"kind": "reply", "text": "I'll remind you.", "plan": None, "remember": [],
+                                 "timers": [{"when": mins(1), "message": "x", "quote": "words never said"}]})])
+    evs = chat(daemon, "remind me in a minute")
+    assert evs[-1]["text"].startswith("I couldn't set that reminder")                # never "I'll remind you"
