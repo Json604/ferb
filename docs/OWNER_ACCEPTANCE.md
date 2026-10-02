@@ -20,6 +20,12 @@ Rules while testing: use a spare browser profile and throwaway accounts for anyt
 your real accounts until section H passes. Keep working in another app while FERB works. Anything that moves your
 desktop, raises a window over yours, or touches your mouse or keyboard is a **fail**, even if the task completed.
 
+Status at 0.18.0: B–H remain pending. This is a target acceptance list, not a list of shipped guarantees.
+Known gaps before running it: E's clone-then-test task and F's browser-read-then-file-write task conflict with
+exposure removing shell / file-write after untrusted reads; G's repeat-task learning requires procedure memory,
+which is not built. Record those as gaps rather than assuming this rework removed the exposure floor. The probe
+extension in A is separate from the production worker tools (browser screenshots are driver-only today).
+
 ## A. Background interactions, one at a time — `ferb watch`
 
 `.venv/bin/ferb watch` (or `--mac` / `--browser`, or `--only M4,M9`). Each step runs with the target in the

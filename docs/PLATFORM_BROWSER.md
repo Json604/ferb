@@ -348,7 +348,7 @@ Goal: a list of actionable elements with stable ids, plus enough geometry to cli
 - `--no-startup-window` loads the profile (and its extensions) with no window [doc: chromium switches]; `open -g -b
   <bundle> --args …` launches without bringing the app forward [doc: `man open`]. Spike 19: these never moved the owner;
   arguments reach a *running* Chrome only through its binary (the singleton forwards them), `open` passes them only at
-  launch [probe: spike 19; ARCHITECTURE 9.4].
+  launch [probe: spike 19; current ARCHITECTURE §7].
 - Window activation on new window: see 1.3 — never observed from a terminal-launched Chrome [probe], observed in the
   owner's Chrome [probe: owner 2026-10-01]. Keep the daemon's frontmost tripwire + put-back.
 - Any `--remote-debugging-*` flag sets `navigator.webdriver = true` and Google refuses new sign-ins [probe: spike 3];
@@ -516,7 +516,7 @@ Ranked by how much it buys relative to risk. Every item is background-first and 
    `chrome.windows.update(id, {state: "minimized"})` if the owner restored it [probe E2]). Every later tab:
    `chrome.tabs.create({windowId, url, active: false})` [probe E3] + `chrome.tabs.update(tabId, {autoDiscardable: false})`
    + the existing `tabs.group` into "FERB". Never `windows.update({state: "normal"})`, never `focused: true`.
-   Keep the daemon's frontmost tripwire and put-back (ARCHITECTURE 9.4) because 1.3's conflict is unresolved; log a trail
+   Keep the daemon's frontmost tripwire and put-back (current ARCHITECTURE §7) because 1.3's conflict is unresolved; log a trail
    event when it fires so the conflict gets data.
 2. **Persistent `chrome.debugger` attach per task tab, for the tab's life.** On `open`:
    `chrome.debugger.attach({tabId}, "1.3")`, then in order `Page.enable`, `Emulation.setFocusEmulationEnabled
@@ -553,7 +553,8 @@ Ranked by how much it buys relative to risk. Every item is background-first and 
 8. **Keep page mode** for reads, `<select>`, plain forms; route anything with `effect ∈ {send, pay, destroy}` through
    trusted input, as the rework's action gate requires.
 
-What this contradicts in ARCHITECTURE.md 9.4: "`chrome.debugger` attaches to one tab for those actions, then
+What this replaced in the pre-rework ARCHITECTURE.md §9.4 (`git show b993da5:ARCHITECTURE.md`; current §7
+describes the implementation): "`chrome.debugger` attaches to one tab for those actions, then
 detaches" becomes "attached for the task tab's life"; the allowlist gains `Page.enable`, `Page.handleJavaScriptDialog`,
 `Target.setAutoAttach`, `Emulation.setDeviceMetricsOverride`, `DOM.getBoxModel`, `DOM.querySelector`,
 `DOM.setFileInputFiles`, `Input.dispatchMouseEvent mouseWheel` (already allowed) — each with a parameter-shape check,

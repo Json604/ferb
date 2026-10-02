@@ -17,6 +17,16 @@ top tool error; a verification bug marking done work as failed) led to a rework 
 
 Baseline to beat (`ferb stats --days 3` before the rework): 9 of 66 requests done.
 
+The audit's 11/66 and the stats snapshot's 9/66 are historical figures from separate records; their counting
+difference has not been reconciled. Use a fresh, timestamped stats snapshot for the next comparison.
+
+Documentation handoff (2026-10-02): recovered the interrupted agents' saved ARCHITECTURE, README, CAPABILITIES
+and CODE_TOUR drafts and completed FILE_MAP on `docs/resume-cold-start-20261002`. The docs now describe 0.18.0,
+including implemented limits; the runtime version is unchanged. No new owner acceptance or real-app runs are
+claimed by this documentation update. Validation: 473 offline tests passed, 44 deselected;
+`mypy ferb/core` passed (5 source files). The old numbered contract is available with
+`git show b993da5:ARCHITECTURE.md` for references in the history below.
+
 The table below is the history of the original build (spikes §17 and build steps §18 of the old ARCHITECTURE.md),
 kept as a record. The current contract is `ARCHITECTURE.md` on this branch.
 
@@ -102,7 +112,7 @@ kept as a record. The current contract is `ARCHITECTURE.md` on this branch.
 1. The owner runs `docs/OWNER_ACCEPTANCE.md` sections B–H; fix what fails or disturbs them (`ferb trace <task>`).
 2. Phase 5: procedure memory (what worked for a request shape in an app / site, recalled into the worker prompt).
 3. Real probes still open: Electron apps (AXManualAccessibility presses), same-Space occluded windows (pid clicks, app hit test), AXPopUpButton select, AXShowMenu; Safari acting.
-4. Floor word list false positives ("Remove from playlist", "Sort order" ask once): refine from the acceptance runs, never with a permission list.
+4. Floor word list false positives ("Remove from playlist", "Sort order" ask every time as destroy / pay): refine from the acceptance runs, never with a permission list.
 
 ### Previous next (history)
 

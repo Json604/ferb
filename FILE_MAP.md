@@ -1,6 +1,7 @@
 # File map
 
-What every folder and file in FERB is for, as of version 0.16.1 (2026-10-02). For how the pieces run together,
+What the source folders and files in FERB are for, as of version 0.18.0 (2026-10-02). Package markers and tests
+are grouped where they share a purpose. For how the pieces run together,
 see [CODE_TOUR.md](CODE_TOUR.md). For the design, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Each line is drawn from the file's own docstring and checked against the code. `vibed/` (the abandoned old
@@ -11,15 +12,25 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | File | What it is |
 |---|---|
 | `ARCHITECTURE.md` | The design contract: the source of truth. Code follows it. |
-| `CLAUDE.md` | How the build is run: units, rules, safety for real tests. |
+| `CLAUDE.md` | Cold-start onboarding: the owner's goal, docs map, development rules, verification and next steps. |
 | `PROGRESS.md` | Every unit built so far, with dates, results and what's next. |
 | `CHANGELOG.md` | Version history (`MAJOR.MINOR.PATCH`). |
 | `README.md` | What FERB is, how to install and use it, and the CLI commands. |
 | `CAPABILITIES.md` | What FERB can and can't do today, in plain terms. |
-| `CODE_TOUR.md` | The code in the order it runs: the main flows, with line numbers. |
+| `CODE_TOUR.md` | The code in the order it runs: the main flows, by path and function. |
 | `FILE_MAP.md` | This file. |
 | `pyproject.toml`, `uv.lock` | Python package definition (`ferb`, version) and locked dependencies. |
 | `package.json`, `package-lock.json` | Pins the Codex CLI (0.157.1) repo-locally; `ferb setup` copies it to `~/.ferb/node`. |
+
+## `docs/`: the rework, platform evidence and owner acceptance
+
+| File | What it is |
+|---|---|
+| `REWORK_PLAN.md` | Rework phases and the rule on hardcoding; procedure memory is still pending. |
+| `DESIGN_ONE_WORKER.md` | The design behind one worker per request, effects and `owner.ask`; implementation details live in ARCHITECTURE.md §§4–5. |
+| `PLATFORM_MACOS.md` | Mac background-control mechanisms, probe evidence, owner observations and driver rung order. |
+| `PLATFORM_BROWSER.md` | Chromium background-control mechanisms, probe evidence and extension design. |
+| `OWNER_ACCEPTANCE.md` | Tasks the owner runs through chat and checks with their own eyes; B–H remain pending. |
 
 ## `ferb/`: the Python package (daemon, CLI, everything that runs)
 
@@ -47,7 +58,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | File | What it is |
 |---|---|
 | `__main__.py` | `python -m ferb.daemon`: what launchd runs. |
-| `main.py` | The daemon itself (about 2,000 lines). Startup and shutdown; every RPC method (`chat.send`, `trace.get`, `voice.switch`, `memory.*`, …); wiring of the supervisor, gateway, timers, watchers, voice, browsers and Jev. |
+| `main.py` | The daemon itself. Startup and shutdown; every RPC method (`chat.send`, `chat.answer`, `trace.get`, `voice.switch`, `memory.*`, …); wiring of the supervisor, gateway, timers, watchers, voice, browsers and Jev. |
 | `server.py` | Owner-only Unix socket, newline-delimited JSON-RPC. The first message must be `auth.hello` with a role. |
 | `auth.py` | Connection roles (cli, mcp_shim, native_host, voice), the methods each role may call, and run tokens for workers. |
 | `gateway.py` | The tool gateway. Every model action reaches the Mac only through here: token → scopes → the effect gate (declared effect raised to the control's floor) → contact and duplicate-send checks → policy engine → approvals / undo window → locks → the tool → redaction → trace span. Also answers `owner.ask`. |
@@ -63,7 +74,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `availability.py` | Builds the planner's "what workers can do right now" list in code from what's actually connected and permitted. |
 | `guards.py` | Runaway guards: the same failing call 3×, loops between steps, and tree caps (4 h, 50 worker runs, 1,000 tool calls). No token or dollar budgets. |
 | `ledger.py` | Action ledger: intended → executing → done / failed / unknown. Prevents a lost acknowledgement from becoming a second send. |
-| `verify.py` | Verification after the actors finish: by code where possible (file, ledger, tab URL, account), otherwise a read-only verifier worker. Also reconciliation of `unknown` actions. |
+| `verify.py` | Code checks after the worker finishes (file, ledger, tab URL, account). The supervisor sends undecided checks to a read-only verifier and reconciles `unknown` actions. |
 | `tree.py` | The running task tree, persisted, for the gateway, `ferb trace` and restarts. |
 | `schedules.py` | Scheduled and recurring tasks: rules, missed-run handling, pausing after three failures. |
 | `stop.py` | Emergency stop: revoke tokens, block actions, cancel held sends, run stop hooks. |
@@ -204,6 +215,9 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `scan.py` | Installed apps from their Info.plist, scriptability, browsers present. |
 | `profile.py` | The device profile JSON, with its local git history. |
 | `selftest.py` | Proves the daemon can read Accessibility and post and see a marked event. |
+| `watch.py` | `ferb watch`: 13 Mac and 12 browser interaction probes, owner answers and background detectors, JSON results. |
+| `watch_page.html` | Local page with controls for the browser probes. |
+| `watch_ext/manifest.json`, `watch_ext/sw.js` | Minimal probe extension loaded only in watch's throwaway Chrome. |
 
 ### `voice/`: push-to-talk (daemon side)
 
@@ -220,10 +234,10 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 |---|---|
 | `__init__.py` | Argument parsing and dispatch for every `ferb` subcommand. |
 | `chat.py` | `ferb chat`: the line editor, paste handling, loader, inline approvals. |
-| `client.py` | The socket client every command uses. |
+| `client.py` | The socket client used by chat, MCP and daemon-backed admin commands. |
 | `mcp.py` | `ferb mcp`: the stdio MCP shim Codex starts for each worker. It forwards tool calls to the gateway with the run token, and holds no logic. |
 | `logs.py` | `ferb logs` and `ferb voice` (live streams from the bus), `ferb voice on|off`. |
-| `admin.py` | `ferb trace`, `memory`, `decide`, `schedules`, `browsers`, `device` and other admin commands. |
+| `admin.py` | `ferb trace`, `stats` (direct database read), `memory`, `decide`, `schedules`, `browsers`, `device` and other admin commands. |
 | `setup.py` | `ferb setup [--update / --voice / --jev]`, `ferb doctor`, `ferb uninstall`. |
 
 ### `native_host/`
@@ -262,8 +276,9 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 `01_codex_mcp`, `02_claude_sdk`, `03_cdp_identity`, `04_extension`, `06_pyobjc`, `08_launchd`, `10_profiles`,
 `12_pairing`, `13_mv3_restart`, `14_owner_input`, `15_tcc_launcher`, `16_ext_identity`, `17_voice_audio`,
-`18_background_input`, `19_chrome_wake`, `20_whatsapp_search`, `21_gpt6_lockdown`. Each has its findings; ARCHITECTURE.md §17
-lists what each decided.
+`18_background_input`, `19_chrome_wake`, `20_whatsapp_search`, `21_gpt6_lockdown`. Findings are recorded alongside
+the experiments and in the historical table in PROGRESS.md. Legacy §17 references refer to the pre-rework
+ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 
 ## `tests/`
 
@@ -274,5 +289,10 @@ lists what each decided.
 | `chromelab.py` | A throwaway lab Chrome (own data dir, pipe-driven only to load the unpacked extension), its native-host wiring, and a frontmost-app watcher for real browser tests. |
 | `browserkit.py` | Shared browser-test kit (temporary keychain, fake inbox feed). |
 | `probe_window.py` | A throwaway window for the real screenshot-and-click tests. |
-| `test_*.py` | Offline tests, one file per area (policy, gateway, supervisor, time, spelling, …). |
+| `test_acceptance_one_worker.py` | Scripted replays of the eight failures that motivated the one-worker rework, including free-text owner answers. |
+| `test_mac_snapshot.py`, `test_background_input.py` | Snapshot facts, learned mechanisms and background/foreground contracts against fake Mac APIs. |
+| `test_browser_background.py` | Background browser and extension contracts, including persistent debugger sessions. |
+| `test_rework_fixes.py` | Regression checks for the audit fixes, stats and the watch harness. |
+| `test_mac_background_real.py`, `test_browser_lab_real.py` | Rebuilt drivers against safe apps / throwaway Chrome, with frontmost-app polling. |
+| Other `test_*.py` | Tests by area (policy, gateway, supervisor, time, memory, …); markers decide which run offline. |
 | `test_*_real.py` | Real tests against real apps and browsers. Locked down by default; Codex only unless `-m real_claude`. |

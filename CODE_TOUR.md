@@ -1,461 +1,314 @@
-# Code tour
+# Code tour (0.18.0)
 
-This tour walks through FERB's code in the order it runs. Line numbers are as of commit `18d119a` and will drift;
-the function names are the stable anchors (`grep -n "def name"`). The design contract behind every piece is
-[ARCHITECTURE.md](ARCHITECTURE.md); section numbers below (§) refer to it.
+The flows through FERB's code, in the order they run, by `path:function` (no line numbers; `rg -n "def name"`
+finds them). The design contract behind every piece is [ARCHITECTURE.md](ARCHITECTURE.md); section numbers (§) refer
+to it. `docs/DESIGN_ONE_WORKER.md` describes flows 1 and 4; `docs/PLATFORM_MACOS.md` §12 and
+`docs/PLATFORM_BROWSER.md` §13 describe flows 2 and 3.
 
 ## 0. Before the flows: types, interfaces, registry
 
-Read these three files first. Everything else is built on them.
+- `ferb/core/types.py`: pure data. `Identity` (`OWNER`: your Mac, browsers, shell; `FERB`: FERB's own profile and
+  accounts), `Task`, `Outcome`, `Target`, `DataLabel`, `ActionSpec` (what a tool call *would do*: its kind, target,
+  content, data labels; policy decides on this, not on the raw arguments), `ToolContext`, `ToolResult` (`image` goes
+  to the model only, `evidence` to FERB's checks only), `ComputerAction`, `BrowserAction`, `PageElement`,
+  `PageSnapshot`, `TrailEvent`, `MemoryItem`.
+- `ferb/core/interfaces.py`: the seams as Protocols: `Clock`, `AgentRuntime` (`start` / `events` / `continue_` /
+  `cancel`), `Capability` (`describe(args) -> ActionSpec`, `run(args, ctx) -> ToolResult`), `BrowserDriver`,
+  `ComputerDriver`.
+- `ferb/registry.py:build` registers the always-present tools (`fs.*`, `owner.ask`); `add_owner_browsers`,
+  `add_identity_browser`, `add_mac`, `add_shell`, `add_trail`, `add_time` add the rest when the daemon has that
+  driver (`ferb/daemon/main.py:Daemon._build_agents`, `_build_browsers`, `_build_mac_and_shell`, `_build_timers`).
+- A capability's `scopes` (e.g. `{"mac:act"}`) decide who may call it: `ferb/daemon/gateway.py:Gateway.tools_for`
+  lists a tool to a worker only if its token holds the scopes and identity. `ferb/policy/rules.py:SCOPES_BY_IDENTITY`
+  is the identity floor; `with_reads` adds the read scopes every act scope implies.
 
-**`ferb/core/types.py`** is pure data, with no I/O.
-- `Identity` (line 9): `OWNER` (your Mac, browsers and shell; never credentials) vs `FERB` (FERB's own profile and
-  accounts). Every task, token and capability carries one.
-- `Task` (33) and `Outcome` (47): a unit of work and its typed result. Failures are values, never exceptions across
-  worker boundaries.
-- `Target` (112), `DataLabel` (122) and `ActionSpec` (130): what a tool call *would do*. That means its kind (send,
-  submit, call, …), target (site, recipients, path, amount, contact), content and data labels. Policy decides on
-  this, not on the tool's arguments.
-- `ToolContext` (167) and `ToolResult` (182): what a capability receives and returns. `image` goes to the model only.
-  `evidence` is for FERB's own checks only.
-- `TrailEvent` (81) and `MemoryItem` (92): the activity trail and memory records.
-- `PageElement` (238) and `PageSnapshot` (253): the browser's sanitized view of a page.
-
-**`ferb/core/interfaces.py`** holds the seams, as `Protocol`s.
-- `Clock` (16): `now()` for timestamps, `monotonic()` for timeouts. Tests use `FakeClock`.
-- `AgentRuntime` (27): `start` / `events` / `continue_` / `cancel`. Codex and Claude implement it.
-- `Capability` (36): `describe(args) -> ActionSpec` and `run(args, ctx) -> ToolResult`. Every tool is one.
-- `BrowserDriver` (56) and `ComputerDriver` (69): the browser and Mac drivers.
-
-**`ferb/registry.py`** turns drivers into tools.
-- `Registry.add` (24) keys capabilities by name (`browser.act`, `mac.snapshot`, …).
-- `build` (30) registers the always-present tools: files and time.
-- `add_owner_browsers` (60), `add_identity_browser` (44), `add_mac` (75), `add_shell` (103), `add_trail` (88) and
-  `add_time` (94) register the rest when the daemon has that driver.
-
-A capability's `scopes` (for example `{"browser:act"}`) are what a plan must grant a worker. The gateway only lists
-a tool to a worker whose token holds its scopes and identity (`Gateway.tools_for`).
-
----
-
-## Flow 1: a chat request
-
-`ferb chat` → daemon → supervisor → one worker → runtime → `ferb mcp` → gateway (the effect gate) → policy engine → tool → sanitize → trace.
+## 1. A chat turn → task → worker → tool call → driver → outcome
 
 ```mermaid
 sequenceDiagram
     actor Owner
-    participant CLI as ferb chat<br/>(cli/chat.py)
-    participant Srv as Server<br/>(daemon/server.py)
-    participant D as Daemon._chat_send<br/>(daemon/main.py)
-    participant Sup as Supervisor.send<br/>(orchestrator/supervisor.py)
-    participant RT as Runtime<br/>(runtimes/codex_exec.py)
-    participant MCP as ferb mcp shim<br/>(cli/mcp.py)
-    participant GW as Gateway._call<br/>(daemon/gateway.py)
-    participant PE as PolicyEngine.evaluate<br/>(policy/engine.py)
-    participant Cap as Capability.run<br/>(act/*/tools.py)
-    participant DB as SpanStore / Ledger / Journal<br/>(SQLite)
-
-    Owner->>CLI: types a request
-    CLI->>Srv: stream "chat.send" (JSON-RPC over ~/.ferb/run/ferb.sock)
-    Srv->>D: _stream → _chat_send
+    participant CLI as ferb chat (cli/chat.py)
+    participant D as Daemon (daemon/main.py)
+    participant Sup as Supervisor (orchestrator/supervisor.py)
+    participant RT as Runtime (runtimes/codex_exec.py)
+    participant MCP as ferb mcp (cli/mcp.py)
+    participant GW as Gateway (daemon/gateway.py)
+    participant PE as PolicyEngine (policy/engine.py)
+    participant Cap as Capability (act/*)
+    Owner->>CLI: a message
+    CLI->>D: stream chat.send over ~/.ferb/run/ferb.sock
     D->>Sup: send(session_id, text)
-    Sup->>Sup: mark() untrusted pastes, recall memory,<br/>availability(), environment()
-    Sup->>RT: _supervise: supervisor run (mode="supervisor", no tools)
-    RT-->>Sup: SupervisorOutcome (reply | clarify | task)
-    Sup->>Sup: dag.validate (identity floor; one repair),<br/>engine.requests.record (own words + targets)
-    Sup->>Sup: run_tree → one worker task with every tool its identity allows
-    Sup->>RT: WorkerRuns.run_worker: token (scopes, identity), tools_for, start
-    RT->>MCP: spawns `ferb mcp` (FERB_RUN_TOKEN_FILE)
-    MCP->>Srv: "tools.list" / "tools.call"
-    Srv->>GW: Daemon._tools_call → Gateway.call
-    GW->>GW: validate args, strip `effect` + `why`, describe() → ActionSpec,<br/>effect = max(declared, floor), taint labels, contact check, duplicate send
+    Sup->>RT: _supervise: supervisor.md, no tools
+    RT-->>Sup: reply | clarify | task (goal, identity, targets, conditions)
+    Sup->>Sup: dag.validate (identity floor, one repair); requests.record
+    Sup->>RT: run_tree → _worker → WorkerRuns.run_worker (token, tool list, worker.md)
+    RT->>MCP: spawns `ferb mcp` with the token file
+    MCP->>D: tools.call → Gateway.call
+    GW->>GW: strip effect + why; describe(); effect = max(declared, floor); taint; contact; duplicate send
     GW->>PE: evaluate(ActionRequest)
-    PE-->>GW: allow | hold (undo) | ask | block
-    GW->>DB: span start; ledger.intend (non-reversible)
-    GW->>Cap: run(args, ToolContext)
+    PE-->>GW: allow | ask | hold | block
+    GW->>Cap: _execute: ledger intend → run → redact → span
     Cap-->>GW: ToolResult
-    GW->>GW: redact(result), exposure / taint, footer
-    GW->>DB: span finish, ledger mark done/failed
-    GW-->>MCP: content + time footer (+ image)
-    MCP-->>RT: tool result
-    RT-->>Sup: worker's final JSON (status, summary, evidence, artifacts)
-    Sup->>Sup: verify (code checks, verifier run); the summary is the answer
-    Sup-->>D: events: plan, subtask, verification, outcome
-    D-->>CLI: streamed events (+ bus events for this task)
-    CLI-->>Owner: render(): FERB's answer, questions, countdowns
+    GW-->>D: redacted result (+ time footer, + image)
+    D-->>MCP: tools.call response
+    RT-->>Sup: worker JSON (status, summary, evidence, artifacts)
+    Sup->>Sup: _reconcile (inside _worker); verify; _final
+    Sup-->>CLI: events: plan, subtask, verification, outcome
 ```
 
-### Step by step
+**The CLI.** `ferb/cli/__init__.py:main` parses the command; `chat` → `ferb/cli/chat.py:main_chat` → `run_tty`
+(prompt_toolkit; pastes arrive whole and `wrap_pastes` marks them). `Chat.turn` streams `chat.send`
+(`ferb/cli/client.py:Client.stream`) and prints each event through `render`. Questions arrive as
+`approval.requested` events; `Chat.answer_approval` asks (`question`) and replies with `chat.approve` (yes / no / an
+option number) or, for a worker's own question (kind `owner_question`), `chat.answer {approval_id, text}`.
 
-**The CLI**
-- `ferb/cli/__init__.py:main` parses the command. `chat` goes to `cli/chat.py:main_chat` → `run_tty`.
-- `run_tty` uses a prompt_toolkit line editor. Pastes arrive whole; `wrap_pastes` marks them.
-- `Chat.turn` calls `Client.stream("chat.send", …)` (`cli/client.py`) and prints each event through `render`.
-- Questions come back as `approval.requested` events. `Chat.answer_approval` asks (`question`) and replies with
-  `chat.approve` (yes / no / an option's number) — or, for a worker's own question (`owner.ask`, kind
-  `owner_question`), with `chat.answer {approval_id, text}`: a number picks an option, anything else is the answer,
-  Enter skips.
+**The daemon.** `ferb/daemon/server.py:Server._connection` checks the peer uid; `_hello` authenticates the role
+(`ferb/daemon/auth.py`: CLI, a runtime with a run token, the native host, FERB.app); `_dispatch` / `_stream` route to
+the method table built in `ferb/daemon/main.py:Daemon.start`. `Daemon._chat_send` runs the turn as its own asyncio
+task and merges the supervisor's events with bus events for that task (tool calls, approvals, holds). Closing chat
+detaches the stream; Ctrl-C calls `Daemon._task_stop`.
 
-**The daemon's server**
-- `ferb/daemon/server.py:Server._connection` checks the peer uid, then `_hello` authenticates the role: the CLI, a
-  runtime carrying a run token, or the native host. `_dispatch` handles calls and `_stream` handles streams.
-- The daemon registers its methods in `Daemon.start` (`daemon/main.py`, the method table).
+**Deciding** (`ferb/orchestrator/supervisor.py:Supervisor.send`). `ferb/sanitize/untrusted.py:mark` separates your own
+words from pasted or quoted text. `Daemon._availability` (`ferb/orchestrator/availability.py:build`) lists what's
+usable now and the scopes a worker may get; `Daemon._environment` adds one informational line
+(`ferb/policy/services.py:services_named`, `summary`; the named browser via `Daemon._named_browser` /
+`ferb/act/browser/profiles.py:named_in`). `Supervisor._supervise` builds the prompt from `prompts/supervisor.md`
+(`_system`), the recent conversation (`recent`), memory (`recall_items`), the environment and the time block
+(`ferb/clock/context.py:time_block`), and runs the orchestrator runtime in supervisor mode with no tools. The model
+answers (`ferb/orchestrator/schemas.py:SupervisorOutcome`) with `reply`, `clarify` or `task` (`TaskSpec`: goal,
+identity, informational `targets`, `success_conditions`), plus `remember`, `timers`, `schedule` entries.
+`Supervisor._decide` runs `ferb/orchestrator/dag.py:validate` (the identity floor only); one repair round, then a
+plain question (`COULDNT`). `Supervisor.send` then records the request's facts for the gateway
+(`ferb/policy/targets.py:Requests.record`: your own words, targets, your email) and calls `run_tree`.
 
-**One chat turn**
-- `Daemon._chat_send` runs the turn as its own asyncio task. It merges the supervisor's events with bus events for
-  the task (tool calls, approvals, undo countdowns, blocks).
-- Closing chat detaches the stream but never cancels the task. Ctrl-C calls `task.stop` (`_task_stop`).
+**One worker** (`Supervisor.run_tree` → `_execute` → `_worker`). One task `<tree>.worker` with
+`dag.scopes_for(identity, available)`: everything its identity allows that FERB has now. `_context` gives it the
+goal, conditions, what you named and the workspace. `ferb/orchestrator/worker.py:WorkerRuns.run_worker` →
+`_run_worker_once`: guard check (`ferb/orchestrator/guards.py:TreeGuard.can_start_worker`), a run token
+(`ferb/daemon/auth.py:RunTokens.issue`), the tool list (`Gateway.tools_for`), the prompt `prompts/worker.md` plus
+context and the time block, then `_run`; `_watch` polls heartbeats (`Activity.stalled`, 180 s) and the tree caps
+(`TreeGuard.over`: 4 h, 50 worker runs, 1,000 tool calls; `TreeGuard.call`: the same failing call 3×, loops). A
+worker that never loaded its tools and gave up gets one retry. `ferb/runtimes/codex_exec.py:CodexRuntime._cmd` runs
+`codex exec` in a read-only sandbox with native tools off, FERB's locked model catalog (`locked_catalog`) and `ferb
+mcp` as the only MCP server; `_watch_trace` scans the request trace (`ferb/runtimes/tooltrace.py:tools_in`) and kills
+the run on any tool outside the allowlist (`Daemon._runtime_violation` unregisters the runtime). The Claude
+equivalent is `ferb/runtimes/claude_sdk.py:ClaudeRuntime` behind `ferb/runtimes/proxy.py`.
 
-**Deciding** (`Supervisor.send`, `orchestrator/supervisor.py`)
-- `mark` (`sanitize/untrusted.py`) separates your own words from pasted or quoted text (unless
-  `[policy] pasted_text_is_data = false`). `recall` fetches memory.
-- `self.availability()` (the daemon's `_availability`) builds the capability list the supervisor sees and the
-  scopes a worker may get. `self.environment()` (`_environment`) adds one informational line: what's installed and
-  paired for the services you named (`policy/services.py`, the catalogue), what's running, and the browser / profile
-  you named (`_named_note`; `act/browser/profiles.py:named_in`).
-- `_supervise` builds the prompt from `prompts/supervisor.md` (`{capabilities}` filled in by `_system`), the recent
-  conversation, memory, the environment line and the message, with the time block last. It runs the orchestrator
-  runtime in supervisor mode with no tools. The model answers with exactly one of `reply`, `clarify` (one question;
-  your next message continues the request) or `task`: the goal in plain words, the identity (`owner` for your apps,
-  files, browsers and accounts; `ferb` for FERB's own), the targets it understood (apps, sites, paths, recipients —
-  informational) and optional success conditions.
-- `dag.validate` (`orchestrator/dag.py`) keeps one check: the identity floor (a `ferb` task can't name your
-  folders). A problem goes back to the model once (`_decide`); if it's still wrong you get a plain question.
-- `engine.requests.record` (`policy/targets.py:Requests`) stores the request's facts for the gateway: your own words
-  (never pasted text), the targets, your own email address. They're forgotten when the task ends.
+**The shim.** `ferb/cli/mcp.py:Shim.list_tools` / `call_tool` forward to `tools.list` / `tools.call` with the token
+read from `FERB_RUN_TOKEN_FILE`; `Daemon._tools_call` validates the grant and calls `Gateway.call`.
 
-**One worker** (`run_tree`, `_execute`, `_worker`)
-- One worker task per request, `<tree>.worker`, with every scope its identity allows that FERB has right now
-  (`dag.scopes_for`; `rules.SCOPES_BY_IDENTITY`, reads included via `with_reads`). Its context is the goal, the
-  success conditions, what you named, and the workspace (`_context`).
-- `WorkerRuns.run_worker` (`orchestrator/worker.py`) checks the guards, issues a run token (`daemon/auth.py`,
-  `RunTokens.issue`) and computes the tool list (`gateway.tools_for`: everything whose scopes fit, minus what
-  exposure removed). The prompt is `prompts/worker.md` plus context plus the time block.
-- `CodexRuntime._cmd` (`runtimes/codex_exec.py`) runs `codex exec` in a read-only sandbox with its native tools
-  disabled and FERB's MCP server (`ferb mcp`) configured with the run token. The tool list the model actually saw is
-  checked on every run; a violation unregisters the runtime. The Claude equivalent is `runtimes/claude_sdk.py`.
-- The worker's `summary` is what you read: there is no separate answer-writing run. A `needs_user` report is for
-  the case where the worker must stop; for a choice that is yours it calls `owner.ask` (`act/ask.py`) and carries on
-  with your answer.
+**The gateway** (`ferb/daemon/gateway.py:Gateway._call`), in order:
+1. the tool is in this worker's list and the task is running;
+2. `effect` and `why` are popped from the arguments (`ferb/policy/effects.py:is_valid`); the rest validate against
+   `cap.Input`; `cap.precheck` may refuse (e.g. an undeclared `mac.click` in a messaging app);
+3. `owner.ask` is answered here (flow 4) and never reaches policy;
+4. `cap.describe` → `ActionSpec`; `effects.floor_of(spec.kind)` (`FLOOR_BY_KIND`) and `effects.raise_to` give
+   `effective = max(declared, floor)`; a send / pay / destroy without a `why` is sent back for one;
+5. taint labels from owner-account reads ride on anything the worker types or sends (`ferb/policy/taint.py`);
+6. the contact check for calls and sends (`_contact`, `ferb/policy/contacts.py:check`: "Which Rahul?"), then
+   `targets.owner_named` (did your own message name where this goes);
+7. the duplicate-send check (`_send_again`);
+8. a `tool.call` span is started with the effect and reason; `PolicyEngine.evaluate`; `ask` → `_await_owner`;
+   Jev's stricter-only check (`_jev_action`); `hold` → `_wait_hold` (the undo window); resource locks
+   (`ferb/act/locks.py`) → `_execute`.
 
-**The MCP shim**
-- `cli/mcp.py:Shim.list_tools` and `call_tool` forward to the daemon's `tools.list` / `tools.call` with the run
-  token (read from `FERB_RUN_TOKEN_FILE`). The daemon's `_tools_call` validates the session's grant and calls
-  `Gateway.call`.
+**The policy engine** (`ferb/policy/engine.py:PolicyEngine.evaluate`): stop → identity and scopes
+(`rules.check_identity`, `check_scopes`) → exposure (`ferb/policy/exposure.py:ExposureTracker.check`) → `navigate`
+runs → data flow (`ferb/policy/dataflow.py:check`) → `ferb/policy/autonomy.py:ask_reason` (pay / destroy always;
+send unless `owner_named`; injection signals; careful mode) → an unverified account asks once →
+`ferb/policy/approvals.py:Approvals.consume` / `request` → the undo hold for `UNDO_WINDOW` kinds (`Holds.hold`).
 
-**The gateway** (`daemon/gateway.py:Gateway._call`) checks, in order:
-1. The tool is in this worker's list and the task is running.
-2. `effect` and `why` are stripped from the arguments (both are recorded in the span); the rest validate.
-3. `cap.precheck` (e.g. `mac.click` purpose in messaging apps). `owner.ask` is answered here: the question goes to
-   chat as an approval (`Approvals.question`), the call waits (`_ask_owner`), the answer comes back as
-   `{answer}` or `{declined}`. A scheduled run is declined at once.
-4. `cap.describe` gives the `ActionSpec`; its `kind` is a fact about the control (`policy/effects.py:FLOOR_BY_KIND`;
-   for a button, `label_kind`: the one floor word list — Send / Submit / Call / Pay / Buy / Order / Delete / Remove /
-   Unsubscribe / Sign out). `effective = max(declared, floor)`. A send / pay / destroy without a `why` is sent back
-   for one.
-5. Taint labels: a worker that read owner-account data carries them onto anything it types or sends.
-6. The contact check for calls and sends (`_contact`; `policy/contacts.py`: "Which Rahul?"), then whether your own
-   message names where this goes (`policy/targets.py:owner_named`).
-7. The duplicate-send check (`_send_again`: a second message to the same person asks).
-8. `engine.evaluate`; `ask` → `_await_owner` (a yes also makes that destination one you approved, for data flow).
-9. Jev's stricter-only check. 10. `hold` → `_wait_hold` (the undo window). 11. Resource locks → `_execute`.
+**Execution and the trace** (`Gateway._execute`): a ledger row before any non-reversible kind runs
+(`ferb/orchestrator/ledger.py:Ledger.intend`, `mark`); `cap.run`; an exception marks the row `unknown`; a refused
+owner folder triggers the one-time folder question (`_folder_access`); read sources feed taint and exposure; the
+result is redacted (`ferb/sanitize/redact.py`), what was on screen is remembered for contact checks (`Seen.record`),
+the span is finished (`ferb/store/spans.py:SpanStore.finish`) and the reply carries the time footer
+(`ferb/clock/context.py:footer`). `ferb trace` renders `Daemon._trace` → `SpanStore.tree` through
+`ferb/cli/admin.py:render_trace`.
 
-**The policy engine** (`policy/engine.py:PolicyEngine.evaluate`) runs a fixed order:
-1. Stop. 2. Identity and scopes (`rules.check_identity`, `check_scopes`). 3. Exposure (`policy/exposure.py`).
-4. `navigate` just runs. 5. Data flow (`dataflow.check`: owner data only to a target of the request, something you
-   named, or something you approved). 6. `autonomy.ask_reason`: pay / destroy ask every time (the hard floor, exact
-   action, used once); send asks once per (request, effect, target) unless you named the target; injection signals
-   and careful mode. 7. Approvals (`policy/approvals.py`: scoped grants by request + effect + target, or exact
-   one-use grants for the floor). 8. The undo window for sends, posts, replies and calls.
+**Finishing.** The worker's `summary` is your answer. `Supervisor.verify` (flow 5), `_reconcile` for `unknown`
+ledger rows, `_final` builds the outcome; `run_tree` journals `task.answer` / `task.outcome`, ends the task's tabs and
+processes (`Daemon._task_end`) and forgets the request (`Requests.forget`).
 
-**Execution and the trace** (`Gateway._execute`)
-- For non-reversible kinds, a ledger row is written *before* running (`orchestrator/ledger.py:Ledger.intend`).
-- Then `cap.run` runs. An exception marks the ledger `unknown`, to be reconciled later, never retried blindly.
-- Read sources feed the taint and exposure trackers. The result is redacted (`sanitize/redact.py`), the span is
-  finished (`store/spans.py`), the ledger is marked done or failed, and the reply carries the time footer.
+## 2. A Mac action in the background
 
-**Finishing the task**
-- `verify` checks each success condition in code where possible (`orchestrator/verify.py:Checks`: file, ledger,
-  tab URL, account) and with a read-only verifier run (`prompts/verifier.md`) where it needs judgment; a check code
-  can't decide goes to the verifier, never fails the task.
-- `_reconcile` handles `unknown` outcomes with a read-only re-read.
-- `_final` builds the outcome: the worker's summary is the answer, with what verification found appended.
-- `run_tree` journals `task.answer` / `task.outcome` and yields the final event.
+`mac.snapshot` → `mac.act` (press / click / focus / set_value / type / edit / select / scroll / key) → a new snapshot.
 
-`ferb trace [task]` renders a task and all its steps (`Daemon._trace` → `SpanStore.tree`; `cli/admin.py:render_trace`
-shows each tool call's arguments, effect, why and result). No argument means the latest task; a short id works.
+- **Reading** (`ferb/act/mac/tools.py:MacSnapshot._run` → `ferb/act/mac/driver.py:MacComputerDriver.snapshot`):
+  `_expose` sets `AXManualAccessibility` once per Electron app (`ferb/act/mac/accessibility.py:expose_tree`);
+  `_walk` → `accessibility.read_tree` does one walk of the window (or the window named by title / id,
+  `window_named`) plus the app's open menus, popovers, sheets and dialogs (`open_menus`, `open_panels`), keeping every
+  element that exposes an action; `windows` lists the app's windows through the window server and the Accessibility
+  routes that reach other desktops; `has_secure_field` finds password fields without reading them. The same walk's
+  `AxTree.signature` is the before / after check for actions. With the screen scope, `MacComputerDriver.screenshot`
+  (`ferb/act/mac/screenshot.py:capture`, ScreenCaptureKit, one window) adds the image with `marks` drawn on.
+- **Acting** (`MacAct._run` → `MacComputerDriver.act`), background first, each rung only after the one before
+  verifiably did nothing, with the outcome recorded in the app's learned profile
+  (`ferb/act/mac/profile.py:Profiles.record`; `skips` after three misses in a row, `prefers`, `untried`):
+  - press: `_press` = `accessibility.press` → `press_ancestor` → `focus` + Return / Space posted to the process
+    (`ferb/act/mac/input.py:RealInput.to_process`, `key_steps`);
+  - type: `_type` = `focus` and `has_focus` (nothing is typed while a sheet holds the focus) → unicode keystrokes to
+    the process (`type_steps`), read back (`_value_changed`) → `_ax_type` (`accessibility.post_text`, the
+    Accessibility keyboard, where the profile says it works) → `set_value`;
+  - edit: `_edit` = `set_selected_range` + `set_selected_text` → whole-value rewrite; never arrow keys;
+  - key: `_key` = a ⌘ shortcut runs its menu item (`menu_item_for_shortcut`, refused while disabled); escape cancels
+    the open panel (`cancel`), never blind; else keycodes to the process → the Accessibility keyboard (`post_key`);
+    `_key_rules` refuses arrows in a text box and Return where a Send button belongs; `input.switches_apps` /
+    `quits_or_hides` refuse ⌘Tab, ⌘Q and friends before anything runs;
+  - scroll: `_scroll` = `AXScrollToVisible` / `AXIncrement` on sliders → Page Up / Down with the area focused
+    (`scroll_area_of`, `scroll_position`) → the scroll bar (`scroll_bar`, `set_scroll_bar`);
+  - select: `_select` = press the pop-up, `popup_menu`, press the item → `set_value`;
+  - the foreground, only with `allow_foreground=true`: `_foreground` → `_real` → `_forward` (once per stretch,
+    `InputGuard.engage` holds back your first key or click), `RealInput.run` steps aside for you and comes back,
+    `restore_owner` puts your app back after 3 s idle (`_restore_later`) or when you step in.
+- **Click by position** (`MacClick._run` → `MacComputerDriver.click_at`): the app's own hit test
+  (`accessibility.hit_element`) turns the point into a control and presses it; then a click posted to the process,
+  only for a window on the current desktop (`screenshot.on_screen`), kept if the signature changed; then the real
+  mouse with `allow_foreground`, re-checking that nothing covers the point (`accessibility.hit`).
+- **Opening**: `MacOpen._run` → `ferb/act/mac/apps.py:launch` (background), puts you back if macOS switched desktop,
+  `MacComputerDriver.ensure_window` reopens a closed window from the app's menu (`accessibility.open_window`).
+- **The kind** (`MacAct._kind`) is a fact about the control: focus is navigate; Return is a submit; typing into a
+  search box is a search; a press is `mac_input` unless the label hits the floor words (`effects.label_kind`).
+- **Learning**: `python -m ferb.act.mac.probe <bundle> --seed` (`ferb/act/mac/probe.py:Probe.run`, `main`) tries every
+  mechanism on harmless targets and `Profiles.seed` writes the result into `~/.ferb/device/apps/<bundle>.json`
+  (`driver.profiles_dir`).
 
-### Breakpoints (`ferb daemon run` in the foreground)
+## 3. A browser action through the extension
 
-Run a separate daemon with its own home so the installed one keeps running:
+`browser.open` / `ferb_browser.open` → `*_snapshot` → `*_act` / `*_scroll` → a new snapshot.
 
-```sh
-FERB_HOME=/tmp/ferb-dev uv run ferb daemon run
-FERB_HOME=/tmp/ferb-dev uv run ferb chat        # in another terminal
-```
+- **The tools** (`ferb/act/browser/tools.py`): `BrowserOpen`, `BrowserSnapshot`, `BrowserAct` (click, dblclick,
+  rightclick, hover, type, select, press, scroll, upload; `page_mode`, `expect_dialog`, `files`, `contact`),
+  `BrowserScroll` (the page or a `container`), `BrowserFind`, `BrowserWait`, `BrowserClose`, `BrowserTabs` /
+  `BrowserUseTab` (owner profiles), `BrowserFillSecret` / `BrowserFillOtp` / `MailboxSend` (FERB's identity).
+  `act_kind` gives the kind as a fact about the element (a link navigates, a form's button submits, a floor-word
+  label is that action, a search box is a search); `security_page` raises anything non-reversible on an account /
+  security page to `account_security`. `_Base._run` checks tab ownership (`owned_by`) and the signed-in account
+  (`_account_ok`, `ferb/act/browser/accounts.py`).
+- **Choosing the profile**: `ferb/act/browser/ext_bridge.py:Router.open_for` → `ferb/act/browser/resolver.py:Resolver.choose`
+  (a named profile wins; else an open tab, your trail, your default browser, ask) and refuses any profile other
+  than the one you named (`profiles.named_in`). `_TabDriver._connected` wakes a sleeping profile
+  (`profiles.open_known_profile` with no window, then a wake page) and `Daemon._put_owner_back` returns you if a
+  browser took the front. `Router.attach` takes over one of your open tabs (`BrowserUseTab`).
+- **The bridge**: `_TabDriver._open_in` → `Bridge.call("open")`; `Bridge.call` sends a command with the connection's
+  generation and a command id and maps the result: `stale` (reconnect; take a new snapshot), `duplicate` (never
+  resent), a timeout → `OutcomeUnknown` (reconciled from the ledger, never retried); `_keepalive_loop` pings while a
+  task tab is open. `Hub.serve` / `Hub._handle` are the daemon side of each extension connection: pairing
+  (`ferb/act/browser/pairing.py`: HMAC, sequence numbers, one-time tokens), `hello` (refuses extensions below
+  `ferb/act/browser/ext_protocol.py:MIN_EXTENSION_VERSION`), results, `detached` events and tab events (→
+  `Daemon._on_tab`, flow 7).
+- **The native host**: Chrome starts `~/.ferb/bin/ferb-native-host` → `ferb/native_host/main.py:relay`, which only
+  copies messages between stdio and the daemon socket (role `native_host`, origin checked by
+  `auth.check_native_host`).
+- **The extension** (`extensions/chromium/`): `background.js:onDaemon` handles `welcome`, `paired` and commands;
+  `onCommand` refuses a stale generation or a seen id, records the id *before* running, then runs `commands[op]`.
+  `commands.open` creates the tab inactive in FERB's window of that profile (`ferbWindow`: one per profile, born
+  minimized, re-minimized if you restore it; `ferbGroup`). `commands.act` → `attach` (on first use, kept for the
+  tab's life: `Page.enable`, focus emulation, auto-attach, a fixed viewport for FERB's own tabs, `ready`) →
+  `trusted` (`pointerClick`, `pressKey`, `Input.insertText` after an `isActive` check; `axAct` for elements from the
+  Accessibility fallback) — or, with `page_mode`, `inFrame` → `content.js:act`. `commands.scroll` asks
+  `content.js:scroller` where the container is and sends a real wheel there (`settled` reads where it landed);
+  `commands.snapshot` runs `content.js:snapshot` in every frame (`describe`: `in_view`, `occluded`, `container`,
+  states; `pageText`), `composeFrames` turns child-frame rects into top-viewport ones, and `axElements` adds an
+  Accessibility-tree fallback when the DOM walk finds almost nothing; `commands.upload` → `content.js:stamp` +
+  `DOM.setFileInputFiles`; `commands.screenshot` / `screenshot_part` fetch a JPEG in parts. The
+  `chrome.debugger.onEvent` listener answers `Page.javascriptDialogOpening` (dismissed unless the act declared
+  `expect_dialog`; `beforeunload` accepted only while leaving) and `onDetach` reports the owner's Cancel; `cdp` allows
+  only `protocol.js:CDP_ALLOW`. `content.js:fill` fills FERB's sealed secrets (`ferb/identity/seal.py`) after an
+  origin check, and `account` runs the per-site extractors. `_TabDriver.snapshot` turns the frames into a
+  `PageSnapshot` (`ferb/act/browser/snapshot.py:element`, `for_model`).
 
-Put `breakpoint()` (or your IDE's breakpoint) at:
-- `Daemon._chat_send`: every turn enters here.
-- `Supervisor._supervise`: the exact supervisor prompt (`ctx`) and the parsed outcome.
-- `dag.validate`: why a task went back to the model.
-- `Supervisor._worker` / `WorkerRuns.run_worker`: what the worker gets (scopes, tool list, context).
-- `Gateway._call` right after `effect = effects.raise_to(...)`: every tool call's kind, floor and effective effect.
-- `PolicyEngine.evaluate`: why something was allowed, held, asked or blocked.
-- `Gateway._execute` before `cap.run`: the call about to happen.
+## 4. An approval, an undo window, a worker's question
 
-Stopping in `pdb` pauses the whole event loop (one daemon thread). Runtimes keep running as subprocesses, so a long
-pause can trip the 180 s stall watchdog or a runtime timeout. `ferb logs --tools --policy` shows the same decisions
-without stopping anything.
+- **Ask**: `PolicyEngine.evaluate` returns `ask` with an `Approval` (`Approvals.request`) and publishes
+  `approval.requested`; `Gateway._await_owner` → `_wait_answer` polls until `ferb chat` (`Chat.answer_approval` →
+  `chat.approve` → `Daemon._chat_approve` → `_resolve_approval` → `Approvals.resolve`) or push-to-talk
+  (`ferb/voice/controller.py:Voice.transcript`) answers, or the TTL passes (10 min; 1 h for an unattended run). A yes
+  marks the destination as approved for data flow (`Requests.approve`) and policy runs again: `Approvals.consume`
+  finds the grant, which covers the same effect and target for the rest of the request (an irreversible one is
+  used once). A worker told `needs_owner_approval` retries the same call; a declined one is told plainly
+  (`_declined`).
+- **Hold**: for sends, posts, replies, calls and mailbox sends the verdict is `hold` (`Holds.hold`, 10 s); chat shows
+  the countdown (`render`, topic `action.held`); `Daemon._release_loop` → `PolicyEngine.release_due`; `ferb undo`
+  / Ctrl-C → `Daemon._undo` → `Holds.undo`; the gateway's `_wait_hold` then runs or reports the cancel.
+- **Which contact**: `Gateway._contact` → `contacts.check` against what was on screen (`Seen.shots`); several
+  matches → `Approvals.request_choice` (a numbered question), the answer picks one for this action only.
+- **`owner.ask`** (`ferb/act/ask.py:OwnerAsk`): `Gateway._ask_owner` builds a `question` approval
+  (`Approvals.question`, kind `owner_question`, options or free text), publishes it, waits; chat answers through
+  `chat.answer` (`Daemon._chat_answer`); the worker gets `{answer}` or `{declined}`; a scheduled run
+  (`Approvals.unattended`) is declined at once.
 
----
+## 5. Verification
 
-## Flow 2: a browser action through the extension
+`Supervisor.verify` runs after a `done` worker with success conditions: `ferb/orchestrator/verify.py:Checks.code_checkable`
+/ `Checks.run` decide by evidence where code can (`file_exists`, `file_contains`, `ledger_done` = at least one ledger row
+and every row done, `tab_url`, `account`); a check code can't decide goes to `_verifier` (a
+read-only run with `prompts/verifier.md` and only read scopes, `dag.READ_SCOPES`), instead of immediately failing the task.
+`_reconcile` re-reads the target for `unknown` ledger rows (`Ledger.reconcile`; `needs_user` if still unclear).
+`_final` combines the worker's summary with what verification found: unmet → failed; undecided → done, said plainly.
+A done worker with no success conditions also gets `verified=true`; no independent verification ran in that case.
 
-A worker calls `browser.act` (your paired profile) or `ferb_browser.act` (FERB's own).
+## 6. A scheduled run
 
-```mermaid
-sequenceDiagram
-    participant W as Worker (runtime)
-    participant GW as Gateway._call
-    participant T as BrowserAct<br/>(act/browser/tools.py)
-    participant R as Router / _TabDriver<br/>(act/browser/ext_bridge.py)
-    participant B as Bridge.call
-    participant H as Hub.serve (daemon socket)
-    participant NH as native host relay<br/>(native_host/main.py)
-    participant BG as background.js<br/>(extension service worker)
-    participant CS as content.js<br/>(in the page)
+`Supervisor.send` → `Daemon._schedule_create` (`ferb/orchestrator/schedules.py:Schedules.add`, `Rule.build`,
+`ferb/clock/when.py:resolve` computes the first time in code) → a `schedule` timer (`ferb/clock/timers.py:Timers.add`).
+`Timers.run` → `tick` → `claim_due` → `Daemon._timer_fired` → `_run_schedule` (next run set up first; a run later
+than `Rule.late_limit_s` is skipped and reported; three failures in a row pause it) → `Supervisor.run_scheduled`:
+decided afresh from the owner's words with a note that nobody is here, held to the targets recorded when it was
+scheduled (`targets.within`), the request marked unattended (questions declined, approvals wait 1 h), then
+`run_tree`; the outcome reaches you by notification and the next chat (`Daemon._task_result`). Reminders and timers
+take the same path to `_timer_fired`, delivered exactly once (`timers.mark_handled`) even across a crash.
 
-    W->>GW: tools.call browser.act {tab, element, action, contact?}
-    GW->>T: describe(): act_kind() → click = submit / call / navigate…,<br/>security pages → account_security
-    GW->>GW: policy (effect gate, data flow, contact check, undo hold)
-    GW->>T: run()
-    T->>R: owned_by(tab, task) (only this task's tabs)
-    T->>R: _account_ok: account extractor before consequential actions
-    T->>R: element_ref → act(el, BrowserAction, intent_id)
-    R->>B: call("act", {tab_id, frame_id, snap, el, kind, text}, cid=intent_id)
-    B->>H: command JSON line (gen, cid)
-    H->>NH: over the Unix socket (role native_host)
-    NH->>BG: Chrome native messaging (length-prefixed JSON)
-    BG->>BG: onCommand: gen check (stale), cid seen? (duplicate),<br/>record "started" BEFORE running
-    alt scripted input
-        BG->>CS: inFrame → window.__ferb.act(gen, id, kind, text)
-    else trusted input
-        BG->>BG: trusted(): chrome.debugger Input.* (allowlisted CDP)
-    end
-    CS-->>BG: {ok, detail}
-    BG-->>NH: result {id, gen, status, value}
-    NH-->>H: relay
-    H-->>B: resolves the pending future
-    B-->>R: value / StaleRef / OutcomeUnknown / DriverError
-    R-->>T: ActionResult
-    T-->>GW: ToolResult → ledger done / failed / unknown
-```
+## 7. The trail
 
-### Step by step
+`ferb/sense/watchers/*` (`app_focus.py:AppFocusWatcher.run`, `windows.py`, `browser_tabs.py`, `files.py`,
+`idle.py`, `app_installs.py`; `owner_input.py:OwnerInput` is the listen-only tap that tells your input from FERB's
+marked input, `InputGuard` the filtering tap used only while FERB has an app in front) emit `Observation`s to
+`ferb/sense/manager.py:Sense.emit` → `ferb/sense/trail.py:Trail.record`, in a fixed order: paused → exclusions
+(`ferb/sense/exclusions.py`, dropped before anything is written) → redact → actor (`Attribution.decide`: FERB's own
+app switches, files, tabs and shells are never yours) → an append-only row → bus `trail.event` → Jev tag. Browser
+tab events from paired extensions arrive through `Daemon._on_tab`. `Sense._guard` journals a watcher failure for
+`ferb doctor`; `pause` / `resume` persist a marker. `Trail.purge` refuses days without a summary.
 
-**The tool** (`act/browser/tools.py`)
-- `BrowserAct` (294) takes `tab`, `element`, `action`, optional `trusted` and optional `contact`.
-- `describe` classifies the action with `act_kind` (a click on a call button → `call`; a submit on an account or
-  security page → `account_security`, which always asks).
-- `_Base.run` (123) catches driver errors into `ToolResult` errors. `_run` checks tab ownership, the signed-in
-  account (`_account_ok`, 154; `act/browser/accounts.py`) and the element reference.
-- `BrowserOpen` / `BrowserSnapshot` follow the same pattern. Snapshots come back sanitized from the page and are
-  sanitized again by the gateway (`act/browser/snapshot.py:for_model`).
+## 8. Memory
 
-**Choosing the profile** (`act/browser/resolver.py:Resolver`, 37)
-- A profile you named wins.
-- Otherwise, in order:
-  1. a paired profile that already has the site open;
-  2. the trail: the paired profile where *you* last used that site (FERB's own activity never counts);
-  3. your default browser's last-used profile, if paired;
-  4. ask.
-- `Router.open_for` (`ext_bridge.py`, 554) refuses any profile other than the one you named for this request,
-  then opens the tab in the background, in FERB's tab group.
-- Waking a profile that isn't connected (`_TabDriver._connected`, 338): first `open -g` with
-  `--no-startup-window` (`profiles.py:open_known_profile`, 98), which loads the profile and its extension without a
-  window; only if that doesn't connect, a wake page, also through `open -g`. If a browser still ends up in front,
-  `Daemon._put_owner_back` (407) gives you back your app. The extension creates a profile's first window minimized.
-- `ferb browsers pair` (`Daemon._browsers_pair`, 1629) checks the extension is installed in that profile
-  (`profiles.py:has_extension`, 116, from the profile's settings on disk); if not, `cli/admin.py:_guide_install`
-  (146) walks you through Load unpacked and waits, then pairs.
+- **Daily**: `Daemon._distill_loop` (hourly) → `ferb/memory/distill.py:Distiller.catch_up` → `run_day`: the
+  permanent summary by code first (`write_summary` → `ferb/memory/summary.py:build`), then one model run (`_model`,
+  `ferb/memory/distill.md`, no tools) proposing items that `check` verifies against the evidence handles, stored by
+  `ferb/memory/items.py:Memory.propose` (`_check` enforces origins: owner-stated active now, observed after 3 separate
+  days, inferred waits for `ferb memory confirm`, third-party never about you), then the purge (`Daemon._purge_trail`).
+- **In chat**: `Daemon._remember` stores what you state after checking the model's quote against your own typed words;
+  `Supervisor.recall_items` → `ferb/memory/recall.py:context_block` (`Memory.recall`, FTS5) puts relevant items in
+  the prompt; `ferb/memory/export.py:export` rewrites `~/.ferb/memory/*.md` after every change; `Memory.forget`
+  purges an item, its versions, sources and index and rebuilds affected summaries (`summary.rebuild`).
 
-**The bridge** (`act/browser/ext_bridge.py`)
-- `Bridge.call` (76) sends a command with the connection's generation and a command id. It waits for the result and
-  maps the status: `stale` (a reconnect happened; take a new snapshot), `duplicate` (never resent), or a timeout,
-  which becomes `OutcomeUnknown` and is reconciled by the ledger, not retried.
-- `Hub.serve` (167) is the daemon side of each extension connection. `_handle` (188) runs pairing (`pairing.py`:
-  MAC-signed messages, replay protection), hellos and tab events.
-- Tab events go to `on_tab`, which feeds the trail in flow 3.
+## 9. Push-to-talk
 
-**The native host** (`native_host/main.py:relay`, 42)
-- Chrome starts `~/.ferb/bin/ferb-native-host`, which runs this relay with the caller extension's origin.
-- It connects to the daemon socket as role `native_host`. `Server._hello` checks the origin against FERB's
-  extension id (`auth.check_native_host`).
-- It then copies messages both ways and exits when the daemon goes away, so the extension reconnects cleanly.
+`ferb/voice/push_to_talk.py:TalkKey.key` turns Right Option events from the daemon's tap into hold / release (a hold
+under 0.3 s or with another key is dropped). `ferb/voice/controller.py:Voice.on_key` picks a microphone
+(`ferb/voice/mic.py:choose`, never Bluetooth) and tells FERB.app to listen; `Voice.transcript` answers a waiting
+question, cancels a countdown, or runs the words as a chat turn (`_turn`) and speaks replies
+(`ferb/voice/speak.py`). `Daemon._voice_attach` / `_voice_transcript` / `_voice_switch` are FERB.app's methods;
+`auth.check_voice_peer` accepts only the installed, signed app. `macapp/FERB/main.swift:Listener.start` opens the
+mic through Core Audio and feeds on-device speech recognition; `serve` connects as the `voice` role.
 
-**The extension** (`extensions/chromium/`)
-- `background.js:onDaemon` (87) handles `welcome`, `paired` and commands.
-- `onCommand` (112) refuses a stale generation or a seen command id, records the id *before* running, and runs the
-  op from `commands` (242).
-- `commands.act` (308) runs either in the page (`inFrame` → `content.js:act`, 119) or as trusted input through
-  `chrome.debugger` (`trusted`, 217; only an allowlisted set of CDP methods).
-- `content.js` builds snapshots (`snapshot`, 77) with password fields masked in the page, and never types into
-  secret fields.
-- FERB's identity passwords are filled by the extension from a sealed value (`identity/seal.py`); the model never
-  sees them.
+## 10. Owner-verified testing and measurement
 
-### Breakpoints
+- `ferb watch` (`ferb/device/watch.py:run`): `MacTest` steps M1–M13 on TextEdit and Calculator and `BrowserTest`
+  steps B1–B12 in a throwaway Chrome driven over its debugging pipe (`watch_ext/`, `watch_page.html`), each run in
+  the background by `Session.do`, which asks what you saw and records it next to `Detector` (macOS notifications and
+  a frontmost poll). Results: `~/.ferb/watch/<timestamp>.json`.
+- `ferb stats` (`ferb/cli/admin.py:stats`) reads outcomes, tool-error reasons and model runs from `~/.ferb/ferb.db`.
+- Real tests: `tests/test_mac_background_real.py` and `tests/test_browser_lab_real.py` (`tests/chromelab.py`) assert
+  the frontmost app never changes while the drivers work.
 
-- `BrowserAct.describe` / `act_kind`: how a click is classified.
-- `Resolver` methods: which profile was chosen.
-- `Bridge.call`: every command sent to a browser, and how it came back.
-- `Hub._handle`: pairing and tab events.
+## Breakpoints (`FERB_HOME=/tmp/ferb-dev uv run ferb daemon run`, `FERB_HOME=/tmp/ferb-dev uv run ferb chat` in another terminal)
 
-To debug the extension, open the browser's extensions page and inspect the service worker, then set breakpoints in
-`onCommand`.
-
-With a foreground dev daemon, the extension still talks to the daemon that `~/.ferb/bin/ferb-native-host` points
-at. The real tests show how to point it at a test daemon and restore it afterwards
-(`tests/test_ext_real.py`, fixture `rd`). Use a spare browser profile for this.
-
----
-
-## Flow 3: a trail event → daily summary → memory
-
-```mermaid
-sequenceDiagram
-    participant Wt as Watcher<br/>(sense/watchers/*.py)
-    participant S as Sense.emit<br/>(sense/manager.py)
-    participant T as Trail.record<br/>(sense/trail.py)
-    participant DB as SQLite (trail, journal,<br/>memory_items)
-    participant Bus as bus (trail.event)
-    participant L as Daemon._distill_loop (hourly)
-    participant Di as Distiller<br/>(memory/distill.py)
-    participant Sm as summary.build<br/>(memory/summary.py)
-    participant RT as worker runtime (distill.md)
-    participant M as Memory.propose<br/>(memory/items.py)
-
-    Wt->>S: Observation(source, data)
-    S->>T: record(o)
-    T->>T: paused? → drop. exclusions? → drop (before anything is written)
-    T->>T: redact(data); attribution.decide → actor (owner / ferb / unknown), task_id
-    T->>DB: INSERT trail row (append-only)
-    T->>Bus: publish trail.event
-    T->>T: tag(e) (Jev, sampled, after persist)
-    L->>Di: catch_up() → pending_days()
-    Di->>Sm: write_summary(day): build(db, day) (code, no model)
-    Sm-->>Di: DayEvidence (lines with handles E/C/P/F)
-    Di->>DB: journal trail.day_summary (permanent)
-    Di->>RT: _model(day, evidence): one run, typed output
-    RT-->>Di: narrative + proposed items (each citing handles)
-    Di->>Di: check(item, evidence): handles exist, E-only for observed,<br/>no FERB rows as the owner's habits
-    Di->>M: propose(kind, subject, key, content, origin, sources)
-    M->>DB: memory_items + sources (+ FTS); owner_stated active now,<br/>observed active after 3 separate days, inferred waits for confirm
-    Di->>DB: purge(): raw trail rows past retention, only summarized days
-```
-
-### Step by step
-
-**Watchers** (`sense/watchers/`)
-- `AppFocusWatcher.run` (`app_focus.py:18`) polls the frontmost app (`base.py:focused_app`, 32, through
-  Accessibility, because NSWorkspace goes stale in a daemon).
-- The others: `windows.py` (titles; honors `[sense] window_titles`, skips browsers), `browser_tabs.py` (scripted
-  tabs when no extension is connected), `files.py` (FSEvents, only `[sense] watch_folders`), `idle.py`,
-  `app_installs.py`.
-- `owner_input.py` is the event tap that tells your real input from FERB's marked input. The daemon uses it to pause
-  FERB's foreground input while you're using yours, and to hear the push-to-talk key (Flow 5). `InputGuard` (100)
-  is the filtering tap that's on only while FERB has an app in front (Flow 4).
-- Browser tab events from paired extensions arrive through `Daemon._on_tab` (`daemon/main.py:613`).
-- `Sense` (`sense/manager.py:14`) runs the watchers under `_guard` (44), which journals failures and shows them in
-  doctor. `pause` / `resume` stop everything and persist a marker.
-
-**Recording** (`sense/trail.py:Trail.record`, 94)
-- The order is fixed: exclusions (`sense/exclusions.py`) → redact → id and actor (`Attribution.decide`, 62) →
-  persist → publish → tag.
-- `Attribution` knows FERB's own app switches, the files its tools touched, its tabs and its shells, so FERB's
-  activity is never mistaken for yours (safety test 18).
-- The table is append-only (a trigger), and every row has an actor.
-
-**Daily summary and distillation** (`memory/distill.py:Distiller`)
-- `Daemon._distill_loop` (715) calls `catch_up` (129) every hour.
-- `run_day` (86) first writes the permanent summary by code (`write_summary`, 79 → `summary.build`, 57). A model
-  failure can't lose a day, and the purge can't run before it.
-- It then makes one model run (`_model`, 142; prompt `memory/distill.md`; the worker runtime; no tools).
-- Proposals are checked against the evidence (`check`, 41), optionally filtered by Jev, and stored with
-  `Memory.propose` (`memory/items.py:156`).
-- `Memory._check` (187) enforces origins in code: FERB's rows never become your habits, and third-party content is
-  never a preference or a fact about you.
-- `catch_up` finally calls the purge (`Daemon._purge_trail`, 707 → `Trail.purge`), which refuses unsummarized days.
-
-**Memory everywhere else**
-- `Memory.recall` (122) is FTS5 search, used by `memory/recall.py:context_block` for the planner.
-- `forget` (311) is the true purge described in the README.
-- `memory/export.py:export` rewrites `~/.ferb/memory/*.md` after every change.
-- Chat capture ("remember that …") goes through `Daemon._remember` (732), which requires a quote from your own
-  words.
-
-### Breakpoints
-
-- `Trail.record`: every observation, and why it was dropped or recorded.
-- `Attribution.decide`: owner vs FERB.
-- `Distiller.run_day` / `summary.build`: what a day's evidence looks like.
-- `Memory.propose` / `Memory._check`: why an item was stored or refused.
-
-`ferb memory distill` isn't a CLI command; the loop runs hourly. The daemon method `memory.distill`
-(`_memory_distill`, 795) runs it on demand from a test or a debugger.
-
----
-
-## Flow 4: acting in a Mac app (background first)
-
-A worker calls `mac.act` (press / set_value / type / key / click on an element from `mac.snapshot`).
-
-**Reading** (`act/mac/driver.py:MacComputerDriver.snapshot`, 117)
-- `expose_tree` (`act/mac/accessibility.py:219`) asks each app once for its full Accessibility tree, which Electron
-  apps (Slack, Discord, VS Code) only build when asked.
-- `read_tree` reads the app's window wherever it is, on another desktop included; a button's value (a chat row's
-  latest message) is kept.
-- `mac.open` (`act/mac/tools.py:MacOpen`, 106) launches in the background, puts you back if macOS switched
-  desktops, and `ensure_window` (99) waits for the main window, reopening it from the app's own menu if needed
-  (`open_window`, 235).
-
-**Acting** (`MacComputerDriver.act`, 247), in this order for every app:
-1. Accessibility with the app in the background: press, set the whole value, focus.
-2. Keystrokes to the app's own process (`_key`, 312; `_type`, 327; `input.py:RealInput.to_process`, 89). Typing
-   happens only when the target box really has the keyboard focus (`has_focus`, 254; a Save sheet can hold it),
-   and is checked by reading the box back; keys are checked by whether the window changed. An app that ignores
-   background keys is remembered.
-3. The foreground, last: `_real` (362) → `_forward` (387) brings the app forward once per stretch of work, with
-   `InputGuard` holding back your first key or click; `RealInput.run` (45) steps aside for you and comes back;
-   `restore_owner` (402) puts your app back when the stretch ends (3 s idle) or you step in.
-- `_key_rules` (284) refuses arrow keys in a text box, Return where a Send button belongs, and keys that switch
-  apps or desktops.
-- In the gateway, the kind of a `mac.act` call is a fact about the control (`MacAct._kind`): typing is input, a
-  search box is a search, Return is a submit, and a press is input unless the control's label hits the floor words
-  (a "Send" button is a send, "Delete chat" a permanent deletion). The worker declares the effect; the floor raises
-  it. A second send to the same person in one task asks you first (`Gateway._send_again`).
-
-### Breakpoints
-- `MacComputerDriver.act`: which path an action took (detail says "in the background" or "real input").
-- `_forward` / `restore_owner`: every switch FERB makes.
-
----
-
-## Flow 5: push-to-talk
-
-**The key** (`voice/push_to_talk.py:TalkKey`, 13) gets Right Option events from the daemon's event tap. A hold
-under 0.3 s or with another key is dropped.
-
-**The daemon side** (`voice/controller.py:Voice`, 34)
-- `on_key` (78) picks a microphone from what FERB.app reported (`voice/mic.py:choose`, 19: never a Bluetooth
-  headset's) and tells FERB.app to start; the start sound comes only once the hold passes 0.3 s.
-- `transcript` (114) answers a waiting question ("yes", "the second one"), cancels a countdown ("stop"), or runs
-  your words as a chat turn in the "voice" session (`_turn`, 140), speaking FERB's replies.
-- `Daemon._voice_attach` (350) is FERB.app's command stream; `_voice_transcript` (359) receives what it heard;
-  `_voice_switch` (367) is `ferb voice on|off`.
-
-**FERB.app** (`macapp/FERB/main.swift`) is a background app with no window. `Listener.start` (130) opens the chosen
-mic with a Core Audio IOProc and feeds on-device speech recognition; `serve` (215) connects to the daemon as the
-`voice` role, which only accepts the installed, signed FERB.app (`daemon/auth.py:check_voice_peer`).
-
+`Daemon._chat_send` (every turn), `Supervisor._supervise` (the exact prompt and parsed outcome), `dag.validate`,
+`WorkerRuns._run_worker_once` (scopes, tool list, context), `Gateway._call` right after `effects.raise_to` (every
+call's kind, floor and effect), `PolicyEngine.evaluate`, `Gateway._execute` before `cap.run`,
+`MacComputerDriver.act` (which rung took it: the detail says so), `MacComputerDriver._forward` / `restore_owner`
+(every switch FERB makes), `Bridge.call` (every browser command and how it came back), `Hub._handle`,
+`Trail.record`, `Memory.propose`. A pause in `pdb` stops the whole loop; runtimes keep running as subprocesses, so a
+long pause trips the 180 s stall watchdog. `ferb logs --tools --policy` shows the same decisions without stopping. For
+the extension, inspect the service worker from the browser's extensions page and break in `onCommand`.

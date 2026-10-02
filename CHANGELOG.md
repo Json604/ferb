@@ -12,6 +12,14 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.18.0 — 2026-10-02 — Background first: the drivers rebuilt on what the owner watched work
 
+### Documentation follow-up — 2026-10-02
+- Recover the interrupted documentation drafts and finish the cold-start guide: rewrite ARCHITECTURE around
+  the implemented one-worker flow, refresh README / CAPABILITIES / CODE_TOUR, and complete FILE_MAP with the
+  rework docs, owner questions, learned app profiles and watch/stats tooling. Keep the runtime at 0.18.0.
+- Correct stale section references and distinguish current code from plans and historical test runs. Document
+  the pairing-guidance flag, submit-versus-send undo behavior, driver-only browser screenshots, and the meaning
+  of verification when no success conditions are supplied. Preserve the pre-rework contract in git history.
+
 ### Browser
 - Browser driver rebuilt background-first (PLATFORM_BROWSER.md 13), extension 0.7.0 / protocol 3: one FERB window
   per profile born minimized and kept, task tabs never active; a debugger session per task tab for its life (real

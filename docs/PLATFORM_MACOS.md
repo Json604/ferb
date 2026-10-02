@@ -8,7 +8,8 @@ says works, and on nothing it marks unverified.
 - `[doc]` — from Apple's headers or documentation (or the framework's own docs: Chromium, Electron), with the source
   named.
 - `[probe]` — verified on this Mac by `ferb/act/mac/probe.py` or the side experiments recorded in section 13, with
-  the result quoted. Earlier spikes are cited as `[probe, spike N]` (results in `ARCHITECTURE.md`, spike 18 notes).
+  the result quoted. Earlier spikes are cited as `[probe, spike N]` (results in `PROGRESS.md` and the spike findings;
+  the historical architecture notes are available with `git show b993da5:ARCHITECTURE.md`).
 - `[belief]` — unverified. Treat as a hypothesis for the probe, never as a fact for the driver.
 
 Machine: macOS 26.6.2 (25G83), Apple Silicon (1470×956 points main display), pyobjc 12.2.2 in `.venv`. Accessibility,
