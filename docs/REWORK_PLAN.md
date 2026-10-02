@@ -21,6 +21,8 @@ capability profile; it never ships a hand-written one.
 
 ### 0. Branch and plan (done)
 
+Status 2026-10-02: phases 1–4 done (see PROGRESS.md "Where we are"); phase 5 not started; owner acceptance B–H pending.
+
 ### 1. Learn the platform before touching control
 Two documents, written from Apple / Chromium documentation plus live probes on this Mac (safe apps only:
 TextEdit, Calculator, Finder, the FERB Test Chrome profile; never messaging apps, never the identity session):

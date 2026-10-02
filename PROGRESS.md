@@ -1,8 +1,26 @@
 # FERB progress
 
-Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in order).
+## Where we are — version 0.18.0, branch `rework/human-control` (2026-10-02)
 
-## Done
+An independent audit of every code file on 2026-10-02 (run history: 11 of 66 requests done; reader-policy blocks the
+top tool error; a verification bug marking done work as failed) led to a rework in phases (`docs/REWORK_PLAN.md`):
+
+| Phase | What | State |
+|---|---|---|
+| 2 | Stop the bleeding: Terminal `do script` escape, Codex token off argv, the background poison flag, `ledger_done` by evidence, extension backoff / `wait`, shell paging and PATH, `ferb stats` | done |
+| 1 | Learn the platform: `docs/PLATFORM_MACOS.md`, `docs/PLATFORM_BROWSER.md` (probes on this Mac), `ferb/act/mac/probe.py` | done |
+| — | `ferb watch`: owner-verified background test, 25 interaction types; the owner's three runs: 0 steps disturbed them | done |
+| 4 | One worker per request, gated at the action (`docs/DESIGN_ONE_WORKER.md`, `ferb/policy/effects.py`, `owner.ask`); acceptance set replaying the real failures | done, offline + acceptance tests |
+| 3 | Drivers background first: Mac (action-based snapshots, sheets/menus/windows, edit via selected text, scroll by keys, learned app profiles, `allow_foreground`) and browser (FERB's minimized window, debugger per task tab, trusted input, viewport snapshots, container scroll, dialogs, uploads, extension 0.7.0) | done; one real test each (frontmost never changed) |
+| 5 | Learning by doing: procedure memory | **not started** |
+| — | Owner acceptance B–H through `ferb chat` (`docs/OWNER_ACCEPTANCE.md`) | **waiting on the owner**: install the branch (`ferb setup --update`), reload the extension (0.7.0), run, report |
+
+Baseline to beat (`ferb stats --days 3` before the rework): 9 of 66 requests done.
+
+The table below is the history of the original build (spikes §17 and build steps §18 of the old ARCHITECTURE.md),
+kept as a record. The current contract is `ARCHITECTURE.md` on this branch.
+
+## Done (history)
 
 | Unit | Date | Result | Notes |
 |------|------|--------|-------|
@@ -80,6 +98,13 @@ Sequence: spikes (ARCHITECTURE.md §17, in order), then build steps (§18, in or
 | **Click-to-read is navigation** | 2026-10-01 | Fixed | Next layer of the same run: the click passed the reader check but was still a "submit", so the reading request's intent blocked it ("'submit' was not requested"). Click-to-read on pages and in Mac apps (rows, tabs, harmless links/buttons/menu items) is now classified as navigation; a reader typing the owner's own words as a search. Security pages are checked first (still always ask). |
 | **Reminders: quotes checked as typed; a refusal is told** | 2026-10-02 | Fixed | Owner's 1-minute test reminder never came: the typo fix (built on the Mac dictionary, which lists base words only) read "looks" as the Books app, so the planner's exact quote no longer matched and the reminder was refused, while the reply still said it was set. Word forms now count as English through their stem; quotes (reminders, memories, schedules) are checked against the words as typed; a refused reminder replaces the reply with a plain "I couldn't set that reminder". |
 ## Next
+
+1. The owner runs `docs/OWNER_ACCEPTANCE.md` sections B–H; fix what fails or disturbs them (`ferb trace <task>`).
+2. Phase 5: procedure memory (what worked for a request shape in an app / site, recalled into the worker prompt).
+3. Real probes still open: Electron apps (AXManualAccessibility presses), same-Space occluded windows (pid clicks, app hit test), AXPopUpButton select, AXShowMenu; Safari acting.
+4. Floor word list false positives ("Remove from playlist", "Sort order" ask once): refine from the acceptance runs, never with a permission list.
+
+### Previous next (history)
 
 **Next:** Unit 5 (system audio: `audio.listen`, §20) — the last planned unit of the owner's 2026-10-01 list. Push-to-talk shipped and was checked by the owner.
 
