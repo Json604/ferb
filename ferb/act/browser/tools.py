@@ -188,19 +188,23 @@ class BrowserOpen(_Base):
 
 class BrowserScroll(_Base):
     verb = "scroll"
-    blurb = ("Scroll a whole page in one of this task's tabs ({whose}) by about one screen, up or down — no element "
-             "needed. Returns the position and whether it reached the end; take a snapshot to read what's shown. "
-             "Pages that load more as you scroll (comments, feeds) keep going until at_end.")
+    blurb = ("Scroll a page in one of this task's tabs ({whose}) by about one screen, up or down — no element "
+             "needed — or one scroll container from the latest snapshot (its `container` id, e.g. a chat list or "
+             "side panel). Returns that scroller's position and whether it reached the end; take a snapshot to read "
+             "what's shown. Pages that load more as you scroll (comments, feeds) keep going until at_end.")
 
     class Input(_Tab):
         direction: Literal["down", "up"] = "down"
+        container: str | None = Field(default=None, description="a scroller id from the latest snapshot's "
+                                                                "`scrollers` (default: the page itself)")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
-        return ToolResult(await self.driver.scroll(ref, str(getattr(args, "direction"))))   # type: ignore[attr-defined]
+        return ToolResult(await self.driver.scroll(ref, str(getattr(args, "direction")),   # type: ignore[attr-defined]
+                                                   getattr(args, "container", None)))
 
 
 class BrowserFind(_Base):
@@ -293,17 +297,26 @@ class BrowserSnapshot(_Base):
 
 class BrowserAct(_Base):
     verb = "act"
-    blurb = ("Act on one element from the latest snapshot ({whose}): click, type (replaces the field's text), "
-             "select (an option's label or value), press (Enter, Tab, Escape, Backspace, Space, Arrow keys), "
-             "scroll (up/down). trusted=true sends real input for pages that ignore scripted events. Never type "
-             "passwords or codes.")
+    blurb = ("Act on one element from the latest snapshot ({whose}): click, dblclick, rightclick, hover, type "
+             "(replaces the field's text), select (an option's label or value), press (a key like Enter, Tab, "
+             "Escape, Backspace, ArrowDown, or a shortcut like cmd+a, shift+Tab), scroll (up/down, within the "
+             "element's own scroll area), upload (files into a file field). Input is real (as from a mouse and "
+             "keyboard) by default; page_mode=true sends scripted events instead. An element that isn't in_view "
+             "is scrolled into view first. Never type passwords or codes.")
     risk, reversible = RiskLevel.MEDIUM, False
 
     class Input(_El):
-        action: Literal["click", "type", "select", "press", "scroll"]
+        action: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload"]
         text: str | None = Field(default=None, description="type: the text; select: option; press: key; "
                                                            "scroll: up or down")
         trusted: bool = False
+        page_mode: bool = Field(default=False, description="scripted page events instead of real input (only when "
+                                                           "real input can't reach the element)")
+        expect_dialog: Literal["accept", "dismiss"] | None = Field(
+            default=None, description="if this action opens a confirm/alert/prompt: accept it or dismiss it "
+                                      "(dialogs are dismissed unless declared here)")
+        dialog_text: str | None = Field(default=None, description="the answer to a prompt() being accepted")
+        files: list[str] | None = Field(default=None, description="upload: absolute paths of the files")
         contact: Contact | None = Field(default=None, description="clicking call / send to a person: who, as the "
                                         "owner said it and as this page shows it (FERB checks it was on screen)")
 
@@ -342,7 +355,12 @@ class BrowserAct(_Base):
         await self._account_ok(ref, self.describe(args).kind)
         el = self.driver.element_ref(ref, str(getattr(args, "element")))
         r = await self.driver.act(el, BrowserAction(getattr(args, "action"), getattr(args, "text"),
-                                                    bool(getattr(args, "trusted"))), ctx.intent_id or "")
+                                                    bool(getattr(args, "trusted")),
+                                                    page_mode=bool(getattr(args, "page_mode", False)),
+                                                    expect_dialog=getattr(args, "expect_dialog", None),
+                                                    dialog_text=getattr(args, "dialog_text", None),
+                                                    files=tuple(getattr(args, "files", None) or ())),
+                                  ctx.intent_id or "")
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new snapshot to see the result"},
                           is_error=not r.ok)
 

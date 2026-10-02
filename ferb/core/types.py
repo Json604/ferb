@@ -217,9 +217,14 @@ class DriverFeatures:
 
 @dataclass(frozen=True)
 class BrowserAction:
-    kind: Literal["click", "type", "select", "press", "scroll"]
-    text: str | None = None
-    trusted: bool = False                    # real (debugger-dispatched) input instead of page-script events                  # text to type; select: option label or value; press: key; scroll: up|down
+    kind: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload"]
+    text: str | None = None                  # type: the text; select: option label or value; press: key (e.g. "cmd+a");
+                                             # scroll: up|down
+    trusted: bool = False                    # kept for callers that insist; real input is the default for click/type/press
+    page_mode: bool = False                  # scripted (untrusted) page events instead of real input
+    expect_dialog: Literal["accept", "dismiss"] | None = None   # a JS dialog this action is expected to open
+    dialog_text: str | None = None           # prompt() answer when accepting
+    files: tuple[str, ...] = ()              # upload: absolute paths
 
 
 @dataclass(frozen=True)
@@ -247,6 +252,12 @@ class PageElement:
     href: str | None = None
     form: str | None = None                  # "search" | "login" | "other" | None: what submitting it would do
     secret: bool = False                     # password / OTP field: value never leaves the driver
+    in_view: bool = True                     # on screen now (rect meets the viewport and nothing covers its centre)
+    offscreen: str | None = None             # "above" | "below" | "left" | "right" when not on screen
+    occluded: bool = False                   # on screen but covered by something else
+    container: str | None = None             # id of its scroll container (see PageSnapshot.scrollers), None = window
+    state: tuple[str, ...] = ()              # "disabled", "expanded", "collapsed", "selected"
+    level: int | None = None                 # headings
 
 
 @dataclass(frozen=True)
@@ -259,6 +270,8 @@ class PageSnapshot:
     text: str = ""
     truncated: bool = False
     dialogs: list[str] = field(default_factory=list)   # JS dialogs dismissed since the last snapshot
+    scroll: dict[str, Any] | None = None     # the window scroller: {y, height, viewport_h, at_end}
+    scrollers: list[dict[str, Any]] = field(default_factory=list)   # containers: {id, label, y, height, viewport_h, at_end}
 
 
 # ---------- Mac / computer (section 5 ComputerDriver) ----------
