@@ -10,6 +10,30 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## Unreleased — rework/human-control, phase 3 (Mac)
+- Snapshots show what is really there: a control is anything that exposes an action (pressable rows, groups, cells
+  and images included), with its actions, role, value and disabled / selected / expanded state; headings and the
+  window title; an open sheet, dialog, pop-up menu or popover is in the snapshot with its place; the app's windows
+  are listed (window server + the Accessibility routes that reach other-desktop windows) and one can be read by
+  title or id; truncation says why. One tree walk per snapshot serves the snapshot, the before / after check and the
+  password scan.
+- Actions go background first, in the order the platform probes and the owner-verified runs established, each rung
+  only after the one before verifiably did nothing: press → the enclosing control → focus + Return; type by keystrokes
+  to the app's process (read back) → Accessibility keyboard where it has worked → the box's value; new `edit`
+  (exact range through the text's selection, never arrow keys); a ⌘ shortcut runs its menu item and is refused with
+  the Accessibility alternative while the app reports it disabled (it would only beep); escape cancels the open sheet
+  / dialog / menu, never blind; new `scroll` (Page Up / Down with the area focused, then the scroll bar; sliders
+  step); new `select` for pop-up buttons; click-at-point turns the point into the control under it first, posts a
+  click to the app alone only for a window on the current desktop, and uses the real mouse only with
+  `allow_foreground=true` — which is now the only way any `mac.*` call brings an app in front.
+- What works per app is learned, not written: a per-app profile (`~/.ferb/device/apps/<bundle>.json`) counts each
+  mechanism's hits and misses from every action, skips one after three misses in a row until it works again, and
+  can be seeded by `ferb.act.mac.probe --seed`. The old per-daemon "ignores background keys" flag is gone.
+- Full key table (letters, digits, F-keys, Home / End / Page Up / Down, forward delete, punctuation, keypad) and
+  modifier aliases; ⌘Q / ⌘H / ⌘M refused like app switching.
+- Real test: TextEdit and Calculator driven through the driver with the owner's frontmost app polled every 50 ms and
+  never changing (`tests/test_mac_background_real.py`, `pytest -m real`).
+
 ## 0.16.1 — 2026-10-02
 - Reminders: the planner's quote is checked against the words as typed. Before, the typo fix ran first, read "looks"
   as the Books app and dropped a test reminder. Word forms like "looks" and "minutes" now count as English.

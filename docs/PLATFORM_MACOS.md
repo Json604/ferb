@@ -578,3 +578,12 @@ Rules drawn from this: (1) shortcuts in a background app go through the menu ite
 through the text attributes (`AXSelectedTextRange`, `AXSelectedText`, `AXValue`); (2) never post arrow keys blind
 into a text view; (3) scroll a background text view with Page Up/Down keycodes or `AXVisibleCharacterRange`, not
 scroll-wheel events; (4) pixel clicks are a last resort that needs the window on the current Space.
+
+## Phase 3 driver (2026-10-02)
+
+`ferb/act/mac/driver.py` implements §12 rung by rung, `ferb/act/mac/accessibility.py` the one-walk snapshot (§2.3, §5,
+§7), `ferb/act/mac/profile.py` the per-app learned profile (`ferb.act.mac.probe --seed` writes a probe result into
+it). The owner-verified rules above are code: shortcuts through their menu item only when enabled, no arrow keys into
+a text view, scrolling by Page Up / Down keys or the scroll bar, pixel clicks only for a current-Space window and only
+after the hit test, the foreground only with `allow_foreground=true`. `tests/test_mac_background_real.py` repeats the
+`ferb watch` Mac steps through the driver with the frontmost app polled every 50 ms (0 changes on 2026-10-02).
