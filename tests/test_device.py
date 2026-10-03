@@ -8,20 +8,7 @@ from ferb.cli.setup import device_id
 from ferb.config import Config
 from ferb.device.profile import DeviceProfile, ProfileStore, diff, methods_for
 from ferb.device.scan import scan, scan_apps
-
-
-def make_app(root: Path, name: str, bundle_id: str | None, version: str = "1.0", binary: bool = False,
-             sdef: bool = False, **extra: object) -> Path:
-    b = root / f"{name}.app"
-    (b / "Contents" / "Resources").mkdir(parents=True)
-    info: dict[str, object] = {"CFBundleName": name, "CFBundleShortVersionString": version, **extra}
-    if bundle_id:
-        info["CFBundleIdentifier"] = bundle_id
-    (b / "Contents" / "Info.plist").write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY if binary
-                                                               else plistlib.FMT_XML))
-    if sdef:
-        (b / "Contents" / "Resources" / f"{name}.sdef").write_text("<dictionary/>")
-    return b
+from tests.conftest import make_app
 
 
 def test_scan_reads_info_plists_and_detects_scriptability(tmp_path: Path) -> None:

@@ -26,7 +26,6 @@ Connect = Callable[[], Client]
 Ask = Callable[[str], str]
 REQUIRED_PERMISSIONS = ("accessibility", "screen_recording")
 SETUP_PERMISSIONS = (*REQUIRED_PERMISSIONS, 'input_monitoring', 'full_disk_access')
-BRAVE = "com.brave.Browser"
 IDENTITY_CHECK_S = 90.0
 
 
@@ -152,25 +151,6 @@ def _grant(env: Env, client: Client, perm: str, binary: Path | None, required: b
             env.inst.restart()
             client = wait_for_daemon(env)
     env.say(f"     {label}: granted ✓")
-    return client
-
-
-def _input_monitoring_if_needed(env: Env, client: Client, binary: Path | None) -> Client:
-    tap = next((r for r in client.call("doctor.check")["selftest"] if r["name"] == "event_tap"), None)
-    if tap and not tap["ok"]:
-        env.say("     The owner-input watcher couldn't create its event tap: Input Monitoring is needed.")
-        client = _grant(env, client, "input_monitoring", binary, required=False)
-    return client
-
-
-def _optional(env: Env, client: Client, binary: Path | None) -> Client:
-    tap = next((r for r in client.call("doctor.check")["selftest"] if r["name"] == "event_tap"), None)
-    if tap and not tap["ok"]:
-        env.say("     The owner-input watcher couldn't create its event tap: Input Monitoring is needed.")
-        client = _grant(env, client, "input_monitoring", binary, required=False)
-    if _status(client, "full_disk_access") != "granted":
-        if env.ask("     Full Disk Access is optional (not needed in Block 1). Grant it now? [y/N] ").strip().lower() == "y":
-            client = _grant(env, client, "full_disk_access", binary, required=False)
     return client
 
 

@@ -144,41 +144,57 @@ class CodexRuntime:
     async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle:
         await check_version(self.binary)
         self.workdir.mkdir(parents=True, exist_ok=True)
-        schema_file = None
-        if self.output_schema:
-            fd, name = tempfile.mkstemp(prefix="ferb-schema-", suffix=".json")
-            with os.fdopen(fd, "w") as f:
-                json.dump(self.output_schema, f)
-            schema_file = Path(name)
-        token_file = None
-        if self.mode == "worker":
-            run_dir = self.ferb_home / "run"
-            run_dir.mkdir(parents=True, exist_ok=True)
-            fd, tname = tempfile.mkstemp(prefix="token-", dir=run_dir)
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w") as f:
-                f.write(run_token)
-            token_file = Path(tname)
-        instructions = None
-        if self.mode == "supervisor" and system:               # a stable prefix: FERB's instructions, then the context
-            fd, iname = tempfile.mkstemp(prefix="ferb-instructions-", suffix=".md")
-            with os.fdopen(fd, "w") as f:
-                f.write(system)
-            instructions = Path(iname)
-        env = {**os.environ, "RUST_LOG": "trace"}
-        home = codex_home(self.ferb_home)
-        if home is not None:
-            env["CODEX_HOME"] = str(home)                       # the owner's personal Codex setup never loads
-        proc = await asyncio.create_subprocess_exec(
-            *self._cmd(schema_file, token_file, instructions), "-", stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, limit=64 * 1024 * 1024)
-        assert proc.stdin is not None
-        proc.stdin.write((context if instructions is not None else f"{system}\n\n{context}").encode())
-        await proc.stdin.drain()
-        proc.stdin.close()
-        return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
-                         {"proc": proc, "schema_file": schema_file, "instructions": instructions,
-                          "token_file": token_file, "seen": set(), "violation": None})
+        paths: list[Path] = []
+        proc = None
+        try:
+            schema_file = None
+            if self.output_schema:
+                fd, name = tempfile.mkstemp(prefix="ferb-schema-", suffix=".json")
+                paths.append(Path(name))
+                with os.fdopen(fd, "w") as f:
+                    json.dump(self.output_schema, f)
+                schema_file = Path(name)
+            token_file = None
+            if self.mode == "worker":
+                run_dir = self.ferb_home / "run"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                fd, tname = tempfile.mkstemp(prefix="token-", dir=run_dir)
+                paths.append(Path(tname))
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w") as f:
+                    f.write(run_token)
+                token_file = Path(tname)
+            instructions = None
+            if self.mode == "supervisor" and system:               # a stable prefix: FERB's instructions, then the context
+                fd, iname = tempfile.mkstemp(prefix="ferb-instructions-", suffix=".md")
+                paths.append(Path(iname))
+                with os.fdopen(fd, "w") as f:
+                    f.write(system)
+                instructions = Path(iname)
+            env = {**os.environ, "RUST_LOG": "trace"}
+            home = codex_home(self.ferb_home)
+            if home is not None:
+                env["CODEX_HOME"] = str(home)                       # the owner's personal Codex setup never loads
+            proc = await asyncio.create_subprocess_exec(
+                *self._cmd(schema_file, token_file, instructions), "-", stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, limit=64 * 1024 * 1024)
+            assert proc.stdin is not None
+            proc.stdin.write((context if instructions is not None else f"{system}\n\n{context}").encode())
+            await proc.stdin.drain()
+            proc.stdin.close()
+            return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
+                             {"proc": proc, "schema_file": schema_file, "instructions": instructions,
+                              "token_file": token_file, "seen": set(), "violation": None})
+        except BaseException:
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except ProcessLookupError:
+                    pass
+            for path in paths:
+                path.unlink(missing_ok=True)
+            raise
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         proc: asyncio.subprocess.Process = run.state["proc"]

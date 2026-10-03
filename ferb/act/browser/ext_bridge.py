@@ -6,9 +6,9 @@
 - `Bridge` (one per paired profile) runs commands: request id (the ledger intent id for consequential actions),
   connection generation, timeout. A new connection bumps the generation; commands in flight on the old one fail
   with `OutcomeUnknown` (the gateway marks the ledger `unknown`) and are reconciled from the re-announced state —
-  seen and done -> done, never seen -> failed, started -> stays unknown — never resent.
+  seen and done -> done, failed -> failed, absent or started -> stays unknown — never resent.
 - `Router` is what the owner `browser.*` tools use: task-owned tabs with short aliases, generation-scoped element
-  ids (a navigation or a newer snapshot makes older ids stale), and the pre-action account check (9.3).
+  ids (a navigation or a newer snapshot makes older ids stale), and explicit profile selection.
 - `WakeServer` serves the unique blank local page that wakes a sleeping extension (spike 13).
 """
 
@@ -21,12 +21,11 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
-from ferb.act.browser import accounts
 from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, Event, Hello, Op, Result, TabEvent,
                                            command, parse, version_ok)
 from ferb.act.browser.pairing import Binding, Pairings
 from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
-from ferb.act.browser.resolver import NeedsOwner, Resolver
+from ferb.act.browser.resolver import Resolver
 from ferb.act.browser.snapshot import element as page_element
 from ferb.act.browser.tools import Secrets
 from ferb.identity.mailbox import FEED_URL, REASONS, GmailFeedMailbox, wait_for_code
@@ -73,7 +72,6 @@ class Bridge:
     navs: dict[int, int] = field(default_factory=dict)      # chrome tab id -> loads seen (stale-ref detection)
     connected: asyncio.Event = field(default_factory=asyncio.Event)
     detached: dict[int, str] = field(default_factory=dict)  # chrome tab id -> why the debugger left (Cancel, ...)
-    account_cache: dict[str, str] = field(default_factory=dict)   # site -> account seen signed in (this connection)
     holds: int = 0                                           # task tabs open on this bridge (keepalive while > 0)
     hellos: int = 0                                          # hellos attached so far (pairing waits for a new one)
     _keepalive: "asyncio.Task[None] | None" = None
@@ -133,7 +131,6 @@ class Bridge:
         conn.gen, conn.bridge = self.gen, self
         old, self.conn, self.version = self.conn, conn, hello.version
         self.detached.clear()
-        self.account_cache.clear()
         if old is not None:
             self.drop(old)
         self._reconcile(hello)
@@ -190,10 +187,8 @@ class Bridge:
                 self.ledger.reconcile(cid, "done", [f"{self.name} reported it done after reconnecting"])
             elif seen.get(cid) == "failed":
                 self.ledger.reconcile(cid, "failed", [f"{self.name} reported failure after reconnecting"])
-            elif cid not in seen:
-                self.ledger.reconcile(cid, "failed", [f"{self.name} never received it"])
             else:
-                continue                                    # started, no result: stays unknown for the owner
+                continue  # a bounded/reloaded journal cannot prove that a missing command never ran
             self.lost.discard(cid)
 
 
@@ -401,6 +396,8 @@ class _Tab:
     points: dict[str, str] = field(default_factory=dict)
     snap_nav: int = -1
     attached: bool = False          # the owner's own tab, taken over for a task: forgotten after, never closed
+    keep_open: bool = False         # explicit handoff requested; uncertain ACK must not cause a later close
+    containers: dict[str, tuple[int, str]] = field(default_factory=dict)
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
 
 
@@ -463,23 +460,41 @@ class _TabDriver:
     async def tabs(self) -> list[TabRef]:
         return [t.ref for t in self._tabs.values()]
 
-    async def close(self, tab: TabRef) -> None:
+    def _lifecycle(self, t: _Tab, result: dict[str, Any]) -> dict[str, Any]:
+        return {"tab": t.ref.tab_id, "tab_ref": f"{t.ref.browser}:{t.ref.profile}:{t.chrome_id}",
+                "profile": f"{t.ref.browser}/{t.ref.profile}", "url": result.get("url") or t.url,
+                "borrowed": t.attached, "closed": bool(result.get("closed")),
+                "kept_open": bool(result.get("kept_open")), "released": bool(result.get("released") or result.get("closed"))}
+
+    async def keep_open(self, tab: TabRef) -> dict[str, Any]:
+        t = self._tab(tab)
+        t.keep_open = True
+        v = await t.bridge.call("release_tab", {"tab_id": t.chrome_id, "keep_open": True}, timeout=10)
+        if not v.get("released") or not v.get("kept_open"):
+            raise DriverError("browser did not confirm keeping the tab open and releasing control")
+        return self._lifecycle(t, v)
+
+    async def close(self, tab: TabRef) -> dict[str, Any]:
         t = self._tabs.get(tab.tab_id)
         if t is None:
-            return
-        if t.attached or t.bridge.conn is None or t.bridge.gen != tab.generation:
-            self._tabs.pop(tab.tab_id, None)                  # the owner's tab: FERB lets go of it, never closes it;
-            if not t.attached:                                # or a browser FERB can't reach any more
-                t.bridge.unhold()
-            return
-        try:
-            await t.bridge.call("close", {"tab_id": t.chrome_id}, timeout=10)
-        except OutcomeUnknown:
-            return                                            # not confirmed: still FERB's tab until the browser says
-        except DriverError:
-            pass                                              # a definite answer (e.g. no such tab): it's gone
-        self._tabs.pop(tab.tab_id, None)                      # forgotten only once Chrome confirmed
-        t.bridge.unhold()
+            return {"tab": tab.tab_id, "released": True, "closed": False, "already_released": True}
+        if t.bridge.conn is None:
+            raise DriverError(f"cannot confirm cleanup of {tab.tab_id}: {t.bridge.name} is disconnected")
+        if t.attached or t.keep_open:
+            v = await t.bridge.call("release_tab", {"tab_id": t.chrome_id, "keep_open": t.keep_open}, timeout=10)
+            if not v.get("released") or (t.keep_open and not v.get("kept_open")):
+                raise DriverError(f"browser did not confirm releasing {tab.tab_id}")
+        else:
+            # An old connection's tab reference must not close a different browser session's tab.
+            if t.bridge.gen != tab.generation:
+                raise DriverError(f"cannot confirm cleanup of {tab.tab_id}: browser connection changed")
+            v = await t.bridge.call("close", {"tab_id": t.chrome_id}, timeout=10)
+            if not v.get("closed") and not (v.get("kept_open") and v.get("released")):
+                raise DriverError(f"browser did not confirm closing {tab.tab_id}")
+        self._tabs.pop(tab.tab_id, None)
+        if not t.attached:
+            t.bridge.unhold()
+        return self._lifecycle(t, v)
 
     async def snapshot(self, tab: TabRef) -> PageSnapshot:
         t = self._tab(tab)
@@ -487,21 +502,27 @@ class _TabDriver:
         gen = t.snap_gen + 1
         v = await t.bridge.call("snapshot", {"tab_id": t.chrome_id, "snap": gen}, timeout=30)
         elements: dict[str, tuple[int, int, int, PageElement]] = {}
+        containers: dict[str, tuple[int, str]] = {}
         text, title, url, truncated = "", "", t.url, False
         scroll: dict[str, Any] | None = None
         scrollers: list[dict[str, Any]] = []
         for f in v["frames"]:
             fid = int(f["frame_id"])
+            for sc in f.get("scrollers", []):
+                local = str(sc['id'])
+                alias = local if fid == 0 else f"f{fid}:{local}"
+                containers[alias] = (fid, local)
+                scrollers.append({k: sc[k] for k in ("label", "y", "height", "viewport_h", "at_end") if k in sc}
+                                 | {"id": alias, "frame": fid})
             truncated = truncated or bool(f.get("truncated"))
             for raw in f.get("elements", []):
                 eid = f"s{gen}e{len(elements) + 1}"
+                if fid and raw.get("container"):
+                    raw = dict(raw, container=f"f{fid}:{raw['container']}")
                 elements[eid] = (fid, gen, int(raw["id"]), page_element(eid, str(fid), raw))
             if fid == 0:
                 text, title, url = f.get("text", ""), f.get("title", ""), f.get("url", url)
                 scroll = f.get("scroll") or None
-            for sc in f.get("scrollers", []):
-                scrollers.append({k: sc[k] for k in ("id", "label", "y", "height", "viewport_h", "at_end") if k in sc}
-                                 | ({"frame": fid} if fid else {}))
         child_text = [str(f.get("text", "")) for f in v["frames"] if int(f["frame_id"]) != 0 and f.get("text")]
         if child_text:
             text = (text[:4000] + "\n[Embedded frames]\n" + "\n".join(child_text))[:8000]
@@ -510,6 +531,7 @@ class _TabDriver:
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
+        t.containers = containers
         return PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
                             scroll, scrollers)
 
@@ -598,26 +620,30 @@ class _TabDriver:
         """Scroll the page, or one scroll container from the latest snapshot, about one screen (a real wheel event
         at the scroller's centre); where that scroller is now and whether it reached the end."""
         t = self._tab(tab)
-        if container and not any(e.container == container for *_, e in t.elements.values()):
+        if container and container not in t.containers:
             raise StaleRef(f"no container {container} in the latest snapshot")
-        args: dict[str, Any] = {"tab_id": t.chrome_id, "direction": direction}
+        frame, local = t.containers[container] if container else (0, None)
+        args: dict[str, Any] = {"tab_id": t.chrome_id, "direction": direction, "frame_id": frame}
         if container:
-            args["container"] = container
+            args["container"] = local
         try:
             v = await t.bridge.call("scroll", args, timeout=15)
         except DriverError as e:
             if str(e).startswith("detached:"):
                 raise OutcomeUnknown(self._detached_msg(str(e)[9:])) from None
             if "unknown op" in str(e):                    # belt and braces: hello already refuses old extensions
-                raise Refused("the FERB extension in that browser is older than FERB: reload it (0.8.0 or later)") \
+                raise Refused(f"the FERB extension in that browser is older than FERB: reload it ({MIN_EXTENSION_VERSION} or later)") \
                     from None
             raise
+        if v.get("container") != local or int(v.get("frame_id", 0)) != frame:
+            raise DriverError("browser scrolled a different surface; inspect it before continuing")
         out: dict[str, Any] = {"y": int(v.get("y", 0)), "page_height": int(v.get("height", 0)),
                                "at_end": bool(v.get("at_end"))}
         if v.get("viewport_h") is not None:
             out["viewport_h"] = int(v["viewport_h"])
         if container:
             out["container"] = container
+            out["frame"] = frame
         return out
 
     async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool:
@@ -735,46 +761,40 @@ class _TabDriver:
                 return str(acct) if acct and acct != "signed_in_unknown" else None
         return None
 
-    async def release(self, owner: str) -> None:
+    async def release(self, owner: str) -> list[dict[str, Any]]:
+        results, errors = [], []
         for alias in [a for a, t in self._tabs.items() if t.owner == owner]:
             if alias in self._tabs:
-                await self.close(self._tabs[alias].ref)
+                try:
+                    results.append(await self.close(self._tabs[alias].ref))
+                except DriverError as e:
+                    errors.append(f"{alias}: {e}")
+        if errors:
+            raise DriverError("browser cleanup incomplete: " + "; ".join(errors))
+        return results
 
     async def shutdown(self) -> None:
         for alias in list(self._tabs):
-            await self.close(self._tabs[alias].ref)
+            try:
+                await self.close(self._tabs[alias].ref)
+            except DriverError as e:
+                self.hub.publish("browser.cleanup_failed", {"tab": alias, "error": str(e)})
 
 
 class Router(_TabDriver):
-    """The owner's paired profiles (`browser.*`): resolver-chosen profile, account check before consequential
-    actions (9.3). Never FERB's identity profile, never FERB's secrets."""
+    """Owner profiles chosen explicitly by the agent. Never FERB's identity profile or secrets."""
     identity = Identity.OWNER
 
     def __init__(self, hub: Hub, resolver: Resolver, profiles: Callable[[], list[BrowserProfile]],
                  wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None) -> None:
         super().__init__(hub, profiles, wake, launch)
-        # the browser / profile the owner named for this task (daemon-set; None: they didn't name one)
-        self.named_for: Callable[[str], Any] | None = None
         self.resolver = resolver
         self.ask_code: Callable[[ToolContext, str], Awaitable[str | None]] | None = None
         self.add_secret_value: Callable[[str], None] = lambda value: None
         self.secrets: Secrets = _NoSecrets()
 
-    jev: Any = None                                    # browser.profile_match (build step 13): a suggestion only
-
     async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
-        named = self.named_for(owner) if self.named_for else None
-        try:
-            choice = self.resolver.choose(urlsplit(url).hostname, profile)
-        except NeedsOwner as e:
-            hint = await self._profile_hint(profile) if profile and self.jev is not None else None
-            if hint is None:
-                raise
-            raise NeedsOwner(f"{e} Did you mean “{hint}”? (a suggestion — the owner confirms)") from None
-        if named is not None and not named.allows(choice.browser, choice.folder):    # never swap browsers (2026-10-01)
-            want = ", ".join(f"{p.browser} “{p.display_name}”" for p in named.profiles) or named.browser
-            raise Refused(f"the owner asked for {want}, not this profile; don't use another browser or profile — "
-                          "report needs_user: that one isn't connected to FERB yet (`ferb browsers pair`)")
+        choice = self.resolver.choose(profile)
         br = self.hub.bridge(choice.browser, choice.folder)
         if br is None:
             raise Refused(f"{choice.browser}/{choice.folder} isn't paired with FERB")
@@ -787,13 +807,12 @@ class Router(_TabDriver):
 
     def _owner_bridges(self, profile: str | None, *, connected_only: bool = True) -> list[Bridge]:
         """Connected owner profiles (FERB's identity profile never), optionally only the one the owner named."""
-        names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
+        choice = self.resolver.choose(profile) if profile else None
         out = []
         for br in self.hub.bridges.values():
             if (connected_only and br.conn is None) or br.binding.identity is not Identity.OWNER:
                 continue
-            shown = names.get((br.binding.browser, br.binding.folder), br.binding.folder)
-            if profile and profile.lower() not in (shown.lower(), br.binding.folder.lower(), br.binding.browser.lower()):
+            if choice and (choice.browser, choice.folder) != (br.binding.browser, br.binding.folder):
                 continue
             out.append(br)
         return out
@@ -802,10 +821,8 @@ class Router(_TabDriver):
         """The owner's open tabs in their connected profiles: a reference, the site and whether it's the active one.
         A tab this task already took over is listed with its tab id; FERB's own tabs and other tasks' aren't."""
         names = {(p.browser, p.folder): p.display_name for p in self.profiles()}
-        named = self.named_for(task) if self.named_for and task else None
         out = []
-        selected = [br for br in self._owner_bridges(profile, connected_only=False)
-                    if named is None or named.allows(br.binding.browser, br.binding.folder)]
+        selected = self._owner_bridges(profile, connected_only=False)
         missing = [br for br in selected if br.conn is None]
         if missing:
             details = "; ".join(f"{br.name}: " + (self.hub.refused.get(br.binding.install_id) or
@@ -815,8 +832,6 @@ class Router(_TabDriver):
                           "problem, not an empty tab list. Preserve the requested profile. Native background controls "
                           "may be an alternative if the exact requested window can be identified.")
         for br in self._owner_bridges(profile):
-            if named is not None and not named.allows(br.binding.browser, br.binding.folder):
-                continue                                              # the owner named another profile
             v = await br.call("list_tabs", {}, timeout=10)
             for t in v.get("tabs", []):
                 if t.get("ferb"):
@@ -841,10 +856,6 @@ class Router(_TabDriver):
             cid = int(chrome_id)
         except ValueError:
             raise Refused(f"{tab_ref!r} isn't a tab reference from browser.tabs") from None
-        named = self.named_for(owner) if self.named_for else None
-        if named is not None and not named.allows(browser, folder):    # never another profile (2026-10-01: a
-            want = ", ".join(f"{p.browser} “{p.display_name}”" for p in named.profiles) or named.browser
-            raise Refused(f"the owner asked for {want}, not this profile; don't use another browser or profile")
         br = self.hub.bridge(browser, folder)
         if br is None or br.conn is None or br.binding.identity is not Identity.OWNER:
             raise Refused("that profile isn't one of the owner's connected profiles")
@@ -861,55 +872,6 @@ class Router(_TabDriver):
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, cid, owner, f"https://{tab.get('host') or ''}/", attached=True)
         return ref
-
-    async def _profile_hint(self, named: str) -> str | None:
-        from ferb.decide.decider import Ask
-        names = sorted({p.display_name for p in self.profiles()} - {""})[:50]
-        if not names:
-            return None
-        crit = {n: f"the profile “{n}”" for n in names} | {"none": "none of these"}
-        try:
-            got = await self.jev.ask({"owner_said": named, "profiles": names},
-                                     [Ask("browser.profile_match", "none", f"profile:{named}", criteria=crit)])
-        except Exception:
-            return None
-        v = got.get("browser.profile_match")
-        return v if v in names else None
-
-    async def check_account(self, tab: TabRef) -> None:
-        """Before a consequential action (9.3): the page's signed-in account must be the profile's."""
-        t = self._tab(tab)
-        host = urlsplit(t.url).hostname or ""
-        p = next((p for p in self.profiles() if (p.browser, p.folder) == (tab.browser, tab.profile)), None)
-        if p is None or accounts.unverified_key(host, tab.browser, tab.profile, p.email) is not None:
-            return                                            # can't be checked: policy asked once instead
-        result = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=10)
-        if result.get("account") == "signed_in_unknown" and host in accounts.ACCOUNT_PAGES:
-            cached = t.bridge.account_cache.get(host)         # the account page was read once this connection
-            if cached is not None:
-                result = {"supported": True, "account": cached}
-            else:
-                helper = await self._open_in(t.bridge, accounts.ACCOUNT_PAGES[host], owner=None)
-                try:
-                    h = self._tab(helper)
-                    await t.bridge.call("wait", {"tab_id": h.chrome_id, "until": "text", "value": "Signed in as"},
-                                        timeout=10)
-                    result = await t.bridge.call("account", {"tab_id": h.chrome_id}, timeout=10)
-                except DriverError:
-                    pass                                      # still "unknown": refused below, never guessed
-                finally:
-                    await self.close(helper)
-        accounts.check(result, host, p.email, f"{tab.browser}/{p.display_name}")
-        if result.get("account") and result["account"] != "signed_in_unknown":
-            t.bridge.account_cache[host] = str(result["account"])   # a match: not re-read per action (a mismatch is)
-
-    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
-        """(browser, folder, the profile's Chrome account) for the account-check decision in describe()."""
-        t = self._tabs.get(tab_id)
-        if t is None:
-            return None
-        p = next((p for p in self.profiles() if (p.browser, p.folder) == (t.ref.browser, t.ref.profile)), None)
-        return t.ref.browser, t.ref.profile, p.email if p else ""
 
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
@@ -979,9 +941,6 @@ class FerbIdentity(_TabDriver):
     async def open(self, url: str, background: bool = True) -> TabRef:
         return await self.open_for(url, owner="")
 
-    async def check_account(self, tab: TabRef) -> None:
-        return None                                           # FERB's own profile: FERB's own accounts
-
     async def _in_sent(self, tab: TabRef, subject: str, poll_s: float, tries: int) -> bool:
         """The message is in FERB's Sent folder (searched by its exact subject): a real confirmation, not a toast."""
         from urllib.parse import quote
@@ -1026,9 +985,6 @@ class FerbIdentity(_TabDriver):
             raise OutcomeUnknown("clicked Send but Gmail didn't confirm; check FERB's Sent folder")
         finally:
             await self.close(tab)
-
-    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
-        return None
 
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         if not self.secrets.has(ref):

@@ -6,9 +6,8 @@ from pathlib import Path
 from ferb.act.fs.files import PathRefused, resolve
 from ferb.core.errors import Refused
 from ferb.core.types import ToolContext
-from ferb.policy.rules import Kind
 
-def check(command: str, cwd: str | None, ctx: ToolContext) -> Path:
+def working_directory(cwd: str | None, ctx: ToolContext) -> Path:
     try:
         folder = resolve(cwd or ctx.workspace, ctx, must_exist=True)
         if not folder.is_dir():
@@ -18,9 +17,8 @@ def check(command: str, cwd: str | None, ctx: ToolContext) -> Path:
         raise Refused(f"working folder refused: {e}") from None
 
 
-# Commands that bring content in from the network: their output is untrusted (section 10.2), recorded as provenance. A worker that
-# runs them is exposed (loses shell, AppleScript and file-write for the rest of its run). Checked on the command
-# word of every pipeline segment (so `grep http README` isn't a fetch), plus a few argument patterns.
+# Network heuristics label output provenance only; they never remove tools or block actions.
+# Inspect pipeline command words so `grep http README` is not labelled a network fetch.
 NET_COMMANDS = {"curl", "wget", "http", "https", "xh", "aria2c", "lynx", "w3m", "links", "elinks", "nc", "ncat",
                 "netcat", "telnet", "ssh", "scp", "sftp", "ftp", "yt-dlp", "youtube-dl"}
 PREFIXES = {"env", "sudo", "nohup", "time", "xargs", "command", "exec", "nice"}
@@ -40,7 +38,3 @@ def fetches_network(command: str) -> bool:
         if words and words[0].rsplit("/", 1)[-1].lower() in NET_COMMANDS:
             return True
     return False
-
-
-def kind(command: str) -> str:
-    return Kind.RUN_SHELL

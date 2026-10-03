@@ -33,6 +33,10 @@ def _plain(text: str) -> str:
 def _span_text(node: dict[str, Any], full: bool) -> tuple[str, list[str]]:
     """(the span's one-line label, the lines under it: what came back)."""
     inp, out = node.get("input") or {}, node.get("output") or {}
+    if full:
+        label = f"{node['kind']}  {inp.get('tool') or inp.get('goal') or ''}".rstrip()
+        details = {key: value for key, value in node.items() if key != 'children'}
+        return label, json.dumps(details, ensure_ascii=False, indent=2).splitlines()
     if node["kind"] == "tool.call":
         args = inp.get("args") or {}
         shown = [f"{k}={_clip(args[k], 120, full)}" for k in ARG_KEYS if args.get(k) not in (None, "")]
@@ -87,15 +91,19 @@ def render_trace(result: dict[str, Any], full: bool = False) -> list[str]:
     return lines
 
 
-def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False) -> int:
-    for line in render_trace(client.call("trace.get", {"task_id": task_id or "last"}), full):
+def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, raw: bool = False) -> int:
+    result = client.call("trace.get", {"task_id": task_id or "last"})
+    if raw:
+        print(json.dumps(result, ensure_ascii=False, indent=2), file=out)
+        return 0
+    for line in render_trace(result, full):
         print(line, file=out)
     return 0
 
 
 def stop(client: Client, out: TextIO) -> int:
     r = client.call("stop.engage")
-    print(f"FERB stopped: {r['tokens_revoked']} run token(s) revoked, {r['holds_undone']} pending send(s) cancelled. "
+    print(f"FERB stopped: {r['tokens_revoked']} run token(s) revoked. "
           "`ferb resume-tasks` lifts it.", file=out)
     for name, err in r.get("hook_errors", {}).items():
         print(f"  warning: stop hook {name} failed ({err})", file=out)
@@ -118,27 +126,6 @@ def pause(client: Client, out: TextIO) -> int:
 def sense_resume(client: Client, out: TextIO) -> int:
     r = client.call("sense.resume")
     print(f"FERB is watching again ({', '.join(r['watchers']) or 'no watchers running'}).", file=out)
-    return 0
-
-
-def undo(client: Client, hold_id: str | None, out: TextIO) -> int:
-    r = client.call("undo", {} if hold_id is None else {"hold_id": hold_id})
-    if r.get("undone"):
-        print(f"undone: {r['undone']}", file=out)
-        return 0
-    pending = r.get("pending", [])
-    if not pending:
-        print("nothing pending to undo", file=out)
-        return 1
-    print("several sends are pending; name one:", file=out)
-    for h in pending:
-        print(f"  {h['hold_id']}  {h['kind']} via {h['capability']}", file=out)
-    return 1
-
-
-def autonomy(client: Client, level: str | None, out: TextIO) -> int:
-    r = client.call("autonomy.get") if level is None else client.call("autonomy.set", {"level": level})
-    print(f"autonomy: {r['level']}", file=out)
     return 0
 
 
@@ -319,12 +306,8 @@ def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
             if st["answered"] == 0 and st["asked"] == 0:
                 continue
             head = f"{st['question']:<28} {'ENABLED' if st['enabled'] else 'shadow '}  answered {st['answered']}/{st['asked']}"
-            if st["real_baseline"]:
-                agree = f"{st['agreement']:.0%}" if st["agreement"] is not None else "-"
-                head += f", agreement {agree} (enable at 200+ and 95%+)"
-            else:
-                flag = f"{st['flag_rate']:.0%}" if st["flag_rate"] is not None else "-"
-                head += f", flagged {flag} (no existing logic: your call)"
+            flag = f"{st['flag_rate']:.0%}" if st["flag_rate"] is not None else "-"
+            head += f", flagged {flag}"
             if st["acted"]:
                 head += f", acted {st['acted']}x"
             print(head, file=out)
@@ -332,12 +315,14 @@ def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
                 print(f"      e.g. {ex}", file=out)
         if r.get("dropped"):
             print(f"({r['dropped']} shadow calls dropped while Jev was behind)", file=out)
+        if r.get('retired_enabled'):
+            print('Retired configured questions (inactive): ' + ', '.join(r['retired_enabled']), file=out)
         return 0
     on = args.dcmd == "enable"
     if on:
         st = next((x for x in client.call("jev.stats")["stats"] if x["question"] == args.question), None)
-        if st is not None and not st["real_baseline"]:
-            print(f"{args.question}: FERB has no logic of its own here. Jev flagged "
+        if st is not None:
+            print(f"{args.question}: Jev flagged "
                   f"{(st['flag_rate'] or 0):.0%} of {st['answered']} answers. Effect when enabled: {st['effect']}.",
                   file=out)
             for ex in st.get("examples", []):

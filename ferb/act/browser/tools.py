@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
-from ferb.act.browser import accounts
 from ferb.act.browser.snapshot import for_model
 from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
@@ -38,17 +37,16 @@ class IdentityDriver(BrowserDriver, Protocol):
 
     async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef: ...
     async def navigate(self, tab: TabRef, url: str) -> None: ...
-    async def check_account(self, tab: TabRef) -> None: ...
     def claim(self, tab: TabRef, owner: str) -> None: ...
     def owned_by(self, tab_id: str, owner: str) -> TabRef: ...
     def tab_url(self, tab_id: str) -> str | None: ...
-    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None: ...
+    async def keep_open(self, tab: TabRef) -> dict[str, Any]: ...
     def element_info(self, tab_id: str, element_id: str) -> PageElement | None: ...
     def element_ref(self, tab: TabRef, element_id: str) -> ElementRef: ...
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult: ...
     async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
                        intent_id: str = "") -> ActionResult: ...
-    async def release(self, owner: str) -> None: ...
+    async def release(self, owner: str) -> list[dict[str, Any]] | None: ...
     async def shutdown(self) -> None: ...
 
 
@@ -58,14 +56,13 @@ class Family:
     identity: Identity
     read: str                   # scope for reading / opening
     act: str                    # scope for acting
-    allow_local: bool = False   # tests / local tools only
 
 
 OWNER_BROWSER = Family("browser", Identity.OWNER, "browser:read", "browser:act")
 FERB_BROWSER = Family("ferb_browser", Identity.FERB, "identity:browse", "identity:browse")
 
 
-def check_url(url: str, allow_local: bool) -> None:
+def check_url(url: str) -> None:
     u = urlsplit(url)
     if u.scheme not in ("http", "https") or not u.hostname:
         raise Refused(f"only http(s) URLs can be opened, not {u.scheme or 'this'}")
@@ -95,8 +92,7 @@ class _Base:
 
     @property
     def description(self) -> str:
-        whose = "FERB's own browser (FERB's accounts, never the owner's)" if self.family.identity is Identity.FERB \
-            else "the owner's browser profiles (their signed-in sessions; FERB never signs in as them)"
+        whose = "FERB's own browser" if self.family.identity is Identity.FERB else "the owner's selected browser profile"
         return self.blurb.replace("{whose}", whose).replace("{p}", self.family.prefix)
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
@@ -123,16 +119,7 @@ class _Base:
         return self.driver.element_info(str(getattr(args, "tab", "")), str(getattr(args, "element", "")))
 
     def _spec(self, kind: str, args: BaseModel, content: str | None = None) -> ActionSpec:
-        site = self._site(args)
-        unverified = None
-        if self.family.identity is Identity.OWNER and kind not in REVERSIBLE:
-            prof = self.driver.tab_profile(str(getattr(args, "tab", "")))
-            unverified = accounts.unverified_key(site, prof[0], prof[1], prof[2]) if prof else None
-        return ActionSpec(kind, Target(site=site), content=content, unverified_account=unverified)
-
-    async def _account_ok(self, ref: TabRef, kind: str) -> None:
-        # Account/session choice belongs to the orchestrator; snapshots expose the current account.
-        return
+        return ActionSpec(kind, Target(site=self._site(args)), content=content)
 
 
 class _Tab(BaseModel):
@@ -149,14 +136,15 @@ class BrowserOpen(_Base):
 
     class Input(BaseModel):
         url: str = Field(description="http(s) URL")
-        profile: str | None = Field(default=None, description="Owner tasks: a browser profile the owner named")
+        profile: str | None = Field(default=None, description="Owner browser: select a profile from the task context "
+                                   "(name or browser/folder). FERB's own browser ignores this argument.")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.OPEN_TAB, Target(site=_host(getattr(args, "url"))))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         url = str(getattr(args, "url"))
-        check_url(url, self.family.allow_local)
+        check_url(url)
         profile = getattr(args, "profile") if self.family.identity is Identity.OWNER else None
         tab = await self.driver.open_for(url, ctx.task_id, profile)
         out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)}
@@ -250,7 +238,7 @@ class BrowserNavigate(_Base):
         return ActionSpec(Kind.NAVIGATE, Target(site=_host(getattr(args, "url"))))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        check_url(str(getattr(args, "url")), self.family.allow_local)
+        check_url(str(getattr(args, "url")))
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         await self.driver.navigate(ref, str(getattr(args, "url")))
         return ToolResult({"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)})
@@ -361,7 +349,6 @@ class BrowserAct(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
-        await self._account_ok(ref, self.describe(args).kind)
         el = self.driver.element_ref(ref, str(getattr(args, "element")))
         r = await self.driver.act(el, BrowserAction(getattr(args, "action"), getattr(args, "text"),
                                                     bool(getattr(args, "trusted")),
@@ -469,15 +456,32 @@ class BrowserWait(_Base):
 
 
 class BrowserClose(_Base):
-    verb, blurb = "close", "Close one of this task's tabs ({whose}); they also close when the task ends."
+    verb, blurb = "close", ("Close a task-created tab ({whose}), or release a borrowed/kept tab without closing it. "
+                           "Ordinary task-created tabs also close when the task ends; use {p}_keep_open to preserve one.")
     Input = _Tab
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.OPEN_TAB)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        await self.driver.close(self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id))
-        return ToolResult({"closed": True})
+        result = await self.driver.close(self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id))
+        return ToolResult(result if isinstance(result, dict) else {"closed": True})
+
+
+class BrowserKeepOpen(_Base):
+    verb = "keep_open"
+    blurb = ("Keep this exact tab ({whose}) open after the task ends, releasing browser control. Use when the owner "
+             "wants a class, playback or other page left running. Does not navigate, switch tabs or take focus. "
+             "Returns confirmed tab lifetime; verify the page's actual playback/session separately. "
+             "You may still inspect it before finishing; cleanup releases control again.")
+    Input = _Tab
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.OPEN_TAB, Target(site=self._site(args)))
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        tab = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
+        return ToolResult(await self.driver.keep_open(tab))
 
 
 class BrowserFillSecret(_Base):
@@ -548,9 +552,7 @@ def _account(driver: IdentityDriver, args: BaseModel) -> str | None:
 
 
 class MailboxSend:
-    """Send an email from FERB's own mailbox (identity FERB only; build step 14). Normal autonomy: sending in the
-    owner's request, to a recipient they named -> held ~10 s for undo, then sent; another recipient -> asks; a send
-    the request didn't include -> blocked. The content is checked for owner data like any outbound action."""
+    """Send using FERB's mailbox; the worker interprets the owner's authorization and checks delivery."""
     name = "mailbox.send"
     description = ("Send an email from FERB's own address. Verify the recipient and requested final outcome "
                    "from the owner's instructions before sending; inspect delivery afterward.")

@@ -29,13 +29,12 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUPERVI
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import Checks, ConditionResult
 from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
-from ferb.policy.engine import PolicyEngine
+from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.targets import Request, Targets
 from ferb.sanitize.untrusted import mark, wrap_untrusted
 from ferb.store.spans import SpanStore
 
 PROMPTS = Path(__file__).parent / "prompts"
-HISTORY_TURNS = 20
 HEARTBEAT_POLL_S = 5.0
 
 MakeRuntime = Callable[..., AgentRuntime]
@@ -69,7 +68,6 @@ async def _no_replies(since: datetime) -> list[str]:
 @dataclass
 class ChatSession:
     id: str
-    history: list[tuple[str, str]] = field(default_factory=list)   # (speaker, text as the supervisor saw it)
     pending: str = ""          # the owner's words of a request FERB asked a question about (an answer continues it)
     asked: str = ""            # that question, as the owner saw it
 
@@ -84,6 +82,8 @@ class _Tree:
     stop: str | None = None
     prior_task: str | None = None
     reports: list[dict[str, Any]] = field(default_factory=list)
+    resources: list[dict[str, Any]] = field(default_factory=list)
+    cleanup_errors: list[str] = field(default_factory=list)
 
     @property
     def tasks(self) -> dict[str, Task]:
@@ -91,37 +91,26 @@ class _Tree:
 
 
 class _Watch(Observer):
-    """Tool calls provide liveness and bounded diagnostics; owner waits pause the stall timer."""
+    """Tool calls provide liveness; owner waits pause the stall timer."""
 
     def __init__(self, sup: "Supervisor") -> None:
         self.sup = sup
-        self.recent: dict[str, list[tuple[str, bool]]] = {}           # worker -> recent (tool, failed)
 
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         self.sup.activity.beat(grant.worker_id)
-        if not done:
-            self.sup.calls_by_worker[grant.worker_id] = self.sup.calls_by_worker.get(grant.worker_id, 0) + 1
-
-    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool, digest: str = "") -> None:
-        tree = self.sup._tree_of.get(grant.task_id)
-        if tree is None:
-            return
-        calls = self.recent.setdefault(grant.worker_id, [])
-        calls.append((tool, failed))
-        del calls[:-25]  # bounded diagnostic context, never an action-count limit
 
     def waiting(self, worker: str, on: bool) -> None:
         self.sup.activity.waiting(worker, on)
 
 
 class Supervisor(WorkerRuns):
-    def __init__(self, *, make_runtime: MakeRuntime, gateway: Gateway, engine: PolicyEngine, tokens: RunTokens,
+    def __init__(self, *, make_runtime: MakeRuntime, gateway: Gateway, state: ExecutionState, tokens: RunTokens,
                  tasks: TaskTree, spans: SpanStore, journal: Journal, publish: Publish, clock: Clock, ids: IdSource,
                  device_id: str, workspace: str, on_violation: Callable[[str, str], None],
-                 on_task_end: Callable[[str], Awaitable[None]] | None = None,
+                 on_task_end: Callable[[str], Awaitable[Any]] | None = None,
                  facts: Callable[[], str] = lambda: "",
                  checks: Checks | None = None, roots: FsRoots | None = None) -> None:
-        self.make_runtime, self.gateway, self.engine, self.tokens = make_runtime, gateway, engine, tokens
+        self.make_runtime, self.gateway, self.state, self.tokens = make_runtime, gateway, state, tokens
         self.tasks, self.spans, self.journal, self.publish = tasks, spans, journal, publish
         self.clock, self.ids, self.device_id, self.workspace = clock, ids, device_id, workspace
         self.on_violation, self.on_task_end, self.facts = on_violation, on_task_end, facts
@@ -142,14 +131,12 @@ class Supervisor(WorkerRuns):
         # confirmations shown to the owner)
         self.recall: Callable[[str], Any] = lambda words: ""
         self.replies: Callable[[datetime], Awaitable[list[str]]] = _no_replies       # replies to FERB's sent mail
-        self.jev: Any = None                     # decide.ShadowDecider (build step 13)
         self.timers: Any = None                  # clock.timers.Timers (build step 14)
         # Build step 15, supplied by the daemon: schedules from chat, and the owner's email ("email me")
         self.on_schedule: Callable[[Any, str, str], str] = lambda spec, own, rid: "Scheduling isn't available."
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
         self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
         self.owner_email: Callable[[], str | None] = lambda: None
-        self.calls_by_worker: dict[str, int] = {}          # diagnostic count, never a retry or permission decision
         # What the supervisor may use right now (supplied by the daemon: connections, permissions)
         self.availability: Callable[[], Availability] = self._default_availability
         # Build step 16: the environment summary for the owner's words (supplied by the daemon)
@@ -197,10 +184,15 @@ class Supervisor(WorkerRuns):
         """The task's targets with paths in the form the gateway uses."""
         return spec.targets.targets([normalize_path(p, self.workspace) for p in spec.targets.paths])
 
-    async def _decide(self, session: ChatSession, message: str, request_id: str, available: set[str],
+    async def _decide(self, session: ChatSession, message: str, request_id: str,
                       recalled: Any = "") -> SupervisorOutcome:
         """Repair an invalid task reference without inferring task intent or account permission."""
-        out = await self._supervise(session, message, request_id, recalled)
+        try:
+            out = await self._supervise(session, message, request_id, recalled)
+        except ValidationError as exc:
+            problems = [str(exc)]
+            self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
+            return await self._supervise(session, message, request_id, recalled, repair=problems)
         def problems_for(candidate: SupervisorOutcome) -> list[str]:
             problems: list[str] = []
             if candidate.control and self.continuity.load(candidate.control.task_id, session.id) is None:
@@ -216,25 +208,26 @@ class Supervisor(WorkerRuns):
             return SupervisorOutcome(kind="clarify", text=COULDNT, task=None)
         return out
 
-    async def run_scheduled(self, sched: Any, late: bool) -> dict[str, Any]:
+    async def run_scheduled(self, sched: Any, late: bool, overdue_s: float = 0) -> dict[str, Any]:
         """Decide an unattended run from its recorded request; report missing input when the owner is absent."""
         request_id = self.ids.new_id()
         self.journal.append("schedule.run", {"schedule_id": sched.id, "request_id": request_id, "late": late})
         note = (f"\n\n(A scheduled run the owner set up earlier — {sched.rule.describe()}"
                 f"{', running late' if late else ''}. The owner isn't here: don't ask questions; do the task, or "
-                "reply with what's missing.)")
+                f"reply with what's missing. Lateness: {overdue_s:.0f} seconds; consecutive failures: {sched.failures}. "
+                "Decide from the requested outcome whether this occurrence is still useful; explain any deferral. "
+                "The schedule remains active unless the owner changes it.)")
         session = ChatSession("schedule:" + sched.id)
-        available = self.availability().scopes
         try:
-            out = await self._decide(session, sched.request + note, request_id, available)
+            out = await self._decide(session, sched.request + note, request_id)
         except (RuntimeViolation, ValidationError, ValueError):
             return {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
         if out.kind != "task" or out.task is None:
             status = "done" if out.kind == "reply" else "needs_user"
             return {"task_id": request_id, "status": status, "answer": out.text, "goal": sched.request}
         recorded = Targets.from_json(sched.targets)
-        self.engine.requests.record(Request(request_id, sched.own_words, recorded, self.owner_email()))
-        self.engine.approvals.unattended.add(request_id)
+        self.state.requests.record(Request(request_id, sched.own_words, recorded, self.owner_email()))
+        self.state.approvals.unattended.add(request_id)
         final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
         async for ev in self.run_tree(out.task, out.text, request_id, sched.request):
             if ev.get("type") == "outcome":
@@ -279,11 +272,10 @@ class Supervisor(WorkerRuns):
         entry = self.journal.append("chat.message", {"session_id": session_id, "request_id": request_id,
                                                      "text": m.for_model, "untrusted_parts": len(m.untrusted)})
         recalled = self.recall(words)
-        avail = self.availability()                             # connection facts for the agent
         env = self.environment(words)
         self._env[request_id] = {**env, "words": words}
         try:
-            out = await self._decide(session, m.for_model, request_id, avail.scopes, recalled)
+            out = await self._decide(session, m.for_model, request_id, recalled)
         except RuntimeViolation as e:
             self.journal.append("chat.failed", {"request_id": request_id, "why": str(e)})
             self._env.pop(request_id, None)
@@ -293,7 +285,7 @@ class Supervisor(WorkerRuns):
             self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # service's
                                                 "detail": str(e)[:400]})
             self._env.pop(request_id, None)
-            yield {"type": "reply", "text": service_problem(str(e)) if isinstance(e, ServiceError) else SORRY}
+            yield {"type": "reply", "text": service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SORRY}
             return
         authority_id = request_id
         if out.control is not None:
@@ -320,10 +312,7 @@ class Supervisor(WorkerRuns):
             if out.task is not None:
                 out.task.goal += f"\nOriginal request context: {prior_spec.goal}\nLast recorded result (verify afresh): {prior_state}\nOwner's follow-up: {m.for_model}"
                 words = prior_request.words + "\n" + words
-                old_named = self._env[request_id].get("named_browser")
                 self._env[request_id] = {**self.environment(words), "words": words}
-                if old_named is not None:              # an explicit profile change in this follow-up wins
-                    self._env[request_id]["named_browser"] = old_named
                 # A new attempt gets fresh scoped authority; durable context never restores approval grants.
         # Quotes are checked against what the owner typed (never against pasted text)
         for saved in self.remember(out.remember, typed, entry.id):               # the owner's words, quote-checked
@@ -339,15 +328,9 @@ class Supervisor(WorkerRuns):
             yield {"type": "timer", "text": self.on_schedule(out.schedule, typed, request_id)}
         for ch in out.schedule_changes:
             yield {"type": "timer", "text": self.on_schedule_change(ch, typed)}
-        if out.kind == "task" and out.task is not None and out.text == COULDNT:
-            out = SupervisorOutcome(kind="clarify", text=COULDNT, task=None)
         if out.kind == "clarify":                               # the answer will continue this request
             session.pending, session.asked = owner_words, out.text
         if out.kind in ("reply", "clarify") or out.task is None:
-            if out.kind == "clarify" and out.text == COULDNT and avail.missing:
-                out = SupervisorOutcome(kind="reply", text=f"I can't do that right now. {avail.unavailable_line()}",
-                                        task=None)
-                session.pending = session.asked = ""
             self.continuity.save_pending(session_id, session.pending, session.asked)
             self.journal.append(f"chat.{out.kind}", {"session_id": session_id, "request_id": request_id,
                                                      "text": out.text})
@@ -355,7 +338,7 @@ class Supervisor(WorkerRuns):
             yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": out.text}
             return
         if authority_id == request_id:
-            self.engine.requests.record(Request(request_id, words, self._targets(out.task), self.owner_email()))
+            self.state.requests.record(Request(request_id, words, self._targets(out.task), self.owner_email()))
         try:
             async for ev in self.run_tree(out.task, out.text, authority_id, m.for_model, conversation_id=session.id,
                                           prior_task=out.control.task_id if out.control else None):
@@ -391,10 +374,15 @@ class Supervisor(WorkerRuns):
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
                          [], None)
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id,
-                                                                   "repair": bool(repair)})
-        final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "")
-        self.spans.finish(span, output={"text": final[:2000]})
-        return SupervisorOutcome.model_validate_json(final)
+                                                                   "repair": bool(repair), "context": ctx})
+        try:
+            final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "")
+            result = SupervisorOutcome.model_validate_json(final)
+            self.spans.finish(span, output={"text": final})
+            return result
+        except BaseException as exc:
+            self.spans.finish(span, output={"text": locals().get("final", "")}, error=f"{type(exc).__name__}: {exc}")
+            raise
 
     def recent(self, current_request: str = "", conversation: str | None = None) -> tuple[str, dict[str, datetime]]:
         """Continuity (14a), bounded: the last day's conversation and tasks, tagged with absolute times only (their
@@ -450,9 +438,6 @@ class Supervisor(WorkerRuns):
             return remembered
         return (str(remembered or ""), {})
 
-    def facts_now(self) -> str:
-        return ""
-
     async def since_last_talk(self, current_request: str) -> list[str]:
         """After a gap of over an hour since the owner's last message: notable things since then (13)."""
         now = self.clock.now()
@@ -495,7 +480,7 @@ class Supervisor(WorkerRuns):
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         if conversation_id is not None:
-            self.continuity.save(tree_id, conversation_id, spec, self.engine.requests.get(request_id).words, prior_task)
+            self.continuity.save(tree_id, conversation_id, spec, self.state.requests.get(request_id).words, prior_task)
         self._tree_of[tree_id] = tree
         self._tree_of[worker.id] = tree
         self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
@@ -513,30 +498,49 @@ class Supervisor(WorkerRuns):
         if tree.verification and not tree.stop:
             yield {"type": "verification", "id": WORKER, "task_id": worker.id,
                    "results": [r.as_dict() for r in tree.verification]}
-        # tabs, processes: end with the tree — the checks run as their own tasks (<id>.verify / .reconcile) and open
-        # tabs too (owner's report 2026-10-01: a verifier's re-read pages stayed open in FERB's browser)
-        for tid in (worker.id, f"{worker.id}.verify", f"{worker.id}.reconcile"):
-            if self.on_task_end is not None:
-                try:
-                    await self.on_task_end(tid)
-                except Exception:
-                    pass
+        # Also release resources on failed/blocked/stopped exits. A successful attempt already released them
+        # inside the recovery loop; an idempotent empty release does not require another model decision.
+        changed = await self._release_resources(tree, root_span.id)
+        if changed and not tree.stop:
+            await self._reconcile_resources(tree, root_span.id)
         final = self._final(tree)
         final["goal"] = spec.goal
         self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id, "status": final["status"],
                                             "text": final["answer"]})
-        self.spans.finish(root_span, output={k: final[k] for k in ("status", "summary", "verified")})
+        self.spans.finish(root_span, output={k: final[k] for k in ("status", "summary", "verified", "resources")})
         self.tasks.set_status(tree_id, final["status"], {k: final[k] for k in ("summary", "verified")})
         self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"], "summary": final["summary"],
                                              "verified": final["verified"], "verification": final["verification"],
-                                             "subtasks": final["subtasks"]})
+                                             "subtasks": final["subtasks"], "resources": tree.resources})
         self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})
-        self.gateway.seen.forget(worker.id)
-        self.engine.requests.forget(request_id)
+        self.gateway.forget_tasks(self._tree_task_ids(tree))
+        self.state.forget_request(request_id)
         for tid in [k for k, v in self._tree_of.items() if v is tree]:        # the worker, verifier, reconciler
             self._tree_of.pop(tid, None)
             self.tasks.remove(tid)
         yield final
+
+    async def _release_resources(self, tree: _Tree, parent_span: str) -> bool:
+        """Release worker and checker resources, preserving actual observations and every cleanup failure."""
+        observed = False
+        if self.on_task_end is None:
+            return observed
+        for tid in (tree.worker.id, f"{tree.worker.id}.verify"):
+            cleanup = self.spans.start("task.cleanup", task_id=tid, parent_id=parent_span,
+                                      input={"operation": "release task resources"})
+            try:
+                resources = await self.on_task_end(tid) or []
+                observed = observed or bool(resources)
+                tree.resources.extend(resources)
+                errors = [str(r['error']) for r in resources if r.get('error')]
+                tree.cleanup_errors.extend(errors)
+                self.spans.finish(cleanup, output={"resources": resources}, error='; '.join(errors) or None)
+            except Exception as exc:
+                observed = True
+                detail = f"{tid}: {type(exc).__name__}: {exc}"
+                tree.cleanup_errors.append(detail)
+                self.spans.finish(cleanup, error=detail)
+        return observed
 
     async def _execute(self, tree: _Tree, span: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
         worker = tree.worker
@@ -549,6 +553,8 @@ class Supervisor(WorkerRuns):
                 try:
                     out = await self._worker(tree, span)
                 except Exception as exc:
+                    self.journal.append("task.execution_failed", {"task_id": worker.id,
+                                         "error": f"{type(exc).__name__}: {exc}"})
                     previous = tree.reports[-1] if tree.reports else {}
                     out = Outcome(worker.id, "failed", f"I couldn't continue this task ({type(exc).__name__}).",
                                   previous.get("artifacts", []), previous.get("evidence", []))
@@ -565,7 +571,7 @@ class Supervisor(WorkerRuns):
 
     def _tree_task_ids(self, tree: _Tree) -> set[str]:
         return {tid for tid, owner in self._tree_of.items() if owner is tree} | {
-            tree.worker.id, tree.worker.id + ".verify", tree.worker.id + ".reconcile"}
+            tree.worker.id, tree.worker.id + ".verify"}
 
     def cancel_tree(self, tree: _Tree) -> None:
         ids = self._tree_task_ids(tree)
@@ -583,6 +589,9 @@ class Supervisor(WorkerRuns):
         artifacts: list[str] = []
         evidence: list[str] = []
         while not tree.stop:
+            # Prior attempts remain in report/cleanup spans. Only the current attempt determines final state.
+            tree.resources = []
+            tree.cleanup_errors = []
             self.tasks.set_status(task.id, "running")
             raw, _ = await self.run_worker(tree, task, "worker.md", self._context(tree) + instructions,
                                            WORKER_SCHEMA, span)
@@ -600,8 +609,10 @@ class Supervisor(WorkerRuns):
                 try:
                     tree.verification = await self.verify(tree, span)
                 except Exception as exc:
+                    self.journal.append("task.inspection_failed", {"task_id": task.id,
+                                         "error": f"{type(exc).__name__}: {exc}"})
                     tree.verification = [ConditionResult(i, c.text, None, "verifier",
-                                                         f"Inspection unavailable: {type(exc).__name__}")
+                                                         f"Inspection unavailable: {type(exc).__name__}: {exc}")
                                          for i, c in enumerate(tree.spec.success_conditions)]
                 unresolved = [f"{r.text}: {r.evidence}" for r in tree.verification if r.met is not True]
                 if unresolved:
@@ -609,15 +620,24 @@ class Supervisor(WorkerRuns):
                     # or code inference about the requested app, account or missing content belongs here.
                     out = Outcome(task.id, "blocked", out.summary + " Result not complete: " + "; ".join(unresolved),
                                   artifacts, evidence + unresolved)
+            if out.status == 'done' and not tree.stop:
+                tree.outcome = out
+                changed = await self._release_resources(tree, span)
+                if changed and not tree.stop:
+                    await self._reconcile_resources(tree, span)
+                    out = tree.outcome
+                    artifacts = list(dict.fromkeys(artifacts + out.artifacts))
+                    evidence = list(dict.fromkeys(evidence + out.evidence))[-40:]
             tree.reports.append({"worker_type": tree.spec.worker_type, "status": out.status,
-                                 "summary": out.summary[:3000], "artifacts": artifacts, "evidence": evidence})
+                                 "summary": out.summary[:3000], "artifacts": artifacts, "evidence": evidence,
+                                 "resources": tree.resources, "cleanup_errors": tree.cleanup_errors})
             del tree.reports[:-6]
             if tree.stop or out.status in ("done", "cancelled"):
                 return out
             try:
                 choice = await self._dispatch(tree, out, span)
             except Exception as exc:
-                detail = service_problem(str(exc)) if isinstance(exc, ServiceError) else type(exc).__name__
+                detail = service_problem(str(exc), exc.runtime) if isinstance(exc, ServiceError) else f"{type(exc).__name__}: {exc}"
                 return Outcome(task.id, "cancelled" if tree.stop else "failed",
                                tree.stop or f"{out.summary} I couldn't plan the next attempt: {detail}.",
                                artifacts, evidence)
@@ -639,12 +659,21 @@ class Supervisor(WorkerRuns):
         decision = Task(tree.worker.id + '.dispatch', tree.worker.id, 'choose recovery', self.device_id,
                         tree.worker.identity, set(), 'mixed', tree.worker.request_id, [], None)
         self._tree_of[decision.id] = tree
-        final = await self._run(rt, decision, self._system('dispatch.md'), ctx, '', span, tree, '')
-        return DispatchOutcome.model_validate_json(final)
+        decision_span = self.spans.start('model.dispatch', task_id=decision.id, parent_id=span,
+                                        input={'worker_type': tree.spec.worker_type, 'context': ctx})
+        final = ''
+        try:
+            final = await self._run(rt, decision, self._system('dispatch.md'), ctx, '', decision_span.id, tree, '')
+            result = DispatchOutcome.model_validate_json(final)
+            self.spans.finish(decision_span, output={'text': final})
+            return result
+        except BaseException as exc:
+            self.spans.finish(decision_span, output={'text': final}, error=f'{type(exc).__name__}: {exc}')
+            raise
 
     def _context(self, tree: _Tree) -> str:
         spec = tree.spec
-        words = self.engine.requests.get(tree.worker.request_id).words
+        words = self.state.requests.get(tree.worker.request_id).words
         parts = [f"Task: {spec.goal}", "Owner's original instructions: " + words,
                  "Worker type: " + spec.worker_type, self.relevant_context(words),
                  self.recall_items(self.recall(words))[0]]
@@ -680,10 +709,53 @@ class Supervisor(WorkerRuns):
         decision = Task(task_id + '.question', task_id, 'resolve worker question', self.device_id,
                         tree.worker.identity, set(), 'mixed', tree.worker.request_id, [], None)
         self._tree_of[decision.id] = tree
-        span = self.spans.start('model.question', task_id=task_id, input={'question': question})
-        final = await self._run(rt, decision, self._system('question.md'), ctx, '', span.id, tree, '')
-        self.spans.finish(span, output={'decision': final})
-        return QuestionOutcome.model_validate_json(final).model_dump()
+        span = self.spans.start('model.question', task_id=task_id, input={'question': question, 'context': ctx})
+        try:
+            final = await self._run(rt, decision, self._system('question.md'), ctx, '', span.id, tree, '')
+            result = QuestionOutcome.model_validate_json(final).model_dump()
+            self.spans.finish(span, output={'decision': final})
+            return result
+        except BaseException as exc:
+            self.spans.finish(span, output={'decision': locals().get('final', '')}, error=f'{type(exc).__name__}: {exc}')
+            raise
+
+    async def _reconcile_resources(self, tree: _Tree, parent_span: str) -> None:
+        """Judge the requested final state after resource release, when earlier inspections can be stale."""
+        out = tree.outcome or Outcome(tree.worker.id, 'failed', 'No task report was received.', [], [])
+        observations = {'report': {'status': out.status, 'summary': out.summary, 'artifacts': out.artifacts,
+                                   'evidence': out.evidence},
+                        'inspection_before_cleanup': [r.as_dict() for r in tree.verification],
+                        'resources_after_cleanup': tree.resources, 'cleanup_errors': tree.cleanup_errors}
+        ctx = self._context(tree) + '\nFinal lifecycle observations (data): ' + wrap_untrusted(json.dumps(observations))
+        system = ("You are FERB's orchestrator. Produce the final owner-facing result after task resource cleanup. "
+                  "Reconcile the requested outcome and the worker's claim with the actual resource records. "
+                  "A successful inspection before cleanup does not prove the requested state survived cleanup. "
+                  "A closed tab cannot still host an ongoing class or session. A kept_open acknowledgement proves "
+                  "the tab remains open, not that media is playing; preserve only playback evidence actually recorded. "
+                  "Ordinary temporary-tab closure need not invalidate completed research or saved artifacts. "
+                  "Use done only if the outcome is still satisfied; otherwise report failed or needs_user and the "
+                  "concrete remaining work. Explain uncertain cleanup honestly. Replace superseded claims rather "
+                  "than appending contradictory caveats. Use FERB's first-person voice and return the required JSON.")
+        rt = self.make_runtime('orchestrator', mode='supervisor', tool_names=[], schema=WORKER_SCHEMA)
+        decision = Task(tree.worker.id + '.resources', tree.worker.id, 'reconcile final resource state', self.device_id,
+                        tree.worker.identity, set(), 'mixed', tree.worker.request_id, [], None)
+        self._tree_of[decision.id] = tree
+        span = self.spans.start('model.resources', task_id=decision.id, parent_id=parent_span, input=observations)
+        final = ''
+        try:
+            final = await self._run(rt, decision, system, ctx, '', span.id, tree, '')
+            reviewed = WorkerOutcome.model_validate_json(final)
+            tree.outcome = Outcome(tree.worker.id, reviewed.status, reviewed.summary,
+                                   sorted(set(out.artifacts + reviewed.artifacts)), out.evidence + reviewed.evidence)
+            self.spans.finish(span, output={'text': final})
+        except BaseException as exc:
+            detail = f'{type(exc).__name__}: {exc}'
+            self.spans.finish(span, output={'text': final}, error=detail)
+            tree.outcome = Outcome(tree.worker.id, 'failed',
+                                   "I couldn't confirm the final resource state after cleanup: " +
+                                   '; '.join(tree.cleanup_errors or [detail]), out.artifacts, out.evidence)
+            if isinstance(exc, asyncio.CancelledError):
+                raise
 
 
     # ---------- verification ----------
@@ -755,7 +827,7 @@ class Supervisor(WorkerRuns):
         out = tree.outcome or Outcome(tree.worker.id, "failed", "the worker gave no report", [], [])
         results = tree.verification
         conditions = bool(tree.spec.success_conditions)
-        verified = out.status == "done" and conditions and len(results) == len(tree.spec.success_conditions) and all(r.met is True for r in results)
+        verified = not tree.stop and out.status == "done" and conditions and len(results) == len(tree.spec.success_conditions) and all(r.met is True for r in results)
         unmet = [f"{r.text} ({r.evidence})" for r in results if r.met is False]
         undecided = [r.text for r in results if r.met is None]
         if tree.stop == STOPPED_BY_YOU:
@@ -782,4 +854,4 @@ class Supervisor(WorkerRuns):
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary[:500]}},
-                "artifacts": sorted(out.artifacts)}
+                "artifacts": sorted(out.artifacts), "resources": tree.resources}

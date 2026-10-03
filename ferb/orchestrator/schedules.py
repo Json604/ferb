@@ -1,12 +1,12 @@
 """Scheduled and recurring tasks (section 18 step 15).
 
-A schedule keeps the owner's words and the targets recorded from them at scheduling time; each run is decided afresh (pages
-and inboxes change) but is held to those targets. Rules: once, daily at HH:MM, weekdays at HH:MM, weekly on a day at
+A schedule keeps the owner's full words and the targets recorded at scheduling time; the agent decides each run
+afresh using that context. Rules: once, daily at HH:MM, weekdays at HH:MM, weekly on a day at
 HH:MM, or every N minutes (N >= 15), in the owner's local time zone (so a daily 09:00 stays 09:00 across daylight-
 saving changes). Each next run is a durable timer (exactly once, step 14).
 
-Missed runs (Mac asleep or off): one run when it wakes, marked late; skipped if later than half the repeat interval
-(at most 12 hours); a one-off runs up to 12 hours late. Three failures in a row pause the schedule.
+Missed runs are presented to the orchestrator with lateness and prior failures. Those observations do not cancel
+an occurrence or pause the owner's schedule automatically.
 """
 
 import json
@@ -21,8 +21,6 @@ from ferb.store.db import Database
 
 REPEATS = ("none", "daily", "weekdays", "weekly", "every")
 MIN_EVERY_MIN = 15
-MAX_LATE_S = 12 * 3600
-FAILURES_TO_PAUSE = 3
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
@@ -52,14 +50,6 @@ class Rule:
         if repeat == "weekly":
             wd = DAYS.index(weekday.lower()) if weekday and weekday.lower() in DAYS else local.weekday()
         return cls(repeat, local.strftime("%H:%M"), wd, every_minutes if repeat == "every" else None, zone.key)
-
-    def interval_s(self) -> float | None:
-        return {"none": None, "daily": 86400.0, "weekdays": 86400.0, "weekly": 7 * 86400.0}.get(
-            self.repeat, (self.every_minutes or MIN_EVERY_MIN) * 60.0)
-
-    def late_limit_s(self) -> float:
-        iv = self.interval_s()
-        return MAX_LATE_S if iv is None else min(iv / 2, MAX_LATE_S)
 
     def next_after(self, after: datetime, anchor: datetime) -> datetime | None:
         """The first run strictly after `after` (anchor: the schedule's first run)."""
@@ -123,7 +113,7 @@ class Schedules:
         self.db.conn.execute(
             "INSERT INTO schedules (id, request, own_words, intent_json, rule_json, next_run, state, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
-            (sid, request[:1000], own_words[:4000], json.dumps(targets), json.dumps(rule.__dict__ | {
+            (sid, request, own_words, json.dumps(targets), json.dumps(rule.__dict__ | {
                 "first": first.astimezone(timezone.utc).isoformat()}),
              first.astimezone(timezone.utc).isoformat(), self.clock.now().isoformat()))
         s = self.get(sid)

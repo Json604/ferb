@@ -1,13 +1,12 @@
 """Native Mac capabilities. Agents choose actions; kinds/contact/effect values describe trace metadata.
 Drivers retain actual window/element/coordinate validity, background mechanics and privacy handling."""
 
-import asyncio
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from ferb.act.mac import applescript
-from ferb.act.mac.ax_browser import BROWSER_BUNDLES, is_browser
+from ferb.act.mac.ax_browser import is_browser
 from ferb.act.mac.driver import UNTRUSTED_APPS, MacComputerDriver
 from ferb.act.mac.input import Yielded
 from ferb.act.mac.resolve import scriptable
@@ -38,15 +37,8 @@ class _Base:
     identities = {Identity.OWNER}
     risk, reversible = RiskLevel.LOW, True
 
-    def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None,
-                 extension_ready: Callable[[str], bool] = lambda browser: False,
-                 unpaired: Callable[[str], str | None] = lambda browser: None) -> None:
-        self.driver, self.device_profile, self.extension_ready = driver, device_profile, extension_ready
-        self.unpaired = unpaired
-
-    def _extension_first(self, args: BaseModel) -> str | None:
-        """The orchestrator selects browser or Mac control using the registry and current state."""
-        return None
+    def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None) -> None:
+        self.driver, self.device_profile = driver, device_profile
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
@@ -86,8 +78,8 @@ class MacApps(_Base):
 
 class MacOpen(_Base):
     name = "mac.open"
-    description = ("Open an installed app in the background, without taking focus — or, if it's running with no "
-                   "window, reopen its window (still in the background). The owner stays where they are. Reading "
+    description = ("Request a background launch of an installed app, or reopen its window if it has none. "
+                   "FERB never restores an earlier foreground app over the owner's current choice. Reading "
                    "an app that isn't running? Open it first.")
     scopes = {"mac:read"}             # opening an app to look at it is part of reading (owner decision 2026-10-01)
 
@@ -101,17 +93,8 @@ class MacOpen(_Base):
         bid = str(getattr(args, "bundle_id"))
         if bid.lower() in {e.lower() for e in self.driver.excluded()}:
             return _err(f"{bid} is on the owner's exclusion list")
-        before = self.driver.apps.frontmost()               # where the owner is (their desktop / Space)
         if not self.driver.apps.launch(bid):
             return _err(f"no installed app {bid}")
-        if before is not None and before.bundle_id.lower() != bid.lower():
-            for _ in range(15):                              # macOS may switch to the new app's desktop: take the
-                await asyncio.sleep(0.1)                     # owner back to theirs
-                now = self.driver.apps.frontmost()
-                if now is not None and now.bundle_id.lower() == bid.lower():
-                    self.driver.on_activate(before.bundle_id, ctx.task_id)
-                    self.driver.apps.activate(before.bundle_id)
-                    break
         window = await self.driver.ensure_window(bid)
         return ToolResult({"opened": bid, "window": window,
                            "next": "mac_snapshot reads it where it is" if window else
@@ -276,8 +259,6 @@ class MacScreenshot(_Base):
         return ActionSpec(Kind.READ, Target(site=self._bundle(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        if why := self._extension_first(args):
-            return _err(why)
         a, shot, jpeg = await self.driver.screenshot(str(getattr(args, "app")))
         evidence = None
         if a.bundle_id.lower() in communication_bundles():   # who is on screen, for the contact check (16a)
@@ -341,8 +322,6 @@ class MacClick(_Base):
         return [f"app:{self._bundle(args)}"]
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        if why := self._extension_first(args):
-            return _err(why)
         app, shot, x, y = (str(getattr(args, "app")), str(getattr(args, "shot")), float(getattr(args, "x")),
                            float(getattr(args, "y")))
         r = await self.driver.click_at(app, shot, x, y, holder=ctx.worker_id, task=ctx.task_id,

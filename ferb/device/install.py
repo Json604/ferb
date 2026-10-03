@@ -46,12 +46,20 @@ def repo_root() -> Path:
 
 
 def code_hash(package_dir: Path) -> str:
-    """Content hash of a ferb package tree: tells a stale installed copy from the checkout."""
+    """Hash code and packaged resources, canonicalizing the checkout's external extension folder."""
     h = hashlib.sha256()
-    for f in sorted(package_dir.rglob("*")):
-        if f.is_file() and "__pycache__" not in f.parts and f.suffix in (".py", ".sql"):
-            h.update(str(f.relative_to(package_dir)).encode())
-            h.update(f.read_bytes())
+    resources = {str(f.relative_to(package_dir)): f for f in package_dir.rglob('*')
+                 if f.is_file() and '__pycache__' not in f.parts and f.name != '.DS_Store'
+                 and f.suffix not in ('.pyc', '.pyo')}
+    extension = package_dir.parent / 'extensions' / 'chromium'
+    if (extension / 'manifest.json').is_file():
+        resources = {key: path for key, path in resources.items() if not key.startswith('_extension/')}
+        resources.update({'_extension/' + str(f.relative_to(extension)): f for f in extension.rglob('*')
+                          if f.is_file() and f.name != '.DS_Store'})
+    for name, f in sorted(resources.items()):
+        h.update(name.encode() + b'\0')
+        h.update(f.read_bytes())
+        h.update(b'\0')
     return h.hexdigest()[:16]
 
 

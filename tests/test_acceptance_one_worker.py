@@ -13,7 +13,7 @@ from ferb.act.mac.tools import MacAct, MacClick, MacScreenshot, MacSnapshot
 from ferb.cli.client import Client
 from ferb.core.types import (ActionResult, BrowserAction, ElementRef, PageElement, PageSnapshot, TabRef)
 from tests.conftest import Answers, RunningDaemon
-from tests.test_supervisor import chat, install, outcome, sup, task, tool
+from tests.conftest import chat, install, outcome, sup, task, tool
 
 WA = "net.whatsapp.WhatsApp"
 SPOTIFY = "com.spotify.client"
@@ -151,19 +151,6 @@ def use_browser(d: RunningDaemon, br: StubBrowser) -> None:
     caps["browser.act"] = BrowserAct(br, OWNER_BROWSER)                         # type: ignore[arg-type]
 
 
-def past_undo(d: RunningDaemon, token: str, name: str, **args: Any) -> dict[str, Any]:
-    """A call that may be held for undo: the fake clock is moved past the window while it waits."""
-    done = threading.Event()
-
-    def tick() -> None:
-        while not done.wait(0.05):
-            d.call_soon(d.daemon.clock.advance, 1)
-    th = threading.Thread(target=tick, daemon=True)
-    th.start()
-    try:
-        return tool(d.sock, token, name, **args)
-    finally:
-        done.set()
 
 
 def report(status: str, summary: str) -> str:

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from ferb.act.shell.pty_proc import PtyProc
+from ferb.sanitize.redact import RedactionStream
 from ferb.core.errors import Refused
 
 CLEAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL", "TMPDIR")
@@ -34,11 +35,14 @@ class ProcInfo:
     exit_code: int | None
     long_lived: bool
     network: bool = False                     # it fetches from the network: its output is untrusted (10.2)
+    capture_error: str | None = None
 
 
 class ShellManager:
-    def __init__(self, log_dir: Path, redact_text: Callable[[str], str]) -> None:
+    def __init__(self, log_dir: Path, redact_text: Callable[[str], str],
+                 stream_factory: Callable[[], RedactionStream] | None = None) -> None:
         self.log_dir, self.redact_text = log_dir, redact_text
+        self.stream_factory = stream_factory
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}
 
     def _env(self) -> dict[str, str]:
@@ -53,7 +57,7 @@ class ShellManager:
     async def start(self, cmd: list[str], cwd: Path, owner_task: str, long_lived: bool = False,
                     network: bool = False) -> ProcHandle:
         pid = "p-" + secrets.token_hex(4)
-        p = PtyProc(cmd, cwd, self._env(), self.log_dir / f"{pid}.log", self.redact_text)
+        p = PtyProc(cmd, cwd, self._env(), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory)
         await p.start()
         self._procs[pid] = (p, ProcInfo(pid, owner_task, " ".join(cmd[2:]) if cmd[:2] == ["/bin/sh", "-c"]
                                         else " ".join(cmd), str(cwd), time.time(), True, None, long_lived, network))
@@ -74,6 +78,11 @@ class ShellManager:
     async def send(self, h: ProcHandle, data: str) -> None:
         self._get(h).send(data)
 
+    async def tail(self, h: ProcHandle, limit: int) -> tuple[str, int, int]:
+        p = self._get(h)
+        text, offset, _ = p.read(max(0, p.total - limit), limit)
+        return text, offset, p.total
+
     async def wait(self, h: ProcHandle, timeout: float) -> int | None:
         return await self._get(h).wait(timeout)
 
@@ -84,7 +93,7 @@ class ShellManager:
         out = []
         for p, info in self._procs.values():
             out.append(ProcInfo(info.id, info.owner_task, info.command, info.cwd, info.started,
-                                p.exit_code is None, p.exit_code, info.long_lived, info.network))
+                                p.exit_code is None, p.exit_code, info.long_lived, info.network, p.capture_error))
         return out
 
     def info(self, h: ProcHandle) -> ProcInfo:

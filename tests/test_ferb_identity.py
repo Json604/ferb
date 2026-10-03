@@ -25,7 +25,7 @@ from ferb.policy.targets import Request
 from tests.browserkit import PASSWORD, REF, feed
 from tests.conftest import RunningDaemon
 from tests.fake_extension import FakeExtension
-from tests.test_ext_bridge import chrome_data
+from tests.browserkit import chrome_data
 
 FERB_SCOPES = {"identity:browse", "secrets:fill", "mailbox:read"}
 SITE = "https://login.example.com"
@@ -88,13 +88,27 @@ def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], verbs
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})
         d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        d.daemon.engine.requests.record(Request(f"req-{tid}", verbs if isinstance(verbs, str) else ""))
+        d.daemon.state.requests.record(Request(f"req-{tid}", verbs if isinstance(verbs, str) else ""))
         return d.daemon.tokens.validate(d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, identity, ttl_s=600))
     return d.run(go())
 
 
 def call(d: RunningDaemon, grant: Any, name: str, **args: Any) -> dict[str, Any]:
     return d.run(d.daemon.gateway.call(grant, name, args), timeout=30)          # type: ignore[no-any-return]
+
+
+def test_ferb_profile_supports_the_same_confirmed_keep_open_handoff(fd: Any) -> None:
+    d, launched, _ = fd
+    ext, paired = pair_identity(d, launched)
+    assert paired.get('paired')
+    g = task(d, 'keep-class', Identity.FERB, FERB_SCOPES, None)
+    tab = call(d, g, 'ferb_browser.open', url=SITE + '/class')['content']['tab']
+    driver = d.daemon.ferb_identity
+    cid = driver._tabs[tab].chrome_id
+    result = call(d, g, 'ferb_browser.keep_open', tab=tab)
+    assert not result['is_error'] and result['content']['kept_open']
+    lifecycle = d.run(driver.release(g.task_id))
+    assert lifecycle[0]['kept_open'] and ext.tabs[cid] == SITE + '/class'
 
 
 def el(snap: dict[str, Any], **match: Any) -> str:

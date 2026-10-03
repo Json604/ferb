@@ -10,8 +10,7 @@ from ferb.cli import setup as S
 from ferb.config import Config
 from ferb.core.errors import NotRunning
 from ferb.device.install import Installer
-from tests.test_device import make_app
-from tests.test_install import FakeRunner
+from tests.conftest import FakeRunner, make_app
 
 
 class FakeDaemon:

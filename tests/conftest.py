@@ -1,15 +1,31 @@
 import asyncio
+import json
+import plistlib
+import re
 import shutil
+import socket
+import subprocess
 import tempfile
 import threading
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, AsyncIterator, Callable, Iterator
 
+import anyio
 import pytest
+from pydantic import BaseModel
 
+from ferb.cli.client import Client
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
+from ferb.core.types import (ActionSpec, Identity, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, Target,
+                             Task, ToolContext, ToolResult)
 from ferb.daemon.main import Daemon
+from ferb.orchestrator.tree import TaskRecord
+from ferb.policy.targets import Request, Targets
+from ferb.runtimes.claude_sdk import ClaudeRuntime
+from ferb.runtimes.codex_exec import CodexRuntime
 
 pytest_plugins = ["tests.browserkit"]           # browser fixtures: local pages, temporary keychain
 
@@ -77,11 +93,8 @@ def no_real_models(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
 
     async def refuse(*a: Any, **k: Any) -> None:
         raise AssertionError("an offline test tried to start a real model runtime; mark it `real` or use a fake")
-    from ferb.runtimes.claude_sdk import ClaudeRuntime
-    from ferb.runtimes.codex_exec import CodexRuntime
     monkeypatch.setattr(CodexRuntime, "start", refuse)
     monkeypatch.setattr(ClaudeRuntime, "start", refuse)
-
 
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
@@ -117,7 +130,7 @@ class Answers:
         self._task = asyncio.run_coroutine_threadsafe(self._loop(), d.loop)
 
     async def _loop(self) -> None:
-        approvals = self.d.daemon.engine.approvals
+        approvals = self.d.daemon.state.approvals
         while True:
             for ap in approvals.pending():
                 self.asked.append(ap)
@@ -129,3 +142,310 @@ class Answers:
 
     def stop(self) -> None:
         self._task.cancel()
+
+
+def raw(sock_path: Path) -> tuple[socket.socket, "socket.SocketIO"]:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(5)
+    s.connect(str(sock_path))
+    return s, s.makefile("r")
+
+
+def send(s: socket.socket, obj: object) -> None:
+    s.sendall(json.dumps(obj).encode() + b"\n")
+
+
+def trail_row(d: RunningDaemon, day: str, actor: str = "owner", source: str = "browser_tab",
+              data: dict[str, Any] | None = None, hour: int = 10) -> str:
+    rid = f"t-{day}-{actor}-{source}-{hour}-{len(data or {})}-{id(data)}"
+    at = datetime.fromisoformat(f"{day}T{hour:02d}:00:00").astimezone()
+
+    async def go() -> str:
+        d.daemon.db.conn.execute(                                   # type: ignore[union-attr]
+            "INSERT INTO trail (id, at, day, device_id, actor, source, data_json) VALUES (?, ?, ?, 'dev', ?, ?, ?)",
+            (rid, at.isoformat(), day, actor, source, json.dumps(data or {"host": "github.com", "browser": "chrome",
+                                                                           "profile": "Default", "url": "https://github.com/"})))
+        return rid
+    return d.run(go())
+
+
+class FakeDistillRuntime:
+    def __init__(self, answer: Any) -> None:
+        self.answer, self.contexts = answer, []
+
+    async def start(self, task: Any, system: str, ctx: str, token: str) -> RunHandle:
+        self.contexts.append(ctx)
+        return RunHandle("r", "fake", task.id, {})
+
+    async def events(self, run: RunHandle) -> Any:
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        yield RuntimeEvent("final", {"text": json.dumps(self.answer)})
+
+    async def cancel(self, run: RunHandle) -> None:
+        return None
+
+
+def make_app(root: Path, name: str, bundle_id: str | None, version: str = "1.0", binary: bool = False,
+             sdef: bool = False, **extra: object) -> Path:
+    b = root / f"{name}.app"
+    (b / "Contents" / "Resources").mkdir(parents=True)
+    info: dict[str, object] = {"CFBundleName": name, "CFBundleShortVersionString": version, **extra}
+    if bundle_id:
+        info["CFBundleIdentifier"] = bundle_id
+    (b / "Contents" / "Info.plist").write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_BINARY if binary
+                                                               else plistlib.FMT_XML))
+    if sdef:
+        (b / "Contents" / "Resources" / f"{name}.sdef").write_text("<dictionary/>")
+    return b
+
+
+class FakeRunner:
+    """Records commands; simulates uv installing Python/venv and launchctl load state."""
+
+    def __init__(self, home: Path) -> None:
+        self.home, self.cmds, self.loaded = home, [], False
+
+    def __call__(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        self.cmds.append(cmd)
+        out = ""
+        if cmd[:3] == ["uv", "python", "install"]:
+            py = self.home / "python" / "cpython-3.12.99-macos-aarch64-none" / "bin" / "python3.12"
+            py.parent.mkdir(parents=True, exist_ok=True)
+            py.write_text("#!/bin/sh\n")
+        elif cmd[:2] == ["uv", "venv"]:
+            vpy = Path(cmd[-1]) / "bin" / "python"
+            vpy.parent.mkdir(parents=True, exist_ok=True)
+            vpy.unlink(missing_ok=True)
+            vpy.symlink_to(cmd[cmd.index("--python") + 1])
+        elif cmd[:2] == ["launchctl", "bootstrap"]:
+            self.loaded = True
+        elif cmd[:2] == ["launchctl", "bootout"]:
+            self.loaded = False
+        elif cmd[:2] == ["launchctl", "print"]:
+            return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113, "pid = 4242\n" if self.loaded else "")
+        return subprocess.CompletedProcess(cmd, 0, out, "")
+
+    def ran(self, *prefix: str) -> int:
+        return sum(1 for c in self.cmds if c[:len(prefix)] == list(prefix))
+
+
+# Scripted model/task support shared by orchestration tests.
+
+STALL = "__stall__"
+
+
+def cond(label: str, kind: str = "none", **k: Any) -> dict[str, Any]:
+    return {"text": label, "check": {"kind": kind, "path": k.get("path"), "text": k.get("text"),
+                                    "url_contains": k.get("url_contains"), "site": k.get("site"),
+                                    "expected": k.get("expected")}}
+
+
+def task(goal: str = "the goal", identity: str = "ferb", apps: tuple[str, ...] = (), sites: tuple[str, ...] = (),
+         paths: tuple[str, ...] = (), recipients: tuple[str, ...] = (),
+         conds: tuple[dict[str, Any], ...] | None = None) -> dict[str, Any]:
+    """The supervisor's task, as the model returns it."""
+    return {"goal": goal, "identity": identity,
+            "targets": {"apps": list(apps), "sites": list(sites), "paths": list(paths), "recipients": list(recipients)},
+            "success_conditions": list(conds) if conds is not None else [cond(goal)]}
+
+
+def sup(kind: str, text: str, t: dict[str, Any] | None = None) -> str:
+    return json.dumps({"kind": kind, "text": text, "task": t})
+
+
+def done(summary: str = "ok") -> str:
+    return json.dumps({"status": "done", "summary": summary, "artifacts": [], "evidence": []})
+
+
+class Script:
+    def __init__(self, supervisor: list[Any], workers: dict[str, Any]) -> None:
+        self.sup, self.workers = supervisor, workers
+        self.contexts: list[tuple[str, str, str, list[str]]] = []      # (mode, key, context, tool names)
+        self.times: dict[str, tuple[float, float]] = {}
+
+    def step(self, key: str) -> Any:
+        # Most lifecycle tests are not about recovery policy. Their scripted orchestrator escalates the worker's
+        # report; recovery/authorization tests supply their own explicit decisions to exercise other choices.
+        if key not in self.workers and key.endswith('.question'):
+            return json.dumps({'ask_owner': True, 'answer': '', 'question': ''})
+        if key not in self.workers and key.endswith('.dispatch'):
+            ctx = next(c for _, k, c, _ in reversed(self.contexts) if k == key)
+            raw = ctx.split('Worker report (data): ', 1)[1]
+            report, _ = json.JSONDecoder().raw_decode(raw[raw.index('{'):])
+            return json.dumps({'action': 'ask' if report['status'] == 'needs_user' else 'finish',
+                               'question': report['summary'], 'instructions': report['summary'],
+                               'worker_type': 'default'})
+        if key not in self.workers and key.endswith('.verify'):
+            ctx = next(c for _, k, c, _ in reversed(self.contexts) if k == key)
+            indices = re.findall(r'^([0-9]+)\. ', ctx, re.M)
+            return json.dumps({'results': [{'index': int(i), 'met': True,
+                                           'evidence': 'Scripted inspection for lifecycle test'} for i in indices]})
+        w = self.workers[key]
+        return w.pop(0) if isinstance(w, list) else w
+
+
+class FakeRuntime:
+    name = "fake"
+    features = RuntimeFeatures(False, False, False, True, True)
+
+    def __init__(self, script: Script, mode: str, tools: list[str]) -> None:
+        self.script, self.mode, self.tools = script, mode, tools
+
+    async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle:
+        key = task.id.split(".", 1)[1] if "." in task.id else "supervisor"   # worker / worker.verify / …
+        self.script.contexts.append((self.mode, key, context, self.tools))
+        return RunHandle(f"run-{task.id}", self.name, task.id, {"token": run_token, "key": key, "cancel": False})
+
+    async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
+        key = run.state["key"]
+        step = self.script.sup.pop(0) if key == "supervisor" else self.script.step(key)
+        t0 = time.monotonic()
+        if isinstance(step, RuntimeEvent):
+            yield step
+            return
+        if step == STALL:
+            while not run.state["cancel"]:
+                await asyncio.sleep(0.02)
+            return
+        if callable(step):
+            final = await anyio.to_thread.run_sync(step, run.state["token"])
+        else:
+            final = step
+        yield RuntimeEvent("usage", {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001})
+        self.script.times[key] = (t0, time.monotonic())
+        yield RuntimeEvent("final", {"text": final})
+
+    async def continue_(self, run: RunHandle, message: str) -> None:
+        raise NotImplementedError
+
+    async def cancel(self, run: RunHandle) -> None:
+        run.state["cancel"] = True
+
+
+def install(d: RunningDaemon, supervisor: list[Any], workers: dict[str, Any] | None = None) -> Script:
+    script = Script(supervisor, workers or {})
+    d.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema: FakeRuntime(script, mode, tool_names)
+    return script
+
+
+def chat(d: RunningDaemon, text: str, session: str = "s1", timeout: float = 30) -> list[dict[str, Any]]:
+    c = Client(d.sock, timeout=timeout)
+    try:
+        return list(c.stream("chat.send", {"session_id": session, "text": text}))
+    finally:
+        c.close()
+
+
+def tool(sock: Any, token: str, name: str, **args: Any) -> dict[str, Any]:
+    c = Client(sock, role="mcp_shim", token=token)
+    try:
+        return c.call("tools.call", {"name": name, "arguments": args})       # type: ignore[no-any-return]
+    finally:
+        c.close()
+
+
+def outcome(evs: list[dict[str, Any]]) -> dict[str, Any]:
+    return next(e for e in evs if e["type"] == "outcome")
+
+
+def writes(sock: Any, path: str, text: str) -> Callable[[str], str]:
+    def act(token: str) -> str:
+        r = tool(sock, token, "fs.write", path=path, content=text, overwrite=True, effect="edit")
+        return json.dumps({"status": "failed" if r["is_error"] else "done", "summary": f"wrote {path}",
+                           "artifacts": [path], "evidence": []})
+    return act
+
+
+class FakeCap:
+    identities = {Identity.OWNER, Identity.FERB}
+    risk, reversible = RiskLevel.MEDIUM, False
+
+    class Input(BaseModel):
+        to: str = ""
+        site: str = ""
+        text: str = ""
+
+    def __init__(self, name: str, kind: str, scopes: set[str], boom: bool = False,
+                 reads: tuple[tuple[str, str], ...] = (), content: dict[str, Any] | None = None) -> None:
+        self.name, self.description, self.kind, self.scopes = name, name, kind, scopes
+        self.boom, self.reads, self.content, self.calls = boom, reads, content or {"ok": True}, 0
+
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec(self.kind, Target(recipients=(args.to,) if args.to else (), site=args.site or None),
+                          content=args.text or None)
+
+    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        self.calls += 1
+        if self.boom:
+            raise ConnectionError("lost the acknowledgement")
+        return ToolResult(self.content, read_sources=self.reads)
+
+
+class GatewayCap:
+    identities = {Identity.OWNER}
+    risk, reversible = RiskLevel.MEDIUM, False
+
+    class Input(BaseModel):
+        to: str = "alice@x.com"
+        text: str = "hi"
+
+    def __init__(self, name: str, kind: str, scopes: set[str], boom: bool = False,
+                 reads: tuple[tuple[str, str], ...] = (), site: str | None = None) -> None:
+        self.name, self.description, self.kind, self.scopes = name, f"fake {kind}", kind, scopes
+        self.boom, self.reads, self.site, self.calls = boom, reads, site, 0
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        to = getattr(args, "to")
+        return ActionSpec(self.kind, Target(recipients=(to,) if to else (), site=self.site), content=getattr(args, "text"))
+
+    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        self.calls += 1
+        if self.boom:
+            raise ConnectionError("lost ack after Send")
+        return ToolResult({"ok": True, "n": self.calls}, read_sources=self.reads)
+
+
+def gateway_request(words: str = "", **targets: object) -> Request:
+    """The facts the gateway keeps about a request: the owner's own words and the targets the model understood."""
+    return Request("req-1", words, Targets.of(**targets))   # type: ignore[arg-type]
+
+
+def gateway_setup(d: RunningDaemon, scopes: set[str], req: Request | None, caps: list[GatewayCap],
+          identity: Identity = Identity.OWNER):
+    for c in caps:
+        d.daemon.registry.capabilities[c.name] = c
+    task = Task("task-1", None, "g", "dev", identity, scopes, "worker", "req-1", [],
+                d.daemon.clock.now() + timedelta(minutes=10))
+
+    async def go():
+        root = d.daemon.spans.start("task", task_id=task.id, input={})
+        d.daemon.tasks.add(TaskRecord(task, d.daemon.clock.now(), root.id))
+        if req is not None:
+            d.daemon.state.requests.record(req)
+        token = d.daemon.tokens.issue(task.id, "w1", scopes, identity, ttl_s=600)
+        return d.daemon.tokens.validate(token), token
+    return d.run(go())
+
+
+def gateway_tool_call(d: RunningDaemon, grant, name: str, **args):
+    return d.run(d.daemon.gateway.call(grant, name, args), timeout=20)
+
+
+async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[str], schema: dict,
+                     token: str = "", task: Task | None = None) -> dict:
+    rt = d.daemon._make_runtime("worker" if mode == "worker" else "orchestrator", mode=mode,
+                                tool_names=tool_names, schema=schema)
+    task = task or Task("t-sup", None, "chat", "dev", Identity.OWNER, set(), "mixed", "r-sup", [], None)
+    run = await rt.start(task, "", prompt, token)
+    out: dict = {"events": []}
+    try:
+        async for ev in rt.events(run):
+            out["events"].append(ev)
+            if ev.kind == "final":
+                out["final"], out["seen"] = ev.data["text"], set(ev.data.get("tools_seen", []))
+            if ev.kind == "violation":
+                out["violation"] = ev.data
+    finally:
+        await rt.cancel(run)
+    return out

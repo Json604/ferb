@@ -99,10 +99,9 @@ class FilesWatcher:
             if o is not None:
                 loop.call_soon_threadsafe(emit, o)
         s = self.stream(folders, on_event)
-        if not s.start():
-            await stop.wait()
-            return
         try:
+            if not s.start():
+                raise RuntimeError('file event stream failed to start')
             await stop.wait()
         finally:
             s.stop()

@@ -1,9 +1,9 @@
 """THE explicit list of what FERB loads (section 6, rule 3). No auto-discovery, no import-time side effects."""
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ferb.act.browser.tools import (BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
+from ferb.act.browser.tools import (BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
                                    BrowserFind, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    MailboxSend, OWNER_BROWSER)
@@ -46,9 +46,9 @@ def build() -> Registry:
     return r
 
 
-def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool = False) -> None:
+def add_identity_browser(r: Registry, driver: IdentityDriver) -> None:
     """Tools that target FERB's own paired browser profile."""
-    f = replace(FERB_BROWSER, allow_local=allow_local)
+    f = FERB_BROWSER
     r.add(BrowserOpen(driver, f))
     r.add(BrowserNavigate(driver, f))
     r.add(BrowserSnapshot(driver, f))
@@ -57,6 +57,7 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool 
     r.add(BrowserAct(driver, f))
     r.add(BrowserWait(driver, f))
     r.add(BrowserClose(driver, f))
+    r.add(BrowserKeepOpen(driver, f))
     r.add(BrowserScroll(driver, f))
     r.add(BrowserFind(driver, f))
     r.add(BrowserFillSecret(driver, f))
@@ -64,9 +65,9 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool 
     r.add(MailboxSend(driver))
 
 
-def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = False) -> None:
+def add_owner_browsers(r: Registry, router: IdentityDriver) -> None:
     """Tools that target the owner's paired Chrome/Brave profiles through the extension."""
-    f = replace(OWNER_BROWSER, allow_local=allow_local)
+    f = OWNER_BROWSER
     r.add(BrowserOpen(router, f))
     r.add(BrowserNavigate(router, f))
     r.add(BrowserSnapshot(router, f))
@@ -75,6 +76,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
     r.add(BrowserAct(router, f))
     r.add(BrowserWait(router, f))
     r.add(BrowserClose(router, f))
+    r.add(BrowserKeepOpen(router, f))
     r.add(BrowserScroll(router, f))
     r.add(BrowserFind(router, f))
     r.add(BrowserTabs(router, f))                      # the owner's open tabs (owner decision, 2026-09-30)
@@ -82,9 +84,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
     r.add(BrowserLoginCode(router, f))
 
 
-def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
-            extension_ready: Callable[[str], bool] = lambda browser: False,
-            unpaired: Callable[[str], str | None] = lambda browser: None) -> None:
+def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any) -> None:
     """Native Mac tools for the installed device profile."""
     r.add(MacApps(driver, device_profile))
     r.add(MacOpen(driver, device_profile))
@@ -92,9 +92,9 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
     r.add(MacMenu(driver, device_profile))
     r.add(MacAct(driver, device_profile))
     r.add(MacAppleScript(driver, device_profile))
-    r.add(MacScreenshot(driver, device_profile, extension_ready, unpaired))
-    r.add(MacClick(driver, device_profile, extension_ready, unpaired))
-    r.add(MacPointer(driver, device_profile, extension_ready, unpaired))
+    r.add(MacScreenshot(driver, device_profile))
+    r.add(MacClick(driver, device_profile))
+    r.add(MacPointer(driver, device_profile))
 
 
 def add_trail(r: Registry, trail: Callable[[], Any]) -> None:

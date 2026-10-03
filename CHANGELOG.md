@@ -10,6 +10,32 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.24.0 — 2026-10-03 — Agent-directed lifetime and audit cleanup
+
+- Give browser workers a keep-open handoff so requested class/result pages survive task cleanup. Release borrowed
+  and retained debugger state without closing the page; persist cleanup outcomes and return invalidated outcomes
+  to the existing recovery flow before reporting completion.
+- Serialize extension session mutations, duplicate-command claims and window creation. Route container scrolling
+  to the actual frame/pane and report target failures. Remove implicit personal-profile selection and dead account
+  gates. Extension 0.11.0 / protocol 6; update the managed extension with the daemon.
+- Remove retired policy evaluators, holds, taint/exposure caches and stale planning restrictions. Require success
+  criteria for new action tasks, preserve complete planner/dispatch traces and provider failures, and clean up
+  partially started runtimes. Current-state requests require fresh inspection in the agent instructions.
+- Keep full scheduled instructions; present lateness/failures to the model without automatic skip or three-failure
+  pause. Preserve full voice corrections. Propagate forget/sensitivity changes into daily activity copies.
+- Remove app-wide suppression after input misses and stale native foreground restoration. Make complete shell
+  history pageable beyond 256 KiB; redact split records before owner-only persistence and close failed-start FDs.
+- Hash prompts/extension resources, expose failed watcher startup, keep distillation retryable, remove unused Jev
+  questions/misleading duration estimates, and move evidence SQL behind SpanStore.
+- Isolate real browser test hosts from the installed service. Keep reusable test helpers outside test-case modules;
+  move the standalone native probe to device diagnostics and remove dead production/test code.
+- Consolidate Markdown into README, architecture, agent guide, changelog, notices and one owner acceptance record;
+  preserve runtime prompts and attribution. Historical design documents remain in Git.
+
+Validation: **572 offline tests passed, 53 live tests deselected** (115.50 s). Core mypy, extension JavaScript syntax,
+Python parsing and whitespace checks passed. Owner-observed acceptance is pending. The installed daemon was not
+updated by this change. See `docs/OWNER_ACCEPTANCE.md` for one-at-a-time live checks.
+
 ## 0.23.3 — 2026-10-03 — Inspect source evidence and recover incomplete coverage
 
 - Audit six calendar/WhatsApp tasks on installed 0.23.2: correct personal-calendar evidence falsely failed,

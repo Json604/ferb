@@ -29,8 +29,8 @@ class Role(Enum):
 
 # Fixed method list per role. Later build steps add methods here, never per-connection.
 METHODS: dict[Role, frozenset[str]] = {
-    Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift", "undo",
-                         "autonomy.get", "autonomy.set", "doctor.check", "automation.request", "chat.send",
+    Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift",
+                         "doctor.check", "automation.request", "chat.send",
                          "chat.approve", "chat.answer", "identity.check", "identity.pair", "browsers.list",
                          "browsers.pair",
                          "browsers.unpair", "browsers.installed", "ps.list", "ps.kill", "sense.pause", "sense.resume", "sense.status",
@@ -38,7 +38,7 @@ METHODS: dict[Role, frozenset[str]] = {
                          "memory.retract", "memory.forget", "memory.distill", "timeline.get",
                          "jev.stats", "jev.enable", "jev.reload", "reminders.list", "reminders.cancel",
                          "reminders.unseen", "chat.status", "chat.attach", "task.stop", "schedules.list", "schedules.change",
-                         "questions.answer", "voice.reload", "voice.switch"}),
+                         "voice.reload", "voice.switch"}),
     Role.MCP_SHIM: frozenset({"ping", "tools.list", "tools.call"}),
     Role.NATIVE_HOST: frozenset(),
     Role.VOICE: frozenset({"ping", "voice.attach", "voice.transcript"}),

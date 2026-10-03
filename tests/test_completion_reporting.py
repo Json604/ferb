@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tests.test_supervisor import chat, cond, done, install, outcome, sup, task
+from tests.conftest import chat, cond, done, install, outcome, sup, task
 
 
 def task_rows(daemon, task_id):
@@ -81,7 +81,7 @@ def test_unknown_check_is_not_cut_off_after_a_long_report(daemon):
 def test_stopping_a_verifier_persists_its_cancelled_state(daemon):
     import time
     from ferb.cli.client import Client
-    from tests.test_supervisor import STALL
+    from tests.conftest import STALL
     script = install(daemon, [sup('task', 'Checking', task(conds=(cond('All pages checked'),)))],
                      {'worker': done('Draft'), 'worker.verify': STALL})
     client = Client(daemon.sock)

@@ -9,94 +9,19 @@ import json
 import subprocess
 import sys
 import time
-from datetime import timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
-from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.browser.pairing import Binding
 from ferb.act.browser.profiles import BrowserProfile, discover, open_known_profile, resolve
 from ferb.act.browser.resolver import NeedsOwner, Resolver
 from ferb.cli.client import Client
-from ferb.core.types import Identity, Task
-from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.targets import Request, Targets
+from ferb.core.types import Identity
 from tests.conftest import RunningDaemon
 from tests.fake_extension import FakeExtension
-
-PROFILES = {"Default": ("Personal", "me@gmail.com"), "Profile 1": ("Work", "me@work.com"),
-            "Profile 22": ("FERB", "ferb@gmail.com")}
-
-
-def chrome_data(root: Path) -> Path:
-    d = root / "Chrome"
-    d.mkdir(parents=True)
-    cache = {f: {"name": n, "user_name": e} for f, (n, e) in PROFILES.items()}
-    (d / "Local State").write_text(json.dumps({"profile": {"info_cache": cache, "last_used": "Profile 1"}}))
-    for folder in PROFILES:                                   # the FERB extension is loaded in each (like real ones)
-        (d / folder).mkdir(exist_ok=True)
-        (d / folder / "Secure Preferences").write_text(json.dumps(
-            {"extensions": {"settings": {FERB_EXTENSION_ID: {"location": 4}}}}))
-    return d
-
-
-@pytest.fixture
-def bd(daemon: RunningDaemon) -> Iterator[tuple[RunningDaemon, list[list[str]]]]:
-    d = daemon.daemon
-    launched: list[list[str]] = []
-    d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
-    d.browser_launch = launched.append
-    d.browser_default = lambda: "chrome"                                      # last used in the fake: Profile 1
-    d.pair_load_wait_s = 0.0
-    d.router.launch = launched.append                                         # type: ignore[union-attr]
-    d.router.wake = None                                                      # type: ignore[union-attr]
-    d.router.is_running = lambda browser: False                               # type: ignore[union-attr]
-    d.config.set("identity", "browser", "chrome")
-    d.config.set("identity", "profile", "Profile 22")
-    yield daemon, launched
-
-
-def pair(d: RunningDaemon, launched: list[list[str]], name: str) -> FakeExtension:
-    ext = FakeExtension(d.daemon.home)
-    ext.connect()
-    c = Client(d.sock, timeout=30)
-    try:
-        import threading
-        out: dict[str, Any] = {}
-        t = threading.Thread(target=lambda: out.update(c.call("browsers.pair", {"profile": name, "timeout_s": 10})))
-        n = len(launched)
-        t.start()
-        ext.wait_for(lambda: len(launched) > n and "pair.html#token=" in launched[-1][-1])
-        ext.pair(launched[-1][-1].split("#token=")[1])
-        t.join(15)
-    finally:
-        c.close()
-    assert out.get("paired") is True, out
-    assert launched[-1][1].startswith("--profile-directory=")
-    return ext
-
-
-def task(d: RunningDaemon, tid: str, scopes: set[str], words: Any = None, sites: frozenset[str] = frozenset()) -> Any:
-    """A running owner task; the sites (and `words`, when a string) count as named by the owner for its request."""
-    t = Task(tid, None, "g", "dev", Identity.OWNER, scopes, "worker", f"req-{tid}", [],
-             d.daemon.clock.now() + timedelta(minutes=10))
-    own = " ".join([words] if isinstance(words, str) else []) + " " + " ".join(sorted(sites))
-
-    async def go() -> Any:
-        root = d.daemon.spans.start("task", task_id=t.id, input={})
-        d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        d.daemon.engine.requests.record(Request(f"req-{tid}", own.strip(), Targets.of(sites=sites)))
-        return d.daemon.tokens.validate(d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, Identity.OWNER, ttl_s=600))
-    return d.run(go())
-
-
-def call(d: RunningDaemon, grant: Any, name: str, **args: Any) -> dict[str, Any]:
-    return d.run(d.daemon.gateway.call(grant, name, args), timeout=30)          # type: ignore[no-any-return]
-
-
-OWNER = {"browser:read", "browser:act"}
+from tests.browserkit import OWNER, bd, call, chrome_data, pair, task  # noqa: F401 (fixture)
 
 
 # ---------- pairing, 21.16 ----------
@@ -275,7 +200,7 @@ def test_disconnect_mid_command_is_unknown_then_reconciled_never_replayed(bd: An
     assert r2["is_error"] and "older browser connection" in r2["content"]["error"]   # 21.13 after reconnect
 
 
-def test_command_never_received_reconciles_failed(bd: Any) -> None:
+def test_missing_command_in_bounded_recovery_history_stays_unknown(bd: Any) -> None:
     d, launched = bd
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
@@ -297,7 +222,7 @@ def test_command_never_received_reconciles_failed(bd: Any) -> None:
     ext.connect()
     ext.wait_for(lambda: ext.gen is not None and ext.gen >= 2)
     time.sleep(0.2)
-    assert d.run(_state(d, cid)) == "failed"
+    assert d.run(_state(d, cid)) == "unknown"
 
 
 async def _state(d: RunningDaemon, cid: str) -> str:
@@ -324,36 +249,26 @@ def test_element_ids_go_stale_after_navigation(bd: Any) -> None:
 
 # ---------- resolver + discovery (deterministic, before any model) ----------
 
-def _resolver(bindings: list[Binding], hosts: list[tuple[str, str, str]], default: str | None = None,
-              last: str | None = None) -> Resolver:
+def _resolver(bindings: list[Binding]) -> Resolver:
     profiles = [BrowserProfile("chrome", "Default", "Personal", "me@gmail.com"),
                 BrowserProfile("chrome", "Profile 1", "Work", "me@work.com"),
                 BrowserProfile("brave", "Default", "Brave me", ""),
                 BrowserProfile("chrome", "Profile 22", "FERB", "ferb@gmail.com")]
-    return Resolver(lambda: profiles, lambda: bindings, lambda: hosts, lambda: ("chrome", "Profile 22"),
-                    prefer=lambda: ["brave", "chrome"], default_browser=lambda: default,
-                    last_used=lambda b: last)
+    return Resolver(lambda: profiles, lambda: bindings, lambda: ("chrome", "Profile 22"))
 
 
 def test_resolver_rules() -> None:
     O = Identity.OWNER
     paired = [Binding("i1", "chrome", "Default", O), Binding("i2", "chrome", "Profile 1", O),
               Binding("i3", "brave", "Default", O), Binding("i4", "chrome", "Profile 22", Identity.FERB)]
-    r = _resolver(paired, [("chrome", "Profile 1", "mail.google.com")])
-    assert r.choose("mail.google.com").folder == "Profile 1"                    # already open there
-    assert r.choose("mail.google.com", "Personal").folder == "Default"          # named profile wins
-    with pytest.raises(NeedsOwner, match="several profiles"):
-        _resolver(paired, [("chrome", "Default", "x.com"), ("chrome", "Profile 1", "x.com")]).choose("x.com")
-    c = _resolver(paired, [("chrome", "Default", "x.com"), ("brave", "Default", "x.com")]).choose("x.com")
-    assert (c.browser, c.folder) == ("brave", "Default")                        # prefer_for_actions
-    assert _resolver(paired, [], "chrome", "Profile 1").choose("new.com").folder == "Profile 1"   # default + last used
-    with pytest.raises(NeedsOwner, match="which browser profile"):
-        _resolver(paired, []).choose("new.com")
+    r = _resolver(paired)
+    with pytest.raises(NeedsOwner, match="select a profile"):
+        r.choose(None)
+    assert r.choose("Personal").folder == "Default"
+    assert r.choose("Work").folder == "Profile 1"
+    assert r.choose("brave/Default").browser == "brave"
     with pytest.raises(NeedsOwner, match="no profile called 'FERB'"):
-        _resolver(paired, []).choose("x.com", "FERB")                          # identity profile never offered
-    ferb_open = _resolver(paired, [("chrome", "Profile 22", "x.com")])
-    with pytest.raises(NeedsOwner):
-        ferb_open.choose("x.com")                                               # a FERB-profile tab isn't a match
+        r.choose("FERB")  # identity profile uses its own tool family
 
 
 def test_profile_discovery_resolution_and_only_known_folders_open(tmp_path: Path) -> None:

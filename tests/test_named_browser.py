@@ -8,28 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
-from ferb.act.browser.profiles import BrowserProfile, Named, has_extension, named_in
+from ferb.act.browser.profiles import BrowserProfile, has_extension
 from ferb.cli.admin import browsers
 from ferb.core.types import Identity
 from tests.conftest import RunningDaemon
-from tests.test_ext_bridge import OWNER, bd, call, pair, task  # noqa: F401  (bd is a fixture)
+from tests.browserkit import OWNER, bd, call, pair, task  # noqa: F401  (bd is a fixture)
 
 KNOWN = [BrowserProfile("chrome", "Default", "Kartikey", "kartikey@gmail.com"),
          BrowserProfile("chrome", "Profile 2", "scaler", "kartikey.24bcs@sst.scaler.com"),
          BrowserProfile("brave", "Default", "Work", "")]
-
-
-def test_the_profile_and_browser_the_owner_names() -> None:
-    n = named_in("open my scaler gmail in chrome and find the FM I assignment", KNOWN)
-    assert n is not None and n.browser == "chrome" and [p.folder for p in n.profiles] == ["Profile 2"]
-    assert named_in("check the sst.scaler.com mail", KNOWN).profiles[0].folder == "Profile 2"   # by its account
-    assert named_in("check gmail in my chrome", KNOWN) == Named("chrome", ())                   # just the browser
-    assert named_in("finish the work report", KNOWN) is None                  # "work" alone isn't the Work profile
-    assert named_in("use my work profile", KNOWN).profiles[0].browser == "brave"
-    assert named_in("search for budgeting tips", KNOWN) is None
-    n = named_in("open my scaler gmail in chrome", KNOWN)
-    assert n.allows("chrome", "Profile 2") and not n.allows("brave", "Default")
-    assert Named("chrome", ()).allows("chrome", "Default") and not Named("chrome", ()).allows("brave", "Default")
 
 
 def test_whether_the_extension_is_installed_is_read_from_the_profile(tmp_path: Path) -> None:
@@ -41,30 +28,12 @@ def test_whether_the_extension_is_installed_is_read_from_the_profile(tmp_path: P
     assert has_extension(p, frozenset({FERB_EXTENSION_ID}), tmp_path)
 
 
-def test_a_task_never_swaps_in_another_browser(bd: Any) -> None:     # noqa: F811
+def test_an_explicit_profile_selects_that_profile(bd: Any) -> None:     # noqa: F811
     d, launched = bd
     pair(d, launched, "Work")
-    personal = next(p for p in d.daemon._profiles() if p.display_name == "Personal")
-    d.daemon.router.named_for = lambda task_id: Named("chrome", (personal,))    # type: ignore[union-attr]
     g = task(d, "w", OWNER, {"research"})
     r = call(d, g, "browser.open", url="https://mail.google.com/", profile="Work")
-    assert r["is_error"] and "the owner asked for chrome “Personal”" in r["content"]["error"]
-
-
-def test_the_planner_is_told_to_use_it_or_say_how_to_connect_it(bd: Any) -> None:     # noqa: F811
-    d, launched = bd
-    pair(d, launched, "Work")
-    daemon = d.daemon
-
-    async def note_for(words: str) -> str:                                      # on the daemon's own thread
-        return str(daemon._named_note(daemon._named_browser(words)))
-    note = d.run(note_for("open my Work profile in chrome"))
-    assert "use only that" in note and "“Work”" in note
-    data = daemon.browser_data_dirs["chrome"] / "Default" / "Secure Preferences"
-    data.unlink()                                                               # no extension in Personal
-    note = d.run(note_for("open my Personal profile in chrome"))
-    assert "can't use it yet: FERB's extension isn't installed there" in note
-    assert "Don't use another browser or profile" in note and "`ferb browsers pair Personal`" in note
+    assert not r["is_error"] and r["content"]["profile"] == "chrome/Profile 1"
 
 
 class FakeClient:
@@ -89,23 +58,6 @@ def test_pairing_walks_the_owner_through_installing_the_extension_then_pairs() -
     assert "isn't installed in Chrome “scaler”" in text and "Load unpacked" in text
     assert "/repo/extensions/chromium" in text and "Paired chrome profile “scaler”" in text
     assert c.calls == ["browsers.pair", "browsers.installed", "browsers.installed", "browsers.pair"]
-
-
-def test_a_folder_named_in_the_owners_own_way_counts() -> None:
-    """Owner's report (2026-10-01): "clg/uni folder in desktop" was asked about three times because the plan wrote
-    Desktop/clg/uni. A path counts when its folder names are all in the owner's words (home folders may be implied)."""
-    from ferb.sanitize.untrusted import targets_in_own_words
-    said = "do that assignment in clg/uni fodler in desktop"
-    assert targets_in_own_words(["Desktop/clg/uni", "~/Desktop/clg/uni", "clg/uni"], said) == []
-    assert targets_in_own_words(["Documents/clg/uni"], "the uni folder inside clg") == []
-    assert targets_in_own_words(["Desktop/clg/secret"], said) == ["Desktop/clg/secret"]     # never named: refused
-    assert targets_in_own_words(["~/.ssh/id_rsa"], said) == ["~/.ssh/id_rsa"]
-    assert targets_in_own_words(["Desktop/../clg"], "the clg folder") == []                  # ".." isn't a name
-    import os
-    home = os.path.expanduser("~")                                         # their home folder is never "a name"
-    said2 = "make it complete the assignment in clg:uni folder in desktop"
-    assert targets_in_own_words([f"{home}/Desktop/clg/uni", f"{home}/Desktop/clg:uni", "/Users/someone/Desktop/clg/uni"],
-                                said2) == []
 
 
 def test_finder_names_and_home_folders(tmp_path: Path, monkeypatch: Any) -> None:
@@ -191,8 +143,6 @@ def test_page_kinds_an_email_row_is_a_click_and_security_pages_always_ask() -> N
         def tab_url(self, tab: str) -> str:
             return self.url
 
-        def tab_profile(self, tab: str) -> None:
-            return None
     tool = BrowserAct.__new__(BrowserAct)
     tool.driver = Driver()                                                     # type: ignore[assignment]
     tool.family = type("F", (), {"identity": Identity.OWNER})()                # type: ignore[assignment]

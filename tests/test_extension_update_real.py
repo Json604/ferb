@@ -11,7 +11,7 @@ from ferb.clock.clock import SystemClock
 from ferb.device.extensions import extension_source, install_extension
 from tests.chromelab import ChromeLab, Frontmost, chrome_available, write_native_host
 from tests.conftest import RunningDaemon, without_owner_mac
-from tests.test_browser_lab_real import _wait
+from tests.chromelab import wait_for as _wait
 
 pytestmark = pytest.mark.real
 

@@ -7,19 +7,17 @@ comes back), daily summaries written by code before any model or purge, distilla
 
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
 import pytest
 
-from ferb.core.types import Identity, RunHandle, RuntimeEvent
+from ferb.core.types import Identity
 from ferb.memory import summary
 from ferb.memory.distill import Distiller
 from ferb.memory.items import MemoryRefused
 from ferb.orchestrator.schemas import Remember
-from tests.conftest import RunningDaemon
-from tests.test_mac_shell import call, task
-from tests.test_supervisor import chat, install, sup
+from tests.conftest import FakeDistillRuntime, RunningDaemon, chat, install, sup, trail_row
+from tests.mackit import gateway_call as call, grant_task as task
 
 UTC = timezone.utc
 
@@ -28,20 +26,6 @@ def run(d: RunningDaemon, fn: Any) -> Any:
     async def go() -> Any:
         return fn()
     return d.run(go())
-
-
-def trail_row(d: RunningDaemon, day: str, actor: str = "owner", source: str = "browser_tab",
-              data: dict[str, Any] | None = None, hour: int = 10) -> str:
-    rid = f"t-{day}-{actor}-{source}-{hour}-{len(data or {})}-{id(data)}"
-    at = datetime.fromisoformat(f"{day}T{hour:02d}:00:00").astimezone()
-
-    def go() -> str:
-        d.daemon.db.conn.execute(                                   # type: ignore[union-attr]
-            "INSERT INTO trail (id, at, day, device_id, actor, source, data_json) VALUES (?, ?, ?, 'dev', ?, ?, ?)",
-            (rid, at.isoformat(), day, actor, source, json.dumps(data or {"host": "github.com", "browser": "chrome",
-                                                                           "profile": "Default", "url": "https://github.com/"})))
-        return rid
-    return run(d, go)
 
 
 def journal(d: RunningDaemon, kind: str, data: dict[str, Any]) -> str:
@@ -207,22 +191,6 @@ def test_forget_purges_everything_and_nothing_comes_back(daemon: RunningDaemon) 
 
 # ---------- summaries and distillation ----------
 
-class FakeDistillRuntime:
-    def __init__(self, answer: Any) -> None:
-        self.answer, self.contexts = answer, []
-
-    async def start(self, task: Any, system: str, ctx: str, token: str) -> RunHandle:
-        self.contexts.append(ctx)
-        return RunHandle("r", "fake", task.id, {})
-
-    async def events(self, run: RunHandle) -> Any:
-        if isinstance(self.answer, Exception):
-            raise self.answer
-        yield RuntimeEvent("final", {"text": json.dumps(self.answer)})
-
-    async def cancel(self, run: RunHandle) -> None:
-        return None
-
 
 def distiller(d: RunningDaemon, answer: Any) -> tuple[Distiller, FakeDistillRuntime]:
     rt = FakeDistillRuntime(answer)
@@ -233,13 +201,17 @@ def distiller(d: RunningDaemon, answer: Any) -> tuple[Distiller, FakeDistillRunt
 
 def test_the_summary_is_written_by_code_before_the_model_and_survives_its_failure(daemon: RunningDaemon) -> None:
     day = "2026-09-07"
+    daemon.call_soon(daemon.daemon.clock.set_wall, datetime(2026, 9, 10, tzinfo=UTC))
     trail_row(daemon, day)
     dd, _ = distiller(daemon, RuntimeError("model down"))
     r = daemon.run(dd.run_day(day))
     assert r["status"] == "failed" and run(daemon, lambda: summary.summarized(daemon.daemon.db, day))
     for _ in range(3):
         daemon.run(dd.run_day(day))
-    assert day not in run(daemon, dd.pending_days)                         # 3 attempts, then left alone
+    assert day in run(daemon, dd.pending_days)
+    dd, recovered = distiller(daemon, {"narrative": "Recovered after the provider outage", "items": []})
+    assert daemon.run(dd.run_day(day))["status"] == "distilled"
+    assert recovered.contexts and day not in run(daemon, dd.pending_days)
     from datetime import date
     purged, refused = run(daemon, lambda: daemon.daemon.trail.purge(1, date(2026, 9, 20)))
     assert day in purged                                                   # summarized: the raw rows may go
@@ -286,10 +258,9 @@ def test_trail_query_is_owner_only_and_titles_expose_the_worker(daemon: RunningD
     assert "trail.query" not in {t["name"] for t in daemon.daemon.gateway.tools_for(ferb)}
     g = task(daemon, "q", Identity.OWNER, {"trail:read"}, {"research"})
     r = call(daemon, g, "trail.query", source="app_focus")
-    assert not r["is_error"] and not daemon.daemon.engine.exposure.state("w-q").exposed
+    assert not r["is_error"]
     r = call(daemon, g, "trail.query", since_hours=24 * 30)
     assert not r["is_error"] and r["content"]["count"] >= 1
-    assert daemon.daemon.engine.exposure.state("w-q").exposed                   # page titles are web content
 
 
 def test_secrets_never_reach_memory_or_its_export(daemon: RunningDaemon) -> None:

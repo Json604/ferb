@@ -21,11 +21,10 @@ class EventClass(Enum):
 
 CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "approval.requested", "approval.resolved",
             "device.changed", "browser.profile_paired", "timer.fired", "memory.committed",
-            "policy.blocked", "worker.exposed", "action.held", "action.released", "action.undone",
-            "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed", "contact.selected",
-            "plan.extended", "voice.heard", "voice.said", "browser.debugger_detached"}
+            "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",
+            "voice.heard", "voice.said", "browser.debugger_detached"}
 TELEMETRY = {"tool.called", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
-             "memory.proposed", "browser.dialog"}
+             "memory.proposed", "browser.dialog", "browser.cleanup_failed"}
 STABLE_TOPICS = CRITICAL | TELEMETRY
 DROPPED = "bus.dropped"   # synthetic notice to a subscriber: {"count": n} telemetry events were dropped
 

@@ -30,13 +30,12 @@ def test_default_output_is_ferbs_words_without_internals() -> None:
                "artifacts": ["a.md"], "verified": False, "verification": []}
     shown = [render(e) for e in (plan, outcome, {"type": "subtask", "id": "r", "status": "started"},
                                  {"type": "verification", "results": []},
-                                 {"type": "event", "topic": "tool.called", "data": {"tool": "fs.read"}},
-                                 {"type": "event", "topic": "policy.blocked", "data": {"step": "intent", "reason": "x"}})]
+                                 {"type": "event", "topic": "tool.called", "data": {"tool": "fs.read"}})]
     assert shown[:2] == ["ferb> Looking at your storage now.", "ferb> Your Downloads folder is 40 GB."]
-    assert shown[2:] == [None, None, None, None]
+    assert shown[2:] == [None, None, None]
     assert not any(j in " ".join(s for s in shown if s) for j in JARGON)
-    assert "holding this for 10 s" in (render({"type": "event", "topic": "action.held", "data": {"seconds": 10}}) or "")
-    assert "OK for FERB to send an email from FERB?" in question({"kind": "mailbox_send", "reason": "to bob"})
+    assert "Send the prepared email to Bob?" in question(
+        {"kind": "owner_question", "reason": "Send the prepared email to Bob?"})
 
 
 def test_verbose_shows_the_internals() -> None:
@@ -86,8 +85,8 @@ def test_a_workers_question_is_asked_in_chat_and_answered_in_the_owners_words() 
                           "options": ["a@x", "b@x"]})
     assert calls == [("chat.answer", {"approval_id": "ap1", "text": "the work one"})]
     yes_no = Chat(lambda: C(), io.StringIO(), lambda prompt: "y")                 # type: ignore[arg-type,return-value]
-    yes_no.answer_approval({"approval_id": "ap2", "kind": "send", "reason": "bob@y.com: “hi”"})
-    assert calls[-1] == ("chat.approve", {"approval_id": "ap2", "granted": True})
+    yes_no.answer_approval({"approval_id": "ap2", "kind": "owner_question", "reason": "Send this to Bob?"})
+    assert calls[-1] == ("chat.answer", {"approval_id": "ap2", "text": "y"})
 
 
 def test_chat_shows_reminders_it_hasnt_shown_yet() -> None:

@@ -4,7 +4,7 @@ import pytest
 
 from ferb.act.mac.input import Step
 from ferb.core.errors import Refused, StaleRef
-from tests.test_mac_vision import vision
+from tests.mackit import vision
 
 
 @pytest.fixture(autouse=True)

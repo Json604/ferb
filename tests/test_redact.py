@@ -2,10 +2,69 @@
 
 import copy
 
+import pytest
+
 from ferb.cli.admin import render_trace
 from ferb.sanitize.redact import EXCLUDED, REDACTED, Redactor, secret_key
 
 r = Redactor()
+
+
+@pytest.mark.parametrize('secret', [
+    'known-secret-value', 'known\nmultiline\nsecret', 'Bearer abcdefghijklmnopqrstu',
+    '-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----',
+    'sk-ant-api03-abcdefghijklmnopqrst', 'https://user:password@example.com/?token=abc',
+])
+def test_stream_redaction_is_safe_at_every_byte_boundary(secret):
+    redactor = Redactor()
+    if secret.startswith('known'):
+        redactor.add_secret_value(secret)
+    raw = ('before π\n' + secret + '\nafter ✓\n').encode()
+    expected = redactor.text(raw.decode()).encode()
+    for split in range(len(raw) + 1):
+        stream = redactor.stream()
+        actual = stream.feed(raw[:split]) + stream.feed(raw[split:], final=True)
+        assert actual == expected, split
+    stream = redactor.stream()
+    assert b''.join(stream.feed(bytes([x])) for x in raw) + stream.feed(b'', final=True) == expected
+
+
+def test_stream_emits_complete_normal_lines_without_waiting_for_exit():
+    stream = Redactor().stream()
+    assert stream.feed('progress π\n'.encode()) == 'progress π\n'.encode()
+    assert stream.feed(b'partial') == b''
+    assert stream.feed(b'', final=True) == b'partial'
+
+
+
+def test_stream_emits_an_interactive_prompt_before_process_exit():
+    stream = Redactor().stream()
+    assert stream.feed(b'Continue? ') == b'Continue? '
+    assert stream.feed(b'next safe word ') == b'next safe word '
+    assert stream.feed(b'', final=True) == b''
+
+
+def test_stream_keeps_partial_private_key_headers_after_safe_prompt():
+    raw = b'Continue? -----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----\n'
+    expected = b'Continue? [redacted]\n'
+    for split in range(len(raw) + 1):
+        stream = Redactor().stream()
+        assert stream.feed(raw[:split]) + stream.feed(raw[split:], final=True) == expected, split
+    stream = Redactor().stream()
+    assert b''.join(stream.feed(bytes([c])) for c in raw) + stream.feed(b'', final=True) == expected
+
+def test_overlapping_secrets_are_redacted_longest_first():
+    redactor = Redactor()
+    redactor.add_secret_value('abcd')
+    redactor.add_secret_value('abcdef')
+    assert redactor.text('abcdef') == REDACTED
+
+
+def test_stream_suppresses_oversize_unfinished_private_key_without_raw_spill():
+    stream = Redactor().stream()
+    out = stream.feed(b'-----BEGIN RSA PRIVATE KEY-----\n' + b'A' * 200000)
+    out += stream.feed(b'\n-----END RSA PRIVATE KEY-----\nnormal\n', final=True)
+    assert b'AAAA' not in out and b'[redacted]' in out and out.endswith(b'normal\n')
 
 
 def test_secret_key_names_by_word_not_substring() -> None:

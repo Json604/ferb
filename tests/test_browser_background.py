@@ -1,4 +1,4 @@
-"""Rework phase 3, browser (PLATFORM_BROWSER.md 13), offline: the fake extension through the real native host and
+"""Rework phase 3, browser (ARCHITECTURE.md), offline: the fake extension through the real native host and
 a real daemon. Background by construction (one minimized FERB window per profile, tabs never active, the owner's
 tab list never shows FERB's window), the debugger session per task tab (attached on first use, kept until close;
 the owner's Cancel makes the act in flight unknown), dialogs owned by the extension, container scrolls, keepalive
@@ -9,7 +9,6 @@ the same connection, close confirmed before the tab is forgotten, the YouTube he
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -21,18 +20,8 @@ import ferb.act.browser.ext_bridge as eb
 from ferb.act.browser.ext_bridge import OutcomeUnknown
 from ferb.act.browser.ext_protocol import MIN_EXTENSION_VERSION, version_ok
 from tests.fake_extension import FakeExtension
-from tests.test_ext_bridge import OWNER, bd, call, pair, task  # noqa: F401  (the fixture and its helpers)
-
-EXT = Path(__file__).parents[1] / "extensions" / "chromium"
-SHOP = "https://shop.example"
-
-
-def _ready(d: Any, launched: Any, name: str = "Work", verbs: set[str] | None = None, tid: str = "x") -> tuple[Any, Any]:
-    ext = pair(d, launched, name)
-    ext.wait_for(lambda: ext.gen is not None)
-    d.daemon.config.set("policy", "trusted_accounts", ["shop.example @ chrome/Profile 1"])
-    g = task(d, tid, OWNER, verbs if verbs is not None else {"fill_form"}, sites=frozenset({"shop.example"}))
-    return ext, g
+from tests.chromelab import EXT, SHOP, _ready, _node
+from tests.browserkit import OWNER, bd, call, pair, task  # noqa: F401  (the fixture and its helpers)
 
 
 def _bridge(d: Any) -> Any:
@@ -61,7 +50,7 @@ def test_tabs_open_inactive_in_one_minimized_ferb_window_that_the_owner_never_se
         assert ext.tab_windows[cid] == ext.ferb_window and ext.tab_active[cid] is False   # created inactive, in it
     ext.window_state = "normal"                                                  # the owner restored the window...
     call(d, g, "browser.open", url=f"{SHOP}/c")
-    assert ext.windows_created == 1 and ext.window_state == "minimized"          # ...re-minimized, not re-created
+    assert ext.windows_created == 1 and ext.window_state == "normal"             # preserve the owner's restored view
     listed = call(d, g, "browser.tabs")["content"]["tabs"]
     assert [t["site"] for t in listed] == ["news.example"]                       # FERB's window: never the owner's
 
@@ -124,6 +113,28 @@ def test_keepalive_pings_while_a_task_tab_is_open(bd: Any, monkeypatch: pytest.M
     assert ext.pings == n                                                        # nothing open: no more pings
 
 
+def test_kept_class_tab_survives_task_cleanup_and_reconnect(bd: Any) -> None:
+    d, launched = bd
+    ext, g = _ready(d, launched, verbs={"research"})
+    tab = call(d, g, "browser.open", url=f"{SHOP}/class")["content"]["tab"]
+    cid = _chrome_id(d, tab)
+    call(d, g, "browser.snapshot", tab=tab)
+    kept = call(d, g, "browser.keep_open", tab=tab)
+    assert not kept['is_error'] and kept['content']['kept_open']
+    assert cid not in ext.attached and cid in ext.tabs
+    call(d, g, "browser.snapshot", tab=tab)  # a verifier's fresh read may attach again
+    assert cid in ext.attached
+    report = d.run(d.daemon.router.release(g.task_id))
+    assert report[0]['kept_open'] and report[0]['released'] and not report[0]['closed']
+    assert ext.tabs[cid] == f"{SHOP}/class" and cid not in ext.attached
+    ext.kill()
+    ext.connect()
+    ext.wait_for(lambda: ext.gen is not None and ext.gen >= 2)
+    assert ext.tabs[cid] == f"{SHOP}/class" and cid in ext.kept
+    listed = call(d, g, 'browser.tabs')['content']['tabs']
+    assert any(t['tab_ref'].endswith(f':{cid}') for t in listed)
+
+
 # ---------- stage C/D: snapshot semantics, container scroll, dialogs, uploads, screenshots ----------
 
 def test_snapshot_reports_viewport_and_scrollers_and_scroll_targets_a_container(bd: Any) -> None:
@@ -136,7 +147,7 @@ def test_snapshot_reports_viewport_and_scrollers_and_scroll_targets_a_container(
     assert "in_view" not in rows["message 1"] and rows["message 1"]["container"] == "c1"
     assert rows["message 2"]["in_view"] is False and rows["message 2"]["offscreen"] == "below"
     r = call(d, g, "browser.scroll", tab=tab, direction="down", container="c1")["content"]
-    assert r == {"y": 340, "page_height": 2000, "at_end": False, "viewport_h": 400, "container": "c1"}
+    assert r == {"y": 340, "page_height": 2000, "at_end": False, "viewport_h": 400, "container": "c1", "frame": 0}
     assert ext.acts == [] and _chrome_id(d, tab) in ext.attached                # a real wheel, through the debugger
     r = call(d, g, "browser.scroll", tab=tab, direction="down")["content"]
     assert r["y"] == 765 and "container" not in r                                # the page itself
@@ -249,7 +260,8 @@ def test_close_forgets_the_tab_only_once_the_browser_confirmed(bd: Any) -> None:
     fut = asyncio.run_coroutine_threadsafe(router.close(router.owned_by(tab, "x")), d.loop)
     ext.wait_for(lambda: any(m["op"] == "close" for m in ext.held))
     ext.kill()                                                                   # no confirmation ever comes
-    fut.result(10)
+    with pytest.raises(OutcomeUnknown):
+        fut.result(10)
     assert tab in router._tabs                                                   # still FERB's until Chrome says
     ext.hold = False
     ext.connect()
@@ -282,17 +294,11 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.connect()
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
-    assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.9.0") and version_ok("0.10.2") and not version_ok("0.6.9")
+    assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and version_ok("0.11.2") and not version_ok("0.6.9")
     assert json.loads((EXT / "manifest.json").read_text())["version"] == MIN_EXTENSION_VERSION   # bumped together
 
 
 # ---------- the extension's own code, run in node ----------
-
-def _node() -> str:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node not installed")
-    return node
 
 
 def test_extension_allowlist_covers_exactly_the_session_setup_input_dialogs_and_uploads() -> None:

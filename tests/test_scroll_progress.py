@@ -2,7 +2,7 @@ import asyncio
 
 from ferb.act.mac.accessibility import AxNode, AxTree
 from ferb.core.types import ComputerAction
-from tests.test_background_input import ScrollAx, setup, ids
+from tests.mackit import ScrollAx, background_mac as setup, ids
 
 
 def test_reveal_row_is_not_directional_scrolling(monkeypatch):
@@ -88,7 +88,7 @@ def test_container_progress_tracks_visible_children_without_scrollbar_values(mon
 def test_pixel_scroll_uses_viewport_sized_steps(monkeypatch):
     import ferb.act.mac.driver as driver
     from ferb.act.mac.input import Step
-    from tests.test_mac_vision import vision
+    from tests.mackit import vision
     d, _, _, _, _ = vision(monkeypatch)
     monkeypatch.setattr(driver, 'load_route', lambda: None)
     calls = []
@@ -113,7 +113,7 @@ def test_pointer_scroll_supports_small_viewport_fraction(monkeypatch):
     import ferb.act.mac.driver as driver
     from ferb.act.mac.input import Step
     from ferb.act.mac.tools import MacPointer
-    from tests.test_mac_vision import vision
+    from tests.mackit import vision
     d, _, _, _, _ = vision(monkeypatch)
     monkeypatch.setattr(driver, 'load_route', lambda: None)
     distances = []

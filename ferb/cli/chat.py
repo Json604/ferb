@@ -3,7 +3,7 @@
 - A real line editor (prompt_toolkit): Enter sends, Option-Enter (or Esc then Enter) adds a line, arrows and
   history work. A paste arrives whole — several lines, one message — and is still marked as data, not instructions:
   FERB wraps each pasted piece in the paste markers the daemon treats as untrusted (section 10.2).
-- Plain by default: FERB's own words, its questions, and a line when something is held for undo. `--verbose` shows
+- Plain by default: FERB's own words, its questions, and their results. `--verbose` shows
   the plan, each step, tools and checks.
 - Ctrl-C while FERB works stops that task ("stopped by you"). Closing chat (Ctrl-D, /quit, closing the terminal)
   never stops anything: tasks keep running, their answers wait for next time (and arrive as a macOS notification).
@@ -25,14 +25,6 @@ from ferb.sanitize.untrusted import PASTE_END, PASTE_START
 from ferb.voice.speak import Silent
 
 PASTE_ON, PASTE_OFF = "\x1b[?2004h", "\x1b[?2004l"
-
-KIND_TEXT = {"call": "start a call", "send": "send a message", "post": "post", "reply": "reply", "mailbox_send": "send an email from FERB",
-             "pay": "make a payment", "delete_permanent": "permanently delete something",
-             "account_security": "change account or security settings", "run_shell": "run a command",
-             "applescript": "control an app with AppleScript", "mac_input": "use the mouse and keyboard in an app",
-             "fill_form": "fill in a form", "submit": "submit something", "click": "click something on a page",
-             "write_file": "change a file", "fill_secret": "fill in a password", "mailbox_read": "read FERB's inbox"}
-
 
 def read_message(inp: TextIO) -> str | None:
     """Without a terminal (piped input): one message per line; a bracketed paste may span several lines."""
@@ -128,28 +120,10 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
         return f"ferb> {ev['text']}"
     if t == "event":
         d, topic = ev["data"], ev["topic"]
-        if topic == "action.held":
-            secs = f"{d.get('seconds', 10):.0f} s"
-            to = d.get("to")
-            if d.get("kind") == "call":
-                return f"   📞 Calling {to} in {secs}… (Ctrl-C to cancel)" if to else \
-                    f"   📞 calling in {secs}… (Ctrl-C to cancel)"
-            if d.get("kind") in ("send", "mailbox_send", "reply", "post"):
-                return f"   ✉️ Sending to {to} in {secs}… (Ctrl-C to cancel)" if to else \
-                    f"   ✉️ sending in {secs}… (Ctrl-C to cancel)"
-            return f"   ⏳ holding this for {secs} so you can stop it (Ctrl-C)"
-        if topic == "action.undone":
-            return "   ↩ cancelled"
         if not verbose:
             return None
         if topic == "tool.called":
             return f"   · {d.get('tool')}"
-        if topic == "policy.blocked":
-            return f"   ✗ blocked ({d.get('step')}): {d.get('reason')}"
-        if topic == "worker.exposed":
-            return f"   ! worker exposed to untrusted content: {d.get('reason')}"
-        if topic == "action.released":
-            return "   → released"
     return None
 
 
@@ -162,13 +136,7 @@ def question(d: dict[str, Any]) -> str:
             opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
             return f"   ? {d.get('reason', '')}\n{opts}\n   number or your answer (Enter to skip): "
         return f"   ? {d.get('reason', '')}\n   your answer (Enter to skip): "
-    if d.get("options"):                                  # "Which Rahul did you mean?" (16a)
-        opts = "\n".join(f"     {i}) {o}" for i, o in enumerate(d["options"], 1))
-        return f"   ? {d.get('reason', '')}\n{opts}\n   number (Enter to cancel): "
-    if d.get("kind") in ("folder_access", "send_again"):
-        return f"   ? {d.get('reason', '')} [y/N] "
-    what = KIND_TEXT.get(str(d.get("kind")), str(d.get("kind") or "do this"))
-    return f"   ? OK for FERB to {what}? {d.get('reason', '')} [y/N] "
+    return f"   ? {d.get('reason', '')}\n   your answer (Enter to skip): "
 
 
 class Spinner:
@@ -256,13 +224,7 @@ class Chat:
         else:
             reply = self.ask(question(d)).strip()
         self.speaker.stop()
-        if d.get("kind") in ("owner_question", "owner_login_code"):  # a number picks an option; anything else is the answer
-            r = self.call("chat.answer", {"approval_id": d["approval_id"], "text": reply})
-        elif d.get("options"):
-            n = int(reply) if reply.isdigit() and 1 <= int(reply) <= len(d["options"]) else None
-            r = self.call("chat.approve", {"approval_id": d["approval_id"], "granted": n is not None, "choice": n})
-        else:
-            r = self.call("chat.approve", {"approval_id": d["approval_id"], "granted": reply.lower() in ("y", "yes")})
+        r = self.call("chat.answer", {"approval_id": d["approval_id"], "text": reply})
         if self.verbose:
             self.say(f"   {r['state']}")
 

@@ -1,7 +1,6 @@
 """The owner's open tabs, and scrolling that isn't a loop.
 - the owner's open tabs can be listed and taken over; FERB lets go of an attached tab and never closes it;
 - the loop guard stops a cycle only when its results repeat too;
-- an alias ("wa") or a catalogue name counts as naming the app or site in the owner's words.
 """
 
 import asyncio
@@ -15,7 +14,6 @@ from ferb.act.browser.ext_bridge import Router
 from ferb.core.errors import Refused
 from ferb.core.types import Identity, Task
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.targets import named
 
 
 # ---------- the owner's open tabs ----------
@@ -31,6 +29,8 @@ class FakeBridge:
         if op == "list_tabs":
             return {"tabs": [{"tab_id": 11, "host": "www.youtube.com", "active": True},
                              {"tab_id": 12, "host": "mail.google.com", "active": False}]}
+        if op == "release_tab":
+            return {"released": True, "kept_open": bool(args.get("keep_open")), "tab_id": args["tab_id"]}
         return {"closed": True}
 
 
@@ -58,6 +58,35 @@ def test_the_owners_open_tabs_can_be_taken_over_and_are_never_closed() -> None:
     assert [t["tab_ref"] for t in asyncio.run(r.open_tabs())] == ["brave:Default:12"]   # now in use by the task
     asyncio.run(r.release("task-1"))                                                 # the task ends
     assert "close" not in br.calls and ref.tab_id not in r._tabs                    # let go, never closed
+    assert "release_tab" in br.calls
+
+
+def test_handoff_preserves_task_tab_and_cleanup_releases_it_without_closing() -> None:
+    r, br = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    kept = asyncio.run(r.keep_open(ref))
+    assert kept['kept_open'] and kept['released']
+    assert r.owned_by(ref.tab_id, 'task-1') == ref  # checker can still inspect before cleanup
+    result = asyncio.run(r.release('task-1'))
+    assert result[0]['kept_open'] and not result[0]['closed']
+    assert 'close' not in br.calls and ref.tab_id not in r._tabs
+
+
+def test_failed_handoff_does_not_claim_success_or_allow_cleanup_to_close_tab() -> None:
+    from ferb.core.errors import DriverError
+    r, br = router()
+    ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
+    r._tabs[ref.tab_id].attached = False
+    br.unhold = lambda: None
+    async def fails(op, args, **kwargs):
+        br.calls.append(op)
+        raise DriverError('disconnected during release')
+    br.call = fails
+    with pytest.raises(DriverError):
+        asyncio.run(r.keep_open(ref))
+    with pytest.raises(DriverError):
+        asyncio.run(r.release('task-1'))
+    assert ref.tab_id in r._tabs and 'close' not in br.calls
 
 
 def test_another_task_cant_grab_an_attached_tab() -> None:
@@ -161,7 +190,7 @@ def test_checker_tab_access_requires_matching_registered_parent(daemon: Any, cha
 def test_chat_checker_navigates_existing_worker_tab_without_taking_ownership(daemon: Any) -> None:
     import json
     from ferb.act.browser.tools import BrowserClose, BrowserFind, BrowserNavigate, OWNER_BROWSER
-    from tests.test_supervisor import chat, cond, done, install, outcome, sup, task, tool
+    from tests.conftest import chat, cond, done, install, outcome, sup, task, tool
 
     d = daemon.daemon
     r, br = router()
@@ -193,7 +222,8 @@ def test_chat_checker_navigates_existing_worker_tab_without_taking_ownership(dae
         return json.dumps({"results": [{"index": 0, "met": True, "evidence": "fresh read matches"}]})
 
     spec = task("read current comments", "owner", conds=(cond("last comment matches"),))
-    script = install(daemon, [sup("task", "reading", spec)], {"worker": worker, "worker.verify": checker})
+    script = install(daemon, [sup("task", "reading", spec)], {"worker": worker, "worker.verify": checker,
+                      "worker.resources": done("last author: a test comment; the borrowed tab remains open")})
     result = outcome(chat(daemon, "read the comments in my current Brave tab"))
     assert result["verified"] is True, result
     ctx = next(c for _, key, c, _ in script.contexts if key == "worker.verify")
@@ -212,10 +242,3 @@ def test_find_searches_the_whole_page() -> None:
     br.call = page                                                                   # type: ignore[method-assign]
     got = asyncio.run(r.find(ref, "arpit"))
     assert got["matches"] == 23 and got["lines_on_page"] == 900 and len(got["examples"]) == 20
-
-
-def test_an_alias_or_catalogue_name_counts_as_naming_the_target() -> None:
-    assert named("net.whatsapp.WhatsApp", "now call aditya scaler in wa")           # the owner's session
-    assert not named("net.whatsapp.WhatsApp", "call aditya")
-    assert named("www.youtube.com", "keep scrolling the comments in my current youtube tab")
-    assert named("slack.com", "check my slack messages") and not named("slack.com", "check my messages")

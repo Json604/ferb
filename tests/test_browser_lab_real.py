@@ -2,7 +2,7 @@
 never the owner's browsers or profiles) with the unpacked FERB extension, a test daemon with its own home, and a
 local page. Nothing but the lab Chrome is touched; ~/.ferb stays out.
 
-Proves on this Mac what PLATFORM_BROWSER.md 13 promises: FERB's tab opens in a minimized window and stays inactive;
+Proves on this Mac what ARCHITECTURE.md promises: FERB's tab opens in a minimized window and stays inactive;
 real (isTrusted) typing, clicks and keys land there; the page and a container scroll by wheel; a confirm() is
 answered by the extension; a file lands in a file input; a screenshot renders; and the frontmost app never changed
 while all of it happened (NSWorkspace polled every 50 ms, as in the probes).
@@ -13,7 +13,6 @@ while all of it happened (NSWorkspace polled every 50 ms, as in the probes).
 import asyncio
 import http.server
 import json
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -21,11 +20,9 @@ from typing import Any, Iterator
 
 import pytest
 
-from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
-from ferb.clock.clock import SystemClock
 from ferb.core.types import BrowserAction
-from tests.chromelab import ChromeLab, Frontmost, chrome_available, write_native_host
-from tests.conftest import RunningDaemon, without_owner_mac
+from tests.chromelab import ChromeLab, Frontmost, lab  # noqa: F401
+from tests.conftest import RunningDaemon
 
 pytestmark = pytest.mark.real
 EXT_DIR = Path(__file__).parents[1] / "extensions" / "chromium"
@@ -87,56 +84,6 @@ def site() -> Iterator[str]:
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_port}"
     srv.shutdown()
-
-
-@pytest.fixture(scope="module")
-def lab() -> Iterator[tuple[RunningDaemon, ChromeLab, Frontmost]]:
-    if not chrome_available():
-        pytest.skip("Google Chrome (and node) are needed for the lab")
-    base = Path(tempfile.mkdtemp(prefix="ferbl-"))          # short path: the daemon socket must fit in sun_path
-    udd = base / "chrome"
-    udd.mkdir()
-    # a named profile in Local State so FERB's discovery finds the lab profile ("Lab" = the Default folder)
-    (udd / "Local State").write_text(json.dumps({"profile": {"info_cache": {"Default": {"name": "Lab", "user_name": ""}},
-                                                             "last_used": "Default"}}))
-    d = RunningDaemon(base / "home", clock=SystemClock())
-    without_owner_mac(d)                                                  # locked down: browser tools only
-    dm = d.daemon
-    dm.browser_data_dirs = {"chrome": udd}
-    launched: list[list[str]] = []
-    dm.browser_launch = launched.append                                   # never launch a real browser
-    assert dm.router is not None
-    dm.router.launch, dm.router.wake = launched.append, None
-    dm.router.is_running = lambda b: True
-    write_native_host(udd, d.sock, FERB_EXTENSION_ID)
-    front = Frontmost()
-    chrome = ChromeLab(udd)
-    try:
-        assert chrome.load_extension(EXT_DIR) == FERB_EXTENSION_ID        # the pinned id (manifest key)
-        _wait(lambda: FERB_EXTENSION_ID and "chrome" in dm.hub.unpaired.values(), 30, "the extension never said hello")
-        token = d.run(_issue(d))
-        sw = chrome.worker_session(FERB_EXTENSION_ID)
-        chrome.evaluate(sw, f"send('pair', {{token: {json.dumps(token)}}})")
-        _wait(lambda: (br := dm.hub.bridges.get(("chrome", "Default"))) is not None and br.conn is not None, 30,
-              "pairing never completed")
-        chrome.sw = sw                                                   # type: ignore[attr-defined]
-        yield d, chrome, front
-    finally:
-        chrome.close()
-        d.stop()
-        front.stop()
-
-
-async def _issue(d: RunningDaemon) -> str:
-    return d.daemon.pairings.issue_token("chrome", "Default")
-
-
-def _wait(cond: Any, timeout: float, what: str) -> None:
-    end = time.monotonic() + timeout
-    while not cond():
-        if time.monotonic() > end:
-            raise AssertionError(what)
-        time.sleep(0.1)
 
 
 def test_ax_targets_in_same_process_and_cross_site_frames(lab: Any, site: str) -> None:

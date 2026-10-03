@@ -2,10 +2,9 @@
 
 Pasted/quoted = terminal bracketed paste (ESC[200~ ... ESC[201~), fenced code blocks (```), and `>` quote lines.
 Each is wrapped in <untrusted-data id="..."> tags with a random id (so pasted text can't forge a closing tag), and
-the owner's own words are returned separately: the intent may only use targets that appear in them.
+the owner's own words are returned separately for the orchestrator to interpret intent.
 """
 
-import os
 import re
 import secrets
 from dataclasses import dataclass
@@ -99,30 +98,3 @@ def wrap_untrusted(text: str) -> str:
     tag, uid = "untrusted-data", secrets.token_hex(6)
     body = text.replace(f"</{tag}", f"<\\/{tag}")
     return f'<{tag} id="{uid}">\n{body}\n</{tag} id="{uid}">'
-
-
-HOME_FOLDERS = {"~", "users", "desktop", "documents", "downloads", "home", "library", "icloud drive"}
-
-
-def targets_in_own_words(targets: list[str], own_words: str) -> list[str]:
-    """Targets that do NOT appear in the owner's own words (case-insensitive). Empty list = all present. A path counts
-    when its folder / file names are all in their words, however written: "clg/uni folder in desktop" names
-    Desktop/clg/uni (owner's report 2026-10-01) — the usual home folders (Desktop, Documents…) may be implied."""
-    lw = own_words.lower()
-    words = set(re.findall(r"[\w.-]+", lw))
-    missing = []
-    for t in targets:
-        s = t.strip().lower()
-        if not s or s in lw:
-            continue
-        if "/" in s:
-            home = os.path.expanduser("~").lower().rstrip("/")
-            if s == home or s.startswith(home + "/"):              # /Users/<them>/… is just "~/…"
-                s = "~" + s[len(home):]
-            s = re.sub(r"^/users/[^/]+(?=/|$)", "~", s)
-            parts = [p for p in re.split(r"[/\\:]+", s) if p and p not in HOME_FOLDERS
-                     and not re.fullmatch(r"\.{1,2}", p)]
-            if parts and all(p in words or p in lw for p in parts):
-                continue
-        missing.append(t)
-    return missing

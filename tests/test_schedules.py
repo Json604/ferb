@@ -1,9 +1,4 @@
-"""Build step 15, offline: schedules (recurrence across daylight saving, missed-run policy, runs held to the targets
-recorded from the owner's words, unattended approvals, three failures pause, cancel / pause / resume), progressive
-setup ("email me" asks once and remembers; a folder the owner named is asked about once; unattended runs queue the
-question), and time awareness (fresh relative ages at the end of the prompt, "since we last talked", idle-held
-notifications).
-"""
+"""Schedules preserve owner instructions and timing/failure facts for agent decisions; owner controls recurrence."""
 
 import asyncio
 import json
@@ -17,10 +12,10 @@ import pytest
 
 from ferb.cli.client import Client
 from ferb.clock.context import ago
-from ferb.orchestrator.schedules import MAX_LATE_S, Rule, ScheduleError
-from ferb.policy.targets import Request, Targets, within
+from ferb.orchestrator.schedules import Rule, ScheduleError
+from ferb.policy.targets import Request, Targets
 from tests.conftest import Answers, RunningDaemon
-from tests.test_supervisor import chat, install, sup, task, writes
+from tests.conftest import chat, install, sup, task, writes
 
 NY = ZoneInfo("America/New_York")
 
@@ -48,18 +43,8 @@ def test_recurrence_keeps_local_time_across_daylight_saving() -> None:
     assert Rule.build("none", first, tz=NY).next_after(first, first) is None
 
 
-def test_how_late_a_missed_run_may_still_run() -> None:
-    first = datetime(2026, 10, 1, 9, 0, tzinfo=NY)
-    assert Rule.build("every", first, every_minutes=30, tz=NY).late_limit_s() == 15 * 60     # half the interval
-    assert Rule.build("daily", first, tz=NY).late_limit_s() == MAX_LATE_S                     # at most 12 h
-    assert Rule.build("none", first, tz=NY).late_limit_s() == MAX_LATE_S                      # a one-off: 12 h
 
 
-def test_a_run_may_only_stay_within_the_recorded_targets() -> None:
-    recorded = Targets.of(recipients=["me@x.com"], sites=["mail.google.com"])
-    assert within(Targets.of(sites=["mail.google.com"]), recorded) == []
-    got = " ".join(within(Targets.of(recipients=["eve@evil.com"], sites=["shop.example"]), recorded))
-    assert "eve@evil.com" in got and "shop.example" in got
 
 
 # ---------- schedules from chat ----------
@@ -171,7 +156,7 @@ def test_scheduled_run_receives_original_request_and_its_answer_waits(daemon: Ru
 def test_a_scheduled_run_never_asks_the_owner_a_question(daemon: RunningDaemon) -> None:
     """Nobody is at chat during a scheduled run: owner_ask is declined at once, with a note for the worker."""
     now = daemon.daemon.clock.now()
-    from tests.test_supervisor import tool
+    from tests.conftest import tool
     seen: dict[str, Any] = {}
 
     def worker(token: str) -> str:
@@ -185,17 +170,20 @@ def test_a_scheduled_run_never_asks_the_owner_a_question(daemon: RunningDaemon) 
     assert "scheduled run" in seen["r"]["content"]["reason"]
 
 
-def test_a_run_missed_by_too_much_is_skipped_and_reported(daemon: RunningDaemon) -> None:
+def test_late_schedule_reaches_planner_with_original_instructions(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     rec = Targets.of(paths=["report.md"])
-    make_schedule(daemon, "write report.md", "every day at 9 write report.md", rec, now + timedelta(minutes=1))
-    install(daemon, [])                                                     # no model call may happen
-    fire(daemon, 13 * 3600)                                                 # asleep for 13 h: past the 12 h limit
+    request = 'write report.md ' + 'preserve this detail ' * 100 + 'and keep the final constraint'
+    make_schedule(daemon, request, request, rec, now + timedelta(minutes=1))
+    script = install(daemon, [sup('reply', 'This missed occurrence is no longer useful.')])
+    fire(daemon, 13 * 3600)
     r = results(daemon)
-    assert r and r[0]["status"] == "skipped" and "I skipped" in r[0]["answer"]
+    assert r and 'no longer useful' in r[0]['answer']
+    assert request in script.contexts[0][2]
+    assert 'late' in script.contexts[0][2] and 'failure' in script.contexts[0][2]
 
 
-def test_three_failures_in_a_row_pause_a_schedule(daemon: RunningDaemon) -> None:
+def test_owner_can_pause_and_cancel_a_schedule_after_failures(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     rec = Targets.of(paths=["report.md"])
     s = make_schedule(daemon, "write report.md", "every 30 minutes write report.md", rec,
@@ -214,17 +202,19 @@ def test_three_failures_in_a_row_pause_a_schedule(daemon: RunningDaemon) -> None
         c.close()
 
 
-def test_unattended_approvals_wait_an_hour_then_the_step_is_skipped() -> None:
-    from ferb.clock.clock import FakeClock
-    from ferb.core.types import Identity, Target
-    from ferb.policy.approvals import UNATTENDED_TTL_S, Approvals
-    from ferb.policy.rules import ActionRequest
-    clock = FakeClock()
-    ap = Approvals(clock)
-    ap.unattended.add("sched-run")
-    a = ActionRequest("x", "send", Identity.OWNER, frozenset(), "t", "w", "sched-run", frozenset(), Target())
-    q = ap.request(a, "?")
-    assert q.expires_at - clock.monotonic() == UNATTENDED_TTL_S == 3600
+def test_repeated_failure_does_not_silently_pause_a_recurring_task(daemon: RunningDaemon) -> None:
+    now = daemon.daemon.clock.now()
+    scheduled = make_schedule(daemon, 'Check source', 'Check source every day', Targets(),
+                              now + timedelta(minutes=1))
+    for _ in range(4):
+        run(daemon, lambda: daemon.daemon.schedules.ran(scheduled.id, False))
+    script = install(daemon, [sup('reply', 'Source still unavailable.')])
+    fire(daemon, 61)
+    current = run(daemon, lambda: daemon.daemon.schedules.get(scheduled.id))
+    assert current.state == 'active' and current.next_run > daemon.daemon.clock.now()
+    assert 'consecutive failures: 4' in script.contexts[0][2]
+
+
 
 
 # ---------- progressive setup: folders ----------

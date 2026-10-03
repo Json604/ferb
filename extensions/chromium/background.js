@@ -41,6 +41,32 @@ async function session() {
 }
 async function saveSession(s) { await chrome.storage.session.set({ s }); }
 
+// Only the small read/modify/write transaction is serialized, never an entire browser command.
+let sessionLock = Promise.resolve();
+function mutateSession(change) {
+  const next = sessionLock.then(async () => {
+    const s = await session();
+    const result = change(s);
+    await saveSession(s);
+    return result;
+  });
+  sessionLock = next.catch(() => {});
+  return next;
+}
+
+async function keptTabs() {
+  const { ferbKeptTabs } = await chrome.storage.local.get('ferbKeptTabs');
+  return Array.isArray(ferbKeptTabs) ? ferbKeptTabs : [];
+}
+
+function rememberKeptTab(tabId) {
+  return serially(async () => {
+    const ids = new Set(await keptTabs());
+    ids.add(tabId);
+    await chrome.storage.local.set({ferbKeptTabs: [...ids]});
+  });
+}
+
 async function hmac(keyB64, text) {
   const k = await crypto.subtle.importKey("raw", b64d(keyB64), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return b64e(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(text)));
@@ -199,27 +225,31 @@ async function onCommand(m) {
 }
 
 async function executeCommand(m) {
-  if (m.gen !== gen) { await send("result", { id: m.id, gen: m.gen, status: "stale" }); return; }   // never replay
-  const s = await session();
-  if (s.seen[m.id]) { await send("result", { id: m.id, gen, status: "duplicate" }); return; }
-  s.seen[m.id] = "started"; s.order.push(m.id);
-  while (s.order.length > 500) delete s.seen[s.order.shift()];
-  await saveSession(s);                                        // recorded BEFORE executing
+  const claimed = await mutateSession(s => {
+    if (m.gen !== gen) return 'stale';
+    if (Object.hasOwn(s.seen, m.id)) return 'duplicate';
+    s.seen[m.id] = 'started'; s.order.push(m.id);
+    while (s.order.length > 500) delete s.seen[s.order.shift()];
+    return 'claimed';
+  });
+  if (claimed !== 'claimed') {
+    await send('result', {id:m.id, gen:m.gen, status:claimed}); return;
+  }
   const handler = OPS.includes(m.op) ? commands[m.op] : null;
   let body;
   try {
     if (!handler) throw new Error(`unknown op ${m.op}`);
     const value = await withTimeout(handler({ ...(m.args || {}), _timeout_ms: m.timeout_ms || 30000 }, m.id),
                                     m.timeout_ms || 30000);
-    body = { id: m.id, gen, status: "ok", value };
+    body = { id: m.id, gen: m.gen, status: "ok", value };
   } catch (e) {
     if (m.op === "pointer") cancelPointer(m.args.tab_id, m.id);
-    body = { id: m.id, gen, status: "error", error: String((e && e.message) || e).slice(0, 300) };
+    body = { id: m.id, gen: m.gen, status: "error", error: String((e && e.message) || e).slice(0, 300) };
   }
   // A handler error may follow partial input; a timeout does not cancel the renderer operation.
   const outcome = body.status === "ok" ? (body.value && body.value.ok === false ? "failed" : "done") : "unknown";
   body.outcome = outcome;
-  const s2 = await session(); s2.seen[m.id] = outcome; await saveSession(s2);
+  await mutateSession(s => {if (Object.hasOwn(s.seen, m.id)) s.seen[m.id] = outcome;});
   await send("result", body);
 }
 
@@ -261,19 +291,25 @@ function waitComplete(tabId, ms) {
 
 // ---------- FERB's window (13.1): one per profile, born minimized, never shown or focused by FERB ----------
 
+let windowCreation = null;
 async function ferbWindow() {
+  if (!windowCreation) windowCreation = getFerbWindow().finally(() => {windowCreation = null;});
+  return windowCreation;
+}
+
+async function getFerbWindow() {
   const s = await session();
   if (s.windowId != null) {
     try {
       const w = await chrome.windows.get(s.windowId);
-      if (w.state !== "minimized") await chrome.windows.update(w.id, { state: "minimized" });   // the owner restored it
+      // An owner may restore it to watch a handed-off class. Never minimize it again behind their back.
       return w.id;
     } catch (_) { /* gone: recreate */ }
   }
   // Born minimized (probe E5, S10); focused:false on top (probe E1). A blank placeholder tab keeps the window
   // alive when FERB's last task tab closes, so a window is created once per browser session, not per task.
   const w = await chrome.windows.create({ url: "about:blank", state: "minimized", focused: false });
-  const s2 = await session(); s2.windowId = w.id; await saveSession(s2);
+  await mutateSession(s => {s.windowId = w.id;});
   const got = await chrome.windows.get(w.id);                // create() may report "normal" (probe E5): verify
   if (got.state !== "minimized") await chrome.windows.update(w.id, { state: "minimized" });
   return w.id;
@@ -341,10 +377,17 @@ async function attach(tabId) {
 
 async function detach(tabId) {
   const t = TABS.get(tabId);
+  if (!t || !t.attached) { TABS.delete(tabId); return; }
+  // Keep the state until the browser acknowledges release. A failed detach is actionable, not success.
+  t.leaving = true;
+  try {
+    await chrome.debugger.sendCommand({tabId}, 'Emulation.setFocusEmulationEnabled', {enabled:false});
+    await chrome.debugger.detach({tabId});
+  } catch (e) {
+    t.leaving = false;
+    throw e;
+  }
   TABS.delete(tabId);
-  if (!t || !t.attached) return;
-  try { await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", { enabled: false }); } catch (_) {}
-  try { await chrome.debugger.detach({ tabId }); } catch (_) {}
 }
 
 chrome.debugger.onDetach.addListener((src, reason) => {
@@ -382,7 +425,14 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
   cdp(src.tabId, "Page.handleJavaScriptDialog", p).catch(() => {});
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => TABS.delete(tabId));
+chrome.tabs.onRemoved.addListener(tabId => {
+  TABS.delete(tabId);
+  mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tabId);}).catch(e => console.warn('FERB tab cleanup:', String(e)));
+  serially(async () => {
+    const ids = await keptTabs();
+    if (ids.includes(tabId)) await chrome.storage.local.set({ferbKeptTabs: ids.filter(id => id !== tabId)});
+  }).catch(e => console.warn('FERB kept-tab cleanup:', String(e)));
+});
 
 // Trusted input needs a readiness probe right after attaching: the tab drops presses until a probe move lands.
 async function ready(tabId) {
@@ -423,6 +473,10 @@ async function pressKey(tabId, spec) {
 async function topPoint(tabId, frameId, snap, el) {
   const r = await inFrame(tabId, frameId, (g, i) => window.__ferb.rect(g, i), [snap, el]);
   if (r.error) return { error: r.error };
+  return toTopPoint(tabId, frameId, r);
+}
+
+async function toTopPoint(tabId, frameId, r) {
   if (frameId !== 0) {
     const refs = tabState(tabId).frameRefs;
     let fid = frameId;
@@ -522,11 +576,11 @@ function composeFrames(frames) {
 }
 
 // Wheel scrolls settle asynchronously: read the position until two reads agree.
-async function settled(tabId, cid) {
+async function settled(tabId, frameId, cid) {
   let last = null;
   for (let i = 0; i < 8; i++) {
     await sleep(60);
-    const s = await inFrame(tabId, 0, (c) => window.__ferb.scrolled(c), [cid || null]);
+    const s = await inFrame(tabId, frameId, (c) => window.__ferb.scrolled(c), [cid || null]);
     if (s.error) return s;
     if (last && last.y === s.y) return s;
     last = s;
@@ -540,7 +594,7 @@ const commands = {
   async open({ url }, id) {
     const windowId = await ferbWindow();
     const tab = await chrome.tabs.create({ windowId, url, active: false });      // never active, never focused (E3)
-    const s = await session(); s.owned.push({ id, tabId: tab.id }); await saveSession(s);   // tagged with its command
+    await mutateSession(s => {s.owned.push({id, tabId:tab.id});});
     try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* Memory Saver opt-out is best effort */ }
     try { await ferbGroup(tab.id, tab.windowId); } catch (_) { /* grouping is cosmetic */ }
     await waitComplete(tab.id, 20000);
@@ -564,41 +618,41 @@ const commands = {
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "" };
   },
   async close({ tab_id }) {
+    if ((await keptTabs()).includes(tab_id)) {
+      const released = await commands.release_tab({tab_id, keep_open:true});
+      return {...released, closed:false};
+    }
     const st = TABS.get(tab_id);
     if (st) st.leaving = true;
     try { await chrome.tabs.remove(tab_id); }
     catch (e) { if (!/No tab with id/i.test(String(e && e.message))) throw e; }
-    await detach(tab_id);
-    const s = await session(); s.owned = s.owned.filter((o) => o.tabId !== tab_id); await saveSession(s);
+    TABS.delete(tab_id); // Closing the tab destroys its debugger target; onRemoved may arrive later.
+    await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});
     return { closed: true };
   },
+  async release_tab({tab_id, keep_open = false}) {
+    const tab = await chrome.tabs.get(tab_id);  // missing tab is not a successful keep-open handoff
+    if (keep_open) await rememberKeptTab(tab_id);  // persist before detach/session cleanup, safe after lost ACK
+    await detach(tab_id);
+    await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});
+    return {tab_id, released:true, kept_open:keep_open || (await keptTabs()).includes(tab_id),
+            url:maskUrl(tab.url || tab.pendingUrl || ''), window_id:tab.windowId};
+  },
   // Trusted wheel at the scroller's centre (13.4): the window, or a container from the latest snapshot.
-  async scroll({ tab_id, direction, container, dy }) {
+  async scroll({ tab_id, frame_id = 0, direction, container, dy }) {
     const cid = container || null;
-    let target;
-    try { await attach(tab_id); target = await inFrame(tab_id, 0, (c) => window.__ferb.scroller(c), [cid]); }
-    catch (e) {
-      if (String(e && e.message).startsWith("detached:")) throw e;
-      target = null;                                   // no debugger on this page (e.g. a browser page): page mode
-    }
-    if (target && target.error) throw new Error(target.error === "stale" ? "that container is from an older snapshot" : target.error);
-    if (target) {
-      const step = Number.isFinite(dy) ? dy : Math.round(target.viewport_h * 0.85) * (direction === "up" ? -1 : 1);
-      // the move first: under the device-metrics override a bare wheel isn't targeted at the scroller under it
-      // (lab probe 2026-10-02: box 0 without the move, 170 with it; the window scrolled instead)
-      await cdp(tab_id, "Input.dispatchMouseEvent", { type: "mouseMoved", x: target.px, y: target.py });
-      await cdp(tab_id, "Input.dispatchMouseEvent", { type: "mouseWheel", x: target.px, y: target.py, deltaX: 0, deltaY: step });
-      const s = await settled(tab_id, cid);
-      if (!s.error) return { container: cid, y: s.y, height: s.height, viewport_h: s.viewport_h, at_end: direction === "up" ? s.y <= 0 : s.at_end };
-    }
-    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab_id },
-      func: (d) => {
-        const el = document.scrollingElement || document.documentElement;
-        window.scrollBy(0, (d === "up" ? -1 : 1) * Math.round(innerHeight * 0.85));
-        return { y: Math.round(el.scrollTop), height: el.scrollHeight, viewport_h: innerHeight,
-                 at_end: d === "up" ? el.scrollTop <= 0 : el.scrollTop + innerHeight >= el.scrollHeight - 2 };
-      }, args: [direction] });
-    return { container: null, ...(r && r.result ? r.result : { y: 0, height: 0, viewport_h: 0, at_end: false }) };
+    await attach(tab_id);
+    const target = await inFrame(tab_id, frame_id, c => window.__ferb.scroller(c), [cid]);
+    if (target.error) throw Error(target.error === 'stale' ? 'that container is from an older snapshot' : target.error);
+    const point = await toTopPoint(tab_id, frame_id, {x:target.px, y:target.py, occluded:target.occluded});
+    if (point.error || point.occluded) throw Error(point.error || 'scroll container is occluded');
+    const step = Number.isFinite(dy) ? dy : Math.round(target.viewport_h * 0.85) * (direction === 'up' ? -1 : 1);
+    await cdp(tab_id, 'Input.dispatchMouseEvent', {type:'mouseMoved', x:point.x, y:point.y});
+    await cdp(tab_id, 'Input.dispatchMouseEvent', {type:'mouseWheel', x:point.x, y:point.y, deltaX:0, deltaY:step});
+    const s = await settled(tab_id, frame_id, cid);
+    if (s.error) throw Error(s.error);
+    return {container:cid, frame_id, y:s.y, height:s.height, viewport_h:s.viewport_h,
+            at_end:direction === 'up' ? s.y <= 0 : s.at_end};
   },
   async find({ tab_id, text }) {                   // the whole page's text, not just the snapshot's first screens
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab_id },
@@ -611,9 +665,10 @@ const commands = {
     return r && r.result ? r.result : { count: 0, lines: 0, examples: [] };
   },
   async list_tabs() {
-    const tabs = await chrome.tabs.query({}), s = await session();
+    const tabs = await chrome.tabs.query({}), s = await session(), kept = new Set(await keptTabs());
     return { tabs: tabs.map((t) => ({ tab_id: t.id, host: (() => { try { return new URL(t.url).hostname; } catch (_) { return ""; } })(),
-                                      active: t.active, window_id: t.windowId, ferb: s.windowId != null && t.windowId === s.windowId })) };
+                                      active: t.active, window_id: t.windowId, kept_open:kept.has(t.id),
+                                      ferb: !kept.has(t.id) && s.windowId != null && t.windowId === s.windowId })) };
   },
   async snapshot({ tab_id, snap }) {
     tabState(tab_id).visual = null;

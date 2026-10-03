@@ -3,24 +3,31 @@ keychains and the search list are never touched), an Atom feed builder standing 
 in-memory identity driver that follows the driver contract (task-owned tabs, generation-scoped element ids,
 origin check before the Keychain is read, codes straight from the feed into the field).
 
-The real driver is the extension in Chrome's "FERB" profile (build step 6); its origin/focus/iframe tests land there.
+Real extension tests use disposable ChromeLab profiles; installed profiles and native-host settings stay untouched.
 """
 
+import json
 import secrets
 import subprocess
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from urllib.parse import urlsplit
 
 import pytest
 
+from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+from ferb.cli.client import Client
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
-                             PageSnapshot, SecretRef, TabRef, WaitCondition)
+                             PageSnapshot, SecretRef, TabRef, Task, WaitCondition)
 from ferb.identity.mailbox import REASONS, GmailFeedMailbox, wait_for_code
 from ferb.identity.secrets import KeychainSecretStore, normalize_origin, origin_allowed
+from ferb.orchestrator.tree import TaskRecord
+from ferb.policy.targets import Request, Targets
+from tests.conftest import RunningDaemon
+from tests.fake_extension import FakeExtension
 
 PASSWORD = "Corr3ct-Horse-" + secrets.token_hex(4)
 REF = SecretRef("test/site/password")
@@ -131,12 +138,6 @@ class FakeIdentityDriver:
         ref = await self.open(url)
         self.claim(ref, owner)
         return ref
-
-    async def check_account(self, tab: TabRef) -> None:
-        return None                                              # FERB's own profile: its own accounts
-
-    def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None:
-        return None
 
     async def navigate(self, tab: TabRef, url: str) -> None:
         self._load(self._tab(tab), url)
@@ -267,3 +268,78 @@ class FakeIdentityDriver:
 
 def fake_driver(keychain: Path, specs: dict[str, Any], scrubbed: list[str]) -> FakeIdentityDriver:
     return FakeIdentityDriver(KeychainSecretStore(lambda: specs, keychain), scrubbed.append)
+
+
+PROFILES = {"Default": ("Personal", "me@gmail.com"), "Profile 1": ("Work", "me@work.com"),
+            "Profile 22": ("FERB", "ferb@gmail.com")}
+
+
+def chrome_data(root: Path) -> Path:
+    d = root / "Chrome"
+    d.mkdir(parents=True)
+    cache = {f: {"name": n, "user_name": e} for f, (n, e) in PROFILES.items()}
+    (d / "Local State").write_text(json.dumps({"profile": {"info_cache": cache, "last_used": "Profile 1"}}))
+    for folder in PROFILES:                                   # the FERB extension is loaded in each (like real ones)
+        (d / folder).mkdir(exist_ok=True)
+        (d / folder / "Secure Preferences").write_text(json.dumps(
+            {"extensions": {"settings": {FERB_EXTENSION_ID: {"location": 4}}}}))
+    return d
+
+
+@pytest.fixture
+def bd(daemon: RunningDaemon) -> Iterator[tuple[RunningDaemon, list[list[str]]]]:
+    d = daemon.daemon
+    launched: list[list[str]] = []
+    d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
+    d.browser_launch = launched.append
+    d.browser_default = lambda: "chrome"                                      # last used in the fake: Profile 1
+    d.pair_load_wait_s = 0.0
+    d.router.launch = launched.append                                         # type: ignore[union-attr]
+    d.router.wake = None                                                      # type: ignore[union-attr]
+    d.router.is_running = lambda browser: False                               # type: ignore[union-attr]
+    d.config.set("identity", "browser", "chrome")
+    d.config.set("identity", "profile", "Profile 22")
+    yield daemon, launched
+
+
+def pair(d: RunningDaemon, launched: list[list[str]], name: str) -> FakeExtension:
+    ext = FakeExtension(d.daemon.home)
+    ext.connect()
+    c = Client(d.sock, timeout=30)
+    try:
+        import threading
+        out: dict[str, Any] = {}
+        t = threading.Thread(target=lambda: out.update(c.call("browsers.pair", {"profile": name, "timeout_s": 10})))
+        n = len(launched)
+        t.start()
+        ext.wait_for(lambda: len(launched) > n and "pair.html#token=" in launched[-1][-1])
+        ext.pair(launched[-1][-1].split("#token=")[1])
+        t.join(15)
+    finally:
+        c.close()
+    assert out.get("paired") is True, out
+    assert launched[-1][1].startswith("--profile-directory=")
+    return ext
+
+
+def task(d: RunningDaemon, tid: str, scopes: set[str], words: Any = None, sites: frozenset[str] = frozenset()) -> Any:
+    """A running owner task; the sites (and `words`, when a string) count as named by the owner for its request."""
+    t = Task(tid, None, "g", "dev", Identity.OWNER, scopes, "worker", f"req-{tid}", [],
+             d.daemon.clock.now() + timedelta(minutes=10))
+    own = " ".join([words] if isinstance(words, str) else []) + " " + " ".join(sorted(sites))
+
+    async def go() -> Any:
+        root = d.daemon.spans.start("task", task_id=t.id, input={})
+        d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
+        d.daemon.state.requests.record(Request(f"req-{tid}", own.strip(), Targets.of(sites=sites)))
+        return d.daemon.tokens.validate(d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, Identity.OWNER, ttl_s=600))
+    return d.run(go())
+
+
+def call(d: RunningDaemon, grant: Any, name: str, **args: Any) -> dict[str, Any]:
+    if name == "browser.open":
+        args.setdefault("profile", "Work")  # this fixture's test target, explicitly supplied to the driver
+    return d.run(d.daemon.gateway.call(grant, name, args), timeout=30)          # type: ignore[no-any-return]
+
+
+OWNER = {"browser:read", "browser:act"}

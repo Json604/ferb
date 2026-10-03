@@ -2,6 +2,7 @@
 journal, memory or export. Returns new objects; never mutates its input. Imports core only.
 """
 
+import codecs
 import re
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -67,6 +68,10 @@ class Redactor:
         """For exception messages and any free text."""
         return self._str(s)
 
+    def stream(self) -> "RedactionStream":
+        """A separate decoder/buffer for each process; raw partial secrets never leave it."""
+        return RedactionStream(self)
+
     # ---------- internals ----------
 
     def _walk(self, obj: Any, key: str | None = None) -> Any:
@@ -98,7 +103,7 @@ class Redactor:
     def _str(self, s: str) -> str:
         if self.exclude_apps and s.lower() in self.exclude_apps:
             return EXCLUDED
-        for v in self._values:
+        for v in sorted(self._values, key=len, reverse=True):
             if v in s:
                 s = s.replace(v, REDACTED)
         for p in SECRET_PATTERNS:
@@ -127,3 +132,87 @@ class Redactor:
             if any(k.lower() in SECRET_QUERY for k, _ in pairs):
                 fragment = urlencode([(k, REDACTED if k.lower() in SECRET_QUERY else v) for k, v in pairs], safe="[]")
         return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
+
+
+class RedactionStream:
+    """Incremental UTF-8 redaction. Emit complete words, retaining possible secrets across chunks.
+
+    An oversized unfinished record is replaced by an explicit marker rather than spilling raw bytes to disk.
+    Private-key blocks are suppressed until their end marker, even when they exceed the buffer bound.
+    """
+    MAX_PENDING = 65536
+    PRIVATE_START = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+    PRIVATE_END = re.compile(r"-----END [A-Z ]*PRIVATE KEY-----")
+    BEARER_TAIL = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]*$")
+    PRIVATE_HEADER_TAIL = re.compile(r"-----BEGIN [A-Z -]*$")
+
+    def __init__(self, redactor: Redactor) -> None:
+        self.redactor = redactor
+        self.decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+        self.pending = ''
+        self.suppress: str | None = None
+
+    def _unfinished_key(self) -> int | None:
+        for opening in self.PRIVATE_START.finditer(self.pending):
+            if self.PRIVATE_END.search(self.pending, opening.end()) is None:
+                return opening.start()
+        return None
+
+    def _safe_cut(self) -> int:
+        # A space-terminated prompt must be visible before a child process asks for input.
+        # Keep the final word: it may still grow into a token or a URL with credentials.
+        boundaries = list(re.finditer(r'\s', self.pending))
+        cut = boundaries[-1].end() if boundaries else 0
+        header = self.PRIVATE_HEADER_TAIL.search(self.pending)
+        if header:
+            cut = min(cut, header.start())
+        opening = self._unfinished_key()
+        if opening is not None:
+            cut = min(cut, opening)
+        bearer = self.BEARER_TAIL.search(self.pending)
+        if bearer:
+            cut = min(cut, bearer.start())
+        for value in self.redactor._values:
+            start = self.pending.find(value)
+            while start >= 0:
+                if start < cut < start + len(value):
+                    cut = start
+                start = self.pending.find(value, start + 1)
+            for length in range(1, min(len(value), len(self.pending) + 1)):
+                if self.pending.endswith(value[:length]):
+                    cut = min(cut, len(self.pending) - length)
+        for pattern in SECRET_PATTERNS:
+            for match in pattern.finditer(self.pending):
+                if match.start() < cut < match.end():
+                    cut = match.start()
+        return cut
+
+    def feed(self, chunk: bytes, final: bool = False) -> bytes:
+        self.pending += self.decoder.decode(chunk, final=final)
+        if self.suppress:
+            end = (self.PRIVATE_END.search(self.pending) if self.suppress == 'private'
+                   else re.search(r'\n', self.pending))
+            if end is None:
+                self.pending = self.pending[-128:] if self.suppress == 'private' and not final else ''
+                return b''
+            self.pending = self.pending[end.end():]
+            self.suppress = None
+        if final:
+            opening = self._unfinished_key()
+            if opening is not None:
+                self.pending = self.pending[:opening] + REDACTED
+            out, self.pending = self.redactor.text(self.pending), ''
+            return out.encode('utf-8')
+        cut = self._safe_cut()
+        out = self.redactor.text(self.pending[:cut])
+        self.pending = self.pending[cut:]
+        bound = max(self.MAX_PENDING, max((len(v) for v in self.redactor._values), default=0) + 1)
+        if len(self.pending) > bound:
+            opening = self._unfinished_key()
+            if opening is not None:
+                out += self.redactor.text(self.pending[:opening]) + REDACTED
+                self.pending, self.suppress = self.pending[-128:], 'private'
+            else:
+                out += '[redacted: oversized unfinished record]\n'
+                self.pending, self.suppress = '', 'record'
+        return out.encode('utf-8')

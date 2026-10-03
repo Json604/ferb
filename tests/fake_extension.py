@@ -2,7 +2,7 @@
 real `ferb-native-host` process to a real daemon: install id, pairing, HMAC + seq, generations, seen / owned ids,
 tab events. Pages are in-memory. `hold` makes commands hang (in flight) so tests can drop the connection mid-command.
 
-It models the background-by-construction extension (PLATFORM_BROWSER.md 13): one minimized FERB window per
+It models the background-by-construction extension (ARCHITECTURE.md §6): one minimized FERB window per
 profile with a blank placeholder tab, task tabs created inactive in it, a debugger attached on a tab's first
 action and kept until the tab closes (`cancel_debugger` is the owner pressing Cancel on the infobar), dialogs
 answered by the extension, keepalive pings, chunked screenshots, uploads.
@@ -81,6 +81,7 @@ class FakeExtension:
         self.refused: str | None = None
         self.seen: dict[str, str] = {}
         self.owned: list[dict[str, Any]] = []
+        self.kept: set[int] = set()
         self.tabs: dict[int, str] = {}
         self.accounts: dict[str, str | None] = {}        # host -> signed-in account shown on the page
         self.acts: list[dict[str, Any]] = []
@@ -255,8 +256,6 @@ class FakeExtension:
             self.tabs[self._n] = "about:blank"
             self.tab_windows[self._n] = self.ferb_window
             self.tab_active[self._n] = True
-        elif self.window_state != "minimized":
-            self.window_state = "minimized"                   # the owner restored it: re-minimized
         return self.ferb_window
 
     def op_open(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
@@ -276,13 +275,27 @@ class FakeExtension:
         return {"tab_id": a["tab_id"], "url": a["url"], "title": page(a["url"])["title"]}
 
     def op_close(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        if a['tab_id'] in self.kept:
+            return self.op_release_tab(dict(a, keep_open=True), cid) | {'closed': False}
         self.tabs.pop(a["tab_id"], None)
         self.attached.discard(a["tab_id"])
+        self.owned = [o for o in self.owned if o['tab_id'] != a['tab_id']]
         return {"closed": True}
+
+    def op_release_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        tab = a['tab_id']
+        if tab not in self.tabs:
+            raise ValueError('tab no longer open')
+        if a.get('keep_open'):
+            self.kept.add(tab)
+        self.attached.discard(tab)
+        self.owned = [o for o in self.owned if o['tab_id'] != tab]
+        return {'tab_id': tab, 'released': True, 'kept_open': tab in self.kept, 'url': self.tabs[tab]}
 
     def op_list_tabs(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         return {"tabs": [{"tab_id": t, "host": urlsplit(u).hostname, "active": self.tab_active.get(t, False),
-                          "window_id": self.tab_windows.get(t), "ferb": self.tab_windows.get(t) == self.ferb_window}
+                          "window_id": self.tab_windows.get(t), "kept_open": t in self.kept,
+                          "ferb": t not in self.kept and self.tab_windows.get(t) == self.ferb_window}
                          for t, u in self.tabs.items()]}
 
     def op_snapshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:

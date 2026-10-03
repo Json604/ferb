@@ -87,12 +87,14 @@ class FsStream:
     def start(self) -> bool:
         import FSEvents as F
         ready = threading.Event()
+        started = False
 
         def cb(stream: Any, info: Any, n: int, paths: Any, flags: Any, ids: Any) -> None:
             for i in range(n):
                 self.on_event(str(paths[i]), int(flags[i]))
 
         def run() -> None:
+            nonlocal started
             import Quartz
             flags = (F.kFSEventStreamCreateFlagUseCFTypes | F.kFSEventStreamCreateFlagFileEvents
                      | F.kFSEventStreamCreateFlagNoDefer)
@@ -101,14 +103,14 @@ class FsStream:
             if self._stream is not None:
                 self._loop = Quartz.CFRunLoopGetCurrent()
                 F.FSEventStreamScheduleWithRunLoop(self._stream, self._loop, Quartz.kCFRunLoopDefaultMode)
-                F.FSEventStreamStart(self._stream)
+                started = bool(F.FSEventStreamStart(self._stream))
             ready.set()
-            if self._stream is not None:
+            if started:
                 Quartz.CFRunLoopRun()
 
         threading.Thread(target=run, name="ferb-fsevents", daemon=True).start()
         ready.wait(5)
-        return self._stream is not None
+        return started
 
     def stop(self) -> None:
         import FSEvents as F

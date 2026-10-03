@@ -41,9 +41,8 @@ class Shim:
         self._names: dict[str, str] = {}          # mcp name -> capability name
 
     def _client(self) -> Client:
-        # A tool call can rightly take long: waking a browser profile (~30 s), a send's undo window, the owner answering
-        # a question (up to 1 h when unattended). A short timeout here was reported as "the daemon went away" and
-        # failed the task (owner's report 2026-10-01); stuck work is the runaway guards' job, not this socket's.
+        # Tool calls can wait on the owner or an external process. This is a transport timeout;
+        # task progress and explicit cancellation are owned by the daemon.
         return Client(socket_path(), role="mcp_shim", token=self._token, timeout=SHIM_TIMEOUT_S)
 
     def _call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:

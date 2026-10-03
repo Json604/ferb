@@ -1,181 +1,23 @@
-"""Mac input order, every app (PLATFORM_MACOS.md §12 and the owner-verified rules; rework phase 3): Accessibility and
+"""Mac input order, every app (ARCHITECTURE.md §5 and the owner-verified rules; rework phase 3): Accessibility and
 per-process events with the app in the background first, in the ranked order per primitive, each rung only after the
 one before verifiably did nothing; the per-app learned profile remembers what landed; the foreground only when the
 call allows it (`allow_foreground`), once per stretch of work, with the owner's input held back and winning;
 arrow-key editing, Return-instead-of-Send, disabled shortcuts and app switching refused."""
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
 import ferb.act.mac.driver as drv
-from ferb.act.gui_lock import GuiLock
 from ferb.act.mac.accessibility import AxNode, AxTree
 from ferb.act.mac.apps import RunningApp
-from ferb.act.mac.driver import MacComputerDriver
-from ferb.act.mac.input import RealInput, Step
-from ferb.act.mac.profile import MISS_LIMIT, Profiles
+from ferb.act.mac.input import Step
+from ferb.act.mac.profile import Profiles
 from ferb.core.errors import Refused
 from ferb.core.types import ComputerAction
-
-CHAT = "net.whatsapp.WhatsApp"
-
-
-@dataclass
-class Ax:
-    """A fake app window: a text box, a Send button; typing lands only if the app takes background keystrokes."""
-    takes_background: bool = True
-    focused: str | None = "textbox"
-    box_has_focus: bool | None = True                       # False: a sheet / dialog holds the keyboard focus
-    press_ok: bool = True                                   # False: the control ignores Accessibility presses
-    ax_keys: bool = False                                   # True: the app takes the Accessibility keyboard (spike 20)
-    send_button: bool = True
-    box: str = ""
-    text: str = ""
-    shortcut: Any = None                                    # what menu_item_for_shortcut answers
-    calls: list[str] = field(default_factory=list)
-    panels: list[tuple[str, Any]] = field(default_factory=list)
-
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
-        nodes = [AxNode("box", "textbox", "Message", self.box, (0, 0, 10, 10), False, True)]
-        if self.send_button:
-            nodes.append(AxNode("send", "button", "Send", None, (20, 0, 10, 10), False, True))
-        return AxTree(nodes, self.text, "Chat")
-
-    def value(self, el: Any) -> str | None:
-        return self.box if el == "box" else None
-
-    def expose_tree(self, pid: int) -> bool:
-        self.calls.append("expose")
-        return True
-
-    def post_text(self, pid: int, text: str) -> bool:
-        self.calls.append(f"ax keys {text}")
-        if self.ax_keys:
-            self.box += text
-        return True
-
-    def post_key(self, pid: int, keycode: int, mods: list[str]) -> bool:
-        self.calls.append(f"ax key {keycode}")
-        if self.ax_keys:
-            self.text += f"[{keycode}]"
-        return True
-
-    def window_title(self, win: Any) -> str:
-        return "" if win is None else getattr(self, "title", "Chat")
-
-    def app_window(self, pid: int) -> Any:
-        return "win"
-
-    def focused_role(self, pid: int) -> str | None:
-        return self.focused
-
-    def has_focus(self, pid: int, el: Any) -> bool | None:
-        return self.box_has_focus
-
-    def focus(self, el: Any) -> bool:
-        self.calls.append("focus")
-        return True
-
-    def set_value(self, el: Any, text: str) -> bool:
-        return False                                        # this app ignores Accessibility values
-
-    def press(self, el: Any) -> bool:
-        self.calls.append("press")
-        return self.press_ok
-
-    def press_ancestor(self, el: Any) -> str | None:
-        self.calls.append("press ancestor")
-        return None
-
-    def center(self, n: AxNode) -> tuple[float, float]:
-        return 5.0, 5.0
-
-    def menu_item_for_shortcut(self, pid: int, key: str, mods: list[str]) -> Any:
-        return self.shortcut
-
-    def open_panels(self, pid: int, win: Any) -> list[tuple[str, Any]]:
-        return list(self.panels)
-
-    def open_menus(self, pid: int) -> list[Any]:
-        return []
-
-    def cancel(self, el: Any) -> bool:
-        self.calls.append(f"cancel {el}")
-        self.panels = []
-        return True
-
-
-class Apps:
-    def __init__(self) -> None:
-        self.apps = [RunningApp(CHAT, "WhatsApp", 21, False), RunningApp("com.apple.TextEdit", "TextEdit", 22, False),
-                     RunningApp("com.microsoft.VSCode", "Code", 23, True)]
-        self.activated: list[str] = []
-
-    def find(self, q: str) -> RunningApp | None:
-        return next((a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower())), None)
-
-    def frontmost(self) -> RunningApp | None:
-        return next(a for a in self.apps if a.active)
-
-    def activate(self, bid: str) -> bool:
-        self.activated.append(bid)
-        self.apps = [RunningApp(a.bundle_id, a.name, a.pid, a.bundle_id == bid) for a in self.apps]
-        return True
-
-
-class Guard:
-    def __init__(self, log: list[str]) -> None:
-        self.log = log
-
-    def engage(self) -> bool:
-        self.log.append("guard on")
-        return True
-
-    def release(self) -> None:
-        self.log.append("guard off")
-
-
-def setup(mp: pytest.MonkeyPatch, ax: Ax, owner: list[bool] | None = None,
-          comm: bool = False, profiles: Profiles | None = None) -> tuple[MacComputerDriver, Apps, list[str]]:
-    apps, posted = Apps(), []
-    owner = owner if owner is not None else []
-
-    async def no_sleep(s: float) -> None:
-        return None
-
-    def busy() -> bool:                              # each check of the owner takes the next answer
-        return owner.pop(0) if owner else False
-
-    def typed(text: str, pid: int | None = None) -> list[Step]:
-        def post() -> None:
-            posted.append(f"type {text!r} {'to pid' if pid else 'foreground'}")
-            if pid is None or ax.takes_background:
-                ax.box += text
-        return [Step("type", post)]
-
-    def keyed(combo: str, pid: int | None = None) -> list[Step]:
-        def post() -> None:
-            posted.append(f"key {combo} {'to pid' if pid else 'foreground'}")
-            if pid is None or ax.takes_background:
-                ax.text += f"[{combo}]"
-        return [Step(combo, post)]
-    mp.setattr(drv, "type_steps", typed)
-    mp.setattr(drv, "key_steps", keyed)
-    mp.setattr(drv, "click_steps", lambda x, y, pid=None: [Step("click", lambda: posted.append("click foreground"))])
-    mp.setattr(drv, "SETTLE_S", 0)
-    d = MacComputerDriver("dev", RealInput(busy, GuiLock(), sleep=no_sleep, poll_s=0.1, yield_after_s=5),
-                          ax=ax, apps=apps, profiles=profiles)
-    d.communication = lambda b: comm and b == CHAT
-    d.guard = Guard(posted)
-    return d, apps, posted
-
-
-def ids(d: MacComputerDriver, app: str = "WhatsApp") -> dict[str, str]:
-    _, out = asyncio.run(d.snapshot(app))
-    return {e["label"]: e["id"] for e in out["elements"]}
+from tests.mackit import Ax, CHAT, ScrollAx, ids, background_mac as setup
 
 
 def test_typing_and_keys_go_to_the_app_in_the_background(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -194,21 +36,21 @@ def test_typing_and_keys_go_to_the_app_in_the_background(monkeypatch: pytest.Mon
 def test_an_app_that_ignores_background_keys_is_never_brought_forward_without_leave(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """Every background rung is tried (keys to the process, the Accessibility keyboard once, AXValue); when none
-    lands the call fails and says how to allow the foreground. Only after MISS_LIMIT misses in a row is the mechanism
-    skipped for that app (a later success forgets it). With allow_foreground the app comes forward once per stretch."""
+    lands the call fails and describes the foreground option. Historical misses never disable a mechanism
+    for a fresh control. With allow_foreground the app comes forward once per stretch."""
     ax = Ax(takes_background=False, focused="button")
     d, apps, posted = setup(monkeypatch, ax)
     e = ids(d)
 
     async def work() -> None:
-        for _ in range(MISS_LIMIT):
+        for _ in range(3):
             r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "hi"))
             assert not r.ok and "allow_foreground=true" in r.detail            # background only, and it says so
-        assert apps.activated == [] and d.profiles.skips(CHAT, "pid_keys")    # remembered now
-        assert ax.calls.count("ax keys hi") == MISS_LIMIT                              # each mechanism gets the same miss limit
+        assert apps.activated == [] and d.profiles.status(CHAT, "pid_keys") == "failed"
+        assert ax.calls.count("ax keys hi") == 3                              # each mechanism gets the same miss limit
         r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "!", allow_foreground=True))
         assert r.ok and "real input" in r.detail
-        assert posted[-1] == "type '!' foreground" and "type '!' to pid" not in posted   # straight to the front
+        assert posted[-1] == "type '!' foreground" and "type '!' to pid" in posted    # fresh controls still get a background attempt
         await d.act("WhatsApp", ComputerAction("key", None, "tab", allow_foreground=True))
         assert apps.activated == [CHAT]                                      # one switch for the whole stretch
         d.restore_owner()
@@ -232,17 +74,16 @@ def test_a_later_background_success_forgets_earlier_misses(monkeypatch: pytest.M
     e = ids(d)
 
     async def work() -> None:
-        for _ in range(MISS_LIMIT):
+        for _ in range(3):
             await d.act("WhatsApp", ComputerAction("type", e["Message"], "hi"))
-        assert d.profiles.skips(CHAT, "pid_keys")
+        assert d.profiles.get(CHAT).mechanisms["pid_keys"].failed == 3
         ax.takes_background = True                                            # the app takes them again (a dialog went)
-        d.profiles.record(CHAT, "pid_keys", True)                             # e.g. a probe or a later success
         r = await d.act("WhatsApp", ComputerAction("type", e["Message"], "yo"))
-        assert "in the background" in r.detail and not d.profiles.skips(CHAT, "pid_keys")
+        assert "in the background" in r.detail and d.profiles.status(CHAT, "pid_keys") == "landed"
     asyncio.run(work())
     again = Profiles(tmp_path / "apps")                                       # persisted per app, counts kept
     m = again.get(CHAT).mechanisms["pid_keys"]
-    assert m.landed == 2 and m.failed == MISS_LIMIT and m.streak == 0 and m.last == "landed"
+    assert m.landed == 1 and m.failed == 3 and m.streak == 0 and m.last == "landed"
     assert (tmp_path / "apps" / "net.whatsapp.WhatsApp.json").exists()
 
 
@@ -536,45 +377,6 @@ def test_a_popup_button_item_is_chosen_by_pressing_the_button_then_the_menu_item
     assert posted == [] and apps.activated == []
 
 
-@dataclass
-class ScrollAx(Ax):
-    position: int = 0
-    keys_scroll: bool = True
-    bar: bool = True
-
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
-        return AxTree([AxNode("area", "textbox", "Document", "text", (0, 0, 10, 10), False, True, "AXTextArea",
-                              ("menu",))], f"line {self.position}", "Untitled")
-
-    def scroll_area_of(self, el: Any) -> Any:
-        return "scroll"
-
-    def window_named(self, pid: int, which: str) -> Any:
-        return "win" if which == "Untitled" else None
-
-    def scroll_area_in(self, win: Any) -> Any:
-        return "scroll"
-
-    def frame(self, el: Any) -> Any:
-        return (0.0, 0.0, 10.0, 10.0)
-
-    def scroll_content(self, area: Any) -> Any:
-        return "area"
-
-    def scroll_position(self, area: Any, content: Any = None) -> tuple[Any, ...]:
-        return (self.position / 10, None, (self.position, 20))
-
-    def scroll_bar(self, area: Any, vertical: bool = True) -> Any:
-        return "bar" if vertical and self.bar else None
-
-    def perform(self, el: Any, action: str) -> bool:
-        self.calls.append(f"{action} {el}")
-        if el == "bar":
-            self.position += 1 if action == "AXIncrement" else -1
-            return True
-        return False
-
-
 def test_scrolling_prefers_target_scroll_bar_then_text_view_page_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Owner-verified: Page Down keycodes to the process scroll a background text view; scroll-wheel events don't."""
     ax = ScrollAx()
@@ -598,3 +400,21 @@ def test_scrolling_prefers_target_scroll_bar_then_text_view_page_keys(monkeypatc
     ax.keys_scroll = True
     r = asyncio.run(d.act("WhatsApp", ComputerAction("scroll", e["Document"], direction="down")))
     assert r.ok and "Page Down" in r.detail and ax.position == 3 and apps.activated == []
+
+
+def test_foreground_cleanup_keeps_the_owners_new_app_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    ax = Ax(takes_background=False, focused='button')
+    d, apps, posted = setup(monkeypatch, ax)
+    e = ids(d)
+
+    async def work() -> None:
+        await d.act('WhatsApp', ComputerAction('type', e['Message'], 'hi', allow_foreground=True))
+        # The owner deliberately leaves the app while FERB's delayed cleanup is pending.
+        apps.apps = [RunningApp(a.bundle_id, a.name, a.pid, False) for a in apps.apps]
+        apps.apps.append(RunningApp('com.apple.Calculator', 'Calculator', 99, True))
+        apps.activated.clear()
+        d.restore_owner()
+        assert apps.activated == []
+        assert apps.frontmost().bundle_id == 'com.apple.Calculator'
+        assert posted[-1] == 'guard off'
+    asyncio.run(work())

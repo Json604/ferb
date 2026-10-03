@@ -1,8 +1,4 @@
-"""trail.query (section 11, build step 11): read the owner's recent activity from the trail. OWNER tasks only, read only.
-
-Rows are already excluded and redacted. Window and page titles can be set by websites, so reading browser or window
-rows marks the worker as having read web content (exposed, 10.2), like reading the page itself.
-"""
+"""Read recorded, excluded and redacted activity. Titles and page metadata remain external data."""
 
 from datetime import timedelta
 from typing import Any, Callable, Literal

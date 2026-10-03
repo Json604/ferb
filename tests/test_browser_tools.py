@@ -18,7 +18,7 @@ from ferb.core.errors import Refused
 from ferb.core.types import Identity, PageElement, SecretSpec, Task
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.rules import Kind
-from ferb.policy.targets import Request, site_matches
+from ferb.policy.targets import Request
 from tests.browserkit import PASSWORD, REF, FakeIdentityDriver, fake_driver, feed
 from tests.conftest import RunningDaemon
 
@@ -43,7 +43,7 @@ def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], words
     async def go() -> Any:
         root = d.daemon.spans.start("task", task_id=t.id, input={})
         d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        d.daemon.engine.requests.record(Request(f"req-{tid}", words or ""))
+        d.daemon.state.requests.record(Request(f"req-{tid}", words or ""))
         token = d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, identity, ttl_s=600)
         return d.daemon.tokens.validate(token)
     return d.run(go())
@@ -173,16 +173,9 @@ def test_stop_closes_ferbs_browser(bd: Any) -> None:
 
 def test_http_urls_include_local_development_servers_but_not_file_schemes():
     for url in ("http://localhost:8080", "http://127.0.0.1:9/", "http://router.local/", "https://example.com"):
-        check_url(url, allow_local=False)
+        check_url(url)
     with pytest.raises(Refused, match="http"):
-        check_url("file:///etc/passwd", allow_local=False)
-
-
-def test_site_matching_covers_subdomains_only() -> None:
-    sites = frozenset({"example.com", "https://www.shop.io/cart"})
-    assert site_matches("example.com", sites) and site_matches("accounts.example.com", sites)
-    assert site_matches("www.shop.io", sites) and site_matches("shop.io", sites)
-    assert not site_matches("example.com.evil.io", sites) and not site_matches("badexample.com", sites)
+        check_url("file:///etc/passwd")
 
 
 def test_action_kinds_are_facts_about_the_element() -> None:

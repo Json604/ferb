@@ -1,10 +1,7 @@
-"""Protocols at real boundaries (ARCHITECTURE.md section 5).
-
-Each protocol is added when its first implementation lands, with section 5's signature exactly.
-"""
+"""Typed boundaries shared by drivers, runtimes and services; see ARCHITECTURE.md."""
 
 from datetime import datetime
-from typing import AsyncIterator, Literal, Protocol
+from typing import Any, AsyncIterator, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -63,7 +60,7 @@ class BrowserDriver(Protocol):
     async def act(self, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult: ...
     async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool: ...
     async def screenshot(self, tab: TabRef) -> bytes: ...
-    async def close(self, tab: TabRef) -> None: ...
+    async def close(self, tab: TabRef) -> dict[str, Any] | None: ...
 
 
 class ComputerDriver(Protocol):                 # OS-neutral; Block 1 implementation: act/mac/driver.py

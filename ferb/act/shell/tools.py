@@ -12,7 +12,7 @@ TAIL = 8000
 
 
 def _untrusted(network: bool, command: str) -> tuple[tuple[str, str], ...]:
-    """Network-fetching commands bring in untrusted content: reading their output exposes the worker (10.2)."""
+    """Network-fetching commands bring in untrusted content: annotate its source for the agent."""
     return (("web", f"shell: {command[:200]}"),) if network else ()
 
 
@@ -53,11 +53,11 @@ class ShellStart(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         cmd = str(getattr(args, "command"))
-        return ActionSpec(guard.kind(cmd), Target(path=getattr(args, "cwd")), content=cmd)
+        return ActionSpec(Kind.RUN_SHELL, Target(path=getattr(args, "cwd")), content=cmd)
 
     async def _start(self, args: BaseModel, ctx: ToolContext) -> ProcHandle:
         cmd = str(getattr(args, "command"))
-        cwd = guard.check(cmd, getattr(args, "cwd"), ctx)
+        cwd = guard.working_directory(getattr(args, "cwd"), ctx)
         network = guard.fetches_network(cmd)
         return await self.shells.start(["/bin/sh", "-c", cmd], cwd, ctx.task_id,
                                        bool(getattr(args, "background")), network)
@@ -71,8 +71,9 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
     text, offset, total = await shells.read(h, since, TAIL)
     info = shells.info(h)
     return ToolResult({"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
-                       "running": info.running, "exit_code": info.exit_code},
-                      is_error=info.exit_code not in (None, 0), read_sources=_untrusted(info.network, info.command))
+                       "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error},
+                      is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
+                      read_sources=_untrusted(info.network, info.command))
 
 
 class ShellRun(ShellStart):
@@ -87,15 +88,17 @@ class ShellRun(ShellStart):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = await self._start(args, ctx)
         code = await self.shells.wait(h, float(getattr(args, "timeout_s")))
-        text, offset, total = await self.shells.read(h)
-        out = {"id": h.id, "running": code is None, "exit_code": code, "output": text[-TAIL:], "offset": offset,
+        text, offset, total = await self.shells.tail(h, TAIL)
+        out = {"id": h.id, "running": code is None, "exit_code": code, "output": text, "offset": offset,
                "total": total}
-        if len(text) > TAIL:
+        if total > TAIL:
             out["output_truncated"] = True              # the end is shown; the whole output pages from the start
             out["next"] = "shell_read with since=0 reads from the beginning, a page at a time"
 
         info = self.shells.info(h)
-        return ToolResult(out, is_error=code not in (None, 0), read_sources=_untrusted(info.network, info.command))
+        out["capture_error"] = info.capture_error
+        return ToolResult(out, is_error=code not in (None, 0) or bool(info.capture_error),
+                          read_sources=_untrusted(info.network, info.command))
 
 
 class ShellWait(_Base):
@@ -125,7 +128,7 @@ class ShellRead(_Base):
 
     class Input(BaseModel):
         id: str
-        since: int = 0
+        since: int = Field(default=0, ge=0)
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ)

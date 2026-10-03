@@ -1,6 +1,6 @@
 """Build step 14, offline: durable timers (restart, sleep / overdue, cancel), safety test 19 (a claim left by a crash
 is delivered exactly once), reminders from the owner's own words, the time.* tools (sleep isn't a stall; it ends with
-the task), measured durations in the header, sending from FERB's mailbox under the normal autonomy rules, and
+the task), sending from FERB's mailbox under owner intent, and
 `ferb device`.
 """
 
@@ -17,14 +17,12 @@ import pytest
 from ferb.clock.when import When, WhenError, resolve
 from ferb.act.browser.ext_bridge import OutcomeUnknown
 from ferb.act.browser.tools import MailboxSend
-from ferb.clock.durations import typical
 from ferb.clock.timers import Timers
 from ferb.core.types import Identity
 from ferb.policy.targets import Request, Targets
 from ferb.store.db import Database
-from tests.conftest import RunningDaemon
-from tests.test_mac_shell import call, task
-from tests.test_supervisor import chat, install
+from tests.conftest import RunningDaemon, chat, install
+from tests.mackit import gateway_call as call, grant_task as task
 
 
 def run(d: RunningDaemon, fn: Any) -> Any:
@@ -165,24 +163,6 @@ def test_a_tasks_sleep_ends_with_the_task_but_its_reminders_stay(daemon: Running
     assert run(daemon, lambda: t.get(s.id)).state == "cancelled" and run(daemon, lambda: t.get(r.id)).state == "pending"
 
 
-# ---------- durations ----------
-
-def test_measured_durations_show_once_there_are_enough_samples(daemon: RunningDaemon) -> None:
-    db, spans, clock = daemon.daemon.db, daemon.daemon.spans, daemon.daemon.clock
-
-    def seed(n: int) -> None:
-        for i in range(n):
-            s = spans.start("worker", input={"role": "actor", "scopes": ["browser:read", "browser:act"]})
-            clock.advance(60 * (i + 1))
-            spans.finish(s, output={})
-    run(daemon, lambda: seed(4))
-    assert run(daemon, lambda: typical(db, {"browser:act"}, "actor")) is None
-    run(daemon, lambda: seed(2))
-    line = run(daemon, lambda: typical(db, {"browser:read"}, "actor"))
-    assert line.startswith("similar tasks (browser, actor) took median") and "n=6" in line
-    assert run(daemon, lambda: typical(db, {"shell"}, "actor")) is None
-
-
 # ---------- mailbox send ----------
 
 class FakeMail:
@@ -202,7 +182,7 @@ def ferb_task(d: RunningDaemon, tid: str, words: str, recipients: frozenset[str]
     g = task(d, tid, Identity.FERB, {"mailbox:send"}, None)
 
     async def rec() -> None:
-        d.daemon.engine.requests.record(Request(f"req-{tid}", words, Targets.of(recipients=recipients)))
+        d.daemon.state.requests.record(Request(f"req-{tid}", words, Targets.of(recipients=recipients)))
     d.run(rec())
     return g
 
@@ -213,7 +193,7 @@ def test_mailbox_send_executes_agent_decision_and_records_delivery(daemon):
     g = ferb_task(daemon, "m1", "email alice@x.com about lunch")
     r = call(daemon, g, "mailbox.send", to=["alice@x.com"], subject="Hi", body="Lunch?")
     assert not r["is_error"] and mail.sent == [(["alice@x.com"], "Hi", "Lunch?")]
-    assert not daemon.daemon.engine.approvals.pending() and not daemon.daemon.engine.holds.pending()
+    assert not daemon.daemon.state.approvals.pending()
 
 
 def test_an_unconfirmed_send_is_unknown_and_never_retried_blindly(daemon: RunningDaemon) -> None:

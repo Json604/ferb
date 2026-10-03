@@ -14,18 +14,7 @@ from ferb.core.errors import AlreadyRunning, NotRunning
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
 from ferb.daemon.server import MAX_MESSAGE, TOO_LARGE, UNAUTHORIZED
-from tests.conftest import RunningDaemon
-
-
-def raw(sock_path: Path) -> tuple[socket.socket, "socket.SocketIO"]:
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(5)
-    s.connect(str(sock_path))
-    return s, s.makefile("r")
-
-
-def send(s: socket.socket, obj: object) -> None:
-    s.sendall(json.dumps(obj).encode() + b"\n")
+from tests.conftest import RunningDaemon, raw, send
 
 
 def test_socket_and_folder_are_owner_only(daemon: RunningDaemon) -> None:        # spike 8

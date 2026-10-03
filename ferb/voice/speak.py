@@ -1,5 +1,5 @@
 """FERB's voice (owner request, 2026-10-01): the Mac's built-in `say` for now, behind a small interface so a
-text-to-speech API can replace it later. FERB speaks its own words only — answers, questions, the undo countdown —
+text-to-speech API can replace it later. FERB speaks its own words only — answers and questions —
 never internals; anything new to say, or the owner typing, cuts off what it was saying."""
 
 import re

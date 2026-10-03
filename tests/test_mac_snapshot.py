@@ -11,7 +11,7 @@ import pytest
 
 from ferb.act.mac import accessibility as ax
 from ferb.act.mac import input as inp
-from ferb.act.mac.profile import MISS_LIMIT, Profiles
+from ferb.act.mac.profile import Profiles
 
 
 @dataclass
@@ -136,15 +136,14 @@ def test_the_profile_is_seeded_from_a_probe_and_learns_from_outcomes(tmp_path: P
     written = p.seed("com.apple.TextEdit", probe)
     assert "ax_keyboard" in written and "pid_mouse" in written and "pid_drag" not in written
     assert p.prefers("com.apple.TextEdit", "pid_keys") and p.status("com.apple.TextEdit", "ax_keyboard") == "failed"
-    assert not p.skips("com.apple.TextEdit", "ax_keyboard")             # one failure isn't a verdict
-    for _ in range(MISS_LIMIT - 1):
+    for _ in range(2):
         p.record("com.apple.TextEdit", "ax_keyboard", False)
-    assert p.skips("com.apple.TextEdit", "ax_keyboard")
+    assert p.get("com.apple.TextEdit").mechanisms["ax_keyboard"].streak == 3
     p.record("com.apple.TextEdit", "ax_keyboard", True)                 # a later success forgets the streak
-    assert not p.skips("com.apple.TextEdit", "ax_keyboard")
+    assert p.get("com.apple.TextEdit").mechanisms["ax_keyboard"].streak == 0
     again = Profiles(tmp_path / "apps")
     assert again.get("com.apple.TextEdit").seeded_from == "probe"
-    assert again.get("com.apple.TextEdit").mechanisms["ax_keyboard"].failed == MISS_LIMIT
+    assert again.get("com.apple.TextEdit").mechanisms["ax_keyboard"].failed == 3
     assert Profiles(None).untried("x", "y")                             # memory only: still answers
 
 

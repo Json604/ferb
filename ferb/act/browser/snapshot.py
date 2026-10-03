@@ -3,7 +3,7 @@
 The walk itself lives in the extension's content script (extensions/chromium/content.js, an isolated world the
 page can't see or change); this module holds what every driver shares: the caps, the secret-field rule and the
 model-facing form. Password / OTP values never leave the page: the walker reports only whether such a field is
-filled. Viewport semantics (PLATFORM_BROWSER.md 6): `in_view` means clickable now; `offscreen` means scroll
+filled. Viewport semantics (ARCHITECTURE.md §6): `in_view` means clickable now; `offscreen` means scroll
 first (the element's `container` says which scroller); `occluded` means something covers it.
 """
 

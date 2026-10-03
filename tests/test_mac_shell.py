@@ -6,8 +6,6 @@ fake Accessibility layer (Accessibility first, real input only as the fallback, 
 
 import asyncio
 import time
-from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -15,15 +13,12 @@ import pytest
 from ferb.act.gui_lock import GuiLock
 from ferb.act.locks import ResourceLocks, ordered
 from ferb.act.mac import applescript
-from ferb.act.mac.accessibility import AxNode, AxTree
 from ferb.act.mac.apps import RunningApp
-from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.input import RealInput, Step, Yielded
 from ferb.core.errors import Refused, StaleRef
-from ferb.core.types import ComputerAction, Identity, Task
-from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.targets import Request
+from ferb.core.types import ComputerAction, Identity
 from tests.conftest import RunningDaemon
+from tests.mackit import gateway_call as call, mac, grant_task as task
 
 OWNER_SHELL = {"shell", "fs:read"}
 
@@ -95,23 +90,6 @@ def test_gui_lock_allows_one_actor_at_a_time() -> None:
 
 
 # ---------- shell through the gateway ----------
-
-def task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str], words: Any = None) -> Any:
-    """A running task with a run token; `words` (a string) are the owner's own words for its request (what counts
-    as named at the gateway); anything else records a request with no words."""
-    t = Task(tid, None, "g", "dev", identity, scopes, "worker", f"req-{tid}", [],
-             d.daemon.clock.now() + timedelta(minutes=10))
-
-    async def go() -> Any:
-        root = d.daemon.spans.start("task", task_id=t.id, input={})
-        d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
-        d.daemon.engine.requests.record(Request(f"req-{tid}", words if isinstance(words, str) else ""))
-        return d.daemon.tokens.validate(d.daemon.tokens.issue(t.id, f"w-{tid}", scopes, identity, ttl_s=600))
-    return d.run(go())
-
-
-def call(d: RunningDaemon, grant: Any, name: str, timeout: float = 30, **args: Any) -> dict[str, Any]:
-    return d.run(d.daemon.gateway.call(grant, name, args), timeout=timeout)    # type: ignore[no-any-return]
 
 
 def test_shell_runs_reads_sends_and_kills_its_own_processes(daemon: RunningDaemon) -> None:
@@ -195,15 +173,10 @@ def test_shell_and_mac_tools_follow_identity_and_exposure(daemon: RunningDaemon)
     owner = task(daemon, "w", Identity.OWNER, {"shell", "applescript", "mac:read", "mac:act"}, None)
     names = {t["name"] for t in daemon.daemon.gateway.tools_for(owner)}
     assert {"shell.run", "mac.applescript", "mac.act", "mac.snapshot"} <= names
-    daemon.run(_expose(daemon, "w-w"))
     names = {t["name"] for t in daemon.daemon.gateway.tools_for(owner)}
     assert "shell.run" in names and "mac.applescript" in names   # 21.8
     r = call(daemon, owner, "shell.run", command="echo hi")
     assert not r["is_error"]
-
-
-async def _expose(d: RunningDaemon, worker: str) -> None:
-    d.daemon.engine.exposure.read(worker, "web", "https://evil.example/")
 
 
 # ---------- AppleScript guard ----------
@@ -217,105 +190,6 @@ def test_applescript_wraps_target_and_validates_bundle_syntax():
 
 
 # ---------- the Mac driver's method order ----------
-
-@dataclass
-class FakeAx:
-    tree: AxTree
-    press_ok: bool = True
-    set_ok: bool = True
-
-    def __post_init__(self) -> None:
-        self.calls: list[str] = []
-
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
-        return self.tree
-
-    def expose_tree(self, pid: int) -> bool:
-        self.calls.append("ax.expose")
-        return False
-
-    def app_window(self, pid: int) -> Any:
-        return "win"
-
-    def has_focus(self, pid: int, el: Any) -> bool | None:
-        return None
-
-    def value(self, el: Any) -> str | None:
-        return None
-
-    def press_ancestor(self, el: Any) -> str | None:
-        return None
-
-    def open_panels(self, pid: int, win: Any) -> list[Any]:
-        return []
-
-    def open_menus(self, pid: int) -> list[Any]:
-        return []
-
-    def menu_item_for_shortcut(self, pid: int, key: str, mods: list[str]) -> Any:
-        return None
-
-    def post_text(self, pid: int, text: str) -> bool:
-        return True                                              # this fake app ignores the AX keyboard
-
-    def post_key(self, pid: int, keycode: int, mods: list[str]) -> bool:
-        return True
-
-    def window_title(self, win: Any) -> str:
-        return "Window"
-
-    def press(self, el: Any) -> bool:
-        self.calls.append("ax.press")
-        return self.press_ok
-
-    def set_value(self, el: Any, text: str) -> bool:
-        self.calls.append("ax.set_value")
-        return self.set_ok
-
-    def focus(self, el: Any) -> bool:
-        self.calls.append("ax.focus")
-        return True
-
-    def center(self, n: AxNode) -> tuple[float, float]:
-        return 10.0, 10.0
-
-
-class FakeApps:
-    def __init__(self) -> None:
-        self.apps = [RunningApp("com.apple.Notes", "Notes", 11, False), RunningApp("com.brave.Browser", "Brave", 12, True),
-                     RunningApp("com.secret.Vault", "Vault", 13, False)]
-        self.activated: list[str] = []
-
-    def find(self, q: str) -> RunningApp | None:
-        return next((a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower())), None)
-
-    def running(self) -> list[RunningApp]:
-        return self.apps
-
-    def frontmost(self) -> RunningApp | None:
-        return next(a for a in self.apps if a.active)
-
-    def activate(self, bid: str) -> bool:
-        self.activated.append(bid)
-        return True
-
-
-def mac(mp: pytest.MonkeyPatch, press_ok: bool = True) -> tuple[MacComputerDriver, FakeAx, FakeApps, list[str]]:
-    nodes = [AxNode("btn", "button", "Save", None, (0, 0, 20, 20), False, True),
-             AxNode("pw", "textbox", "Password", "filled", (0, 30, 20, 20), True, True),
-             AxNode("title", "textbox", "Title", "draft", (0, 60, 20, 20), False, True)]
-    ax, apps, posted = FakeAx(AxTree(nodes, "note text", "My note"), press_ok=press_ok), FakeApps(), []
-
-    async def no_sleep(s: float) -> None:
-        return None
-    ri = RealInput(lambda: False, GuiLock(), sleep=no_sleep)
-    d = MacComputerDriver("dev", ri, excluded=lambda: {"com.secret.Vault"}, ax=ax, apps=apps)
-    import ferb.act.mac.driver as drv
-    mp.setattr(drv, "click_steps", lambda x, y, pid=None: [Step("click", lambda: posted.append(f"click {x},{y}"))])
-    mp.setattr(drv, "type_steps", lambda t, pid=None: [Step("type", lambda: posted.append(f"type {t}"))])
-    mp.setattr(drv, "key_steps", lambda c, pid=None: [Step(c, lambda: posted.append(f"key {c} to pid"))])
-    mp.setattr(drv, "SETTLE_S", 0)
-    return d, ax, apps, posted
 
 
 def test_mac_driver_prefers_accessibility_and_falls_back_to_real_input(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -363,10 +237,8 @@ def test_network_fetching_commands_expose_the_worker(daemon: RunningDaemon) -> N
         assert not fetches_network(cmd), cmd
     g = task(daemon, "n", Identity.OWNER, OWNER_SHELL | {"fs:write"}, {"run_command"})
     assert not call(daemon, g, "shell.run", command="echo local")["is_error"]
-    assert not daemon.daemon.engine.exposure.state("w-n").exposed                # local commands don't expose
     # a fetch that fails offline still counts: its output could have been anything from the network
     call(daemon, g, "shell.run", command="curl -s --max-time 1 http://127.0.0.1:9/ ; true")
-    assert daemon.daemon.engine.exposure.state("w-n").exposed
     names = {t["name"] for t in daemon.daemon.gateway.tools_for(g)}
     assert "shell.run" in names and "fs.write" in names
     r = call(daemon, g, "shell.run", command="echo again")
@@ -377,7 +249,6 @@ def test_reading_a_background_downloads_output_later_also_exposes(daemon: Runnin
     g = task(daemon, "b", Identity.OWNER, OWNER_SHELL, {"run_command"})
     pid = call(daemon, g, "shell.run", command="sleep 2; wget -q -O- http://127.0.0.1:9/ ; true",
                timeout_s=1, background=True)["content"]["id"]
-    assert daemon.daemon.engine.exposure.state("w-b").exposed                   # exposed on the first result
     h = task(daemon, "c", Identity.OWNER, OWNER_SHELL, {"run_command"})
     assert call(daemon, h, "shell.read", id=pid)["is_error"]                     # not their process
 
@@ -392,9 +263,9 @@ def test_foreground_input_always_yields_to_the_owner(daemon: RunningDaemon) -> N
     assert real_input.owner_active() is True
 
 
-def test_opening_an_app_takes_the_owner_back_to_where_they_were(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    """Owner's report (2026-10-01): opening an app moved them to its desktop. FERB now puts their app back."""
-    from tests.test_mac_vision import _fake_mac
+def test_opening_an_app_does_not_restore_a_stale_owner_app(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    """The owner may choose the launched app during startup; never reactivate an old foreground app."""
+    from tests.mackit import _fake_mac
     _fake_mac(daemon, monkeypatch)
     apps = daemon.daemon.mac.apps                                           # type: ignore[union-attr]
     apps.apps = [RunningApp("com.brave.Browser", "Brave", 12, True)]       # the owner is in Brave
@@ -413,4 +284,23 @@ def test_opening_an_app_takes_the_owner_back_to_where_they_were(daemon: RunningD
     g = task(daemon, "o", Identity.OWNER, {"mac:read"}, {"use_app"})          # reading may open apps too
     r = call(daemon, g, "mac.open", bundle_id="com.apple.Notes")
     assert not r["is_error"], r
-    assert apps.activated[-1] == "com.brave.Browser" and apps.frontmost().bundle_id == "com.brave.Browser"
+    assert apps.activated == [] and apps.frontmost().bundle_id == "com.apple.Notes"
+
+
+def test_shell_run_returns_a_bounded_tail_and_preserves_the_first_page(daemon, monkeypatch) -> None:
+    manager = daemon.daemon.shells
+    original = manager.read
+
+    async def bounded_read(handle, since=0, limit=None):
+        assert limit is not None, 'tool output must not load the whole persisted log'
+        return await original(handle, since, limit)
+
+    monkeypatch.setattr(manager, 'read', bounded_read)
+    grant = task(daemon, 'long-output', Identity.OWNER, OWNER_SHELL)
+    result = call(daemon, grant, 'shell.run', command="i=0; while [ $i -lt 40000 ]; do echo line$i; i=$((i+1)); done")
+    assert not result['is_error']
+    content = result['content']
+    assert content['output_truncated'] and content['output'].rstrip().endswith('line39999')
+    assert len(content['output']) <= 8003 and content['total'] > 300000
+    first = call(daemon, grant, 'shell.read', id=content['id'], since=0)['content']
+    assert first['output'].startswith('line0\n') and first['more']

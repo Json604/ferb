@@ -16,8 +16,8 @@ import pytest
 from ferb.cli.client import Client
 from ferb.core.types import ActionSpec, Target
 from tests.conftest import Answers, RunningDaemon
-from tests.test_gateway import FakeCap, request, setup
-from tests.test_supervisor import STALL, chat, install, sup, task, writes
+from tests.conftest import GatewayCap as FakeCap, gateway_request as request, gateway_setup as setup
+from tests.conftest import STALL, chat, install, sup, task, writes
 
 
 # ---------- naming ----------

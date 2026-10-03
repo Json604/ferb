@@ -2,8 +2,8 @@ import asyncio
 import json
 import pytest
 
-from tests.test_browser_background import SHOP, _ready
-from tests.test_ext_bridge import bd, call  # noqa: F401
+from tests.chromelab import SHOP, _ready
+from tests.browserkit import bd, call  # noqa: F401
 
 
 @pytest.mark.parametrize("redirect", [False, True])
@@ -19,8 +19,8 @@ def test_owner_code_is_prompted_sealed_and_absent_from_model_and_logs(bd, monkey
     snap = call(d, grant, "browser.snapshot", tab=tab)["content"]
     result = asyncio.run_coroutine_threadsafe(d.daemon.gateway.call(grant, "browser.login_code",
         {"tab": tab, "element": snap["elements"][0]["id"], "effect": "edit", "why": "finish requested login"}), d.loop)
-    ext.wait_for(lambda: any(a.kind == "owner_login_code" for a in d.daemon.engine.approvals.pending()))
-    ap = next(a for a in d.daemon.engine.approvals.pending() if a.kind == "owner_login_code")
+    ext.wait_for(lambda: any(a.kind == "owner_login_code" for a in d.daemon.state.approvals.pending()))
+    ap = next(a for a in d.daemon.state.approvals.pending() if a.kind == "owner_login_code")
     assert SHOP in ap.reason
     if redirect:
         ext.tabs[d.daemon.router._tabs[tab].chrome_id] = "https://other.example/code"
@@ -52,13 +52,13 @@ def test_cancelling_a_task_clears_its_pending_secret_prompt(bd, monkeypatch) -> 
         job = asyncio.create_task(d.daemon.gateway.call(grant, "browser.login_code",
             {"tab": tab, "element": snap["elements"][0]["id"], "effect": "edit"}))
         for _ in range(100):
-            if any(a.kind == "owner_login_code" for a in d.daemon.engine.approvals.pending()):
+            if any(a.kind == "owner_login_code" for a in d.daemon.state.approvals.pending()):
                 break
             await asyncio.sleep(.01)
         d.daemon.gateway.cancel_tasks({grant.task_id})
         result = await asyncio.gather(job, return_exceptions=True)
         assert isinstance(result[0], asyncio.CancelledError)
-        assert not d.daemon.engine.approvals.pending()
+        assert not d.daemon.state.approvals.pending()
         assert not d.daemon.gateway.in_flight({grant.task_id})
         denied = await d.daemon.gateway.call(grant, "browser.open", {"url": SHOP})
         assert denied["is_error"] and "stopped" in denied["content"]["error"]

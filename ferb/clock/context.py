@@ -13,8 +13,7 @@ def _span(seconds: float) -> str:
 
 
 def header(now: datetime, task_started: datetime | None = None, deadline: datetime | None = None,
-           owner_last_active: datetime | None = None, last_trail_event: datetime | None = None,
-           typical: str | None = None) -> str:
+           owner_last_active: datetime | None = None, last_trail_event: datetime | None = None) -> str:
     """For the start of every model turn. Unknown values say so (owner activity + trail arrive with build step 10)."""
     parts = [f"now {now.strftime('%A %Y-%m-%d %H:%M:%S')} {now.strftime('%Z') or now.strftime('%z')}"]
     if task_started:
@@ -27,8 +26,6 @@ def header(now: datetime, task_started: datetime | None = None, deadline: dateti
                                          if owner_last_active else "unknown"))
     parts.append("last trail event " + (_span((now - last_trail_event).total_seconds()) + " ago"
                                         if last_trail_event else "unknown"))
-    if typical:
-        parts.append(typical)                                     # measured durations (build step 14)
     return "[" + " | ".join(parts) + "]"
 
 
@@ -72,12 +69,12 @@ def time_of_day(now: datetime) -> str:
 
 def time_block(now: datetime, task_started: datetime | None = None, deadline: datetime | None = None,
                owner_last_active: datetime | None = None, last_trail_event: datetime | None = None,
-               typical: str | None = None, ages: dict[str, datetime] | None = None,
+               ages: dict[str, datetime] | None = None,
                since_last_talk: list[str] | None = None) -> str:
     """Everything time-dependent, for the END of a prompt (the stable part before it stays cacheable): the header,
     time of day and idle time as facts, fresh relative ages of the tagged items above, and — after a gap of over an
     hour — what happened since the owner last talked to FERB."""
-    lines = [header(now, task_started, deadline, owner_last_active, last_trail_event, typical),
+    lines = [header(now, task_started, deadline, owner_last_active, last_trail_event),
              f"Time of day: {time_of_day(now)}."]
     if owner_last_active is not None and (now - owner_last_active).total_seconds() >= 300:
         lines.append(f"The owner has been away from the Mac for {_span((now - owner_last_active).total_seconds())}.")

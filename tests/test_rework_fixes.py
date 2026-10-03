@@ -49,15 +49,15 @@ def test_shell_output_pages_from_the_start(tmp_path: Path) -> None:
 
     async def run() -> None:
         m = ShellManager(tmp_path, lambda s: s)
-        h = await m.start(["/bin/sh", "-c", "i=0; while [ $i -lt 3000 ]; do echo line$i; i=$((i+1)); done"],
+        h = await m.start(["/bin/sh", "-c", "i=0; while [ $i -lt 50000 ]; do echo line$i; i=$((i+1)); done"],
                           tmp_path, "t1")
         await m.wait(h, 10)
         text, off, total = await m.read(h, 0, 100)
-        assert text.startswith("line0") and off == 100 and total > 20000
+        assert text.startswith("line0") and off == 100 and total > 400000
         text2, off2, _ = await m.read(h, off, 100)
         assert off2 == 200 and not text2.startswith(text[:5])
         whole, end, total = await m.read(h)
-        assert end == total and whole.rstrip().endswith("line2999")
+        assert end == total and whole.rstrip().endswith("line49999")
     asyncio.run(run())
     assert st.TAIL == 8000
 
@@ -105,7 +105,7 @@ def test_extension_wait_and_backoff_are_bounded() -> None:
     """background.js: `wait` looped forever after the daemon gave up, and the reconnect backoff reset itself."""
     js = Path("extensions/chromium/background.js").read_text()
     assert "while (Date.now() < deadline)" in js and 'return { met: false, detail: "timeout" }' in js
-    from tests.test_browser_recovery import worker
+    from tests.chromelab import worker
     result = worker('''(async () => {
       retryMs = 60000; refused = 'old version';
       await onDaemon({type: 'welcome', gen: 4});
@@ -170,3 +170,116 @@ def test_watch_dry_run_lists_steps_without_touching_anything(tmp_path: Path) -> 
     text = out.getvalue()
     assert "M4" in text and "B5" in text and "M1" in text and "B12" in text      # setup / teardown added
     assert "M9" not in text
+
+
+def test_shell_log_and_pages_redact_split_secrets_before_persistence(tmp_path: Path) -> None:
+    import stat
+    import sys
+    from ferb.sanitize.redact import Redactor
+
+    async def run() -> None:
+        redactor = Redactor()
+        redactor.add_secret_value('test-private-secret')
+        m = ShellManager(tmp_path, redactor.text, stream_factory=redactor.stream)
+        code = "import os,time; os.write(1,b'first\\ntest-private-'); time.sleep(.1); os.write(1,'secret\\nlast café\\n'.encode())"
+        h = await m.start([sys.executable, '-c', code], tmp_path, 't')
+        assert await m.wait(h, 10) == 0
+        text, end, total = await m.read(h)
+        assert 'test-private-' not in text and '[redacted]' in text and 'café' in text
+        assert end == total
+        log = tmp_path / f'{h.id}.log'
+        assert log.read_bytes().decode() == text
+        assert stat.S_IMODE(log.stat().st_mode) == 0o600
+        pages, offset = [], 0
+        while offset < total:
+            chunk, offset, _ = await m.read(h, offset, 1)
+            pages.append(chunk)
+        assert ''.join(pages) == text
+    asyncio.run(run())
+
+
+def test_failed_shell_start_closes_pty_descriptors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.act.shell import pty_proc
+    opened = []
+    real_open = pty_proc.pty.openpty
+
+    def openpty():
+        pair = real_open()
+        opened.extend(pair)
+        return pair
+
+    monkeypatch.setattr(pty_proc.pty, 'openpty', openpty)
+    m = ShellManager(tmp_path, lambda text: text)
+    with pytest.raises(FileNotFoundError):
+        asyncio.run(m.start(['/no/such/ferb-test-executable'], tmp_path, 't'))
+    assert not m.list()
+    for fd in opened:
+        with pytest.raises(OSError):
+            os.fstat(fd)
+
+
+def test_shell_stream_shows_an_interactive_prompt_before_exit(tmp_path: Path) -> None:
+    import sys
+    from ferb.sanitize.redact import Redactor
+
+    async def run() -> None:
+        redactor = Redactor()
+        manager = ShellManager(tmp_path, redactor.text, redactor.stream)
+        handle = await manager.start([sys.executable, '-c', "answer = input('Continue? '); print('received', answer)"],
+                                     tmp_path, 'prompt')
+        try:
+            async with asyncio.timeout(3):
+                while True:
+                    output, _, _ = await manager.read(handle)
+                    if 'Continue? ' in output:
+                        break
+                    await asyncio.sleep(.01)
+            assert manager.info(handle).running
+            await manager.send(handle, 'yes\n')
+            assert await manager.wait(handle, 3) == 0
+            output, _, _ = await manager.read(handle)
+            assert 'received yes' in output
+        finally:
+            await manager.kill(handle)
+    asyncio.run(run())
+
+
+def test_shell_redacts_registered_multiline_values_after_pty_transport(tmp_path: Path) -> None:
+    import sys
+    from ferb.sanitize.redact import Redactor
+    secret = 'synthetic-first\nsynthetic-second'
+
+    async def run() -> None:
+        redactor = Redactor()
+        redactor.add_secret_value(secret)
+        manager = ShellManager(tmp_path, redactor.text, redactor.stream)
+        handle = await manager.start([sys.executable, '-c', "import os; os.write(1,b'synthetic-first\\nsynthetic-second\\n')"],
+                                     tmp_path, 'multiline')
+        assert await manager.wait(handle, 3) == 0
+        output, _, _ = await manager.read(handle)
+        assert '[redacted]' in output and 'synthetic-first' not in output and 'synthetic-second' not in output
+    asyncio.run(run())
+
+
+def test_shell_capture_failure_reports_error_and_finishes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ferb.act.shell import pty_proc
+
+    async def run() -> None:
+        manager = ShellManager(tmp_path, lambda text: text)
+        handle = await manager.start(['/bin/sh', '-c', 'echo captured'], tmp_path, 'capture')
+        process = manager._get(handle)
+        real_write = pty_proc.os.write
+
+        def broken(fd, data):
+            if fd == process._log_fd:
+                raise OSError(28, 'synthetic disk full')
+            return real_write(fd, data)
+
+        monkeypatch.setattr(pty_proc.os, 'write', broken)
+        try:
+            assert await manager.wait(handle, 3) is not None
+            assert 'capture' in manager.info(handle).capture_error
+            assert process._log_fd == process._master == -1
+        finally:
+            await manager.kill(handle)
+    asyncio.run(run())

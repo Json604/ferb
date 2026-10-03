@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -39,6 +40,8 @@ class DailyActivity:
         day = self._rotate()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         row = dict(event, day=day, when=self.now().astimezone().isoformat())
+        if event.get('id'):
+            row['source_id'] = event['id']
         separator = ''
         if self.path.exists() and self.path.stat().st_size:
             with self.path.open('rb') as source:
@@ -47,6 +50,34 @@ class DailyActivity:
         fd = os.open(self.path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
         with os.fdopen(fd, 'a', encoding='utf-8') as out:
             out.write(separator + json.dumps(row, ensure_ascii=False) + '\n')
+
+    def _rewrite(self, transform: Callable[[dict[str, Any]], dict[str, Any] | None]) -> None:
+        """Atomically update derived observations; never leave a second raw copy after replacement."""
+        if not self.path.exists():
+            return
+        fd, temporary = tempfile.mkstemp(prefix='.activity-', dir=self.path.parent)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as out:
+                for row in self._rows():
+                    updated = transform(row)
+                    if updated is not None:
+                        out.write(json.dumps(updated, ensure_ascii=False) + '\n')
+                out.flush()
+                os.fsync(out.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+    def forget_sources(self, ids: set[str]) -> None:
+        if ids:
+            self._rewrite(lambda row: None if row.get('source_id', row.get('id')) in ids else row)
+
+    def redact_source(self, source_id: str, data: dict[str, Any]) -> None:
+        def update(row: dict[str, Any]) -> dict[str, Any]:
+            if row.get('source_id', row.get('id')) == source_id:
+                return dict(row, source_id=source_id, data=data, where=data)
+            return row
+        self._rewrite(update)
 
     def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
         day, wanted = self._rotate(), terms(query)

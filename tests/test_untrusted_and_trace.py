@@ -10,7 +10,7 @@ import httpx
 from ferb.clock.context import footer, header
 from ferb.runtimes.proxy import ToolListProxy, tool_names
 from ferb.runtimes.tooltrace import tools_in
-from ferb.sanitize.untrusted import PASTE_END, PASTE_START, mark, targets_in_own_words
+from ferb.sanitize.untrusted import PASTE_END, PASTE_START, mark
 
 
 def test_pasted_quoted_and_fenced_content_is_wrapped_with_random_ids() -> None:
@@ -23,7 +23,6 @@ def test_pasted_quoted_and_fenced_content_is_wrapped_with_random_ids() -> None:
     ids = {tag.split('"')[1] for tag in m.for_model.split("<untrusted-data id=")[1:]}
     assert len(ids) == 3 and all(len(i) == 12 for i in ids)
     assert "<\\/untrusted-data>" in m.for_model                   # a forged closing tag can't end ours
-    assert targets_in_own_words(["notes/s.md", "eve@evil.com"], m.own_words) == ["eve@evil.com"]
 
 
 def test_plain_message_is_untouched_and_unterminated_paste_is_all_untrusted() -> None:
@@ -86,3 +85,13 @@ def test_time_header_and_footer() -> None:
     h = header(now, now - timedelta(minutes=11), now + timedelta(minutes=18))
     assert h.startswith("[now Monday 2026-09-28 15:42:10") and "owner last active unknown" in h
     assert "deadline passed" in footer(now, None, now - timedelta(minutes=2))
+
+
+def test_full_trace_preserves_source_evidence_and_unlisted_arguments():
+    from ferb.cli.admin import render_trace
+    node = {'kind': 'tool.call', 'input': {'tool': 'mac.snapshot', 'args': {'app': 'Example', 'snapshot': 'capture-1'}},
+            'output': {'text': 'Unique source evidence', 'nodes': [{'label': 'The group'}], 'truncated': True},
+            'error': None, 'started_at': '2026-10-03T10:00:00+05:30',
+            'ended_at': '2026-10-03T10:00:01+05:30', 'children': []}
+    shown = '\n'.join(render_trace({'task_id': 'synthetic', 'spans': [node]}, full=True))
+    assert all(value in shown for value in ('Unique source evidence', 'The group', 'truncated', 'capture-1'))

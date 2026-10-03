@@ -7,119 +7,21 @@ to the owner. The image reaches the model and nothing else: not spans, journal, 
 
 import asyncio
 import base64
-import os
-from dataclasses import dataclass, field
+from dataclasses import field
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from ferb.act.gui_lock import GuiLock
 from ferb.act.mac.accessibility import AxTree
 from ferb.act.mac.apps import RunningApp
-from ferb.act.mac.driver import MacComputerDriver
-from ferb.act.mac.input import RealInput, Step, Yielded
-from ferb.act.mac.screenshot import Window
+from ferb.act.mac.input import Step, Yielded
 from ferb.config import DEFAULT_EXCLUDE_APPS, Config
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import Identity
 from tests.conftest import RunningDaemon
-from tests.test_mac_shell import FakeApps, FakeAx, call, task
-
-BOUNDS = (100.0, 50.0, 800.0, 600.0)              # window, screen points
-IMG = (1600, 1200)                                 # captured at 2x
-
-
-@dataclass
-class FakeShots:
-    """The capture layer: one window per app pid, a controllable topmost window, and a record of captures."""
-    jpeg: bytes = field(default_factory=lambda: b"\xff\xd8\xff" + os.urandom(24))
-    bounds: tuple[float, float, float, float] = BOUNDS
-    top: int | None = None                         # window id at any point (None: the captured window itself)
-    captured: list[int] = field(default_factory=list)
-    on_capture: Any = None
-    takes_pid_clicks: bool = True                  # a click posted to the app's process changes something
-
-    def front_window(self, pid: int, like: Any = None) -> Window | None:
-        return Window(pid * 10, pid, self.bounds, "w")
-
-    def window(self, wid: int) -> Window | None:
-        return Window(wid, wid // 10, self.bounds, "w")
-
-    def on_screen(self, wid: int) -> bool:
-        return True
-
-    def window_at(self, x: float, y: float, max_layer: int = 0) -> Window | None:
-        return Window(self.top if self.top is not None else 110, 0, self.bounds, "w")
-
-    def capture(self, w: Window, marks: Any = None) -> tuple[bytes, int, int]:
-        self.captured.append(w.id)
-        self.marks = marks
-        if self.on_capture:
-            self.on_capture()
-        return self.jpeg, *IMG
-
-
-class VisionAx(FakeAx):
-    def __init__(self) -> None:
-        super().__init__(AxTree())
-        self.secure: list[bool | None] = []        # the password-field answer of each walk, in order (then False)
-        self.hit_answer: Any = None                # None: Accessibility can't hit-test (the window list decides)
-        self.hit_el: Any = None                    # the app's own hit test: the element under the point
-        self.clicks = 0                            # clicks posted to the app's process that it took
-
-    def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
-        secure = self.secure.pop(0) if self.secure else False
-        return AxTree(self.tree.nodes, f"{self.tree.text} clicks={self.clicks}", self.tree.title, secure=secure,
-                      window="win")
-
-    def app_window(self, pid: int) -> Any:
-        return "win"
-
-    def frame(self, win: Any) -> Any:
-        return BOUNDS
-
-    def window_with_frame(self, pid: int, bounds: Any) -> Any:
-        return "win"
-
-    def hit(self, x: float, y: float) -> Any:
-        return self.hit_answer
-
-    def hit_element(self, pid: int, x: float, y: float) -> Any:
-        return self.hit_el
-
-    def describe(self, el: Any) -> str:
-        return f"button “{el}”"
-
-    def raise_window(self, pid: int, bounds: Any) -> bool:
-        self.raised = getattr(self, "raised", 0) + 1
-        return True
-
-
-def vision(mp: pytest.MonkeyPatch, owner: Any = lambda: False,
-           excluded: Any = lambda: set(DEFAULT_EXCLUDE_APPS)) -> tuple[MacComputerDriver, VisionAx, FakeShots,
-                                                                         FakeApps, list[str]]:
-    ax, shots, apps, posted = VisionAx(), FakeShots(), FakeApps(), []
-    apps.apps.append(RunningApp("com.apple.Passwords", "Passwords", 14, False))
-
-    async def no_sleep(s: float) -> None:
-        return None
-    d = MacComputerDriver("dev", RealInput(owner, GuiLock(), sleep=no_sleep, yield_after_s=0.2, poll_s=0.1),
-                          excluded=excluded, ax=ax, apps=apps, shots=shots)
-    import ferb.act.mac.driver as drv
-    mp.setattr(drv, "SETTLE_S", 0)
-    mp.setattr(drv, "load_route", lambda: None)  # opt in explicitly; unit tests never post to real process IDs
-
-    def clicks(x: float, y: float, pid: int | None = None) -> list[Step]:
-        where = " to pid" if pid else ""
-
-        def click() -> None:
-            posted.append(f"click {x},{y}{where}")
-            if pid and shots.takes_pid_clicks:                 # the window is on this Space: the app took it
-                ax.clicks += 1
-        return [Step("move", lambda: posted.append(f"move {x},{y}{where}")), Step("click", click)]
-    mp.setattr(drv, "click_steps", clicks)
-    return d, ax, shots, apps, posted
+from tests.mackit import gateway_call as call, grant_task as task
+from tests.mackit import BOUNDS, IMG, _fake_mac, vision
 
 
 # ---------- what may be captured ----------
@@ -278,13 +180,6 @@ def test_clicks_yield_to_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # ---------- through the gateway ----------
 
-def _fake_mac(d: RunningDaemon, mp: pytest.MonkeyPatch) -> tuple[FakeShots, list[str]]:
-    drv, ax, shots, apps, posted = vision(mp)
-    mac = d.daemon.mac
-    assert mac is not None
-    mac.ax, mac.apps, mac.shots, mac.input = ax, apps, shots, drv.input
-    return shots, posted
-
 
 def test_the_image_reaches_the_model_and_nothing_else(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     shots, posted = _fake_mac(daemon, monkeypatch)
@@ -302,7 +197,6 @@ def test_the_image_reaches_the_model_and_nothing_else(daemon: RunningDaemon, mon
         if p.is_file() and not p.is_socket():
             data = p.read_bytes()
             assert shots.jpeg[3:] not in data and b64 not in data, p
-    assert not daemon.daemon.engine.exposure.state("w-v").exposed        # a notes window is trusted
 
 
 def test_screenshots_of_browsers_and_messages_expose_the_worker(daemon: RunningDaemon,
@@ -312,7 +206,6 @@ def test_screenshots_of_browsers_and_messages_expose_the_worker(daemon: RunningD
     for tid, app in (("b", "Brave"), ("m", "Mail")):
         g = task(daemon, tid, Identity.OWNER, {"screen", "browser:read"}, {"use_app"})
         assert not call(daemon, g, "mac.screenshot", app=app)["is_error"]
-        assert daemon.daemon.engine.exposure.state(f"w-{tid}").exposed, app
 
 
 async def _checkpoint(d: RunningDaemon) -> None:

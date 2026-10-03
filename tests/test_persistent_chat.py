@@ -5,7 +5,7 @@ import json
 from ferb.cli.chat import Chat
 from ferb.cli.client import Client
 from tests.conftest import RunningDaemon
-from tests.test_supervisor import chat, install, outcome, sup, task
+from tests.conftest import chat, install, outcome, sup, task
 
 
 def attach(d, **params):
@@ -51,7 +51,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
         def worker(token):
             grant = d.daemon.tokens.validate(token)
             rec = d.daemon.tasks.get(grant.task_id)
-            request = d.daemon.engine.requests.get(rec.task.request_id)
+            request = d.daemon.state.requests.get(rec.task.request_id)
             seen.append((rec.task.goal, request, supervisor._env[request.request_id]))
             return json.dumps({"status": "needs_user", "summary": "Waiting for login", "artifacts": [], "evidence": []})
 
@@ -59,7 +59,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
         result = outcome(chat(d, "try the lunch task again", session=session))
         assert result["task_id"] != first["task_id"]
         assert "Work profile" in seen[0][0] and "Login required" in seen[0][0]
-        assert "shop.example" in seen[0][1].words and not seen[0][1].approved
+        assert "shop.example" in seen[0][1].words
         assert seen[0][2]["profile_test"] == "Work"
         assert first["task_id"] in script.contexts[0][2]
     finally:
@@ -77,7 +77,7 @@ def test_context_is_redacted_and_legacy_tasks_are_recovered_without_grants(daemo
         conversation = store.attach()
         spec, request, state = store.load(first["task_id"], conversation)
         assert "Work profile" in request.words and "Login required" in state
-        assert not request.approved
+        assert not daemon.daemon.state.approvals.pending()
         daemon.daemon.redact.add_secret_value("482913")
         spec.goal += " 482913"
         store.save(first["task_id"], conversation, spec, "known code 482913")

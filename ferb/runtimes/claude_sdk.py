@@ -8,6 +8,7 @@ the local tool-list proxy after every turn.
 """
 
 import secrets
+from contextlib import suppress
 from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
@@ -55,8 +56,15 @@ class ClaudeRuntime:
         from claude_agent_sdk import ClaudeSDKClient
         run_id = "run-" + secrets.token_hex(6)
         client = ClaudeSDKClient(options=self._options(run_id, run_token))
-        await client.connect()
-        await client.query(f"{system}\n\n{context}")
+        try:
+            await client.connect()
+            await client.query(f"{system}\n\n{context}")
+        except BaseException:
+            with suppress(Exception):
+                await client.disconnect()
+            if self.proxy is not None:
+                self.proxy.forget(run_id)
+            raise
         return RunHandle(run_id, self.name, task.id, {"client": client, "checked_auth": False})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
@@ -81,6 +89,9 @@ class ClaudeRuntime:
                         yield RuntimeEvent("message", {"text": b.text})
             elif isinstance(m, ResultMessage):
                 yield RuntimeEvent("usage", {**(m.usage or {}), "cost_usd": m.total_cost_usd})
+                if getattr(m, "is_error", False):
+                    yield RuntimeEvent("error", {"message": m.result or str(getattr(m, "errors", None)) or m.subtype})
+                    return
                 extra = self.proxy.seen(run.id) - self.allowed
                 if extra:
                     await self.cancel(run)

@@ -37,7 +37,7 @@ from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.targets import Request
 from ferb.sense.watchers.owner_input import OwnerInput
 from tests.conftest import RunningDaemon
-from tests.test_real_runtimes import run_direct
+from tests.conftest import run_direct
 
 pytestmark = pytest.mark.real
 PROBE = Path(__file__).with_name("probe_window.py")
@@ -179,7 +179,7 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
     async def setup() -> str:
         root = d.daemon.spans.start("task", task_id=task.id, input={})
         d.daemon.tasks.add(TaskRecord(task, d.daemon.clock.now(), root.id))
-        d.daemon.engine.requests.record(Request(task.request_id, "look at the FERB Probe app"))
+        d.daemon.state.requests.record(Request(task.request_id, "look at the FERB Probe app"))
         return d.daemon.tokens.issue(task.id, "w-v", task.scopes, task.identity, ttl_s=600)
     token = d.run(setup())
     prompt = ("Take a screenshot of the app named 'FERB Probe' with the mac_screenshot tool. Its window shows one "
@@ -204,23 +204,18 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
 
 
 
-# ---------- the extension's password check, in the spare profile ----------
+# ---------- browser password privacy, in the disposable lab process only ----------
 
-from tests.test_ext_real import rd, target  # noqa: E402,F401  (module fixtures: test daemon on the launcher)
+from tests.chromelab import lab, wait_for  # noqa: E402,F401
 
 
-def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd: RunningDaemon,  # noqa: F811
-                                                                            target: tuple[str, str]) -> None:  # noqa: F811
-    """Chrome exposes no web content to Accessibility, so the check is the extension's (window_password): a local login
-    page in the spare profile's front window is refused; a page without a password field is captured."""
+def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(lab: Any) -> None:
+    """The lab Chrome's own window is captured without activating any installed browser window."""
     import http.server
-
-    from ferb.act.browser.profiles import discover_all, open_known_profile
-    from ferb.cli.client import Client
+    import json
     from ferb.core.errors import Refused
-    browser, name = target
-    if browser != "chrome":
-        pytest.skip("Chrome only")
+
+    rd, chrome, _ = lab
     pages = {"/login": b"<!doctype html><title>Login probe</title><input placeholder=User><input type=password>",
              "/plain": b"<!doctype html><title>Plain probe</title><h1>nothing secret here</h1>"}
 
@@ -236,57 +231,45 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(rd:
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     d = rd.daemon
-    known = discover_all()
-    p = next(p for p in known if p.browser == browser and p.display_name == name)
-    c = Client(rd.sock, timeout=90)
-    assert c.call("browsers.pair", {"profile": name, "browser": browser, "timeout_s": 60})["paired"]
-    c.close()
-    assert d.mac is not None and d.hub is not None
-    br = d.hub.bridges[(browser, p.folder)]
+    br = d.hub.bridges[("chrome", "Default")]
 
-    async def close_probe_tabs() -> None:
-        from ferb.core.errors import FerbError
-        for t in (await br.call("list_tabs", {}))["tabs"]:
-            if t["host"] == "127.0.0.1":
-                try:
-                    await br.call("close", {"tab_id": t["tab_id"]})
-                except FerbError:
-                    return                  # the last tab closed its window and unloaded the profile: done
+    class LabApps:
+        def find(self, name: str) -> RunningApp | None:
+            return RunningApp("com.google.Chrome", "Chrome Lab", chrome.pid, False) if name == "Chrome Lab" else None
+
+    async def password(browser: str, bounds: Any) -> bool | None:
+        result = await br.call("window_password", {"bounds": list(bounds)}, timeout=4)
+        return result.get("password")
+
+    driver = MacComputerDriver(d.mac.device_id, d.mac.input, apps=LabApps(), web_password=password)
+    created: list[int] = []
     try:
         for path, refused in (("/login", True), ("/plain", False)):
-            open_known_profile(browser, p.folder, f"http://127.0.0.1:{srv.server_port}{path}", known)
-            time.sleep(2.5)
-            appsm.activate("com.google.Chrome")
-            _raise_titled("com.google.Chrome", "Login probe" if refused else "Plain probe")
-            time.sleep(0.5)
+            url = f"http://127.0.0.1:{srv.server_port}{path}"
+            window = chrome.evaluate(chrome.sw, "chrome.windows.create(" + json.dumps(
+                {"url": url, "focused": False, "state": "normal"}) + ")")
+            created.append(window["id"])
+            title = "Login probe" if refused else "Plain probe"
+            wait_for(lambda: any(title in w["kCGWindowName"] for w in shotm._info_windows(True)
+                                if int(w.get("kCGWindowOwnerPID", 0)) == chrome.pid), 10, "lab window did not render")
             if refused:
                 with pytest.raises(Refused, match="password"):
-                    rd.run(d.mac.screenshot("com.google.Chrome"), timeout=30)
+                    rd.run(driver.screenshot("Chrome Lab"), timeout=30)
             else:
-                rd.run(d.mac.screenshot("com.google.Chrome"), timeout=30)
+                _, _, jpeg = rd.run(driver.screenshot("Chrome Lab"), timeout=30)
+                assert jpeg.startswith(b"\xff\xd8")
+            chrome.evaluate(chrome.sw, f"chrome.windows.remove({created.pop()})")
     finally:
+        for window_id in created:
+            chrome.evaluate(chrome.sw, f"chrome.windows.remove({window_id})")
         srv.shutdown()
 
-    async def tab_rows() -> list[Any]:                                  # the same tabs, in the trail (build step 10)
-        import json as _j
-        return [_j.loads(r["data_json"]) | {"actor": r["actor"]} for r in d.db.conn.execute(  # type: ignore[union-attr]
+    async def tab_rows() -> list[Any]:
+        return [json.loads(r["data_json"]) | {"actor": r["actor"]} for r in d.db.conn.execute(
             "SELECT * FROM trail WHERE source = 'browser_tab'").fetchall()]
     loads = [r for r in rd.run(tab_rows()) if r["host"] == "127.0.0.1"]
-    rd.run(close_probe_tabs(), timeout=30)
-    assert loads and all(r["actor"] == "owner" and r["profile"] == p.folder and r["browser"] == "chrome"
+    assert loads and all(r["actor"] == "owner" and r["profile"] == "Default" and r["browser"] == "chrome"
                          for r in loads), loads
-
-
-
-def _raise_titled(bundle: str, title: str) -> None:
-    """Chrome's front window may belong to another profile: raise the test page's own window."""
-    from ferb.act.mac import accessibility as ax
-    app = appsm.find(bundle)
-    assert app is not None
-    w = next((w for w in (shotm._window(d) for d in shotm._info_windows(True))
-              if w.pid == app.pid and title in w.title), None)
-    assert w is not None, f"no {title} window"
-    ax.raise_window(app.pid, w.bounds)
 
 
 def _rgb(jpeg: bytes) -> tuple[int, int, bytes]:

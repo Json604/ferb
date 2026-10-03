@@ -102,8 +102,6 @@ let BLUETOOTH: Set<String> = ["blue", "blea"]
 
 // ---------- listening ----------
 
-final class Meter { var frames = 0 }
-
 final class Listener {
     let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var device: AudioObjectID = 0

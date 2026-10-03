@@ -1,31 +1,9 @@
 """Run the real extension worker with deterministic Chrome APIs; no owner's browser is touched."""
+
 import json
 import subprocess
+from tests.chromelab import worker
 
-from tests.test_browser_background import EXT, _node
-
-
-def worker(script: str) -> dict:
-    harness = r'''
-const vm = require("vm"), fs = require("fs"), path = require("path");
-const noop = new Proxy(function(){}, {get: () => noop});
-const state = {s: {seen: {}, order: [], owned: [], windowId: 9}};
-const chrome = new Proxy({
-  storage: {local: {get: async () => ({ferb: {key: null}})},
-            session: {get: async () => structuredClone(state), set: async x => Object.assign(state, x)}},
-  runtime: new Proxy({getManifest: () => ({version: "test"})}, {get: (o,k) => o[k] || noop}),
-  tabs: new Proxy({get: async () => ({windowId: 9})}, {get: (o,k) => o[k] || noop}),
-}, {get: (o,k) => o[k] || noop});
-const ctx = vm.createContext({chrome, crypto: globalThis.crypto, btoa, atob, TextEncoder, URL,
-  setTimeout, clearTimeout, console, navigator: {}, structuredClone});
-ctx.importScripts = f => vm.runInContext(fs.readFileSync(path.join(process.argv[1], f), "utf8"), ctx);
-ctx.importScripts("background.js");
-vm.runInContext(process.argv[2], ctx).then(x => { console.log(JSON.stringify(x)); process.exit(0); })
- .catch(e => { console.error(e); process.exit(1); });
-'''
-    result = subprocess.run([_node(), "-e", harness, str(EXT), script], capture_output=True, text=True, timeout=20)
-    assert result.returncode == 0, result.stderr
-    return json.loads(result.stdout)
 
 
 def test_trusted_action_never_silently_becomes_page_events() -> None:
@@ -36,6 +14,47 @@ def test_trusted_action_never_silently_becomes_page_events() -> None:
       catch(e) { return {ok: false, detail: e.message}; }
     })()''')
     assert result["ok"] is False and "debugger unavailable" in result["detail"]
+
+
+def test_confirmed_tab_close_does_not_detach_an_already_destroyed_target() -> None:
+    result = worker('''(async () => {
+      let alive = true;
+      const t = tabState(1); t.attached = true;
+      chrome.tabs.remove = async () => {alive = false;};
+      chrome.debugger = {sendCommand: async () => {if (!alive) throw Error('No tab with id: 1');}};
+      try {return await commands.close({tab_id:1});}
+      catch (e) {return {error:e.message};}
+    })()''')
+    assert result.get("closed") is True, result
+
+
+def test_container_wheel_requires_an_uncovered_point_in_the_requested_scroller() -> None:
+    from tests.chromelab import EXT, _node
+    script = r'''
+const vm = require('vm'), fs = require('fs');
+let covered = true, offscreen = false;
+const body = {scrollHeight:2000,scrollTop:0,clientHeight:600};
+const sc = {isConnected:true,scrollHeight:1000,clientHeight:100,scrollTop:0,parentElement:body,
+  contains: el => el === sc, getRootNode: () => doc,
+  getBoundingClientRect: () => ({x:10,y:offscreen ? 900 : 10,width:100,height:100})};
+const doc = {body,documentElement:body,scrollingElement:body,elementFromPoint: () => covered ? body : sc};
+const ctx = vm.createContext({document:doc,window:{},crypto:globalThis.crypto,WeakRef,
+  innerWidth:800,innerHeight:600,addEventListener(){},MutationObserver:class {observe(){}},
+  ShadowRoot:class {},getComputedStyle:el => ({overflowY:el === sc ? 'auto' : 'visible'}), sc});
+const source = fs.readFileSync(process.argv[1], 'utf8').replace('let containers = new Map();',
+  "let containers = new Map([['c1', new WeakRef(sc)]]);");
+vm.runInContext(source,ctx);
+const call = cid => ctx.window.__ferb.scroller(cid);
+const blocked = call('c1'); covered = false;
+const matched = call('c1'), wrongPage = call(null); offscreen = true;
+console.log(JSON.stringify({blocked,matched,wrongPage,offscreen:call('c1')}));
+'''
+    result = subprocess.run([_node(), "-e", script, str(EXT / "content.js")], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert "error" in out["blocked"] and "error" in out["offscreen"]
+    assert "error" in out["wrongPage"]
+    assert out["matched"]["px"] == 60 and out["matched"]["py"] == 60
 
 
 def test_covered_target_is_not_clicked() -> None:
@@ -181,3 +200,102 @@ def test_update_rechecks_command_started_during_async_storage_write() -> None:
       return {reloads, attempt: local.ferbUpdateAttempt};
     })()''')
     assert result == {'reloads': 0, 'attempt': None}
+
+
+def test_concurrent_commands_claim_ids_once_and_keep_all_recovery_records() -> None:
+    result = worker('''(async () => {
+      gen = 1; send = async () => {}; let ran = 0;
+      commands.ping = async () => {ran++; await sleep(5); return {ok: true};};
+      await Promise.all(['a', 'b', 'a'].map(id => onCommand({gen: 1, id, op: 'ping'})));
+      return {ran, state: await session()};
+    })()''')
+    assert result['ran'] == 2
+    assert result['state']['order'] == ['a', 'b']
+    assert result['state']['seen'] == {'a': 'done', 'b': 'done'}
+
+
+def test_concurrent_opens_share_one_window_without_losing_owned_tabs() -> None:
+    result = worker('''(async () => {
+      await saveSession({seen: {}, order: [], owned: [], windowId: null});
+      let windows = 0, nextTab = 20;
+      chrome.windows = {create: async () => {windows++; await sleep(5); return {id: 9};},
+        get: async () => ({id: 9, state: 'minimized'})};
+      chrome.tabs.create = async () => ({id: ++nextTab, windowId: 9});
+      chrome.tabs.get = async id => ({id, windowId: 9, url: 'https://example.test/'});
+      chrome.tabs.update = async () => {};
+      ferbGroup = async () => {}; waitComplete = async () => {};
+      await Promise.all([commands.open({url:'https://example.test/'}, 'a'), commands.open({url:'https://example.test/'}, 'b')]);
+      return {windows, state: await session()};
+    })()''')
+    assert result['windows'] == 1
+    assert {x['id'] for x in result['state']['owned']} == {'a', 'b'}
+
+
+def test_container_scroll_failure_never_scrolls_a_different_surface() -> None:
+    result = worker('''(async () => {
+      attach = async () => {throw Error('debugger unavailable');};
+      let scripted = 0; chrome.scripting = {executeScript: async () => {scripted++; return [{result: {y:700}}];}};
+      try {await commands.scroll({tab_id:1, frame_id:0, container:'c1', direction:'down'});}
+      catch(e) {return {error:e.message, scripted};}
+      return {scripted};
+    })()''')
+    assert result == {'error': 'debugger unavailable', 'scripted': 0}
+
+
+def test_scrolling_iframe_container_uses_its_frame_and_current_top_coordinates() -> None:
+    result = worker('''(async () => {
+      attach = async () => tabState(1);
+      tabState(1).frameRefs = new Map([[7, {parent_frame_id:0, owner_binding:'frame-seven'}]]);
+      const frames = [], events = [];
+      inFrame = async (tab, frame, fn, args) => {
+        frames.push(frame);
+        if (frame === 0) return {x:300, y:400, occluded:false};
+        return {px:20, py:30, viewport_h:100, y:85, height:1000, at_end:false};
+      };
+      cdp = async (tab, method, args) => {events.push(args);};
+      const result = await commands.scroll({tab_id:1, frame_id:7, container:'c1', direction:'down'});
+      return {frames, events, result};
+    })()''')
+    assert result['events'][0]['x'] == 320 and result['events'][0]['y'] == 430
+    assert result['result']['frame_id'] == 7 and result['result']['container'] == 'c1'
+    assert result['frames'].count(7) >= 3
+
+
+def test_release_keeps_tab_open_detaches_and_survives_extension_session_reset() -> None:
+    result = worker('''(async () => {
+      const local = {};
+      chrome.storage.local = {get: async () => structuredClone(local), set: async x => Object.assign(local,x)};
+      await saveSession({seen:{}, order:[], owned:[{id:'opened',tabId:22}], windowId:9});
+      const calls = []; chrome.debugger = {
+        sendCommand: async (target, method) => {calls.push(method);},
+        detach: async target => {calls.push('detach');}
+      };
+      chrome.tabs.get = async id => ({id, windowId:9, url:'https://class.example/', active:true});
+      chrome.tabs.query = async () => [await chrome.tabs.get(22)];
+      chrome.tabs.remove = async () => {throw Error('must never close kept tab');};
+      tabState(22).attached = true;
+      const released = await commands.release_tab({tab_id:22, keep_open:true});
+      const owned = (await session()).owned;
+      await saveSession({seen:{}, order:[], owned:[], windowId:null});
+      TABS.clear();
+      const listed = await commands.list_tabs();
+      const closed = await commands.close({tab_id:22});
+      return {released, calls, owned, listed, closed};
+    })()''')
+    assert result['released']['kept_open'] and result['released']['released']
+    assert result['calls'] == ['Emulation.setFocusEmulationEnabled', 'detach']
+    assert result['owned'] == []
+    assert result['listed']['tabs'][0]['kept_open'] is True
+    assert result['closed']['closed'] is False
+
+
+def test_release_failure_keeps_debugger_tracked_and_does_not_claim_success() -> None:
+    result = worker('''(async () => {
+      tabState(22).attached = true;
+      chrome.tabs.get = async id => ({id});
+      chrome.debugger = {sendCommand: async () => {}, detach: async () => {throw Error('transport failed');}};
+      try {await commands.release_tab({tab_id:22, keep_open:false});}
+      catch(e) {return {error:e.message, tracked:TABS.has(22)};}
+      return {tracked:TABS.has(22)};
+    })()''')
+    assert result == {'error': 'transport failed', 'tracked': True}

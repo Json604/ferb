@@ -27,7 +27,7 @@ from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.targets import Request
 from ferb.runtimes.claude_sdk import STRUCTURED_OUTPUT
 from ferb.runtimes.codex_exec import BASE_TOOLS
-from tests.conftest import RunningDaemon
+from tests.conftest import RunningDaemon, run_direct
 
 pytestmark = pytest.mark.real
 FS_TOOLS = ["fs.edit", "fs.list", "fs.read", "fs.trash", "fs.write"]
@@ -50,23 +50,6 @@ def expected_worker_tools(runtime: str) -> set[str]:
     return {f"mcp__ferb__{t.replace('.', '_')}" for t in FS_TOOLS} | {STRUCTURED_OUTPUT}
 
 
-async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[str], schema: dict,
-                     token: str = "", task: Task | None = None) -> dict:
-    rt = d.daemon._make_runtime("worker" if mode == "worker" else "orchestrator", mode=mode,
-                                tool_names=tool_names, schema=schema)
-    task = task or Task("t-sup", None, "chat", "dev", Identity.OWNER, set(), "mixed", "r-sup", [], None)
-    run = await rt.start(task, "", prompt, token)
-    out: dict = {"events": []}
-    try:
-        async for ev in rt.events(run):
-            out["events"].append(ev)
-            if ev.kind == "final":
-                out["final"], out["seen"] = ev.data["text"], set(ev.data.get("tools_seen", []))
-            if ev.kind == "violation":
-                out["violation"] = ev.data
-    finally:
-        await rt.cancel(run)
-    return out
 
 
 def test_supervisor_sees_only_the_allowlist_and_answers_typed(rt_daemon) -> None:
@@ -106,7 +89,7 @@ def test_worker_tools_equal_allowlist_and_every_native_path_fails(rt_daemon) -> 
     async def setup_task() -> str:
         root = d.daemon.spans.start("task", task_id=task.id, input={})
         d.daemon.tasks.add(TaskRecord(task, d.daemon.clock.now(), root.id))
-        d.daemon.engine.requests.record(Request(task.request_id, "probe the sandbox"))
+        d.daemon.state.requests.record(Request(task.request_id, "probe the sandbox"))
         return d.daemon.tokens.issue(task.id, "w-real", task.scopes, task.identity, ttl_s=600)
     token = d.run(setup_task())
     marker = base / "marker_native.txt"

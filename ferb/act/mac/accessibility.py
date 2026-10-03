@@ -1,4 +1,4 @@
-"""Accessibility (AX) reads and actions for Mac apps (section 3 act/mac; rework phase 3, docs/PLATFORM_MACOS.md).
+"""Accessibility (AX) reads and actions for Mac apps (section 3 act/mac; rework phase 3, ARCHITECTURE.md §5).
 Blocking pyobjc calls — callers run them in a thread.
 
 One walk per snapshot: `read_tree` visits the window (plus any sheet in it, the app's open menus, popovers and
@@ -415,7 +415,7 @@ def value(el: Any) -> str | None:
 def expose_tree(pid: int) -> bool:
     """Electron apps (Slack, Discord, VS Code…) build their full Accessibility tree only when an assistive app asks
     for it with AXManualAccessibility; set once per process. Other apps refuse the attribute (-25205), harmlessly.
-    AXEnhancedUserInterface is NOT set: AppKit answers -25208 and already reports it on (PLATFORM_MACOS.md §1)."""
+    AXEnhancedUserInterface is NOT set: AppKit answers -25208 and already reports it on (ARCHITECTURE.md §5)."""
     import ApplicationServices as AX
     return bool(AX.AXUIElementSetAttributeValue(AX.AXUIElementCreateApplication(pid), "AXManualAccessibility",
                                                 True) == 0)

@@ -2,11 +2,10 @@
 comes back as a transcript and runs as a chat turn in the "voice" session; FERB's replies are spoken.
 
 FERB.app is the only part that opens a microphone; this side decides which one (never a Bluetooth headset's), when to
-start, send or discard, and what to do with the words. A spoken "yes" / "no" / number answers the oldest waiting
-question; "stop" / "cancel" during a send or call countdown cancels it (what Ctrl-C does in chat)."""
+start, send or discard, and what to do with the words. Responses to questions are forwarded in full so the agent
+can interpret choices and corrections. Login codes use chat's hidden input, never the voice event stream."""
 
 import asyncio
-import re
 import time
 from typing import Any, AsyncIterator, Callable
 
@@ -14,36 +13,18 @@ from ferb.voice.mic import InputDevice, choose
 from ferb.voice.push_to_talk import MIN_HOLD_S, TalkKey
 from ferb.voice.speak import spoken
 
-YES = re.compile(r"^\s*(yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|approve[d]?|allow|confirm)\b", re.I)
-NO = re.compile(r"^\s*(no|nope|don'?t|cancel|stop|deny|decline)\b", re.I)
-CANCEL = re.compile(r"^\s*(stop|cancel|don'?t|no|wait|hold on)\b", re.I)
-NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
-           "first": 1, "second": 2, "third": 3}
-
-
-def spoken_choice(text: str) -> int | None:
-    """The first number said: "2", "two", "the second one" (not "one")."""
-    words = "|".join(NUMBERS)
-    m = re.search(rf"\b(\d|{words})\b", text, re.I)
-    if m is None:
-        return None
-    w = m.group(1).lower()
-    return int(w) if w.isdigit() else NUMBERS[w]
-
-
 class Voice:
     def __init__(self, run_turn: Callable[[str], AsyncIterator[dict[str, Any]]], pending: Callable[[], list[Any]],
-                 answer: Callable[[str, bool, int | None], Any], speaker: Any, journal: Any,
+                 answer: Callable[[str, bool, int | None, str | None], Any], speaker: Any, journal: Any,
                  launch_app: Callable[[], None], mode: Callable[[], str] = lambda: "auto",
                  render: Callable[[dict[str, Any]], str | None] = lambda ev: None,
                  question: Callable[[dict[str, Any]], str] = lambda d: "",
-                 cancel_countdown: Callable[[], bool] = lambda: False,
                  publish: Callable[[str, dict[str, Any]], None] = lambda topic, data: None,
                  enabled: Callable[[], bool] = lambda: True, sounds: Callable[[], bool] = lambda: True) -> None:
         self.run_turn, self.pending, self.answer = run_turn, pending, answer
         self.speaker, self.journal = speaker, journal
         self.launch_app, self.mode, self.render, self.question = launch_app, mode, render, question
-        self.cancel_countdown, self.publish = cancel_countdown, publish
+        self.publish = publish
         self.enabled, self.sounds = enabled, sounds          # push-to-talk on? `[voice] sounds`?
         self._chime: asyncio.TimerHandle | None = None
         self.key = TalkKey()
@@ -113,27 +94,18 @@ class Voice:
 
     async def transcript(self, text: str) -> dict[str, Any]:
         text = " ".join(text.split())
+        pending = self.pending()
+        if pending and getattr(pending[0], 'kind', '') == 'owner_login_code':
+            self._say("Enter the login code in ferb chat's hidden prompt.")
+            return {"handled": "secure_input_required"}
         self.publish("voice.heard", {"text": text})
         if not text:
             self._say("I didn't catch that.")
             return {"handled": "empty"}
-        if CANCEL.search(text) and self.cancel_countdown():    # a send / call still counting down
-            self._say("Cancelled.")
-            return {"handled": "cancelled"}
-        pending = self.pending()
-        if pending:                                              # a spoken answer to the oldest waiting question
-            ap = pending[0]
-            if ap.options:
-                n = spoken_choice(text)
-                if n is not None and 1 <= n <= len(ap.options):
-                    self.answer(ap.id, True, n)
-                    self._say(f"OK, {ap.options[n - 1]}.")
-                    return {"handled": "answer"}
-            elif YES.search(text) or NO.search(text):
-                granted = bool(YES.search(text)) and not NO.search(text)
-                self.answer(ap.id, granted, None)
-                self._say("OK." if granted else "OK, I won't.")
-                return {"handled": "answer"}
+        if pending:
+            self.answer(pending[0].id, True, None, text)
+            self._say("Got it.")
+            return {"handled": "answer"}
         asyncio.get_running_loop().create_task(self._turn(text))
         return {"handled": "request"}
 
@@ -146,12 +118,11 @@ class Voice:
                     line = self.question(ev.get("data", {}))
                 else:
                     line = self.render(ev)
-                if line and (line.lstrip().startswith(("ferb>", "📞", "✉️", "?"))):
-                    shown = (line.replace("(Ctrl-C to cancel)", "(say stop to cancel)")
-                             .replace("number (Enter to cancel): ", "say the number")
-                             .replace("[y/N]", "(say yes or no)").strip().removeprefix("ferb>").strip())
-                    words = spoken(shown.replace("… (say stop to cancel)", ". Say stop to cancel.")
-                                   .replace(" (say stop to cancel)", ". Say stop to cancel."))
+                if line and line.lstrip().startswith(("ferb>", "?")):
+                    shown = line.strip().removeprefix("ferb>").strip()
+                    shown = shown.replace("number or your answer (Enter to skip):", "say your answer")
+                    shown = shown.replace("your answer (Enter to skip):", "say your answer")
+                    words = spoken(shown)
                     await asyncio.to_thread(self.speaker.wait)       # don't cut off what it's still saying
                     self._say(words, shown)
         except Exception as e:                                    # the owner hears it, the journal keeps it

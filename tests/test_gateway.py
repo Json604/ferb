@@ -3,63 +3,33 @@
 import os
 import sys
 import time
-from dataclasses import replace
-from datetime import timedelta
 
 import anyio
 import pytest
-from pydantic import BaseModel
 
-from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, Task, ToolContext, ToolResult
-from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.targets import Request, Targets
-from tests.conftest import Answers, RunningDaemon
+from ferb.core.types import Identity
+from tests.conftest import Answers, RunningDaemon, GatewayCap as FakeCap, gateway_request as request, gateway_setup as setup, gateway_tool_call as call
 
 
-class FakeCap:
-    identities = {Identity.OWNER}
-    risk, reversible = RiskLevel.MEDIUM, False
-
-    class Input(BaseModel):
-        to: str = "alice@x.com"
-        text: str = "hi"
-
-    def __init__(self, name: str, kind: str, scopes: set[str], boom: bool = False,
-                 reads: tuple[tuple[str, str], ...] = (), site: str | None = None) -> None:
-        self.name, self.description, self.kind, self.scopes = name, f"fake {kind}", kind, scopes
-        self.boom, self.reads, self.site, self.calls = boom, reads, site, 0
-
-    def describe(self, args: BaseModel) -> ActionSpec:
-        to = getattr(args, "to")
-        return ActionSpec(self.kind, Target(recipients=(to,) if to else (), site=self.site), content=getattr(args, "text"))
-
-    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        self.calls += 1
-        if self.boom:
-            raise ConnectionError("lost ack after Send")
-        return ToolResult({"ok": True, "n": self.calls}, read_sources=self.reads)
-
-
-def request(words: str = "", **targets: object) -> Request:
-    """The facts the gateway keeps about a request: the owner's own words and the targets the model understood."""
-    return Request("req-1", words, Targets.of(**targets))   # type: ignore[arg-type]
-
-
-def setup(d: RunningDaemon, scopes: set[str], req: Request | None, caps: list[FakeCap],
-          identity: Identity = Identity.OWNER):
-    for c in caps:
-        d.daemon.registry.capabilities[c.name] = c
-    task = Task("task-1", None, "g", "dev", identity, scopes, "worker", "req-1", [],
-                d.daemon.clock.now() + timedelta(minutes=10))
-
-    async def go():
-        root = d.daemon.spans.start("task", task_id=task.id, input={})
-        d.daemon.tasks.add(TaskRecord(task, d.daemon.clock.now(), root.id))
-        if req is not None:
-            d.daemon.engine.requests.record(req)
-        token = d.daemon.tokens.issue(task.id, "w1", scopes, identity, ttl_s=600)
-        return d.daemon.tokens.validate(token), token
-    return d.run(go())
+def test_owner_questions_accept_choices_free_text_and_expire():
+    from ferb.clock.clock import FakeClock
+    from ferb.daemon.questions import Approvals
+    from ferb.policy.rules import ActionRequest
+    clock = FakeClock()
+    questions = Approvals(clock, ttl_s=60)
+    action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
+    choice = questions.question(action, 'Which account?', ['a@x', 'b@x'])
+    questions.resolve(choice.id, True, text='2')
+    assert choice.choice == 'b@x'
+    free = questions.question(action, 'Which account?', ['a@x', 'b@x'])
+    questions.resolve(free.id, True, text='the work one')
+    assert free.answer == 'the work one' and free.choice is None
+    expired = questions.question(action, 'Continue?', [])
+    clock.advance(61)
+    with pytest.raises(ValueError, match='expired'):
+        questions.resolve(expired.id, True)
+    questions.forget_request('r')
+    assert not questions.pending() and questions.get(choice.id) is None
 
 
 async def _tree(d: RunningDaemon):
@@ -69,25 +39,6 @@ async def _tree(d: RunningDaemon):
 async def _ledger(d: RunningDaemon, capability: str) -> list[str]:
     return [r[0] for r in d.daemon.db.conn.execute("SELECT state FROM action_ledger WHERE capability = ?",
                                                     (capability,)).fetchall()]
-
-
-def call(d: RunningDaemon, grant, name: str, **args):
-    return d.run(d.daemon.gateway.call(grant, name, args), timeout=20)
-
-
-def past_undo(d: RunningDaemon, grant, name: str, **args):
-    """A call that may be held for undo: the fake clock is moved past the window while it waits."""
-    import asyncio as aio
-
-    async def go() -> dict:
-        job = aio.create_task(d.daemon.gateway.call(grant, name, args))
-        for _ in range(60):
-            await aio.sleep(0.05)
-            d.daemon.clock.advance(1)
-            if job.done():
-                break
-        return await aio.wait_for(job, 5)
-    return d.run(go(), timeout=20)
 
 
 def test_tools_listed_only_within_scopes_and_unknown_refused(daemon: RunningDaemon) -> None:
@@ -150,10 +101,10 @@ def test_exception_is_unknown_and_gateway_records_each_agent_selected_attempt(da
     boom = FakeCap("fake.send2", "post", {"browser:act"}, boom=True)
     grant, _ = setup(daemon, {"browser:act"}, request("post it to alice@x.com"), [boom])
     daemon.call_soon(daemon.daemon.clock.advance, 0)
-    r = past_undo(daemon, grant, "fake.send2", why="posting")
+    r = call(daemon, grant, "fake.send2", why="posting")
     assert r["is_error"] and "outcome unknown" in r["content"]["error"], r
     assert daemon.run(_ledger(daemon, "fake.send2")) == ["unknown"]
-    r2 = past_undo(daemon, grant, "fake.send2", why="posting")
+    r2 = call(daemon, grant, "fake.send2", why="posting")
     assert r2["is_error"] and "unknown" in r2["content"]["error"] and boom.calls == 2
     assert daemon.run(_ledger(daemon, "fake.send2")) == ["unknown", "unknown"]
 

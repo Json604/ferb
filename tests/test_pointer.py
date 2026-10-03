@@ -1,5 +1,5 @@
 """Exact visual pointer input, using the real extension JS in an isolated Node harness."""
-from tests.test_browser_recovery import worker
+from tests.chromelab import worker
 
 
 def test_pointer_keeps_selected_pixel_and_releases_after_interrupted_drag():

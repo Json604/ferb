@@ -57,6 +57,34 @@ class SpanStore:
             (parent.children if parent else roots).append(node)
         return roots
 
+    def tool_call(self, task_id: str, span_id: str) -> dict[str, Any] | None:
+        """One exact task's recorded observation, excluding recursive evidence reads and model turns."""
+        row = self._db.conn.execute(
+            "SELECT * FROM spans WHERE task_id = ? AND id = ? AND kind = 'tool.call' "
+            "AND json_extract(input_json, '$.tool') != 'task.evidence'", (task_id, span_id)).fetchone()
+        if row is None:
+            return None
+        return {"id": row["id"], "task_id": task_id, "started_at": row["started_at"], "ended_at": row["ended_at"],
+                "input": json.loads(row["input_json"]),
+                "output": json.loads(row["output_json"]) if row["output_json"] else None, "error": row["error"]}
+
+    def tool_calls(self, task_id: str, query: str = '', after: int = 0, limit: int = 20) -> dict[str, Any]:
+        """Search actual redacted observations with literal text and chronological cursor pagination."""
+        if limit < 1 or after < 0:
+            raise ValueError('limit must be positive and after nonnegative')
+        where = "task_id = ? AND kind = 'tool.call' AND json_extract(input_json, '$.tool') != 'task.evidence'"
+        params: list[Any] = [task_id]
+        if query:
+            where += " AND instr(lower(input_json || coalesce(output_json, '') || coalesce(error, '')), lower(?)) > 0"
+            params.append(query)
+        rows = self._db.conn.execute("SELECT rowid AS cursor, * FROM spans WHERE " + where +
+                                     " AND rowid > ? ORDER BY rowid LIMIT ?", (*params, after, limit + 1)).fetchall()
+        records = [{"id": row["id"], "tool": json.loads(row["input_json"]).get('tool'),
+                    "started_at": row["started_at"], "ended_at": row["ended_at"], "error": row["error"],
+                    "input_preview": row["input_json"][:500], "input_truncated": len(row["input_json"]) > 500,
+                    "has_output": row["output_json"] is not None} for row in rows[:limit]]
+        return {"records": records, "next_after": rows[limit - 1]["cursor"] if len(rows) > limit else None}
+
 
 def _row_to_span(r: Any) -> Span:
     return Span(id=r["id"], parent_id=r["parent_id"], kind=r["kind"], task_id=r["task_id"], device_id=r["device_id"],

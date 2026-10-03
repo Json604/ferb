@@ -1,4 +1,4 @@
-"""Typed outcomes the supervisor and workers must return (section 7, docs/DESIGN_ONE_WORKER.md section 1).
+"""Typed outcomes the supervisor and workers must return.
 
 JSON schemas in strict structured-output form (every property required, no extra properties, null where optional),
 plus pydantic models that validate what comes back. A chat turn is a reply, one clarifying question, or a task: the
@@ -7,7 +7,7 @@ goal in plain words, the identity, the targets the model understood (information
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from ferb.clock.when import WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
@@ -43,7 +43,7 @@ TASK_SCHEMA: dict[str, Any] = _obj({
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
     "worker_type": {"type": "string"},
     "targets": TARGETS_SCHEMA,
-    "success_conditions": {"type": "array", "items": CONDITION_SCHEMA},
+    "success_conditions": {"type": "array", "items": CONDITION_SCHEMA, "minItems": 1},
 })
 
 REMEMBER_SCHEMA = _obj({
@@ -97,11 +97,6 @@ VERIFIER_SCHEMA: dict[str, Any] = _obj({
     "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
                                                 "evidence": {"type": "string"}})},
 })
-
-RECONCILE_SCHEMA: dict[str, Any] = _obj({
-    "happened": {"type": "string", "enum": ["yes", "no", "unclear"]}, "evidence": {"type": "string"},
-})
-
 
 class TargetsSpec(BaseModel):
     apps: list[str] = []
@@ -159,6 +154,13 @@ class SupervisorOutcome(BaseModel):
     schedule: "ScheduleRequest | None" = None
     schedule_changes: list["ScheduleChange"] = []
     reminder_cancels: list["ReminderCancel"] = []
+
+    @model_validator(mode="after")
+    def complete_action_plan(self) -> "SupervisorOutcome":
+        if self.kind == "task" and (self.task is None or not self.task.success_conditions or
+                                    any(not c.text.strip() for c in self.task.success_conditions)):
+            raise ValueError("A new task needs nonempty success_conditions describing the requested outcome")
+        return self
 
 
 class ScheduleRequest(BaseModel):
@@ -223,8 +225,3 @@ class VerifierResult(BaseModel):
 
 class VerifierOutcome(BaseModel):
     results: list[VerifierResult]
-
-
-class ReconcileOutcome(BaseModel):
-    happened: Literal["yes", "no", "unclear"]
-    evidence: str

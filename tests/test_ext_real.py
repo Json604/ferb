@@ -1,38 +1,22 @@
-"""Build step 6a, real browser (pytest -m real): the FERB extension loaded unpacked in ONE test profile, driven by a
-test daemon with its own home. FERB's installed native-host launcher is pointed at the test daemon for the run and
-restored afterwards. Local pages only (127.0.0.1); no real sites, no accounts.
-
-    FERB_REAL_PROFILE="chrome:FERB Test" uv run pytest -m real tests/test_ext_real.py
-
-Checks: pairing via the extension's own page; background tab (never activated); snapshot sanitized in the page
-(password value, hidden input, URL token); page-mode typing; trusted click + typing in the background tab via the
-debugger (every event isTrusted, tab stays inactive); the native host dying -> reconnect with a new generation ->
-old element ids refused (21.13). The lab variant (tests/test_browser_lab_real.py) needs no installed profile.
-"""
+"""Real extension regression in a disposable ChromeLab: local pages, trusted background input, password/URL
+redaction and stale-ref refusal after this lab extension reconnects. No installed profiles or native hosts."""
 
 import asyncio
 import http.server
-import re
 import json
 import os
-import subprocess
-import tempfile
 import threading
 import time
-from pathlib import Path
 from typing import Any, Iterator
 
 import pytest
 
-from ferb.act.browser.profiles import discover_all
-from ferb.cli.client import Client
-from ferb.clock.clock import SystemClock
+from tests.chromelab import lab  # noqa: F401
+
 from ferb.core.errors import StaleRef
 from ferb.core.types import BrowserAction
-from tests.conftest import RunningDaemon, without_owner_mac
 
 pytestmark = pytest.mark.real
-LAUNCHER = Path.home() / ".ferb" / "bin" / "ferb-native-host"
 PASSWORD = "hunter2-" + os.urandom(4).hex()
 
 PAGE = """<!doctype html><title>FERB real test</title>
@@ -41,39 +25,6 @@ PAGE = """<!doctype html><title>FERB real test</title>
 <button type=button id=b onclick="document.getElementById('out').textContent='clicked trusted=' + event.isTrusted">Go</button>
 <input id=t placeholder=Trusted onkeydown="window.__k = (window.__k || 0) + (event.isTrusted ? 1 : 0)"></form>
 <p id=out>not clicked</p><script>document.getElementById('pw').value = '%s'</script>"""
-
-
-@pytest.fixture(scope="module")
-def target() -> tuple[str, str]:
-    spec = os.environ.get("FERB_REAL_PROFILE")
-    if not spec or ":" not in spec:
-        pytest.skip('set FERB_REAL_PROFILE="chrome:<test profile name>" (a test profile with the extension loaded)')
-    browser, name = spec.split(":", 1)
-    return browser, name
-
-
-@pytest.fixture(scope="module")
-def rd(target: tuple[str, str]) -> Iterator[RunningDaemon]:
-    if not LAUNCHER.exists():
-        pytest.skip("run `ferb setup --update` first (installs the native host)")
-    base = Path(tempfile.mkdtemp(prefix="ferbr-"))
-    original = LAUNCHER.read_text()
-    d = RunningDaemon(base / "home", clock=SystemClock())
-    without_owner_mac(d)                                                  # locked down (CLAUDE.md)
-    LAUNCHER.write_text(re.sub(r'FERB_HOME="[^"]*"', f'FERB_HOME="{d.daemon.home}"', original))
-    restart_hosts()                    # an extension already connected keeps its old host (and daemon) otherwise
-    try:
-        yield d
-    finally:
-        LAUNCHER.write_text(original)                          # the installed daemon gets its browsers back
-        restart_hosts()
-        d.stop()
-
-
-def restart_hosts() -> None:
-    """Only FERB's own relay processes; the extension reconnects through the launcher within seconds."""
-    subprocess.run(["pkill", "-f", "ferb.native_host.main"], capture_output=True)
-    time.sleep(3)
 
 
 @pytest.fixture(scope="module")
@@ -93,23 +44,13 @@ def site() -> Iterator[str]:
     srv.shutdown()
 
 
-def test_real_extension_end_to_end(rd: RunningDaemon, target: tuple[str, str], site: str) -> None:
-    browser, name = target
+def test_real_extension_end_to_end(lab: Any, site: str) -> None:
+    rd, chrome, _ = lab
     d = rd.daemon
-    assert any(p.display_name == name and p.browser == browser for p in discover_all()), \
-        f"{browser} profile {name!r} isn't in Local State yet (the browser writes it lazily)"
-    # the owner has a window of that profile open (a blank local page), as when they use it; FERB's tab must stay
-    # in the background of it
-    from ferb.act.browser.profiles import open_known_profile
-    p = next(p for p in discover_all() if p.display_name == name and p.browser == browser)
-    open_known_profile(browser, p.folder, f"{site}/owner-window", discover_all())
-    time.sleep(2)
-    c = Client(rd.sock, timeout=90)
-    r = c.call("browsers.pair", {"profile": name, "browser": browser, "timeout_s": 60})
-    c.close()
-    assert r["paired"], r
     router = d.router
     assert router is not None
+    chrome.owner_tab(f"{site}/owner-window")
+    name = "Lab"
 
     async def go() -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -135,7 +76,7 @@ def test_real_extension_end_to_end(rd: RunningDaemon, target: tuple[str, str], s
         out["active_after_input"] = next(x["active"] for x in tabs["tabs"] if x["tab_id"] == t.chrome_id)
         # (the CDP allowlist has no daemon-facing op any more: tests/test_browser_background.py checks it in node)
         old_gen, keep = t.bridge.gen, router.element_ref(tab, user)
-        subprocess.run(["pkill", "-f", "ferb.native_host.main"], capture_output=True)   # the host dies
+        chrome.reconnect()  # only the disposable extension relay disconnects
         for _ in range(100):
             await asyncio.sleep(0.1)
             if t.bridge.conn is not None and t.bridge.gen > old_gen:

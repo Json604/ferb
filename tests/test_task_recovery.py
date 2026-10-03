@@ -3,10 +3,9 @@ import asyncio
 import pytest
 
 from ferb.core.types import ComputerAction
-from ferb.orchestrator.guards import observation_digest
 from ferb.policy.effects import label_kind
 from ferb.policy.rules import Kind
-from tests.test_background_input import Ax, ids, setup
+from tests.mackit import Ax, ids, background_mac as setup
 
 
 def test_preview_words_do_not_turn_opening_a_conversation_into_a_purchase() -> None:
@@ -16,9 +15,6 @@ def test_preview_words_do_not_turn_opening_a_conversation_into_a_purchase() -> N
     assert label_kind("Delete permanently") == Kind.DELETE_PERMANENT
 
 
-def test_changed_content_is_progress_even_when_element_ids_stay_the_same() -> None:
-    assert observation_digest({"elements": [{"id": "s1e1", "value": "pending"}]}) != observation_digest(
-        {"elements": [{"id": "s1e1", "value": "confirmed"}]})
 
 
 def test_ax_set_value_success_without_value_change_is_not_reported_as_success(monkeypatch) -> None:
@@ -38,21 +34,19 @@ def test_search_semantics_do_not_make_an_ax_button_a_writable_text_field(monkeyp
     assert not MacComputerDriver._text_field(node)
 
 
-def test_learned_input_failures_are_reprobed_after_an_hour(monkeypatch) -> None:
-    from datetime import datetime, timedelta, timezone
-    from ferb.act.mac.profile import Profiles, MISS_LIMIT
-    import ferb.act.mac.profile as profile
-    now = datetime.now(timezone.utc)
-    monkeypatch.setattr(profile, "_now", lambda: (now - timedelta(hours=2)).isoformat())
+def test_learned_input_failures_are_observations_not_permissions() -> None:
+    from ferb.act.mac.profile import Profiles
     p = Profiles()
-    for _ in range(MISS_LIMIT):
+    for _ in range(4):
         p.record("example.app", "ax_keyboard", False)
-    assert not p.skips("example.app", "ax_keyboard")
+    assert p.status("example.app", "ax_keyboard") == "failed"
+    p.record("example.app", "ax_keyboard", True)
+    assert p.prefers("example.app", "ax_keyboard")
 
 
 def test_followup_keeps_the_original_owner_words_and_browser_choice(daemon) -> None:
     import json
-    from tests.test_supervisor import chat, install, sup, task, outcome
+    from tests.conftest import chat, install, sup, task, outcome
     first = task("use Work profile to order lunch on shop.example", "owner", sites=("shop.example",))
     install(daemon, [sup("task", "Starting.", first)], {"worker": json.dumps({"status": "needs_user",
         "summary": "Login needed", "artifacts": [], "evidence": []})})
@@ -64,7 +58,7 @@ def test_followup_keeps_the_original_owner_words_and_browser_choice(daemon) -> N
     def worker(token):
         grant = daemon.daemon.tokens.validate(token)
         rec = daemon.daemon.tasks.get(grant.task_id)
-        seen.append((rec.task.goal, daemon.daemon.engine.requests.get(rec.task.request_id).words))
+        seen.append((rec.task.goal, daemon.daemon.state.requests.get(rec.task.request_id).words))
         return json.dumps({"status": "needs_user", "summary": "Waiting for login", "artifacts": [], "evidence": []})
 
     install(daemon, [json.dumps(followup)], {"worker": worker})
@@ -76,7 +70,7 @@ def test_followup_keeps_the_original_owner_words_and_browser_choice(daemon) -> N
 def test_chat_stop_cancels_the_running_attempt_instead_of_just_saying_so(daemon, phase, monkeypatch) -> None:
     import json
     import threading
-    from tests.test_supervisor import STALL, FakeRuntime, chat, install, sup, task, cond
+    from tests.conftest import STALL, FakeRuntime, chat, install, sup, task, cond
     started = threading.Event()
     root = []
 

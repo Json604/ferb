@@ -2,7 +2,7 @@
 // element lookup and page-mode actions. No decisions. Sanitizes before anything leaves the page (9.4):
 // password/OTP values are reported only as filled/empty, hidden inputs are skipped, URL tokens are masked.
 //
-// Snapshot semantics (PLATFORM_BROWSER.md 6, 13.3): every element carries `in_view` (its rect meets this frame's
+// Snapshot semantics (ARCHITECTURE.md: browser snapshots): every element carries `in_view` (its rect meets this frame's
 // viewport and elementFromPoint at its centre hits it or a descendant), `occluded` (on screen but covered),
 // `container` (the id of its nearest scrollable ancestor, whose scroll position is in `scrollers`), and state
 // (disabled / expanded / selected / checked). Open shadow roots are walked; iframes are listed with their rects so
@@ -451,12 +451,27 @@
     return true;
   }
   function scroller(cid) {           // where a trusted wheel event must land (px, py) to scroll that container (or the window)
-    if (!cid) return { px: innerWidth / 2, py: innerHeight / 2, ...scrollState(null) };
-    const ref = containers.get(cid), sc = ref && ref.deref();
-    if (!sc || !sc.isConnected) return { error: "stale" };
-    const r = sc.getBoundingClientRect();
-    return { px: Math.min(Math.max(r.x + r.width / 2, 1), innerWidth - 1), py: Math.min(Math.max(r.y + r.height / 2, 1), innerHeight - 1),
-             ...scrollState(sc) };                                  // (scrollState's y is the scroll position)
+    const ref = cid && containers.get(cid), sc = ref ? ref.deref() : null;
+    if (cid && (!sc || !sc.isConnected)) return {error:"stale"};
+    const r = sc ? sc.getBoundingClientRect() : {x:0, y:0, width:innerWidth, height:innerHeight};
+    const left = Math.max(1, r.x), top = Math.max(1, r.y);
+    const right = Math.min(innerWidth - 1, r.x + r.width), bottom = Math.min(innerHeight - 1, r.y + r.height);
+    if (right <= left || bottom <= top) return {error:"scroll target is outside the viewport"};
+    scrollerCache.clear();
+    for (const fx of [0.5, 0.1, 0.9]) for (const fy of [0.5, 0.1, 0.9]) {
+      const px = left + (right-left)*fx, py = top + (bottom-top)*fy;
+      let hit = document.elementFromPoint(px, py);
+      while (hit && hit.shadowRoot) {
+        const inner = hit.shadowRoot.elementFromPoint(px, py);
+        if (!inner || inner === hit) break;
+        hit = inner;
+      }
+      if (!hit || hit.tagName === 'IFRAME') continue;
+      const actual = hit === document.body || hit === document.documentElement ? null :
+        (isScroller(hit) ? hit : scrollerOf(hit));
+      if (actual === sc) return {px, py, ...scrollState(sc)};
+    }
+    return {error:"no uncovered wheel target for this scroll surface; take a fresh snapshot"};
   }
   function scrolled(cid) {
     if (!cid) return scrollState(null);

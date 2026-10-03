@@ -1,6 +1,6 @@
 """Jev behind FERB's own decisions (section 12).
 
-- `RuleDecider` is FERB's existing logic: callers pass its answer (the baseline) with every question.
+- Callers provide an observation or memory proposal and the baseline they would otherwise keep.
 - `JevClient` calls Jev (POST /v1/systemone, model pinned to jev-1.13.0: calibration differs between versions), with
   the key from the Keychain; questions about the same state go in one request; 429 / 529 retry with backoff.
 - `ShadowDecider` asks both. A question in shadow mode never waits: a sample of its calls goes to a background queue
@@ -16,7 +16,7 @@ import asyncio
 import json
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from ferb.core.interfaces import Clock, IdSource
@@ -43,15 +43,6 @@ class Ask:
     @property
     def question(self) -> Question:
         return QUESTIONS[base_id(self.key)]
-
-
-class RuleDecider:
-    """FERB's existing logic as the answer to a question: whatever the caller decided, unchanged."""
-    name = "rule"
-
-    @staticmethod
-    def decide(ask: Ask) -> str:
-        return ask.baseline
 
 
 class JevClient:
@@ -117,7 +108,6 @@ class ShadowDecider:
     dropped: int = 0
     _queue: asyncio.Queue[_Job] | None = None
     _worker: asyncio.Task[None] | None = None
-    _jobs: list[asyncio.Future[Any]] = field(default_factory=list)
 
     async def ask(self, state: Any, asks: list[Ask]) -> dict[str, str]:
         """Record every ask; return {key: Jev's answer} only for enabled questions where Jev is stricter."""
@@ -225,19 +215,18 @@ class ShadowDecider:
         if self._worker is not None:
             self._worker.cancel()
 
-    # ---------- agreement ----------
+    # ---------- observation statistics ----------
 
     def stats(self) -> list[dict[str, Any]]:
         out = []
         for q in QUESTIONS.values():
             r = self.db.conn.execute(
-                "SELECT COUNT(*) AS asked, SUM(jev IS NOT NULL) AS answered, SUM(jev = baseline) AS agree, "
+                "SELECT COUNT(*) AS asked, SUM(jev IS NOT NULL) AS answered, "
                 "SUM(jev IS NOT NULL AND jev != baseline) AS differ, SUM(effect IS NOT NULL) AS acted, "
                 "AVG(latency_ms) AS ms FROM decisions WHERE question = ? AND (error IS NULL OR error != 'not sampled')",
                 (q.id,)).fetchone()
             answered = int(r["answered"] or 0)
-            out.append({"question": q.id, "real_baseline": q.real_baseline, "asked": int(r["asked"] or 0),
-                        "answered": answered, "agreement": (int(r["agree"] or 0) / answered) if answered else None,
+            out.append({"question": q.id, "asked": int(r["asked"] or 0), "answered": answered,
                         "flag_rate": (int(r["differ"] or 0) / answered) if answered else None,
                         "acted": int(r["acted"] or 0), "avg_ms": round(r["ms"]) if r["ms"] else None,
                         "enabled": q.id in self.enabled(), "effect": q.effect})
@@ -247,18 +236,3 @@ class ShadowDecider:
         return [r["ref"] for r in self.db.conn.execute(
             "SELECT ref FROM decisions WHERE question = ? AND jev IS NOT NULL AND jev != baseline AND ref IS NOT NULL "
             "ORDER BY seq DESC LIMIT ?", (question, n))]
-
-
-MIN_SAMPLES, MIN_AGREEMENT = 200, 0.95
-
-
-def may_enable(stat: dict[str, Any]) -> tuple[bool, str]:
-    """Questions with real existing logic: 200 answered samples at >= 95% agreement. Others: the owner decides from
-    the flag rate and examples (the CLI shows them and asks)."""
-    if not stat["real_baseline"]:
-        return True, "no existing logic to agree with: your call from the flag rate and examples"
-    if stat["answered"] < MIN_SAMPLES:
-        return False, f"only {stat['answered']} of {MIN_SAMPLES} answered samples so far"
-    if (stat["agreement"] or 0) < MIN_AGREEMENT:
-        return False, f"agreement {stat['agreement']:.0%} is under {MIN_AGREEMENT:.0%}"
-    return True, f"agreement {stat['agreement']:.0%} over {stat['answered']} samples"

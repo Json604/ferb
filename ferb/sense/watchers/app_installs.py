@@ -54,10 +54,9 @@ class AppInstallsWatcher:
             if o is not None:
                 loop.call_soon_threadsafe(self.deliver, emit, o)
         s = self.stream(self.folders, on_event)
-        if not s.start():
-            await stop.wait()
-            return
         try:
+            if not s.start():
+                raise RuntimeError('app installation event stream failed to start')
             await stop.wait()
         finally:
             s.stop()

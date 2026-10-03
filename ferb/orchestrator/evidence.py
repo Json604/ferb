@@ -34,37 +34,16 @@ class TaskEvidence:
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         source = self.parent(ctx.task_id) or ctx.task_id
-        # Exact registered task, not an id-prefix search. Exclude evidence reads to avoid recursive copies.
-        where = "task_id = ? AND kind = 'tool.call' AND json_extract(input_json, '$.tool') != ?"
-        params: list[Any] = [source, self.name]
-        db = self.spans._db.conn
         if args.span_id:
-            row = db.execute("SELECT * FROM spans WHERE " + where + " AND id = ?",
-                             (*params, args.span_id)).fetchone()
+            row = self.spans.tool_call(source, args.span_id)
             if row is None:
                 return ToolResult({"error": "no recorded tool call with that id in this task"}, is_error=True)
-            payload = json.dumps({"id": row["id"], "task_id": source, "started_at": row["started_at"],
-                                  "ended_at": row["ended_at"], "input": json.loads(row["input_json"]),
-                                  "output": json.loads(row["output_json"]) if row["output_json"] else None,
-                                  "error": row["error"]}, ensure_ascii=False)
+            payload = json.dumps(row, ensure_ascii=False)
             end = min(args.offset + args.max_chars, len(payload))
             return ToolResult({"source_task": source, "text": payload[args.offset:end], "offset": args.offset,
                                "next_offset": end if end < len(payload) else None, "total_chars": len(payload)})
-        if args.query:
-            where += " AND instr(lower(input_json || coalesce(output_json, '') || coalesce(error, '')), lower(?)) > 0"
-            params.append(args.query)
-        rows = db.execute("SELECT rowid AS cursor, * FROM spans WHERE " + where +
-                          " AND rowid > ? ORDER BY rowid LIMIT ?", (*params, args.after, args.limit + 1)).fetchall()
-        records = []
-        for row in rows[:args.limit]:
-            request = json.loads(row["input_json"])
-            records.append({"id": row["id"], "tool": request.get("tool"), "started_at": row["started_at"],
-                            "ended_at": row["ended_at"], "error": row["error"],
-                            "input_preview": row["input_json"][:500],
-                            "input_truncated": len(row["input_json"]) > 500,
-                            "has_output": row["output_json"] is not None})
-        return ToolResult({"source_task": source, "records": records,
-                           "next_after": rows[args.limit - 1]["cursor"] if len(rows) > args.limit else None})
+        page = self.spans.tool_calls(source, query=args.query, after=args.after, limit=args.limit)
+        return ToolResult({"source_task": source, **page})
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec("read")

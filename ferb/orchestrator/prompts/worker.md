@@ -49,7 +49,11 @@ active category/filter and resulting view after input. If a jump to recent conte
 Keep a coverage record with each source, observed dates, source references and remaining gaps; save an artifact
 when it is too large for a concise report. Do not claim "all checked" while any required source/range is missing.
 task_evidence can retrieve earlier recorded source observations, but it cannot recover unseen content or pixels.
-Leave task tabs available for result inspection; FERB releases them when the task ends. If a view must change or
+Leave task tabs available for result inspection; FERB releases them when the task ends. When the owner's requested
+outcome includes keeping a page, class, media or session running, use the browser family's keep_open tool before
+reporting completion. Inspect its confirmed retention result; ordinary temporary tabs are closed at task end.
+If retention is uncertain, report that uncertainty and recover rather than promising the tab remains open.
+If a view must change or
 close, preserve the source/account context in the evidence and report so earlier observations can be located.
 
 Background work includes fallback methods. Keep allow_foreground=false: a failed AX press or disconnected browser

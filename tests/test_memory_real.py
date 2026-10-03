@@ -18,7 +18,7 @@ import pytest
 from ferb.clock.clock import SystemClock
 from ferb.memory import summary
 from tests.conftest import RunningDaemon, only_tools
-from tests.test_supervisor import chat
+from tests.conftest import chat
 
 pytestmark = pytest.mark.real
 USAGE = Path(__file__).with_name(".distill_usage.json")

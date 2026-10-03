@@ -5,14 +5,62 @@ import io
 import json
 from pathlib import Path
 from typing import Any
+import pytest
 
 from ferb.cli.chat import Chat
 from ferb.core.types import Task
 from ferb.orchestrator.worker import service_problem
 from ferb.runtimes.codex_exec import SUPERVISOR_SETTINGS, CodexRuntime, codex_home
+from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.voice.speak import SaySpeaker
-from tests.conftest import RunningDaemon
-from tests.test_supervisor import chat, install, sup
+from tests.conftest import RunningDaemon, chat, install, sup
+
+CODEX_START = CodexRuntime.start
+CLAUDE_START = ClaudeRuntime.start
+
+
+@pytest.mark.anyio
+async def test_codex_start_failure_removes_created_files(tmp_path, monkeypatch):
+    import ferb.runtimes.codex_exec as adapter
+    from ferb.core.types import Identity
+    created = []
+    original = adapter.tempfile.mkstemp
+    def temporary(*args, **kwargs):
+        kwargs['dir'] = tmp_path
+        fd, name = original(*args, **kwargs)
+        created.append(Path(name))
+        return fd, name
+    async def version(binary): pass
+    async def spawn(*args, **kwargs): raise OSError('cannot launch runtime')
+    monkeypatch.setattr(adapter, 'check_version', version)
+    monkeypatch.setattr(adapter.tempfile, 'mkstemp', temporary)
+    monkeypatch.setattr(adapter.asyncio, 'create_subprocess_exec', spawn)
+    rt = CodexRuntime(Path('/missing'), 'worker', tmp_path, tmp_path,
+                      shim_cmd=['ferb', 'mcp'], output_schema={'type':'object'})
+    t = Task('t', None, 'g', 'd', Identity.OWNER, set(), 'worker', 'r', [], None)
+    with pytest.raises(OSError, match='cannot launch'):
+        await CODEX_START(rt, t, 'system', 'context', 'token')
+    assert created and not any(p.exists() for p in created)
+
+
+@pytest.mark.anyio
+async def test_claude_query_failure_disconnects_client(monkeypatch):
+    import claude_agent_sdk
+    from ferb.runtimes.claude_sdk import ClaudeRuntime
+    from ferb.core.types import Identity
+    class Client:
+        closed = False
+        def __init__(self, **kwargs): pass
+        async def connect(self): pass
+        async def query(self, text): raise RuntimeError('query transport failed')
+        async def disconnect(self): Client.closed = True
+    monkeypatch.setattr(claude_agent_sdk, 'ClaudeSDKClient', Client)
+    rt = ClaudeRuntime('supervisor', None, '/unused')
+    monkeypatch.setattr(rt, '_options', lambda *args: None)
+    t = Task('t', None, 'g', 'd', Identity.OWNER, set(), 'worker', 'r', [], None)
+    with pytest.raises(RuntimeError, match='query transport'):
+        await CLAUDE_START(rt, t, 'system', 'context', 'token')
+    assert Client.closed
 
 
 # ---------- Codex, faster ----------
@@ -78,7 +126,7 @@ def test_planner_and_answer_writer_know_what_ferb_can_do(daemon: RunningDaemon) 
         return str(s._system(prompt))                                       # type: ignore[union-attr]
     for prompt in ("supervisor.md",):
         text = daemon.run(system(prompt))
-        assert "What workers can do right now" in text and "Who FERB is" in text, prompt
+        assert "Installed worker capabilities" in text and "Who FERB is" in text, prompt
         assert "Never present the limits of one task" in text and "{capabilities}" not in text
 
 
@@ -111,11 +159,10 @@ def test_speak_says_ferbs_words_not_internals() -> None:
     voice = FakeSay()
     events = [{"type": "plan", "text": "Looking now.", "task_id": "t1"},
               {"type": "event", "topic": "tool.called", "data": {"tool": "fs.read"}},       # not shown, not said
-              {"type": "event", "topic": "action.held", "data": {"kind": "call", "to": "Rahul", "seconds": 10}},
               {"type": "outcome", "status": "done", "summary": "ok", "answer": "Done: 3 files.", "verified": True}]
     c = Chat(lambda: Stream(events), io.StringIO(), lambda q: "", verbose=False, speaker=voice)  # type: ignore[arg-type,return-value]
     c.turn("look")
-    assert voice.said == ["ferb> Looking now.", "   📞 Calling Rahul in 10 s… (Ctrl-C to cancel)", "ferb> Done: 3 files."]
+    assert voice.said == ["ferb> Looking now.", "ferb> Done: 3 files."]
     assert voice.stopped >= 1                                               # a new message cut off the last one
 
 

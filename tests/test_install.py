@@ -2,43 +2,12 @@
 uninstall and the purge safety rules. Nothing real is installed here (see test_launchd_real.py)."""
 
 import json
-import os
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from ferb.device.install import MARKER, InstallError, Installer, code_hash
-
-
-class FakeRunner:
-    """Records commands; simulates uv installing Python/venv and launchctl load state."""
-
-    def __init__(self, home: Path) -> None:
-        self.home, self.cmds, self.loaded = home, [], False
-
-    def __call__(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
-        self.cmds.append(cmd)
-        out = ""
-        if cmd[:3] == ["uv", "python", "install"]:
-            py = self.home / "python" / "cpython-3.12.99-macos-aarch64-none" / "bin" / "python3.12"
-            py.parent.mkdir(parents=True, exist_ok=True)
-            py.write_text("#!/bin/sh\n")
-        elif cmd[:2] == ["uv", "venv"]:
-            vpy = Path(cmd[-1]) / "bin" / "python"
-            vpy.parent.mkdir(parents=True, exist_ok=True)
-            vpy.unlink(missing_ok=True)
-            vpy.symlink_to(cmd[cmd.index("--python") + 1])
-        elif cmd[:2] == ["launchctl", "bootstrap"]:
-            self.loaded = True
-        elif cmd[:2] == ["launchctl", "bootout"]:
-            self.loaded = False
-        elif cmd[:2] == ["launchctl", "print"]:
-            return subprocess.CompletedProcess(cmd, 0 if self.loaded else 113, "pid = 4242\n" if self.loaded else "")
-        return subprocess.CompletedProcess(cmd, 0, out, "")
-
-    def ran(self, *prefix: str) -> int:
-        return sum(1 for c in self.cmds if c[:len(prefix)] == list(prefix))
+from tests.conftest import FakeRunner
 
 
 @pytest.fixture
@@ -127,6 +96,28 @@ def test_code_hash_changes_with_code(tmp_path: Path) -> None:
     assert code_hash(pkg) == h1                                  # caches don't count
     (pkg / "a.py").write_text("x = 2\n")
     assert code_hash(pkg) != h1
+
+
+def test_code_hash_covers_prompts_and_equivalent_packaged_extension(tmp_path):
+    import shutil
+    checkout, installed = tmp_path / 'checkout', tmp_path / 'installed'
+    package = checkout / 'ferb'
+    package.mkdir(parents=True)
+    (package / 'prompt.md').write_text('first prompt')
+    (package / 'module.py').write_text('pass')
+    extension = checkout / 'extensions' / 'chromium'
+    extension.mkdir(parents=True)
+    (extension / 'manifest.json').write_text('{"version":"1"}')
+    (extension / 'background.js').write_text('first extension')
+    shutil.copytree(package, installed)
+    shutil.copytree(extension, installed / '_extension')
+    assert code_hash(package) == code_hash(installed)
+    before = code_hash(package)
+    (package / 'prompt.md').write_text('second prompt')
+    assert code_hash(package) != before
+    before = code_hash(package)
+    (extension / 'background.js').write_text('second extension')
+    assert code_hash(package) != before
 
 
 def test_native_host_manifest_goes_to_every_listed_folder_and_uninstall_removes_it(tmp_path: Path) -> None:

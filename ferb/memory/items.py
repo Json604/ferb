@@ -85,6 +85,7 @@ class Memory:
         self.db, self.clock, self.ids, self.publish, self.on_change = db, clock, ids, publish, on_change
         self.redact = redact                         # secrets never reach memory or its export (safety test 5)
         self.rebuild_summary: Callable[[str], bool] = lambda day: False   # summary.py (True: rebuilt)
+        self.on_forget: Callable[[ForgetPlan], None] = lambda plan: None
 
     # ---------- reads ----------
 
@@ -310,6 +311,8 @@ class Memory:
 
     def forget(self, item_id: str, keep_sources: bool = False) -> ForgetPlan:
         plan = self.plan_forget(item_id, keep_sources)
+        # Delete derived copies first. If that fails, retain the source/plan so the owner can retry.
+        self.on_forget(plan)
         now = self.clock.now().isoformat()
         c = self.db.conn
         prints = [fingerprint(r["kind"], r["subject"], r["key"], r["content"]) for r in c.execute(

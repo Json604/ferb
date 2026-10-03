@@ -1,5 +1,5 @@
 """Per-app learned capability profiles (rework phase 3 / 5): which background mechanisms landed or failed in each app,
-counted, updated by every real action's outcome and seedable from `ferb.act.mac.probe`. Nothing here is written by
+counted, updated by every real action's outcome and seedable from `ferb.device.probe`. Nothing here is written by
 hand per app: the driver asks the profile, and the profile only knows what it saw.
 
 Kept in memory and, when a directory is given, as JSON under <ferb home>/device/apps/<bundle>.json.
@@ -13,8 +13,6 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-MISS_LIMIT = 3          # failures in a row before a mechanism is skipped for that app (a later success forgets it)
 
 # mechanism names the driver records; the probe's result keys that seed them
 PROBE_KEYS = {"ax_press_ok": "ax_press", "ax_set_value_ok": "ax_value", "ax_selected_text_ok": "ax_selected_text",
@@ -68,17 +66,6 @@ class Profiles:
 
     def untried(self, bundle: str, mechanism: str) -> bool:
         return self.status(bundle, mechanism) is None
-
-    def skips(self, bundle: str, mechanism: str) -> bool:
-        """Failed MISS_LIMIT times in a row with no success since: not worth another try until something changes."""
-        m = self.get(bundle).mechanisms.get(mechanism)
-        if not m or m.streak < MISS_LIMIT or not m.attempted_at:
-            return False
-        try:
-            age = (datetime.now(timezone.utc) - datetime.fromisoformat(m.attempted_at)).total_seconds()
-        except (ValueError, TypeError):
-            return False
-        return age < 3600
 
     # ---- writing
 

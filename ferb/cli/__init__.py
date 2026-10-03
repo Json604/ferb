@@ -1,4 +1,4 @@
-"""`ferb` command line (section 15): logs, trace, daemon run, stop, resume-tasks, undo, autonomy, setup, doctor,
+"""`ferb` command line (section 15): logs, trace, daemon run, stop, resume-tasks, setup, doctor,
 uninstall."""
 
 import argparse
@@ -26,12 +26,14 @@ def main(argv: list[str] | None = None) -> int:
 
     tp = sub.add_parser("trace", help="what a task did, step by step (default: the latest task)")
     tp.add_argument("task_id", nargs="?", help="a task id or its first characters (default: the latest task)")
-    tp.add_argument("--full", action="store_true", help="show everything, nothing shortened")
+    trace_format = tp.add_mutually_exclusive_group()
+    trace_format.add_argument("--full", action="store_true", help="show all recorded span fields")
+    trace_format.add_argument("--json", action="store_true", help="export the complete recorded trace as JSON")
 
     dp = sub.add_parser("daemon", help="run the daemon")
     dp.add_argument("action", choices=["run"])
 
-    sub.add_parser("stop", help="emergency stop: revoke tokens, block all actions, cancel held sends")
+    sub.add_parser("stop", help="emergency stop: revoke tokens, cancel active tasks")
     sub.add_parser("resume-tasks", help="lift the emergency stop")
     mp = sub.add_parser("memory", help="what FERB remembers: list, show, add, confirm, edit, retract, forget")
     msub = mp.add_subparsers(dest="mcmd", required=True)
@@ -57,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     mf.add_argument("--yes", action="store_true")
     dcp = sub.add_parser("decide", help="Jev's answers next to FERB's own decisions (shadow mode)")
     dsub = dcp.add_subparsers(dest="dcmd", required=True)
-    dsub.add_parser("stats", help="agreement per question (flag rate + examples where FERB has no logic of its own)")
+    dsub.add_parser("stats", help="observation and memory checks: flag rate, examples and errors")
     for name, help_ in (("enable", "let Jev's stricter answers act for one question"),
                         ("disable", "back to shadow mode for one question")):
         x = dsub.add_parser(name, help=help_)
@@ -74,11 +76,6 @@ def main(argv: list[str] | None = None) -> int:
     tl.add_argument("--since", help="YYYY-MM-DD")
     sub.add_parser("pause", help="stop every watcher: nothing is recorded until `ferb resume`")
     sub.add_parser("resume", help="start the watchers again after `ferb pause`")
-    up = sub.add_parser("undo", help="cancel a pending send/post during its undo window")
-    up.add_argument("hold_id", nargs="?")
-    ap = sub.add_parser("autonomy", help="show or set the autonomy level")
-    ap.add_argument("level", nargs="?", choices=["careful", "balanced", "hands-off"])
-
     bp = sub.add_parser("browsers", help="browser profiles, pairing and connection status")
     bsub = bp.add_subparsers(dest="bcmd")
     extension = bsub.add_parser("extension", help="prepare or locate FERB's managed browser extension")
@@ -203,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "voice":
                 return logs.voice(client, sys.stdout)
             if args.cmd == "trace":
-                return admin.trace(client, args.task_id, sys.stdout, args.full)
+                return admin.trace(client, args.task_id, sys.stdout, args.full, args.json)
             if args.cmd == "stop":
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":
@@ -222,8 +219,6 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.pause(client, sys.stdout)
             if args.cmd == "resume":
                 return admin.sense_resume(client, sys.stdout)
-            if args.cmd == "undo":
-                return admin.undo(client, args.hold_id, sys.stdout)
             if args.cmd == "ps":
                 return admin.ps(client, sys.stdout)
             if args.cmd == "kill":
@@ -231,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "browsers":
                 return admin.browsers(client, args.bcmd, getattr(args, "profile", None), getattr(args, "browser", None),
                                       sys.stdout)
-            return admin.autonomy(client, args.level, sys.stdout)
+            return 2
         finally:
             client.close()
     except NotRunning as e:

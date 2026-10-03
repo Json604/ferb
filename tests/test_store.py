@@ -84,3 +84,19 @@ def test_every_writer_passes_through_the_redaction_seam(db: Database) -> None:
     for leaked in (b"LEAK-JOURNAL-7f3a", b"LEAK-INPUT-7f3a", b"LEAK-OUTPUT-7f3a"):
         assert leaked not in raw
     assert len(seen) == 4        # journal data, span input, span output, span error
+
+
+def test_tool_observation_search_pages_exact_task_without_model_or_recursive_reads(db):
+    spans = SpanStore(db, FakeClock(), SequentialIds('s'), lambda d: d)
+    visible = []
+    for name, task in [('fs.read', 't'), ('mac.snapshot', 't'), ('fs.read', 't.other'), ('task.evidence', 't')]:
+        span = spans.start('tool.call', task_id=task, input={'tool': name})
+        spans.finish(span, output={'text': 'Unique evidence'})
+        if task == 't' and name != 'task.evidence': visible.append(span.id)
+    spans.start('model.turn', task_id='t', input={'text': 'Unique evidence'})
+    first = spans.tool_calls('t', query='unique evidence', limit=1)
+    assert [x['id'] for x in first['records']] == visible[:1]
+    second = spans.tool_calls('t', after=first['next_after'])
+    assert [x['id'] for x in second['records']] == visible[1:]
+    assert spans.tool_call('t.other', visible[0]) is None
+    assert spans.tool_call('t', visible[0])['output']['text'] == 'Unique evidence'

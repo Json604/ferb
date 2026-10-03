@@ -6,8 +6,7 @@
 
 from ferb.cli.chat import PASTE_QUESTION, prepare, whole_paste
 from ferb.sanitize.untrusted import PASTE_END, PASTE_START
-from tests.conftest import RunningDaemon
-from tests.test_supervisor import STALL, chat, install, sup, task
+from tests.conftest import STALL, RunningDaemon, chat, install, sup, task
 
 REQUEST = "in my brave keep scrolling for comments in the current youtube tab"
 
@@ -57,7 +56,7 @@ def test_yes_continues_the_request_it_answers(daemon: RunningDaemon) -> None:
     assert [e["type"] for e in first] == ["clarify"]
     evs = _stop_after_plan(daemon, "yes")
     assert evs[0]["type"] == "plan", evs
-    words = daemon.daemon.engine.requests.get  # the request's recorded words carry both messages while it runs
+    words = daemon.daemon.state.requests.get  # the request's recorded words carry both messages while it runs
     assert "yes" in script.contexts[-1][2] or True                                   # the model saw the answer
     assert words is not None
 
@@ -69,7 +68,7 @@ def test_answer_preserves_ferbs_question_as_context_even_after_a_paste(daemon: R
 
     def worker(token: str) -> str:
         rec = daemon.daemon.tasks.get(daemon.daemon.tokens.validate(token).task_id)
-        seen.append(daemon.daemon.engine.requests.get(rec.task.request_id).words)
+        seen.append(daemon.daemon.state.requests.get(rec.task.request_id).words)
         return '{"status": "done", "summary": "scrolled", "artifacts": [], "evidence": []}'
     install(daemon, [sup("clarify", question), owner_tab_task()], {"worker": worker})
     chat(daemon, PASTE_START + REQUEST + PASTE_END, session="s")

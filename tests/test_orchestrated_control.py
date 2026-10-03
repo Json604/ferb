@@ -1,9 +1,139 @@
 """The owner's 0.22 contract: agents decide; the gateway executes and records."""
 
 from ferb.core.types import Identity
-from tests.test_gateway import FakeCap, call, request, setup
-from tests.test_supervisor import chat, cond, done, install, outcome, sup, task
+from tests.conftest import GatewayCap as FakeCap, gateway_tool_call as call, gateway_request as request, gateway_setup as setup
+from tests.conftest import chat, cond, done, install, outcome, sup, task
 import json
+import pytest
+
+
+@pytest.mark.parametrize('conditions', [[], [cond('   ')]])
+def test_new_task_without_success_conditions_is_repaired_by_planner(daemon, conditions):
+    invalid = task('Read current groups')
+    invalid['success_conditions'] = conditions
+    valid = task('Read current groups', conds=(cond('Current group names inspected'),))
+    script = install(daemon, [sup('task', 'Reading', invalid), sup('task', 'Reading', valid)],
+                     {'worker': done('Current names'), 'worker.verify': json.dumps({'results': [
+                         {'index': 0, 'met': True, 'evidence': 'Fresh source inspected'}]})})
+    result = outcome(chat(daemon, 'List current groups'))
+    assert result['verified']
+    assert len([c for c in script.contexts if c[1] == 'supervisor']) == 2
+    assert 'success_conditions' in script.contexts[1][2]
+
+
+def test_trace_keeps_complete_planner_and_recovery_decisions(daemon):
+    goal = 'Find source. ' * 300 + 'Preserve the last instruction.'
+    choice = json.dumps({'action': 'finish', 'worker_type': 'default',
+                         'instructions': 'The source is unavailable.', 'question': ''})
+    install(daemon, [sup('task', 'Checking', task(goal, conds=(cond('Source inspected'),)))],
+            {'worker': json.dumps({'status': 'blocked', 'summary': 'Source offline',
+                                   'artifacts': [], 'evidence': []}), 'worker.dispatch': choice})
+    result = outcome(chat(daemon, 'Find source'))
+    async def records():
+        return [dict(r) for r in daemon.daemon.db.conn.execute(
+            "SELECT kind,input_json,output_json,error FROM spans WHERE kind IN ('model.turn','model.dispatch')")]
+    rows = daemon.run(records())
+    assert any(goal in json.loads(r['output_json']).get('text', '') for r in rows)
+    assert any(r['kind'] == 'model.dispatch' and 'unavailable' in r['output_json'] for r in rows)
+    assert result['status'] == 'failed'
+
+
+def test_cleanup_failure_is_recorded_and_does_not_claim_kept_open(daemon):
+    async def cleanup(task_id):
+        raise RuntimeError('tab retention acknowledgement lost')
+    daemon.daemon.supervisor.on_task_end = cleanup
+    install(daemon, [sup('task', 'Opening', task('Keep class running', conds=(cond('Class running'),)))],
+            {'worker': done('Class left running.'), 'worker.verify': json.dumps({'results': [
+                {'index': 0, 'met': True, 'evidence': 'Playing before cleanup'}]})})
+    result = outcome(chat(daemon, 'Keep class running'))
+    assert result['status'] == 'failed' and not result['verified']
+    assert 'retention acknowledgement lost' in result['answer']
+    async def records():
+        return [dict(r) for r in daemon.daemon.db.conn.execute("SELECT * FROM spans WHERE kind='task.cleanup'")]
+    assert any('retention acknowledgement lost' in r['error'] for r in daemon.run(records()))
+
+
+@pytest.mark.parametrize('retained', [False, True])
+def test_final_answer_is_reconciled_with_actual_tab_lifecycle(daemon, retained):
+    lifecycle = {'tab': 't1', 'kept_open': retained, 'closed': not retained, 'released': True}
+    released = False
+    async def cleanup(task_id):
+        nonlocal released
+        if task_id.endswith('.worker') and not released:
+            released = True
+            return [lifecycle]
+        return []
+    daemon.daemon.supervisor.on_task_end = cleanup
+    summary = 'The class tab remains open.' if retained else 'The class tab was closed during cleanup; it is not running.'
+    script = install(daemon, [sup('task', 'Opening', task('Keep class running'))], {
+        'worker': done('Class left running.'),
+        'worker.resources': json.dumps({'status': 'done' if retained else 'failed', 'summary': summary,
+                                        'artifacts': [], 'evidence': ['Confirmed tab lifecycle']})})
+    result = outcome(chat(daemon, 'Keep class running'))
+    assert result['answer'] == summary or result['answer'].endswith(summary)
+    assert result['verified'] is retained
+    assert result['resources'] == [lifecycle]
+    context = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker.resources')
+    assert 'Class left running.' in context and json.dumps(lifecycle) in context
+
+
+@pytest.mark.parametrize('first_cleanup_error', [False, True])
+def test_lifecycle_failure_reaches_recovery_and_successful_retention_finishes(daemon, first_cleanup_error):
+    from tests.conftest import tool
+    released = 0
+    kept = []
+    cap = FakeCap('fake.keep_open', 'open_tab', {'identity:browse'})
+    daemon.daemon.gateway.caps[cap.name] = cap
+    async def cleanup(task_id):
+        nonlocal released
+        if not task_id.endswith('.worker') or released >= 2:
+            return []
+        released += 1
+        if released == 1 and first_cleanup_error:
+            return [{'tab': 't1', 'released': False, 'error': 'retention acknowledgement lost'}]
+        return [{'tab': f't{released}', 'kept_open': bool(kept), 'closed': not kept, 'released': True}]
+    daemon.daemon.supervisor.on_task_end = cleanup
+    def keep_open(token):
+        kept.append(tool(daemon.sock, token, cap.name))
+        return done('Class restored and retained.')
+    failed = json.dumps({'status': 'failed', 'summary': 'The class did not remain available after cleanup.',
+                         'artifacts': [], 'evidence': ['Cleanup invalidated the earlier result.']})
+    first = json.dumps({'status': 'done', 'summary': 'Class left running.', 'artifacts': ['/tmp/class-notes.md'],
+                       'evidence': ['Original notes saved.']})
+    recovery = json.dumps({'action': 'retry', 'worker_type': 'default',
+                           'instructions': 'Restore the class and use keep_open before reporting completion.', 'question': ''})
+    script = install(daemon, [sup('task', 'Opening', task('Keep class running'))], {
+        'worker': [first, keep_open], 'worker.resources': [failed, done('The class remains open.')],
+        'worker.dispatch': recovery})
+    result = outcome(chat(daemon, 'Keep class running'))
+    assert result['status'] == 'done' and result['verified']
+    assert result['answer'] == 'The class remains open.' and len(kept) == 1
+    assert '/tmp/class-notes.md' in result['artifacts']
+    assert result['resources'] == [{'tab': 't2', 'kept_open': True, 'closed': False, 'released': True}]
+    contexts = [ctx for _, key, ctx, _ in script.contexts if key == 'worker']
+    assert len(contexts) == 2 and 'Restore the class' in contexts[1] and 'class-notes.md' in contexts[1]
+    assert len([key for _, key, _, _ in script.contexts if key == 'worker.resources']) == 2
+
+
+def test_disconnected_capability_context_does_not_choose_refusal():
+    from ferb.orchestrator.availability import build
+    a = build({'browser:read', 'browser:act', 'shell'}, {'owner_browsers': 'extension disconnected'})
+    assert {'browser:read', 'browser:act', 'shell'} <= a.scopes
+    assert 'extension disconnected' in a.text and "don't plan it" not in a.text
+    assert 'held briefly' not in build({'mailbox:send'}, {}).text
+
+
+def test_contact_schema_does_not_promise_removed_confirmation():
+    from ferb.policy.contacts import Contact
+    description = Contact.model_json_schema()['description']
+    assert 'pick one and press' not in description
+    assert 'FERB shows' not in description
+
+
+def test_planner_text_never_overrides_a_valid_action_plan(daemon):
+    from ferb.orchestrator.supervisor import COULDNT
+    install(daemon, [sup('task', COULDNT, task('Read the available source'))], {'worker': done('Source read.')})
+    assert outcome(chat(daemon, 'Read the source'))['status'] == 'done'
 
 
 def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(daemon):
@@ -11,15 +141,25 @@ def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(
     send = FakeCap('fake.send', 'send', {'browser:act'}, site='example.com')
     shell = FakeCap('fake.shell', 'run_shell', {'shell'})
     grant, _ = setup(daemon, {'browser:read', 'browser:act', 'shell'}, request('send the result'), [read, send, shell])
-    def obsolete_gate(action):
-        raise AssertionError('per-action policy must not decide whether a requested action is allowed')
-    daemon.daemon.engine.evaluate = obsolete_gate
     assert not call(daemon, grant, read.name)['is_error']
     assert shell.name in {t['name'] for t in daemon.daemon.gateway.tools_for(grant)}
     assert not call(daemon, grant, send.name)['is_error']
     assert send.calls == 1
-    assert not daemon.daemon.engine.approvals.pending()
-    assert not daemon.daemon.engine.holds.pending()
+    assert not daemon.daemon.state.approvals.pending()
+
+
+def test_driver_exception_details_reach_recovery_and_the_record(daemon):
+    cap = FakeCap('fake.send', 'send', {'browser:act'})
+    async def fail(args, ctx):
+        raise ConnectionError('profile scaler transport disconnected after dispatch')
+    cap.run = fail
+    grant, _ = setup(daemon, {'browser:act'}, request('send result'), [cap])
+    result = call(daemon, grant, cap.name)
+    assert result['is_error'] and 'scaler transport disconnected' in result['content']['error']
+    async def recorded():
+        return daemon.daemon.ledger.for_task(grant.task_id)[0].evidence
+    evidence = daemon.run(recorded())
+    assert any('scaler transport disconnected' in e for e in evidence)
 
 
 def test_registry_browser_family_is_not_withheld_by_task_identity(daemon):
@@ -39,7 +179,7 @@ def test_setup_files_and_shell_are_not_restricted_by_request_wording(daemon, tmp
 
 
 def test_orchestrator_answers_already_authorized_final_step_without_owner_prompt(daemon):
-    from tests.test_supervisor import tool
+    from tests.conftest import tool
     answers = []
     def worker(token):
         answers.append(tool(daemon.sock, token, 'owner.ask', question='The deck is ready. Send it to Rahul?',
@@ -51,7 +191,7 @@ def test_orchestrator_answers_already_authorized_final_step_without_owner_prompt
     out = outcome(chat(daemon, 'Send Rahul the deck'))
     assert out['status'] == 'done'
     assert answers[0]['content']['answered_by'] == 'orchestrator'
-    assert not daemon.daemon.engine.approvals.pending()
+    assert not daemon.daemon.state.approvals.pending()
 
 
 def test_scaler_gmail_keeps_setup_tools_and_orchestrator_switches_worker(daemon):
@@ -76,7 +216,7 @@ def test_scaler_gmail_keeps_setup_tools_and_orchestrator_switches_worker(daemon)
 
 
 def test_recovery_preserves_artifacts_and_reports_uncertain_actions(daemon):
-    from tests.test_supervisor import tool
+    from tests.conftest import tool
     cap = FakeCap('fake.send', 'send', {'browser:act'})
     async def lost_ack(args, ctx):
         raise ConnectionError('lost acknowledgement')
@@ -110,6 +250,10 @@ def test_invalid_recovery_output_finishes_truthfully_and_cleans_resources(daemon
     assert out['status'] == 'failed'
     assert cleaned and not daemon.daemon.supervisor._tree_of
     assert not daemon.daemon.supervisor._active
+    async def failure():
+        return dict(daemon.daemon.db.conn.execute("SELECT * FROM spans WHERE kind='model.dispatch'").fetchone())
+    record = daemon.run(failure())
+    assert 'ValidationError' in record['error'] and '{}' in record['output_json']
 
 
 def test_each_turn_searches_memory_activity_and_registry(daemon):
@@ -131,7 +275,7 @@ def test_each_turn_searches_memory_activity_and_registry(daemon):
 def test_repeated_calls_do_not_have_a_hard_action_limit(daemon):
     cap = FakeCap('fake.read', 'read', {'browser:read'})
     daemon.daemon.gateway.caps[cap.name] = cap
-    from tests.test_supervisor import tool
+    from tests.conftest import tool
     def worker(token):
         for _ in range(1005):
             assert not tool(daemon.sock, token, cap.name)['is_error']
@@ -157,7 +301,7 @@ def test_registry_search_returns_available_capability_details(daemon):
 
 def test_unrequested_final_send_waits_until_result_is_prepared_and_owner_decides(daemon):
     from ferb.cli.client import Client
-    from tests.test_supervisor import tool
+    from tests.conftest import tool
     sent = []
     def worker(token):
         result = tool(daemon.sock, token, 'fs.write', path='deck.md', content='Ready for Rahul')
@@ -203,18 +347,29 @@ def test_failed_result_check_returns_to_orchestrator_for_repair(daemon):
     assert len([key for _,key,_,_ in script.contexts if key == 'worker']) == 2
 
 
-def test_owner_stop_cancels_orchestrator_recovery(daemon):
+@pytest.mark.parametrize('stage', ['worker.dispatch', 'worker.resources'])
+def test_owner_stop_cancels_orchestrator_recovery(daemon, stage):
     import time
     from ferb.cli.client import Client
-    from tests.test_supervisor import STALL
+    from tests.conftest import STALL
     report = json.dumps({'status':'blocked', 'summary':'Connection lost.', 'artifacts':[], 'evidence':[]})
-    script = install(daemon, [sup('task','Working',task())], {'worker':report, 'worker.dispatch':STALL})
+    released = False
+    async def cleanup(task_id):
+        nonlocal released
+        if task_id.endswith('.worker') and not released:
+            released = True
+            return [{'tab': 't1', 'closed': True, 'released': True}]
+        return []
+    if stage == 'worker.resources':
+        daemon.daemon.supervisor.on_task_end = cleanup
+        report = done('Class left running.')
+    script = install(daemon, [sup('task','Working',task())], {'worker':report, stage:STALL})
     client = Client(daemon.sock)
     try:
         stream = client.stream('chat.send', {'session_id':'s1', 'text':'Prepare the report'})
         task_id = next(stream)['task_id']
         for _ in range(100):
-            if any(key == 'worker.dispatch' for _,key,_,_ in script.contexts):
+            if any(key == stage for _,key,_,_ in script.contexts):
                 break
             time.sleep(.01)
         stop = Client(daemon.sock)
@@ -226,6 +381,21 @@ def test_owner_stop_cancels_orchestrator_recovery(daemon):
         assert not daemon.daemon.supervisor._active
     finally:
         client.close()
+
+
+def test_stop_during_final_teardown_never_reports_verified_success(daemon):
+    releases = 0
+    async def cleanup(task_id):
+        nonlocal releases
+        if task_id.endswith('.worker'):
+            releases += 1
+            if releases == 2:
+                daemon.daemon.supervisor.stop_tree(task_id.rsplit('.', 1)[0])
+        return []
+    daemon.daemon.supervisor.on_task_end = cleanup
+    install(daemon, [sup('task', 'Working', task())], {'worker': done('Done before stop.')})
+    result = outcome(chat(daemon, 'Read the source'))
+    assert result['status'] == 'cancelled' and result['verified'] is False
 
 
 def test_context_failure_after_planning_still_finishes_and_releases_task(daemon):
@@ -252,7 +422,7 @@ def test_clarification_preserves_speakers_without_a_yes_phrase_rule(daemon):
     def worker(token):
         grant = daemon.daemon.tokens.validate(token)
         record = daemon.daemon.tasks.get(grant.task_id)
-        captured.append(daemon.daemon.engine.requests.get(record.task.request_id).words)
+        captured.append(daemon.daemon.state.requests.get(record.task.request_id).words)
         return done('Inspected the requested page.')
     install(daemon, [sup('clarify', 'Use your Brave profile for the page?'),
                      sup('task', 'Inspecting', task('Read the Brave page', 'owner'))], {'worker':worker})

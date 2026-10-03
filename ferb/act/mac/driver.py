@@ -1,6 +1,6 @@
 """MacComputerDriver (section 5 ComputerDriver): takes an action on an app, background first, foreground by request.
 
-Order per primitive (docs/PLATFORM_MACOS.md §12 and the owner-verified rules), each rung tried only after the one
+Order per primitive (ARCHITECTURE.md §5 and the owner-verified rules), each rung tried only after the one
 before it verifiably did nothing, with the per-app learned profile (ferb.act.mac.profile) recording what landed:
   press     AXPress → AXPress on the nearest ancestor that lists it → AXFocused + Return / Space to the process
   type      AXFocused + unicode keys to the process (read back) → the Accessibility keyboard (apps the profile
@@ -389,7 +389,7 @@ class MacComputerDriver:
 
         # 3. Legacy process input when the window-addressed transport is absent; kept if it changed
         #    something
-        if await asyncio.to_thread(self.shots.on_screen, shot.window) and not self.profiles.skips(a.bundle_id, "pid_mouse"):
+        if await asyncio.to_thread(self.shots.on_screen, shot.window):
             before = await self._signature(a)
             await self.input.to_process(click_steps(px, py, a.pid), holder)
             await asyncio.sleep(SETTLE_S)
@@ -450,7 +450,6 @@ class MacComputerDriver:
             if not action.text or not valid_combo(action.text):
                 raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, pagedown, cmd+s)")
 
-            await self._key_rules(a, action.text)
             return await self._key(a, action.text, holder, task, fg)
         if action.kind == "scroll":
             return await self._scroll(a, action, holder, task, fg)
@@ -493,33 +492,19 @@ class MacComputerDriver:
         if pressed:
             self.profiles.record(a.bundle_id, "ax_press", True)
             return ActionResult(True, f"pressed (its enclosing {pressed} took the press)")
-        if not self.profiles.skips(a.bundle_id, "pid_keycodes"):      # keyboard: focus it, Return / Space
-            before = await self._signature(a)
-            if await asyncio.to_thread(self.ax.focus, n.ref):
-                key = "space" if n.role in ("checkbox", "radio") else "return"
-                await self.input.to_process(key_steps(key, a.pid), holder)
-                await asyncio.sleep(SETTLE_S)
-                landed = await self._signature(a) != before
-                self.profiles.record(a.bundle_id, "pid_keycodes", landed)
-                if landed:
-                    return ActionResult(True, f"pressed (focused, then {key} in the background)")
+        before = await self._signature(a)
+        if await asyncio.to_thread(self.ax.focus, n.ref):
+            key = "space" if n.role in ("checkbox", "radio") else "return"
+            await self.input.to_process(key_steps(key, a.pid), holder)
+            await asyncio.sleep(SETTLE_S)
+            landed = await self._signature(a) != before
+            self.profiles.record(a.bundle_id, "pid_keycodes", landed)
+            if landed:
+                return ActionResult(True, f"pressed (focused, then {key} in the background)")
         return await self._foreground(a, click_steps(*self.ax.center(n)), holder, "click", task, fg,
                                       "it ignores Accessibility presses and the keyboard in the background")
 
     # ---- typing
-
-    async def _key_rules(self, a: Any, combo: str) -> None:
-        # Keyboard choice is an agent decision; key-code validation and delivery checks remain in act().
-        return
-
-    def _send_button(self, bundle_id: str) -> str | None:
-        from ferb.policy.effects import label_kind
-        from ferb.policy.rules import Kind
-        st = self._state.get(bundle_id)
-        for eid, n in (st.nodes.items() if st else ()):
-            if n.role == "button" and n.enabled and label_kind(n.label) == Kind.SEND:
-                return eid
-        return None
 
     async def _value_changed(self, n: axm.AxNode, before: str | None) -> tuple[bool, str | None]:
         """Poll the element's value until it changes or SETTLE_S passes (cheap: one attribute read per poll)."""
@@ -558,7 +543,7 @@ class MacComputerDriver:
         if focused is False:          # a different control or dialog holds the keyboard
             raise Refused(FOCUS_ELSEWHERE)
         before = await asyncio.to_thread(self.ax.value, n.ref)
-        if focused and not self.profiles.skips(a.bundle_id, "pid_keys"):
+        if focused:
             sig = await self._signature(a) if before is None else None
             await self.input.to_process(type_steps(text, a.pid), holder)
             if before is not None:
@@ -569,11 +554,10 @@ class MacComputerDriver:
             self.profiles.record(a.bundle_id, "pid_keys", landed)
             if landed:
                 return ActionResult(True, "typed (in the background)")
-        if not self.profiles.skips(a.bundle_id, "ax_keyboard"):
-            landed = await self._ax_type(a, n, text)
-            self.profiles.record(a.bundle_id, "ax_keyboard", landed)
-            if landed:
-                return ActionResult(True, "typed (in the background, Accessibility keyboard)")
+        landed = await self._ax_type(a, n, text)
+        self.profiles.record(a.bundle_id, "ax_keyboard", landed)
+        if landed:
+            return ActionResult(True, "typed (in the background, Accessibility keyboard)")
         if self._text_field(n):                                      # replace the whole value, the edit applied
             new = (before or "") + text
             ok = await asyncio.to_thread(self.ax.set_value, n.ref, new)
@@ -683,25 +667,23 @@ class MacComputerDriver:
                 return ActionResult(False, f"a {panels[0][0]} is open but didn't take AXCancel: press its Cancel / "
                                            "Close button (take a snapshot: its buttons are listed with \"in\")")
         changed = False
-        if not self.profiles.skips(a.bundle_id, "pid_keycodes"):
-            before = await self._signature(a)
-            await self.input.to_process(key_steps(combo, a.pid), holder)
-            await asyncio.sleep(SETTLE_S)
-            changed = await self._signature(a) != before
-            if changed:
-                self.profiles.record(a.bundle_id, "pid_keycodes", True)
-                return ActionResult(True, f"{combo} (in the background)")
-            if self.profiles.prefers(a.bundle_id, "pid_keycodes"):      # the app takes them; this key showed nothing
-                return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
-            # A key with nothing to act on (escape with no dialog, cmd+s on a saved document) changes nothing and
-            # proves nothing: it never marks the app as ignoring background input (audit 2026-10-02).
-        if not self.profiles.skips(a.bundle_id, "ax_keyboard"):
-            before = await self._signature(a)
-            if await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[key], mods):
-                await asyncio.sleep(SETTLE_S + 0.4)
-                if await self._signature(a) != before:
-                    self.profiles.record(a.bundle_id, "ax_keyboard", True)
-                    return ActionResult(True, f"{combo} (in the background, Accessibility keyboard)")
+        before = await self._signature(a)
+        await self.input.to_process(key_steps(combo, a.pid), holder)
+        await asyncio.sleep(SETTLE_S)
+        changed = await self._signature(a) != before
+        if changed:
+            self.profiles.record(a.bundle_id, "pid_keycodes", True)
+            return ActionResult(True, f"{combo} (in the background)")
+        if self.profiles.prefers(a.bundle_id, "pid_keycodes"):      # the app takes them; this key showed nothing
+            return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
+        # A key with nothing to act on (escape with no dialog, cmd+s on a saved document) changes nothing and
+        # proves nothing: it never marks the app as ignoring background input (audit 2026-10-02).
+        before = await self._signature(a)
+        if await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[key], mods):
+            await asyncio.sleep(SETTLE_S + 0.4)
+            if await self._signature(a) != before:
+                self.profiles.record(a.bundle_id, "ax_keyboard", True)
+                return ActionResult(True, f"{combo} (in the background, Accessibility keyboard)")
         if fg:
             return await self._real(a, key_steps(combo), holder, combo, task)
         return ActionResult(True, f"{combo} sent to {a.name} in the background; nothing visibly changed (take a "
@@ -756,7 +738,7 @@ class MacComputerDriver:
                         await asyncio.to_thread(self.ax.set_scroll_bar, bar,
                                                 float(cur) + (0.2 if act == "AXIncrement" else -0.2))
                 mechanism = "scroll bar"
-            elif text_view and not self.profiles.skips(a.bundle_id, "pid_keycodes"):
+            elif text_view:
                 if not await asyncio.to_thread(self.ax.focus, n.ref):
                     stop = "text view could not take focus"
                     break
@@ -932,8 +914,11 @@ class MacComputerDriver:
             self._restore_at = None
         if self._forward_app is None:
             return
-        owner, self._owner_app, self._forward_app = self._owner_app, None, None
-        if owner is not None:
+        front = self.apps.frontmost()
+        owner, forwarded = self._owner_app, self._forward_app
+        self._owner_app = self._forward_app = None
+        # The owner may have moved to another app while a delayed cleanup was pending.
+        if owner is not None and front is not None and front.bundle_id == forwarded:
             self.on_activate(owner.bundle_id, task)
             self.apps.activate(owner.bundle_id)
         self.guard.release()

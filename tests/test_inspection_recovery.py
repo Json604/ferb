@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tests.test_supervisor import FakeCap, chat, cond, done, install, outcome, sup, task, tool
+from tests.conftest import FakeCap, chat, cond, done, install, outcome, sup, task, tool
 
 
 def verdict(met, evidence="Observed the requested source."):

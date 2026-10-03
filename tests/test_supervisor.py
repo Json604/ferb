@@ -1,131 +1,14 @@
 """Supervisor, worker, recovery and result checks with scripted runtimes in a real disposable daemon."""
 
-import asyncio
 import json
 import threading
 import time
-from typing import Any, AsyncIterator, Callable
+from typing import Any
 
-import anyio
-import pytest
-from pydantic import BaseModel
 
-from ferb.cli.client import Client
-from ferb.core.types import (ActionSpec, Identity, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, Target,
-                             Task, ToolContext, ToolResult)
+from ferb.core.types import RuntimeEvent
 from ferb.sanitize.untrusted import PASTE_END, PASTE_START
-from tests.conftest import RunningDaemon
-
-STALL = "__stall__"
-
-
-def cond(label: str, kind: str = "none", **k: Any) -> dict[str, Any]:
-    return {"text": label, "check": {"kind": kind, "path": k.get("path"), "text": k.get("text"),
-                                    "url_contains": k.get("url_contains"), "site": k.get("site"),
-                                    "expected": k.get("expected")}}
-
-
-def task(goal: str = "the goal", identity: str = "ferb", apps: tuple[str, ...] = (), sites: tuple[str, ...] = (),
-         paths: tuple[str, ...] = (), recipients: tuple[str, ...] = (),
-         conds: tuple[dict[str, Any], ...] = ()) -> dict[str, Any]:
-    """The supervisor's task, as the model returns it."""
-    return {"goal": goal, "identity": identity,
-            "targets": {"apps": list(apps), "sites": list(sites), "paths": list(paths), "recipients": list(recipients)},
-            "success_conditions": list(conds)}
-
-
-def sup(kind: str, text: str, t: dict[str, Any] | None = None) -> str:
-    return json.dumps({"kind": kind, "text": text, "task": t})
-
-
-def done(summary: str = "ok") -> str:
-    return json.dumps({"status": "done", "summary": summary, "artifacts": [], "evidence": []})
-
-
-class Script:
-    def __init__(self, supervisor: list[Any], workers: dict[str, Any]) -> None:
-        self.sup, self.workers = supervisor, workers
-        self.contexts: list[tuple[str, str, str, list[str]]] = []      # (mode, key, context, tool names)
-        self.times: dict[str, tuple[float, float]] = {}
-
-    def step(self, key: str) -> Any:
-        # Most lifecycle tests are not about recovery policy. Their scripted orchestrator escalates the worker's
-        # report; recovery/authorization tests supply their own explicit decisions to exercise other choices.
-        if key not in self.workers and key.endswith('.question'):
-            return json.dumps({'ask_owner': True, 'answer': '', 'question': ''})
-        if key not in self.workers and key.endswith('.dispatch'):
-            ctx = next(c for _, k, c, _ in reversed(self.contexts) if k == key)
-            raw = ctx.split('Worker report (data): ', 1)[1]
-            report, _ = json.JSONDecoder().raw_decode(raw[raw.index('{'):])
-            return json.dumps({'action': 'ask' if report['status'] == 'needs_user' else 'finish',
-                               'question': report['summary'], 'instructions': report['summary'],
-                               'worker_type': 'default'})
-        w = self.workers[key]
-        return w.pop(0) if isinstance(w, list) else w
-
-
-class FakeRuntime:
-    name = "fake"
-    features = RuntimeFeatures(False, False, False, True, True)
-
-    def __init__(self, script: Script, mode: str, tools: list[str]) -> None:
-        self.script, self.mode, self.tools = script, mode, tools
-
-    async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle:
-        key = task.id.split(".", 1)[1] if "." in task.id else "supervisor"   # worker / worker.verify / …
-        self.script.contexts.append((self.mode, key, context, self.tools))
-        return RunHandle(f"run-{task.id}", self.name, task.id, {"token": run_token, "key": key, "cancel": False})
-
-    async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
-        key = run.state["key"]
-        step = self.script.sup.pop(0) if key == "supervisor" else self.script.step(key)
-        t0 = time.monotonic()
-        if isinstance(step, RuntimeEvent):
-            yield step
-            return
-        if step == STALL:
-            while not run.state["cancel"]:
-                await asyncio.sleep(0.02)
-            return
-        if callable(step):
-            final = await anyio.to_thread.run_sync(step, run.state["token"])
-        else:
-            final = step
-        yield RuntimeEvent("usage", {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001})
-        self.script.times[key] = (t0, time.monotonic())
-        yield RuntimeEvent("final", {"text": final})
-
-    async def continue_(self, run: RunHandle, message: str) -> None:
-        raise NotImplementedError
-
-    async def cancel(self, run: RunHandle) -> None:
-        run.state["cancel"] = True
-
-
-def install(d: RunningDaemon, supervisor: list[Any], workers: dict[str, Any] | None = None) -> Script:
-    script = Script(supervisor, workers or {})
-    d.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema: FakeRuntime(script, mode, tool_names)
-    return script
-
-
-def chat(d: RunningDaemon, text: str, session: str = "s1", timeout: float = 30) -> list[dict[str, Any]]:
-    c = Client(d.sock, timeout=timeout)
-    try:
-        return list(c.stream("chat.send", {"session_id": session, "text": text}))
-    finally:
-        c.close()
-
-
-def tool(sock: Any, token: str, name: str, **args: Any) -> dict[str, Any]:
-    c = Client(sock, role="mcp_shim", token=token)
-    try:
-        return c.call("tools.call", {"name": name, "arguments": args})       # type: ignore[no-any-return]
-    finally:
-        c.close()
-
-
-def outcome(evs: list[dict[str, Any]]) -> dict[str, Any]:
-    return next(e for e in evs if e["type"] == "outcome")
+from tests.conftest import RunningDaemon, STALL, chat, cond, done, install, outcome, sup, task, tool, writes
 
 
 # ---------- chat basics ----------
@@ -155,13 +38,6 @@ def test_runtime_violation_reports_this_run_without_disabling_future_runs(daemon
 
 
 # ---------- running the task ----------
-
-def writes(sock: Any, path: str, text: str) -> Callable[[str], str]:
-    def act(token: str) -> str:
-        r = tool(sock, token, "fs.write", path=path, content=text, overwrite=True, effect="edit")
-        return json.dumps({"status": "failed" if r["is_error"] else "done", "summary": f"wrote {path}",
-                           "artifacts": [path], "evidence": []})
-    return act
 
 
 def test_one_worker_with_every_tool_of_its_identity_verified_by_code(daemon: RunningDaemon) -> None:
@@ -200,34 +76,9 @@ def test_the_workers_summary_is_the_owners_answer_and_pages_are_data(daemon: Run
     evs = chat(daemon, "what's the first line of src.md?")
     out = outcome(evs)
     assert out["answer"] == "The first line is: first line" and out["status"] == "done"
-    assert [m for m, *_ in script.contexts] == ["supervisor", "worker"]              # no separate answer run
+    assert [k for _, k, _, _ in script.contexts] == ["supervisor", "worker", "worker.verify"]              # no separate answer run
     ctx = next(c for m, k, c, _ in script.contexts if k == "worker")
     assert "Your FERB tools (MCP server `ferb`):" in ctx and "fs_read" in ctx and "src.md" in ctx
-
-
-class FakeCap:
-    identities = {Identity.OWNER, Identity.FERB}
-    risk, reversible = RiskLevel.MEDIUM, False
-
-    class Input(BaseModel):
-        to: str = ""
-        site: str = ""
-        text: str = ""
-
-    def __init__(self, name: str, kind: str, scopes: set[str], boom: bool = False,
-                 reads: tuple[tuple[str, str], ...] = (), content: dict[str, Any] | None = None) -> None:
-        self.name, self.description, self.kind, self.scopes = name, name, kind, scopes
-        self.boom, self.reads, self.content, self.calls = boom, reads, content or {"ok": True}, 0
-
-    def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec(self.kind, Target(recipients=(args.to,) if args.to else (), site=args.site or None),
-                          content=args.text or None)
-
-    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
-        self.calls += 1
-        if self.boom:
-            raise ConnectionError("lost the acknowledgement")
-        return ToolResult(self.content, read_sources=self.reads)
 
 
 def test_no_budget_anywhere_the_model_or_owner_sees() -> None:
@@ -330,7 +181,7 @@ def test_a_worker_that_didnt_load_its_tools_gets_one_more_run(daemon: RunningDae
     script = install(daemon, [sup("task", "On it.", task("write x.md", paths=("x.md",)))], {"worker": [gave_up, second], "worker.dispatch": json.dumps({"action":"retry", "worker_type":"default", "instructions":"Load tools with tool_search before continuing.", "question":""})})
     chat(daemon, "write x.md in your workspace")
     assert seen == ["second run"] and (daemon.daemon.home / "workspace" / "x.md").read_text() == "ok"
-    worker_ctx = [c[2] for c in script.contexts if c[0] == "worker"]
+    worker_ctx = [c[2] for c in script.contexts if c[1] == "worker"]
     assert "tool_search" in worker_ctx[-1] and "Load tools with tool_search" in worker_ctx[-1]
 
 
@@ -359,7 +210,7 @@ def test_the_owner_can_switch_off_treating_pastes_as_data(daemon: RunningDaemon)
     def worker(token: str) -> str:
         rid = daemon.daemon.tokens.validate(token).task_id
         rec = daemon.daemon.tasks.get(rid)
-        words.append(daemon.daemon.engine.requests.get(rec.task.request_id).words)
+        words.append(daemon.daemon.state.requests.get(rec.task.request_id).words)
         return done()
     install(daemon, [sup("task", "x", task("write evil.md", paths=("evil.md",)))] * 2, {"worker": worker})
     chat(daemon, pasted)
@@ -383,4 +234,4 @@ def test_the_checks_tabs_and_processes_end_with_the_task_too(daemon: RunningDaem
     install(daemon, [sup("task", "x", t)], {"worker": worker, "worker.verify": seen})
     outcome(chat(daemon, "summarize what's there"))
     look = next(t for t in ended if t.endswith(".worker"))
-    assert f"{look}.verify" in ended and f"{look}.reconcile" in ended
+    assert ended == [look, f"{look}.verify"] * 2  # final teardown is idempotent after the successful attempt

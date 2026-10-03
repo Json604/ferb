@@ -17,11 +17,11 @@ import pytest
 from pydantic import BaseModel
 
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
-from ferb.decide.decider import JevClient, JevUnavailable, may_enable
+from ferb.decide.decider import Ask, JevClient, JevUnavailable
 from ferb.decide.questions import QUESTIONS
 from ferb.sense.trail import Observation
-from tests.conftest import RunningDaemon
-from tests.test_gateway import request, setup
+from tests.conftest import (FakeDistillRuntime, RunningDaemon, gateway_request as request,
+                            gateway_setup as setup, trail_row)
 
 KEY = "jev-test-key-7f3a9c"
 
@@ -117,12 +117,8 @@ def settle(d: RunningDaemon) -> None:
 
 # ---------- enabling ----------
 
-def test_enabling_needs_agreement_where_ferb_has_logic() -> None:
-    base = {"real_baseline": True, "answered": 199, "agreement": 1.0}
-    assert not may_enable(base)[0]
-    assert not may_enable(base | {"answered": 200, "agreement": 0.94})[0]
-    assert may_enable(base | {"answered": 200, "agreement": 0.96})[0]
-    assert may_enable({"real_baseline": False, "answered": 3, "agreement": None})[0]     # the owner's call
+def test_only_live_observation_questions_can_be_enabled():
+    assert set(QUESTIONS) == {'memory.worth_keeping', 'trail.relevance', 'trail.sensitive'}
 
 
 # ---------- trail: after exclusions and redaction, sampled ----------
@@ -159,6 +155,7 @@ def test_a_sensitive_row_gets_extra_redaction_when_enabled(jd: Any) -> None:
         return d.daemon.db.conn.execute("SELECT data_json, sensitive FROM trail WHERE id = ?", (e.id,)).fetchone()
     row = d.run(go())
     assert row["sensitive"] == 1 and "HIV" not in row["data_json"] and "[sensitive]" in row["data_json"]
+    assert "HIV" not in d.daemon.daily_activity.path.read_text()
 
 
 # ---------- Jev unavailable: FERB's own decision, nothing fails ----------
@@ -166,7 +163,7 @@ def test_a_sensitive_row_gets_extra_redaction_when_enabled(jd: Any) -> None:
 @pytest.mark.parametrize("trouble", ["down", "slow", "garbage", "http500", "no_key"])
 def test_unavailable_jev_never_fails_a_task(jd: Any, trouble: str) -> None:
     d, fake = jd
-    enable(d, "action.matches_request", "action.risk")
+    enable(d, "trail.sensitive")
     if trouble == "down":
         fake.fail = ConnectionError("refused")
     elif trouble == "slow":
@@ -179,13 +176,10 @@ def test_unavailable_jev_never_fails_a_task(jd: Any, trouble: str) -> None:
         async def none() -> None:
             return None
         d.daemon.jev.client.key = none
-    cap = Shell()
     t0 = time.monotonic()
-    r = shell_call(d, cap)
-    assert not r["is_error"] and cap.calls == 1, r                        # FERB's decision stood
-    assert time.monotonic() - t0 < 2.5                                     # an enabled question waits ~0.5 s at most
-    errs = [x["error"] for x in rows(d)]
-    assert all(errs) and all(x["jev"] is None for x in rows(d))
+    assert d.run(d.daemon.jev.ask({'title': 'a normal page'}, [Ask('trail.sensitive', 'no', 'test')])) == {}
+    assert time.monotonic() - t0 < 2.5
+    assert rows(d) and all(x['error'] and x['jev'] is None for x in rows(d))
 
 
 def test_rate_limits_retry_with_backoff() -> None:
@@ -221,8 +215,8 @@ def test_shadow_calls_never_slow_a_task(jd: Any) -> None:
 def test_the_key_stays_out_of_config_database_and_logs(jd: Any) -> None:
     d, fake = jd
     d.daemon.jev.client.key = _const(KEY)
-    fake.answers = {"action.matches_request": "yes", "action.risk": "medium"}
-    shell_call(d, Shell())
+    fake.answers = {"trail.sensitive": 0.1}
+    d.run(d.daemon.jev.ask({"title": "normal page"}, [Ask("trail.sensitive", "no", "test")]))
     settle(d)
 
     async def ckpt() -> None:
@@ -242,7 +236,6 @@ def _const(v: str) -> Any:
 # ---------- the other questions ----------
 
 def test_memory_proposals_jev_rejects_are_dropped_when_enabled(jd: Any) -> None:
-    from tests.test_memory import FakeDistillRuntime, trail_row
     d, fake = jd
     enable(d, "memory.worth_keeping")
     fake.answers = {"memory.worth_keeping": 0.1}
@@ -255,10 +248,3 @@ def test_memory_proposals_jev_rejects_are_dropped_when_enabled(jd: Any) -> None:
     d.daemon.distiller.make_runtime = lambda *a, **k: rt
     r = d.run(d.daemon.distiller.run_day(day), timeout=20)
     assert r["proposed"] == 0 and "not worth keeping" in r["refused"][0]
-
-
-def test_task_route_baseline_comes_from_scopes() -> None:
-    from ferb.clock.durations import route_of
-    assert route_of({"browser:read", "browser:act"}) == "browser"
-    assert route_of({"shell"}) == "shell" and route_of({"mac:act", "screen"}) == "mac"
-    assert route_of({"shell", "browser:read"}) == "mixed" and route_of({"fs:read"}) == "mixed"

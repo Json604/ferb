@@ -1,4 +1,4 @@
-"""Core types (ARCHITECTURE.md section 4). Pure data: no I/O, imports nothing from ferb except core."""
+"""Core execution data (see ARCHITECTURE.md). Pure data: no I/O, imports nothing from ferb except core."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -105,7 +105,7 @@ class MemoryItem:
     status: Literal["proposed", "active", "retracted"]
 
 
-# ---------- actions (what a capability call means, for policy) ----------
+# ---------- actions (descriptive execution metadata) ----------
 
 @dataclass(frozen=True)
 class Target:
@@ -118,21 +118,11 @@ class Target:
 
 
 @dataclass(frozen=True)
-class DataLabel:
-    """Where a piece of data came from. Owner-account data may only flow to destinations the request involves."""
-    source: str                              # "owner_account" | "web" | "email" | "download" | "ferb" | ...
-    account: str | None = None
-    site: str | None = None
-
-
-@dataclass(frozen=True)
 class ActionSpec:
-    """Capability.describe(args): what this call would do, in policy terms (section 16 step 6)."""
+    """Capability.describe(args): what the call does, recorded for tracing and result inspection."""
     kind: str
     target: Target = Target()
     content: str | None = None
-    data_labels: frozenset[DataLabel] = frozenset()
-    unverified_account: str | None = None      # owner-browser site whose signed-in account can't be checked (9.3)
 
 
 # ---------- runtimes (section 5 AgentRuntime) ----------
@@ -181,9 +171,9 @@ class ToolContext:
 class ToolResult:
     content: dict[str, Any]
     is_error: bool = False
-    read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) the call read: feeds exposure (10.2)
+    read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) annotations for the data read by this call
     image: bytes | None = None                        # JPEG for the model only: never redacted text, logged or stored
-    evidence: dict[str, Any] | None = None            # for FERB's own checks only (e.g. who was on screen, 16a)
+    evidence: dict[str, Any] | None = None            # source observations used by result inspection
 
 
 # ---------- browsers (section 5 BrowserDriver) ----------

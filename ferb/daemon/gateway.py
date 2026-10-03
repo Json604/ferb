@@ -13,15 +13,14 @@ from pydantic import ValidationError
 
 from ferb.act.fs.files import normalize_path
 from ferb.act.locks import ResourceLocks
-from ferb.policy.taint import Taint
 from ferb.clock import context
 from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskTree
-from ferb.policy import contacts, effects
-from ferb.policy.engine import PolicyEngine
+from ferb.policy import effects
+from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.store.spans import SpanStore
 
@@ -44,34 +43,22 @@ class Observer:
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         pass
 
-    def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool, digest: str = "") -> None:
-        """Observe every answered call without making retry or authorization decisions."""
-
     def waiting(self, worker: str, on: bool) -> None:
         pass
 
 
 class Gateway:
-    def __init__(self, capabilities: dict[str, Capability], engine: PolicyEngine, ledger: Ledger, spans: SpanStore,
+    def __init__(self, capabilities: dict[str, Capability], state: ExecutionState, ledger: Ledger, spans: SpanStore,
                  tasks: TaskTree, clock: Clock, redact: Redact, publish: Publish, roots: FsRoots,
                  device_id: str, hold_poll_s: float = 0.2) -> None:
-        self.caps, self.engine, self.ledger, self.spans = capabilities, engine, ledger, spans
+        self.caps, self.state, self.ledger, self.spans = capabilities, state, ledger, spans
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
         self.locks = ResourceLocks()
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._cancelled_tasks: set[str] = set()
-        self.taint = Taint()
         self.observer: Observer = Observer()
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution (build step 10)
-        self.jev: Any = None                             # decide.ShadowDecider (build step 13): stricter only
-        # Progressive setup (section 8), supplied by the daemon: record a granted folder; queue a question for later
-        self.grant_folder: Callable[[str], None] = lambda folder: None
-        self.queue_question: Callable[[str, str, str], None] = lambda kind, target, text: None
-        # Contacts (build step 16a): what this task's snapshots showed; the owner's words for a request + name
-        self.seen = contacts.Seen()
-        self.owner_words: Callable[[str, str], str] = lambda request_id, name: ""
-        self.name_of: Callable[[str], str] = lambda target: target    # bundle id -> app name, for plain questions
         self.route_question: Any = None
 
     @staticmethod
@@ -106,11 +93,6 @@ class Gateway:
         finally:
             if job is not None:
                 self._in_flight.pop(job, None)
-        content = r.get("content") or {}
-        waiting_on_owner = isinstance(content, dict) and "needs_owner_approval" in content   # not a failure
-        from ferb.orchestrator.guards import observation_digest
-        digest = observation_digest(content)
-        self.observer.result(grant, name, arguments, bool(r.get("is_error")) and not waiting_on_owner, digest)
         return r
 
     def in_flight(self, task_ids: set[str]) -> bool:
@@ -121,9 +103,9 @@ class Gateway:
         for job, tid in list(self._in_flight.items()):
             if tid in task_ids:
                 job.cancel()
-        for hold in self.engine.holds.pending():
-            if hold.action.task_id in task_ids:
-                self.engine.holds.undo(hold.id)
+
+    def forget_tasks(self, task_ids: set[str]) -> None:
+        self._cancelled_tasks.difference_update(task_ids)
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         rec = self.tasks.get(grant.task_id)
@@ -134,7 +116,7 @@ class Gateway:
             return {"content": self.redact(content), "is_error": is_error,
                     "footer": context.footer(self.clock.now(), started, deadline)}
 
-        if self.engine.stopped or grant.task_id in self._cancelled_tasks:
+        if self.state.stopped or grant.task_id in self._cancelled_tasks:
             return reply({"error": "task stopped by the owner"}, True)
         if rec is None:
             return reply({"error": "task is not running"}, True)
@@ -201,22 +183,15 @@ class Gateway:
             self.spans.finish(span, error="cancelled; outcome unknown")
             raise
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly
+            detail = self.redact({'error': f'{type(e).__name__}: {e}'})['error']
             if intent_id:
-                self.ledger.mark(intent_id, "unknown", [f"exception: {type(e).__name__}"])
+                self.ledger.mark(intent_id, "unknown", [detail])
             self._observed(name, spec, action, grant, "unknown")
             self.spans.finish(span, error=f"{type(e).__name__}: {e}")
-            return reply({"error": f"{name} failed ({type(e).__name__}); outcome unknown"}, True)
+            return reply({"error": f"{name} failed: {detail}; outcome unknown"}, True)
         if intent_id:
             self.ledger.mark(intent_id, "failed" if result.is_error else "done", [span.id])
-        for kind, source_id in result.read_sources:
-            self.taint.read(grant.worker_id, kind, source_id)
-            if self.engine.exposure.read(grant.worker_id, kind, source_id):
-                self.publish("worker.exposed", {"worker_id": grant.worker_id, "task_id": grant.task_id,
-                                                "reason": f"read {kind}: {source_id}"})
         content = self.redact(result.content)
-        if (name.endswith(".snapshot") or result.evidence) and not result.is_error:   # what was on screen (16a)
-            shown = result.evidence or result.content
-            self.seen.record(grant.task_id, self._where(cap, name, args, shown), shown)
         self.spans.finish(span, output=content, error=content.get("error") if result.is_error else None)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
         out = reply(content, result.is_error)
@@ -230,13 +205,13 @@ class Gateway:
 
     async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
         """Owner-only hidden input, passed directly to a sealed fill; never returned in a tool result or span."""
-        if ctx.request_id in self.engine.approvals.unattended:
+        if ctx.request_id in self.state.approvals.unattended:
             return None
         ask = ActionRequest(capability="browser.login_code", kind="owner_login_code", identity=ctx.identity,
                             scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
                             request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
         question = f"Enter the login code for {origin} (hidden; Enter cancels)."
-        ap = self.engine.approvals.question(ask, question, [])
+        ap = self.state.approvals.question(ask, question, [])
         ap.kind = "owner_login_code"
         self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
                                             "reason": question, "task_id": ctx.task_id})
@@ -269,14 +244,14 @@ class Gateway:
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": OWNER_ASK, "args": {"question": question, "options": options}})
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
-        if rec.task.request_id in self.engine.approvals.unattended:
+        if rec.task.request_id in self.state.approvals.unattended:
             self.spans.finish(span, output={"declined": True, "unattended": True})
             return {"declined": True, "reason": "the owner isn't here (a scheduled run): decide yourself or report "
                                                 "what's missing"}
         ask = ActionRequest(capability=OWNER_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=question, effect="navigate")
-        ap = self.engine.approvals.question(ask, question, options)
+        ap = self.state.approvals.question(ask, question, options)
         self.publish("approval.requested", {"approval_id": ap.id, "capability": OWNER_ASK, "kind": "owner_question",
                                             "reason": question, "options": options, "task_id": grant.task_id})
         self.observer.tool_call(grant, done=False)
@@ -292,20 +267,11 @@ class Gateway:
         return {"answer": text}
 
 
-    def _where(self, cap: Any, name: str, args: Any, content: dict[str, Any] | None) -> str:
-        if name.startswith("mac."):
-            if content and content.get("bundle_id"):
-                return str(content["bundle_id"])
-            return str(cap._bundle(args)) if hasattr(cap, "_bundle") else str(getattr(args, "app", ""))
-        tab = (content or {}).get("tab") or getattr(args, "tab", "")
-        return f"{name.split('.')[0]}:{tab}"
-
-
     async def _wait_answer(self, grant: RunGrant, approval_id: str) -> str:
         self.observer.waiting(grant.worker_id, True)
         try:
             while True:
-                ap = self.engine.approvals.get(approval_id)
+                ap = self.state.approvals.get(approval_id)
                 if ap is None:
                     return "gone"
                 if ap.state != "pending":

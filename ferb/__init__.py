@@ -1,3 +1,3 @@
 """FERB: personal agent runtime for macOS."""
 
-__version__ = "0.23.3"
+__version__ = "0.24.0"

@@ -22,19 +22,23 @@ if TYPE_CHECKING:
 class ServiceError(ValueError):
     """The model service (Codex / Claude) itself failed: its message is kept and told to the owner plainly."""
 
+    def __init__(self, message: str, runtime: str = "Codex") -> None:
+        super().__init__(message)
+        self.runtime = runtime
 
-def service_problem(message: str) -> str:
+
+def service_problem(message: str, runtime: str = "Codex") -> str:
     """The owner-facing sentence for a model-service failure."""
     m = message.lower()
     if any(k in m for k in ("usage limit", "rate limit", "quota", "too many requests", "429", "limit reached")):
-        return ("The AI service I use (Codex) says your usage limit is reached, so I couldn't start. It works again "
+        return (f"The AI service I use ({runtime}) says your usage limit is reached, so I couldn't start. It works again "
                 "once the limit resets.")
     if any(k in m for k in ("login", "logged in", "unauthorized", "401", "auth", "token expired")):
-        return ("The AI service I use (Codex) isn't signed in for me, so I couldn't start. `ferb doctor` shows how "
+        return (f"The AI service I use ({runtime}) isn't signed in for me, so I couldn't start. `ferb doctor` shows how "
                 "to sign in.")
     if any(k in m for k in ("timed out", "timeout", "connection", "network", "dns", "unreachable")):
-        return "I couldn't reach the AI service I use (Codex) — the connection failed. Please try again in a moment."
-    return f"The AI service I use (Codex) returned an error, so I couldn't start: {message[:160]}"
+        return f"I couldn't reach the AI service I use ({runtime}) — the connection failed. Please try again in a moment."
+    return f"The AI service I use ({runtime}) returned an error, so I couldn't start: {message[:160]}"
 
 
 class RuntimeViolation(Exception):
@@ -90,22 +94,21 @@ class WorkerRuns:
             self.tasks.add(TaskRecord(task, started, wspan.id, tree.id), status="running")
         else:
             self.tasks.set_status(task.id, "running", {})
-        self.tasks._tasks[task.id].span_id = wspan.id
+        self.tasks.set_span(task.id, wspan.id)
         ttl = (task.deadline - started).total_seconds() if task.deadline else float("inf")
         token = self.tokens.issue(task.id, worker_id, task.scopes, task.identity, ttl_s=max(ttl, 60.0))
         tools = [t["name"] for t in self.gateway.tools_for(self.tokens.validate(token))]
         names = ", ".join(n.replace(".", "_") for n in tools) or "none"
-        from ferb.clock.durations import typical
-        usual = typical(self.spans._db, set(task.scopes), task.role)
         owner_active, last_event = self.signals()
         if task.role == "verifier":
             ctx += self.browser_context(task.id)
-        head = context.time_block(self.clock.now(), started, task.deadline, owner_active, last_event, typical=usual)
+        head = context.time_block(self.clock.now(), started, task.deadline, owner_active, last_event)
         full_ctx = (f"{ctx}\n\nYour FERB tools (MCP server `ferb`): {names}. If you can't see them, they're behind "
                     f"tool_search: search for \"ferb\" or the tool's name to load them — they are always there."
                     f"\n\n{head}")                                         # time-dependent text last
         self.publish("task.started", {"task_id": task.id, "worker_id": worker_id})
         self.activity.start(worker_id)
+        failure = None
         try:
             rt = self.make_runtime("worker:" + tree.spec.worker_type, mode="worker", tool_names=tools, schema=schema)
             final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id)
@@ -113,10 +116,13 @@ class WorkerRuns:
             if not isinstance(result, dict):
                 raise ValueError("not an object")
         except RuntimeViolation as e:
+            failure = f"{type(e).__name__}: {e}"
             result = Outcome(task.id, "failed", f"worker runtime stopped: {e}", [], [])
         except ServiceError as e:
-            result = Outcome(task.id, "blocked", service_problem(str(e)), [], [])
+            failure = f"{e.runtime}: {type(e).__name__}: {e}"
+            result = Outcome(task.id, "blocked", service_problem(str(e), e.runtime), [], [])
         except (ValidationError, ValueError, Stalled) as e:
+            failure = f"{type(e).__name__}: {e}"
             if worker_id in self._stalled:
                 result = Outcome(task.id, "failed", "stalled: no sign of life for 180 s (not counting waits on the "
                                                     "owner)", [], [])
@@ -124,14 +130,14 @@ class WorkerRuns:
                 result = Outcome(task.id, "cancelled" if tree.stop else "failed",
                                  tree.stop or f"worker's report wasn't usable ({type(e).__name__})", [], [])
         except Exception as e:
+            failure = f"{type(e).__name__}: {e}"
             result = Outcome(task.id, "blocked", f"Worker runtime unavailable: {type(e).__name__}: {e}", [], [])
         finally:
             self._stalled.discard(worker_id)
             self.activity.end(worker_id)
             self.tokens.revoke_worker(worker_id)
-            self.gateway.taint.forget(worker_id)
         self.spans.finish(wspan, output={"result": (result.summary if isinstance(result, Outcome)
-                                                    else json.dumps(result))})
+                                                    else json.dumps(result))}, error=failure)
         self.publish("task.finished", {"task_id": task.id, "status": result.status if isinstance(result, Outcome)
                                        else str(result.get("status", "done"))})
         return result, worker_id
@@ -158,7 +164,7 @@ class WorkerRuns:
                     self.on_violation(rt.name, str(ev.data))
                     raise RuntimeViolation(f"{rt.name}: {ev.data}")
                 elif ev.kind == "error":
-                    raise ServiceError(str(ev.data.get("message")))
+                    raise ServiceError(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "final":
                     final = str(ev.data.get("text", ""))
         finally:

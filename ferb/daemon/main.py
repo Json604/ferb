@@ -1,9 +1,4 @@
-"""Daemon startup / shutdown lifecycle (section 2) and its methods.
-
-Build step 1: ping, trace.get, logs.subscribe. Build step 2: the redaction pipeline on every writer and on
-`ferb logs`, the policy engine + ledger + undo-window releases, `ferb stop` / `resume-tasks` / `undo` /
-`autonomy`. The emergency stop survives a daemon restart (STOPPED marker) until the owner lifts it.
-"""
+"""Daemon composition, lifecycle and authenticated RPC handlers. Explicit stop persists across restarts."""
 
 import asyncio
 import json
@@ -29,7 +24,7 @@ from ferb.act.browser import profiles as browser_profiles
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.browser.pairing import Pairings
-from ferb.act.browser.resolver import Resolver, default_browser, last_used_profile
+from ferb.act.browser.resolver import Resolver
 from ferb.act.gui_lock import GuiLock
 from ferb.act.mac.driver import MacComputerDriver, profiles_dir
 from ferb.act.mac.profile import Profiles
@@ -53,8 +48,7 @@ from ferb.memory.journal import Journal
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
 from ferb.paths import ferb_home, socket_path
-from ferb.policy.autonomy import Level
-from ferb.policy.engine import PolicyEngine, Verdict
+from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
 from ferb.sanitize.redact import Redactor
 from ferb.store.db import Database
@@ -64,15 +58,14 @@ Redact = Callable[[Any], Any]
 
 # `ferb logs` filter flags -> bus topic patterns
 LOG_FILTERS = {"tasks": "task.*", "trail": "trail.event", "tools": "tool.called", "browsers": "browser.*",
-               "policy": "policy.*", "actions": "action.*", "timers": "timer.*",
+               "actions": "action.*", "timers": "timer.*",
                "voice": "voice.*"}
-RELEASE_TICK_S = 0.2
 MACOS_TICK_S = 0.2
 
 
 class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
-                 redact: Redact | None = None, owner_uid: int | None = None, undo_window_s: float = 10.0,
+                 redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
                  notifications: bool = True) -> None:
         self.home = home or ferb_home()
@@ -86,17 +79,13 @@ class Daemon:
         self.bus = Bus(self.clock)
         self.tokens = RunTokens(self.clock)
         self.server = Server(socket_path(self.home), self.tokens, owner_uid)
-        self.engine = PolicyEngine(self.clock, str(self.home / "workspace"), level=self._level,
-                                   trusted_kinds=self._trusted_kinds, undo_window_s=undo_window_s,
-                                   trusted_accounts=self._trusted_accounts, remember_account=self._remember_account)
-        self.stop_control = StopControl(self.tokens.revoke_all, self._set_blocked, self.engine.holds.undo_all)
+        self.state = ExecutionState(self.clock)
+        self.stop_control = StopControl(self.tokens.revoke_all, self._set_blocked)
         self.db: Database | None = None
         self.journal: Journal | None = None
         self.spans: SpanStore | None = None
         self.ledger: Ledger | None = None
-        self._release_task: asyncio.Task[None] | None = None
         self._macos_task: asyncio.Task[None] | None = None
-        self._autonomy = Level.BALANCED
         self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
         self.identity_browser: IdentityDriver | None = None    # the extension in Chrome's FERB profile (step 6)
         self.registry = build_registry()
@@ -107,13 +96,11 @@ class Daemon:
         # Owner browser profiles through the extension (build step 6a). Tests override the data dirs and the launcher.
         self.browser_data_dirs: dict[str, Path] | None = None
         self.browser_launch: Callable[[list[str]], None] | None = None
-        self.browser_default: Callable[[], str | None] = default_browser
         self.pair_load_wait_s = 2.0                          # a profile opened just to pair gets this long to load
         self.pairings: Pairings | None = None
         self.hub: Hub | None = None
         self.router: Router | None = None
         self.ferb_identity: FerbIdentity | None = None
-        self.identity_allow_local = False                # tests only: FERB's tools may open local pages
         self.wake = WakeServer()
         # The owner's Mac + shell (build step 7)
         self.watch_owner_input = watch_owner_input
@@ -187,7 +174,6 @@ class Daemon:
         self._build_timers()
         for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
                          ("schedules.list", self._schedules_list), ("schedules.change", self._schedules_change),
-                         ("questions.answer", self._questions_answer),
                          ("chat.status", self._chat_status), ("chat.attach", self._chat_attach),
                          ("task.stop", self._task_stop),
                          ("reminders.list", self._reminders_list), ("reminders.cancel", self._reminders_cancel),
@@ -199,8 +185,8 @@ class Daemon:
                          ("jev.stats", self._jev_stats), ("jev.enable", self._jev_enable), ("jev.reload", self._jev_reload),
                          ("timeline.get", self._timeline),
                          ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
-                         ("stop.lift", self._stop_lift), ("undo", self._undo), ("autonomy.get", self._autonomy_get),
-                         ("autonomy.set", self._autonomy_set), ("doctor.check", self._doctor_check),
+                         ("stop.lift", self._stop_lift),
+                         ("doctor.check", self._doctor_check),
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
                          ("chat.answer", self._chat_answer),
@@ -218,15 +204,12 @@ class Daemon:
         if unknown:
             self.journal.append("ledger.unknown_after_restart", {"intent_ids": unknown})
         if self.stop_marker.exists():      # a stop outlives a crash/restart until the owner lifts it
-            self.engine.stopped = True
+            self.state.stopped = True
             self.stop_control.engaged = True
             self.journal.append("stop.still_engaged", {})
-        self._release_task = asyncio.create_task(self._release_loop())
         self._macos_task = asyncio.create_task(self._macos_events())
 
     async def shutdown(self) -> None:
-        if self._release_task:
-            self._release_task.cancel()
         if self._macos_task:
             self._macos_task.cancel()
         if self.supervisor:
@@ -270,34 +253,22 @@ class Daemon:
 
     # ---------- policy plumbing ----------
 
-    def publish_verdict(self, v: Verdict) -> None:
-        for topic, data in v.events:
-            self.bus.publish(topic, self.redact(data))
-
     def _set_blocked(self, blocked: bool) -> None:
-        self.engine.stopped = blocked
+        self.state.stopped = blocked
         if blocked:
             self.stop_marker.touch(mode=0o600)
         else:
             self.stop_marker.unlink(missing_ok=True)
 
-    def _level(self) -> Level:
-        return self._autonomy
-
-    def _trusted_kinds(self) -> frozenset[str]:
-        return frozenset(self.config.get("policy", "trusted_kinds", []))
-
-    # ---------- push-to-talk (section 20.1) ----------
-
     def _build_voice(self) -> None:
         from ferb.cli.chat import question, render
         from ferb.voice.controller import Voice
         from ferb.voice.speak import SaySpeaker
-        self.voice = Voice(self._voice_turn, self.engine.approvals.pending, self._resolve_approval,
+        self.voice = Voice(self._voice_turn, self.state.approvals.pending, self._resolve_approval,
                            self.voice_speaker or SaySpeaker(),
                            self._journal(), self._launch_voice_app,
                            mode=lambda: str(self.config.get("voice", "mic", "auto")), render=render, question=question,
-                           cancel_countdown=self._cancel_countdown, publish=self._publish,
+                           publish=self._publish,
                            enabled=lambda: self._ptt, sounds=lambda: bool(self.config.get("voice", "sounds", True)))
         loop = asyncio.get_running_loop()
 
@@ -334,18 +305,6 @@ class Daemon:
         if self.voice_bundle.exists():
             subprocess.Popen(["open", "-g", str(self.voice_bundle)], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
-
-    def _cancel_countdown(self) -> bool:
-        """Spoken "stop" during a send / call countdown: the newest pending one is undone."""
-        pending = self.engine.holds.pending()
-        if not pending:
-            return False
-        hold = pending[-1]
-        if not self.engine.undo(hold.id):
-            return False
-        self._journal().append("action.undone", {"hold_id": hold.id, "by": "voice"})
-        self.bus.publish("action.undone", {"hold_id": hold.id})
-        return True
 
     async def _voice_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:
         async for ev in self._chat_send(None, {"session_id": "voice", "text": text}):     # type: ignore[arg-type]
@@ -397,7 +356,6 @@ class Daemon:
 
     def _load_config(self) -> None:
         self._ptt = bool(self.config.get("voice", "push_to_talk", False))
-        self._autonomy = Level(self.config.get("policy", "autonomy", Level.BALANCED.value))
         if self._redact_override is None:
             self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps()))
 
@@ -413,15 +371,6 @@ class Daemon:
             CF.CFRunLoopRunInMode(CF.kCFRunLoopDefaultMode, 0, True)
             await asyncio.sleep(MACOS_TICK_S)
 
-    async def _release_loop(self) -> None:
-        """Undo windows: publish releases as holds come due (the gateway executes them from build step 4)."""
-        while True:
-            for _hold, verdict in self.engine.release_due():
-                self.publish_verdict(verdict)
-            await asyncio.sleep(RELEASE_TICK_S)
-
-    # ---------- agents: registry, gateway, runtimes, supervisor (build step 4) ----------
-
     def _build_agents(self) -> None:
         device = str(self.config.get("device", "id", "unknown-device"))
         workspace = self.home / "workspace"
@@ -429,12 +378,9 @@ class Daemon:
         roots = FsRoots(str(workspace), tuple(self.config.get("fs", "owner_roots", [])),
                         tuple(self.config.get("fs", "untrusted_roots", ["~/Downloads"])))
         assert self.ledger and self.spans and self.journal
-        self.gateway = Gateway(self.registry.capabilities, self.engine, self.ledger, self.spans, self.tasks,
+        self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
-        self.gateway.grant_folder, self.gateway.queue_question = self._grant_folder, self._queue_question
-        self.gateway.owner_words = self._owner_words
-        self.gateway.name_of = lambda t: next((n for b, n in self._installed_apps() if b.lower() == t.lower()), t)
-        self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, engine=self.engine,
+        self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
                                      workspace=str(workspace), on_violation=self._runtime_violation,
@@ -447,17 +393,25 @@ class Daemon:
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
 
-    def use_identity_browser(self, driver: IdentityDriver, allow_local: bool = False) -> None:
+    def use_identity_browser(self, driver: IdentityDriver) -> None:
         """Attach FERB's own browser: registers the browser.* tools; its tabs close with their task and on stop."""
         self.identity_browser = driver
-        add_identity_browser(self.registry, driver, allow_local)
+        add_identity_browser(self.registry, driver)
 
-    async def _task_end(self, task_id: str) -> None:
-        for drv in (self.identity_browser, self.router):
+    async def _task_end(self, task_id: str) -> list[dict[str, Any]]:
+        resources = []
+        for name, drv in (("ferb_browser", self.identity_browser), ("browser", self.router)):
             if drv is not None:
-                await drv.release(task_id)
+                try:
+                    resources.extend(await drv.release(task_id) or [])
+                except Exception as exc:
+                    resources.append({'resource': name, 'released': False, 'error': f"{type(exc).__name__}: {exc}"})
         if self.shells is not None:
-            await self.shells.end_task(task_id)              # its processes end with it (unless long-lived)
+            try:
+                await self.shells.end_task(task_id)
+            except Exception as exc:
+                resources.append({'resource': 'shell', 'released': False, 'error': f"{type(exc).__name__}: {exc}"})
+        return resources
 
     def _stop_identity_browser(self) -> None:
         for drv in (self.identity_browser, self.router):
@@ -519,8 +473,9 @@ class Daemon:
                 self.owner_input.owner_event()
                 loop.call_soon_threadsafe(mac.restore_owner, None)
             self.mac.guard = InputGuard(stepped_in)
-        add_mac(self.registry, self.mac, self._device_profile, self._owner_extension_connected, self._unpaired_note)
-        self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
+        add_mac(self.registry, self.mac, self._device_profile)
+        self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,
+                                   stream_factory=getattr(self.redact, "stream", None))
         add_shell(self.registry, self.shells)
         add_trail(self.registry, lambda: self.trail)
         add_evidence(self.registry, self.spans, self._inspection_parent)
@@ -679,6 +634,7 @@ class Daemon:
         assert self.db is not None and self.journal is not None
         self.memory = Memory(self.db, self.clock, self.ids, self._publish, on_change=self._export_memory,
                              redact=self._redact_text)
+        self.memory.on_forget = lambda plan: self.daily_activity.forget_sources(set(plan.trail))
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
@@ -951,12 +907,10 @@ class Daemon:
         for r in rows:
             self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
-                    "options": list(ap.options)} for ap in self.engine.approvals.pending()]
-        questions = [{"id": q["id"], "question": q["question"]} for q in self.db.conn.execute(
-            "SELECT id, question FROM owner_questions WHERE state = 'open' ORDER BY seq").fetchall()]
+                    "options": list(ap.options)} for ap in self.state.approvals.pending()]
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
         return {"results": [{"task_id": r["task_id"], "status": r["status"], "goal": r["goal"], "answer": r["answer"]}
-                            for r in rows], "running": running, "approvals": pending, "questions": questions}
+                            for r in rows], "running": running, "approvals": pending}
 
     async def _chat_attach(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Chat is open again: approvals for running tasks are asked there, not by notification."""
@@ -971,9 +925,6 @@ class Daemon:
         assert self.supervisor is not None
         ids = [str(t) for t in params.get("task_ids", [])] or [t for t, _ in self.supervisor.running_trees()]
         stopped = [t for t in ids if self.supervisor.stop_tree(t)]
-        for h in self.engine.holds.pending():                     # a send held for undo in that task goes too
-            if any(h.action.task_id == t or h.action.task_id.startswith(t + ".") for t in stopped):
-                self.engine.holds.undo(h.id)
         for t in stopped:
             self._journal().append("task.stopped", {"task_id": t, "by": "owner"})
         return {"stopped": stopped}
@@ -1058,8 +1009,7 @@ class Daemon:
         return {"cancel": "Cancelled", "pause": "Paused", "resume": "Resumed"}[action] + f": {s.request}"
 
     async def _run_schedule(self, sid: str, overdue_s: float) -> None:
-        """A due run: the next one is set up first; a run missed by too much is skipped; the result reaches the owner
-        (notification, next chat); three failures in a row pause the schedule."""
+        """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts."""
         s = self.schedules.get(sid)
         if s is None or s.state != "active":
             return
@@ -1071,68 +1021,22 @@ class Daemon:
         else:
             self.schedules.set_timer(sid, None, None)
             self.schedules.set_state(sid, "done")
-        if overdue_s > s.rule.late_limit_s():
-            self._journal().append("schedule.skipped", {"schedule_id": sid, "late_s": round(overdue_s)})
-            await self._task_result({"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "skipped", "goal": s.request,
-                                     "answer": f"I skipped “{s.request}”: it was due "
-                                               f"{context_ago(now - timedelta(seconds=overdue_s), now)}, while the "
-                                               "Mac was asleep or FERB wasn't running."}, shown=False)
-            return
         if self.supervisor is None:
             return
         try:
-            final = await self.supervisor.run_scheduled(s, late=overdue_s > 60)
+            final = await self.supervisor.run_scheduled(s, late=overdue_s > 60, overdue_s=overdue_s)
         except Exception as e:                              # a run's failure is reported, never lost
             self._journal().append("schedule.failed", {"schedule_id": sid, "why": f"{type(e).__name__}: {e}"[:300]})
             final = {"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "failed",
                      "answer": f"“{s.request}” didn't work this time; I'll try again at the next run."}
         ok = final.get("status") == "done"
-        fails = self.schedules.ran(sid, ok)
+        self.schedules.ran(sid, ok)
         answer = str(final.get("answer") or final.get("summary") or "")
         if overdue_s > 60:
             answer = f"(ran late) {answer}"
         await self._task_result({**final, "goal": s.request, "answer": answer}, shown=False)
-        if fails >= 3:
-            self._schedule_change(sid, "pause")
-            await self._notify("FERB paused a schedule", f"“{s.request}” failed 3 times in a row, so I paused it "
-                               f"(ferb schedules resume {sid}).", urgent=True)
 
     # ---------- progressive setup (section 8) ----------
-
-    def _grant_folder(self, folder: str) -> None:
-        """The owner said yes: the folder joins [fs] owner_roots (config) and takes effect at once."""
-        from ferb.daemon.gateway import FsRoots
-        roots = list(self.config.get("fs", "owner_roots", []))
-        if folder not in roots:
-            roots.append(folder)
-            self.config.set("fs", "owner_roots", roots)
-        if self.gateway is not None:
-            r = self.gateway.roots
-            self.gateway.roots = FsRoots(r.workspace, tuple(dict.fromkeys((*r.owner_roots, folder))),
-                                         r.untrusted_roots)
-        self._journal().append("setup.folder_granted", {"folder": folder})
-
-    def _queue_question(self, kind: str, target: str, text: str) -> None:
-        assert self.db is not None
-        if self.db.conn.execute("SELECT 1 FROM owner_questions WHERE kind = ? AND target = ? AND state = 'open'",
-                                (kind, target)).fetchone():
-            return
-        self.db.conn.execute("INSERT INTO owner_questions (id, at, kind, target, question, state) VALUES "
-                             "(?, ?, ?, ?, ?, 'open')", ("q-" + self.ids.new_id()[:10], self.clock.now().isoformat(),
-                                                         kind, target, text))
-
-    async def _questions_answer(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """The owner's answer, at chat, to a question an unattended run couldn't ask."""
-        assert self.db is not None
-        r = self.db.conn.execute("SELECT * FROM owner_questions WHERE id = ? AND state = 'open'",
-                                 (str(params["id"]),)).fetchone()
-        if r is None:
-            raise FerbError("no such open question")
-        yes = bool(params.get("yes"))
-        self.db.conn.execute("UPDATE owner_questions SET state = ? WHERE id = ?", ("yes" if yes else "no", r["id"]))
-        if yes and r["kind"] == "folder_access":
-            self._grant_folder(r["target"])
-        return {"ok": True}
 
     async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"schedules": [{"id": s.id, "request": s.request, "rule": s.rule.describe(), "state": s.state,
@@ -1197,14 +1101,8 @@ class Daemon:
         self._wire_jev(self.jev)
 
     def _wire_jev(self, jev: Any) -> None:
-        if self.gateway is not None:
-            self.gateway.jev = jev
         if self.distiller is not None:
             self.distiller.jev = jev
-        if self.supervisor is not None:
-            self.supervisor.jev = jev
-        if self.router is not None:
-            self.router.jev = jev
         if self.trail is not None:
             self.trail.tag = self._jev_tag if jev is not None else (lambda e: None)
 
@@ -1230,6 +1128,7 @@ class Daemon:
             data = {k: (v if k in keep else "[sensitive]") for k, v in e.data.items()}
             self.db.conn.execute("UPDATE trail SET data_json = ?, sensitive = 1 WHERE id = ?",
                                  (json.dumps(data), e.id))
+            self.daily_activity.redact_source(e.id, data)
             self.jev.mark_effect("trail.sensitive", ref, "extra redaction")
 
     async def _jev_stats(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -1237,15 +1136,17 @@ class Daemon:
             return {"configured": False, "stats": []}
         stats = self.jev.stats()
         for st in stats:
-            if not st["real_baseline"] and st["answered"]:
+            if st["answered"]:
                 st["examples"] = self._jev_examples(st["question"])
         assert self.db is not None
         recent = self.db.conn.execute("SELECT jev, error FROM decisions WHERE error IS NULL OR error NOT IN "
                                       "('not sampled') ORDER BY seq DESC LIMIT 20").fetchall()
         answered = sum(1 for r in recent if r["jev"] is not None)
         last_error = next((r["error"] for r in recent if r["error"]), None)
+        from ferb.decide.questions import QUESTIONS
         return {"configured": True, "dropped": self.jev.dropped, "stats": stats, "recent_answered": answered,
-                "recent_total": len(recent), "last_error": last_error}
+                "recent_total": len(recent), "last_error": last_error,
+                "retired_enabled": sorted(set(self.config.get("jev", "enabled", [])) - QUESTIONS.keys())}
 
     def _jev_examples(self, question: str) -> list[str]:
         """A few items Jev flagged, read from their source now (redacted), so nothing extra is kept."""
@@ -1267,19 +1168,14 @@ class Daemon:
         return out
 
     async def _jev_enable(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        from ferb.decide.decider import may_enable
         from ferb.decide.questions import QUESTIONS
         q = str(params["question"])
         if q not in QUESTIONS:
             raise FerbError(f"unknown question {q}")
-        enabled = set(self.config.get("jev", "enabled", []))
+        enabled = set(self.config.get("jev", "enabled", [])) & QUESTIONS.keys()
         if params.get("on", True):
             if self.jev is None:
                 raise FerbError("Jev isn't set up: `ferb setup --jev`")
-            st = next(x for x in self.jev.stats() if x["question"] == q)
-            ok, why = may_enable(st)
-            if not ok:
-                raise FerbError(f"not yet: {why}")
             enabled.add(q)
         else:
             enabled.discard(q)
@@ -1301,8 +1197,7 @@ class Daemon:
         return out
 
     def _environment(self, own_words: str) -> dict[str, Any]:
-        """The environment summary for the supervisor (9.3): what's installed and paired for what the owner named,
-        what's running, and the browser / profile they named. Informational: the model decides the route."""
+        """Installed apps and browser connection facts; the model interprets the owner's requested route."""
         import platform
         from ferb.act.mac import apps as appsm
         from ferb.policy import services as svc
@@ -1318,15 +1213,11 @@ class Daemon:
         except Exception:
             running = set()
         stable, live = svc.summary(env, platform.mac_ver()[0] or "unknown", named, running)
-        chosen = self._named_browser(own_words)
-        if chosen is not None:
-            stable += " " + self._named_note(chosen)
-        return {"stable": stable, "live": live, "named_browser": chosen}
-
-    def _named_for_task(self, task_id: str) -> Any:
-        rec = self.tasks.get(task_id) or self.tasks.get(task_id.rsplit(".", 1)[0])
-        env = self.supervisor._env.get(rec.task.request_id) if rec is not None and self.supervisor else None
-        return env.get("named_browser") if env else None
+        profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
+                     'connection': self._profile_state(p),
+                     'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in self._profiles()]
+        stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
+        return {"stable": stable, "live": live}
 
     def _inspection_parent(self, task_id: str) -> str | None:
         """A registered checker borrows its worker's tabs/evidence, without changing their ownership."""
@@ -1361,13 +1252,6 @@ class Daemon:
                 '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)[:5000]) +
                 '\nWorker types: ' + json.dumps(['default', *self.registry.runtimes]) + '\n')
 
-    def _named_browser(self, own_words: str) -> Any:
-        """The browser / profile the owner's words name — never FERB's own profile (owner's report 2026-10-01)."""
-        from ferb.act.browser.profiles import named_in
-        ferb = self._identity_profile()
-        owners = [p for p in self._profiles() if (p.browser, p.folder) != ferb]
-        return named_in(own_words, owners, explicit_only=True)
-
     def _profile_state(self, p: Any) -> str:
         """connected / paired (FERB opens it) / installed, not paired / no extension."""
         from ferb.act.browser.profiles import has_extension
@@ -1378,38 +1262,6 @@ class Daemon:
         ids = frozenset(self.config.get("browser", "extension_ids", [FERB_EXTENSION_ID]))
         data = (self.browser_data_dirs or {}).get(p.browser)
         return "installed" if has_extension(p, ids, data) else "missing"
-
-    def _named_note(self, n: Any) -> str:
-        """For the planner: use exactly the browser / profile the owner named, or say why it can't be used yet."""
-        browser = {"chrome": "Chrome", "brave": "Brave"}.get(n.browser or "", "")
-        targets = list(n.profiles) or [p for p in self._profiles() if p.browser == n.browser
-                                       and (p.browser, p.folder) != self._identity_profile()]
-        usable = [p for p in targets if self._profile_state(p) in ("connected", "paired")]
-        named = ", ".join(f"{p.browser.capitalize()} “{p.display_name}”" for p in (n.profiles or ())) or browser
-        if usable:
-            names = ", ".join(f"“{p.display_name}”" for p in usable)
-            return (f"The owner named {named}: use only that ({names}; browser tools with profile set to it) — never "
-                    "another browser or profile.")
-        p = n.profiles[0] if n.profiles else None
-        how = (f"`ferb browsers pair {p.display_name}`" if p else f"`ferb browsers pair <profile>`")
-        why = ("FERB's extension isn't installed there" if p is None or self._profile_state(p) == "missing"
-               else "FERB's extension is installed but not paired")
-        return (f"The owner named {named}, but FERB can't use it yet: {why}. Don't use another browser or profile "
-                f"instead — reply (no plan) that {how} connects it (FERB walks them through it), then ask again.")
-
-    def _owner_words(self, request_id: str, name: str) -> str:
-        """For the contact check (16a): this request's own words, the owner's messages over the last day, and what the
-        owner has explicitly told FERB to remember about that name — never pasted or read content."""
-        import re as _re
-        strip = _re.compile(r"<untrusted-data[^>]*>.*?</untrusted-data>", _re.S)
-        since = self.clock.now() - timedelta(days=1)
-        words = [strip.sub(" ", str(e.data.get("text", ""))) for e in self._journal().entries(since)
-                 if e.kind == "chat.message"]
-        if self.memory is not None:
-            low = name.strip().lower()
-            words += [f"{it.subject} {it.content}" for it in self.memory.items("active")
-                      if it.origin == "owner_stated" and low and (low in it.content.lower() or low in it.subject.lower())]
-        return "\n".join(words)
 
     def _time_meanings(self) -> list[tuple[str, str]]:
         """The owner's own meanings of fuzzy time words ("next friday", "evening"), stored when they corrected FERB."""
@@ -1446,7 +1298,7 @@ class Daemon:
             elif not live and not (self.router and self.router.wake):
                 shown = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                   for b in owner)
-                problems["owner_browsers"] = f"{shown} paired but not open — open it and FERB reconnects within 30 s"
+                problems["owner_browsers"] = f"{shown} paired; extension transport disconnected"
             profiles = ", ".join(f"{b.browser.capitalize()} “{names.get((b.browser, b.folder), b.folder)}”"
                                  for b in live)
             sleeping = [b for b in owner if b not in live]
@@ -1496,23 +1348,12 @@ class Daemon:
         folder = self.config.get("identity", "profile")
         return (str(self.config.get("identity", "browser", "chrome")), str(folder)) if folder else None
 
-    def _open_hosts(self) -> list[tuple[str, str, str]]:
-        if self.hub is None:
-            return []
-        return [(b.binding.browser, b.binding.folder, host) for b in self.hub.bridges.values() if b.conn
-                for host, _active in b.tabs.values()]
-
     async def _build_browsers(self) -> None:
         assert self.db and self.ledger
         self.pairings = Pairings(self.db, self.clock)
         self.hub = Hub(self.pairings, self.ledger, self._publish,
                        lambda: str(self.config.get("device", "id", "unknown-device")))
-        def data(b: str) -> Path | None:
-            return (self.browser_data_dirs or {}).get(b)
-        resolver = Resolver(self._profiles, self.pairings.all, self._open_hosts, self._identity_profile,
-                            prefer=lambda: list(self.config.get("browser", "prefer_for_actions", ["brave", "chrome"])),
-                            default_browser=lambda: self.browser_default(),
-                            last_used=lambda b: last_used_profile(b, data(b)))
+        resolver = Resolver(self._profiles, self.pairings.all, self._identity_profile)
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
@@ -1538,7 +1379,7 @@ class Daemon:
         if b is None or b.identity is not Identity.FERB or self.ferb_identity is None:
             return False
         if self.identity_browser is None:
-            self.use_identity_browser(self.ferb_identity, self.identity_allow_local)
+            self.use_identity_browser(self.ferb_identity)
         return True
 
     async def _identity_pair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -1598,14 +1439,6 @@ class Daemon:
                 await br.call("wake_close", {"url": wake}, timeout=5)
             except FerbError:
                 pass
-
-    def _trusted_accounts(self) -> frozenset[str]:
-        return frozenset(self.config.get("policy", "trusted_accounts", []))
-
-    def _remember_account(self, key: str) -> None:
-        keys = sorted(self._trusted_accounts() | {key})
-        self.config.set("policy", "trusted_accounts", keys)
-        self._journal().append("policy.account_trusted", {"site_profile": key})
 
     async def _browsers_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.pairings and self.hub
@@ -1708,7 +1541,7 @@ class Daemon:
                 name = next((p.display_name for p in self._profiles() if (p.browser, p.folder) == (b.browser, b.folder)),
                             b.folder)
                 lines.append(f"- The owner's {b.browser} profile “{name}”: paired"
-                             f"{', connected' if br is not None and br.conn else ', not open right now'}")
+                             f"{', connected' if br is not None and br.conn else ', extension transport disconnected'}")
             for browser in sorted(set(self.hub.unpaired.values())):
                 note = self._unpaired_note(browser)
                 if note:
@@ -1723,8 +1556,6 @@ class Daemon:
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)
-        if topic == "contact.selected":                                  # who a call / message went to
-            self._journal().append(topic, self.redact(data))
 
     def _runtime_violation(self, runtime: str, detail: str) -> None:
         """Record this run’s tool-source violation; the orchestrator can select another attempt."""
@@ -1768,7 +1599,7 @@ class Daemon:
     async def _chat_answer(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The owner's free-text answer to a worker's question (owner.ask); empty text declines."""
         text = str(params.get("text") or "").strip()
-        ap = self.engine.approvals.get(str(params["approval_id"]))
+        ap = self.state.approvals.get(str(params["approval_id"]))
         if ap is not None and ap.kind == "owner_login_code" and text:
             self._add_secret_value(text)
         return self._resolve_approval(str(params["approval_id"]), bool(text), None, text or None)
@@ -1776,7 +1607,7 @@ class Daemon:
     def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None,
                           text: str | None = None) -> dict[str, Any]:
         """The owner's answer to a question, typed (`ferb chat`) or spoken (push-to-talk)."""
-        ap = self.engine.approvals.resolve(approval_id, granted, choice, text)
+        ap = self.state.approvals.resolve(approval_id, granted, choice, text)
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,
                                                      "capability": ap.capability})
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})
@@ -1784,14 +1615,13 @@ class Daemon:
 
     async def _chat_send(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         """One chat turn: the supervisor's events, merged with bus events about the tasks this turn started
-        (tool calls, approval requests, undo countdowns, blocks) so `ferb chat` can show them inline."""
+        (tool calls, owner questions and action observations) so `ferb chat` can show them inline."""
         if self.supervisor is None:
             raise FerbError("daemon not started")
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         my_tasks: set[str] = set()
         attached = {"on": True}                     # False once the owner closes chat: the task keeps running (14a)
-        sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*", "policy.blocked",
-                                  "worker.exposed"})
+        sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*"})
 
         async def turn() -> None:
             try:
@@ -1843,7 +1673,7 @@ class Daemon:
 
     async def _ping(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"pid": os.getpid(), "role": session.role.value, "now": self.clock.now().isoformat(),
-                "stopped": self.engine.stopped}
+                "stopped": self.state.stopped}
 
     async def _trace(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         task_id = str(params.get("task_id") or "last")
@@ -1868,31 +1698,6 @@ class Daemon:
         self._journal().append("stop.lifted", {})
         self.bus.publish("stop.lifted", {})
         return {"stopped": False}
-
-    async def _undo(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """`ferb undo [id]`: with no id, undo the only pending send (or list them if several)."""
-        hold_id = params.get("hold_id")
-        pending = self.engine.holds.pending()
-        if hold_id is None:
-            if len(pending) != 1:
-                return {"undone": None, "pending": [{"hold_id": h.id, "capability": h.action.capability,
-                                                     "kind": h.action.kind} for h in pending]}
-            hold_id = pending[0].id
-        if not self.engine.undo(str(hold_id)):
-            raise FerbError(f"nothing to undo for {hold_id} (already sent, undone, or unknown)")
-        self._journal().append("action.undone", {"hold_id": hold_id})
-        self.bus.publish("action.undone", {"hold_id": hold_id})
-        return {"undone": hold_id}
-
-    async def _autonomy_get(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        return {"level": self._autonomy.value}
-
-    async def _autonomy_set(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        level = Level(str(params.get("level")))
-        self.config.set("policy", "autonomy", level.value)       # atomic write, stays 0600
-        self._autonomy = level
-        self._journal().append("autonomy.set", {"level": level.value})
-        return {"level": level.value}
 
     async def _identity_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Setup / doctor (section 8): FERB's Chrome profile holds exactly FERB's account (safety test 20), and each
@@ -1939,7 +1744,7 @@ class Daemon:
                         "permissions": self.voice.permissions if self.voice is not None else {}}
         out.update({"pid": os.getpid(), "executable": os.path.realpath(sys.executable),
                     "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
-                    "home": str(self.home), "stopped": self.engine.stopped})
+                    "home": str(self.home), "stopped": self.state.stopped})
         return out
 
     async def _runtime_status(self) -> dict[str, Any]:

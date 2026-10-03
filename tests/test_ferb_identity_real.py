@@ -1,44 +1,28 @@
-"""Build step 6b, real browser (pytest -m real). Two parts, each driven by a test daemon with its own home (FERB's
-native-host launcher is pointed at it for the run and restored afterwards):
-
-1. `FERB_REAL_PROFILE="chrome:FERB Test"` — the test profile paired as a stand-in FERB identity, a temporary keychain,
-   local pages only: 21.4 re-ported (lookalike host, scheme, cross-origin iframe refused before the Keychain is read;
-   the allowed iframe works; focus stealing can't redirect the value), 21.21 (every line through the native host
-   captured: the password never appears; a replayed seal is refused by the real extension), read_source refuses any
-   page but FERB's inbox feed.
-2. `FERB_REAL_IDENTITY=1` — FERB's own profile (owner-approved). Pairing it with the test daemon replaces the key
-   it shares with the installed daemon, so the installed daemon must be running (checked before anything is
-   touched) and, once the launcher is restored, re-pairs it itself (as `ferb setup --identity` would after the
-   owner confirms) and its session is checked; the owner never re-pairs after a run. The rest: pairing as FERB (its account check), the session
-   checked through the extension, the Gmail and YouTube account extractors on real pages; with `FERB_OTP_CODE` +
-   `FERB_OTP_SINCE`, a code the owner emailed to FERB is filled into a local page, sealed, never returned.
-"""
+"""Identity transport integration in disposable ChromeLab, temporary keychain and local pages only.
+Origin confinement, sealed password/code delivery and replay refusal use the real extension. Provider account
+extractors and compose UI run against representative local DOM; actual Gmail/YouTube login and email delivery
+are owner-supervised acceptance checks, never automatic tests against installed browser profiles."""
 
 import asyncio
 import http.server
-import re
+import json
 import os
 import tempfile
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import parse_qs
 
 import pytest
 
-from ferb.act.browser.profiles import discover_all
-from ferb.cli.client import Client
-from ferb.clock.clock import SystemClock
-from ferb.config import Config
-from ferb.core.errors import DriverError, NotRunning, Refused
-from ferb.core.types import BrowserAction, Identity, SecretRef, SecretSpec
+from ferb.core.errors import DriverError, Refused
+from ferb.core.types import BrowserAction, SecretRef, SecretSpec
 from ferb.identity.secrets import KeychainSecretStore
-from ferb.paths import socket_path
-from tests.browserkit import PASSWORD, REF
-from tests.conftest import RunningDaemon, without_owner_mac
-from tests.test_ext_real import LAUNCHER, restart_hosts
+from tests.browserkit import ADDRESS, PASSWORD, REF, feed
+from tests.conftest import RunningDaemon
+from tests.chromelab import ChromeLab, browser_lab, wait_for
 
 pytestmark = pytest.mark.real
 
@@ -62,6 +46,11 @@ class Site:
                 body = {"/login": LOGIN, "/steal": STEAL, "/otp": OTP,
                         "/top": b'<!doctype html><iframe src="http://127.0.0.1:%d/login" width=600 height=300></iframe>'
                         % port}.get(self.path.split("?")[0], b"<p>blank</p>")
+                if self.path.startswith("/compose?"):
+                    body = b"""<button onclick="fetch('/sent'+location.search).then(()=>document.body.textContent='Message sent')">Send</button>"""
+                elif self.path.startswith("/sent?"):
+                    site.posted.append(parse_qs(self.path.split("?", 1)[1]))
+                    body = b"sent"
                 self.send_response(200)
                 self.send_header("content-type", "text/html")
                 self.end_headers()
@@ -82,36 +71,7 @@ class Site:
         self.I = f"http://127.0.0.1:{self.srv.server_port}"
 
 
-def daemon_on_launcher() -> Iterator[RunningDaemon]:
-    if not LAUNCHER.exists():
-        pytest.skip("run `ferb setup --update` first (installs the native host)")
-    base = Path(tempfile.mkdtemp(prefix="ferbr-"))
-    original = LAUNCHER.read_text()
-    d = RunningDaemon(base / "home", clock=SystemClock())
-    without_owner_mac(d)                                                  # locked down (CLAUDE.md)
-    t0, events = time.monotonic(), []                                     # browser.* events, shown on failure
-    publish = d.daemon._publish
-
-    def record(topic: str, data: dict[str, Any]) -> None:
-        if topic.startswith("browser."):
-            events.append((round(time.monotonic() - t0, 1), topic, data.get("profile") or data.get("folder")))
-        publish(topic, data)
-    d.daemon._publish = record                                            # type: ignore[method-assign]
-    assert d.daemon.hub is not None
-    d.daemon.hub.publish = record
-    d.events = events                                                     # type: ignore[attr-defined]
-    # whatever home the launcher points at now (another test daemon may have it): ours for this run, then back
-    LAUNCHER.write_text(re.sub(r'FERB_HOME="[^"]*"', f'FERB_HOME="{d.daemon.home}"', original))
-    restart_hosts()
-    try:
-        yield d
-    finally:
-        LAUNCHER.write_text(original)
-        restart_hosts()
-        d.stop()
-
-
-def tee(d: RunningDaemon) -> list[str]:
+def tee(d: RunningDaemon, chrome: ChromeLab) -> list[str]:
     """Record every line crossing the native host, both directions, exactly as sent (safety test 21)."""
     wire: list[str] = []
     hub = d.daemon.hub
@@ -134,31 +94,23 @@ def tee(d: RunningDaemon) -> list[str]:
                 await writer.drain()
         await serve(R(), W())                                                   # type: ignore[arg-type]
     d.daemon.server.native = tapped
-    restart_hosts()                            # connections made before the tap would go uncaptured
+    old_gen = hub.bridges[("chrome", "Default")].gen
+    chrome.reconnect()  # only this disposable extension reconnects through the tap
+    wait_for(lambda: hub.bridges[("chrome", "Default")].gen > old_gen, 30, "lab relay did not reconnect")
     return wire
 
 
-# ---------- part 1: the FERB Test profile as a stand-in identity ----------
-
 @pytest.fixture(scope="module")
-def stand_in() -> Iterator[tuple[RunningDaemon, str, str]]:
-    spec = os.environ.get("FERB_REAL_PROFILE")
-    if not spec or ":" not in spec:
-        pytest.skip('set FERB_REAL_PROFILE="chrome:<test profile>" (extension loaded there)')
-    browser, name = spec.split(":", 1)
-    p = next((p for p in discover_all() if p.browser == browser and p.display_name == name), None)
-    if p is None:
-        pytest.skip(f"{browser} profile {name!r} not found")
-    yield from ((d, browser, p.folder) for d in daemon_on_launcher())
+def stand_in() -> Iterator[Any]:
+    with browser_lab(ferb_identity=True) as isolated:
+        yield isolated
 
 
-def test_stand_in_identity_origin_rules_and_sealing(stand_in: tuple[RunningDaemon, str, str]) -> None:
-    rd, browser, folder = stand_in
+def test_stand_in_identity_origin_rules_and_sealing(stand_in: Any) -> None:
+    rd, chrome, _ = stand_in
     d = rd.daemon
     site = Site()
-    wire = tee(rd)
-    d.config.set("identity", "browser", browser)
-    d.config.set("identity", "profile", folder)
+    wire = tee(rd, chrome)
     specs: dict[str, SecretSpec] = {}
     fi = d.ferb_identity
     assert fi is not None and d.pairings is not None
@@ -168,17 +120,7 @@ def test_stand_in_identity_origin_rules_and_sealing(stand_in: tuple[RunningDaemo
     scrubbed: list[str] = []
     fi.add_secret_value = lambda v: (scrubbed.append(v), d._add_secret_value(v))  # type: ignore[assignment]
     try:
-        async def pair() -> str:                     # the test profile holds no account: pair it directly (test only)
-            return d.pairings.issue_token(browser, folder, Identity.FERB)   # type: ignore[union-attr]
-        token = rd.run(pair())
-        from ferb.act.browser.profiles import open_known_profile
-        from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
-        open_known_profile(browser, folder, f"chrome-extension://{FERB_EXTENSION_ID}/pair.html#token={token}",
-                           discover_all())
-        end = time.monotonic() + 60
-        while time.monotonic() < end and not ((br := d.hub.bridges.get((browser, folder))) and br.conn):   # type: ignore[union-attr]
-            time.sleep(0.2)
-        assert rd.run(_attach(d)), "the stand-in profile didn't pair (is the extension reloaded there?)"
+        assert rd.run(_attach(d)), "the disposable identity profile did not attach"
         out = rd.run(_part1(d, site, specs, scrubbed), timeout=240)
     finally:
         _drop_keychain(kc)
@@ -279,92 +221,6 @@ def _drop_keychain(path: Path) -> None:
     subprocess.run(["security", "delete-keychain", str(path)], check=True)
 
 
-# ---------- part 2: FERB's own profile ----------
-
-@pytest.fixture(scope="module")
-def ferb_profile() -> Iterator[RunningDaemon]:
-    if not os.environ.get("FERB_REAL_IDENTITY"):
-        pytest.skip("set FERB_REAL_IDENTITY=1 (the extension loaded in FERB's profile)")
-    home = Config(Path.home() / ".ferb")
-    prof, address = home.get("identity", "profile"), home.get("mailbox", "address")
-    if not prof or not address:
-        pytest.skip("FERB's identity profile isn't set up: `ferb setup --identity`")
-    installed = _installed()
-    try:
-        for d in daemon_on_launcher():
-            d.daemon.config.set("identity", "browser", "chrome")
-            d.daemon.config.set("identity", "profile", str(prof))
-            d.daemon.config.set("mailbox", "address", str(address))
-            yield d
-    finally:                                   # the launcher is FERB's again: give it back its pairing
-        _give_back(installed)
-
-
-def _installed() -> Client:
-    """The installed daemon, which gets FERB's profile back after the run. Not running: nothing is touched."""
-    try:
-        c = Client(socket_path(Path.home() / ".ferb"), timeout=120)
-        if not c.call("identity.check", {"session": False})["profile_ok"]:
-            pytest.skip("the installed daemon's identity isn't set up: `ferb setup --identity`")
-        return c
-    except NotRunning:
-        pytest.skip("the installed daemon isn't running (`ferb setup --update` restarts it): the test gives FERB's pairing back to it afterwards")
-
-
-def _give_back(c: Client) -> None:
-    """Point the launcher at the installed daemon first: another module fixture may still hold it for its own test
-    daemon (restoring "what was there" would hand FERB's profile to that one)."""
-    installed = Path.home() / ".ferb"
-    text = LAUNCHER.read_text()
-    LAUNCHER.write_text(re.sub(r'FERB_HOME="[^"]*"', f'FERB_HOME="{installed}"', text))
-    restart_hosts()
-    try:
-        r = c.call("identity.pair", {"confirm": True, "timeout_s": 60})
-        check = c.call("identity.check") if r["paired"] else {}
-    finally:
-        c.close()
-    assert r["paired"] and check.get("session") is True, (
-        f"FERB's profile wasn't handed back to the installed daemon ({r}, {check}): run `ferb setup --identity`")
-
-
-def test_ferb_profile_pairs_signs_in_and_account_extractors_read_ferbs_address(ferb_profile: RunningDaemon) -> None:
-    d = ferb_profile
-    wire = tee(d)
-    c = Client(d.sock, timeout=120)
-    try:
-        r = c.call("identity.pair", {"timeout_s": 60})
-        assert r["paired"], (r, d.events)                                  # type: ignore[attr-defined]
-        check = c.call("identity.check")
-    finally:
-        c.close()
-    address = str(d.daemon.config.get("mailbox", "address")).lower()
-    assert check["profile_ok"] and check["session"] is True, (check, d.events)   # type: ignore[attr-defined]
-    accounts = d.run(_accounts(d.daemon), timeout=120)
-    assert accounts["mail.google.com"] == {"supported": True, "account": address}, accounts
-    assert accounts["www.youtube.com"]["supported"] and accounts["www.youtube.com"]["account"] in (address,), accounts
-    code, since = os.environ.get("FERB_OTP_CODE"), os.environ.get("FERB_OTP_SINCE")
-    if code and since:
-        site = Site()
-        try:
-            ok = d.run(_otp(d.daemon, site, datetime.fromisoformat(since)), timeout=700)
-        finally:
-            site.srv.shutdown()
-        assert ok and site.posted and site.posted[-1]["otp"] == [code]
-        assert not any(code in line for line in wire), "the code crossed the native host in clear"
-
-
-async def _accounts(d: Any) -> dict[str, Any]:
-    fi, out = d.ferb_identity, {}
-    for url in ("https://mail.google.com/mail/u/0/#inbox", "https://www.youtube.com/account"):
-        tab = await fi.open_for(url, "acct")
-        await asyncio.sleep(4)                                                  # let the app render its header
-        t = fi._tab(tab)
-        host = url.split("/")[2]
-        out[host] = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=15)
-        await fi.close(tab)
-    return out
-
-
 async def _otp(d: Any, site: Site, since: datetime) -> bool:
     fi = d.ferb_identity
     ref = SecretRef("test/otp-check")
@@ -384,26 +240,69 @@ async def _otp(d: Any, site: Site, since: datetime) -> bool:
 
 
 
-def test_ferb_sends_from_its_own_mailbox_to_itself(ferb_profile: RunningDaemon) -> None:
-    """Build step 14: FERB's compose page, a real click on Send, Gmail's confirmation; the mail arrives in FERB's inbox.
-    Sent to FERB's own address only (the owner's is never used)."""
-    import secrets as _s
-    d = ferb_profile
-    c = Client(d.sock, timeout=120)
+def test_local_inbox_code_is_filled_sealed(stand_in: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    rd, chrome, _ = stand_in
+    d, site = rd.daemon, Site()
+    wire = tee(rd, chrome)
+    d.config.set("mailbox", "address", ADDRESS)
+    code = "839472"
+    now = datetime.now(timezone.utc)
+
+    async def read_local_feed(url: str) -> str:
+        return feed([("login@test.example", "Login code", code, now)], ADDRESS)
+
+    monkeypatch.setattr(d.ferb_identity, "_read_feed", read_local_feed)
     try:
-        if not c.call("identity.check", {"session": False}).get("paired"):
-            assert c.call("identity.pair", {"timeout_s": 60, "confirm": True})["paired"]
+        assert rd.run(_otp(d, site, now - timedelta(seconds=2)), timeout=60)
+        assert site.posted[-1]["otp"] == [code]
+        assert wire and not any(code in line for line in wire), "the code crossed the native host in clear"
     finally:
-        c.close()
-    address = str(d.daemon.config.get("mailbox", "address"))
-    subject = f"FERB self-test {_s.token_hex(3)}"
-    assert d.run(d.daemon.ferb_identity.send_mail([address], subject, "Sent by FERB's real test.", "mail-test"),
-                 timeout=120) == "sent"
-    from ferb.identity.mailbox import FEED_URL
-    end = time.monotonic() + 120
-    while time.monotonic() < end:
-        feed = d.run(d.daemon.ferb_identity._read_feed(FEED_URL), timeout=60)
-        if subject in feed:
-            return
-        time.sleep(5)
-    raise AssertionError("the mail didn't arrive in FERB's inbox")
+        site.srv.shutdown()
+
+
+def test_account_extractors_on_representative_local_dom(stand_in: Any) -> None:
+    rd, chrome, _ = stand_in
+    site = Site()
+    content = (Path(__file__).parents[1] / "extensions" / "chromium" / "content.js").read_text()
+    tab_id = chrome.owner_tab(f"{site.L}/plain")
+    wait_for(lambda: any(t["type"] == "page" and t["url"] == f"{site.L}/plain" for t in chrome.targets()),
+             10, "local account fixture did not load")
+    target = next(t for t in chrome.targets() if t["type"] == "page" and t["url"] == f"{site.L}/plain")
+    session = chrome.send("Target.attachToTarget", {"targetId": target["targetId"], "flatten": True})["sessionId"]
+    try:
+        for host, path, title, body in (
+            ("mail.google.com", "/mail/u/0/", f"Inbox - {ADDRESS} - Gmail", ""),
+            ("www.youtube.com", "/account", "YouTube", f"Signed in as {ADDRESS}"),
+        ):
+            # Only the account reader sees a representative provider location. No provider request is made.
+            expression = """(() => {
+              document.title = TITLE; document.body.textContent = BODY;
+              const fakeLocation = LOCATION, fakeWindow = {};
+              return (new Function('location', 'window', CONTENT + ';return window.__ferb.account();'))(fakeLocation, fakeWindow);
+            })()""".replace("TITLE", json.dumps(title)).replace("BODY", json.dumps(body)).replace(
+                "LOCATION", json.dumps({"hostname": host, "pathname": path})).replace("CONTENT", json.dumps(content))
+            assert chrome.evaluate(session, expression) == {"supported": True, "account": ADDRESS}
+    finally:
+        chrome.evaluate(chrome.sw, f"chrome.tabs.remove({tab_id})")
+        site.srv.shutdown()
+
+
+def test_compose_confirmation_on_local_mail_ui(stand_in: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    rd, _, _ = stand_in
+    site = Site()
+    fi = rd.daemon.ferb_identity
+    original_open = fi.open_for
+
+    async def local_compose(url: str, owner: str, profile: str | None = None):
+        from urllib.parse import urlsplit
+        assert url.startswith("https://mail.google.com/mail/?"), url
+        return await original_open(f"{site.L}/compose?{urlsplit(url).query}", owner)
+
+    monkeypatch.setattr(fi, "open_for", local_compose)
+    try:
+        assert rd.run(fi.send_mail([ADDRESS], "Local self-test", "Local test body", "mail-test"), timeout=60) == "sent"
+        wait_for(lambda: bool(site.posted), 5, "local send did not reach the fixture")
+        assert site.posted == [{"to": [ADDRESS], "su": ["Local self-test"], "body": ["Local test body"],
+                                "view": ["cm"], "fs": ["1"]}]
+    finally:
+        site.srv.shutdown()

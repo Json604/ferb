@@ -6,7 +6,7 @@ that takes longer than `yield_after_s`, the action stops and says where (`Yielde
 effect as outcome-unknown). Long text is typed per keystroke, never pasted in one event, so it can stop mid-way.
 
 Events can also go straight to one app's process (`pid`, `CGEventPostToPid`), with the app in the background
-(PLATFORM_MACOS.md §4): keys reach the app's first responder wherever its window is; mouse and scroll events reach
+(ARCHITECTURE.md §5): keys reach the app's first responder wherever its window is; mouse and scroll events reach
 a window on the current Space in our earlier probes. Exact pointer input can alternatively use a window-addressed
 SkyLight route (window_input.py); app acceptance and cross-Space behavior require owner verification.
 """
@@ -161,7 +161,7 @@ def _post(ev: Any, pid: int | None = None) -> None:
 
 def click_steps(x: float, y: float, pid: int | None = None) -> list[Step]:
     """A move then a click at a screen point: real input, or posted to the app's process (reaches a window on the
-    current Space only — PLATFORM_MACOS.md §11)."""
+    current Space only — ARCHITECTURE.md §5)."""
     import Quartz
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
     pt = (x, y)
@@ -282,7 +282,7 @@ def switches_apps(combo: str) -> bool:
 
 
 def quits_or_hides(combo: str) -> bool:
-    """⌘Q quits the app (never: a background app with unsaved work wedges on its save sheet — PLATFORM_MACOS.md §3),
+    """⌘Q quits the app (never: a background app with unsaved work wedges on its save sheet — ARCHITECTURE.md §5),
     ⌘H / ⌥⌘H hide it and ⌘M minimises its window: the owner's screen, not FERB's."""
     parts = normalize(combo)
     if not parts:

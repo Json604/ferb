@@ -1,13 +1,4 @@
-"""Effect classes (docs/DESIGN_ONE_WORKER.md section 3): the gate at the action.
-
-Every act call declares an `effect` — navigate / edit / send / pay / destroy — and the gateway runs
-`effective = max(declared, floor)`. The floor is code-derived from facts about the tool (its `ActionSpec.kind`) and
-about the control (a form submit, a label that literally says Send / Pay / Delete …). It can only raise: the model
-decides what an action means, the floor protects when it is wrong.
-
-This module holds the one remaining label list. It is a floor, not a permission: a control whose label literally
-says one of these words can't be declared harmless. Any other label is left to the model's declaration.
-"""
+"""Optional effect vocabulary and observed control-label classification for action metadata."""
 
 import re
 
@@ -46,13 +37,6 @@ def floor_of(kind: str) -> str:
     return FLOOR_BY_KIND.get(kind, "edit")
 
 
-def raise_to(declared: str | None, floor: str) -> str:
-    """max(declared, floor); an absent or unknown declaration is the floor."""
-    if declared not in RANK:
-        return floor
-    return declared if RANK[declared] >= RANK[floor] else floor
-
-
 def label_kind(label: str | None) -> str | None:
     """Use the control's name before its comma-separated descriptive preview.
 
@@ -63,8 +47,3 @@ def label_kind(label: str | None) -> str | None:
     name = (label or "").split(",", 1)[0]
     matches = [FLOOR_WORDS[m.group(1).lower()] for m in _FLOOR.finditer(name)]
     return max(matches, key=lambda kind: RANK[floor_of(kind)]) if matches else None
-
-
-
-def is_valid(effect: object) -> bool:
-    return isinstance(effect, str) and effect in RANK

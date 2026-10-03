@@ -1,27 +1,9 @@
-"""Worker liveness and normalized observation digests. No fixed loop, action or task-duration caps."""
+"""Worker liveness; explicit owner and process waits suspend the watchdog."""
 
-import hashlib
-import json
-import re
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Callable
 
 STALL_S = 180.0
-
-
-def stable_observation(value: Any, key: str = "") -> Any:
-    """Discard snapshot bookkeeping, preserving the actual page/app state and action target ordinal."""
-    if isinstance(value, dict):
-        return {k: stable_observation(v, k) for k, v in value.items() if k not in {"generation", "snap_gen"}}
-    if isinstance(value, list):
-        return [stable_observation(v, key) for v in value]
-    if key in {"id", "element"} and isinstance(value, str) and re.fullmatch(r"s[0-9]+e[0-9]+", value):
-        return re.sub(r"^s[0-9]+", "s", value)
-    return value
-
-
-def observation_digest(value: Any) -> str:
-    return hashlib.sha256(json.dumps(stable_observation(value), sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
 @dataclass

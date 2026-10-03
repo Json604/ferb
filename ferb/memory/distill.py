@@ -7,7 +7,7 @@
 Code checks every proposal before `Memory.propose` (which checks the sources again): handles must exist; an observed
 item cites only the owner's own trail (E); nothing about the owner or their preferences may rest on FERB's activity
 (F) or on pasted third-party text (P); a third-party item must cite pasted text. A model failure leaves the summary in
-place and is retried on later runs (up to 3 attempts per day).
+place and is retried on later hourly runs or an explicit retry.
 """
 
 import json
@@ -21,7 +21,6 @@ from ferb.memory import summary
 from ferb.memory.items import KINDS, Memory, MemoryRefused
 from ferb.store.db import Database
 
-MAX_ATTEMPTS = 3
 PROMPT = Path(__file__).parent / "distill.md"
 DISTILL_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["narrative", "items"],
@@ -72,8 +71,7 @@ class Distiller:
             d = datetime.fromisoformat(r["at"]).astimezone().date()
             if d < today:
                 days.add(d.isoformat())
-        done = {r["day"] for r in self.db.conn.execute(
-            "SELECT day FROM distill_runs WHERE status = 'distilled' OR attempts >= ?", (MAX_ATTEMPTS,))}
+        done = {r["day"] for r in self.db.conn.execute("SELECT day FROM distill_runs WHERE status = 'distilled'")}
         return sorted(d for d in days if d not in done or not summary.summarized(self.db, d))
 
     def write_summary(self, day: str) -> summary.DayEvidence:
@@ -86,7 +84,7 @@ class Distiller:
     async def run_day(self, day: str) -> dict[str, Any]:
         ev = self.write_summary(day)                                  # 1. always first, no model
         row = self.db.conn.execute("SELECT * FROM distill_runs WHERE day = ?", (day,)).fetchone()
-        if row["status"] == "distilled" or row["attempts"] >= MAX_ATTEMPTS:
+        if row["status"] == "distilled":
             return {"day": day, "status": row["status"]}
         if not ev.lines:
             self._run(day, "distilled", "nothing to distill")

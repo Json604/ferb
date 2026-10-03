@@ -9,6 +9,22 @@ from typing import Any
 
 from ferb.core.types import Task
 from ferb.store.db import Database
+from ferb.core.interfaces import Clock
+from ferb.daemon.questions import Approvals
+from ferb.policy.targets import Requests
+
+
+class ExecutionState:
+    """Live request context, waiting owner input and explicit stop state."""
+
+    def __init__(self, clock: Clock) -> None:
+        self.requests = Requests()
+        self.approvals = Approvals(clock)
+        self.stopped = False
+
+    def forget_request(self, request_id: str) -> None:
+        self.requests.forget(request_id)
+        self.approvals.forget_request(request_id)
 
 
 @dataclass
@@ -40,6 +56,9 @@ class TaskTree:
 
     def get(self, task_id: str) -> TaskRecord | None:
         return self._tasks.get(task_id)
+
+    def set_span(self, task_id: str, span_id: str) -> None:
+        self._tasks[task_id].span_id = span_id
 
     def set_status(self, task_id: str, status: str, outcome: dict[str, Any] | None = None, at: str = "") -> None:
         if self.db is None:

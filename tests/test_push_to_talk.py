@@ -14,12 +14,10 @@ import pytest
 from ferb.core.errors import AuthError
 from ferb.daemon.auth import Role, allowed, check_voice_peer
 from ferb.daemon.server import exe_of
-from ferb.voice.controller import Voice, spoken_choice
+from ferb.voice.controller import Voice
 from ferb.voice.mic import InputDevice, choose
 from ferb.voice.push_to_talk import RIGHT_OPTION, TalkKey
-from tests.conftest import RunningDaemon
-from tests.test_server import raw, send
-from tests.test_supervisor import install, sup
+from tests.conftest import RunningDaemon, install, raw, send, sup
 
 OTHER_KEY = 0                                  # "a"
 
@@ -121,7 +119,7 @@ def test_the_daemon_checks_the_voice_peer(daemon: RunningDaemon) -> None:
 # ---------- the daemon side ----------
 
 def _voice(pending: list[Any] | None = None, answers: list[Any] | None = None,
-           turns: list[str] | None = None, cancel: bool = False) -> tuple[Voice, FakeSpeaker, list[str]]:
+           turns: list[str] | None = None) -> tuple[Voice, FakeSpeaker, list[str]]:
     speaker, launched = FakeSpeaker(), []
 
     async def run_turn(text: str) -> Any:
@@ -132,7 +130,7 @@ def _voice(pending: list[Any] | None = None, answers: list[Any] | None = None,
         def append(self, *a: Any) -> None:
             return None
     v = Voice(run_turn, lambda: pending or [], lambda *a: (answers if answers is not None else []).append(a),
-              speaker, J(), lambda: launched.append("open"), cancel_countdown=lambda: cancel)
+              speaker, J(), lambda: launched.append("open"))
     return v, speaker, launched
 
 
@@ -169,24 +167,32 @@ def test_spoken_answers_go_to_the_waiting_question() -> None:
             self.id, self.options = "ap1", options
     answers: list[Any] = []
     v, speaker, _ = _voice([Ap()], answers)
-    assert asyncio.run(v.transcript("yes go ahead"))["handled"] == "answer" and answers == [("ap1", True, None)]
+    assert asyncio.run(v.transcript("yes go ahead"))["handled"] == "answer" and answers == [("ap1", True, None, "yes go ahead")]
     asyncio.run(v.transcript("no"))
-    assert answers[-1] == ("ap1", False, None)
+    assert answers[-1] == ("ap1", True, None, "no")
     v2, _, _ = _voice([Ap(("Rahul Sharma", "Rahul (work)"))], answers)
-    assert asyncio.run(v2.transcript("the second one"))["handled"] == "answer" and answers[-1] == ("ap1", True, 2)
-    assert spoken_choice("number 1") == 1 and spoken_choice("what's the weather") is None
+    assert asyncio.run(v2.transcript("the second one"))["handled"] == "answer"
+    assert answers[-1] == ("ap1", True, None, "the second one")
 
 
-def test_stop_cancels_a_countdown() -> None:
-    v, speaker, _ = _voice(cancel=True)
-    assert asyncio.run(v.transcript("stop"))["handled"] == "cancelled" and speaker.said == ["Cancelled."]
-    v2, _, _ = _voice(cancel=False, turns=(turns := []))
+@pytest.mark.parametrize("words", ["Use the saved address", "not the first one, use the second", "stop that task"])
+def test_voice_preserves_the_complete_owner_answer(words):
+    from types import SimpleNamespace
+    answers, turns = [], []
+    ap = SimpleNamespace(id="ap1", kind="owner_question", options=("first", "second"))
+    voice, _, _ = _voice([ap], answers, turns)
+    assert asyncio.run(voice.transcript(words)) == {"handled": "answer"}
+    assert answers == [("ap1", True, None, words)] and turns == []
 
-    async def go() -> None:
-        await v2.transcript("stop the music")                          # no countdown: an ordinary request
-        await asyncio.sleep(0.05)
-    asyncio.run(go())
-    assert turns == ["stop the music"]
+
+def test_voice_does_not_publish_or_route_a_spoken_login_code():
+    from types import SimpleNamespace
+    answers, published = [], []
+    ap = SimpleNamespace(id="otp", kind="owner_login_code", options=())
+    voice, speaker, _ = _voice([ap], answers)
+    voice.publish = lambda *args: published.append(args)
+    assert asyncio.run(voice.transcript("123456")) == {"handled": "secure_input_required"}
+    assert not answers and "123456" not in repr(published) and "123456" not in repr(speaker.said)
 
 
 def test_a_voice_request_is_a_chat_turn_and_the_reply_is_spoken(daemon: RunningDaemon) -> None:
@@ -241,8 +247,7 @@ def test_questions_are_shown_and_spoken_in_voice_words() -> None:
 
     async def run_turn(text: str) -> Any:
         yield {"type": "event", "topic": "approval.requested",
-               "data": {"kind": "send", "reason": "Message Rahul: running late"}}
-        yield {"type": "event", "topic": "action.held", "data": {"kind": "call", "to": "Rahul Sharma", "seconds": 10}}
+               "data": {"kind": "owner_question", "reason": "Which address should I use?", "options": []}}
 
     class J:
         def append(self, *a: Any) -> None:
@@ -255,9 +260,8 @@ def test_questions_are_shown_and_spoken_in_voice_words() -> None:
         await asyncio.sleep(0.1)
     asyncio.run(go())
     shown = [t for topic, t in published if topic == "voice.said"]
-    assert shown[0].endswith("(say yes or no)") and "[y/N]" not in shown[0]
-    assert shown[1] == "📞 Calling Rahul Sharma in 10 s… (say stop to cancel)"
-    assert speaker.said[1] == "Calling Rahul Sharma in 10 seconds. Say stop to cancel."
+    assert shown == ["? Which address should I use?\n   say your answer"]
+    assert speaker.said == ["Which address should I use? say your answer"]
     assert published[0] == ("voice.heard", "tell Rahul I'm running late")
 
 

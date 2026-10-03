@@ -1,9 +1,6 @@
-"""The service catalogue (section 9.3): facts about common services — their Mac apps and websites.
+"""Common service names, Mac apps and websites for environment context and observed contact metadata.
 
-Used for the environment line the supervisor model sees ("WhatsApp: app WhatsApp; web web.whatsapp.com"), for
-naming checks ("Gmail" names mail.google.com, `policy/targets.py`), and for the messaging / calling apps where a
-screenshot click must say what it's for (`communication_bundles`). It decides nothing about how a request is
-carried out: the model picks the app or the site, the floors protect.
+The catalogue does not select a route or grant authority; the model interprets the request and current facts.
 """
 
 import re
@@ -56,7 +53,7 @@ CATALOGUE: tuple[Service, ...] = (
 )
 
 
-# Messaging and calling services: in their apps a screenshot click must say what it's for (build step 16a).
+# Messaging and calling services expose observed contact metadata with control snapshots.
 COMMUNICATION = frozenset({"WhatsApp", "Slack", "Zoom", "Microsoft Teams", "FaceTime", "Messages", "Telegram",
                            "Discord", "Signal", "Skype"})
 

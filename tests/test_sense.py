@@ -27,7 +27,7 @@ from ferb.sense.watchers.files import FilesWatcher, valid_folders
 from ferb.sense.watchers.idle import IdleWatcher
 from ferb.sense.watchers.windows import WindowTitleWatcher
 from tests.conftest import RunningDaemon
-from tests.test_ext_bridge import bd, pair  # noqa: F401  (fixture)
+from tests.browserkit import bd, pair  # noqa: F401  (fixture)
 
 
 def rows(d: RunningDaemon) -> list[dict[str, Any]]:
@@ -139,17 +139,19 @@ def test_ferbs_activity_never_becomes_resolver_history(daemon: RunningDaemon) ->
     assert daemon.run(_async(lambda: trail.owner_site_profile("other.example"))) is None
 
 
-def test_resolver_rule_2_uses_the_owners_last_profile_for_a_site(bd: Any) -> None:  # noqa: F811
+def test_activity_does_not_change_an_explicit_profile_choice(bd: Any) -> None:  # noqa: F811
     d, launched = bd
     pair(d, launched, "Personal")
     pair(d, launched, "Work")
     resolver = d.daemon.router.resolver
-    before = d.run(_async(lambda: resolver.choose("docs.example")))
-    assert "last used" not in before.reason                                # nothing in the trail yet
+    before = d.run(_async(lambda: resolver.choose("Work")))
     record(d, Observation("browser_tab", {"browser": "chrome", "profile": "Default", "host": "docs.example",
                                           "url": "https://docs.example/", "title": "d"}))
-    c = d.run(_async(lambda: resolver.choose("docs.example")))
-    assert (c.browser, c.folder) == ("chrome", "Default") and "last used" in c.reason
+    choice = d.run(_async(lambda: resolver.choose("Work")))
+    assert choice == before
+    from ferb.act.browser.resolver import NeedsOwner
+    with pytest.raises(NeedsOwner, match='select a profile'):
+        d.run(_async(lambda: resolver.choose(None)))
 
 
 async def _async(fn: Any) -> Any:
@@ -217,6 +219,47 @@ class FakeTap:
 
     def stop(self) -> None:
         self.running = False
+
+
+@pytest.mark.parametrize('source', ['file', 'app_install'])
+def test_failed_filesystem_stream_is_reported_as_failed_not_running(daemon, source):
+    class FailedStream:
+        def __init__(self, *args): pass
+        def start(self): return False
+        def stop(self): pass
+    d = daemon.daemon
+    watcher = (FilesWatcher(lambda: [d.home], stream=FailedStream) if source == 'file' else
+               AppInstallsWatcher(lambda *args: None, folders=[d.home], stream=FailedStream))
+    async def check():
+        sense = Sense(d.home, d.trail, [watcher])
+        await sense.start()
+        await asyncio.sleep(0)
+        try:
+            assert source not in sense.running
+            assert 'start' in sense.failed[source]
+        finally:
+            await sense.stop()
+    daemon.run(check())
+
+
+def test_filesystem_stream_start_uses_the_os_start_result(monkeypatch, tmp_path):
+    import sys
+    from types import SimpleNamespace
+    from ferb.sense.watchers.base import FsStream
+    fake = SimpleNamespace(kFSEventStreamCreateFlagUseCFTypes=1, kFSEventStreamCreateFlagFileEvents=2,
+                           kFSEventStreamCreateFlagNoDefer=4, kFSEventStreamEventIdSinceNow=0,
+                           FSEventStreamCreate=lambda *args: object(), FSEventStreamScheduleWithRunLoop=lambda *args: None,
+                           FSEventStreamStart=lambda *args: False, FSEventStreamStop=lambda *args: None,
+                           FSEventStreamInvalidate=lambda *args: None, FSEventStreamRelease=lambda *args: None)
+    quartz = SimpleNamespace(CFRunLoopGetCurrent=lambda: object(), kCFRunLoopDefaultMode=0,
+                             CFRunLoopRun=lambda: None, CFRunLoopStop=lambda *args: None)
+    monkeypatch.setitem(sys.modules, 'FSEvents', fake)
+    monkeypatch.setitem(sys.modules, 'Quartz', quartz)
+    stream = FsStream([tmp_path], lambda *args: None)
+    try:
+        assert stream.start() is False
+    finally:
+        stream.stop()
 
 
 def test_pause_stops_every_watcher_and_the_tap_and_records_nothing(daemon: RunningDaemon) -> None:
