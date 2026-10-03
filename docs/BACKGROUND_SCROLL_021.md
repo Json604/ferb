@@ -91,3 +91,8 @@ owner confirmed it was a very small movement. This is the same native route as t
 
 Latest checks: 531 offline tests passed (50 deselected, 118.21 s); subsequent distance-control changes passed the
 40-test targeted scroll/pointer/watch/background suite. No daemon restart or installation.
+
+YouTube follow-up: the owner confirmed the existing Brave tab reached the last available comment. Independent
+read matched the reported final author/comment. The installed checker falsely failed because it could not access
+the worker's tab; branch 0.21.1 fixes that handoff and enforces read-only checker effects. See
+`OWNER_ACCEPTANCE_LOG.md` for scope and remaining live checker acceptance.

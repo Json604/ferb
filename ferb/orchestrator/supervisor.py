@@ -154,6 +154,7 @@ class Supervisor(WorkerRuns):
         self.tasks, self.spans, self.journal, self.publish = tasks, spans, journal, publish
         self.clock, self.ids, self.device_id, self.workspace = clock, ids, device_id, workspace
         self.on_violation, self.on_task_end, self.facts = on_violation, on_task_end, facts
+        self.browser_context: Callable[[str], str] = lambda task_id: ""
         self.checks, self.roots = checks, roots or FsRoots(workspace, (), ())
         self.sessions: dict[str, ChatSession] = {}
         self.continuity = Continuity(journal._db, gateway.redact)

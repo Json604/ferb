@@ -247,6 +247,12 @@ read-only run with `prompts/verifier.md` and only read scopes, `dag.READ_SCOPES`
 `ledger_done` requires a fresh verifier read; tool completion alone cannot verify the requested goal.
 A done worker without success conditions has `verified=false`.
 
+`Daemon._browser_read_parent` validates a registered checker's parent/request/identity/device/tree. Browser
+`owned_by`, `Router.open_tabs` and `attach` then allow that parent's tab without transferring ownership.
+`WorkerRuns._run_worker_once` appends `Daemon._browser_context` after registering the checker: exact aliases for
+fresh reads of existing tabs, including lazy-loaded content. Gateway rejects checker effects above navigation;
+inaccessible/truncated evidence remains unknown. `tests/test_whose_browser.py` covers the chat handoff and isolation.
+
 ## 6. A scheduled run
 
 `Supervisor.send` → `Daemon._schedule_create` (`ferb/orchestrator/schedules.py:Schedules.add`, `Rule.build`,

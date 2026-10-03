@@ -1,13 +1,17 @@
 # FERB progress
 
-## Where we are — version 0.21.0, branch `astra/version` (2026-10-03)
+## Where we are — version 0.21.1, branch `astra/version` (2026-10-03)
 
 Native scrolling now targets a container, checks progress and stops bounded batches honestly. Optional window-targeted
-pointer delivery removes the blanket Space restriction only when that backend is available. **Owner acceptance is
-pending**; `ferb watch --mac --only M14` provides a one-tick check with separate actual-scroll and keyboard-focus
+pointer delivery removes the blanket Space restriction only when that backend is available. **Broader gesture/app
+acceptance is pending**; `ferb watch --mac --only M14` provides a one-tick check with separate actual-scroll and keyboard-focus
 verdicts. No daemon update or push. The owner requested a WhatsApp one-tick test; driver observations show movement,
 and the owner verified the revised faster scroll with no disturbance. Fine-distance check also produced the small movement the owner requested. The queued YouTube
-end-of-comments task is in progress through FERB chat. See `docs/BACKGROUND_SCROLL_021.md`.
+end-of-comments task reached the last available comment, owner confirmed; an independent read matched the final
+author/comment. Its checker falsely failed because the worker's tab was hidden from it. Version 0.21.1 lets the
+registered read-only checker reuse that exact tab, keeps other tasks isolated, and blocks checker edits at the
+gateway. Offline chat regression passes; installed checker acceptance remains pending. See
+`docs/OWNER_ACCEPTANCE_LOG.md` and `docs/BACKGROUND_SCROLL_021.md`.
 
 Personal-browser authority and wake behavior are corrected in 0.20.1 (`docs/BROWSER_DEFAULT_0201.md`). The owner's
 Zomato retry was incorrectly routed to owner profiles; the later explicit-Brave scrolling request failed because

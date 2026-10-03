@@ -410,6 +410,7 @@ class _TabDriver:
         self.is_running: Callable[[str], bool] = browser_running  # is that browser running (tests replace it)
         self.put_back: Callable[[str], None] | None = None        # activate it again if the browser took focus
         self._tabs: dict[str, _Tab] = {}
+        self.read_parent: Callable[[str], str | None] = lambda task: None  # registered checker only, daemon supplied
         self._n = 0
 
     async def _connected(self, br: Bridge) -> Bridge:
@@ -684,11 +685,14 @@ class _TabDriver:
     def claim(self, tab: TabRef, owner: str) -> None:
         self._tab(tab).owner = owner
 
-    def owned_by(self, tab_id: str, owner: str) -> TabRef:
+    def owned_by(self, tab_id: str, owner: str, *, read_only: bool = False) -> TabRef:
         t = self._tabs.get(tab_id)
-        if t is None or t.owner != owner:
+        if t is None or not (t.owner == owner or (read_only and self._accessible(t, owner))):
             raise Refused(f"no tab {tab_id} open for this task")
         return t.ref
+
+    def _accessible(self, tab: _Tab, task: str) -> bool:
+        return tab.owner is not None and (tab.owner == task or tab.owner == self.read_parent(task))
 
     def tab_url(self, tab_id: str) -> str | None:
         t = self._tabs.get(tab_id)
@@ -724,6 +728,10 @@ class _TabDriver:
     def urls_of(self, owner: str) -> list[str]:
         """Last known URLs of a task's tabs (verification, section 7 step 8)."""
         return [t.url for t in self._tabs.values() if t.owner == owner]
+
+    def tabs_of(self, owner: str) -> list[str]:
+        """Existing aliases for verification; ownership stays with the original worker."""
+        return [t.ref.tab_id for t in self._tabs.values() if t.owner == owner]
 
     async def account_of(self, owner: str, site: str) -> str | None:
         """The signed-in account on a task's tab for that site, from the site's account extractor (or None)."""
@@ -820,7 +828,7 @@ class Router(_TabDriver):
                 if t.get("ferb"):
                     continue                                  # FERB's own minimized window: never the owner's
                 mine = next((x for x in self._tabs.values() if x.bridge is br and x.chrome_id == int(t["tab_id"])
-                             and x.attached and task is not None and x.owner == task), None)
+                             and x.attached and task is not None and self._accessible(x, task)), None)
                 if mine is None and self.owner_of(br, int(t["tab_id"])) is not None:
                     continue                                  # FERB's own tabs, or another task's
                 entry = {"tab_ref": f"{br.binding.browser}:{br.binding.folder}:{t['tab_id']}",
@@ -848,7 +856,7 @@ class Router(_TabDriver):
             raise Refused("that profile isn't one of the owner's connected profiles")
         existing = next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == cid), None)
         if existing is not None:
-            if existing.owner != owner:
+            if not self._accessible(existing, owner):
                 raise Refused("another task is using that tab")
             return existing.ref
         v = await br.call("list_tabs", {}, timeout=10)

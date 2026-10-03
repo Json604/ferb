@@ -66,6 +66,7 @@ class WorkerRuns:
     device_id: str
     activity: Any
     signals: Any
+    browser_context: Callable[[str], str]
     on_violation: Any
     heartbeat_poll_s: float
     stall_s: float
@@ -116,6 +117,8 @@ class WorkerRuns:
         from ferb.clock.durations import typical
         usual = typical(self.spans._db, set(task.scopes), task.role)
         owner_active, last_event = self.signals()
+        if task.role == "verifier":
+            ctx += self.browser_context(task.id)
         head = context.time_block(self.clock.now(), started, task.deadline, owner_active, last_event, typical=usual)
         full_ctx = (f"{ctx}\n\nYour FERB tools (MCP server `ferb`): {names}. If you can't see them, they're behind "
                     f"tool_search: search for \"ferb\" or the tool's name to load them — they are always there."

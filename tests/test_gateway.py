@@ -6,6 +6,7 @@ named it; pay asks every time), the undo window, exposure, unknown outcomes, and
 import os
 import sys
 import time
+from dataclasses import replace
 from datetime import timedelta
 
 import anyio
@@ -75,6 +76,27 @@ async def _ledger(d: RunningDaemon, capability: str) -> list[str]:
 
 def call(d: RunningDaemon, grant, name: str, **args):
     return d.run(d.daemon.gateway.call(grant, name, args), timeout=20)
+
+
+@pytest.mark.parametrize("kind,effect,allowed", [
+    ("read", "navigate", True), ("navigate", "navigate", True),
+    ("fill_form", "navigate", False), ("click", "navigate", False),
+    ("read", "edit", False), ("submit", "send", False),
+])
+def test_identity_browser_checker_is_read_only_despite_shared_scope(daemon, kind, effect, allowed):
+    cap = FakeCap("ferb_browser.probe", kind, {"identity:browse"})
+    cap.identities = {Identity.FERB}
+    grant, _ = setup(daemon, {"identity:browse"}, request(), [cap], Identity.FERB)
+
+    async def verifier():
+        rec = daemon.daemon.tasks.get(grant.task_id)
+        rec.task = replace(rec.task, role="verifier")
+    daemon.run(verifier())
+    result = call(daemon, grant, cap.name, to="", text="", effect=effect, why="check the result")
+    assert result["is_error"] is not allowed, result
+    assert cap.calls == int(allowed)
+    if not allowed:
+        assert "read-only" in result["content"]["error"]
 
 
 def past_undo(d: RunningDaemon, grant, name: str, **args):

@@ -710,6 +710,13 @@ condition turns the outcome `failed` with the reason; an undecided one keeps `do
 `verified` requires a done worker, at least one success condition, and every supplied condition confirmed.
 A report with no conditions stays unverified. The planner must express the requested result rather than an attempted action.
 
+Registered verifier/reconcile tasks can read their worker's existing browser tabs (`Daemon._browser_read_parent`):
+parent, request, identity, device and tree must match and the checker has only read scopes. `WorkerRuns` supplies
+the exact aliases in its context. The browser keeps original ownership and cleanup; unrelated tasks remain isolated.
+The gateway separately refuses checker effects above navigation, including in FERB's combined browser scope.
+Borrowed aliases are accepted only by read/scroll lookups; close, navigation and acting still require ownership.
+Missing access or truncated evidence must be reported unknown, not as evidence that the goal failed.
+
 ---
 
 ## 10. Sense (the trail), memory, time, identity secrets

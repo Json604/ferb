@@ -178,6 +178,8 @@ class Gateway:
                               "browser. Mac tools cannot bypass this restriction."}, True)
         floor = effects.floor_of(spec.kind)
         effect = effects.raise_to(declared if isinstance(declared, str) else None, floor)
+        if rec.task.role == "verifier" and effect != "navigate":
+            return reply({"error": "Verification is read-only; this call would change the target."}, True)
         if self._acts(cap) and effect in NEEDS_WHY and not why:
             raised = f" (the control is a {spec.kind}: at least {floor})" if effects.RANK[floor] > effects.RANK.get(
                 str(declared), -1) else ""

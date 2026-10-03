@@ -10,6 +10,19 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.21.1 — 2026-10-03 — Verify the worker's existing browser tab
+
+- Owner confirmed the live Brave YouTube task reached the last available comment; an independent read matched
+  the final author/comment. The installed checker nevertheless failed because it could not access the worker's tab.
+- Give registered read-only verifier/reconcile tasks access to their own worker's tab aliases. Match parent,
+  request, identity, device and task tree; retain original ownership, profile restrictions and cleanup behavior.
+- Supply existing aliases in checker context so inspection preserves lazy-loaded content and scroll position.
+  A checker may read/scroll borrowed tabs, never close, navigate away or act on them.
+  Block checker edits at the gateway, including FERB's combined `identity:browse` scope. Guide inaccessible or
+  truncated reads to unknown, not false. Offline regression covers the full chat handoff and isolation.
+- No daemon update or push; live acceptance of the corrected checker remains pending.
+- Validation: 546 offline tests passed, 50 deselected (119.96 s); core mypy and whitespace checks passed.
+
 ## 0.21.0 — 2026-10-03 — Window-targeted scrolling, owner-verified rollout
 
 - Stop treating row revelation as directional scrolling; require the intended pane, use scrollbar progress, and

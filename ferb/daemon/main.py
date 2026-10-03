@@ -454,6 +454,7 @@ class Daemon:
                                      workspace=str(workspace), on_violation=self._runtime_violation,
                                      on_task_end=self._task_end, facts=self._facts,
                                      checks=Checks(self.ledger, self._urls_of, self._account_of), roots=roots)
+        self.supervisor.browser_context = self._browser_context
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
 
@@ -1344,6 +1345,31 @@ class Daemon:
         env = self.supervisor._env.get(rec.task.request_id) if rec is not None and self.supervisor else None
         return env.get("named_browser") if env else None
 
+    def _browser_read_parent(self, task_id: str) -> str | None:
+        """A registered read-only checker may reuse its worker's tabs; never infer this from an id suffix."""
+        from ferb.orchestrator.dag import READ_SCOPES
+        rec = self.tasks.get(task_id)
+        if rec is None or rec.task.role != "verifier" or not rec.task.scopes <= READ_SCOPES:
+            return None
+        child = rec.task
+        parent = self.tasks.get(child.parent_id) if child.parent_id else None
+        if parent is None or parent.task.role != "worker":
+            return None
+        if (child.request_id, child.identity, child.device_id, rec.tree_id) != (
+                parent.task.request_id, parent.task.identity, parent.task.device_id, parent.tree_id):
+            return None
+        return parent.task.id
+
+    def _browser_context(self, task_id: str) -> str:
+        parent = self._browser_read_parent(task_id)
+        if parent is None:
+            return ""
+        tabs = [{"tool_prefix": prefix, "tab": tab}
+                for prefix, drv in (("browser", self.router), ("ferb_browser", self.ferb_identity))
+                if drv is not None for tab in drv.tabs_of(parent)]
+        return ("\n\nExisting task tabs available for read-only verification (reuse these aliases; do not reopen "
+                "the page or guess tab ids): " + json.dumps(tabs)) if tabs else ""
+
     def _named_browser(self, own_words: str) -> Any:
         """The browser / profile the owner's words name — never FERB's own profile (owner's report 2026-10-01)."""
         from ferb.act.browser.profiles import named_in
@@ -1508,6 +1534,7 @@ class Daemon:
                                           self.wake, self.browser_launch)
         for drv in (self.router, self.ferb_identity):          # a wake never leaves the owner in the browser (9.3)
             drv.front, drv.put_back = self._front_bundle, self._put_owner_back
+            drv.read_parent = self._browser_read_parent
         self.router.named_for = self._named_for_task           # the browser the owner named, never another one
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve

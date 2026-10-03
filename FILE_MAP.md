@@ -135,7 +135,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `mac/ax_browser.py` | Browser bundle ids, plus the rule that acting in a browser through Accessibility is refused (only the extension may act in browsers). The Mac driver and the window watcher import it. |
 | **`act/browser/`** | **Controlling browsers** |
 | `browser/tools.py` | The `browser.*` tools (the owner's Chrome/Brave profiles) and `ferb_browser.*` (FERB's own profile). Each classifies its action (navigate, search, submit, …). |
-| `browser/ext_bridge.py` | Driver through the FERB extension: native-host connections, one bridge per paired profile, waking a profile without a window, tabs, snapshots, actions. |
+| `browser/ext_bridge.py` | Driver through the FERB extension: native-host connections, one bridge per paired profile, waking a profile without a window, tabs, snapshots, actions; registered checker access to its parent's existing tabs without changing ownership. |
 | `browser/ext_protocol.py` | The extension message format (mirrored in `extensions/chromium/protocol.js`). |
 | `browser/pairing.py` | Pairing an extension install to a browser profile: one-time tokens, per-install keys, HMAC and sequence numbers. |
 | `browser/profiles.py` | Finds browser profiles from `Local State`, resolves profile names, opens a profile in the background. |
