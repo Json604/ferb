@@ -594,7 +594,7 @@ class ScrollAx(Ax):
         return False
 
 
-def test_scrolling_goes_by_page_keys_with_the_area_focused_then_the_scroll_bar(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scrolling_prefers_target_scroll_bar_then_text_view_page_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Owner-verified: Page Down keycodes to the process scroll a background text view; scroll-wheel events don't."""
     ax = ScrollAx()
     d, apps, posted = setup(monkeypatch, ax)
@@ -608,11 +608,12 @@ def test_scrolling_goes_by_page_keys_with_the_area_focused_then_the_scroll_bar(m
         return [Step(combo, post)]
     monkeypatch.setattr(drv, "key_steps", keyed)
     r = asyncio.run(d.act("WhatsApp", ComputerAction("scroll", e["Document"], direction="down", amount=2)))
-    assert r.ok and "Page Down" in r.detail and posted == ["key pagedown to pid"] * 2 and ax.position == 4
-    assert "focus" in ax.calls
+    assert r.ok and "scroll bar" in r.detail and posted == [] and ax.position == 2
+    assert "focus" not in ax.calls
     ax.keys_scroll = False                                                   # keys do nothing: the scroll bar
     r = asyncio.run(d.act("WhatsApp", ComputerAction("scroll", None, direction="up", window="Untitled")))
-    assert r.ok and "scroll bar" in r.detail and ax.position == 3
+    assert r.ok and "scroll bar" in r.detail and ax.position == 1
     ax.bar = False
+    ax.keys_scroll = True
     r = asyncio.run(d.act("WhatsApp", ComputerAction("scroll", e["Document"], direction="down")))
-    assert not r.ok and "allow_foreground" in r.detail and apps.activated == []
+    assert r.ok and "Page Down" in r.detail and ax.position == 3 and apps.activated == []

@@ -15,6 +15,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `CODE_TOUR.md` | the flows, by `path:function` |
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
+| `docs/BACKGROUND_SCROLL_021.md` | Window-targeted scrolling, source research and owner-supervised verification |
 | `docs/BROWSER_DEFAULT_0201.md` | Personal profiles only on explicit direction; disconnected extension diagnostics and no visible wake fallback |
 | `docs/POINTER_CONTINUITY_020.md` | 0.20.0 durable conversations and exact pointer gestures, verification and limits |
 | `docs/RELIABILITY_019.md` | 0.19.0 browser, login, truthful-outcome and stop/retry fixes, evidence and remaining limits |
@@ -31,7 +32,8 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 1. **The owner's eyes are the verifier.** Offline tests prove contracts; they cannot prove that nothing moved on the
    owner's screen. `ferb watch` runs each interaction type in the background and asks the owner what they saw;
    `docs/OWNER_ACCEPTANCE.md` does the same for whole tasks. A change to a driver or to policy is not done until the
-   owner has run the relevant section. Never claim "works in the background" from a fake-backed test.
+   owner has run the relevant section. Pause between live test actions for their verdict; include real everyday
+   apps when the owner explicitly names one for supervised acceptance. Never claim "works in the background" from a fake-backed test.
 2. **Hardcoding** is allowed for platform facts (AX role names, keycodes, CDP methods, browser bundle ids) and safety
    floors (destructive shell patterns; pay / delete / account-security always ask; the one floor word list in
    `ferb/policy/effects.py`). It is not allowed for deciding what the owner meant or what a control does: no verb

@@ -11,7 +11,7 @@ from ferb.cli.client import Client
 
 
 ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\x1b[78=>]|[\x00-\x08\x0e-\x1f]")
-ARG_KEYS = ("url", "path", "command", "text", "query", "app", "bundle_id", "action", "element", "profile", "tab", "id")
+ARG_KEYS = ("url", "path", "command", "text", "query", "app", "bundle_id", "action", "element", "direction", "amount", "distance", "x", "y", "profile", "tab", "id")
 
 
 def _clip(s: str, n: int, full: bool) -> str:
@@ -37,6 +37,8 @@ def _span_text(node: dict[str, Any], full: bool) -> tuple[str, list[str]]:
         args = inp.get("args") or {}
         shown = [f"{k}={_clip(args[k], 120, full)}" for k in ARG_KEYS if args.get(k) not in (None, "")]
         label = f"{inp.get('tool', '?')}  {'  '.join(shown)}"
+        if args.get("action") == "scroll":
+            label += "  " + {"up": "↑", "down": "↓", "left": "←", "right": "→"}.get(args.get("direction", "down"), "↕")
         if inp.get("why"):
             label += f"  (why: {_clip(inp['why'], 100, full)})"
         if node["error"]:

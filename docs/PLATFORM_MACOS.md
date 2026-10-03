@@ -588,3 +588,10 @@ it). The owner-verified rules above are code: shortcuts through their menu item 
 a text view, scrolling by Page Up / Down keys or the scroll bar, pixel clicks only for a current-Space window and only
 after the hit test, the foreground only with `allow_foreground=true`. `tests/test_mac_background_real.py` repeats the
 `ferb watch` Mac steps through the driver with the frontmost app polled every 50 ms (0 changes on 2026-10-02).
+
+## 0.21.0 correction: implementation limits are not platform limits
+
+Earlier current-Space statements describe the tested public CGEventPostToPid route, not every macOS input mechanism.
+An optional SkyLight window-addressed route is now implemented. It does not explicitly activate, change Spaces or
+transfer focus, and posts once. `[belief / acceptance pending]` App acceptance and absence of focus changes require
+owner checks; symbol availability and offline tests cannot prove either. See `BACKGROUND_SCROLL_021.md` and watch M14.

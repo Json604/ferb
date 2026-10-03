@@ -1,6 +1,13 @@
 # FERB progress
 
-## Where we are — version 0.20.1, branch `astra/version` (2026-10-02)
+## Where we are — version 0.21.0, branch `astra/version` (2026-10-03)
+
+Native scrolling now targets a container, checks progress and stops bounded batches honestly. Optional window-targeted
+pointer delivery removes the blanket Space restriction only when that backend is available. **Owner acceptance is
+pending**; `ferb watch --mac --only M14` provides a one-tick check with separate actual-scroll and keyboard-focus
+verdicts. No daemon update or push. The owner requested a WhatsApp one-tick test; driver observations show movement,
+and the owner verified the revised faster scroll with no disturbance. Fine-distance check also produced the small movement the owner requested. The queued YouTube
+end-of-comments task is in progress through FERB chat. See `docs/BACKGROUND_SCROLL_021.md`.
 
 Personal-browser authority and wake behavior are corrected in 0.20.1 (`docs/BROWSER_DEFAULT_0201.md`). The owner's
 Zomato retry was incorrectly routed to owner profiles; the later explicit-Brave scrolling request failed because

@@ -7,7 +7,8 @@ effect as outcome-unknown). Long text is typed per keystroke, never pasted in on
 
 Events can also go straight to one app's process (`pid`, `CGEventPostToPid`), with the app in the background
 (PLATFORM_MACOS.md §4): keys reach the app's first responder wherever its window is; mouse and scroll events reach
-only a window on the current Space. Those never meet the owner's input, so they don't wait for the owner.
+a window on the current Space in our earlier probes. Exact pointer input can alternatively use a window-addressed
+SkyLight route (window_input.py); app acceptance and cross-Space behavior require owner verification.
 """
 
 import asyncio
@@ -108,7 +109,7 @@ class RealInput:
 # ---------- the real events (Quartz), each marked ----------
 
 def pointer_steps(start: tuple[float, float], end: tuple[float, float], kind: str,
-                  pid: int) -> tuple[list[Step], Callable[[], None]]:
+                  pid: int, *, window: int | None = None, route: Any = None) -> tuple[list[Step], Callable[[], None]]:
     """A bounded process-directed gesture; cleanup releases before the GUI lock passes to another task."""
     import Quartz as q
     if kind not in {"click", "dblclick", "rightclick", "hover", "drag"}:
@@ -126,7 +127,10 @@ def pointer_steps(start: tuple[float, float], end: tuple[float, float], kind: st
             held = True
         ev = q.CGEventCreateMouseEvent(source, event, pt, button)
         q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, count)
-        _post(ev, pid)
+        if route is not None and window is not None:
+            route.post(ev, pid, window, pt)
+        else:
+            _post(ev, pid)
         if event == up:
             held = False
 
@@ -173,15 +177,20 @@ def click_steps(x: float, y: float, pid: int | None = None) -> list[Step]:
             Step("click", ev(Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp))]
 
 
-def wheel_steps(x: float, y: float, lines: int, pid: int | None = None) -> list[Step]:
+def wheel_steps(x: float, y: float, lines: int, pid: int | None = None, *,
+                horizontal: bool = False, window: int | None = None, route: Any = None,
+                pixels: bool = False) -> list[Step]:
     """Scroll-wheel events at a point (negative lines = down), real or posted to the app's process."""
     import Quartz
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
 
     def post() -> None:
-        ev = Quartz.CGEventCreateScrollWheelEvent(src, Quartz.kCGScrollEventUnitLine, 1, lines)
+        ev = Quartz.CGEventCreateScrollWheelEvent(src, Quartz.kCGScrollEventUnitPixel if pixels else Quartz.kCGScrollEventUnitLine, 2, 0 if horizontal else lines, lines if horizontal else 0)
         Quartz.CGEventSetLocation(ev, (x, y))
-        _post(ev, pid)
+        if route is not None and pid is not None and window is not None:
+            route.post(ev, pid, window, (x, y))
+        else:
+            _post(ev, pid)
     return [Step(f"scroll {lines:+d}", post)]
 
 

@@ -32,9 +32,21 @@ fresh browser screenshot, resolve its pixel coordinates with *_point, then use *
 hover / drag. For drag resolve both endpoints from the same screenshot and pass end_element. The coordinates stay
 exact, instead of clicking an ancestor's center. Each gesture consumes the screenshot, and it expires after 30s;
 page changes require another screenshot. Drags must stay in one frame. For native apps use mac_pointer with a fresh
-mac_screenshot and image coordinates (end_x/end_y for drag). Its window must be on the current Space; it never moves
-the owner's cursor or changes Spaces. Prefer semantic actions when available. Verify the result with a fresh read;
+mac_screenshot and image coordinates (end_x/end_y for drag). Window-targeted background delivery is attempted when
+available; the legacy route may be limited to the current Space. Never switch Spaces to make a pointer call work. Prefer semantic actions when available. Verify the result with a fresh read;
 an interrupted gesture may have partly happened, so inspect before deciding what remains.
+
+For native scrolling, target an element inside the intended list/pane with mac_act scroll, direction and amount
+(up to 50 bounded steps per call). AXScrollToVisible only reveals an element; it is not scrolling toward the end.
+If a pane has no usable AX route, use mac_pointer action=scroll at a screenshot point inside it. This is a wheel
+operation, not a drag. Set distance to the fraction of the pane to move per step (0.01–1.0, default 0.8).
+Use a large distance/batch for traversing a long list; near a specific target, choose a small distance (e.g. 0.05–0.15)
+and amount=1, inspect, then adjust. Distance and batch count are your decisions from the task and current observation.
+Choose a useful batch size instead of one model round trip per row. Batches stop on uncertain
+progress; inspect the returned count/reason and take a fresh screenshot. Unchanged content can mean failed input,
+not the bottom. A scrollbar boundary still needs checking for lazy-loaded content. Never substitute Next Chat,
+selection changes or opening each row for scrolling a list. If a route fails and fresh evidence shows no progress,
+report the limitation instead of repeating it indefinitely.
 
 Every act call declares what it does to the owner's world:
 - effect: "navigate" (opens, scrolls, switches, searches, reads — nothing of theirs changes), "edit" (changes

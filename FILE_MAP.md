@@ -1,6 +1,6 @@
 # File map
 
-What the source folders and files in FERB are for, as of version 0.20.1 (2026-10-02). Package markers and tests
+What the source folders and files in FERB are for, as of version 0.21.0 (2026-10-03). Package markers and tests
 are grouped where they share a purpose. For how the pieces run together,
 see [CODE_TOUR.md](CODE_TOUR.md). For the design, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -314,3 +314,7 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 
 0.20.1: `tests/test_browser_default.py` covers explicit profile authority and retry corrections;
 `docs/BROWSER_DEFAULT_0201.md` records the owner incident and the fixes.
+
+0.21.0 additions: `ferb/act/mac/window_input.py` (optional window-addressed transport),
+`THIRD_PARTY_NOTICES.md` (MIT attribution), `docs/BACKGROUND_SCROLL_021.md` (behavior, research, owner check),
+`tests/test_scroll_progress.py`, `tests/test_window_input.py`, `tests/test_scroll_watch.py` (offline contracts).

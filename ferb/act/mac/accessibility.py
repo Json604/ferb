@@ -638,28 +638,36 @@ def visible_range(el: Any) -> tuple[int, int] | None:
 
 # ---------- scrolling ----------
 
-def scroll_area_of(el: Any, levels: int = 8) -> Any:
-    """The element's enclosing AXScrollArea (itself included), or None."""
+def _scroll_container(el: Any) -> bool:
+    return role_of(el) in {"AXScrollArea", "AXList", "AXTable", "AXOutline"} or any(
+        _attr(el, name) is not None for name in ("AXVerticalScrollBar", "AXHorizontalScrollBar"))
+
+
+def scroll_area_of(el: Any, levels: int = 16) -> Any:
+    """The nearest structural scroll container (itself included), or None."""
     node = el
     for _ in range(levels):
         if node is None:
             return None
-        if role_of(node) == "AXScrollArea":
+        if _scroll_container(node):
             return node
         node = _attr(node, "AXParent")
     return None
 
 
 def scroll_area_in(root: Any, cap: int = 2000) -> Any:
-    """The first scroll area under a window (breadth first), or None."""
-    seen, queue = 0, [root]
+    """A unique scroll container under a window. Multiple panes require an explicit element."""
+    seen, queue, found = 0, [root], []
     while queue and seen < cap:
         el = queue.pop(0)
         seen += 1
-        if role_of(el) == "AXScrollArea":
-            return el
+        if _scroll_container(el):
+            found.append(el)
+            if len(found) > 1:
+                return None
+            continue
         queue.extend(_attr(el, "AXChildren") or [])
-    return None
+    return found[0] if len(found) == 1 and not queue else None
 
 
 def scroll_content(area: Any) -> Any:
@@ -671,11 +679,53 @@ def scroll_bar(area: Any, vertical: bool = True) -> Any:
     return _attr(area, "AXVerticalScrollBar" if vertical else "AXHorizontalScrollBar")
 
 
+def _visible_scroll_items(area: Any) -> tuple[Any, ...]:
+    """Bounded viewport fingerprint for apps whose scrollbars/AXVisibleRows carry no usable position.
+
+    Geometry detects actual offsets; hashed semantic identity detects recycled rows at the same coordinates.
+    No message text or control values leave this helper. Offscreen content and scrollbar thumbs don't count.
+    """
+    import hashlib
+    bounds = frame(area)
+    if bounds is None:
+        return ()
+    x, y, w, h = bounds
+    rows = list(_attr(area, "AXVisibleRows") or _attr(area, "AXChildren") or [])
+    queue = [(row, 0) for row in rows[:100]]
+    found, seen = [], 0
+    while queue and seen < 100:
+        row, depth = queue.pop(0)
+        seen += 1
+        rect, role = frame(row), role_of(row)
+        if role == "AXScrollBar":
+            continue
+        if rect is not None:
+            rx, ry, rw, rh = rect
+            if rw <= 0 or rh <= 0 or rx + rw <= x or ry + rh <= y or rx >= x + w or ry >= y + h:
+                continue
+            identity = tuple(str(_attr(row, key) or "") for key in ("AXIdentifier", "AXTitle", "AXDescription"))
+            digest = hashlib.blake2b(repr(identity).encode(), digest_size=12).hexdigest()
+            found.append((role, rect, digest))
+        if depth < 2:
+            queue.extend((child, depth + 1) for child in list(_attr(row, "AXChildren") or [])[:100])
+    return tuple(found)
+
+
+def _scroll_fraction(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        fraction = float(value)
+    except (TypeError, ValueError):
+        return None
+    return fraction if 0 <= fraction <= 1 else None
+
+
 def scroll_position(area: Any, content: Any = None) -> tuple[Any, ...]:
-    """Where a scroll area is: its bars' values and the content's visible character range (text views)."""
+    """Scrollbar values, visible text range and viewport content; unknown values never establish the end."""
     v, h = _attr(scroll_bar(area, True), "AXValue"), _attr(scroll_bar(area, False), "AXValue")
-    return (None if v is None else round(float(v), 4), None if h is None else round(float(h), 4),
-            visible_range(content) if content is not None else None)
+    return (_scroll_fraction(v), _scroll_fraction(h),
+            visible_range(content) if content is not None else None, _visible_scroll_items(area))
 
 
 def set_scroll_bar(bar: Any, value: float) -> bool:

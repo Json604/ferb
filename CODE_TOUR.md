@@ -343,3 +343,12 @@ the extension, inspect the service worker from the browser's extensions page and
   fallback when those scopes are absent.
 - `Router.open_tabs` separates disconnected pairings from an empty tab inventory. `_TabDriver._connected` stops
   after windowless startup times out; it no longer creates a visible wake tab.
+
+## Native scrolling in 0.21.0
+
+`MacAct` → `MacComputerDriver._scroll` → an explicit AX container and its scrollbar, or text-view Page keys.
+Every bounded step checks position; unconfirmed movement stops. `MacPointer` → `pointer_at` validates the screenshot,
+PID/window/geometry and owner activity → `_pointer_scroll` sends directional ticks and checks the targeted container.
+`window_input.load_route` selects the optional private window-addressed transport; public PID fallback keeps its
+observed Space restriction. Neither path activates an app. `watch.mac_steps` M14 exercises the real pointer driver
+on a disposable TextEdit document and records the owner's movement and keyboard-focus verdicts separately.

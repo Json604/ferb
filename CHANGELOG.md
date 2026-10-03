@@ -10,6 +10,18 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.21.0 — 2026-10-03 — Window-targeted scrolling, owner-verified rollout
+
+- Stop treating row revelation as directional scrolling; require the intended pane, use scrollbar progress, and
+  restrict Page keys to text views. Bound batches and stop on uncertain progress without claiming the end.
+- Add wheel scrolling to screenshot-bound native pointer input and an optional SkyLight window-targeted transport.
+  No focus transfer, activation or double posting. Availability permits an attempt; cross-Space acceptance is pending.
+- Let the model choose distance per step separately from batch count, from small nudges to large viewport steps.
+  Show scroll direction, distance, amount and target in CLI traces. Worker guidance forbids substituting chat navigation for
+  scrolling. Add `ferb watch --mac --only M14` for one owner-verified tick, functional and keyboard-focus verdicts.
+- Preserve watch setup/action/cleanup order; verify a newly created document before accepting it as test-owned.
+- Research, limitations and acceptance procedure: `docs/BACKGROUND_SCROLL_021.md`. No daemon update. Owner verified WhatsApp scrolling on another Space without disturbance; see the recorded acceptance scope.
+
 ## 0.20.1 — 2026-10-02 — Personal browsers require explicit direction
 
 - Default web requests to FERB's own profile. Repair an owner-web classification without explicit personal-browser

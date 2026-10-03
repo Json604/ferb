@@ -206,7 +206,7 @@ class MacAct(_Base):
                    "Return), focus, set_value (text: the whole value), type (text: keystrokes to the app's process, "
                    "read back), edit (select: [start, length] / \"all\" / \"end\", text: replaces or inserts "
                    "exactly there — the way to change existing text), select (text: a pop-up button's item by "
-                   "title), scroll (element or window, direction up/down/left/right, amount pages; also steps a "
+                   "title), scroll (element in the intended pane, direction up/down/left/right, amount bounded steps; also steps a "
                    "slider), or key (e.g. return, tab, escape, pagedown, cmd+s: a cmd shortcut runs its menu item "
                    "and is refused while the app reports that item disabled; escape dismisses an open sheet / "
                    "dialog / menu). Arrow keys in a text box are refused (use edit). Prefer buttons to keystrokes: "
@@ -226,7 +226,7 @@ class MacAct(_Base):
         select: str | list[int] | None = Field(default=None, description="edit: [start, length], \"all\", "
                                                "\"end\" or \"start\"; omitted: at the caret")
         direction: Literal["up", "down", "left", "right"] | None = Field(default=None, description="scroll")
-        amount: int | None = Field(default=None, ge=1, le=50, description="scroll: pages (or slider steps)")
+        amount: int | None = Field(default=None, ge=1, le=50, description="scroll: maximum steps; stops at a measured boundary or unconfirmed progress")
         window: str | None = Field(default=None, description="scroll without an element: the window to scroll "
                                                              "(title or id from mac_snapshot)")
         allow_foreground: bool = Field(default=False, description="last resort: the app may be brought in front of "
@@ -370,13 +370,19 @@ class MacClick(_Base):
 class MacPointer(MacClick):
     name = "mac.pointer"
     description = ("Exact screenshot-pixel pointer input to a native app: click, dblclick, rightclick, hover or "
-                   "drag to end_x/end_y. Uses a fresh mac_screenshot, consumed by one gesture; expires after 30s. "
-                   "Background process input only, window on the current Space; never moves the global cursor or "
+                   "drag to end_x/end_y, or scroll direction/amount viewport-sized steps at x/y. Uses a fresh mac_screenshot; expires after 30s. "
+                   "Window-targeted background input where supported (legacy fallback limited to the current Space); never "
+                   "intentionally moves the global cursor or "
                    "activates the app. Prefer AX actions for named controls. Input delivered is not task success: "
                    "take a new screenshot to verify. Use browser tools for browser pages. Declare effect and why.")
 
     class Input(MacClick.Input):
-        action: Literal["click", "dblclick", "rightclick", "hover", "drag"]
+        action: Literal["click", "dblclick", "rightclick", "hover", "drag", "scroll"]
+        direction: Literal["up", "down", "left", "right"] = "down"
+        amount: int = Field(default=1, ge=1, le=50, description="scroll: maximum steps; stops on no observed progress")
+        distance: float = Field(default=0.8, ge=0.01, le=1.0, allow_inf_nan=False,
+                                description="scroll: fraction of target viewport per step; 0.05 for a small nudge, "
+                                            "0.8 for a page. Choose from the goal and visible target proximity.")
         x: float = Field(ge=0, allow_inf_nan=False)
         y: float = Field(ge=0, allow_inf_nan=False)
         end_x: float | None = Field(default=None, ge=0, allow_inf_nan=False)
@@ -403,7 +409,9 @@ class MacPointer(MacClick):
             return _err("use browser screenshot/point/act for browser pointer input")
         end = (getattr(args, "end_x"), getattr(args, "end_y")) if getattr(args, "action") == "drag" else None
         r = await self.driver.pointer_at(app, getattr(args, "shot"), getattr(args, "x"), getattr(args, "y"),
-                                         getattr(args, "action"), end, ctx.worker_id)
+                                         getattr(args, "action"), end, ctx.worker_id,
+                                         direction=getattr(args, "direction"), amount=getattr(args, "amount"),
+                                         distance=getattr(args, "distance"))
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a fresh screenshot to verify"}, is_error=not r.ok)
 
 

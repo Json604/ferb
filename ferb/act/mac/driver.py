@@ -29,6 +29,7 @@ from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
 from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
+from ferb.act.mac.window_input import load_route
 from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, click_steps, is_arrow, is_enter, is_shortcut, key_steps,
                                 normalize, pointer_steps, quits_or_hides, switches_apps, type_steps, valid_combo, wheel_steps)
 from ferb.act.mac.profile import Profiles
@@ -282,7 +283,8 @@ class MacComputerDriver:
         return a, st.shot, jpeg
 
     async def pointer_at(self, name: str, shot_id: str, x: float, y: float, kind: str,
-                         end: tuple[float, float] | None = None, holder: str = "") -> ActionResult:
+                         end: tuple[float, float] | None = None, holder: str = "", *,
+                         direction: str = "down", amount: int = 1, distance: float = 0.8) -> ActionResult:
         """Exact visual input to an app process. Never activate or take over the global mouse."""
         import math
         a = self.app(name)
@@ -290,6 +292,13 @@ class MacComputerDriver:
         shot = st.shot if st else None
         if shot is None or shot.id != shot_id or time.monotonic() - shot.at > 30:
             raise StaleRef("take a fresh screenshot before pointer input")
+        if kind not in {"click", "dblclick", "rightclick", "hover", "drag", "scroll"}:
+            raise Refused("unsupported pointer action")
+        if direction not in {"up", "down", "left", "right"} or not 1 <= amount <= 50:
+            raise Refused("scroll needs a direction and amount between 1 and 50")
+        if not math.isfinite(distance) or not 0.01 <= distance <= 1.0:
+            raise Refused("scroll distance must be a viewport fraction from 0.01 to 1.0")
+        route = load_route()
         if kind == "drag" and end is None:
             raise Refused("drag needs an end point")
         points = [(x, y), end or (x, y)]
@@ -300,10 +309,11 @@ class MacComputerDriver:
 
         def window_ok() -> None:
             w = self.shots.window(shot.window)
-            if w is None or not _same(w.bounds, shot.bounds):
+            if w is None or w.pid != a.pid or not _same(w.bounds, shot.bounds):
                 raise StaleRef("the window moved or closed; take another screenshot")
-            if not self.shots.on_screen(shot.window):
-                raise Refused("pointer input needs this window on the current Space; no foreground switch was made")
+            if route is None and not self.shots.on_screen(shot.window):
+                raise Refused("window-targeted backend unavailable; the legacy pointer route is limited to the current "
+                              "Space on this Mac. No foreground switch was made")
             front = self.apps.frontmost()
             if self.input.owner_active() and front and front.pid == a.pid:
                 raise Refused("the owner is using this app; pointer input stopped")
@@ -311,7 +321,9 @@ class MacComputerDriver:
         window_ok()
         if shot.signature is None or await self._signature(a) != shot.signature:
             raise StaleRef("the app changed since the screenshot; take another screenshot")
-        steps, release = pointer_steps(start, finish, kind, a.pid)
+        if kind == "scroll":
+            return await self._pointer_scroll(a, st, shot, start, direction, amount, holder, route, window_ok, distance)
+        steps, release = pointer_steps(start, finish, kind, a.pid, window=shot.window, route=route)
         attempted = False
         def guarded(step: Step) -> Step:
             def post() -> None:
@@ -712,21 +724,17 @@ class MacComputerDriver:
         direction = (action.direction or "down").lower()
         if direction not in ("up", "down", "left", "right"):
             raise Refused("scroll direction must be up, down, left or right")
-        amount = max(1, int(action.amount or 1))
+        amount = max(1, min(50, int(action.amount or 1)))
         n = self.node(a.bundle_id, action.element) if action.element else None
-        if n is not None and "scroll_to_visible" in n.actions:
-            if await asyncio.to_thread(self.ax.perform, n.ref, "AXScrollToVisible"):
-                return ActionResult(True, "scrolled it into view (AXScrollToVisible)")
-        if n is not None and ("increment" in n.actions or "decrement" in n.actions):   # a slider / stepper
+        # AXScrollToVisible reveals a row; it says nothing about directional scrolling.
+        if n is not None and n.ax_role in {"AXSlider", "AXStepper"}:
             act = "AXIncrement" if direction in ("up", "right") else "AXDecrement"
             done = 0
             for _ in range(amount):
                 if not await asyncio.to_thread(self.ax.perform, n.ref, act):
                     break
                 done += 1
-            if done:
-                return ActionResult(True, f"{act[2:].lower()}ed {done} step(s); value now "
-                                          f"{await asyncio.to_thread(self.ax.value, n.ref)}")
+            return ActionResult(bool(done), f"slider: {done} step(s); value now {self.ax.value(n.ref)}")
         if n is not None:
             area = await asyncio.to_thread(self.ax.scroll_area_of, n.ref)
         else:
@@ -734,37 +742,114 @@ class MacComputerDriver:
                 await asyncio.to_thread(self.ax.app_window, a.pid)
             area = await asyncio.to_thread(self.ax.scroll_area_in, win) if win is not None else None
         if area is None:
-            return ActionResult(False, "nothing scrollable there (no scroll area around it)")
-        content = n.ref if n is not None else await asyncio.to_thread(self.ax.scroll_content, area)
-        before = await asyncio.to_thread(self.ax.scroll_position, area, content)
+            return ActionResult(False, "no unique scroll container: choose an element inside the intended pane, "
+                                "or use mac.pointer action=scroll at a fresh screenshot point")
+        content = await asyncio.to_thread(self.ax.scroll_content, area)
         vertical = direction in ("up", "down")
-        if vertical and content is not None and not self.profiles.skips(a.bundle_id, "pid_keycodes"):
-            await asyncio.to_thread(self.ax.focus, content)
-            steps = key_steps("pageup" if direction == "up" else "pagedown", a.pid) * amount
-            await self.input.to_process(steps, holder)
+        bar = await asyncio.to_thread(self.ax.scroll_bar, area, vertical)
+        # Page keys are only safe for an explicitly targeted text view, never a chat row/list selection.
+        text_view = n is not None and n.ax_role == "AXTextArea" and vertical
+        moved, mechanism, stop = 0, "", "batch limit reached"
+        before = await asyncio.to_thread(self.ax.scroll_position, area, content)
+        for _ in range(amount):
+            front = self.apps.frontmost()
+            if self.input.owner_active() and front and front.pid == a.pid:
+                stop = "owner is using this app"
+                break
+            if self._scroll_boundary(before, direction):
+                stop = "scroll bar boundary reached; verify content before claiming the last item"
+                break
+            if bar is not None:
+                act = "AXIncrement" if direction in ("down", "right") else "AXDecrement"
+                if not await asyncio.to_thread(self.ax.perform, bar, act):
+                    cur = await asyncio.to_thread(self.ax.value, bar)
+                    if cur is not None:
+                        await asyncio.to_thread(self.ax.set_scroll_bar, bar,
+                                                float(cur) + (0.2 if act == "AXIncrement" else -0.2))
+                mechanism = "scroll bar"
+            elif text_view and not self.profiles.skips(a.bundle_id, "pid_keycodes"):
+                if not await asyncio.to_thread(self.ax.focus, n.ref):
+                    stop = "text view could not take focus"
+                    break
+                await self.input.to_process(key_steps("pageup" if direction == "up" else "pagedown", a.pid), holder)
+                mechanism = "Page Up" if direction == "up" else "Page Down"
+            else:
+                stop = "no directional AX route; use mac.pointer action=scroll with a fresh screenshot"
+                break
             await asyncio.sleep(SETTLE_S)
             after = await asyncio.to_thread(self.ax.scroll_position, area, content)
-            landed = after != before
-            self.profiles.record(a.bundle_id, "pid_keycodes", landed)
-            if landed:
-                return ActionResult(True, f"scrolled {direction} {amount} page(s) (Page {'Up' if direction == 'up' else 'Down'} "
-                                          "keys in the background)")
-        bar = await asyncio.to_thread(self.ax.scroll_bar, area, vertical)
-        if bar is not None:
-            act = "AXIncrement" if direction in ("down", "right") else "AXDecrement"
-            cur = await asyncio.to_thread(self.ax.value, bar)
-            moved = all([await asyncio.to_thread(self.ax.perform, bar, act) for _ in range(amount)])
-            if not moved and cur is not None:
-                moved = await asyncio.to_thread(self.ax.set_scroll_bar, bar,
-                                                float(cur) + (0.2 * amount if act == "AXIncrement" else -0.2 * amount))
-            after = await asyncio.to_thread(self.ax.scroll_position, area, content)
-            if after != before:
-                return ActionResult(True, f"scrolled {direction} through the scroll bar")
-        x, y = self.ax.center(axm.AxNode(area, "", "", None, self.ax.frame(area) or (0, 0, 0, 0), False, True)) \
-            if n is None else self.ax.center(n)
-        lines = -10 * amount if direction in ("down", "right") else 10 * amount
-        return await self._foreground(a, wheel_steps(x, y, lines), holder, "scroll", task, fg,
-                                      "it doesn't scroll through keys or its scroll bar in the background")
+            if after == before:
+                stop = "movement not confirmed; this does not establish the end"
+                break
+            moved += 1
+            before = after
+        detail = f"scrolled {direction}: {moved}/{amount} step(s) via {mechanism or 'AX'}; {stop}"
+        if moved or "boundary reached" in stop:
+            return ActionResult(True, detail)
+        if fg:
+            rect = self.ax.frame(area)
+            if rect:
+                x, y, w, h = rect
+                return await self._foreground(a, wheel_steps(x + w / 2, y + h / 2,
+                    -10 if direction in ("down", "right") else 10, horizontal=not vertical),
+                    holder, "scroll", task, True, detail)
+        return ActionResult(False, detail + "; use pointer scroll or explicitly allow_foreground=true")
+
+    @staticmethod
+    def _scroll_boundary(position: tuple[Any, ...], direction: str) -> bool:
+        value = position[0 if direction in ("up", "down") else 1]
+        return value is not None and (value == 1.0 if direction in ("down", "right") else value == 0.0)
+
+    async def _pointer_scroll(self, a: Any, st: _AppState, shot: Shot, point: tuple[float, float],
+                              direction: str, amount: int, holder: str, route: Any,
+                              guard: Callable[[], None], distance: float = 0.8) -> ActionResult:
+        # Resolve only a container under this captured point, never the first pane of the window.
+        area = None
+        if st.tree:
+            for node in sorted(st.tree.nodes, key=lambda n: n.rect[2] * n.rect[3]):
+                x, y, w, h = node.rect
+                if x <= point[0] < x + w and y <= point[1] < y + h:
+                    area = await asyncio.to_thread(self.ax.scroll_area_of, node.ref)
+                    if area is not None:
+                        break
+        content = await asyncio.to_thread(self.ax.scroll_content, area) if area is not None else None
+        async def observe() -> tuple[Any, ...]:
+            return await asyncio.to_thread(self.ax.scroll_position, area, content) if area is not None else ()
+        before = await observe()
+        st.shot = None
+        moved, sent, stop = 0, 0, "batch limit reached"
+        viewport = self.ax.frame(area) if area is not None else shot.bounds
+        # A viewport-sized step, not a tiny line notch; keep overlap for visual continuity.
+        span = viewport[3 if direction in ("up", "down") else 2] if viewport else shot.bounds[3]
+        pixels = max(1, min(800, round(span * distance)))
+        lines = -pixels if direction in ("down", "right") else pixels
+        for _ in range(amount):
+            if before and self._scroll_boundary(before, direction):
+                stop = "scroll bar boundary reached; verify content"
+                break
+            steps = wheel_steps(*point, lines, a.pid, horizontal=direction in ("left", "right"),
+                                window=shot.window, route=route, pixels=True)
+            def guarded(step: Step) -> Step:
+                def post() -> None:
+                    guard()
+                    step.post()
+                return Step(step.what, post)
+            try:
+                await self.input.to_process([guarded(step) for step in steps], holder)
+            except (Refused, StaleRef) as error:
+                if sent:
+                    raise PointerInterrupted(f"scroll interrupted after {sent} ticks; inspect the result: {error}") from error
+                raise
+            sent += 1
+            await asyncio.sleep(SETTLE_S)
+            after = await observe()
+            if not after or after == before:
+                stop = "movement not confirmed; take a fresh screenshot; end not established"
+                break
+            moved += 1
+            before = after
+        return ActionResult(bool(moved) or "boundary reached" in stop,
+                            f"scroll {direction} ({pixels}px/step): sent {sent}/{amount} viewport-sized steps, {moved} observed changes; {stop}")
 
     # ---- pop-up buttons
 

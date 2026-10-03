@@ -23,6 +23,7 @@ from ferb.act.mac.apps import RunningApp
 from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.input import RealInput
 from ferb.act.mac.profile import Profiles
+from ferb.act.mac.window_input import load_route
 from ferb.core.types import ComputerAction
 
 pytestmark = pytest.mark.real
@@ -198,11 +199,13 @@ def test_textedit_and_calculator_are_driven_in_the_background_and_the_front_app_
             assert r.ok, r.detail
             selected = str(ax._attr(node.ref, "AXSelectedText") or "")
             assert selected, f"pointer drag did not select text: {r.detail}"
-        else:
+        elif load_route() is None:
             from ferb.core.errors import Refused
             with pytest.raises(Refused, match="current Space"):
                 run(d.pointer_at("TextEdit", pointer_shot.id, 10, 10, "hover"))
-            print("Native pointer correctly refused: the throwaway window is on another Space; selection probe pending.")
+            print("Legacy pointer correctly refused: the throwaway window is on another Space; selection probe pending.")
+        else:
+            print("Window-targeted transport available; native gesture acceptance uses owner-supervised watch checks.")
         cursor_after = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
         assert (cursor_after.x, cursor_after.y) == (cursor_before.x, cursor_before.y)
         # a disabled shortcut is refused with the alternative named (Select All has no key window in the background)

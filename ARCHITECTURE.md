@@ -461,7 +461,7 @@ recording what landed. The order comes from `docs/PLATFORM_MACOS.md` section 12 
 | set_value | `AXValue` on a real text field, else as type |
 | edit | `AXSelectedTextRange` + `AXSelectedText` at an exact range (`select` = `[start, length]`, `all`, `end`, `start`, or the caret) → the whole value rewritten with the edit applied. Never arrow keys |
 | key | a ⌘ shortcut runs the menu item it maps to (`accessibility.menu_item_for_shortcut`), and is refused with the Accessibility alternative while the app reports that item disabled (a background app often has no key window: the key would only beep). `escape` cancels the open sheet, dialog, popover or menu with `AXCancel`, never blind. Other keys are posted to the process and judged by what changed; an unchanged window is still reported sent when the app is known to take keys. Arrow keys in a text box are refused (use edit); Return where an enabled Send button exists, or in a messaging app, is refused (press the button). ⌘Tab, Control+arrows, ⌘Space, F3 / F4 (`input.switches_apps`) and ⌘Q / ⌘H / ⌘M (`input.quits_or_hides`) are refused |
-| scroll | `AXScrollToVisible` on the element → `AXIncrement` / `AXDecrement` on a slider or stepper → Page Up / Down keys with the scroll area's content focused → the scroll bar's `AXIncrement` / `AXDecrement` or `AXValue` → foreground wheel |
+| scroll | explicit container → scrollbar steps (position checked) → Page keys only for an explicitly targeted text view; missing AX route requests screenshot-bound pointer wheel; foreground only if explicitly allowed |
 | select (a pop-up button) | `AXPress` the button, then `AXPress` the menu item by title; `AXValue` where settable |
 | click at a point (`mac.click`) | the app's own hit test turns the point into an element (`accessibility.hit_element`; it answers the menu bar for a window on another Space, which doesn't count) and presses it → a click posted to the process, only for a window on the current Space, kept if the window changed → foreground |
 
@@ -1045,7 +1045,8 @@ mousemove delivery before pressing. One bounded gesture consumes the image. Drag
 labels contribute policy floors. Cancellation requests stop movement and release held input in cleanup.
 
 `mac.pointer` delivers bounded click/double/right/hover/drag events to a native app process, using image-to-window
-coordinates and a 30-second screenshot lease. It requires the current Space, checks window geometry and yields if
+coordinates and a 30-second screenshot lease. In 0.21.0 an optional SkyLight window-addressed route permits other-Space attempts; the legacy fallback remains
+Space-limited. It checks window geometry and yields if
 the owner is using that app. It never activates or uses the global cursor. Partial interruptions remain unknown.
 AX actions remain preferred. Input delivery always requires a fresh observation to establish task success.
 Native on-screen pointer acceptance remains pending; evidence and limitations are in `docs/POINTER_CONTINUITY_020.md`.
@@ -1061,3 +1062,5 @@ without those scopes. Retry context restores owner words, never permission from 
 `_TabDriver._connected` may load a profile with no startup window, but times out with a diagnostic instead of
 opening a visible wake page. Historical wake-page descriptions above are superseded for automatic task startup;
 explicit pairing/setup still opens its own page. See `docs/BROWSER_DEFAULT_0201.md`.
+
+Native pointer wheel batches and owner acceptance: `docs/BACKGROUND_SCROLL_021.md`. Availability is not proof of delivery.

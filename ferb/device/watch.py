@@ -168,10 +168,19 @@ class Session:
             print(f"   Detector saw: {json.dumps(d, default=str)[:300]}", file=self.out)
         else:
             print("   Detector saw: nothing", file=self.out)
+        rec["owner_saw"] = "pending"
+        if step.id == "M14":
+            rec["owner_action_worked"] = "u"
+            rec["owner_typing_undisturbed"] = "u"
+        self.results.append(rec)
         raw = self.ask(PROMPT).strip()
         rec["owner_saw"] = ANSWERS.get(raw.lower(), raw if raw.lower().startswith("o") is False else
                                        self.ask("   describe: ").strip())
-        self.results.append(rec)
+        if step.id == "M14":
+            rec["owner_action_worked"] = self.ask(
+                "   Inspect the test document: did it scroll down? y=yes n=no u=unsure > ").strip().lower()
+            rec["owner_typing_undisturbed"] = self.ask(
+                "   Did keyboard focus stay with your app? y=yes n=no u=unsure > ").strip().lower()
         return rec
 
 
@@ -250,9 +259,14 @@ class MacTest:
     def new_document(self) -> dict[str, Any]:
         ax = _ax()
         before = _attr(ax.app_window(self.pid), "AXTitle") if ax.app_window(self.pid) is not None else None
+        seen = {w["id"] for w in ax.cg_windows(self.pid)}
         ok = ax.press_menu(self.pid, ["File", "New"])
         time.sleep(1.0)
-        self.win = ax.app_window(self.pid)
+        candidate = ax.app_window(self.pid)
+        title = _attr(candidate, "AXTitle") if candidate is not None else None
+        if not ok or not any(w["id"] not in seen and w["title"] == title for w in ax.cg_windows(self.pid)):
+            raise RuntimeError("could not establish a new document; existing documents are untouched")
+        self.win = candidate
         self.area = _find(self.win, lambda e: _attr(e, "AXRole") == "AXTextArea")
         if self.win is not None:
             self.created.append(self.win)
@@ -356,6 +370,49 @@ class MacTest:
         time.sleep(0.6)
         after = self._visible()
         return {"visible_before": before, "visible_after": after, "landed": before != after}
+
+    def scroll_window_targeted(self) -> dict[str, Any]:
+        """Exercise the real driver on our disposable document; the owner's answers decide acceptance."""
+        import asyncio
+        from ferb.act.gui_lock import GuiLock
+        from ferb.act.mac import apps, screenshot
+        from ferb.act.mac.apps import RunningApp
+        from ferb.act.mac.driver import MacComputerDriver
+        from ferb.act.mac.input import RealInput
+        pid = self.pid
+        if pid is None or self.win is None or self.area is None or self.win not in self.created:
+            raise RuntimeError("no test-owned TextEdit document; refusing input")
+        self._fill_long()
+        # Pin lookup to the instance that owns the document, including when several TextEdits are running.
+        class PinnedApps:
+            def find(self, name: str) -> Any:
+                return RunningApp(TEXTEDIT, "TextEdit", pid, False)
+            def frontmost(self) -> Any:
+                return apps.frontmost()
+            def activate(self, bundle: str) -> None:
+                raise RuntimeError("the check must never activate an app")
+        d = MacComputerDriver("watch", RealInput(lambda: True, GuiLock()), apps=PinnedApps())
+        async def check() -> dict[str, Any]:
+            before = self._visible()
+            _, shot, _ = await d.screenshot(TEXTEDIT)
+            expected = screenshot.front_window(pid, _ax().frame(self.win))
+            if expected is None or expected.id != shot.window or any(
+                    abs(v - e) > 2 for v, e in zip(expected.bounds, _ax().frame(self.win))):
+                raise RuntimeError("capture is not the test document")
+            x, y, w, h = _ax().frame(self.area)
+            bx, by, bw, bh = shot.bounds
+            # Intersect the often very tall AXTextArea with its captured viewport.
+            left, top = max(x, bx), max(y, by)
+            right, bottom = min(x + w, bx + bw), min(y + h, by + bh)
+            if right <= left or bottom <= top:
+                raise RuntimeError("test text area is outside the captured window")
+            px = ((left + right) / 2 - bx) * shot.size[0] / bw
+            py = ((top + bottom) / 2 - by) * shot.size[1] / bh
+            result = await d.pointer_at(TEXTEDIT, shot.id, px, py, "scroll", amount=1)
+            after = self._visible()
+            return {"visible_before": before, "visible_after": after, "landed": before != after,
+                    "same_space": screenshot.on_screen(shot.window), "driver": result.detail}
+        return asyncio.run(check())
 
     def click_pid(self) -> dict[str, Any]:
         import ApplicationServices as AX
@@ -488,6 +545,8 @@ def mac_steps(t: MacTest) -> list[Step]:
         Step("M10", "Open Calculator in the background", t.open_calc),
         Step("M11", "Calculator: press 7 × 6 = through Accessibility (AXPress)", t.calc_press),
         Step("M12", "Calculator: type 12+3 and Return as keystrokes to its process", t.calc_type),
+        Step("M14", "TextEdit: one window-targeted wheel tick (owner verifies scrolling and focus)",
+             t.scroll_window_targeted, experimental=True),
         Step("M13", "Close the TextEdit documents this test made (nothing saved)", t.cleanup),
     ]
 
@@ -739,7 +798,7 @@ def run(home: Path, out: TextIO, ask: Callable[[str], str] = input, parts: tuple
         for s in steps:
             if s.id[0] in need and s.id in need[s.id[0]] and any(k.id[0] == s.id[0] for k in keep) and s not in keep:
                 keep.append(s)
-        steps = sorted(keep, key=lambda s: (s.id[0], int(s.id[1:])))
+        steps = [s for s in steps if s in keep]  # preserve setup, action, cleanup order
     print("ferb watch — the owner-verified background test", file=out)
     print(f"{len(steps)} steps. Keep doing what you were doing in another app; after each step, say what you saw.",
           file=out)
@@ -753,11 +812,13 @@ def run(home: Path, out: TextIO, ask: Callable[[str], str] = input, parts: tuple
     owner_app = _front()
     print(f"Your app now: {owner_app}. Results go to {wdir / (stamp + '.json')}", file=out)
     sess = Session(out, ask, det, owner_app)
+    interrupted = False
     try:
         for s in steps:
             sess.do(s)
     except KeyboardInterrupt:
-        print("\nstopped by you", file=out)
+        interrupted = True
+        print("\nstopped by you; verification is incomplete", file=out)
     finally:
         det.stop()
         if "browser" in parts and browser.pipe is not None and browser.pipe.proc.poll() is None:
@@ -766,7 +827,7 @@ def run(home: Path, out: TextIO, ask: Callable[[str], str] = input, parts: tuple
             except Exception:
                 pass
         report = {"at": stamp, "owner_app": owner_app, "macos": subprocess.run(["sw_vers", "-productVersion"],
-                  capture_output=True, text=True).stdout.strip(), "steps": sess.results}
+                  capture_output=True, text=True).stdout.strip(), "steps": sess.results, "interrupted": interrupted}
         (wdir / f"{stamp}.json").write_text(json.dumps(report, indent=1, default=str))
     print("\nSummary (you | detector | FERB's own check):", file=out)
     bad = 0
@@ -776,10 +837,12 @@ def run(home: Path, out: TextIO, ask: Callable[[str], str] = input, parts: tuple
         res = r.get("result") or {}
         own = "ok" if not r.get("error") and res.get("landed", True) else "did nothing" if not r.get("error") else "error"
         flag = "" if r["owner_saw"] == "nothing" else "  <-- you saw something"
-        bad += r["owner_saw"] != "nothing"
+        bad += (r["owner_saw"] != "nothing" or
+                (r["id"] == "M14" and (r.get("owner_action_worked") != "y" or
+                                       r.get("owner_typing_undisturbed") != "y")))
         print(f"  {r['id']:<4} {r['owner_saw']:<18} {det_s:<6} {own:<12} {r['title'][:60]}{flag}", file=out)
-    print(f"\n{bad} step(s) disturbed you. Full record: {wdir / (stamp + '.json')}", file=out)
-    return 0 if bad == 0 else 1
+    print(f"\n{bad} step(s) disturbed you or lack owner acceptance. Full record: {wdir / (stamp + '.json')}", file=out)
+    return 130 if interrupted else (0 if bad == 0 else 1)
 
 
 def main(argv: list[str] | None = None) -> int:
