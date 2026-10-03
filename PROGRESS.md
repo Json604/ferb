@@ -1,6 +1,14 @@
 # FERB progress
 
-## Where we are — version 0.23.0, branch `astra/version` (2026-10-03)
+## Where we are — version 0.23.1, branch `astra/version` (2026-10-03)
+
+The owner confirmed the Coursera → reminders → Claude FMI redo caused no disturbance. Source reads, eight pending
+reminders, the actual completed Claude session and the two-page PDF were audited. 0.23.1 fixes the discovered
+report/check mismatch, truncated checker context, stale verifier state and detached-launch monitoring approach.
+The requested conversation transcripts were exported privately outside Git. This patch is not installed yet;
+see `docs/COMPLETION_AUDIT_0231.md` for evidence, tests and limits. No push.
+
+## 0.23 deployment checkpoint
 
 Scaler pairing was repaired and its live connection verified with owner authorization. Its extension had new
 unpaired credentials while the daemon retained an old profile record. Reload alone was insufficient; the displayed

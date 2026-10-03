@@ -1,4 +1,4 @@
-# FERB code tour — 0.23.0
+# FERB code tour — 0.23.1
 
 Start with [the current contract](docs/ORCHESTRATED_CONTROL_022.md). This tour follows the live execution path;
 older pure policy helpers remain disconnected. `vibed/` is abandoned and must not be read or reused.
@@ -105,6 +105,14 @@ on an absent owner. `Gateway.ask_login_code` uses hidden owner input without exp
 `verify.py:Checks` handles observable file/driver checks. `Supervisor.verify` sends judgment or inconclusive checks
 to `_verifier`. `VerifierResult.met` accepts true, false or null. `_worker` returns false checks to orchestrator
 recovery; null is reported honestly. `_final` produces the answer and evidence.
+
+`_verifier` receives the full claim and artifact/evidence references, validates its result, and persists a terminal
+checker state (including errors/cancellation). `WorkerRuns` resets reused attempts to running and saves full report
+traces. `_final` retains unmet checks across recovery and does not truncate the owner's answer.
+
+`act/shell/tools.py:ShellStart` starts a task-owned process without waiting; `ShellWait` waits for actual exit and
+returns paged output/status. `ShellRead` also exposes exit codes. These share `ShellManager` ownership and cleanup;
+the worker prompt describes direct coding-CLI launch and observation instead of detached shell wrappers.
 
 `ledger.py` records consequential execution before input. A lost acknowledgement or restart yields unknown;
 `_context` passes unknown actions from this attempt and its prior durable attempt to the agent for inspection.

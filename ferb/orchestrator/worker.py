@@ -88,6 +88,8 @@ class WorkerRuns:
                                  input={"goal": task.goal, "role": task.role, "scopes": sorted(task.scopes)})
         if self.tasks.get(task.id) is None:
             self.tasks.add(TaskRecord(task, started, wspan.id, tree.id), status="running")
+        else:
+            self.tasks.set_status(task.id, "running", {})
         self.tasks._tasks[task.id].span_id = wspan.id
         ttl = (task.deadline - started).total_seconds() if task.deadline else float("inf")
         token = self.tokens.issue(task.id, worker_id, task.scopes, task.identity, ttl_s=max(ttl, 60.0))
@@ -129,7 +131,7 @@ class WorkerRuns:
             self.tokens.revoke_worker(worker_id)
             self.gateway.taint.forget(worker_id)
         self.spans.finish(wspan, output={"result": (result.summary if isinstance(result, Outcome)
-                                                    else json.dumps(result))[:2000]})
+                                                    else json.dumps(result))})
         self.publish("task.finished", {"task_id": task.id, "status": result.status if isinstance(result, Outcome)
                                        else str(result.get("status", "done"))})
         return result, worker_id

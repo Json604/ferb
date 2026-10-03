@@ -132,6 +132,32 @@ def test_shell_runs_reads_sends_and_kills_its_own_processes(daemon: RunningDaemo
     assert [p for p in call(daemon, g, "shell.list")["content"]["processes"] if p["id"] == pid][0]["running"] is False
 
 
+def test_managed_start_wait_and_read_report_actual_process_exit(daemon):
+    g = task(daemon, 'managed', Identity.OWNER, OWNER_SHELL)
+    started = call(daemon, g, 'shell.start', command="read line; printf 'done:%s' \"$line\"; exit 7")
+    assert not started['is_error']
+    pid = started['content']['id']
+    waiting = call(daemon, g, 'shell.wait', id=pid, timeout_s=0.05)['content']
+    assert waiting['running'] and waiting['exit_code'] is None
+    other = task(daemon, 'other-managed', Identity.OWNER, OWNER_SHELL)
+    assert call(daemon, other, 'shell.wait', id=pid, timeout_s=0.05)['is_error']
+    call(daemon, g, 'shell.send', id=pid, text='ready\n')
+    ended = call(daemon, g, 'shell.wait', id=pid, timeout_s=5)
+    assert ended['is_error'] and ended['content']['exit_code'] == 7
+    assert not ended['content']['running'] and 'done:ready' in ended['content']['output']
+    assert call(daemon, g, 'shell.read', id=pid)['content']['exit_code'] == 7
+
+
+def test_managed_start_is_owned_and_ends_with_task(daemon):
+    g = task(daemon, 'managed-cleanup', Identity.OWNER, OWNER_SHELL)
+    started = call(daemon, g, 'shell.start', command='cat')
+    assert not started['is_error']
+    pid = started['content']['id']
+    daemon.run(daemon.daemon._task_end('managed-cleanup'))
+    ended = call(daemon, g, 'shell.wait', id=pid, timeout_s=5)['content']
+    assert not ended['running'] and ended['exit_code'] is not None
+
+
 def test_task_end_kills_its_processes_but_background_ones_survive_until_stop(daemon: RunningDaemon) -> None:
     g = task(daemon, "e", Identity.OWNER, OWNER_SHELL, {"run_command"})
     fg = call(daemon, g, "shell.run", command="sleep 30", timeout_s=1)["content"]["id"]

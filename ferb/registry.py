@@ -13,7 +13,7 @@ from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.tools import (MacApps, MacAct, MacAppleScript, MacClick, MacPointer, MacMenu, MacOpen, MacScreenshot,
                                 MacSnapshot)
 from ferb.act.shell.manager import ShellManager
-from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRun, ShellSend
+from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRun, ShellSend, ShellStart, ShellWait
 from ferb.core.interfaces import Capability
 
 
@@ -115,6 +115,8 @@ def add_time(r: Registry, timers: Callable[[], Any], now: Callable[[], Any], sle
 def add_shell(r: Registry, shells: ShellManager) -> None:
     """Task-owned shell processes."""
     r.add(ShellRun(shells))
+    r.add(ShellStart(shells))
+    r.add(ShellWait(shells))
     r.add(ShellRead(shells))
     r.add(ShellSend(shells))
     r.add(ShellKill(shells))

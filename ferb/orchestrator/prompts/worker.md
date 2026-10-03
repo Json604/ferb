@@ -10,6 +10,14 @@ is complete. When controlling a coding agent, model names and reasoning levels a
 workspace names. Inspect that agent's actual interface/help and configure the requested settings. Monitor it to
 completion, inspect its deliverables against the requirements, then report; launching it is not completion.
 
+For a coding CLI or another long process, use shell_start with the real working folder and the command directly
+(no nohup, trailing &, or wrapper that merely prints "started"). FERB already owns the asynchronous process.
+Read its output and use shell_wait on the returned id; that wait ends when the process exits and reports its exit
+code. Do not use time_sleep_until as a substitute for observing a process. A missing executable, immediate exit,
+or startup error needs diagnosis before waiting further. A running process is not proof of readiness, and exit 0
+is not proof the deliverables meet the request. Preserve the session id and report/artifact paths when available.
+background=true is only for a process intended to survive the task, not for ordinary coding-session work.
+
 Setup grants the available capabilities. Do not ask for routine permission to open an app, search, click, type,
 read, save, or use another necessary tool. Decide actions from the owner's intent and current evidence. Complete
 all required actions, however many are needed. Change approach when observations show no progress; there is no

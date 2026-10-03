@@ -10,6 +10,24 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.23.1 — 2026-10-03 — Truthful completion reports and tracked coding processes
+
+- Preserve unresolved verification findings in the final answer even if recovery returns a success-sounding
+  summary. Keep complete owner answers; do not cut off the uncertainty after a long report. Recovery instructions
+  prefer correcting a missing detail before finishing.
+- Give the checker the complete worker report, artifacts and evidence; retain complete worker trace reports and
+  checker evidence. Persist verifier completion/failure/cancellation and reset its state on a retry.
+- Add `shell.start` and `shell.wait` for task-owned asynchronous commands. Waits return on actual process exit;
+  reads/waits expose exit codes and paged output. Prompt coding workers to run commands directly and inspect
+  startup/output instead of detaching with `nohup`/`&` and sleeping blindly. No command deny list is added.
+- Owner confirmed the audited Coursera → reminders → Claude FMI redo caused no disturbance. Audit verified
+  source reads, eight pending reminders, a completed Claude session and a two-page PDF with matching figures.
+  The audit also found the omitted Coursera durations, stale verifier rows and one failed detached launch.
+- Export the requested FERB chat and FERB↔Claude conversation locally, outside Git. Historical task records are
+  unchanged. See `docs/COMPLETION_AUDIT_0231.md`. Installation of this patch awaits owner-authorized rollout.
+- Validation: **541 offline tests passed, 52 deselected** (113.41 s), including ten new regression cases. Core
+  mypy and whitespace checks passed. No live model/browser task was run for this patch; no push.
+
 ## 0.23.0 — 2026-10-03 — Managed extension updates and lost-pairing diagnostics
 
 - Repair the owner's live scaler connection after explicit authorization: the current extension had new unpaired

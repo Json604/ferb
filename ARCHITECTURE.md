@@ -1,4 +1,4 @@
-# FERB architecture — 0.23.0
+# FERB architecture — 0.23.1
 
 Current implementation on `astra/version`. The owner's 2026-10-03 design replaces the old read/actor and effect-gate
 contracts. Read [agent-directed control](docs/ORCHESTRATED_CONTROL_022.md) first. Historical documents and changelog
@@ -57,6 +57,11 @@ inspection is reported as unknown. Final output includes the result, artifacts a
 releases task-created tabs, detaches borrowed owner tabs and ends ordinary task processes. Background processes
 remain visible until explicitly stopped. Closing chat does not cancel the task; explicit stop does.
 
+The checker receives the complete worker report and artifact/evidence references. Its run state is persisted as
+done, failed or cancelled, independently of whether the checked condition is true. A retry resets that state to
+running. Unresolved false checks remain visible in the final answer even if recovery's prose sounds successful;
+complete answers and worker trace reports are retained rather than silently truncating their final sections.
+
 ## 5. Action execution and owner questions
 
 `Gateway.call` authenticates the run, validates argument shape and selects the capability. `_call` supplies trace
@@ -114,6 +119,11 @@ overwrite flags and unique edit matches determine execution. There is no task-id
 path list. Shell commands run through task-owned PTYs with environment cleanup, redaction, polling and cancellation.
 Command strings are not classified into permission gates. AppleScript preserves target/argument encoding and normal
 execution errors without a script-word deny list. Use these tools within the owner's requested scope.
+
+`shell.start` returns a managed process id immediately. `shell.wait` waits for that process's actual exit (or a
+bounded observation timeout), returning its exit code and paged output; `shell.read` includes exit status too.
+Workers run coding commands directly, inspect startup evidence and wait on that id, rather than detaching children
+with `nohup`/`&` and assuming a launcher message proves success. `background=true` means survive task completion.
 
 ## 9. Verification and uncertain outcomes
 

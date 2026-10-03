@@ -15,6 +15,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `CODE_TOUR.md` | the flows, by `path:function` |
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
+| `docs/COMPLETION_AUDIT_0231.md` | Coursera/Claude audit, owner no-disturbance verdict, verification and process-monitoring fixes |
 | `docs/EXTENSION_LIFECYCLE_023.md` | Managed extension install/update, lost-pairing repair, migration and Chrome verification |
 | `docs/BACKGROUND_POINTER_0221.md` | Native click routing, screen/window coordinate correction, research and live acceptance |
 | `docs/BACKGROUND_SCROLL_021.md` | Window-targeted scrolling, source research and owner-supervised verification |
@@ -82,9 +83,9 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 
 ## What's next (see PROGRESS.md "Next")
 
-The running 0.23 daemon matches this checkout. Scaler, FERB's own Chrome profile and Brave Work use the managed
-extension folder; all three connected successfully on 0.10.0. Chrome was closed at the final rollout check, so only
-Brave remained connected. Finish owner verification of the native click fix and repeat the
-Gmail → coding-session task, verifying exact model settings and delegation.
+The running daemon is 0.23; this checkout is 0.23.1, awaiting owner-authorized rollout. Scaler, FERB's own Chrome
+profile and Brave Work use the managed extension folder on 0.10.0. The owner confirmed no disturbance during the
+Coursera/FMI Claude redo; source reads, reminders and Claude completion were audited. Verify the reporting and
+managed-process fixes after installation. Broader native click/gesture acceptance remains separate.
 Procedure memory (how a task was done, recalled on similar requests); real probes of Electron apps and same-Space
 occluded windows; Safari acting; the owner's acceptance sections B–H run and scored.

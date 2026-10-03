@@ -1,10 +1,9 @@
-"""shell.* capabilities (task-owned processes; provenance does not withdraw tools): run a command and get its output,
-or leave it running and read / send / kill it later. Destructive commands always ask the owner (hard floor)."""
+"""Task-owned shell processes: start, wait, read, send and kill without detached launcher guesses."""
 
 from pydantic import BaseModel, Field
 
 from ferb.act.shell import guard
-from ferb.act.shell.manager import ShellManager
+from ferb.act.shell.manager import ProcHandle, ShellManager
 from ferb.core.errors import Refused
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
@@ -39,29 +38,54 @@ class _Base:
         raise NotImplementedError
 
 
-class ShellRun(_Base):
-    name = "shell.run"
-    description = ("Run a shell command (/bin/sh) in a folder FERB may use (default: FERB's workspace). Waits up to "
-                   "timeout_s and returns the output; if it's still running, returns its id (read/send/kill it "
-                   "later). background=true keeps it running after the task ends (servers). Destructive commands "
-                   "ask the owner first.")
+class ShellStart(_Base):
+    name = "shell.start"
+    description = ("Start a tracked shell command immediately and return its id. Use for coding agents and other "
+                   "long commands, then shell.wait/read for actual progress and exit status. Run the command "
+                   "directly, without nohup or trailing &: the id tracks this command, not detached children. "
+                   "background=true keeps it alive after task completion (servers); it is not needed to work "
+                   "asynchronously during a task. Starting a process does not prove it is ready or successful.")
 
     class Input(BaseModel):
         command: str = Field(max_length=4000)
         cwd: str | None = Field(default=None, description="Working folder (default: FERB's workspace)")
-        timeout_s: float = Field(default=30, ge=1, le=120)
         background: bool = False
 
     def describe(self, args: BaseModel) -> ActionSpec:
         cmd = str(getattr(args, "command"))
         return ActionSpec(guard.kind(cmd), Target(path=getattr(args, "cwd")), content=cmd)
 
-    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+    async def _start(self, args: BaseModel, ctx: ToolContext) -> ProcHandle:
         cmd = str(getattr(args, "command"))
         cwd = guard.check(cmd, getattr(args, "cwd"), ctx)
         network = guard.fetches_network(cmd)
-        h = await self.shells.start(["/bin/sh", "-c", cmd], cwd, ctx.task_id, bool(getattr(args, "background")),
-                                    network)
+        return await self.shells.start(["/bin/sh", "-c", cmd], cwd, ctx.task_id,
+                                       bool(getattr(args, "background")), network)
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        h = await self._start(args, ctx)
+        return ToolResult({"id": h.id, "running": self.shells.info(h).running, "exit_code": None})
+
+
+async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> ToolResult:
+    text, offset, total = await shells.read(h, since, TAIL)
+    info = shells.info(h)
+    return ToolResult({"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
+                       "running": info.running, "exit_code": info.exit_code},
+                      is_error=info.exit_code not in (None, 0), read_sources=_untrusted(info.network, info.command))
+
+
+class ShellRun(ShellStart):
+    name = "shell.run"
+    description = ("Run a shell command (/bin/sh), waiting up to timeout_s. A live process returns its id; use "
+                   "shell.wait to await its exit or shell.read for output. For immediate asynchronous start use "
+                   "shell.start, without nohup or trailing &. background=true survives task completion (servers).")
+
+    class Input(ShellStart.Input):
+        timeout_s: float = Field(default=30, ge=1, le=120)
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        h = await self._start(args, ctx)
         code = await self.shells.wait(h, float(getattr(args, "timeout_s")))
         text, offset, total = await self.shells.read(h)
         out = {"id": h.id, "running": code is None, "exit_code": code, "output": text[-TAIL:], "offset": offset,
@@ -70,7 +94,28 @@ class ShellRun(_Base):
             out["output_truncated"] = True              # the end is shown; the whole output pages from the start
             out["next"] = "shell_read with since=0 reads from the beginning, a page at a time"
 
-        return ToolResult(out, is_error=code not in (None, 0), read_sources=_untrusted(network, cmd))
+        info = self.shells.info(h)
+        return ToolResult(out, is_error=code not in (None, 0), read_sources=_untrusted(info.network, info.command))
+
+
+class ShellWait(_Base):
+    name, description = ("shell.wait", "Wait for a tracked command to exit, returning early when it finishes. "
+                         "A timeout leaves it running; inspect output or wait again. Returns exit_code and output "
+                         "from since, so failures are visible without sleeping blindly. Does not launch a retry.")
+    risk, reversible = RiskLevel.LOW, True
+
+    class Input(BaseModel):
+        id: str
+        timeout_s: float = Field(default=30, ge=0, le=120)
+        since: int = Field(default=0, ge=0)
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ)
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        h = self.shells.handle(str(getattr(args, "id")), ctx.task_id)
+        await self.shells.wait(h, float(getattr(args, "timeout_s")))
+        return await _output(self.shells, h, since=int(getattr(args, "since")))
 
 
 class ShellRead(_Base):
@@ -87,11 +132,7 @@ class ShellRead(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = self.shells.handle(str(getattr(args, "id")), ctx.task_id)
-        text, offset, total = await self.shells.read(h, int(getattr(args, "since")), TAIL)
-        info = self.shells.info(h)
-        return ToolResult({"output": text, "offset": offset, "total": total, "more": offset < total,
-                           "running": info.running},
-                          read_sources=_untrusted(info.network, info.command))
+        return await _output(self.shells, h, since=int(getattr(args, "since")))
 
 
 class ShellSend(_Base):

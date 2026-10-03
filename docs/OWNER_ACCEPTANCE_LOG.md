@@ -78,3 +78,12 @@ performed the manual Load unpacked step and confirmed completion; its managed pa
 were verified. Both Chrome connections dropped later, and a read-only app inventory confirmed Chrome was closed
 at the final check. No unrelated profile was installed. These are deployment checks, not new owner acceptance of pointer behavior or
 the assignment task. Earlier closed-browser and not-installed observations above describe their own checkpoint.
+
+## 2026-10-03 — Coursera and Claude FMI redo, installed 0.23
+
+Owner verdict: “it didnt disturb me at all.” This applies to the quoted Coursera check and reminder/FMI redo run.
+Saved source snapshots, eight pending reminder rows, the completed Claude session, output files and independent
+NPV/IRR/crossover calculations corroborated the main work. Browser interaction used the extension, with no recorded
+mac.click, mac.pointer or mac.act. This is full-workflow background acceptance for that run, not a test of every
+native pointer gesture. The audit found reporting/checker and process-monitoring issues addressed in branch 0.23.1;
+the owner's verdict precedes those fixes and does not establish their installed acceptance.

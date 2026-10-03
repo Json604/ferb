@@ -7,7 +7,7 @@ when a worker cannot continue. Setup collects access once. The agents interpret 
 unrequested final outcome only after the work is ready for review. “Send Rahul the deck” already authorizes sending;
 “get the deck ready for Rahul” calls for a final choice before sending.
 
-- **Version:** 0.23.0 (see [CHANGELOG.md](CHANGELOG.md)). Managed extension updates and connection diagnostics; see [migration and evidence](docs/EXTENSION_LIFECYCLE_023.md). Full-task acceptance remains pending.
+- **Version:** 0.23.1 (see [CHANGELOG.md](CHANGELOG.md)). Complete verification reports and tracked coding processes; see [audit and evidence](docs/COMPLETION_AUDIT_0231.md). The owner confirmed the Coursera/FMI run caused no disturbance; this patch's installed acceptance remains pending.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed on macOS 26.
 - **Interface:** the CLI, plus push-to-talk. No GUI, menu-bar item or web dashboard. FERB.app (for push-to-talk)
   runs in the background with no window, Dock icon or menu-bar item.

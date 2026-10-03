@@ -152,7 +152,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | **`act/fs/`** | |
 | `fs/files.py` | Path normalization and file list/read/write/edit/trash with ordinary OS access and operation validation; no folder/identity jail. |
 | **`act/shell/`** | |
-| `shell/tools.py` | The `shell.*` tools: run, read, send, kill, list. Owner tasks only; lost when a worker is exposed. |
+| `shell/tools.py` | The `shell.*` tools: run, start, wait, read, send, kill, list. Task-owned process handles, actual exit status and paged output; web reads do not withdraw access. |
 | `shell/manager.py` | Owns running shell processes per task, and kills them when the task ends. |
 | `shell/pty_proc.py` | One process in a pseudo-terminal, with output kept in a ring buffer and a redacted log file. |
 | `shell/guard.py` | Validates working directory; annotates network provenance. No command permission classification or deny list. |
@@ -332,3 +332,7 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 0.23 additions: `ferb/device/extensions.py` publishes the packaged extension to its stable managed folder;
 `tests/test_extension_install.py` covers bundle publication and installed-package lookup;
 `tests/test_extension_update_real.py` verifies real Chrome path migration, idle update and preserved pairing.
+
+0.23.1 additions: `tests/test_completion_reporting.py` covers complete checker context, truthful final findings,
+durable checker state, retry and cancellation. `docs/COMPLETION_AUDIT_0231.md` records the live-run audit, fixes,
+owner verdict and local conversation export. `test_mac_shell.py` covers managed start/wait, ownership and exit status.

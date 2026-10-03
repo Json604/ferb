@@ -1,6 +1,6 @@
-# What FERB can do (0.23.0)
+# What FERB can do (0.23.1)
 
-Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). The owner reports improved live task progress; 0.22.1 fixes the observed foreground-click fallback. See [pointer evidence](docs/BACKGROUND_POINTER_0221.md) for current acceptance limits.
+Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). The owner confirmed no disturbance during the 0.23 Coursera/FMI run. [0.23.1 audit and fixes](docs/COMPLETION_AUDIT_0231.md) cover reporting and process monitoring; broader native gestures retain their [acceptance limits](docs/BACKGROUND_POINTER_0221.md).
 
 A checklist for trying FERB out. Each row gives an example request, what it needs, how it is verified, and known
 limits. Every row was checked against the code or the recorded runs on 2026-10-02.
@@ -18,7 +18,7 @@ and Developer mode remain required. [Evidence and limits](docs/EXTENSION_LIFECYC
 
 **Needs**
 - **Mac** = Accessibility granted to FERB's interpreter. **Screen** = Screen Recording.
-- **Paired** = a paired Chrome/Brave profile (connected or wakeable) with the FERB extension (0.9.0).
+- **Paired** = a paired Chrome/Brave profile (connected or wakeable) with the FERB extension (0.10.0).
 - **FERB's browser** = FERB's own Chrome profile (`ferb setup --identity`), paired.
 - **Folder** = filesystem access available to the daemon through macOS permissions.
 
@@ -39,6 +39,7 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 | Orchestrator and workers | `read scaler Gmail, then complete the assignment in Codex` | Setup | Offline (`test_orchestrated_control`) | Full registry across read/act; agent-selected runtime/approach recovery; live task acceptance pending |
 | A worker's question in chat (`owner_ask`) | `use my browser` with two matching profiles | – | Offline test (`test_acceptance_one_worker` 8, 8b) | Numbered options or your own words; Enter declines; declined at once during a scheduled run |
 | See what a task did | `ferb trace` / `ferb trace a1b2` | – | Offline test (`test_cli` golden) | Shows each tool call's arguments, declared effect, reason and result |
+| Complete result verification | `check the assignment and report what remains` | Setup | Offline (`test_completion_reporting`) | Full report/artifact references reach the checker; unresolved findings survive recovery; historical failed rows are not rewritten |
 | Speak replies | `ferb chat --speak` | – | Offline test (`test_unit1_speed_voice`) | The Mac's `say` voice |
 | Inline approvals | a send to someone you didn't name | – | Real test (`test_ux_real`, careful mode) | One yes covers the same effect and target for the rest of the request; a question expires after 10 min (1 h unattended) |
 
@@ -121,7 +122,7 @@ exact tab ownership still apply. A failed connection is not a reason to switch t
 | Your folders | `read ~/Documents/plan.txt` | OS access | Offline (`test_fs`) | No per-folder grant or identity jail; Finder path normalization remains |
 | Drive a terminal program | `use claude in terminal in my projects folder to do X` | – | Owner-verified run (0.12.0: Claude Code started, instructed and read) | Runs in FERB's shell, not your Terminal; output read as text, paged from the start |
 | Move to Trash | `move old.txt in your workspace to the Trash` | – | Offline test (`test_fs`) | Trash, never permanent deletion |
-| Shell commands | `run the assignment tests` | Setup | Offline real PTYs (`test_mac_shell`) | Workspace default, task-owned processes, clean environment and redacted output; no command deny list |
+| Shell commands | `run the assignment tests` | Setup | Offline real PTYs (`test_mac_shell`) | `shell.start` returns a tracked id; `shell.wait` returns on exit with status/output; `shell.read` pages output. Task cleanup and stop own the process; no command deny list |
 | Background processes | `start a local web server in your workspace` | – | Offline test | `ferb ps` / `ferb kill`; ended with the task unless long-lived |
 | Permanent deletion | requested cleanup | OS access | Execution contract offline | Agent interprets requested outcome; no hardcoded always-ask floor |
 | Read then code | `read the assignment and run its tests` | Setup | Offline (`test_acceptance_one_worker`, `test_orchestrated_control`) | Tools remain available after external reads; external content stays data in the prompts |
