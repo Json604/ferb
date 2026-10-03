@@ -66,3 +66,15 @@ remain pending; scaler's successful repair remains live on the previously instal
 
 Final status: Chrome is no longer running. Scaler therefore has no current connection, but its installation UUID,
 pairing key and sequence match the daemon. Do not describe this closed-browser state as a recurrence of lost pairing.
+
+## 2026-10-03 — authorized 0.23 rollout verification
+
+The owner approved migrating the paired extensions and installing/restarting FERB. At rollout, the running daemon
+already reported 0.23.0 with the same code hash as `astra/version`; no extra restart or reinstall was performed.
+The managed bundle/native-host registrations were prepared. The existing Chrome scaler and FERB profile extensions
+were loaded from `~/.ferb/extensions/chromium` without removal; their pairings survived and both connected on 0.10.0.
+Browser-control policy refused Brave's internal extension setup page and prohibited alternate automation. The owner
+performed the manual Load unpacked step and confirmed completion; its managed path and live paired 0.10.0 connection
+were verified. Both Chrome connections dropped later, and a read-only app inventory confirmed Chrome was closed
+at the final check. No unrelated profile was installed. These are deployment checks, not new owner acceptance of pointer behavior or
+the assignment task. Earlier closed-browser and not-installed observations above describe their own checkpoint.

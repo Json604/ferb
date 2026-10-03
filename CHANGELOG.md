@@ -28,8 +28,12 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   automatic 0.10.0 → 0.10.1 reload passed (32.98 s), retaining authenticated pairing and opening no visible window.
   Core mypy, JavaScript syntax, wheel build/bundled-resource lookup and whitespace checks passed. Replace an old
   source-string backoff assertion with an executed handshake check and compare extension versions numerically.
-- New release is not installed in the owner daemon yet; no push. Chrome's Developer mode is required for unpacked
-  reloads. See `docs/EXTENSION_LIFECYCLE_023.md` for the one-time migration, research and acceptance limits.
+- Owner-authorized rollout check confirms the running 0.23 daemon matches the checkout. Both paired Chrome
+  profiles migrated to the managed folder without re-pairing; all three profiles connected on 0.10.0. The owner
+  completed Brave's folder migration after browser-control policy refused its internal page; path and connection
+  were verified. Chrome was closed at the final check. No extra restart or push.
+  Chrome's Developer mode is required for unpacked reloads. See `docs/EXTENSION_LIFECYCLE_023.md` for migration,
+  research and acceptance limits.
 
 ## 0.22.1 — 2026-10-03 — Keep screenshot clicks on the background pointer route
 

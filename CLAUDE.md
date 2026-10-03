@@ -82,8 +82,9 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 
 ## What's next (see PROGRESS.md "Next")
 
-Scaler pairing was repaired and confirmed connected. Migrate existing extensions to the managed folder and 0.10.0
-before an owner-authorized 0.23 daemon update. Finish owner verification of the native click fix and repeat the
+The running 0.23 daemon matches this checkout. Scaler, FERB's own Chrome profile and Brave Work use the managed
+extension folder; all three connected successfully on 0.10.0. Chrome was closed at the final rollout check, so only
+Brave remained connected. Finish owner verification of the native click fix and repeat the
 Gmail → coding-session task, verifying exact model settings and delegation.
 Procedure memory (how a task was done, recalled on similar requests); real probes of Electron apps and same-Space
 occluded windows; Safari acting; the owner's acceptance sections B–H run and scored.

@@ -9,7 +9,12 @@ unpaired credentials while the daemon retained an old profile record. Reload alo
 Version 0.23 adds a managed extension bundle, CLI preparation/path commands, idle local auto-reload in extension
 0.10.0, recoverable connection refusals and clearer unpaired/current-version diagnostics. A real disposable Chrome
 test preserved pairing through path migration and an alarm-driven 0.10.0 → 0.10.1 update (32.98 s). No visible window
-opened; full owner-task acceptance remains separate. The new release is not installed in the owner daemon yet.
+opened; full owner-task acceptance remains separate. The owner authorized rollout; a fresh daemon check confirms
+0.23.0 with a code hash matching this checkout. Scaler and FERB's own Chrome profile now load the managed folder,
+preserving pairing. The owner completed Brave Work's migration after the browser-control tool refused its internal
+extensions page; the saved path and live 0.10.0 connection were verified. All three paired profiles have connected
+on 0.10.0. Chrome was closed at the final check, so only Brave remained connected. No extra daemon restart was
+needed because the running code already matched.
 See `docs/EXTENSION_LIFECYCLE_023.md` for first-time migration and the Store publication boundary. No push.
 
 ## Pointer work preceding 0.23
@@ -22,11 +27,11 @@ keeps unconfirmed dispatches from being replayed in the foreground. See `docs/BA
 
 The owner confirmed the first disposable Chrome click caused no disturbance. A corrected repeat delivered exactly
 one trusted click at the requested pixel in a window on another Space, with no sampled cursor or front-app change;
-the owner's second verdict is pending. The patch is not installed yet. No push.
+the owner's second verdict is pending. The patch is included in the installed 0.23 release. No push.
 
 The assignment PDF exists, but the trace does not establish the exact requested delegation: the first Codex run
 used Astra **xhigh**, was stopped, and FERB generated the PDF before another Codex verification run. Nothing was
-submitted. After an owner-managed update and scaler extension reload, repeat acceptance of the source, exact
+submitted. With 0.23 installed and scaler connected on 0.10, repeat acceptance of the source, exact
 model/effort settings, completed artifact and undisturbed desktop.
 
 The owner's new control contract replaces per-action policy gates with orchestrator/worker judgment. Workers retain

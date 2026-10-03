@@ -90,4 +90,23 @@ API in a hidden, test-owned page. No owner browser preferences are edited.
 
 Final validation: 531 offline tests passed, 52 deselected (112.59 s); the combined real migration/update passed
 in 32.98 s. Core mypy, JS syntax, wheel build, isolated installed-package resource lookup and whitespace checks
-passed. The scaler pairing repair is preserved; installing this new daemon release remains an owner-controlled step.
+passed. The scaler pairing repair is preserved.
+
+## Authorized rollout on 2026-10-03
+
+The owner approved migrating the paired profiles and installing/restarting 0.23. At rollout, the installed package
+was already 0.23.0, and `doctor.check` with `selftest: false` confirmed the running daemon's code hash matched this
+checkout (`e772c78311aad14b`). No additional reinstall or restart was needed. The check reported Accessibility,
+Screen Recording, Input Monitoring and Full Disk Access granted; it did not dispatch test input.
+
+The managed bundle and native-host registrations were prepared. Chrome scaler (`Profile 2`) and FERB's own
+profile (`Profile 22`) used Load unpacked to select `~/.ferb/extensions/chromium`, keeping the existing extension
+installed. Both remained paired and connected on 0.10.0. Their persisted extension paths confirm the migration.
+The browser-control tool refused navigation to Brave's internal extensions page and explicitly prohibited alternate
+automation, so the owner performed the manual Load unpacked step and confirmed completion. Brave Work's persisted
+path now also points to `~/.ferb/extensions/chromium`, with a live paired 0.10.0 connection and no refusal.
+
+Both Chrome connections dropped later; a read-only app inventory confirmed Chrome was closed at the final check.
+Their managed paths remain saved. Distinguish that state from migration or pairing failure. No other profile was
+installed or paired. Full-task and undisturbed-input acceptance remain separate from setup verification; future
+automatic version updates were tested in disposable Chrome, not the owner's Brave profile.
