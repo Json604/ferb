@@ -1,6 +1,6 @@
-# What FERB can do (0.21.0)
+# What FERB can do (0.22.1)
 
-Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). New behavior is offline-tested; installation and owner acceptance remain pending.
+Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). The owner reports improved live task progress; 0.22.1 fixes the observed foreground-click fallback. See [pointer evidence](docs/BACKGROUND_POINTER_0221.md) for current acceptance limits.
 
 A checklist for trying FERB out. Each row gives an example request, what it needs, how it is verified, and known
 limits. Every row was checked against the code or the recorded runs on 2026-10-02.
@@ -53,7 +53,7 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 | Menus | `which menu has the search command?` | Mac | Owner-verified run (`ferb watch` M2) + offline | `mac.menu` lists or presses menu-bar items in the background |
 | Electron apps (Slack, Discord, VS Code, WhatsApp) | `open slack and check my messages` | Mac | Offline test; spikes 18 / 20 probes on WhatsApp (`PLATFORM_MACOS.md` §1) | FERB asks each for its full Accessibility tree and waits for the main window; not re-probed with the new driver |
 | AppleScript inside one scriptable app | `make a note in Notes titled 'groceries'` | Mac, Automation for that app | Offline test (`test_mac_shell`) | One app per script; no `activate`, System Events, shell, `do script` or nested `tell` |
-| Screenshot one window, click by position | `in <app>, click the blue Export button` | Mac, Screen | Real test (`test_mac_vision_real`: window-only capture, click lands within 2 pt, covered point refused); offline for the background rungs | The point is first turned into the control under it (the app's own hit test; current-desktop windows only) and pressed through Accessibility; a click posted to the app alone only for a window on the current desktop, kept if something changed; the real mouse only with `allow_foreground=true`; windows showing a password field aren't captured; images never saved |
+| Screenshot one window, click by position | `in <app>, click the blue Export button` | Mac, Screen | 0.22.1 offline routing/geometry regressions; owner confirmed first Chrome check undisturbed; corrected repeat landed exactly on another Space, second verdict pending | AX hit test first, then exact window-targeted background input. Screen and window-local coordinates are distinct. A posted click is not automatically retried in the foreground; inspect a fresh screenshot. Legacy fallback applies only without the window transport. |
 | Exact native pointer gestures and wheel scrolling | `mac.pointer`: click, dblclick, rightclick, hover, drag, scroll | Mac, Screen | Offline routing/batching/cancellation; owner verified WhatsApp wheel scrolling on another Space without disturbance; other gestures/apps pending | Optional SkyLight window-addressed transport, legacy same-Space fallback; fresh image; no explicit focus transfer; app delivery and lack of disruption must be owner-verified |
 | Yield to you | move the mouse while FERB clicks in front | Mac | Real test (`test_mac_real`: marked vs unmarked input) | Only matters in the foreground |
 | Pick the app or the site for a service | `video call Rahul on WhatsApp` | the app installed | Offline test (`test_routes`) | The model decides from an environment line (installed, paired, running); no route picker in code |
@@ -198,5 +198,5 @@ not establish the current model's judgment. No live 0.22 acceptance has been cla
 - Files and shell use the macOS user's access; there is no per-resource command sandbox.
 - Today's activity/registry retrieval is lexical. Runtime switching uses the Codex/Claude adapters; a dedicated
   coding-session adapter is not built. Requested settings and completion must be inspected through available tools.
-- Previous owner confirmations cover WhatsApp wheel scrolling and the last available YouTube comment. Broader
-  gestures and 0.22 authorization/recovery behavior remain pending live acceptance.
+- Owner confirmations cover WhatsApp wheel scrolling, the last available YouTube comment and no disturbance from
+  the first native Chrome click check. Broader gestures and full 0.22 authorization/recovery remain to be verified.

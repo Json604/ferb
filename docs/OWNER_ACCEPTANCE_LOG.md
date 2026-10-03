@@ -35,3 +35,17 @@ Repository-only work on `astra/version`. No installed-daemon update, real app op
 performed for this rewrite. Offline tests cover the new control contracts; live acceptance is **pending**. Prior
 WhatsApp/YouTube scroll confirmations remain limited to the earlier tested operations. Next owner check is the
 scaler Gmail → coding-session task in `OWNER_ACCEPTANCE.md`.
+
+## 2026-10-03 — native background Chrome click (0.22.1 branch driver)
+
+The owner reported much better 0.22 task progress but repeated desktop/focus shifts. Trace inspection found a
+stale scaler extension and five delivered foreground clicks. The branch fix connects `mac.click` to the newer
+exact-window pointer route, removes misleading foreground advice and corrects window-local coordinates.
+
+Two Chrome harness startup failures sent no input. After fixing pipe inheritance, a single native click reached
+the disposable canvas as one trusted event; the owner confirmed: “No disturbance—I kept working normally.” The
+receiver exposed a coordinate error equal to the window origin. The corrected single-click repeat reached exactly
+`(20,30)` on a canvas in a window on another Space. Cursor samples matched; front PID was unchanged and no front-app
+transitions were recorded. `tests/test_mac_pointer_real.py` passed in 1.98 s. The second owner verdict is pending.
+Each check closed only its own temporary Chrome process; no personal profile or installed daemon was changed.
+These checks do not establish acceptance for other gestures/apps or the full assignment task.

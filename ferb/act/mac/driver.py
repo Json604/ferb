@@ -9,14 +9,13 @@ before it verifiably did nothing, with the per-app learned profile (ferb.act.mac
   key       a ⌘ shortcut goes through the menu item it maps to, pressed only when that item is enabled (a disabled
             key equivalent would only beep); Escape dismisses a sheet / dialog / menu with AXCancel; other keys go
             to the process and are checked by what changed
-  scroll    AXScrollToVisible → slider / stepper AXIncrement → Page Up / Down keys with the scroll area focused →
-            the scroll bar's AXValue / AXIncrement → foreground
+  scroll    scroll bar value / increment → Page keys for text views; exact window-targeted wheel via pointer
   select    AXPress the pop-up button, then AXPress the menu item by title (AXValue where settable)
-  click at  the app's own hit test → AXPress; pixel click to the process only for a window on the current Space,
-            verified; foreground
+  click at  the app's own hit test → AXPress → exact window-targeted pointer delivery;
+            legacy process/explicit foreground modes only when that transport is unavailable
 The foreground (real input, the app brought forward once per stretch, the owner's input held back and winning,
 their app put back) runs only when the call carries allow_foreground=true. Excluded apps are never read or acted
-on; browsers are read-only here (ax_browser). Element ids come from the latest snapshot of that app.
+on. Native browser fallback is available. Element ids come from the latest snapshot of that app.
 """
 
 import asyncio
@@ -51,8 +50,9 @@ FOCUS_ELSEWHERE = ("something else in the app has the keyboard focus (a dialog o
                    "typed; take a new snapshot")
 ARROW_REFUSED = ("arrow keys in a text box aren't used (a background text view beeps at them): use action edit "
                  "with select (start, length) / \"all\" / \"end\" and text, or set_value for the whole text")
-FOREGROUND_HINT = ("nothing more can be done in the background; call again with allow_foreground=true to do it "
-                   "with the app in front (the owner's screen will move to it)")
+FOREGROUND_HINT = ("this method did not confirm background delivery; inspect a fresh screenshot and consider "
+                   "mac.pointer or another background tool. allow_foreground=true uses the owner's desktop and "
+                   "mouse; a failed method is not a reason to switch modes automatically")
 TEXT_KINDS = axm.TEXT_KINDS
 
 
@@ -323,7 +323,8 @@ class MacComputerDriver:
             raise StaleRef("the app changed since the screenshot; take another screenshot")
         if kind == "scroll":
             return await self._pointer_scroll(a, st, shot, start, direction, amount, holder, route, window_ok, distance)
-        steps, release = pointer_steps(start, finish, kind, a.pid, window=shot.window, route=route)
+        steps, release = pointer_steps(start, finish, kind, a.pid, window=shot.window, route=route,
+                                       window_origin=shot.bounds[:2])
         attempted = False
         def guarded(step: Step) -> Step:
             def post() -> None:
@@ -348,10 +349,11 @@ class MacComputerDriver:
 
     async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
                        task: str | None = None, allow_foreground: bool = False) -> ActionResult:
-        """A click at (x, y) in the app's latest screenshot (image px). First the app's own hit test turns the point
-        into an element and presses it through Accessibility; then, for a window on the current Space, a click posted
-        to the app's process, kept only if something changed; the real mouse (the app brought forward, yielding to
-        the owner) only with allow_foreground."""
+        """Hit-test through AX, then use the exact window-targeted pointer transport.
+
+        A dispatched pointer click is never replayed as foreground input just because AX did not change.
+        Legacy same-Space/explicit foreground paths apply only when the window transport is unavailable.
+        """
         a = self.app(name_or_bundle)
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
@@ -360,8 +362,8 @@ class MacComputerDriver:
         if not (0 <= x < shot.size[0] and 0 <= y < shot.size[1]):
             raise Refused(f"({x}, {y}) is outside the {shot.size[0]}x{shot.size[1]} screenshot")
         now = await asyncio.to_thread(self.shots.window, shot.window)
-        if now is None or not _same(now.bounds, shot.bounds):
-            raise StaleRef("the window moved, resized or closed since the screenshot; take a new one")
+        if now is None or now.pid != a.pid or not _same(now.bounds, shot.bounds):
+            raise StaleRef("the window moved, resized, changed owner or closed since the screenshot; take a new one")
         bx, by, bw, bh = shot.bounds
         px, py = bx + x * bw / shot.size[0], by + y * bh / shot.size[1]
 
@@ -380,7 +382,12 @@ class MacComputerDriver:
                     return ActionResult(True, f"pressed the {pressed} around ({x:.0f}, {y:.0f}) through Accessibility")
             else:
                 self.profiles.record(a.bundle_id, "hit_test", False)
-        # 2. a click posted to the app's process: only reaches a window on the current Space; kept if it changed
+        # 2. The same screenshot-bound route as mac.pointer, including off-Space windows. One dispatch only;
+        #    an unobservable result must be inspected, not automatically repeated with the shared mouse.
+        if load_route() is not None:
+            return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder)
+
+        # 3. Legacy process input when the window-addressed transport is absent; kept if it changed
         #    something
         if await asyncio.to_thread(self.shots.on_screen, shot.window) and not self.profiles.skips(a.bundle_id, "pid_mouse"):
             before = await self._signature(a)
@@ -390,7 +397,7 @@ class MacComputerDriver:
             self.profiles.record(a.bundle_id, "pid_mouse", landed)
             if landed:
                 return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id} (posted to the app in the background)")
-        # 3. the real mouse, only by request
+        # 4. the real mouse, only by explicit mode choice
 
         def reaches_the_window() -> bool:
             h = self.ax.hit(px, py)                       # the system's hit test: overlays that ignore clicks don't count
@@ -810,7 +817,7 @@ class MacComputerDriver:
                 stop = "scroll bar boundary reached; verify content"
                 break
             steps = wheel_steps(*point, lines, a.pid, horizontal=direction in ("left", "right"),
-                                window=shot.window, route=route, pixels=True)
+                                window=shot.window, route=route, pixels=True, window_origin=shot.bounds[:2])
             def guarded(step: Step) -> Step:
                 def post() -> None:
                     guard()

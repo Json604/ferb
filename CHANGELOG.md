@@ -10,6 +10,25 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.22.1 — 2026-10-03 — Keep screenshot clicks on the background pointer route
+
+- Connect `mac.click` to the exact-window pointer transport after AX. Previously it bypassed that route and
+  advised foreground retries; the scaler task delivered five foreground clicks after its stale extension failed.
+  Do not replay an unconfirmed pointer dispatch in the foreground. Reject a screenshot whose window changed owner.
+- Preserve screen coordinates on native events and supply separate window-local coordinates to the window route.
+  An actual canvas receiver exposed the doubled window-origin error; regressions cover click, drag and scroll,
+  including negative screen coordinates.
+- Correct tool/prompt fallback advice and disconnected-profile diagnostics. Preserve the requested profile and
+  background operation without new code-level intent/permission gates. Show `allow_foreground` in `ferb trace`.
+- Fix disposable Chrome pipe inheritance and add an isolated, owner-supervised native click test. The first click
+  caused no disturbance according to the owner. The corrected repeat landed exactly once at the requested pixel
+  on another Space, with unchanged cursor/front-app samples; the second owner verdict is pending.
+- Document primary-source research, measured limits, the scaler extension reload requirement and the assignment
+  trace's remaining model-setting/delegation mismatch in `docs/BACKGROUND_POINTER_0221.md`.
+- Validation: **521 offline tests passed, 51 deselected** (95.43 s); the isolated real click passed (1.98 s);
+  core mypy and whitespace checks passed. No installed-daemon update or push. Broader app/gesture and full-task
+  acceptance remain separate from this single-click check.
+
 ## 0.22.0 — 2026-10-03 — Agent-directed control and daily context
 
 - Replace the gateway's action-policy path with authenticated execution, resource locking, ledger/trace recording

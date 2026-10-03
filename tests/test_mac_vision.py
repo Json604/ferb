@@ -108,6 +108,7 @@ def vision(mp: pytest.MonkeyPatch, owner: Any = lambda: False,
                           excluded=excluded, ax=ax, apps=apps, shots=shots)
     import ferb.act.mac.driver as drv
     mp.setattr(drv, "SETTLE_S", 0)
+    mp.setattr(drv, "load_route", lambda: None)  # opt in explicitly; unit tests never post to real process IDs
 
     def clicks(x: float, y: float, pid: int | None = None) -> list[Step]:
         where = " to pid" if pid else ""

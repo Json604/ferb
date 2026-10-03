@@ -11,7 +11,7 @@ from ferb.cli.client import Client
 
 
 ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\x1b[78=>]|[\x00-\x08\x0e-\x1f]")
-ARG_KEYS = ("url", "path", "command", "text", "query", "app", "bundle_id", "action", "element", "direction", "amount", "distance", "x", "y", "profile", "tab", "id")
+ARG_KEYS = ("url", "path", "command", "text", "query", "app", "bundle_id", "action", "allow_foreground", "element", "direction", "amount", "distance", "x", "y", "profile", "tab", "id")
 
 
 def _clip(s: str, n: int, full: bool) -> str:

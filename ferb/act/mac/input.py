@@ -109,7 +109,8 @@ class RealInput:
 # ---------- the real events (Quartz), each marked ----------
 
 def pointer_steps(start: tuple[float, float], end: tuple[float, float], kind: str,
-                  pid: int, *, window: int | None = None, route: Any = None) -> tuple[list[Step], Callable[[], None]]:
+                  pid: int, *, window: int | None = None, route: Any = None,
+                  window_origin: tuple[float, float] = (0, 0)) -> tuple[list[Step], Callable[[], None]]:
     """A bounded process-directed gesture; cleanup releases before the GUI lock passes to another task."""
     import Quartz as q
     if kind not in {"click", "dblclick", "rightclick", "hover", "drag"}:
@@ -128,7 +129,7 @@ def pointer_steps(start: tuple[float, float], end: tuple[float, float], kind: st
         ev = q.CGEventCreateMouseEvent(source, event, pt, button)
         q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, count)
         if route is not None and window is not None:
-            route.post(ev, pid, window, pt)
+            route.post(ev, pid, window, (pt[0] - window_origin[0], pt[1] - window_origin[1]))
         else:
             _post(ev, pid)
         if event == up:
@@ -179,7 +180,7 @@ def click_steps(x: float, y: float, pid: int | None = None) -> list[Step]:
 
 def wheel_steps(x: float, y: float, lines: int, pid: int | None = None, *,
                 horizontal: bool = False, window: int | None = None, route: Any = None,
-                pixels: bool = False) -> list[Step]:
+                pixels: bool = False, window_origin: tuple[float, float] = (0, 0)) -> list[Step]:
     """Scroll-wheel events at a point (negative lines = down), real or posted to the app's process."""
     import Quartz
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
@@ -188,7 +189,7 @@ def wheel_steps(x: float, y: float, lines: int, pid: int | None = None, *,
         ev = Quartz.CGEventCreateScrollWheelEvent(src, Quartz.kCGScrollEventUnitPixel if pixels else Quartz.kCGScrollEventUnitLine, 2, 0 if horizontal else lines, lines if horizontal else 0)
         Quartz.CGEventSetLocation(ev, (x, y))
         if route is not None and pid is not None and window is not None:
-            route.post(ev, pid, window, (x, y))
+            route.post(ev, pid, window, (x - window_origin[0], y - window_origin[1]))
         else:
             _post(ev, pid)
     return [Step(f"scroll {lines:+d}", post)]

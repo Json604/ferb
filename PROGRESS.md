@@ -1,6 +1,21 @@
 # FERB progress
 
-## Where we are — version 0.22.0, branch `astra/version` (2026-10-03)
+## Where we are — version 0.22.1, branch `astra/version` (2026-10-03)
+
+The owner retried the scaler Gmail → coding-session task on 0.22 and reported much better progress, but repeated
+desktop/focus shifts. Its trace found a stale scaler extension (protocol 2, daemon requires 5) and five delivered
+foreground clicks. `mac.click` bypassed the newer background pointer route and encouraged foreground fallback.
+Version 0.22.1 routes screenshot clicks through exact-window input after AX, fixes screen/window coordinates, and
+keeps unconfirmed dispatches from being replayed in the foreground. See `docs/BACKGROUND_POINTER_0221.md`.
+
+The owner confirmed the first disposable Chrome click caused no disturbance. A corrected repeat delivered exactly
+one trusted click at the requested pixel in a window on another Space, with no sampled cursor or front-app change;
+the owner's second verdict is pending. The patch is not installed yet. No push.
+
+The assignment PDF exists, but the trace does not establish the exact requested delegation: the first Codex run
+used Astra **xhigh**, was stopped, and FERB generated the PDF before another Codex verification run. Nothing was
+submitted. After an owner-managed update and scaler extension reload, repeat acceptance of the source, exact
+model/effort settings, completed artifact and undisturbed desktop.
 
 The owner's new control contract replaces per-action policy gates with orchestrator/worker judgment. Workers retain
 the installed registry after web reads; runtime/capability failures and failed result checks return to model-directed
@@ -12,9 +27,7 @@ Every turn retrieves relevant memory, daily activity and registry matches. Curre
 synchronize. Setup offers OS access up front and migrates older installations once.
 
 See `docs/ORCHESTRATED_CONTROL_022.md` and `docs/TEST_MIGRATION_022.md`. Validation is recorded in CHANGELOG.md.
-**Installed daemon unchanged; owner acceptance pending. No push.** Next: after an authorized update, verify the
-scaler Gmail → requested coding-session task with the owner, checking actual source, settings, completion and
-any desktop disturbance. An assignment completion request does not imply submission.
+An assignment completion request does not imply submission.
 
 ## Historical progress
 

@@ -818,8 +818,9 @@ class Router(_TabDriver):
             details = "; ".join(f"{br.name}: " + (self.hub.refused.get(br.binding.install_id) or
                                "paired but not connected; reload the FERB extension in that profile, then retry")
                                for br in missing)
-            raise Refused(details + ". No tab inventory is available for these profiles. Do not open another "
-                          "profile or try Mac browser controls; this is a connection problem, not an empty tab list.")
+            raise Refused(details + ". No tab inventory is available for these profiles; this is a connection "
+                          "problem, not an empty tab list. Preserve the requested profile. Native background controls "
+                          "may be an alternative if the exact requested window can be identified.")
         for br in self._owner_bridges(profile):
             if named is not None and not named.allows(br.binding.browser, br.binding.folder):
                 continue                                              # the owner named another profile

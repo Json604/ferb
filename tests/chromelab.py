@@ -36,6 +36,9 @@ class ChromeLab:
         def child_fds() -> None:                       # between fork and exec: Chrome reads fd 3, writes fd 4
             os.dup2(to_chrome_r, 3)
             os.dup2(from_chrome_w, 4)
+            # dup2(fd, fd) is a no-op: an original os.pipe descriptor may still be close-on-exec.
+            os.set_inheritable(3, True)
+            os.set_inheritable(4, True)
 
         args = [CHROME, "--remote-debugging-pipe", f"--user-data-dir={user_data_dir}", "--no-first-run",
                 "--no-default-browser-check", "--no-startup-window", "--enable-unsafe-extension-debugging",

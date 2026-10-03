@@ -30,6 +30,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 |---|---|
 | `REWORK_PLAN.md` | Rework phases and the rule on hardcoding; procedure memory is still pending. |
 | `DESIGN_ONE_WORKER.md` | The design behind one worker per request, effects and `owner.ask`; implementation details live in ARCHITECTURE.md §§4–5. |
+| `BACKGROUND_POINTER_0221.md` | Foreground-click trace diagnosis, native coordinate correction, source research and owner-supervised Chrome check. |
 | `PLATFORM_MACOS.md` | Mac background-control mechanisms, probe evidence, owner observations and driver rung order. |
 | `PLATFORM_BROWSER.md` | Chromium background-control mechanisms, probe evidence and extension design. |
 | `OWNER_ACCEPTANCE.md` | Tasks the owner runs through chat and checks with their own eyes; B–H remain pending. |
@@ -324,3 +325,5 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 0.21.0 additions: `ferb/act/mac/window_input.py` (optional window-addressed transport),
 `THIRD_PARTY_NOTICES.md` (MIT attribution), `docs/BACKGROUND_SCROLL_021.md` (behavior, research, owner check),
 `tests/test_scroll_progress.py`, `tests/test_window_input.py`, `tests/test_scroll_watch.py` (offline contracts).
+
+- `tests/test_mac_pointer_real.py`: one isolated Chrome canvas click with exact receiving coordinates and focus/cursor measurements; owner verdict required.

@@ -3,6 +3,11 @@
 Written 2026-10-02 for rework phase 1 (`docs/REWORK_PLAN.md`). The driver (phase 3) must rely only on what this file
 says works, and on nothing it marks unverified.
 
+**Later evidence (2026-10-03):** the same-Space limits below describe the older public PID input path. Optional
+window-targeted input has separate evidence in `BACKGROUND_SCROLL_021.md` and `BACKGROUND_POINTER_0221.md`:
+owner-verified WhatsApp scrolling and a measured native Chrome click on another Space. These results do not imply
+that every app/gesture works. The newer route requires window-local hit-test coordinates alongside screen coordinates.
+
 **Labels.** Every claim carries one of:
 
 - `[doc]` — from Apple's headers or documentation (or the framework's own docs: Chromium, Electron), with the source

@@ -15,6 +15,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `CODE_TOUR.md` | the flows, by `path:function` |
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
+| `docs/BACKGROUND_POINTER_0221.md` | Native click routing, screen/window coordinate correction, research and live acceptance |
 | `docs/BACKGROUND_SCROLL_021.md` | Window-targeted scrolling, source research and owner-supervised verification |
 | `docs/BROWSER_DEFAULT_0201.md` | Personal profiles only on explicit direction; disconnected extension diagnostics and no visible wake fallback |
 | `docs/POINTER_CONTINUITY_020.md` | 0.20.0 durable conversations and exact pointer gestures, verification and limits |
@@ -79,6 +80,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 
 ## What's next (see PROGRESS.md "Next")
 
-Install 0.22 only after owner authorization; run the owner-supervised scaler Gmail → coding-session acceptance.
+Finish owner verification of the 0.22.1 native click fix; install only after owner authorization. Reload the scaler
+extension to protocol 5 and repeat the Gmail → coding-session task, verifying exact model settings and delegation.
 Procedure memory (how a task was done, recalled on similar requests); real probes of Electron apps and same-Space
 occluded windows; Safari acting; the owner's acceptance sections B–H run and scored.

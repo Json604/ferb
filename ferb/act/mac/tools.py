@@ -199,8 +199,9 @@ class MacAct(_Base):
                    "and is refused while the app reports that item disabled; escape dismisses an open sheet / "
                    "dialog / menu). Prefer semantic controls when available. After sending, inspect a fresh snapshot "
                    "rather than sending again to check. "
-                   "Never types passwords. When the background ways fail the result says so; only then, if the "
-                   "owner's screen may move to the app, call again with allow_foreground=true.")
+                   "Never types passwords. If this method fails, inspect other background methods such as mac.pointer. "
+                   "allow_foreground=true deliberately uses the owner's desktop and mouse; do not select it merely "
+                   "because a background method failed.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
 
@@ -216,8 +217,8 @@ class MacAct(_Base):
         amount: int | None = Field(default=None, ge=1, le=50, description="scroll: maximum steps; stops at a measured boundary or unconfirmed progress")
         window: str | None = Field(default=None, description="scroll without an element: the window to scroll "
                                                              "(title or id from mac_snapshot)")
-        allow_foreground: bool = Field(default=False, description="last resort: the app may be brought in front of "
-                                       "the owner (their screen moves); only after the background ways failed")
+        allow_foreground: bool = Field(default=False, description="explicit shared-desktop mode: activates the app and "
+                                       "may move the owner's cursor/Space. Leave false for background tasks")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(self._kind(args), Target(site=self._bundle(args)), content=getattr(args, "text"))
@@ -292,13 +293,12 @@ class MacScreenshot(_Base):
 class MacClick(_Base):
     name = "mac.click"
     description = ("Click at x, y (image pixels) in an app's latest mac_screenshot, for controls mac_snapshot doesn't "
-                   "list. In the background first: the app's own hit test finds the control under the point and "
-                   "presses it; for a window on the current desktop a click is posted to the app alone and kept if "
-                   "something changed. The real mouse (the app brought in front of the owner, pausing while they use "
-                   "theirs) only with allow_foreground=true. Refused if the window moved or something is over that "
-                   "point: take a new screenshot. Type afterwards with mac_act (type / key). In messaging / calling "
-                   "apps (WhatsApp, Slack, Zoom, Teams, FaceTime, Messages, Telegram, Discord, Signal, Skype) say "
-                   "what the click is for: purpose call / send (with contact) or other.")
+                   "list. Tries Accessibility, then the same exact window-targeted background transport as mac.pointer, "
+                   "including other Spaces when supported. No automatic foreground retry after dispatch. "
+                   "Take a fresh screenshot to verify delivery; an unchanged AX tree does not prove failure. "
+                   "Without that transport the legacy process route is limited to the current Space. "
+                   "allow_foreground=true permits shared-desktop input; it can move focus and the real cursor. "
+                   "Leave false for background work. Type afterwards with mac_act (type / key).")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
 
@@ -312,8 +312,8 @@ class MacClick(_Base):
                                                           "the app shows it (context for the activity log)")
         fallback_reason: str | None = Field(None, max_length=300, description=(
             "browsers only: why the browser_* tools (FERB extension) can't do this"))
-        allow_foreground: bool = Field(default=False, description="last resort: the app may be brought in front of "
-                                       "the owner (their screen moves); only after the background ways failed")
+        allow_foreground: bool = Field(default=False, description="explicit shared-desktop fallback: activates the app "
+                                       "and may move the owner's cursor/Space. Leave false for background tasks")
 
     def _communication(self, args: BaseModel) -> bool:
         return self._bundle(args).lower() in communication_bundles()
@@ -358,7 +358,8 @@ class MacPointer(MacClick):
                    "Window-targeted background input where supported (legacy fallback limited to the current Space); never "
                    "intentionally moves the global cursor or "
                    "activates the app. Prefer AX actions for named controls. Input delivered is not task success: "
-                   "take a new screenshot to verify. Use browser tools for browser pages. Declare effect and why.")
+                   "take a new screenshot to verify. Prefer connected browser tools for pages; this is also a native "
+                   "fallback when their extension is unavailable. effect and why are optional annotations.")
 
     class Input(MacClick.Input):
         action: Literal["click", "dblclick", "rightclick", "hover", "drag", "scroll"]

@@ -15,6 +15,7 @@ class WindowRoute:
         self.library = library
 
     def post(self, event: Any, pid: int, window: int, point: tuple[float, float]) -> None:
+        """Keep the event's global screen point; stamp a separate window-local point for native hit testing."""
         from ferb.sense.watchers.owner_input import FERB_EVENT_MARK
         ptr = event.__c_void_p__()
         for field, value in ((40, pid), (51, window), (91, window), (92, window), (42, FERB_EVENT_MARK)):

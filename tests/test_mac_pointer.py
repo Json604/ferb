@@ -98,6 +98,46 @@ def test_window_route_attempts_other_space_without_activation(monkeypatch):
     assert posted == ['hover'] and apps.activated == []
 
 
+@pytest.mark.parametrize('allow_foreground', [False, True])
+def test_screenshot_click_uses_window_route_without_foreground_retry(monkeypatch, allow_foreground):
+    """The Gmail fallback must reach the same background transport as mac.pointer, even off Space."""
+    import ferb.act.mac.driver as driver
+    d, _, shots, apps, posted = vision(monkeypatch)
+    backend = object()
+    monkeypatch.setattr(driver, 'load_route', lambda: backend)
+    shots.on_screen = lambda wid: False
+
+    def gesture(start, end, kind, pid, **kwargs):
+        assert (start, end, kind, pid) == ((300.0, 200.0), (300.0, 200.0), 'click', 11)
+        assert kwargs['route'] is backend and kwargs['window'] == 110
+        assert kwargs['window_origin'] == (100.0, 50.0)
+        # No measurable AX change: dispatch must not be repeated through another route.
+        return [Step('down', lambda: posted.append('down')), Step('up', lambda: posted.append('up'))], lambda: None
+
+    monkeypatch.setattr(driver, 'pointer_steps', gesture)
+    async def go():
+        _, shot, _ = await d.screenshot('Notes')
+        result = await d.click_at('Notes', shot.id, 400, 300, allow_foreground=allow_foreground)
+        assert result.ok and 'not confirmed changed' in result.detail
+        assert posted == ['down', 'up'] and apps.activated == []
+        with pytest.raises(StaleRef):
+            await d.click_at('Notes', shot.id, 400, 300)
+    asyncio.run(go())
+
+
+def test_screenshot_click_rejects_reassigned_window_before_ax_or_pointer(monkeypatch):
+    from ferb.act.mac.screenshot import Window
+    d, ax, shots, apps, posted = vision(monkeypatch)
+    async def go():
+        _, shot, _ = await d.screenshot('Notes')
+        shots.window = lambda wid: Window(wid, 999, shot.bounds, 'different process')
+        ax.hit_el = 'Export'
+        with pytest.raises(StaleRef):
+            await d.click_at('Notes', shot.id, 400, 300)
+        assert not posted and not apps.activated
+    asyncio.run(go())
+
+
 def test_pointer_scroll_stops_without_container_evidence(monkeypatch):
     import ferb.act.mac.driver as driver
     d, _, _, apps, posted = vision(monkeypatch)

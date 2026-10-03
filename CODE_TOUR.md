@@ -1,4 +1,4 @@
-# FERB code tour — 0.22.0
+# FERB code tour — 0.22.1
 
 Start with [the current contract](docs/ORCHESTRATED_CONTROL_022.md). This tour follows the live execution path;
 older pure policy helpers remain disconnected. `vibed/` is abandoned and must not be read or reused.
@@ -64,7 +64,10 @@ handling. They do not infer permission from app names, labels or keyboard words.
 
 `screenshot.py` captures one window in memory. `pointer_at` binds image coordinates to that window, using the optional
 window-targeted backend where available. `input.py` posts gestures under the input lock and releases buttons on
-cancellation. `mac.pointer action=scroll` uses wheel input; distance and batch count are model-selected.
+cancellation. `click_at` now shares this route after AX and does not replay unconfirmed input in the foreground.
+Screen points stay on CGEvents; the window route receives local points with the captured window origin removed.
+`mac.pointer action=scroll` uses wheel input; distance and batch count are model-selected. See
+`docs/BACKGROUND_POINTER_0221.md` for the focus-stealing failure, research and measured coordinate correction.
 `_scroll` handles native semantic scrolling, container targeting and progress. See `docs/BACKGROUND_SCROLL_021.md`
 for transport constraints and the precise scope of previous owner verification.
 
@@ -138,5 +141,6 @@ Run `.venv/bin/python -m pytest -q` and `.venv/bin/python -m mypy ferb/core`. Th
 `docs/TEST_MIGRATION_022.md`; pure legacy-policy tests do not describe current authorization behavior.
 
 Use `ferb stats` for recorded outcomes and `ferb trace` for a concrete attempt. Owner-supervised live acceptance
-checks actual task results and disturbance, separately from detector/driver claims. Installation and live acceptance
-of 0.22 remain pending. Do not run old live policy-gate scenarios as current behavior without updating their expectations.
+checks actual task results and disturbance, separately from detector/driver claims. The owner ran the 0.22 assignment
+task; the resulting 0.22.1 click fix is not installed yet. See `docs/BACKGROUND_POINTER_0221.md` for remaining acceptance.
+Do not run old live policy-gate scenarios as current behavior without updating their expectations.

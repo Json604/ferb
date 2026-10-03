@@ -1,4 +1,4 @@
-# FERB architecture — 0.22.0
+# FERB architecture — 0.22.1
 
 Current implementation on `astra/version`. The owner's 2026-10-03 design replaces the old read/actor and effect-gate
 contracts. Read [agent-directed control](docs/ORCHESTRATED_CONTROL_022.md) first. Historical documents and changelog
@@ -81,7 +81,9 @@ that has no visible effect is not reported as a completed task.
 
 `mac.pointer` supports screenshot-bound click, hover, drag and wheel scroll. Coordinates must match the captured
 window. Window-targeted delivery is attempted where available; transport limitations are reported rather than
-solved by switching Spaces. Native browser fallback is available for the agent to choose.
+solved by switching Spaces. Native browser fallback is available for the agent to choose. `mac.click` shares this
+transport after AX. A dispatch is never automatically replayed as a foreground click because AX did not change.
+The event carries screen coordinates and a separate window-local point; see [pointer evidence](docs/BACKGROUND_POINTER_0221.md).
 
 For scroll, the agent chooses distance and batch count. Batches are bounded operations, not task-length limits.
 A stopped batch or unchanged viewport is not proof of reaching the bottom. Lazy-loading pages require fresh

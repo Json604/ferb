@@ -62,6 +62,15 @@ def test_trace_shows_scroll_direction_and_amount():
     assert '↓' in label and 'amount=12' in label and 'x=20' in label
 
 
+def test_trace_exposes_shared_desktop_mode():
+    from ferb.cli.admin import _span_text
+    for enabled in (True, False):
+        label, _ = _span_text({'kind': 'tool.call', 'error': None,
+                              'input': {'tool': 'mac.click', 'args': {'app': 'Google Chrome',
+                                        'x': 100, 'y': 200, 'allow_foreground': enabled}}, 'output': {}}, False)
+        assert f'allow_foreground={enabled}' in label
+
+
 def test_container_progress_tracks_visible_children_without_scrollbar_values(monkeypatch):
     from ferb.act.mac import accessibility as ax
     state = {'offset': 0}
