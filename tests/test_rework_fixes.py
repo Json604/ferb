@@ -105,9 +105,15 @@ def test_extension_wait_and_backoff_are_bounded() -> None:
     """background.js: `wait` looped forever after the daemon gave up, and the reconnect backoff reset itself."""
     js = Path("extensions/chromium/background.js").read_text()
     assert "while (Date.now() < deadline)" in js and 'return { met: false, detail: "timeout" }' in js
-    assert "retryMs = 1000; return;" in js                       # only once the daemon answered (welcome)
-    assert js.count("retryMs = 1000") == 2                       # the declaration and the welcome reset
-    assert json.loads(Path("extensions/chromium/manifest.json").read_text())["version"] >= "0.6.7"
+    from tests.test_browser_recovery import worker
+    result = worker('''(async () => {
+      retryMs = 60000; refused = 'old version';
+      await onDaemon({type: 'welcome', gen: 4});
+      return {retryMs, refused, gen};
+    })()''')
+    assert result == {'retryMs': 1000, 'refused': None, 'gen': 4}
+    from ferb.act.browser.ext_protocol import version_tuple
+    assert version_tuple(json.loads(Path("extensions/chromium/manifest.json").read_text())["version"]) >= (0, 6, 7)
 
 
 def test_worker_prompt_matches_the_gateway_on_approvals() -> None:

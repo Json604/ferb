@@ -101,6 +101,56 @@ OWNER = {"browser:read", "browser:act"}
 
 # ---------- pairing, 21.16 ----------
 
+def test_reinstalled_extension_is_reported_without_claiming_a_profile(bd: Any) -> None:
+    d, launched = bd
+    old = pair(d, launched, "Work")
+    old.wait_for(lambda: old.gen is not None)
+    old.kill()
+    old.wait_for(lambda: d.daemon.hub.bridges[('chrome', 'Profile 1')].conn is None)
+    fresh = FakeExtension(d.daemon.home)
+    fresh.connect()
+    fresh.wait_for(lambda: fresh.install_id in d.daemon.hub.unpaired)
+    c = Client(d.sock)
+    try:
+        report = c.call('browsers.list')
+    finally:
+        c.close()
+        fresh.kill()
+    assert report['unpaired_connections'] == {'chrome': 1}
+    work = next(p for p in report['profiles'] if p['name'] == 'Work')
+    assert work['paired'] and not work['connected']
+    assert work['version'] == ''  # a disconnected runtime has no current version
+    assert work['last_version']
+
+
+def test_bad_pairing_hello_reports_repair_without_attaching(bd: Any) -> None:
+    d, launched = bd
+    ext = pair(d, launched, 'Work')
+    ext.wait_for(lambda: ext.gen is not None)
+    ext.kill()
+    ext.key = b'x' * 32
+    ext.connect()
+    try:
+        ext.wait_for(lambda: ext.refused is not None)
+        assert 'pairing failed (bad_mac)' in ext.refused
+        assert d.daemon.hub.bridges[('chrome', 'Profile 1')].conn is None
+    finally:
+        ext.kill()
+
+
+def test_browser_cli_distinguishes_cached_version_and_unpaired_connection():
+    import io
+    from types import SimpleNamespace
+    from ferb.cli.admin import browsers
+    report = {'profiles': [{'browser': 'chrome', 'folder': 'Profile 2', 'name': 'scaler', 'email': '',
+                           'ferb_identity': False, 'paired': True, 'connected': False, 'refused': None,
+                           'version': '0.9.0'}], 'unpaired_connections': {'chrome': 1}}
+    out = io.StringIO()
+    browsers(SimpleNamespace(call=lambda _: report), None, None, None, out)
+    assert 'last connected version 0.9.0' in out.getvalue()
+    assert 'live extension connection(s) have no pairing' in out.getvalue()
+    assert 'ferb browsers pair <profile> --browser chrome' in out.getvalue()
+
 def test_pairing_binds_the_profile_and_unpaired_installs_cannot_act_or_report(bd: Any) -> None:
     d, launched = bd
     stranger = FakeExtension(d.daemon.home)

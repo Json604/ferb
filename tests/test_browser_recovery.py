@@ -105,3 +105,79 @@ def test_frame_offsets_use_identity_not_duplicate_urls_or_names() -> None:
       return composeFrames(frames);
     })()''')
     assert result == {"0": [0, 0], "1": [300, 400], "2": [10, 20]}
+
+
+def test_refusal_does_not_permanently_disable_reconnection() -> None:
+    result = worker('''(async () => {
+      let connected = 0;
+      chrome.runtime.connectNative = () => { connected++; return {
+        onMessage: {addListener() {}}, onDisconnect: {addListener() {}}, postMessage() {}, disconnect() {}}; };
+      port = null; refused = "old protocol";
+      await ensurePort();
+      return {connected};
+    })()''')
+    assert result['connected'] == 1
+
+
+def test_local_extension_update_waits_for_command_and_preserves_pairing() -> None:
+    result = worker('''(async () => {
+      const local = {ferb: {installId: "existing", key: "keep", seq: 42}};
+      chrome.storage.local = {get: async () => structuredClone(local), set: async x => Object.assign(local, x)};
+      chrome.runtime.getManifest = () => ({version: "0.10.0"});
+      chrome.runtime.getURL = p => "chrome-extension://test/" + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      globalThis.fetch = async (url, opts) => {
+        if (!url.endsWith('/manifest.json') || opts.cache !== 'no-store') throw Error('wrong source');
+        return {ok: true, json: async () => ({version: "0.10.1"})};
+      };
+      activeCommands = 1;
+      await checkExtensionUpdate(); const busyReloads = reloads;
+      activeCommands = 0;
+      await checkExtensionUpdate(); await checkExtensionUpdate();
+      return {busyReloads, reloads, pairing: local.ferb};
+    })()''')
+    assert result == {'busyReloads': 0, 'reloads': 1,
+                      'pairing': {'installId': 'existing', 'key': 'keep', 'seq': 42}}
+
+
+def test_update_does_not_reload_for_same_or_older_bundle() -> None:
+    result = worker('''(async () => {
+      chrome.runtime.getManifest = () => ({version: "0.10.0"});
+      chrome.runtime.getURL = p => "chrome-extension://test/" + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      for (const version of ["0.10.0", "0.9.9"]) {
+        globalThis.fetch = async () => ({ok: true, json: async () => ({version})});
+        await checkExtensionUpdate();
+      }
+      return {reloads};
+    })()''')
+    assert result == {'reloads': 0}
+
+
+def test_update_waits_between_commands_while_task_tab_is_still_owned() -> None:
+    result = worker('''(async () => {
+      chrome.runtime.getManifest = () => ({version: "0.10.0"});
+      chrome.runtime.getURL = p => "chrome-extension://test/" + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      globalThis.fetch = async () => ({ok: true, json: async () => ({version: "0.10.1"})});
+      ownedTabs = async () => [{id: 'task', tab_id: 7}];
+      await checkExtensionUpdate();
+      return {reloads};
+    })()''')
+    assert result == {'reloads': 0}
+
+
+def test_update_rechecks_command_started_during_async_storage_write() -> None:
+    result = worker('''(async () => {
+      const local = {};
+      chrome.storage.local = {get: async () => structuredClone(local), set: async x => {
+        Object.assign(local, x); if(x.ferbUpdateAttempt) activeCommands = 1;
+      }};
+      chrome.runtime.getManifest = () => ({version: "0.10.0"});
+      chrome.runtime.getURL = p => "chrome-extension://test/" + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      globalThis.fetch = async () => ({ok: true, json: async () => ({version: "0.10.1"})});
+      await checkExtensionUpdate();
+      return {reloads, attempt: local.ferbUpdateAttempt};
+    })()''')
+    assert result == {'reloads': 0, 'attempt': None}

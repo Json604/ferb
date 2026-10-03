@@ -1,9 +1,13 @@
-# What FERB can do (0.22.1)
+# What FERB can do (0.23.0)
 
 Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). The owner reports improved live task progress; 0.22.1 fixes the observed foreground-click fallback. See [pointer evidence](docs/BACKGROUND_POINTER_0221.md) for current acceptance limits.
 
 A checklist for trying FERB out. Each row gives an example request, what it needs, how it is verified, and known
 limits. Every row was checked against the code or the recorded runs on 2026-10-02.
+
+Extension maintenance (0.23): `ferb browsers extension install` prepares a stable bundle; 0.10+ extensions reload
+new local versions when idle. Real Chrome migration/update preserved pairing; initial per-profile installation
+and Developer mode remain required. [Evidence and limits](docs/EXTENSION_LIFECYCLE_023.md).
 
 **Verified**
 - **Owner-verified run**: the owner watched it happen (`ferb watch`, a session recorded in `CHANGELOG.md`, or the

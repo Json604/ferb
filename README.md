@@ -7,7 +7,7 @@ when a worker cannot continue. Setup collects access once. The agents interpret 
 unrequested final outcome only after the work is ready for review. “Send Rahul the deck” already authorizes sending;
 “get the deck ready for Rahul” calls for a final choice before sending.
 
-- **Version:** 0.22.1 (see [CHANGELOG.md](CHANGELOG.md)). Background click fix in this checkout; installation and full-task acceptance pending. [Pointer evidence](docs/BACKGROUND_POINTER_0221.md).
+- **Version:** 0.23.0 (see [CHANGELOG.md](CHANGELOG.md)). Managed extension updates and connection diagnostics; see [migration and evidence](docs/EXTENSION_LIFECYCLE_023.md). Full-task acceptance remains pending.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed on macOS 26.
 - **Interface:** the CLI, plus push-to-talk. No GUI, menu-bar item or web dashboard. FERB.app (for push-to-talk)
   runs in the background with no window, Dock icon or menu-bar item.
@@ -27,7 +27,7 @@ Plain `ferb chat` resumes the last conversation across CLI and daemon restarts; 
 | Everything | macOS on Apple silicon; [uv](https://docs.astral.sh/uv/) (setup installs a dedicated Python 3.12 and FERB's venv) |
 | The default runtime | Node.js with `npm` (setup installs the pinned Codex 0.157.1 into `~/.ferb/node`); Codex signed in for your macOS user. The model is pinned in `ferb/runtimes/codex_exec.py` (`MODEL`) |
 | The Claude runtime (optional) | Claude signed in for your macOS user (the Agent SDK is a Python dependency; FERB clears `ANTHROPIC_API_KEY` for its runs) |
-| Browser control (optional) | Google Chrome and/or Brave, with the FERB extension (`extensions/chromium`, version 0.9.0) loaded unpacked in each profile you pair |
+| Browser control (optional) | Google Chrome and/or Brave, with FERB extension 0.10.0 loaded unpacked from `~/.ferb/extensions/chromium` in each profile you pair |
 | FERB's own accounts (optional) | A Chrome profile that holds only FERB's Google account |
 | Jev decisions (optional) | A Jev API key (shadow mode by default; ARCHITECTURE.md §5) |
 | Push-to-talk (optional) | Xcode command-line tools (`swiftc`) and a code-signing certificate named "FERB Local Code Signing" in your login keychain |
@@ -48,12 +48,12 @@ account sign-in complete setup. New apps or changed binaries may still require m
 `ferb setup --update` reinstalls this checkout and restarts the installed daemon. A pre-0.22 update offers permission
 collection once, recording `setup.permissions_version=22`. Missing/skipped grants remain visible in doctor.
 
-**Browsers.** Pair each profile FERB may use: `ferb browsers pair [--browser chrome|brave] "<profile name>"`. If the
-extension isn't installed there yet, pairing walks you through Load unpacked (Chrome only allows installing an
-unpacked extension by hand), waits until the browser has it, then pairs. `ferb browsers` lists profiles and whether
-they're connected.
-After an extension update, reload
-the unpacked extension in each paired profile: the daemon refuses extensions older than 0.9.0 at hello.
+**Browsers.** `ferb browsers extension install` prepares the managed extension and native host; `ferb browsers
+extension path` prints its directory. Load unpacked once per profile with Developer mode enabled, then pair it:
+`ferb browsers pair [--browser chrome|brave] "<profile name>"`. `ferb browsers` distinguishes connected profiles,
+historical versions and unpaired live installs. Subsequent setup updates refresh the managed files; extension 0.10.0
+reloads newer local versions when idle. Existing repository-loaded installations need a [one-time migration](docs/EXTENSION_LIFECYCLE_023.md)
+before updating the daemon; it requires extension 0.10.0 or newer.
 
 **Push-to-talk.** `ferb setup --voice` builds and signs `~/.ferb/FERB.app`, asks once for Microphone and Speech
 Recognition, and turns push-to-talk on. Hold Right Option, speak, let go (a hold under 0.3 s is a tap and does

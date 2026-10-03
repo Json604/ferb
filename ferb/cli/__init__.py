@@ -81,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
 
     bp = sub.add_parser("browsers", help="browser profiles, pairing and connection status")
     bsub = bp.add_subparsers(dest="bcmd")
+    extension = bsub.add_parser("extension", help="prepare or locate FERB's managed browser extension")
+    extension.add_argument("action", choices=["install", "path"], nargs="?", default="path")
     for name, help_ in (("pair", "connect a profile (the FERB extension must be loaded there)"),
                         ("unpair", "forget a profile's pairing")):
         x = bsub.add_parser(name, help=help_)
@@ -146,6 +148,20 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         except KeyboardInterrupt:
             return 130
+    if args.cmd == "browsers" and args.bcmd == "extension":
+        from ferb.device.extensions import extension_path, install_extension
+        from ferb.device.install import NATIVE_HOSTS_DIRS, Installer
+        from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+        if args.action == "install":
+            target = install_extension(ferb_home())
+            Installer(ferb_home(), native_hosts_dirs=NATIVE_HOSTS_DIRS,
+                      extension_ids=(FERB_EXTENSION_ID,)).write_native_host()
+            print(f"Extension files and native host prepared: {target}")
+            print("Existing managed installations reload when idle. For a new profile, open chrome://extensions, "
+                  "enable Developer mode and Load unpacked from this path, then `ferb browsers pair <profile>`.")
+            return 0
+        print(extension_path(ferb_home()))
+        return 0
     if args.cmd in ("setup", "doctor", "uninstall"):
         from ferb.cli import setup as setup_cmd
         from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID

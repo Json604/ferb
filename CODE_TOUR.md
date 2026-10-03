@@ -1,7 +1,12 @@
-# FERB code tour — 0.22.1
+# FERB code tour — 0.23.0
 
 Start with [the current contract](docs/ORCHESTRATED_CONTROL_022.md). This tour follows the live execution path;
 older pure policy helpers remain disconnected. `vibed/` is abandoned and must not be read or reused.
+
+Extension lifecycle: `device/extensions.py` stages the packaged bundle at a stable installed path; `device/install.py`
+refreshes it during setup. `extensions/chromium/background.js` checks the local manifest on its alarm, defers reload
+until task resources are idle, and reconnects with existing credentials. `Hub` returns pairing diagnostics and
+`browsers.list` reports unpaired connections separately. See `docs/EXTENSION_LIFECYCLE_023.md`.
 
 ## 0. Types and registry
 

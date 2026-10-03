@@ -15,6 +15,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `CODE_TOUR.md` | the flows, by `path:function` |
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
+| `docs/EXTENSION_LIFECYCLE_023.md` | Managed extension install/update, lost-pairing repair, migration and Chrome verification |
 | `docs/BACKGROUND_POINTER_0221.md` | Native click routing, screen/window coordinate correction, research and live acceptance |
 | `docs/BACKGROUND_SCROLL_021.md` | Window-targeted scrolling, source research and owner-supervised verification |
 | `docs/BROWSER_DEFAULT_0201.md` | Personal profiles only on explicit direction; disconnected extension diagnostics and no visible wake fallback |
@@ -75,12 +76,14 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
   what and why; accurately identify contributors.
 - This session uses `astra/version` only; no edits on another branch. The owner merges and pushes. Report what was built, what is uncertain, and what the docs now
   say that the code doesn't do.
-- Extension changes: bump `extensions/chromium/manifest.json` and the daemon's minimum version together; the owner
-  reloads the unpacked extension in each paired profile.
+- Extension changes: bump `extensions/chromium/manifest.json` and the daemon's minimum version together. Setup
+  publishes the managed bundle; 0.10+ reloads newer local versions when idle. First-time install/migration requires
+  the owner's browser setup; see `docs/EXTENSION_LIFECYCLE_023.md`. Never silently restart personal browsers.
 
 ## What's next (see PROGRESS.md "Next")
 
-Finish owner verification of the 0.22.1 native click fix; install only after owner authorization. Reload the scaler
-extension to protocol 5 and repeat the Gmail → coding-session task, verifying exact model settings and delegation.
+Scaler pairing was repaired and confirmed connected. Migrate existing extensions to the managed folder and 0.10.0
+before an owner-authorized 0.23 daemon update. Finish owner verification of the native click fix and repeat the
+Gmail → coding-session task, verifying exact model settings and delegation.
 Procedure memory (how a task was done, recalled on similar requests); real probes of Electron apps and same-Space
 occluded windows; Safari acting; the owner's acceptance sections B–H run and scored.

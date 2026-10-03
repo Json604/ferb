@@ -13,7 +13,10 @@ importScripts("pointer.js");
 let port = null;
 let gen = null;                      // connection generation, assigned by the daemon ("welcome" / "paired")
 let retryMs = 1000;
-let refused = null;                  // the daemon refused this install (e.g. protocol mismatch): stop retrying
+let refused = null;
+let activeCommands = 0;
+let updateCheck = null;
+let handshakeTimer = null;
 const outbox = [];                   // queued while disconnected (bounded)
 const OUTBOX_MAX = 200;
 const VIEWPORT = { width: 1280, height: 900 };   // Emulation.setDeviceMetricsOverride for FERB's own tabs (2.8)
@@ -73,27 +76,91 @@ function flushOutbox() { while (outbox.length && port) port.postMessage(outbox.s
 
 // ---------- connection ----------
 
-async function ensurePort() {
-  if (port || refused) return;
-  try { port = chrome.runtime.connectNative(FERB_HOST); } catch (_) { port = null; return; }
-  gen = null;
-  port.onMessage.addListener(onDaemon);
-  port.onDisconnect.addListener(() => {
-    void chrome.runtime.lastError;   // read it, or Chrome logs "Unchecked runtime.lastError" (spike 12)
-    port = null; gen = null;
-    for (const [tabId, tab] of TABS) if (tab.gesture) cancelPointer(tabId, tab.gesture.id);
-    setTimeout(ensurePort, retryMs);
-    retryMs = Math.min(retryMs * 2, 60000);
-  });
+async function connectionStatus(state, error = "") {
+  await chrome.storage.session.set({ferbConnection: {state, error: String(error).slice(0, 300),
+    version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL, at: Date.now()}});
+}
+
+function newerVersion(a, b) {
+  const aa = a.split('.').map(Number), bb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(aa.length, bb.length); i++) {
+    if ((aa[i] || 0) !== (bb[i] || 0)) return (aa[i] || 0) > (bb[i] || 0);
+  }
+  return false;
+}
+
+async function checkExtensionUpdate() {
+  if (updateCheck) return updateCheck;
+  updateCheck = (async () => {
+    // Only our local bundle. No remote code or browser/profile switching.
+    const response = await fetch(chrome.runtime.getURL('manifest.json'), {cache: 'no-store'});
+    if (!response.ok) return;
+    const disk = await response.json(), current = chrome.runtime.getManifest().version;
+    if (typeof disk.version !== 'string' || !newerVersion(disk.version, current)) return;
+    if (activeCommands || [...TABS.values()].some(t => t.gesture || t.attached) || (await ownedTabs()).length) return;
+    const {ferbUpdateAttempt} = await chrome.storage.local.get('ferbUpdateAttempt');
+    const attempt = current + '->' + disk.version;
+    if (ferbUpdateAttempt === attempt) return;  // a failed reload must not loop forever
+    await chrome.storage.local.set({ferbUpdateAttempt: attempt});  // never overwrite pairing state
+    await connectionStatus('updating', 'Loading local extension ' + disk.version);
+    const live = await ownedTabs();
+    if (activeCommands || [...TABS.values()].some(t => t.gesture || t.attached) || live.length) {
+      await chrome.storage.local.set({ferbUpdateAttempt: null});
+      return;
+    }
+    chrome.runtime.reload();
+  })().catch(e => console.warn('FERB update check:', String(e.message || e))).finally(() => {updateCheck = null;});
+  return updateCheck;
+}
+
+async function announceHello() {
   const st = await install(), s = await session();
   await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                         browser: navigator.brave ? "brave" : "chrome", paired: !!st.key,
                         owned: await ownedTabs(), seen: s.order.slice(-200).map((id) => ({ id, status: s.seen[id] })) });
 }
 
+async function ensurePort() {
+  if (port) return;
+  try { port = chrome.runtime.connectNative(FERB_HOST); }
+  catch (e) { port = null; await connectionStatus('disconnected', e.message || e); return; }
+  const opened = port;
+  let closeReason = '';
+  gen = null;
+  port.onMessage.addListener(onDaemon);
+  port.onDisconnect.addListener(() => {
+    const reason = chrome.runtime.lastError?.message || closeReason || 'Native connection closed';
+    if (port !== opened) return;    // a late disconnect must not clear a replacement connection
+    clearTimeout(handshakeTimer);
+    port = null; gen = null;
+    connectionStatus('disconnected', reason);
+    console.warn('FERB disconnected:', reason);
+    for (const [tabId, tab] of TABS) if (tab.gesture) cancelPointer(tabId, tab.gesture.id);
+    setTimeout(ensurePort, retryMs);
+    retryMs = Math.min(retryMs * 2, 60000);
+  });
+  handshakeTimer = setTimeout(() => {
+    if (port === opened && gen === null) {
+      closeReason = 'FERB did not answer the connection handshake within 15 seconds';
+      opened.disconnect();
+    }
+  }, 15000);
+  try { await announceHello(); }
+  catch (e) { await connectionStatus('disconnected', e.message || e); opened.disconnect(); }
+}
+
 async function onDaemon(m) {
-  if (m.type === "welcome") { gen = m.gen; retryMs = 1000; return; }   // backoff resets only once the daemon answered
+  if (m.type === "welcome") {
+    clearTimeout(handshakeTimer); refused = null; gen = m.gen; retryMs = 1000;
+    await connectionStatus('connected'); return;
+  }
+  if (m.type === "pairing_required") {
+    clearTimeout(handshakeTimer); gen = null;
+    await connectionStatus('pairing_required', 'This extension has no pairing; run ferb browsers pair for its profile');
+    return;
+  }
   if (m.type === "paired" && m.key) {
+    clearTimeout(handshakeTimer); refused = null;
     await serially(async () => {
       const st = await install();
       st.key = m.key; st.seq = 0;
@@ -105,19 +172,33 @@ async function onDaemon(m) {
                           browser: navigator.brave ? "brave" : "chrome", paired: true, owned: [], seen: [] });
     return;
   }
-  if (m.type === "refused") { refused = m.reason || "refused"; return; }
+  if (m.type === "refused") {
+    clearTimeout(handshakeTimer); gen = null; refused = m.reason || "refused";
+    await connectionStatus('refused', refused);
+    await checkExtensionUpdate(); return;
+  }
   if (m.type === "cmd") await onCommand(m);
 }
 
 chrome.runtime.onStartup.addListener(() => ensurePort());
 chrome.runtime.onInstalled.addListener(() => ensurePort());
 chrome.alarms.create("ferb-reconnect", { periodInMinutes: 0.5 });
-chrome.alarms.onAlarm.addListener(() => ensurePort());
+chrome.alarms.onAlarm.addListener(async () => {
+  await checkExtensionUpdate();
+  if (port && refused) await announceHello();  // retry after daemon updates too; refusal is not permanent
+  else await ensurePort();
+});
 chrome.runtime.onMessage.addListener((m) => { if (m && m.pairToken) send("pair", { token: m.pairToken }); });
 
 // ---------- commands ----------
 
 async function onCommand(m) {
+  activeCommands++;
+  try { await executeCommand(m); }
+  finally { activeCommands--; }
+}
+
+async function executeCommand(m) {
   if (m.gen !== gen) { await send("result", { id: m.id, gen: m.gen, status: "stale" }); return; }   // never replay
   const s = await session();
   if (s.seen[m.id]) { await send("result", { id: m.id, gen, status: "duplicate" }); return; }

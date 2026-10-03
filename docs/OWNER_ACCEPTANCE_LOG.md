@@ -49,3 +49,20 @@ receiver exposed a coordinate error equal to the window origin. The corrected si
 transitions were recorded. `tests/test_mac_pointer_real.py` passed in 1.98 s. The second owner verdict is pending.
 Each check closed only its own temporary Chrome process; no personal profile or installed daemon was changed.
 These checks do not establish acceptance for other gestures/apps or the full assignment task.
+
+## 2026-10-03 — scaler connection repaired; managed extension update
+
+The owner authorized the existing pairing method's one visible tab: “Yes—repair scaler now.” The CLI completed
+pairing for Chrome scaler; a fresh `browsers.list` returned paired=true, connected=true, version=0.9.0, refused=null.
+The current extension had fresh unpaired storage while the daemon remembered its older identity. No daemon or
+browser restart was needed. This is a connection repair, not a new background-task acceptance verdict.
+
+Branch 0.23's separate disposable-Chrome test migrated an existing unpacked installation to a managed folder,
+published a newer version, and waited for the real 30-second alarm. It preserved pairing and reconnected as 0.10.1
+in 32.98 s. No visible window opened and Chrome did not become frontmost. The setup uses a hidden test-owned
+settings page to enable Developer mode; early attempts without it correctly failed Chrome's reload requirement.
+The owner profiles were not used for these experiments. New release installation and Brave auto-update acceptance
+remain pending; scaler's successful repair remains live on the previously installed daemon.
+
+Final status: Chrome is no longer running. Scaler therefore has no current connection, but its installation UUID,
+pairing key and sequence match the daemon. Do not describe this closed-browser state as a recurrence of lost pairing.

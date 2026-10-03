@@ -1,6 +1,6 @@
 [project]
 name = "ferb"
-version = "0.22.1"
+version = "0.23.0"
 description = "FERB: personal agent runtime for macOS"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -30,6 +30,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["ferb"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"extensions/chromium" = "ferb/_extension"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

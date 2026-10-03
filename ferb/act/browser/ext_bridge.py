@@ -248,6 +248,11 @@ class Hub:
     async def _handle(self, conn: _Conn, m: Any) -> None:
         v = self.pairings.handle(m)
         if not v.accepted:
+            if m.type == "hello" and v.reason in {"bad_mac", "replay"}:
+                why = f"extension pairing failed ({v.reason}); run ferb browsers pair for this profile"
+                self.refused[m.install_id] = why
+                conn.writer.write(json.dumps({"type": "refused", "reason": why}).encode() + b"\n")
+                await conn.writer.drain()
             return                                           # unpaired / bad MAC / replay: dropped, nothing acts
         if v.reply is not None:                              # just paired: hand the key back on this connection
             self.unpaired.pop(m.install_id, None)
@@ -266,6 +271,8 @@ class Hub:
                 if b in ("chrome", "brave"):
                     self.unpaired[m.install_id] = b
                     conn.unpaired_install = m.install_id
+                conn.writer.write(json.dumps({"type": "pairing_required"}).encode() + b"\n")
+                await conn.writer.drain()
             return
         conn.install_id = m.install_id
         try:

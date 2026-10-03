@@ -1635,9 +1635,12 @@ class Daemon:
             out.append({"browser": p.browser, "folder": p.folder, "name": p.display_name, "email": p.email,
                         "ferb_identity": (p.browser, p.folder) == ferb,
                         "paired": b is not None, "identity": b.identity.value if b else None,
-                        "connected": bool(br and br.conn), "version": br.version if br else "",
+                        "connected": bool(br and br.conn), "version": br.version if br and br.conn else "",
+                        "last_version": br.version if br else "",
                         "refused": self.hub.refused.get(b.install_id) if b else None})
-        return {"profiles": out, "extension_ids": sorted(self.server.extension_ids())}
+        unpaired = list(self.hub.unpaired.values())
+        return {"profiles": out, "extension_ids": sorted(self.server.extension_ids()),
+                "unpaired_connections": {browser: unpaired.count(browser) for browser in sorted(set(unpaired))}}
 
     async def _browsers_pair(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Open the extension's own pairing page in that profile with a one-time token; wait for the pairing."""
@@ -1651,11 +1654,11 @@ class Daemon:
         if (p.browser, p.folder) == self._identity_profile():
             raise FerbError(f"{p.display_name} is FERB's own profile; it's paired as FERB (`ferb setup --identity`)")
         if self._profile_state(p) == "missing":                 # the extension first (owner's report 2026-10-01)
-            from ferb.device.install import repo_root
+            from ferb.device.extensions import extension_path
             browser_profiles.open_known_profile(p.browser, p.folder, "chrome://extensions", known,
                                                 background=False)   # the owner does the clicks: they must see it
             return {"paired": False, "needs_install": True, "browser": p.browser, "folder": p.folder,
-                    "name": p.display_name, "extension_dir": str(repo_root() / "extensions" / "chromium")}
+                    "name": p.display_name, "extension_dir": str(extension_path(self.home))}
         token = self.pairings.issue_token(p.browser, p.folder)
         wake = await self._open_pairing(p.browser, p.folder, token)
         timeout = float(params.get("timeout_s", 60))

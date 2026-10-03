@@ -207,9 +207,15 @@ def browsers(client: Client, cmd: str | None, profile: str | None, browser: str 
             state = f"refused: {p['refused']}"
         else:
             state = f"paired, {'connected' if p['connected'] else 'not connected'}" + \
-                    (f", extension {p['version']}" if p["version"] else "")
+                    (f", extension {p['version']}" if p["connected"] and p["version"] else "")
+        if not p['connected'] and (last := p.get('last_version') or p.get('version')):
+            state += f", last connected version {last}"
         email = f" <{p['email']}>" if p["email"] else ""
         print(f"{p['browser']:<7} {p['name']}{email} ({p['folder']}): {state}", file=out)
+    for browser, count in r.get('unpaired_connections', {}).items():
+        print(f"{browser}: {count} live extension connection(s) have no pairing. A reinstall can leave an old "
+              "profile pairing behind. Run `ferb browsers pair <profile> --browser " + browser +
+              "` in the intended profile; its identity cannot be inferred from this connection.", file=out)
     return 0
 
 

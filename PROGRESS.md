@@ -1,6 +1,18 @@
 # FERB progress
 
-## Where we are — version 0.22.1, branch `astra/version` (2026-10-03)
+## Where we are — version 0.23.0, branch `astra/version` (2026-10-03)
+
+Scaler pairing was repaired and its live connection verified with owner authorization. Its extension had new
+unpaired credentials while the daemon retained an old profile record. Reload alone was insufficient; the displayed
+0.9.0 was historical. Chrome subsequently stopped running; the repaired credentials still match the daemon.
+
+Version 0.23 adds a managed extension bundle, CLI preparation/path commands, idle local auto-reload in extension
+0.10.0, recoverable connection refusals and clearer unpaired/current-version diagnostics. A real disposable Chrome
+test preserved pairing through path migration and an alarm-driven 0.10.0 → 0.10.1 update (32.98 s). No visible window
+opened; full owner-task acceptance remains separate. The new release is not installed in the owner daemon yet.
+See `docs/EXTENSION_LIFECYCLE_023.md` for first-time migration and the Store publication boundary. No push.
+
+## Pointer work preceding 0.23
 
 The owner retried the scaler Gmail → coding-session task on 0.22 and reported much better progress, but repeated
 desktop/focus shifts. Its trace found a stale scaler extension (protocol 2, daemon requires 5) and five delivered

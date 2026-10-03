@@ -1,4 +1,4 @@
-# FERB architecture — 0.22.1
+# FERB architecture — 0.23.0
 
 Current implementation on `astra/version`. The owner's 2026-10-03 design replaces the old read/actor and effect-gate
 contracts. Read [agent-directed control](docs/ORCHESTRATED_CONTROL_022.md) first. Historical documents and changelog
@@ -90,6 +90,11 @@ A stopped batch or unchanged viewport is not proof of reaching the bottom. Lazy-
 inspection. Details and owner evidence: [background scrolling](docs/BACKGROUND_SCROLL_021.md).
 
 ## 7. Browser control
+
+Browser extension lifecycle is independent of task authorization: setup publishes a managed local bundle,
+extension 0.10+ reloads newer versions when task resources are idle, and the native handshake reports lost pairings.
+Initial browser installation/approval and account selection remain distinct. See
+[extension lifecycle](docs/EXTENSION_LIFECYCLE_023.md) for migration, diagnostics and live evidence.
 
 Chrome and Brave use the paired Chromium extension, native-messaging bridge and per-tab debugger sessions.
 `browser.*` serves owner profiles; `ferb_browser.*` serves FERB's profile. Task tabs are created inactive in a

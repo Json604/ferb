@@ -10,6 +10,27 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.23.0 — 2026-10-03 — Managed extension updates and lost-pairing diagnostics
+
+- Repair the owner's live scaler connection after explicit authorization: the current extension had new unpaired
+  credentials while FERB retained its older profile binding. Re-pairing restored a verified connection without a
+  browser or daemon restart. Repeated reload advice was insufficient for that state.
+- Package the extension with FERB and publish it at `~/.ferb/extensions/chromium` during setup/update. Add
+  `ferb browsers extension install` and `path`; publish the staged manifest last. New profile installation still
+  requires browser setup. OpenClaw-style Store installation needs a published Store listing; FERB has none.
+- Extension 0.10.0 checks newer local manifests on its existing alarm and reloads when commands, gestures,
+  debugger attachments and owned task tabs are idle. Preserve pairing state and prevent failed-reload loops.
+  Keep protocol 5 and bump the daemon's minimum extension version to 0.10.0 together with the manifest.
+- Remove permanent reconnect suppression after refusal, time out silent handshakes, retain disconnect diagnostics,
+  and report unpaired/bad-key/replay hellos without permitting actions. CLI separates current and historical
+  versions and reports unpaired live connections without guessing their browser profile.
+- Validation: **531 offline tests passed, 52 deselected** (112.59 s); real disposable Chrome path migration plus
+  automatic 0.10.0 → 0.10.1 reload passed (32.98 s), retaining authenticated pairing and opening no visible window.
+  Core mypy, JavaScript syntax, wheel build/bundled-resource lookup and whitespace checks passed. Replace an old
+  source-string backoff assertion with an executed handshake check and compare extension versions numerically.
+- New release is not installed in the owner daemon yet; no push. Chrome's Developer mode is required for unpacked
+  reloads. See `docs/EXTENSION_LIFECYCLE_023.md` for the one-time migration, research and acceptance limits.
+
 ## 0.22.1 — 2026-10-03 — Keep screenshot clicks on the background pointer route
 
 - Connect `mac.click` to the exact-window pointer transport after AX. Previously it bypassed that route and

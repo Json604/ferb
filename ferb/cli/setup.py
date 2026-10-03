@@ -425,8 +425,9 @@ def identity_setup(env: Env, name: str | None = None, chrome_data: Path = seed.C
 
 def _identity_pair(env: Env, name: str) -> bool:
     """Pair the extension in FERB's profile as identity FERB (section 9.6). Re-pairing asks the owner first."""
+    from ferb.device.extensions import extension_path
     env.ask(f"     Load the FERB extension in the “{name}” profile (chrome://extensions → Developer mode → Load "
-            f"unpacked → {repo_root() / 'extensions' / 'chromium'}), then press Enter ")
+            f"unpacked → {extension_path(env.inst.home)}), then press Enter ")
     confirm = False
     for _ in range(2):
         try:

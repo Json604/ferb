@@ -132,6 +132,8 @@ class Installer:
         """A copy (non-editable), reinstalled every time: that's what `--update` means."""
         self._ok(["uv", "pip", "install", "--quiet", "--python", str(self.venv_python), "--reinstall-package", "ferb",
                   str(source or repo_root())], "installing FERB into its venv")
+        from ferb.device.extensions import install_extension
+        install_extension(self.home)
 
     def plist(self) -> dict[str, object]:
         logs = self.home / "logs"
