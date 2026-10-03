@@ -10,6 +10,24 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.23.3 — 2026-10-03 — Inspect source evidence and recover incomplete coverage
+
+- Audit six calendar/WhatsApp tasks on installed 0.23.2: correct personal-calendar evidence falsely failed,
+  native checks lacked navigation, earlier group-name observations were inaccessible, and unknown coverage
+  ended as done. Source/app assumptions and incomplete date coverage were separate agent mistakes.
+- Give checkers the worker's installed capabilities and navigation on its existing task tabs. Preserve registered
+  parent validation, original ownership and unrelated-task isolation; remove the remaining read/actor scope list.
+- Add `task.evidence` to search/page actual redacted tool observations, including earlier views, errors and action
+  history. Exclude model reasoning, recursive evidence reads and images; restrict retrieval to the current task
+  or a checker's registered worker. Fresh reads remain necessary for changed state or image-only claims.
+- Route account observations to model judgment instead of literal-alias checks. Return false and unknown result
+  conditions to planning for retry/ask/finish; unresolved coverage never reports done or loses its missing conditions.
+- Update prompts for app/account resolution, official-source membership, date coverage, navigation verification
+  and concise blocker reports. Decisions remain with agents; no phrase gates or action/retry caps are added.
+- Validation: **566 offline tests passed, 52 deselected** (114.93 s); 47 focused checks, core mypy and whitespace
+  checks passed. No new live personal-app test or daemon restart. Owner acceptance after installation is pending;
+  see `docs/INSPECTION_RECOVERY_0233.md`. Extension 0.10.0 is unchanged.
+
 ## 0.23.2 — 2026-10-03 — Preserve owner app switches during browser operations
 
 - Trace diagnosis: a Chrome search tab finished loading after the owner switched from VS Code to Brave. The

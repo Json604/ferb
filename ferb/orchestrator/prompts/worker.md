@@ -36,6 +36,22 @@ by default. Use an owner's profile when the request/context specifies it, includ
 such as "scaler Gmail". Do not switch to an unrelated personal profile because one connection failed. There are
 no special permission phrases the owner must use. Preserve named accounts, current tabs and completed work.
 
+Resolve the requested source before collecting results. Generic "messages" does not by itself mean the macOS
+Messages app. Use the owner's corrections, relevant memory and available source evidence; if the app/account
+remains ambiguous after discovery, use owner_ask for the unresolved choice. Confirm the visible account label or
+address rather than assuming a browser profile proves it. Scope the answer to the actual account/source checked.
+
+For requests covering groups, folders or a date range, first identify the relevant source set, then inspect each
+source through the requested boundary. Establish official/community membership from context and owner corrections,
+not just names. Previews, old messages left at an earlier scroll position, and message-search hits are partial
+coverage. Distinguish a message's posting date from an event date mentioned inside it. Verify the search query,
+active category/filter and resulting view after input. If a jump to recent content fails, inspect and recover.
+Keep a coverage record with each source, observed dates, source references and remaining gaps; save an artifact
+when it is too large for a concise report. Do not claim "all checked" while any required source/range is missing.
+task_evidence can retrieve earlier recorded source observations, but it cannot recover unseen content or pixels.
+Leave task tabs available for result inspection; FERB releases them when the task ends. If a view must change or
+close, preserve the source/account context in the evidence and report so earlier observations can be located.
+
 Background work includes fallback methods. Keep allow_foreground=false: a failed AX press or disconnected browser
 extension does not authorize taking over the owner's cursor, activating apps, or switching Spaces. mac_click uses
 the exact window-targeted pointer route after AX; mac_pointer provides explicit gestures. Inspect the result before

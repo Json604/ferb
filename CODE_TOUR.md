@@ -1,4 +1,4 @@
-# FERB code tour — 0.23.2
+# FERB code tour — 0.23.3
 
 Start with [the current contract](docs/ORCHESTRATED_CONTROL_022.md). This tour follows the live execution path;
 older pure policy helpers remain disconnected. `vibed/` is abandoned and must not be read or reused.
@@ -89,8 +89,9 @@ snapshot. `browser_find` and `browser_scroll` inspect large/lazy-loaded pages; t
 Browser opens/wakes do not capture or restore the front app: the owner may switch while the extension responds.
 The extension still creates inactive tabs in its minimized window; see `docs/BROWSER_FOCUS_0232.md`.
 
-`Daemon._browser_read_parent` validates registered checker access to its worker's tab. `owned_by(..., read_only=True)`
-borrows that alias for inspection; other task tabs remain isolated and borrowed tabs cannot be edited or closed.
+`Daemon._inspection_parent` validates the registered parent, request, identity, device, tree and inherited scopes.
+`owned_by` borrows that worker's alias for inspection, including navigation/search; other task tabs remain isolated.
+The inspection prompt governs purpose rather than a read/actor gate. Ownership and cleanup stay with the worker.
 `Daemon._browser_context` supplies existing aliases to the checker. No automatic account-helper page is opened
 before a click. Explicit account inspection and sealed secret/login-code tools remain available.
 
@@ -105,12 +106,19 @@ on an absent owner. `Gateway.ask_login_code` uses hidden owner input without exp
 ## 5. Results and uncertainty
 
 `verify.py:Checks` handles observable file/driver checks. `Supervisor.verify` sends judgment or inconclusive checks
-to `_verifier`. `VerifierResult.met` accepts true, false or null. `_worker` returns false checks to orchestrator
-recovery; null is reported honestly. `_final` produces the answer and evidence.
+to `_verifier`. Account extractors supply observations for model judgment, not exact-string identity checks.
+`VerifierResult.met` accepts true, false or null. `_worker` returns both false and null checks to orchestrator
+recovery with structured findings. `_final` cannot mark unresolved coverage done and retains missing conditions.
 
-`_verifier` receives the full claim and artifact/evidence references, validates its result, and persists a terminal
+`_verifier` receives the worker's capabilities, full claim, preliminary observations and artifact/evidence references,
+validates its result, and persists a terminal
 checker state (including errors/cancellation). `WorkerRuns` resets reused attempts to running and saves full report
 traces. `_final` retains unmet checks across recovery and does not truncate the owner's answer.
+
+`evidence.py:TaskEvidence` exposes redacted `tool.call` spans through `task.evidence`: literal substring search,
+chronological list cursors and paged record text. Scope is the caller's exact task, or its registered parent worker
+validated by `_inspection_parent`. Evidence-tool calls and model spans are excluded. No screenshots are stored;
+the checker distinguishes recorded source observations from present state. `registry.add_evidence` installs it.
 
 `act/shell/tools.py:ShellStart` starts a task-owned process without waiting; `ShellWait` waits for actual exit and
 returns paged output/status. `ShellRead` also exposes exit codes. These share `ShellManager` ownership and cleanup;

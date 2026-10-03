@@ -415,7 +415,7 @@ class _TabDriver:
         self.hub, self.profiles, self.wake, self.launch = hub, profiles, wake, launch
         self.is_running: Callable[[str], bool] = browser_running  # is that browser running (tests replace it)
         self._tabs: dict[str, _Tab] = {}
-        self.read_parent: Callable[[str], str | None] = lambda task: None  # registered checker only, daemon supplied
+        self.inspection_parent: Callable[[str], str | None] = lambda task: None  # registered checker, daemon supplied
         self._n = 0
 
     async def _connected(self, br: Bridge) -> Bridge:
@@ -678,14 +678,14 @@ class _TabDriver:
     def claim(self, tab: TabRef, owner: str) -> None:
         self._tab(tab).owner = owner
 
-    def owned_by(self, tab_id: str, owner: str, *, read_only: bool = False) -> TabRef:
+    def owned_by(self, tab_id: str, owner: str) -> TabRef:
         t = self._tabs.get(tab_id)
-        if t is None or not (t.owner == owner or (read_only and self._accessible(t, owner))):
+        if t is None or not self._accessible(t, owner):
             raise Refused(f"no tab {tab_id} open for this task")
         return t.ref
 
     def _accessible(self, tab: _Tab, task: str) -> bool:
-        return tab.owner is not None and (tab.owner == task or tab.owner == self.read_parent(task))
+        return tab.owner is not None and (tab.owner == task or tab.owner == self.inspection_parent(task))
 
     def tab_url(self, tab_id: str) -> str | None:
         t = self._tabs.get(tab_id)

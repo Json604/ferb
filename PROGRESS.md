@@ -1,17 +1,31 @@
 # FERB progress
 
-## Where we are — version 0.23.2, branch `astra/version` (2026-10-03)
+## Where we are — version 0.23.3, branch `astra/version` (2026-10-03)
+
+The owner installed 0.23.2; the calendar/WhatsApp audit confirmed its code hash. It found an account false failure,
+checker navigation restricted by old read/actor scopes, earlier source observations unavailable to the checker,
+and incomplete coverage reported as done. 0.23.3 adds searchable/paged task observations, gives the checker task
+tools, interprets account facts through the agent and returns false/unknown conditions to planning. Updated prompts
+address app/account selection, official membership and full date coverage. See `docs/INSPECTION_RECOVERY_0233.md`.
+
+Validation: **566 offline tests passed, 52 deselected** (114.93 s), 47 focused checks, core mypy and whitespace
+checks passed. Installation and owner-observed acceptance of 0.23.3 remain pending. No live personal app was
+operated for this patch. Mission Control appears in the owner's screenshot; its relationship to stale-pointer
+errors is unproven, and no new pointer transport change was made. The owner's independent-disturbance verdict
+remains pending. Only `astra/version` may be pushed, without merging.
+
+## 0.23.1–0.23.2 checkpoint
 
 The search task at 13:06 exposed a browser focus race: while FERB opened its own Chrome tab, the owner moved
 to Brave; the completion callback reactivated VS Code. 0.23.2 removes automatic front-app restoration from
 browser opens and wakes. See `docs/BROWSER_FOCUS_0232.md`. The owner authorized pushing `astra/version` only,
 without merging. Validation: 556 offline tests passed, 52 deselected (115.18 s), plus core mypy and whitespace
-checks. Installation and live acceptance of both patches remain pending.
+checks. The owner subsequently installed the patches; independent focus/Space acceptance remains pending.
 
 The owner confirmed the Coursera → reminders → Claude FMI redo caused no disturbance. Source reads, eight pending
 reminders, the actual completed Claude session and the two-page PDF were audited. 0.23.1 fixes the discovered
 report/check mismatch, truncated checker context, stale verifier state and detached-launch monitoring approach.
-The requested conversation transcripts were exported privately outside Git. This patch is not installed yet;
+The requested conversation transcripts were exported privately outside Git. The patch is now installed;
 see `docs/COMPLETION_AUDIT_0231.md` for evidence, tests and limits.
 
 ## 0.23 deployment checkpoint

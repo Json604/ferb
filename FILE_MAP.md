@@ -32,6 +32,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `DESIGN_ONE_WORKER.md` | The design behind one worker per request, effects and `owner.ask`; implementation details live in ARCHITECTURE.md §§4–5. |
 | `BACKGROUND_POINTER_0221.md` | Foreground-click trace diagnosis, native coordinate correction, source research and owner-supervised Chrome check. |
 | `BROWSER_FOCUS_0232.md` | Search-task focus-race evidence, removal of stale app restoration and regression/acceptance limits. |
+| `INSPECTION_RECOVERY_0233.md` | Calendar/WhatsApp audit, searchable task observations, checker navigation, incomplete-coverage recovery and owner acceptance. |
 | `EXTENSION_LIFECYCLE_023.md` | Lost-pairing repair, managed extension updates, one-time migration, research and real Chrome evidence. |
 | `PLATFORM_MACOS.md` | Mac background-control mechanisms, probe evidence, owner observations and driver rung order. |
 | `PLATFORM_BROWSER.md` | Chromium background-control mechanisms, probe evidence and extension design. |
@@ -74,12 +75,12 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 |---|---|
 | `supervisor.py` | Chat planning, all-registry workers, typed model-directed recovery, question resolution and result checks; durable conversation context, reminders and schedules. |
 | `worker.py` | Runs one adapter attempt with a run token, liveness tracking, typed report and cancellation. No fixed action/task caps or report-keyword retry. |
-| `dag.py` | Read-scope constants for independent inspection; no identity/intent plan validation. |
+| `evidence.py` | Search/pagination over an exact task's redacted tool-call observations; registered checkers can inspect their worker's history. |
 | `schemas.py` | JSON schemas and pydantic models for every model output (supervisor outcome, task with targets and conditions, worker result, verifier, reconcile). |
 | `availability.py` | Builds the planner's "what workers can do right now" list in code from what's actually connected and permitted. |
 | `guards.py` | Observation digests and worker liveness with owner waits excluded. Fixed loop/tree caps removed. |
 | `ledger.py` | Records intended/executing/done/failed/unknown and reconciliation evidence. Orchestrator chooses inspection/retry; gateway does not reject unknown duplicates by policy. |
-| `verify.py` | File/driver result checks. Inconclusive checks use the verifier; failed requested results return to agent-directed recovery. |
+| `verify.py` | File/driver checks and account observations for model judgment. False and inconclusive requested results return to agent-directed recovery. |
 | `tree.py` | The running task tree, persisted, for the gateway, `ferb trace` and restarts. |
 | `schedules.py` | Scheduled and recurring tasks: rules, missed-run handling, pausing after three failures. |
 | `stop.py` | Emergency stop: revoke tokens, block actions, cancel held sends, run stop hooks. |
@@ -87,7 +88,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `prompts/worker.md` | Reading and acting workflow, registry discovery, background preference, final-outcome authorization and truthful capability reports. |
 | `prompts/dispatch.md` | Orchestrator recovery: select worker/approach, unresolved owner question or truthful blocker. |
 | `prompts/question.md` | Resolve a worker question from the original request and relevant context before asking the owner. |
-| `prompts/verifier.md` | Instructions for the read-only checks (verifiers and reconcilers). |
+| `prompts/verifier.md` | Inspection with task tools and recorded observations: navigate/read, assess source coverage, avoid new content changes. |
 
 ### `runtimes/`: the model processes FERB starts
 
@@ -337,3 +338,7 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 0.23.1 additions: `tests/test_completion_reporting.py` covers complete checker context, truthful final findings,
 durable checker state, retry and cancellation. `docs/COMPLETION_AUDIT_0231.md` records the live-run audit, fixes,
 owner verdict and local conversation export. `test_mac_shell.py` covers managed start/wait, ownership and exit status.
+
+0.23.3: `tests/test_inspection_recovery.py` covers unknown-result recovery, account observations, native checker
+navigation, paged historical evidence, redaction, isolation and truthful final status. `test_whose_browser.py`
+covers checker navigation of a borrowed tab while preserving ownership and cleanup.

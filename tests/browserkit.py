@@ -180,7 +180,7 @@ class FakeIdentityDriver:
     def claim(self, tab: TabRef, owner: str) -> None:
         self._tab(tab).owner = owner
 
-    def owned_by(self, tab_id: str, owner: str, *, read_only: bool = False) -> TabRef:
+    def owned_by(self, tab_id: str, owner: str) -> TabRef:
         t = self._tabs.get(tab_id)
         if t is None or t.owner != owner:
             raise Refused(f"no tab {tab_id} open for this task")

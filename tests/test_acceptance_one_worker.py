@@ -100,7 +100,7 @@ class StubBrowser:
         self._tabs[f"t{len(self._tabs) + 1}"] = url
         return TabRef("dev", "chrome", profile or "Default", 1, f"t{len(self._tabs)}")
 
-    def owned_by(self, tab_id: str, owner: str, *, read_only: bool = False) -> TabRef:
+    def owned_by(self, tab_id: str, owner: str) -> TabRef:
         return TabRef("dev", "chrome", "Default", 1, tab_id)
 
     def tab_url(self, tab_id: str) -> str | None:

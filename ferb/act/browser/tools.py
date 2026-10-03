@@ -40,7 +40,7 @@ class IdentityDriver(BrowserDriver, Protocol):
     async def navigate(self, tab: TabRef, url: str) -> None: ...
     async def check_account(self, tab: TabRef) -> None: ...
     def claim(self, tab: TabRef, owner: str) -> None: ...
-    def owned_by(self, tab_id: str, owner: str, *, read_only: bool = False) -> TabRef: ...
+    def owned_by(self, tab_id: str, owner: str) -> TabRef: ...
     def tab_url(self, tab_id: str) -> str | None: ...
     def tab_profile(self, tab_id: str) -> tuple[str, str, str] | None: ...
     def element_info(self, tab_id: str, element_id: str) -> PageElement | None: ...
@@ -181,7 +181,7 @@ class BrowserScroll(_Base):
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id, read_only=True)
+        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         return ToolResult(await self.driver.scroll(ref, str(getattr(args, "direction")),   # type: ignore[attr-defined]
                                                    getattr(args, "container", None)))
 
@@ -199,7 +199,7 @@ class BrowserFind(_Base):
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id, read_only=True)
+        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         out = await self.driver.find(ref, str(getattr(args, "text")))                    # type: ignore[attr-defined]
         return ToolResult(out, read_sources=(("web", self.driver.tab_url(ref.tab_id) or ""),))
 
@@ -266,7 +266,7 @@ class BrowserSnapshot(_Base):
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id, read_only=True)
+        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         s = await self.driver.snapshot(ref)
         sources: tuple[tuple[str, str], ...] = (("web", s.url),)
         if self.family.identity is Identity.OWNER:                   # the owner's signed-in pages: owner data (10.2)
@@ -284,7 +284,7 @@ class BrowserScreenshot(_Base):
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        tab = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id, read_only=True)
+        tab = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         shot, jpeg, w, h = await self.driver.visual_snapshot(tab)  # type: ignore[attr-defined]
         sources = (("web", self.driver.tab_url(tab.tab_id) or ""),)
         if self.family.identity is Identity.OWNER:
@@ -309,7 +309,7 @@ class BrowserPoint(_Base):
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        tab = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id, read_only=True)
+        tab = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         el = await self.driver.point(tab, getattr(args, "shot"), getattr(args, "x"), getattr(args, "y"))  # type: ignore[attr-defined]
         return ToolResult({"id": el.id, "role": el.role, "label": el.label, "sensitive": el.secret,
                            "next": "check this target, then act on its id"},
@@ -462,7 +462,7 @@ class BrowserWait(_Base):
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id, read_only=True)
+        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         ok = await self.driver.wait(ref, WaitCondition(getattr(args, "until"), getattr(args, "value")),
                                     float(getattr(args, "timeout_s")))
         return ToolResult({"met": ok})

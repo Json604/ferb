@@ -16,6 +16,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
 | `docs/BROWSER_FOCUS_0232.md` | Search-task focus race, removal of stale app restoration, tests and pending live acceptance |
+| `docs/INSPECTION_RECOVERY_0233.md` | Calendar/WhatsApp audit, recorded task evidence, checker navigation and incomplete-coverage recovery |
 | `docs/COMPLETION_AUDIT_0231.md` | Coursera/Claude audit, owner no-disturbance verdict, verification and process-monitoring fixes |
 | `docs/EXTENSION_LIFECYCLE_023.md` | Managed extension install/update, lost-pairing repair, migration and Chrome verification |
 | `docs/BACKGROUND_POINTER_0221.md` | Native click routing, screen/window coordinate correction, research and live acceptance |
@@ -84,9 +85,12 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 
 ## What's next (see PROGRESS.md "Next")
 
-The running daemon is 0.23; this checkout is 0.23.2, awaiting owner-authorized rollout.
-A later search exposed stale browser focus restoration taking the owner from Brave to VS Code; 0.23.2 removes
-that callback. Regression tests cover owner switches during browser waits; live acceptance remains pending.
+The latest audited daemon is 0.23.2 with a code hash matching that release; this checkout is 0.23.3 awaiting rollout.
+The calendar/WhatsApp audit exposed an account-check false failure, read/actor limits on checker navigation,
+missing historical source evidence and unknown coverage reported as done. 0.23.3 fixes those mechanisms and updates
+source/coverage instructions. Owner-observed acceptance after installation is pending; see the inspection document.
+A prior search exposed stale browser focus restoration taking the owner from Brave to VS Code; 0.23.2 removed
+that callback. Distinguish the owner's Mission Control peeks from any independent FERB focus changes.
 Scaler, FERB's own Chrome profile and Brave Work use the managed extension folder on 0.10.0. The owner confirmed no disturbance during the
 Coursera/FMI Claude redo; source reads, reminders and Claude completion were audited. Verify the reporting and
 managed-process fixes after installation. Broader native click/gesture acceptance remains separate.

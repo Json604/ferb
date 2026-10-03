@@ -35,7 +35,7 @@ from ferb.act.mac.driver import MacComputerDriver, profiles_dir
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
-from ferb.registry import add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
+from ferb.registry import add_evidence, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
@@ -523,6 +523,7 @@ class Daemon:
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text)
         add_shell(self.registry, self.shells)
         add_trail(self.registry, lambda: self.trail)
+        add_evidence(self.registry, self.spans, self._inspection_parent)
         add_time(self.registry, lambda: self.timers, self.clock.now, lambda: self._sleep_until,
                  lambda task_id: (rec.task.deadline if (rec := self.tasks.get(task_id)) else None))
 
@@ -1327,15 +1328,14 @@ class Daemon:
         env = self.supervisor._env.get(rec.task.request_id) if rec is not None and self.supervisor else None
         return env.get("named_browser") if env else None
 
-    def _browser_read_parent(self, task_id: str) -> str | None:
-        """A registered read-only checker may reuse its worker's tabs; never infer this from an id suffix."""
-        from ferb.orchestrator.dag import READ_SCOPES
+    def _inspection_parent(self, task_id: str) -> str | None:
+        """A registered checker borrows its worker's tabs/evidence, without changing their ownership."""
         rec = self.tasks.get(task_id)
-        if rec is None or rec.task.role != "verifier" or not rec.task.scopes <= READ_SCOPES:
+        if rec is None or rec.task.role != "verifier":
             return None
         child = rec.task
         parent = self.tasks.get(child.parent_id) if child.parent_id else None
-        if parent is None or parent.task.role != "worker":
+        if parent is None or parent.task.role != "worker" or not child.scopes <= parent.task.scopes:
             return None
         if (child.request_id, child.identity, child.device_id, rec.tree_id) != (
                 parent.task.request_id, parent.task.identity, parent.task.device_id, parent.tree_id):
@@ -1343,13 +1343,13 @@ class Daemon:
         return parent.task.id
 
     def _browser_context(self, task_id: str) -> str:
-        parent = self._browser_read_parent(task_id)
+        parent = self._inspection_parent(task_id)
         if parent is None:
             return ""
         tabs = [{"tool_prefix": prefix, "tab": tab}
                 for prefix, drv in (("browser", self.router), ("ferb_browser", self.ferb_identity))
                 if drv is not None for tab in drv.tabs_of(parent)]
-        return ("\n\nExisting task tabs available for read-only verification (reuse these aliases; do not reopen "
+        return ("\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen "
                 "the page or guess tab ids): " + json.dumps(tabs)) if tabs else ""
 
     def _relevant_context(self, words: str) -> str:
@@ -1524,7 +1524,7 @@ class Daemon:
                                           lambda install_id: pairings.key(install_id), self._profiles,
                                           self.wake, self.browser_launch)
         for drv in (self.router, self.ferb_identity):
-            drv.read_parent = self._browser_read_parent
+            drv.inspection_parent = self._inspection_parent
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve

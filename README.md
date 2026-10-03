@@ -7,7 +7,7 @@ when a worker cannot continue. Setup collects access once. The agents interpret 
 unrequested final outcome only after the work is ready for review. “Send Rahul the deck” already authorizes sending;
 “get the deck ready for Rahul” calls for a final choice before sending.
 
-- **Version:** 0.23.2 (see [CHANGELOG.md](CHANGELOG.md)). Browser operations preserve your app switches; see [focus-race evidence](docs/BROWSER_FOCUS_0232.md). Includes the [0.23.1 reporting and process fixes](docs/COMPLETION_AUDIT_0231.md). Installation and live acceptance remain pending.
+- **Version:** 0.23.3 (see [CHANGELOG.md](CHANGELOG.md)). Result inspection can retrieve earlier source observations and navigate the task's apps; incomplete coverage returns to the planner. See the [calendar/WhatsApp audit and acceptance procedure](docs/INSPECTION_RECOVERY_0233.md). This patch awaits installation and owner-observed acceptance. The audited daemon was running 0.23.2.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed on macOS 26.
 - **Interface:** the CLI, plus push-to-talk. No GUI, menu-bar item or web dashboard. FERB.app (for push-to-talk)
   runs in the background with no window, Dock icon or menu-bar item.

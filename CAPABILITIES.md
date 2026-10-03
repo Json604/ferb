@@ -1,4 +1,4 @@
-# What FERB can do (0.23.2)
+# What FERB can do (0.23.3)
 
 Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). The owner confirmed no disturbance during the 0.23 Coursera/FMI run. [0.23.1 audit and fixes](docs/COMPLETION_AUDIT_0231.md) cover reporting and process monitoring; broader native gestures retain their [acceptance limits](docs/BACKGROUND_POINTER_0221.md).
 
@@ -39,7 +39,9 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 | Orchestrator and workers | `read scaler Gmail, then complete the assignment in Codex` | Setup | Offline (`test_orchestrated_control`) | Full registry across read/act; agent-selected runtime/approach recovery; live task acceptance pending |
 | A worker's question in chat (`owner_ask`) | `use my browser` with two matching profiles | – | Offline test (`test_acceptance_one_worker` 8, 8b) | Numbered options or your own words; Enter declines; declined at once during a scheduled run |
 | See what a task did | `ferb trace` / `ferb trace a1b2` | – | Offline test (`test_cli` golden) | Shows each tool call's arguments, declared effect, reason and result |
-| Complete result verification | `check the assignment and report what remains` | Setup | Offline (`test_completion_reporting`) | Full report/artifact references reach the checker; unresolved findings survive recovery; historical failed rows are not rewritten |
+| Complete result verification | `check the assignment and report what remains` | Setup | Offline (`test_completion_reporting`, `test_inspection_recovery`) | Checker has task tools and full report; false/unknown conditions return to the planner; historical failed rows are not rewritten; live model acceptance pending |
+| Inspect earlier task observations | `task.evidence` | Setup | Offline (`test_inspection_recovery`) | Searches/pages actual redacted tool results from this task or the checker's registered worker; excludes model reasoning and pixels; changed state still needs fresh reads |
+| Verify the observed account | `check my personal calendar` | Paired | Offline (`test_inspection_recovery`); old false failure reproduced | Extractor absence/alias mismatch is not automatic failure; model interprets account evidence and the full condition; live account/source choice pending |
 | Speak replies | `ferb chat --speak` | – | Offline test (`test_unit1_speed_voice`) | The Mac's `say` voice |
 | Inline approvals | a send to someone you didn't name | – | Real test (`test_ux_real`, careful mode) | One yes covers the same effect and target for the rest of the request; a question expires after 10 min (1 h unattended) |
 
@@ -88,7 +90,7 @@ exact tab ownership still apply. A failed connection is not a reason to switch t
 | Install + pair the extension in a profile | `ferb browsers pair school` | Chrome/Brave | Offline test (`test_named_browser`) | Load unpacked by hand; FERB opens the page, copies the path, waits, pairs |
 | Wake a profile and preserve your app switches | a browser task while you switch apps | Paired | Offline race regression (`test_ext_bridge`); windowless launch previously owner-verified; 0.23.2 live acceptance pending | Windowless background launch only; no visible wake fallback or automatic app reactivation after waits. OS/window-manager behavior still needs owner verification |
 | Use a tab you already have open | `in my brave, keep scrolling the current youtube tab` | Paired | Real test (`test_tabs_real`, needs a "FERB Test" profile) | FERB lets go afterwards and never closes it; its real viewport is kept |
-| Check the worker's existing browser tab | verify a last-comment result | Paired | Offline chat/gateway regression; live corrected checker pending | Registered read-only checker reuses its parent's aliases and current page; original ownership and other-task isolation retained; inaccessible evidence is unknown |
+| Check the worker's existing browser tab | verify a last-comment result | Paired | Offline chat/gateway regression; live corrected checker pending | Registered checker reuses its parent's aliases and can navigate for inspection; original ownership and other-task isolation retained; unresolved evidence returns to the planner |
 | Account check before consequential actions | a send where two accounts are signed in | Paired | Offline test (`test_ext_bridge` 21.12) | Extractors for Gmail and YouTube; other sites ask once per site + profile |
 | Calls in web chat, contacts checked | `video call Rahul` | Paired | Real test (`test_contacts_real`, local fake chat page) | The worker sometimes stops to ask instead of letting FERB ask |
 | Read your web email | `what are my unread emails in Gmail?` | Paired | Unverified | Owner-requested OTP login has a hidden CLI handoff; passwords and CAPTCHAs need the owner |

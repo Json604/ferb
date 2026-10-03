@@ -103,6 +103,11 @@ def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
     r.add(TrailQuery(trail))
 
 
+def add_evidence(r: Registry, spans: Any, parent: Callable[[str], str | None]) -> None:
+    from ferb.orchestrator.evidence import TaskEvidence
+    r.add(TaskEvidence(spans, parent))
+
+
 def add_time(r: Registry, timers: Callable[[], Any], now: Callable[[], Any], sleep: Callable[[], Any],
              limit: Callable[[str], Any]) -> None:
     """Reminders for the owner and a worker's durable sleep (build step 14)."""

@@ -115,18 +115,16 @@ def test_a_tab_the_task_took_over_stays_in_its_list() -> None:
     assert [t["tab_ref"] for t in asyncio.run(r.open_tabs(task="task-2"))] == ["brave:Default:12"]   # others: hidden
 
 
-def test_registered_checker_can_read_parent_tab_without_taking_ownership(daemon: Any) -> None:
+def test_registered_checker_can_inspect_parent_tab_without_taking_ownership(daemon: Any) -> None:
     d = daemon.daemon
     r, br = router()
-    r.read_parent = d._browser_read_parent
+    r.inspection_parent = d._inspection_parent
     parent = Task("worker", None, "read comments", "dev", Identity.OWNER,
                   {"browser:read", "browser:act"}, "worker", "request", [], None)
     checker = replace(parent, id="check", parent_id=parent.id, role="verifier", scopes={"browser:read"})
     daemon.run(register_tasks(d, parent, checker))
     ref = asyncio.run(r.attach("brave:Default:11", parent.id))
-    with pytest.raises(Refused):               # mutation/close lookups cannot borrow a parent's tab
-        r.owned_by(ref.tab_id, checker.id)
-    assert r.owned_by(ref.tab_id, checker.id, read_only=True) == ref
+    assert r.owned_by(ref.tab_id, checker.id) == ref
     assert asyncio.run(r.open_tabs(task=checker.id))[0]["taken_over_as"] == ref.tab_id
     assert asyncio.run(r.attach("brave:Default:11", checker.id)) == ref
     assert r.owner_of(br, 11) == parent.id
@@ -134,7 +132,7 @@ def test_registered_checker_can_read_parent_tab_without_taking_ownership(daemon:
     assert r.owned_by(ref.tab_id, parent.id) == ref
     d.tasks.remove(checker.id)
     with pytest.raises(Refused):
-        r.owned_by(ref.tab_id, checker.id, read_only=True)
+        r.owned_by(ref.tab_id, checker.id)
     asyncio.run(r.release(parent.id))
     assert "close" not in br.calls
 
@@ -147,27 +145,27 @@ def test_registered_checker_can_read_parent_tab_without_taking_ownership(daemon:
 def test_checker_tab_access_requires_matching_registered_parent(daemon: Any, changes: dict[str, Any]) -> None:
     d = daemon.daemon
     r, _ = router()
-    r.read_parent = d._browser_read_parent
+    r.inspection_parent = d._inspection_parent
     parent = Task("worker", None, "g", "dev", Identity.OWNER, {"browser:read"}, "worker", "req", [], None)
     checker = replace(replace(parent, id="worker.verify", parent_id=parent.id, role="verifier"), **changes)
     daemon.run(register_tasks(d, parent, checker))
     ref = asyncio.run(r.attach("brave:Default:11", parent.id))
     for tid in (checker.id, "worker.reconcile", "other-worker"):
         with pytest.raises(Refused):
-            r.owned_by(ref.tab_id, tid, read_only=True)
+            r.owned_by(ref.tab_id, tid)
         with pytest.raises(Refused):
             asyncio.run(r.attach("brave:Default:11", tid))
         assert len(asyncio.run(r.open_tabs(task=tid))) == 1
 
 
-def test_chat_checker_receives_and_reads_existing_worker_tab(daemon: Any) -> None:
+def test_chat_checker_navigates_existing_worker_tab_without_taking_ownership(daemon: Any) -> None:
     import json
     from ferb.act.browser.tools import BrowserClose, BrowserFind, BrowserNavigate, OWNER_BROWSER
     from tests.test_supervisor import chat, cond, done, install, outcome, sup, task, tool
 
     d = daemon.daemon
     r, br = router()
-    r.read_parent = d._browser_read_parent
+    r.inspection_parent = d._inspection_parent
     d.router = r
     d.registry.capabilities["browser.find"] = BrowserFind(r, OWNER_BROWSER)
     d.registry.capabilities["browser.close"] = BrowserClose(r, OWNER_BROWSER)
@@ -186,9 +184,9 @@ def test_chat_checker_receives_and_reads_existing_worker_tab(daemon: Any) -> Non
         return done("last author: a test comment")
 
     def checker(token: str) -> str:
-        for name, args in (("browser.close", {}), ("browser.navigate", {"url": "https://example.com/"})):
-            refused = tool(daemon.sock, token, name, tab="t1", **args)
-            assert refused["is_error"] and "no tab t1 open for this task" in refused["content"]["error"]
+        navigated = tool(daemon.sock, token, "browser.navigate", tab="t1", url="https://example.com/comments")
+        assert not navigated["is_error"], navigated
+        assert r.owner_of(br, 11) == d._inspection_parent(d.tokens.validate(token).task_id)
         got = tool(daemon.sock, token, "browser.find", tab="t1", text="last author")
         assert not got["is_error"], got
         assert got["content"]["examples"] == ["last author: a test comment"]

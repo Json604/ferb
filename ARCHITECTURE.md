@@ -1,4 +1,4 @@
-# FERB architecture — 0.23.2
+# FERB architecture — 0.23.3
 
 Current implementation on `astra/version`. The owner's 2026-10-03 design replaces the old read/actor and effect-gate
 contracts. Read [agent-directed control](docs/ORCHESTRATED_CONTROL_022.md) first. Historical documents and changelog
@@ -38,8 +38,10 @@ FERB's own profile is the normal browsing default. The agents select personal pr
 “scaler Gmail” or a current Brave tab. Profile strings, task ownership and paired installation identity still bind
 the actual driver operation. Unrelated personal profiles are not a fallback for a failed connection.
 
-Independent checkers receive read scopes. A registered checker can inspect its own worker's existing browser tab
-without losing lazy-loaded content or scroll position. The driver enforces read-only borrowing and task isolation.
+Independent checkers receive their worker's scopes. Their inspection prompt permits navigation/search/scroll and
+prohibits sending, editing content or repairing deliverables during the check. These are agent responsibilities,
+not a read/actor tool gate. A registered checker can reuse its own worker's existing browser tab without taking
+ownership; the driver preserves isolation from unrelated tasks and normal resource cleanup.
 
 ## 4. The chat turn and worker recovery
 
@@ -52,14 +54,18 @@ installed tool access. A blocked, failed or question-bearing report goes through
 new type/approach, asks the owner, or reports a genuine external blocker. Completed artifacts and recent evidence
 survive recovery. There are no automatic phrase-based retries or fixed action-count/loop cutoffs.
 
-Result checks run after a claimed completion. Unmet conditions return to the orchestrator for repair. Unknown
-inspection is reported as unknown. Final output includes the result, artifacts and verification evidence. Cleanup
+Result checks run after a claimed completion. False and unknown conditions return to the orchestrator for repair,
+an unresolved owner question or an honest blocker; neither is reported as done. Final output includes the result,
+artifacts and verification evidence. Cleanup
 releases task-created tabs, detaches borrowed owner tabs and ends ordinary task processes. Background processes
 remain visible until explicitly stopped. Closing chat does not cancel the task; explicit stop does.
 
-The checker receives the complete worker report and artifact/evidence references. Its run state is persisted as
+The checker receives the complete worker report, artifact/evidence references and preliminary observations. The
+`task.evidence` tool searches and pages the actual redacted tool inputs/results for this worker, including earlier
+views and failures. It excludes model reasoning and screenshot pixels. Historical source reads can establish what
+was observed; changed/current state and image-only claims require fresh inspection. Its run state is persisted as
 done, failed or cancelled, independently of whether the checked condition is true. A retry resets that state to
-running. Unresolved false checks remain visible in the final answer even if recovery's prose sounds successful;
+running. Unresolved conditions remain visible in the final answer even if recovery's prose sounds successful;
 complete answers and worker trace reports are retained rather than silently truncating their final sections.
 
 ## 5. Action execution and owner questions
@@ -135,9 +141,13 @@ an action unknown. The orchestrator and replacement worker receive those facts a
 repeating anything that may already have happened. The gateway does not enforce an automatic reconciliation/retry
 policy. Driver transaction deduplication and delivery evidence still prevent accidental transport replay.
 
-`Checks` can inspect files or available driver evidence; conditions needing judgment use the verifier. `met=null`
-means inaccessible or inconclusive evidence. A successful click or a ledger row is not proof of the owner's final
-result. Failed result checks can trigger agent-chosen repair; a reported blocker never becomes a success claim.
+`Checks` can inspect files or available driver evidence; conditions needing judgment use the verifier. An account
+extractor supplies an observation, never a literal-alias verdict; the checker interprets the full condition against
+visible or recorded account evidence. `met=null` means inaccessible or inconclusive evidence. A successful click
+or a ledger row is not proof of the owner's final result. False/unknown result checks trigger agent-chosen recovery;
+a reported blocker never becomes a success claim. Source selection, official-group membership and date coverage
+are agent decisions informed by the request, owner corrections and source evidence. See
+`docs/INSPECTION_RECOVERY_0233.md` for the observed failures and pending live acceptance.
 
 ## 10. Always-on context and memory
 

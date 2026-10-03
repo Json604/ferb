@@ -1,13 +1,8 @@
-"""Verification and reconciliation (section 7 steps 8-9, docs/DESIGN_ONE_WORKER.md section 5).
+"""Result observations and mechanical checks (ARCHITECTURE.md section 9).
 
-Verification checks each success condition with fresh reads, after the worker finishes. Conditions with a
-code-checkable form are checked by code — file exists / contains, a tab's URL,
-the signed-in account — and only conditions that need judgment go to a read-only verifier run. Each result
-records which path it took ("code" or "verifier") and its evidence. A worker's own claim is evidence, never
-verification. A check code can't decide (no ledger rows; an unknown row) goes to the verifier, never fails the task.
-
-Reconciliation settles an `unknown` action (e.g. Send clicked, connection lost) by re-reading the target with a
-read-only run: happened -> done, didn't -> failed, unclear -> stays unknown and the owner decides. Never retried.
+File existence/content and tab URLs can be checked directly. Account identity and uncertain action outcomes need
+judgment: pass the observed facts to a checker with the task's tools and recorded source reads. Missing observations
+are unknown, not contradictions. Unknown or false conditions return to the planner for recovery.
 """
 
 from dataclasses import dataclass
@@ -74,6 +69,8 @@ class Checks:
             return ConditionResult(i, c.text, hit is not None, "code",
                                    f"tab at {hit}" if hit else f"no tab URL contains {k.url_contains!r}")
         acct = await self.account_of(task_id, k.site or "")
-        ok = acct is not None and acct.lower() == (k.expected or "").lower()
-        return ConditionResult(i, c.text, ok, "code",
-                               f"signed in on {k.site} as {acct}" if acct else f"account on {k.site} unreadable")
+        # An alias, a full address and a condition with alternatives need interpretation. An absent extractor
+        # or closed tab is missing evidence, not evidence of a wrong account. Give the checker the observation.
+        return ConditionResult(i, c.text, None, "code",
+                               f"observed account on {k.site}: {acct}; requested: {k.expected}" if acct else
+                               f"account on {k.site} unreadable; requested: {k.expected}; inspect page or recorded evidence")

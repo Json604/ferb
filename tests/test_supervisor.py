@@ -237,7 +237,7 @@ def test_no_budget_anywhere_the_model_or_owner_sees() -> None:
     assert "budget" not in text.lower() and "cost" not in text.lower() and "deadline_minutes" not in text
 
 
-def test_judgment_conditions_go_to_a_read_only_verifier(daemon: RunningDaemon) -> None:
+def test_judgment_conditions_go_to_a_checker_with_the_task_tools(daemon: RunningDaemon) -> None:
     t = task("write a friendly todo.md", paths=("todo.md",),
              conds=(cond("todo.md exists", "file_exists", path="todo.md"), cond("the note sounds friendly")))
     verdict = json.dumps({"results": [{"index": 1, "met": False, "evidence": "it reads as curt"}]})
@@ -251,7 +251,7 @@ def test_judgment_conditions_go_to_a_read_only_verifier(daemon: RunningDaemon) -
     assert out["status"] == "failed" and out["verified"] is False and "Result not complete" in out["summary"]
     assert "wrote todo.md" in out["answer"] and "Result not complete" in out["answer"]   # said plainly
     vtools = next(t for m, k, c, t in script.contexts if k == "worker.verify")
-    assert "fs.read" in vtools and "fs.write" not in vtools                          # the verifier only reads
+    assert {"fs.read", "fs.write", "mac.act", "task.evidence"} <= set(vtools)      # inspection intent is in its prompt
 
 
 class Ticker:
