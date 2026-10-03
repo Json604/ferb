@@ -1,4 +1,4 @@
-# FERB architecture — 0.23.1
+# FERB architecture — 0.23.2
 
 Current implementation on `astra/version`. The owner's 2026-10-03 design replaces the old read/actor and effect-gate
 contracts. Read [agent-directed control](docs/ORCHESTRATED_CONTROL_022.md) first. Historical documents and changelog
@@ -104,6 +104,9 @@ Initial browser installation/approval and account selection remain distinct. See
 Chrome and Brave use the paired Chromium extension, native-messaging bridge and per-tab debugger sessions.
 `browser.*` serves owner profiles; `ferb_browser.*` serves FERB's profile. Task tabs are created inactive in a
 minimized task window. Existing owner tabs can be attached without taking ownership of the surrounding browser.
+Browser opens and windowless wakes never reactivate a saved front app after awaiting the extension. A user can
+switch apps during that wait; a browser being in front does not establish that FERB took focus. The extension's
+inactive/minimized controls remain the background mechanism. See `docs/BROWSER_FOCUS_0232.md` for the observed race.
 A disconnected profile gets a windowless wake attempt; FERB does not open visible wake tabs automatically.
 
 Snapshots combine Accessibility roles and DOM-backed references. Fresh references, frames, generations and exact

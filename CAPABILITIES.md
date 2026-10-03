@@ -1,4 +1,4 @@
-# What FERB can do (0.23.1)
+# What FERB can do (0.23.2)
 
 Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). The owner confirmed no disturbance during the 0.23 Coursera/FMI run. [0.23.1 audit and fixes](docs/COMPLETION_AUDIT_0231.md) cover reporting and process monitoring; broader native gestures retain their [acceptance limits](docs/BACKGROUND_POINTER_0221.md).
 
@@ -86,7 +86,7 @@ exact tab ownership still apply. A failed connection is not a reason to switch t
 | Choose the profile when you didn't name one | `check my email` | Paired | Offline test (`test_ext_bridge`) | Open tab → your trail → default browser → ask |
 | The profile you name, and only that one | `open my school gmail in chrome …` | Paired | Owner-verified run (0.12.0) + offline (`test_named_browser`) | Paired but disconnected → the wake service is tried; an unavailable named profile never silently becomes another profile |
 | Install + pair the extension in a profile | `ferb browsers pair school` | Chrome/Brave | Offline test (`test_named_browser`) | Load unpacked by hand; FERB opens the page, copies the path, waits, pairs |
-| Wake a browser without moving you | a browser task with Chrome closed | Paired | Owner-verified run (spike 19, 0.11.0) | `open -g --no-startup-window`, then a wake page; if a browser still jumps forward, your app is put back |
+| Wake a profile and preserve your app switches | a browser task while you switch apps | Paired | Offline race regression (`test_ext_bridge`); windowless launch previously owner-verified; 0.23.2 live acceptance pending | Windowless background launch only; no visible wake fallback or automatic app reactivation after waits. OS/window-manager behavior still needs owner verification |
 | Use a tab you already have open | `in my brave, keep scrolling the current youtube tab` | Paired | Real test (`test_tabs_real`, needs a "FERB Test" profile) | FERB lets go afterwards and never closes it; its real viewport is kept |
 | Check the worker's existing browser tab | verify a last-comment result | Paired | Offline chat/gateway regression; live corrected checker pending | Registered read-only checker reuses its parent's aliases and current page; original ownership and other-task isolation retained; inaccessible evidence is unknown |
 | Account check before consequential actions | a send where two accounts are signed in | Paired | Offline test (`test_ext_bridge` 21.12) | Extractors for Gmail and YouTube; other sites ask once per site + profile |

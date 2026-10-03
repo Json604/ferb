@@ -15,6 +15,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 | `CODE_TOUR.md` | the flows, by `path:function` |
 | `FILE_MAP.md` | every folder and file, one line each |
 | `CHANGELOG.md` | versions (MAJOR.MINOR.PATCH); the current version is in `pyproject.toml` |
+| `docs/BROWSER_FOCUS_0232.md` | Search-task focus race, removal of stale app restoration, tests and pending live acceptance |
 | `docs/COMPLETION_AUDIT_0231.md` | Coursera/Claude audit, owner no-disturbance verdict, verification and process-monitoring fixes |
 | `docs/EXTENSION_LIFECYCLE_023.md` | Managed extension install/update, lost-pairing repair, migration and Chrome verification |
 | `docs/BACKGROUND_POINTER_0221.md` | Native click routing, screen/window coordinate correction, research and live acceptance |
@@ -75,7 +76,7 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 - Every change lands with a test that proves the contract it touches, a `CHANGELOG.md` entry, and the docs it
   affects updated (`CAPABILITIES.md` rows, `CODE_TOUR.md` flows, `FILE_MAP.md` lines). Commits: present tense, say
   what and why; accurately identify contributors.
-- This session uses `astra/version` only; no edits on another branch. The owner merges and pushes. Report what was built, what is uncertain, and what the docs now
+- This session uses `astra/version` only; no edits on another branch. The owner explicitly authorized pushing this branch on 2026-10-03; do not merge. Report what was built, what is uncertain, and what the docs now
   say that the code doesn't do.
 - Extension changes: bump `extensions/chromium/manifest.json` and the daemon's minimum version together. Setup
   publishes the managed bundle; 0.10+ reloads newer local versions when idle. First-time install/migration requires
@@ -83,8 +84,10 @@ This file is for any agent or person starting cold. Nothing here depends on a pr
 
 ## What's next (see PROGRESS.md "Next")
 
-The running daemon is 0.23; this checkout is 0.23.1, awaiting owner-authorized rollout. Scaler, FERB's own Chrome
-profile and Brave Work use the managed extension folder on 0.10.0. The owner confirmed no disturbance during the
+The running daemon is 0.23; this checkout is 0.23.2, awaiting owner-authorized rollout.
+A later search exposed stale browser focus restoration taking the owner from Brave to VS Code; 0.23.2 removes
+that callback. Regression tests cover owner switches during browser waits; live acceptance remains pending.
+Scaler, FERB's own Chrome profile and Brave Work use the managed extension folder on 0.10.0. The owner confirmed no disturbance during the
 Coursera/FMI Claude redo; source reads, reminders and Claude completion were audited. Verify the reporting and
 managed-process fixes after installation. Broader native click/gesture acceptance remains separate.
 Procedure memory (how a task was done, recalled on similar requests); real probes of Electron apps and same-Space

@@ -1,5 +1,13 @@
 # Owner acceptance log
 
+## 2026-10-03 — search interrupted owner focus (0.23.0)
+
+The owner reported a single unexpected move to VS Code during a search. The journal records Brave → VS Code at
+13:06:27.330 through FERB's browser focus-restoration callback, while its own Chrome search tab was opening.
+This is an owner-reported disturbance, despite the earlier Coursera/FMI run's no-disturbance verdict. 0.23.2
+removes the stale restoration callback; regression tests reproduce the race offline. Installation and the
+owner's live verdict on the fix remain pending. See `BROWSER_FOCUS_0232.md` for evidence and scope.
+
 ## 2026-10-03 — owner-supervised WhatsApp scrolling (`astra/version`, 0.21.0)
 
 Owner explicitly requested testing their everyday WhatsApp app. Branch driver invoked directly; no daemon update.

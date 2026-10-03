@@ -1,4 +1,4 @@
-# FERB code tour — 0.23.1
+# FERB code tour — 0.23.2
 
 Start with [the current contract](docs/ORCHESTRATED_CONTROL_022.md). This tour follows the live execution path;
 older pure policy helpers remain disconnected. `vibed/` is abandoned and must not be read or reused.
@@ -86,6 +86,8 @@ The native host/extension use authenticated messages and sequence numbers. `ext_
 windowless profile wake, debugger sessions, snapshots, exact references and cleanup. The extension uses Accessibility
 roles and DOM-backed targets, CDP input and frame-aware screenshot coordinates. A fresh visual gesture consumes its
 snapshot. `browser_find` and `browser_scroll` inspect large/lazy-loaded pages; the agent verifies actual content.
+Browser opens/wakes do not capture or restore the front app: the owner may switch while the extension responds.
+The extension still creates inactive tabs in its minimized window; see `docs/BROWSER_FOCUS_0232.md`.
 
 `Daemon._browser_read_parent` validates registered checker access to its worker's tab. `owned_by(..., read_only=True)`
 borrows that alias for inspection; other task tabs remain isolated and borrowed tabs cannot be edited or closed.

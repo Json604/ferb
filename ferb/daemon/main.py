@@ -401,22 +401,6 @@ class Daemon:
         if self._redact_override is None:
             self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps()))
 
-    def _front_bundle(self) -> str | None:
-        if not self.watch_owner_input:                    # tests: the owner's real Mac stays out
-            return None
-        from ferb.act.mac import apps
-        f = apps.frontmost()
-        return f.bundle_id if f else None
-
-    def _put_owner_back(self, owner: str) -> None:
-        """After waking a browser profile: if a browser took the front from the owner, give it back at once."""
-        from ferb.act.browser.profiles import BUNDLES
-        from ferb.act.mac import apps
-        now = apps.frontmost()
-        if now is not None and now.bundle_id != owner and now.bundle_id in BUNDLES.values():
-            self._journal().append("browser.focus_returned", {"from": now.bundle_id, "to": owner})
-            apps.activate(owner)
-
     async def _macos_events(self) -> None:
         """Give macOS's event system a turn on the daemon's thread, a few times a second. Without it, its running-app
         list never refreshes in the daemon: an app launched after the daemon started stayed "not running" for FERB
@@ -1539,8 +1523,7 @@ class Daemon:
                                           lambda: str(self.config.get("mailbox", "address", "") or ""),
                                           lambda install_id: pairings.key(install_id), self._profiles,
                                           self.wake, self.browser_launch)
-        for drv in (self.router, self.ferb_identity):          # a wake never leaves the owner in the browser (9.3)
-            drv.front, drv.put_back = self._front_bundle, self._put_owner_back
+        for drv in (self.router, self.ferb_identity):
             drv.read_parent = self._browser_read_parent
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()

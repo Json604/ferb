@@ -533,38 +533,73 @@ def test_the_profile_that_owns_a_window_says_whether_its_tab_has_a_password_fiel
     assert d.run(ask("brave", (10.0, 20.0, 800.0, 600.0))) is None
 
 
-def test_waking_a_profile_never_leaves_the_owner_in_the_browser() -> None:
-    """Owner's report (2026-10-01): a search woke FERB's Chrome and moved them to it. The wake now goes through
-    `open -g`; and if the browser still ends up in front, the owner's app comes straight back."""
-    from ferb.daemon.main import Daemon
-    calls: list[str] = []
+@pytest.mark.parametrize("driver_name", ["router", "ferb_identity"])
+@pytest.mark.parametrize("operation", ["open", "wake"])
+@pytest.mark.parametrize("destination", ["com.brave.Browser", "com.google.Chrome"])
+@pytest.mark.parametrize("fails", [False, True])
+def test_browser_wait_preserves_the_owners_new_app(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch,
+        driver_name: str, operation: str, destination: str, fails: bool) -> None:
+    """An owner app switch during an async browser step must survive success and failure alike.
 
-    class Apps:
-        front = "com.google.Chrome"
+    Regression: Chrome search completion reactivated VS Code after the owner switched to Brave.
+    The same race applies when the owner chooses a different profile of the target browser.
+    Only fake app APIs and a fake extension response are used; no real Mac input is sent.
+    """
+    import asyncio
+    from types import SimpleNamespace
+    import ferb.act.browser.ext_bridge as eb
+    import ferb.act.mac.apps as apps
 
-        def frontmost(self) -> Any:
-            return type("A", (), {"bundle_id": self.front})()
+    front = SimpleNamespace(bundle_id="com.microsoft.VSCode")
+    activations: list[str] = []
 
-        def activate(self, b: str) -> bool:
-            calls.append(b)
-            return True
-    import ferb.act.mac.apps as real
-    fake = Apps()
-    saved = (real.frontmost, real.activate)
-    real.frontmost, real.activate = fake.frontmost, fake.activate          # type: ignore[assignment]
-    try:
-        d = Daemon.__new__(Daemon)
-        d._journal = lambda: type("J", (), {"append": lambda *a: None})()  # type: ignore[method-assign]
-        d._put_owner_back("com.microsoft.VSCode")
-        assert calls == ["com.microsoft.VSCode"]                           # Chrome took the front: given back
-        fake.front = "com.microsoft.VSCode"
-        d._put_owner_back("com.microsoft.VSCode")
-        assert calls == ["com.microsoft.VSCode"]                           # the owner is where they were: nothing
-        fake.front = "com.google.Chrome"
-        d._put_owner_back("com.google.Chrome")
-        assert calls == ["com.microsoft.VSCode"]                           # the owner was in Chrome: leave it
-    finally:
-        real.frontmost, real.activate = saved                              # type: ignore[assignment]
+    def activate(bundle: str) -> bool:
+        activations.append(bundle)
+        front.bundle_id = bundle
+        return True
+
+    monkeypatch.setattr(apps, "frontmost", lambda: front)
+    monkeypatch.setattr(apps, "activate", activate)
+    monkeypatch.setattr(daemon.daemon, "watch_owner_input", True)
+    monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.01)
+    driver = getattr(daemon.daemon, driver_name)  # retain actual daemon wiring of both browser drivers
+
+    async def run() -> None:
+        bridge = SimpleNamespace(
+            binding=SimpleNamespace(browser="chrome", folder="Profile 22", install_id="test-install"),
+            device_id="test-device", gen=1, wake_url=None, hold=lambda: None, unhold=lambda: None,
+            conn=None, connected=asyncio.Event(), name="test Chrome")
+
+        async def open_tab(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            await asyncio.sleep(0)  # the owner can choose a new app while the command is pending
+            front.bundle_id = destination
+            if fails:
+                raise eb.DriverError("test open failed")
+            return {"tab_id": 1, "url": "https://example.com/"}
+
+        def launch_profile(*args: Any, **kwargs: Any) -> None:
+            front.bundle_id = destination
+            if not fails:
+                bridge.conn = object()
+                bridge.connected.set()
+
+        bridge.call = open_tab
+        monkeypatch.setattr(eb, "open_known_profile", launch_profile)
+        if operation == "wake":
+            driver.wake = object()
+            pending = driver._connected(bridge)
+        else:
+            pending = driver._open_in(bridge, "https://example.com/", "test-task")
+        if fails:
+            with pytest.raises(eb.DriverError):
+                await pending
+        else:
+            await pending
+
+    daemon.run(run())
+    assert activations == []
+    assert front.bundle_id == destination
 
 
 def test_tab_listing_reports_disconnected_pairing_instead_of_empty_tabs(bd):

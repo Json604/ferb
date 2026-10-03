@@ -31,6 +31,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `REWORK_PLAN.md` | Rework phases and the rule on hardcoding; procedure memory is still pending. |
 | `DESIGN_ONE_WORKER.md` | The design behind one worker per request, effects and `owner.ask`; implementation details live in ARCHITECTURE.md §§4–5. |
 | `BACKGROUND_POINTER_0221.md` | Foreground-click trace diagnosis, native coordinate correction, source research and owner-supervised Chrome check. |
+| `BROWSER_FOCUS_0232.md` | Search-task focus-race evidence, removal of stale app restoration and regression/acceptance limits. |
 | `EXTENSION_LIFECYCLE_023.md` | Lost-pairing repair, managed extension updates, one-time migration, research and real Chrome evidence. |
 | `PLATFORM_MACOS.md` | Mac background-control mechanisms, probe evidence, owner observations and driver rung order. |
 | `PLATFORM_BROWSER.md` | Chromium background-control mechanisms, probe evidence and extension design. |
@@ -142,7 +143,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `mac/ax_browser.py` | Browser bundle facts used by native driver/watcher; historical ACT_REFUSED constant is not enforced. |
 | **`act/browser/`** | **Controlling browsers** |
 | `browser/tools.py` | The `browser.*` tools (the owner's Chrome/Brave profiles) and `ferb_browser.*` (FERB's own profile). Each classifies its action (navigate, search, submit, …). |
-| `browser/ext_bridge.py` | Driver through the FERB extension: native-host connections, one bridge per paired profile, waking a profile without a window, tabs, snapshots, actions; registered checker access to its parent's existing tabs without changing ownership. |
+| `browser/ext_bridge.py` | Driver through the FERB extension: native-host connections, one bridge per paired profile, waking a profile without a window, tabs, snapshots, actions, with no automatic app focus restoration; registered checker access to its parent's existing tabs without changing ownership. |
 | `browser/ext_protocol.py` | The extension message format (mirrored in `extensions/chromium/protocol.js`). |
 | `browser/pairing.py` | Pairing an extension install to a browser profile: one-time tokens, per-install keys, HMAC and sequence numbers. |
 | `browser/profiles.py` | Finds browser profiles from `Local State`, resolves profile names, opens a profile in the background. |

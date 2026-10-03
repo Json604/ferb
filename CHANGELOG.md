@@ -10,6 +10,19 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.23.2 — 2026-10-03 — Preserve owner app switches during browser operations
+
+- Trace diagnosis: a Chrome search tab finished loading after the owner switched from VS Code to Brave. The
+  browser completion callback treated any foreground browser as focus theft and reactivated VS Code.
+- Remove automatic front-app capture/restoration from browser tab opens and windowless profile wakes for both
+  drivers. Keep inactive tabs, minimized task windows and windowless background launch. No extension change.
+- Replace the old restoration assertion with 16 regression cases: both drivers, opens/wakes, success/failure,
+  and owner moves to either Brave or Chrome. All cases reproduced the old bug before the fix.
+- Installation and owner-observed live acceptance are pending; see `docs/BROWSER_FOCUS_0232.md`. The owner
+  authorized pushing `astra/version` without merging. No installed-daemon restart is included.
+- Validation: **556 offline tests passed, 52 deselected** (115.18 s); 59 focused browser tests, core mypy and
+  whitespace checks passed. No live desktop action was used to validate this patch.
+
 ## 0.23.1 — 2026-10-03 — Truthful completion reports and tracked coding processes
 
 - Preserve unresolved verification findings in the final answer even if recovery returns a success-sounding

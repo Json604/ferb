@@ -413,9 +413,7 @@ class _TabDriver:
     def __init__(self, hub: Hub, profiles: Callable[[], list[BrowserProfile]], wake: WakeServer | None = None,
                  launch: Callable[[list[str]], None] | None = None) -> None:
         self.hub, self.profiles, self.wake, self.launch = hub, profiles, wake, launch
-        self.front: Callable[[], str | None] | None = None       # the owner's app (bundle id), set by the daemon
         self.is_running: Callable[[str], bool] = browser_running  # is that browser running (tests replace it)
-        self.put_back: Callable[[str], None] | None = None        # activate it again if the browser took focus
         self._tabs: dict[str, _Tab] = {}
         self.read_parent: Callable[[str], str | None] = lambda task: None  # registered checker only, daemon supplied
         self._n = 0
@@ -425,34 +423,22 @@ class _TabDriver:
         if br.conn is None and self.wake is not None:
             kwargs: dict[str, Any] = {"launch": self.launch} if self.launch else {}
             kwargs["is_running"] = self.is_running
-            owner = self.front() if self.front else None             # where the owner is: they go back there
+            # Never restore a previously focused app after this wait: the owner can switch apps meanwhile.
+            open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(), **kwargs)
             try:
-                # 1) load the profile with no window: the extension starts and connects, nothing moves (spike 19)
-                open_known_profile(br.binding.browser, br.binding.folder, None, self.profiles(), **kwargs)
-                try:
-                    await asyncio.wait_for(br.connected.wait(), WINDOWLESS_WAIT_S)
-                except asyncio.TimeoutError:
-                    reason = self.hub.refused.get(br.binding.install_id) or "reload the FERB extension in that profile"
-                    raise DriverError(f"{br.name} didn't connect without opening a window; {reason}. "
-                                      "No visible wake tab was opened.") from None
-            finally:
-                self._back(owner)
+                await asyncio.wait_for(br.connected.wait(), WINDOWLESS_WAIT_S)
+            except asyncio.TimeoutError:
+                reason = self.hub.refused.get(br.binding.install_id) or "reload the FERB extension in that profile"
+                raise DriverError(f"{br.name} didn't connect without opening a window; {reason}. "
+                                  "No visible wake tab was opened.") from None
         if br.conn is None:
             raise DriverError(f"{br.name} isn't connected")
         return br
 
-    def _back(self, owner_app: str | None) -> None:
-        """If a browser step pulled the browser to the front (macOS: any new browser window can — a known Chromium
-        problem), take the owner straight back to their app and desktop (owner decision 2026-10-01)."""
-        if owner_app is not None and self.put_back is not None:
-            self.put_back(owner_app)
-
     async def _open_in(self, br: Bridge, url: str, owner: str | None) -> TabRef:
-        front = self.front() if self.front else None
-        try:
-            v = await br.call("open", {"url": url}, timeout=30)   # a first window is created minimized (extension)
-        finally:
-            self._back(front)
+        # The extension opens an inactive tab in its minimized window. App focus belongs to the owner,
+        # including while this command is pending; a newly foreground browser is not proof of focus theft.
+        v = await br.call("open", {"url": url}, timeout=30)
         if br.wake_url is not None:                           # FERB's own tab is open now: the wake page can go
             wake, br.wake_url = br.wake_url, None
             try:

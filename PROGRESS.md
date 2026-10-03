@@ -1,12 +1,18 @@
 # FERB progress
 
-## Where we are — version 0.23.1, branch `astra/version` (2026-10-03)
+## Where we are — version 0.23.2, branch `astra/version` (2026-10-03)
+
+The search task at 13:06 exposed a browser focus race: while FERB opened its own Chrome tab, the owner moved
+to Brave; the completion callback reactivated VS Code. 0.23.2 removes automatic front-app restoration from
+browser opens and wakes. See `docs/BROWSER_FOCUS_0232.md`. The owner authorized pushing `astra/version` only,
+without merging. Validation: 556 offline tests passed, 52 deselected (115.18 s), plus core mypy and whitespace
+checks. Installation and live acceptance of both patches remain pending.
 
 The owner confirmed the Coursera → reminders → Claude FMI redo caused no disturbance. Source reads, eight pending
 reminders, the actual completed Claude session and the two-page PDF were audited. 0.23.1 fixes the discovered
 report/check mismatch, truncated checker context, stale verifier state and detached-launch monitoring approach.
 The requested conversation transcripts were exported privately outside Git. This patch is not installed yet;
-see `docs/COMPLETION_AUDIT_0231.md` for evidence, tests and limits. No push.
+see `docs/COMPLETION_AUDIT_0231.md` for evidence, tests and limits.
 
 ## 0.23 deployment checkpoint
 
