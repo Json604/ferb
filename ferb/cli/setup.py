@@ -25,6 +25,7 @@ from ferb.identity import seed
 Connect = Callable[[], Client]
 Ask = Callable[[str], str]
 REQUIRED_PERMISSIONS = ("accessibility", "screen_recording")
+SETUP_PERMISSIONS = (*REQUIRED_PERMISSIONS, 'input_monitoring', 'full_disk_access')
 BRAVE = "com.brave.Browser"
 IDENTITY_CHECK_S = 90.0
 
@@ -78,7 +79,14 @@ def setup(env: Env, update: bool = False) -> int:
     if update:
         env.say("Updating FERB in its venv and restarting the daemon…")
         inst.install(update_only=True)
-        wait_for_daemon(env)
+        client = wait_for_daemon(env)
+        config = Config(inst.home)
+        if config.get('setup', 'permissions_version', 0) < 22:
+            for perm in SETUP_PERMISSIONS:
+                client = _grant(env, client, perm, inst.granted_binary(), required=perm in REQUIRED_PERMISSIONS)
+            _automation(env, client, ProfileStore(inst.home).load(device_id(config)))
+            config.set('setup', 'permissions_version', 22)
+        client.close()
         env.say("Done.")
         return 0
 
@@ -108,18 +116,17 @@ def setup(env: Env, update: bool = False) -> int:
     env.say(f"     {s['apps']} apps, {s['scriptable']} scriptable; browsers: {', '.join(s['browsers']) or 'none'}")
 
     env.say("3/4  Permissions (checked by the daemon itself)")
-    for perm in REQUIRED_PERMISSIONS:
-        client = _grant(env, client, perm, binary, required=True)
-    client = _input_monitoring_if_needed(env, client, binary)      # macOS needs it when the tap can't be made
+    for perm in SETUP_PERMISSIONS:
+        client = _grant(env, client, perm, binary, required=perm in REQUIRED_PERMISSIONS)
+    _automation(env, client, profile)
+    config.set('setup', 'permissions_version', 22)
 
     env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
     client.close()
 
-    # Progressive setup (section 8): nothing else is asked now. Optional permissions and per-app Automation are asked
-    # the first time a task needs them; FERB's own identity (`ferb setup --identity`) and Jev (`ferb setup --jev`)
-    # when first wanted; facts such as the owner's email when a request first needs them.
-    env.say("     Everything else is asked the first time a task needs it.")
+    env.say("     FERB uses the installed action registry without per-action permission prompts.")
+    env.say("     Connect the accounts/profiles you want available; macOS permissions and logins still apply.")
     env.say("Setup complete." if ok else "Setup finished with problems — `ferb doctor` shows what to fix.")
     return 0 if ok else 1
 
@@ -169,9 +176,9 @@ def _optional(env: Env, client: Client, binary: Path | None) -> Client:
 
 def _automation(env: Env, client: Client, profile: Any) -> None:
     running = env.running_apps()
-    apps = [a for a in profile.apps if a.scriptable and a.bundle_id in running and a.bundle_id != BRAVE]
+    apps = [a for a in (profile.apps if profile else []) if a.scriptable and a.bundle_id in running]
     if not apps:
-        env.say("     No scriptable apps are running; each app is asked the first time FERB needs it.")
+        env.say("     No scriptable apps are running. Rerun setup to grant Automation for additional apps.")
         return
     for i, a in enumerate(apps, 1):
         env.say(f"     {i:>2}. {a.name} ({a.bundle_id})")

@@ -138,52 +138,9 @@ def test_a_contact_that_was_never_on_screen_is_refused() -> None:
 
 # ---------- through the gateway ----------
 
-def test_which_rahul_is_asked_and_the_answer_is_for_that_one_action(daemon: RunningDaemon) -> None:
-    got = listen(daemon)
-    grant, call = rig(daemon, TWO_RAHULS, ONE_RAHUL)
-    pick = Answers(daemon, choice=2)                                   # the owner: "2" (Rahul Verma)
-    try:
-        r = press_call(daemon, grant, VERMA)
-        assert not r["is_error"] and call.calls == 1, r
-        asked = [ap for ap in pick.asked if ap.options]
-        assert len(asked) == 1 and asked[0].reason == "Which Rahul did you mean?"
-        held_ev = [d for t, d in got if t == "action.held"]
-        assert held_ev and held_ev[0]["to"] == "Rahul Verma (+91 98200 22222)"
-        assert render({"type": "event", "topic": "action.held", "data": held_ev[0]}) == \
-            "   📞 Calling Rahul Verma (+91 98200 22222) in 10 s… (Ctrl-C to cancel)"
-        again = press_call(daemon, grant, VERMA)                    # the next call: asked again (nothing stored)
-        assert not again["is_error"] and len([ap for ap in pick.asked if ap.options]) == 2
-    finally:
-        pick.stop()
-    mem = daemon.daemon.memory
-    assert mem is None or not [it for it in daemon.run(_items(daemon)) if "verma" in it.content.lower()]
-
 
 async def _items(d: RunningDaemon) -> list[Any]:
     return d.daemon.memory.items(None)                                 # type: ignore[union-attr]
-
-
-def test_a_wrong_pick_is_refused_then_the_retry_uses_the_owners_answer(daemon: RunningDaemon) -> None:
-    grant, call = rig(daemon, TWO_RAHULS)
-    pick = Answers(daemon, choice=1)                                   # the owner meant Rahul Sharma
-    try:
-        r = press_call(daemon, grant, VERMA)
-        assert r["is_error"] and "Rahul Sharma" in r["content"]["error"] and call.calls == 0
-        ok = press_call(daemon, grant, SHARMA)                      # the worker reselects: no second question
-        assert not ok["is_error"] and call.calls == 1
-        assert len([ap for ap in pick.asked if ap.options]) == 1
-    finally:
-        pick.stop()
-
-
-def test_cancelling_the_question_stops_the_call(daemon: RunningDaemon) -> None:
-    grant, call = rig(daemon, TWO_RAHULS)
-    nobody = Answers(daemon, choice=None)                              # Enter: cancel
-    try:
-        r = press_call(daemon, grant, VERMA)
-        assert r["is_error"] and "declined" in r["content"]["error"] and call.calls == 0
-    finally:
-        nobody.stop()
 
 
 def test_the_owners_words_resolve_it_without_asking(daemon: RunningDaemon) -> None:
@@ -194,21 +151,6 @@ def test_the_owners_words_resolve_it_without_asking(daemon: RunningDaemon) -> No
         assert watch.asked == []
     finally:
         watch.stop()
-
-
-def test_a_call_must_say_who_and_someone_the_owner_never_named_is_asked_about(daemon: RunningDaemon) -> None:
-    """A call names its contact. Calling someone the owner never named isn't refused outright: it's a send to a
-    stranger, so FERB asks the owner (with the worker's reason) and a no stops it."""
-    grant, call = rig(daemon, ONE_RAHUL)
-    r = press_call(daemon, grant, None)
-    assert r["is_error"] and "say who this is for" in r["content"]["error"]
-    no = Answers(daemon, granted=False)
-    try:
-        r = press_call(daemon, grant, {**VERMA, "name": "Priya"})
-    finally:
-        no.stop()
-    assert r["is_error"] and "declined" in r["content"]["error"] and call.calls == 0
-    assert len(no.asked) == 1 and "calling Rahul" in no.asked[0].reason
 
 
 def test_the_choice_question_reads_as_numbered_options() -> None:
@@ -258,43 +200,6 @@ def _click(d: RunningDaemon, grant: Any, **args: Any) -> dict[str, Any]:
                 break
         return await asyncio.wait_for(job, 5)
     return d.run(go(), timeout=20)
-
-
-def test_an_undeclared_click_in_a_messaging_app_is_refused(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Verma", "+91 98200 22222")])
-    r = _click(daemon, grant)
-    assert r["is_error"] and "messaging / calling app" in r["content"]["error"] and posted == []
-
-
-def test_other_on_a_call_button_is_still_a_call(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    """The control under the point says "Video call": the floor makes it a call whatever the worker declared, and
-    a call needs its contact."""
-    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Verma", "+91 98200 22222")], at_point="Video call")
-    r = _click(daemon, grant, purpose="other")
-    assert r["is_error"] and "say who this is for" in r["content"]["error"] and posted == []
-
-
-def test_a_declared_call_click_goes_through_the_contact_check_and_countdown(daemon: RunningDaemon,
-                                                                           monkeypatch: Any) -> None:
-    got = listen(daemon)
-    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Verma", "+91 98200 22222")])
-    r = _click(daemon, grant, purpose="call", contact=VERMA)
-    assert not r["is_error"] and posted[-1].startswith("click"), r
-    assert [d["to"] for t, d in got if t == "action.held"] == ["Rahul Verma (+91 98200 22222)"]
-    made_up = _click(daemon, grant, purpose="call", contact={**VERMA, "selected": "Rahul Kapoor"})
-    assert made_up["is_error"] and "wasn't on screen" in made_up["content"]["error"]
-    assert _click(daemon, grant, purpose="call")["content"]["error"].startswith("say who this is for")
-
-
-def test_two_matches_on_a_screenshot_ask_which_one(daemon: RunningDaemon, monkeypatch: Any) -> None:
-    grant, posted = _whatsapp(daemon, monkeypatch, [("Rahul Sharma", "+91 98100 11111"),
-                                                   ("Rahul Verma", "+91 98200 22222")])
-    pick = Answers(daemon, choice=2)
-    try:
-        r = _click(daemon, grant, purpose="call", contact=VERMA)
-        assert not r["is_error"] and [ap.reason for ap in pick.asked if ap.options] == ["Which Rahul did you mean?"]
-    finally:
-        pick.stop()
 
 
 def test_other_apps_need_no_purpose(daemon: RunningDaemon, monkeypatch: Any) -> None:
@@ -359,27 +264,3 @@ def send(d: RunningDaemon, grant: Any, text: str) -> dict[str, Any]:
                 break
         return await asyncio.wait_for(job, 5)
     return d.run(go(), timeout=20)
-
-
-def test_a_second_message_to_the_same_contact_needs_the_owners_ok(daemon: RunningDaemon) -> None:
-    snap, tool = Snap(), Send()
-    snap.screens = [ONE_RAHUL]
-    grant, _ = setup(daemon, {"mac:read", "mac:act"},
-                     Request("req-1", "message rahul on whatsapp: running late",
-                             Targets.of(recipients=["Rahul"], apps=[WA])), [snap, tool])  # type: ignore[list-item]
-    daemon.daemon.gateway.owner_words = lambda rid, name: "message rahul on whatsapp: running late"
-    assert not daemon.run(daemon.daemon.gateway.call(grant, "mac.snapshot", {"app": "WhatsApp"}))["is_error"]
-    owner = Answers(daemon, granted=False)                             # the owner says no to a second one
-    try:
-        assert not send(daemon, grant, "running late")["is_error"] and tool.sent == ["running late"]
-        assert [ap for ap in owner.asked if ap.kind == "send_again"] == []     # the first one isn't asked about
-        again = send(daemon, grant, "running late!")
-        assert again["is_error"] and "check it by reading the chat" in again["content"]["error"]
-        assert tool.sent == ["running late"]                            # nothing sent twice
-        asked = [ap for ap in owner.asked if ap.kind == "send_again"]
-        assert asked and "running late" in asked[0].reason and "running late!" in asked[0].reason
-        assert question({"kind": "send_again", "reason": asked[0].reason}).endswith("[y/N] ")
-        owner.granted = True                                           # yes: the second one goes
-        assert not send(daemon, grant, "running late!")["is_error"] and tool.sent == ["running late", "running late!"]
-    finally:
-        owner.stop()

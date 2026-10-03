@@ -44,11 +44,11 @@ class Ledger:
     def __init__(self, db: Database, clock: Clock, ids: IdSource) -> None:
         self._db, self._clock, self._ids = db, clock, ids
 
-    def intend(self, task_id: str, capability: str, target: dict[str, Any], payload_hash: str) -> ActionIntent:
+    def intend(self, task_id: str, capability: str, target: dict[str, Any], payload_hash: str, *, reconcile_first: bool = True) -> ActionIntent:
         c = self._db.conn
         c.execute("BEGIN IMMEDIATE")
         try:
-            if c.execute("SELECT 1 FROM action_ledger WHERE task_id = ? AND capability = ? AND payload_hash = ? "
+            if reconcile_first and c.execute("SELECT 1 FROM action_ledger WHERE task_id = ? AND capability = ? AND payload_hash = ? "
                          "AND state = 'unknown'", (task_id, capability, payload_hash)).fetchone():
                 raise DuplicateUnresolved(f"an identical {capability} is unknown; reconcile before retrying")
             now = self._clock.now().isoformat()

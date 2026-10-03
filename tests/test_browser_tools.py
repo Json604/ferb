@@ -133,32 +133,6 @@ def test_fill_refused_on_a_page_the_secret_isnt_for(bd: Any) -> None:
     assert r["is_error"] and "isn't allowed" in r["content"]["error"] and drv.value(tab, 0) == ""
 
 
-def test_a_form_submit_on_a_site_the_owner_did_not_name_asks_but_a_search_runs(bd: Any) -> None:
-    """A search is navigation: it just runs. A form's submit button is a send: on a site the owner never named it
-    asks them, and a no means nothing is posted."""
-    from tests.conftest import Answers
-    d, drv = bd
-    g = task(d, "r", Identity.FERB, FERB_SCOPES, "look up the weather")
-    tab = call(d, g, "ferb_browser.open", url=f"{SITE}/search")["content"]["tab"]
-    snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
-    q = el(snap, form="search", role="searchbox")
-    assert not call(d, g, "ferb_browser.act", tab=tab, element=q, action="type", text="weather")["is_error"]
-    assert not call(d, g, "ferb_browser.act", tab=tab, element=q, action="press", text="Enter")["is_error"]
-    call(d, g, "ferb_browser.navigate", tab=tab, url=f"{SITE}/search")
-    snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "ferb_browser.act", tab=tab, element=el(snap, label="Join"), action="click", effect="edit")
-    assert r["is_error"] and 'effect "send"' in r["content"]["error"]           # the floor: a form submit is a send
-    no = Answers(d, granted=False)
-    try:
-        r = call(d, g, "ferb_browser.act", tab=tab, element=el(snap, label="Join"), action="click", effect="send",
-                 why="joining the list")
-    finally:
-        no.stop()
-    assert r["is_error"] and "declined" in r["content"]["error"] and len(no.asked) == 1
-    assert "login.example.com" in no.asked[0].reason and "joining the list" in no.asked[0].reason
-    assert [p for p in drv.posted if "Join" in p] == []
-
-
 def test_stale_element_ids_are_refused(bd: Any) -> None:
     d, _ = bd
     g = task(d, "st", Identity.FERB, {"identity:browse"}, "sign in")
@@ -197,17 +171,11 @@ def test_stop_closes_ferbs_browser(bd: Any) -> None:
         c.close()
 
 
-def test_local_and_non_http_urls_refused_before_the_driver(bd: Any) -> None:
-    d, drv = bd
-    g = task(d, "p", Identity.FERB, {"identity:browse"}, None)
-    for url in ("http://127.0.0.1:9/", "file:///etc/passwd", "http://router.local/"):
-        r = call(d, g, "ferb_browser.open", url=url)
-        assert r["is_error"] and ("local" in r["content"]["error"] or "http" in r["content"]["error"])
-    assert not drv.running                                                  # the driver never saw them
-    for local in ("http://localhost:8080/", "http://192.168.1.1/", "http://10.0.0.2", "http://[::1]/"):
-        with pytest.raises(Refused):
-            check_url(local, allow_local=False)
-    check_url("https://accounts.google.com/", allow_local=False)
+def test_http_urls_include_local_development_servers_but_not_file_schemes():
+    for url in ("http://localhost:8080", "http://127.0.0.1:9/", "http://router.local/", "https://example.com"):
+        check_url(url, allow_local=False)
+    with pytest.raises(Refused, match="http"):
+        check_url("file:///etc/passwd", allow_local=False)
 
 
 def test_site_matching_covers_subdomains_only() -> None:

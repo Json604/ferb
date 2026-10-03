@@ -2,14 +2,12 @@
 
 FERB is a personal agent runtime for macOS. The owner's goal, in their words: "an agent that can control my Mac the
 way I can, and do things building on top of that base, and keep learning with doing." You talk to it in a terminal
-(`ferb chat`). For each message it replies, asks one question, or runs **one worker** (Codex by default, the Claude
-Agent SDK as an alternative) that works your Mac apps and browser tabs **in the background**, so you keep using the
-Mac while it works. Every tool call the worker makes goes through one gateway that decides, from what the call
-really does, whether it runs, is held for undo, or needs your yes. What works per app is learned from doing, not
-written into the code.
+(`ferb chat`). The orchestrator assigns workers to read and act, resolves their questions, and changes approach
+when a worker cannot continue. Setup collects access once. The agents interpret your request and ask about an
+unrequested final outcome only after the work is ready for review. “Send Rahul the deck” already authorizes sending;
+“get the deck ready for Rahul” calls for a final choice before sending.
 
-- **Version:** 0.20.1 (see [CHANGELOG.md](CHANGELOG.md)). Built and tested by one
-  person on one Mac. Expect rough edges.
+- **Version:** 0.22.0 (see [CHANGELOG.md](CHANGELOG.md)). Current checkout; installation and owner acceptance pending.
 - **Platform:** macOS only, Apple silicon only (FERB pins the arm64 Codex binary). Developed on macOS 26.
 - **Interface:** the CLI, plus push-to-talk. No GUI, menu-bar item or web dashboard. FERB.app (for push-to-talk)
   runs in the background with no window, Dock icon or menu-bar item.
@@ -18,7 +16,7 @@ written into the code.
 walks the flows through the code. [ARCHITECTURE.md](ARCHITECTURE.md) is the design contract. The docs map is at the
 end of this file.
 
-See [the 0.20.0 pointer and continuity notes](docs/POINTER_CONTINUITY_020.md) for current behavior, validation and limits.
+See [the 0.22 control model](docs/ORCHESTRATED_CONTROL_022.md) for current behavior, validation and limits.
 Plain `ferb chat` resumes the last conversation across CLI and daemon restarts; `--new` starts another, and
 `--resume ID` returns to an existing one. Browser screenshot targets now preserve exact coordinates and support dragging.
 
@@ -42,18 +40,18 @@ uv sync                  # development environment (.venv)
 uv run ferb setup
 ```
 
-`ferb setup` runs four steps (`ferb/cli/setup.py:setup`): it installs FERB's dedicated Python, its venv (a copy of
-this checkout), the pinned Codex, the native-messaging host and the LaunchAgent `com.ferb.daemon`, then starts the
-daemon; scans the Mac's apps (Info.plist only) into a device profile; asks for **Accessibility** and **Screen
-Recording** (plus Input Monitoring if FERB's watcher of your own input can't start), checked by the daemon itself and
-granted to the interpreter path setup prints, not to your terminal; and runs a self-test through the daemon.
-Everything else (folder access, your email address, AppleScript automation per app) is asked the first time a task
-needs it. After changing the code, `ferb setup --update` reinstalls FERB into its venv and restarts the daemon.
+`ferb setup` installs FERB's dedicated Python/environment, pinned Codex, native host and LaunchAgent; scans apps;
+collects Accessibility, Screen Recording, Input Monitoring and Full Disk Access; offers Automation for running
+scriptable apps; then runs daemon checks. Grants belong to the interpreter path setup prints. Browser pairing and
+account sign-in complete setup. New apps or changed binaries may still require macOS grants.
+
+`ferb setup --update` reinstalls this checkout and restarts the installed daemon. A pre-0.22 update offers permission
+collection once, recording `setup.permissions_version=22`. Missing/skipped grants remain visible in doctor.
 
 **Browsers.** Pair each profile FERB may use: `ferb browsers pair [--browser chrome|brave] "<profile name>"`. If the
 extension isn't installed there yet, pairing walks you through Load unpacked (Chrome only allows installing an
 unpacked extension by hand), waits until the browser has it, then pairs. `ferb browsers` lists profiles and whether
-they're connected. `[gates] owner_profiles` changes unpaired-profile guidance; it does not enforce a pairing gate.
+they're connected.
 After an extension update, reload
 the unpacked extension in each paired profile: the daemon refuses extensions older than 0.9.0 at hello.
 
@@ -89,8 +87,8 @@ remember that my dentist is Dr. Rao at Smile Clinic
 ```
 
 - Each message gets exactly one of: a reply, one clarifying question (your next message continues the request), or
-  a task. A task is one worker run with every tool its identity allows; its report is your answer.
-- **Ctrl-C** stops the running task ("stopped by you"); a message held for undo is cancelled too. Closing chat does
+  a task. Workers use the installed registry; the orchestrator handles recovery and unresolved questions.
+- **Ctrl-C** stops the running task ("stopped by you"); active recovery is cancelled too. Closing chat does
   not stop tasks: when one finishes you get a macOS notification and chat shows the answer next time.
 - Pasted text arrives whole and is treated as data, never as instructions. A message that is entirely a paste asks
   whether it's your own request. `[policy] pasted_text_is_data = false` turns the rule off.
@@ -112,41 +110,27 @@ push-to-talk. [CAPABILITIES.md](CAPABILITIES.md) has the full list with how each
 
 ## How a request runs
 
-1. The supervisor model (`prompts/supervisor.md`) answers with `reply`, `clarify` or `task` (goal, identity `owner`
-   or `ferb`, the targets it understood, optional success conditions). The only check in code is the identity floor:
-   a `ferb` task never gets your Mac, browsers or folders.
-2. One worker (`prompts/worker.md`) runs with every tool its identity allows right now. Mac apps and browser tabs are
-   worked in the background; the worker never activates an app.
-3. Every acting call declares an `effect` — `navigate`, `edit`, `send`, `pay` or `destroy` — and a `why`. The gateway
-   raises the declaration to the control's floor (a button labelled Send is a send whatever the worker said; Return
-   in a message box is a submit; a security page is `destroy`). Navigate and edit run. A send asks once per target
-   unless your own message named it. Send/post/reply/call/mailbox-send kinds are held 10 s for undo; form submits
-   have no undo hold. Pay and destroy ask every time. Careful mode also confirms action kinds outside `trusted_kinds`.
-4. The worker's summary is your answer. Success conditions are checked by code where possible and by a read-only
-   verifier run otherwise; an action whose outcome is unknown is re-read, never retried blindly.
+1. Each turn searches relevant memory, today's activity log and the installed action registry, alongside durable
+   conversation context and current connection facts.
+2. The orchestrator assigns a worker (`default`, `codex` or `claude`). Reading and acting share one workflow.
+   The worker has the installed registry; `actions.search` helps discover capabilities.
+3. If an attempt cannot continue, its report goes back to the orchestrator. The model changes worker or approach,
+   retaining artifacts and uncertain-action evidence. There is no fixed task duration or action count.
+4. Worker questions go through the orchestrator first. It answers from context when possible; only unresolved
+   questions reach you. Result checks can send incomplete work back for repair.
+5. FERB reports the result and evidence. Closing chat leaves work running; explicit stop cancels it.
 
-## Safety model
+## Execution and privacy
 
-See [identities (§3)](ARCHITECTURE.md#3-identities-and-scopes),
-[the action gate (§5)](ARCHITECTURE.md#5-the-gate-at-the-action), and
-[testing (§14)](ARCHITECTURE.md#14-testing).
+The gateway authenticates and validates tool calls, serializes resources, records execution and redacts results.
+It does not classify your wording into app/action permissions, remove tools after web reads, delay sends for undo,
+or force repeated payment confirmations. Agents decide authorization from the full request.
 
-- **Two identities.** `owner` tasks use your Mac, paired profiles and shell and never hold credentials; `ferb` tasks
-  use only FERB's own browser and accounts. Your profiles are used only when your words point at them.
-- **One gateway.** Every model tool call goes `ferb mcp` → gateway → policy engine. Runtimes' native tools are off
-  and the tool list the model saw is checked on every run.
-- **The effect gate.** Declared effect raised to a code floor; floors only raise. Sends to people you didn't name
-  ask once; pay, permanent deletion and account/security changes ask every time; sends, posts and calls are held
-  10 s for undo; a second message to the same person in one task asks; contacts are never guessed.
-- **Untrusted content.** Pasted text never counts as your words. A worker that read a web page, email, message or a
-  download loses shell, AppleScript and file-write for the rest of its run. Data read from your accounts may only go
-  to a target of the request, somewhere you named, or somewhere you approved.
-- **Your screen stays yours.** Background first; the foreground only when a call passes `allow_foreground=true`, once
-  per stretch of work, with your first key or click held back and your app put back afterwards.
-- **Secrets.** FERB's passwords and one-time codes are sealed to the extension; password fields are never read or
-  typed; screenshots never touch disk.
-- **Guards.** The same failing call 3×, loops, 4 h / 50 worker runs / 1,000 tool calls per task; `ferb stop` halts
-  everything and survives restarts; every tool call is a redacted trace span.
+FERB uses its own browser by default; your profiles are used when you direct it, including “scaler Gmail.” Correct
+tab/process ownership, fresh screenshots, actual OS permissions, sealed secret input, privacy exclusions and stop
+remain enforced. Pages and logs are data, not new instructions. Real model judgment needs owner acceptance.
+
+See the [0.22 contract](docs/ORCHESTRATED_CONTROL_022.md) and [architecture](ARCHITECTURE.md).
 
 ## Owner-verified testing
 
@@ -177,8 +161,8 @@ also perform local work; `daemon run` starts the service, and `mcp` relays worke
 | `ferb voice [on\|off]` | Push-to-talk: watch it live, or turn it on / off |
 | `ferb timeline [--since YYYY-MM-DD]` | The journal: chats, task outcomes, daily summaries |
 | `ferb stop` / `ferb resume-tasks` | Emergency stop (revoke tokens, block actions, cancel held sends; survives restarts) / lift it |
-| `ferb undo [hold_id]` | Cancel a pending send / post / call during its undo window |
-| `ferb autonomy [careful\|balanced\|hands-off]` | Show or set the autonomy level |
+| `ferb undo [hold_id]` | Legacy hold compatibility; new tasks do not create automatic send holds |
+| `ferb autonomy [careful\|balanced\|hands-off]` | Legacy setting; does not restore per-action gates |
 | `ferb pause` / `ferb resume` | Stop / restart every activity watcher |
 | `ferb memory list [--proposed] [--all]`, `show [subject]`, `add [--kind K] [--subject S] [--key KEY] <content>`, `confirm <id>`, `edit <id> <content>`, `retract <id>`, `forget [--keep-sources] [--yes] <id>` | Memory |
 | `ferb reminders [list\|cancel] [id]` | Pending reminders and timers |
@@ -202,11 +186,11 @@ also perform local work; `daemon run` starts the service, and `mcp` relays worke
 |---|---|---|---|
 | `[runtimes]` | `orchestrator`, `worker` | `"codex"` | Runtime per role: `codex` or `claude` |
 | | `claude_model` | SDK default | Model for the Claude runtime |
-| `[policy]` | `autonomy` | `"balanced"` | `careful` (confirm every non-navigate action), `balanced`, `hands-off` |
-| | `trusted_kinds` | `[]` | Action kinds `careful` mode no longer confirms |
-| | `trusted_accounts` | `[]` | Site + profile pairs where you approved an account FERB can't verify (written by FERB) |
+| `[policy]` | `autonomy` | `"balanced"` | Legacy setting; current authorization is agent-directed |
+| | `trusted_kinds` | `[]` | Legacy action-policy preference; no effect on current execution |
+| | `trusted_accounts` | `[]` | Legacy approved account pairs; not a current execution gate |
 | | `pasted_text_is_data` | `true` | Pasted text is data, never instructions |
-| `[fs]` | `owner_roots` | `[]` | Your folders FERB may use (added when you say yes to a folder question) |
+| `[fs]` | `owner_roots` | `[]` | Legacy folder metadata; ordinary OS access now applies |
 | | `untrusted_roots` | `["~/Downloads"]` | Folders whose files count as untrusted content |
 | `[privacy]` | `exclude_apps` | password managers | Never recorded, captured or acted on |
 | | `exclude_domains` | `[]` | Sites never recorded in the trail |
@@ -221,16 +205,16 @@ also perform local work; `daemon run` starts the service, and `mcp` relays worke
 | | `extension_ids` | FERB's extension id | Extension ids the native host accepts |
 | `[identity]` | `browser`, `profile` | set by `ferb setup --identity` | FERB's own Chrome profile |
 | `[mailbox]` | `address` | set by `ferb setup --identity` | FERB's own email address (Gmail) |
-| `[gates]` | `owner_profiles` | `false` | Changes unpaired-profile guidance only; pairing is not gated in code |
-| `[jev]` | `enabled` | `[]` | Jev questions allowed to act |
+| `[setup]` | `permissions_version` | set by setup | Permission collection migration version |
+| `[jev]` | `enabled` | `[]` | Optional enrichment; not action permission or worker-recovery routing |
 | `[device]` | `id` | generated | This Mac's device id |
 
 ## Permissions, privacy, where data lives
 
 macOS permissions go to FERB's dedicated interpreter: Accessibility (read and operate app windows), Screen Recording
-(screenshots of one window), Input Monitoring (only if the owner-input watcher can't start without it; used to hear
+(screenshots of one window), Input Monitoring (used to hear
 the push-to-talk key and to step aside while you use the Mac), Microphone and Speech Recognition (FERB.app only),
-Automation (asked per app on first use). Full Disk Access is not needed.
+Automation for selected running apps and Full Disk Access are offered at setup.
 
 The activity trail records metadata only: the frontmost app, redacted window titles, tab URLs and titles from paired
 profiles, idle/active transitions, app installs and file events in listed folders, each row marked owner or FERB.
@@ -242,6 +226,7 @@ redaction.
 
 | Path | Contents |
 |---|---|
+| `~/.ferb/activity/today.jsonl` | Redacted what/where/when activity; resets on the next read/write after the local date changes |
 | `~/.ferb/ferb.db` | SQLite (WAL): tasks, spans, journal, trail, memory, timers, schedules, ledger, pairings |
 | `~/.ferb/config.toml` | Configuration (owner-only) |
 | `~/.ferb/workspace/` | FERB's own working folder |
@@ -303,37 +288,26 @@ background mechanisms work and can seed its learned profile. Codex in developmen
 | [CAPABILITIES.md](CAPABILITIES.md) | What works today, how each item is verified, known limits |
 | [CODE_TOUR.md](CODE_TOUR.md) | The flows through the code, by `path:function` |
 | [FILE_MAP.md](FILE_MAP.md) | Every folder and file, one line each |
-| [docs/REWORK_PLAN.md](docs/REWORK_PLAN.md) | The 2026-10-02 rework: the rule on hardcoding and the phases (platform study, fixes, drivers, one worker, learning) |
-| [docs/DESIGN_ONE_WORKER.md](docs/DESIGN_ONE_WORKER.md) | The chat turn, the one worker, the effect-class gate, `owner_ask`, verification, the acceptance set |
+| [docs/REWORK_PLAN.md](docs/REWORK_PLAN.md) | The 2026-10-02 rework: historical phases; 0.22 supersedes its control rules |
+| [docs/DESIGN_ONE_WORKER.md](docs/DESIGN_ONE_WORKER.md) | Historical 0.18 effect-gate contract; superseded by ORCHESTRATED_CONTROL_022 |
 | [docs/PLATFORM_MACOS.md](docs/PLATFORM_MACOS.md) | How Mac apps can be driven in the background: Accessibility, events, Spaces, TCC; probe results on this Mac; the owner-verified runs; the per-primitive rung order the driver implements |
 | [docs/PLATFORM_BROWSER.md](docs/PLATFORM_BROWSER.md) | Chromium in the background: MV3, `chrome.debugger`, focus emulation, trusted input, windows and tabs; probe results; the extension design |
 | [docs/OWNER_ACCEPTANCE.md](docs/OWNER_ACCEPTANCE.md) | Tasks the owner gives FERB and checks with their own eyes (`ferb watch` first, then sections B–H) |
 
 ## Picking this repo up as an agent
 
-Read [CLAUDE.md](CLAUDE.md) first: it holds the rules (the owner's eyes are the verifier; hardcode platform facts and
-safety floors only; background first; one worker gated at the action; the floors that never move; what experiments
-may touch), the working loop, and what's next. Then `PROGRESS.md` for where things stand, and the docs above for the
-area you're changing. Never read or reuse `vibed/`.
+Read [CLAUDE.md](CLAUDE.md) first: owner verification, agent-directed decisions, background operation, authorized
+experiments and development boundaries. Then read `PROGRESS.md` and [the current contract](docs/ORCHESTRATED_CONTROL_022.md).
+This session stays on `astra/version`; no push or installed update without authorization. Never read `vibed/`.
 
 ## Known limitations
 
-- macOS only, Apple silicon, one Mac, one user. The CLI is the only interface.
-- Browsers: Chrome and Brave through the unpacked extension (no store listing). Safari and Firefox aren't supported.
-  While FERB works in one of your own profiles, that profile's visible windows show a "started debugging" bar.
-- Pixel clicks posted to an app in the background reach only windows on the current desktop; the real mouse needs
-  `allow_foreground=true`. Electron apps and same-desktop occluded windows haven't been probed by the new driver.
-- Owner-requested OTP login uses hidden CLI input (`browser.login_code`); the code is sealed to the selected origin and never sent to the model. Password sign-in and CAPTCHAs still require the owner. Payments retain their approval floor.
-- Email from FERB's address is text only. Scheduled tasks run only while the daemon runs (a missed run happens once
-  on wake, or is skipped if too late). No monthly schedules.
-- Prompt injection is reduced (pasted text as data, exposure, data flow, the effect floor), not eliminated. A
-  network-fetching shell command exposes the worker like a web page does, so it loses the shell afterwards.
-- Learning by doing (procedure memory: how a task was done, reused next time) is designed but not built.
-- Browser snapshots use Chromium Accessibility first, backed by DOM targets. `browser.screenshot` and `browser.point` resolve missing visible controls in the exact task tab; the normal action policy still gates the click.
-- Only the Mac and browser drivers have recorded real test runs after the 0.17/0.18 rework; the legacy safety suite was last run for
-  real at 0.1.0 and has been re-run offline since.
-
-Browser routing defaults to FERB's own profile. Personal profiles require explicit direction such as "in my Brave"
-or "my Work profile"; a site, phone number or saved address is not permission. Disconnected profiles report a
-connection error; FERB no longer opens a visible wake tab to force a connection. See
-[0.20.1 browser routing notes](docs/BROWSER_DEFAULT_0201.md).
+- macOS on Apple silicon, one user per installation; no cross-device synchronization or graphical frontend.
+- Chrome/Brave require the paired extension; native fallback depends on actual app/OS capabilities. A visible
+  debugger indicator can remain in a profile's windows. No automatic visible wake tab is opened.
+- Native gestures and background delivery need owner verification on each relevant app. Earlier WhatsApp scrolling
+  and YouTube last-comment acceptance do not prove every task or gesture works.
+- OTP input uses the hidden sealed path; CAPTCHA and unavailable credentials can require owner input.
+- FERB mailbox email is text-only; monthly schedules and procedure memory are not implemented.
+- Context search is currently lexical. Agent authorization/recovery judgment and the scaler Gmail → coding-session
+  workflow need live owner acceptance after installing 0.22. Files and shell run with the macOS user's OS access.

@@ -1,5 +1,8 @@
 # Design: one worker per request, gated at the action
 
+> Historical design. The owner replaced action/identity/exposure/phrase gates in 0.22; see [the current contract](ORCHESTRATED_CONTROL_022.md). Platform evidence below remains version-specific.
+
+
 Phase 4 of `docs/REWORK_PLAN.md`. Replaces the plan-time reader/actor split and the verb→kind intent gate
 with one worker that has every tool its identity allows, and a per-call gate by **effect class**. The audit
 (2026-10-02) showed that four pre-classification heuristics had to agree before any click; 11 of 66 tasks

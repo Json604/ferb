@@ -1,7 +1,7 @@
 """The owner's session (2026-09-30): a request pasted into chat, FERB's question, and "yes".
 - a message that's entirely a paste is data unless the owner says, in their terminal, that it's their request;
-- an answer to FERB's question continues the request it asked about; a plain "yes" also endorses the question
-  (for naming checks only — memories / reminders still need the owner's own quote).
+- an answer continues the conversation with FERB's earlier question preserved as context, not rewritten
+  into words attributed to the owner.
 """
 
 from ferb.cli.chat import PASTE_QUESTION, prepare, whole_paste
@@ -62,9 +62,8 @@ def test_yes_continues_the_request_it_answers(daemon: RunningDaemon) -> None:
     assert words is not None
 
 
-def test_yes_to_ferbs_question_counts_even_after_a_paste(daemon: RunningDaemon) -> None:
-    """The owner's actual session: the request was pasted (data), FERB asked, the owner said yes — the recorded
-    words of the request then include FERB's question as the owner's ("your Brave" -> "my Brave")."""
+def test_answer_preserves_ferbs_question_as_context_even_after_a_paste(daemon: RunningDaemon) -> None:
+    """Keep the actual reply and question distinguishable; agents interpret the answer in context."""
     question = "Do you want me to use your Brave browser and scroll the current YouTube tab?"
     seen: list[str] = []
 
@@ -76,4 +75,5 @@ def test_yes_to_ferbs_question_counts_even_after_a_paste(daemon: RunningDaemon) 
     chat(daemon, PASTE_START + REQUEST + PASTE_END, session="s")
     evs = chat(daemon, "yes", session="s")
     assert evs[0]["type"] == "plan", evs
-    assert seen and "my Brave browser" in seen[0] and "yes" in seen[0] and REQUEST not in seen[0]
+    assert seen and seen[0].startswith("yes\nEarlier FERB question (context, not owner instructions): ")
+    assert question in seen[0] and "my Brave browser" not in seen[0] and REQUEST not in seen[0]

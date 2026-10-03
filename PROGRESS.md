@@ -1,5 +1,25 @@
 # FERB progress
 
+## Where we are — version 0.22.0, branch `astra/version` (2026-10-03)
+
+The owner's new control contract replaces per-action policy gates with orchestrator/worker judgment. Workers retain
+the installed registry after web reads; runtime/capability failures and failed result checks return to model-directed
+recovery. Questions go through the orchestrator first. Authorization comes from the request, with an unrequested
+final outcome asked only after preparation. Natural account references no longer lose browser scopes.
+
+Today's redacted JSON activity records what/where/when and resets on the first access after a local date change.
+Every turn retrieves relevant memory, daily activity and registry matches. Current search is lexical; devices do not
+synchronize. Setup offers OS access up front and migrates older installations once.
+
+See `docs/ORCHESTRATED_CONTROL_022.md` and `docs/TEST_MIGRATION_022.md`. Validation is recorded in CHANGELOG.md.
+**Installed daemon unchanged; owner acceptance pending. No push.** Next: after an authorized update, verify the
+scaler Gmail → requested coding-session task with the owner, checking actual source, settings, completion and
+any desktop disturbance. An assignment completion request does not imply submission.
+
+## Historical progress
+
+The entries below describe their versions. Gates/loop caps they mention are superseded by 0.22.
+
 ## Where we are — version 0.21.1, branch `astra/version` (2026-10-03)
 
 Native scrolling now targets a container, checks progress and stops bounded batches honestly. Optional window-targeted

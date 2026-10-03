@@ -107,7 +107,7 @@ async def _system(dm: Any) -> str:
     return str(dm.supervisor._system("supervisor.md"))
 
 
-def test_the_worker_gets_only_what_is_usable_now(daemon: RunningDaemon) -> None:
+def test_worker_keeps_installed_tools_while_availability_reports_connections(daemon: RunningDaemon) -> None:
     """The backstop behind the prompt's "Unavailable" line: a task's worker gets its identity's scopes minus what
     isn't usable — with the owner's browsers not connected, no browser tools at all."""
     dm = rig(daemon, [WORK], set())
@@ -119,7 +119,7 @@ def test_the_worker_gets_only_what_is_usable_now(daemon: RunningDaemon) -> None:
         for ev in c.stream("chat.send", {"session_id": "s", "text": "fill the form on example.com"}):
             if ev["type"] == "plan":
                 t = daemon.daemon.tasks.get(ev["task_id"] + ".worker")
-                assert t is not None and not {"browser:read", "browser:act"} & set(t.task.scopes)
+                assert t is not None and {"browser:read", "browser:act"} <= set(t.task.scopes)
                 assert {"fs:read", "fs:write", "mac:read", "mac:act", "shell"} <= set(t.task.scopes)
                 c2 = Client(daemon.sock)
                 c2.call("task.stop", {"task_ids": [ev["task_id"]]})

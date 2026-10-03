@@ -1,4 +1,4 @@
-"""act/fs: allowed roots, escapes, protected paths, identity, untrusted sources, edit/write rules."""
+"""Filesystem path resolution, OS access, provenance, overwrite and exact-edit contracts."""
 
 import asyncio
 import os
@@ -37,20 +37,16 @@ def run(cap, args: dict, c: ToolContext):
     return asyncio.run(cap.run(cap.Input.model_validate(args), c))
 
 
-def test_workspace_only_by_default(world: dict) -> None:
+def test_relative_paths_use_workspace_and_absolute_paths_are_available(world):
     c = ctx(world)
-    assert not run(FsWrite(), {"path": "notes/x.md", "content": "hi"}, c).is_error
-    assert (world["ws"] / "notes" / "x.md").read_text() == "hi"
-    r = run(FsRead(), {"path": str(world["docs"] / "a.txt")}, c)
-    assert r.is_error and "outside the allowed folders" in r.content["error"]
+    assert not run(FsWrite(), {"path":"notes/x.md", "content":"hi"}, c).is_error
+    assert (world["ws"] / "notes/x.md").read_text() == "hi"
+    assert run(FsRead(), {"path":str(world["docs"] / "a.txt")}, c).content["text"] == "hello world"
 
 
-def test_owner_folders_only_when_listed_and_only_for_owner_tasks(world: dict) -> None:
-    listed = (str(world["docs"]), str(world["dl"]))
-    assert run(FsRead(), {"path": str(world["docs"] / "a.txt")}, ctx(world, owner_roots=listed)).content["text"] == \
-        "hello world"
-    assert run(FsRead(), {"path": str(world["docs"] / "a.txt")}, ctx(world, Identity.FERB, listed)).is_error
-    assert run(FsRead(), {"path": str(world["other"] / "secret.txt")}, ctx(world, owner_roots=listed)).is_error
+@pytest.mark.parametrize("identity", [Identity.OWNER, Identity.FERB])
+def test_files_available_to_both_worker_identities(world, identity):
+    assert run(FsRead(), {"path":str(world["docs"] / "a.txt")}, ctx(world, identity)).content["text"] == "hello world"
 
 
 def test_downloads_reads_are_untrusted_sources(world: dict) -> None:
@@ -59,24 +55,15 @@ def test_downloads_reads_are_untrusted_sources(world: dict) -> None:
     assert run(FsRead(), {"path": str(world["docs"] / "a.txt")}, c).read_sources[0][0] == "file"
 
 
-def test_escapes_symlinks_and_ferb_home_are_refused(world: dict) -> None:
-    c = ctx(world)
-    assert run(FsRead(), {"path": "../ferb.db"}, c).is_error                          # .. escape
+def test_relative_parent_and_symlink_paths_resolve_normally(world):
+    assert run(FsRead(), {"path":"../ferb.db"}, ctx(world)).content["text"] == "db"
     (world["ws"] / "link").symlink_to(world["other"])
-    r = run(FsRead(), {"path": "link/secret.txt"}, c)                                 # symlink out of the root
-    assert r.is_error and "outside" in r.content["error"]
-    with pytest.raises(PathRefused, match="FERB's own files"):
-        resolve(str(world["home"] / "ferb.db"), ctx(world, owner_roots=(str(world["home"].parent),)), True)
+    assert run(FsRead(), {"path":"link/secret.txt"}, ctx(world)).content["text"] == "no"
 
 
-def test_protected_locations_even_inside_a_listed_root(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
-    import ferb.act.fs.files as F
-    ssh = world["docs"] / ".ssh"
-    ssh.mkdir()
-    (ssh / "id_ed25519").write_text("KEY")
-    monkeypatch.setattr(F, "PROTECTED", [ssh])
-    r = run(FsRead(), {"path": str(ssh / "id_ed25519")}, ctx(world, owner_roots=(str(world["docs"]),)))
-    assert r.is_error and "protected" in r.content["error"]
+def test_missing_file_reports_actual_filesystem_error(world):
+    result = run(FsRead(), {"path":"missing.txt"}, ctx(world))
+    assert result.is_error and "exist" in result.content["error"]
 
 
 def test_write_needs_overwrite_and_edit_needs_a_unique_match(world: dict) -> None:
@@ -90,11 +77,10 @@ def test_write_needs_overwrite_and_edit_needs_a_unique_match(world: dict) -> Non
     assert not list(world["ws"].glob(".*ferb-tmp"))
 
 
-def test_list_and_trash_refuses_a_root(world: dict) -> None:
+def test_list_returns_directory_entries(world):
     c = ctx(world)
-    run(FsWrite(), {"path": "d/one.txt", "content": "1"}, c)
-    assert [e["name"] for e in run(FsList(), {"path": "d"}, c).content["entries"]] == ["one.txt"]
-    assert "root itself" in run(FsTrash(), {"path": str(world["ws"])}, c).content["error"]
+    run(FsWrite(), {"path":"d/one.txt", "content":"1"}, c)
+    assert [e["name"] for e in run(FsList(), {"path":"d"}, c).content["entries"]] == ["one.txt"]
 
 
 def test_describe_gives_policy_kinds_and_paths() -> None:

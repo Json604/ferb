@@ -1,9 +1,5 @@
-"""File capabilities (section 3 act/fs): list / read / write / edit / trash inside allowed roots.
-
-Roots: FERB's workspace always; the owner's folders only when listed in config ([fs] owner_roots), and only for
-OWNER tasks. Symlinks are resolved and must stay inside a root; some paths are refused even inside one.
-Reads from untrusted roots (default: ~/Downloads) are reported so the gateway marks the worker exposed.
-"""
+"""File list/read/write/edit/trash using normal OS access. Relative paths resolve in the workspace.
+Read provenance is recorded; it does not remove capabilities."""
 
 import os
 from pathlib import Path
@@ -14,19 +10,8 @@ from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext
 
 READ_DEFAULT, READ_MAX, WRITE_MAX, LIST_MAX = 256 * 1024, 2 * 1024 * 1024, 5 * 1024 * 1024, 500
 
-PROTECTED = [Path.home() / ".ssh", Path.home() / ".gnupg", Path.home() / ".aws", Path.home() / "Library" / "Keychains",
-             Path.home() / ".codex", Path.home() / ".claude", Path.home() / ".config" / "gh"]
-
-
 class PathRefused(Exception):
     pass
-
-
-def _roots(ctx: ToolContext) -> list[Path]:
-    roots = [Path(ctx.workspace)]
-    if ctx.identity is Identity.OWNER:
-        roots += [Path(r).expanduser() for r in ctx.owner_roots]
-    return [r.resolve() for r in roots]
 
 
 HOME_DIRS = ("Desktop", "Documents", "Downloads")
@@ -67,22 +52,9 @@ def finder_name(p: Path) -> Path:
 
 def resolve(path: str, ctx: ToolContext, must_exist: bool) -> Path:
     raw = owner_path(path, ctx.workspace)                        # relative: the workspace, or the owner's Desktop…
-    if any(part == ".." for part in raw.parts):
-        raise PathRefused("'..' is not allowed in paths")
     p = raw.resolve() if (must_exist or raw.exists()) else raw.parent.resolve() / raw.name
     if must_exist and not p.exists():
         raise PathRefused(f"{path} does not exist")
-    inside = [r for r in _roots(ctx) if p == r or r in p.parents]
-    if not inside:
-        raise PathRefused(f"{path} is outside the allowed folders")
-    ferb_home = Path(ctx.workspace).resolve().parent
-    if (ferb_home in p.parents or p == ferb_home) and not (Path(ctx.workspace).resolve() in p.parents
-                                                           or p == Path(ctx.workspace).resolve()):
-        raise PathRefused("FERB's own files are off limits (except its workspace)")
-    for bad in PROTECTED:
-        b = bad.resolve() if bad.exists() else bad
-        if p == b or b in p.parents:
-            raise PathRefused(f"{path} is a protected location")
     return p
 
 
@@ -234,8 +206,6 @@ class FsTrash(_Base):
             p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         except PathRefused as e:
             return _err(str(e))
-        if p in _roots(ctx):
-            return _err("refusing to trash an allowed root itself")
         from Foundation import NSURL, NSFileManager
         ok, result_url, err = NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
             NSURL.fileURLWithPath_(str(p)), None, None)

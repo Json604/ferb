@@ -1,5 +1,7 @@
 # What FERB can do (0.21.0)
 
+Current control contract: [0.22 agent-directed execution](docs/ORCHESTRATED_CONTROL_022.md). New behavior is offline-tested; installation and owner acceptance remain pending.
+
 A checklist for trying FERB out. Each row gives an example request, what it needs, how it is verified, and known
 limits. Every row was checked against the code or the recorded runs on 2026-10-02.
 
@@ -14,7 +16,7 @@ limits. Every row was checked against the code or the recorded runs on 2026-10-0
 - **Mac** = Accessibility granted to FERB's interpreter. **Screen** = Screen Recording.
 - **Paired** = a paired Chrome/Brave profile (connected or wakeable) with the FERB extension (0.9.0).
 - **FERB's browser** = FERB's own Chrome profile (`ferb setup --identity`), paired.
-- **Folder** = you said yes to FERB using that folder (asked once).
+- **Folder** = filesystem access available to the daemon through macOS permissions.
 
 When something is missing FERB says so ("I can't do that right now. Unavailable: …") with the fix.
 
@@ -28,9 +30,9 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 | One question when unclear | `send it to him` | – | Offline test (`test_supervisor`) | One question; your next message continues the request |
 | Continuity across chats and restarts | `what were you doing earlier? did you finish?` | – | Real test (`test_ux_real`) | Sees the recent conversation and tasks from the journal |
 | Tasks outlive the chat window | close chat mid-task, reopen later | – | Offline test (`test_ux`) | A macOS notification goes out; the answer shows next time |
-| Stop a task | Ctrl-C while it works | – | Real test (`test_ux_real`) | A send held for undo is cancelled too |
+| Stop a task | Ctrl-C while it works | – | Real test (`test_ux_real`) | Active recovery is cancelled too |
 | Pasted text is data, not instructions | paste an email, then `summarize this` | – | Offline test (`test_chat_cli`, `test_answers`) | A whole-message paste asks whether it's your request; `[policy] pasted_text_is_data = false` turns the rule off |
-| One worker per request, gated at the action | `search WhatsApp for the syllabus sheet and tell me the gym timing` | – | Offline test (`test_acceptance_one_worker` replays eight real failures; `test_supervisor`, `test_gateway`) | The worker has every tool its identity allows; each acting call declares an effect that FERB raises to the control's floor |
+| Orchestrator and workers | `read scaler Gmail, then complete the assignment in Codex` | Setup | Offline (`test_orchestrated_control`) | Full registry across read/act; agent-selected runtime/approach recovery; live task acceptance pending |
 | A worker's question in chat (`owner_ask`) | `use my browser` with two matching profiles | – | Offline test (`test_acceptance_one_worker` 8, 8b) | Numbered options or your own words; Enter declines; declined at once during a scheduled run |
 | See what a task did | `ferb trace` / `ferb trace a1b2` | – | Offline test (`test_cli` golden) | Shows each tool call's arguments, declared effect, reason and result |
 | Speak replies | `ferb chat --speak` | – | Offline test (`test_unit1_speed_voice`) | The Mac's `say` voice |
@@ -55,15 +57,14 @@ When something is missing FERB says so ("I can't do that right now. Unavailable:
 | Exact native pointer gestures and wheel scrolling | `mac.pointer`: click, dblclick, rightclick, hover, drag, scroll | Mac, Screen | Offline routing/batching/cancellation; owner verified WhatsApp wheel scrolling on another Space without disturbance; other gestures/apps pending | Optional SkyLight window-addressed transport, legacy same-Space fallback; fresh image; no explicit focus transfer; app delivery and lack of disruption must be owner-verified |
 | Yield to you | move the mouse while FERB clicks in front | Mac | Real test (`test_mac_real`: marked vs unmarked input) | Only matters in the foreground |
 | Pick the app or the site for a service | `video call Rahul on WhatsApp` | the app installed | Offline test (`test_routes`) | The model decides from an environment line (installed, paired, running); no route picker in code |
-| Calls and messages in Mac apps | `message Priya on WhatsApp: running late` | Mac | Offline test (`test_contacts`, `test_acceptance_one_worker` 4) | Contact must have been on screen; several matches → "Which Priya?"; the Send button, never Return; 10 s undo; a second message to the same person asks |
+| Calls and messages in Mac apps | `message Priya on WhatsApp: running late` | Mac | Offline execution; live judgment pending | Agent verifies the selected contact and result; no automatic send delay or repeat permission |
 | No arrow-key editing, app switching or quitting | (automatic) | Mac | Owner-verified run (`ferb watch`: ⌘A and an arrow key beep in a background TextEdit) + offline | Text is edited by range or replaced whole; ⌘Tab, Control+arrows, ⌘Space, ⌘Q / ⌘H / ⌘M and AppleScript `activate` are refused |
 
 ## Browser (your paired profiles)
 
-FERB's own profile is the default for web work. Your profiles require explicit browser/profile direction, such as
-"in my Brave" or "my Work profile". Owner-account details alone do not grant personal-browser scopes. A named
-profile never silently becomes another; a disconnected one reports its connection problem. The existing identity
-split still prevents FERB's profile from holding owner accounts; unsupported login requests must be clarified.
+FERB uses its own profile by default. The agent selects an owner's profile from their direction, including natural
+account references such as “scaler Gmail.” No specific permission phrase is required. Pairing/connection facts and
+exact tab ownership still apply. A failed connection is not a reason to switch to an unrelated personal profile.
 
 | Capability | Example request | Needs | Verified | Known limits |
 |---|---|---|---|---|
@@ -76,7 +77,7 @@ split still prevents FERB's profile from holding owner accounts; unsupported log
 | JavaScript dialogs | a confirm after a click | Paired | Real test (`test_browser_lab_real`); offline | Dismissed by the extension unless the act declared `expect_dialog`; `beforeunload` accepted only while FERB leaves the page; reported with the next snapshot |
 | Uploads | `attach report.pdf to the form` | Paired | Real test (`test_browser_lab_real`); offline | `browser.act upload` with absolute paths of existing files; top frame only |
 | Exact browser pointer gestures | screenshot → point → act, with two points for drag | Paired | Real throwaway Chrome: canvas, cross-site frame, slider; offline cancellation and stale-image refusal | One image, 30 seconds; same-frame drag; exact pixels; no OS cursor; inspect result after every gesture |
-| Screenshots and visual target resolution | `browser.screenshot`, `browser.point` | Paired | Real test (`test_browser_lab_real`) | Exact task-tab JPEG; point returns a normal element id for the policy-gated act tool. Sensitive/incomplete inventories refuse capture |
+| Screenshots and visual target resolution | `browser.screenshot`, `browser.point` | Paired | Real test (`test_browser_lab_real`) | Exact task-tab JPEG; point returns a normal element id for the act tool. Sensitive/incomplete inventories refuse capture |
 | Choose the profile when you didn't name one | `check my email` | Paired | Offline test (`test_ext_bridge`) | Open tab → your trail → default browser → ask |
 | The profile you name, and only that one | `open my school gmail in chrome …` | Paired | Owner-verified run (0.12.0) + offline (`test_named_browser`) | Paired but disconnected → the wake service is tried; an unavailable named profile never silently becomes another profile |
 | Install + pair the extension in a profile | `ferb browsers pair school` | Chrome/Brave | Offline test (`test_named_browser`) | Load unpacked by hand; FERB opens the page, copies the path, waits, pairs |
@@ -85,7 +86,6 @@ split still prevents FERB's profile from holding owner accounts; unsupported log
 | Check the worker's existing browser tab | verify a last-comment result | Paired | Offline chat/gateway regression; live corrected checker pending | Registered read-only checker reuses its parent's aliases and current page; original ownership and other-task isolation retained; inaccessible evidence is unknown |
 | Account check before consequential actions | a send where two accounts are signed in | Paired | Offline test (`test_ext_bridge` 21.12) | Extractors for Gmail and YouTube; other sites ask once per site + profile |
 | Calls in web chat, contacts checked | `video call Rahul` | Paired | Real test (`test_contacts_real`, local fake chat page) | The worker sometimes stops to ask instead of letting FERB ask |
-| Account and security pages always ask | `turn on 2FA in <site> settings` | Paired | Offline test (`test_ux`) | Every non-reversible action there is `destroy` |
 | Read your web email | `what are my unread emails in Gmail?` | Paired | Unverified | Owner-requested OTP login has a hidden CLI handoff; passwords and CAPTCHAs need the owner |
 | The debugger bar | – | – | Owner-verified probe (`PLATFORM_BROWSER.md` §2.1) | While FERB is attached to a tab of one of your profiles, that profile's visible windows show "FERB started debugging this browser"; FERB's own minimized window shows nothing; pressing Cancel makes the act in flight unknown and the task re-reads |
 
@@ -96,7 +96,7 @@ split still prevents FERB's profile from holding owner accounts; unsupported log
 | Websites by default | `play some lofi on youtube` | FERB's browser | Offline test (`test_supervisor`, `test_whose_browser`) | Uses FERB's accounts; say "my …" for yours |
 | Browse as FERB | `using your own account, open youtube.com` | FERB's browser | Real test (`test_ferb_identity_real` part 2, owner-approved) | Never your accounts or browsers |
 | Sign in with FERB's password and inbox code | `sign in to <site> with your account` | FERB's browser, the password in the Keychain | Real test (`test_ferb_identity_real` part 1: lookalike host, scheme and cross-origin frame refused; sealed values never on the wire) | Passwords and codes are sealed; the model never sees them |
-| Email from FERB's address | `email me the summary` | FERB's browser (Gmail) | Real test (legacy safety suite at 0.1.0: send confirmed from the Sent folder) | Unnamed recipients require approval; 10 s undo; text only, no attachments; "me" asks your address once |
+| Email from FERB’s address | `email me the summary` | FERB browser/account | Existing transport tests; 0.22 offline | Agent decides authorization and missing address; text only, no attachments |
 
 ## Voice (push-to-talk)
 
@@ -114,13 +114,13 @@ split still prevents FERB's profile from holding owner accounts; unsupported log
 | Capability | Example request | Needs | Verified | Known limits |
 |---|---|---|---|---|
 | Files in FERB's workspace | `in your workspace create notes.md with 'one'` | – | Real test (`test_schedules_real` writes a file) | – |
-| Your folders | `read ~/Documents/plan.txt and summarize it` | Folder | Offline test (`test_fs`, `test_schedules`) | Asked once per folder you name; "Desktop/…" means yours; Finder names with "/" are found by their ":" name |
+| Your folders | `read ~/Documents/plan.txt` | OS access | Offline (`test_fs`) | No per-folder grant or identity jail; Finder path normalization remains |
 | Drive a terminal program | `use claude in terminal in my projects folder to do X` | – | Owner-verified run (0.12.0: Claude Code started, instructed and read) | Runs in FERB's shell, not your Terminal; output read as text, paged from the start |
 | Move to Trash | `move old.txt in your workspace to the Trash` | – | Offline test (`test_fs`) | Trash, never permanent deletion |
-| Shell commands | `how big is my Downloads folder?` | – | Real test (`test_ux_real`) + offline (`test_mac_shell`, real PTYs) | Starts in the workspace; FERB's files, the Keychain and protected paths refused; Homebrew and user bins on PATH |
+| Shell commands | `run the assignment tests` | Setup | Offline real PTYs (`test_mac_shell`) | Workspace default, task-owned processes, clean environment and redacted output; no command deny list |
 | Background processes | `start a local web server in your workspace` | – | Offline test | `ferb ps` / `ferb kill`; ended with the task unless long-lived |
-| Permanent deletion | `rm -rf build/` | – | Offline test (`test_mac_shell`) | Always asks, every time |
-| After untrusted content | `clone <repo> and run its tests` | – | Offline test (`test_acceptance_one_worker` 7) | A network-fetching command (or a web page, email, message, download) exposes the worker: it loses shell, AppleScript and file-write for the rest of the run. `docs/OWNER_ACCEPTANCE.md` E expects the shell to survive a fetch; the code doesn't do that yet |
+| Permanent deletion | requested cleanup | OS access | Execution contract offline | Agent interprets requested outcome; no hardcoded always-ask floor |
+| Read then code | `read the assignment and run its tests` | Setup | Offline (`test_acceptance_one_worker`, `test_orchestrated_control`) | Tools remain available after external reads; external content stays data in the prompts |
 
 ## Monitoring (the activity trail)
 
@@ -159,20 +159,20 @@ split still prevents FERB's profile from holding owner accounts; unsupported log
 | Use memory in a turn | a request that depends on a remembered fact | – | Offline test | Keyword (FTS5) recall, no embeddings |
 | Procedure memory (how a task was done) | – | – | Not built | Rework phase 5; `docs/REWORK_PLAN.md` |
 
-## Safety (what you'll notice)
+## Execution, questions and privacy
 
-| Behaviour | How to see it | Verified | Notes |
-|---|---|---|---|
-| Sends to people you didn't name ask first | the worker wants to reply to someone | Offline test (`test_gateway`, `test_acceptance_one_worker` 4) | Once per request, effect and target, with the worker's reason; your own message naming the target is the approval |
-| The floor raises a too-low declaration | a worker presses "Send" declaring `navigate` | Offline test (`test_acceptance_one_worker` 5) | One floor word list: Send / Submit / Call / Pay / Buy / Order / Delete / Remove / Unsubscribe / Sign out; Return in a message box is a submit |
-| Undo countdown for sends and calls | `✉️ Sending to … in 10 s… (Ctrl-C to cancel)` | Real test (`test_contacts_real`) | `ferb undo` also cancels |
-| Pay / destroy always ask | a payment, `rm -rf`, a password change | Offline test (`test_acceptance_one_worker` 6, `test_ux`) | Even inside a request that asked for it; a no is reported as failed |
-| Untrusted content can't steer the worker | a page containing instructions | Offline test (`test_policy`, `test_acceptance_one_worker` 7) | Exposure removes shell / AppleScript / file-write; owner data may only go to a target of the request, something you named or approved |
-| Password fields and FERB's secrets protected | any sign-in page | Real test (`test_ferb_identity_real`) | – |
-| Emergency stop | `ferb stop` / `ferb resume-tasks` | Offline test (`test_stop`, `test_gateway` 21.2) | Survives restarts; a revoked token can't call a tool within a second |
-| Runaway guards | a stuck task | Offline test | Same failing call 3×, loops, 4 h / 50 worker runs / 1,000 tool calls; a worker silent for 180 s is cancelled |
-| Jev second opinion (shadow) | `ferb decide stats` | Real test (`test_decide_real`) | Only stricter; off until you `ferb decide enable` a question |
-| The legacy §21 safety suite (current ARCHITECTURE.md §14) | `pytest` / `pytest -m real` | Real at 0.1.0 (all 24); offline since the 0.17.0 rework (`test_policy`, `test_gateway` and the acceptance set) | A real re-run after the rework isn't recorded |
+| Behavior | Verification | Limits |
+|---|---|---|
+| Routine actions execute without policy prompts | Offline gateway/integration tests | Real model authorization judgment needs owner acceptance |
+| Unrequested final outcome asks after preparation | Offline orchestrator/question workflow | Prompts and agent judgment, not a phrase classifier |
+| Worker/runtime recovery | Offline blocked-worker and failed-result-check tests | External blockers and provider failures remain possible |
+| Emergency/task stop | Existing stop/token/cancellation tests | Cannot undo an already completed external action |
+| Sealed secrets, redacted output, fresh references and task ownership | Existing driver/transport tests | OS/app permissions and connection required |
+| No fixed action/attempt/task-duration caps | Offline runtime/execution tests | Silent-worker liveness watchdog remains |
+| Daily JSON context | Offline rollover/restart/search/redaction tests | Local device, lexical retrieval, no cross-device sync |
+
+The retired action-gate assertions are documented in `docs/TEST_MIGRATION_022.md`. Historical pure-policy tests do
+not establish the current model's judgment. No live 0.22 acceptance has been claimed.
 
 ## CLI
 
@@ -184,29 +184,19 @@ split still prevents FERB's profile from holding owner accounts; unsupported log
 | `ferb trace`, `logs`, `timeline` | Offline test (`test_cli`) | – |
 | `ferb watch` | Owner-verified run (three runs, 2026-10-02) + offline (`test_rework_fixes`) | Mac steps on TextEdit and Calculator; browser steps in a throwaway Chrome; never your profiles |
 | `ferb stats` | Offline test (`test_rework_fixes`) | Reads the database directly; no daemon needed |
-| `ferb browsers`, `browsers pair` / `unpair` | Owner-verified run (spare and real profiles) + offline | `[gates] owner_profiles` changes guidance only; it does not enforce pairing |
+| `ferb browsers`, `browsers pair` / `unpair` | Existing pairing tests | Setup pairs permitted profiles; runtime profile choice belongs to agents |
 | `ferb memory …`, `reminders`, `schedules`, `device`, `autonomy`, `undo`, `stop`, `resume-tasks`, `pause`, `resume`, `ps`, `kill`, `decide …` | Offline test | – |
 | `ferb uninstall [--purge]` | Offline test (`test_install`) | Doesn't remove the Jev key or macOS permission entries |
 | `python -m ferb.act.mac.probe <bundle> [--seed]` | Owner-verified run (`PLATFORM_MACOS.md` §13) | TextEdit, Calculator and Finder only; never quits an app |
 
-## What FERB can't do yet
+## Known limits and acceptance
 
-- **Other browsers:** Safari and Firefox aren't supported (read/navigate only would be possible; see
-  `docs/PLATFORM_BROWSER.md` §8–9). A browser without the extension can be read through Accessibility but not acted on.
-- **Signing in as you**, CAPTCHAs, purchases of its own: a signed-out page or a human check stops the task; any
-  payment step asks and none has been tested.
-- **Telephony:** no calls outside apps.
-- **Email attachments** from FERB's address (uploads into web forms work).
-- **Monthly schedules**; tasks over 4 hours, 50 worker runs or 1,000 tool calls.
-- **Pixel clicks in the background** reach only windows on the current desktop; occluded same-desktop windows and
-  Electron apps haven't been probed with the new driver (`docs/PLATFORM_MACOS.md` §13.6).
-- **Learning by doing** beyond the per-app mechanism profile: procedure memory isn't built.
-- **Learned trust:** FERB doesn't offer to stop asking about an action type; edit `[policy] trusted_kinds`.
-- **Other platforms, other users, a GUI, sync across devices**: no.
-- **Arbitrary code isolation:** the shell runs as you, inside FERB's rules; no sandbox per resource.
-
-0.20.1: offline regressions cover default-profile authority, corrected legacy retries, native-browser bypass refusal,
-disconnected tab diagnostics and no visible wake page after connection timeout. Live extension recovery remains
-owner-operated; no new background/no-Space-shift claim is made.
-
-0.21.0: bounded native scrolling and optional window-targeted input are implemented; owner verified WhatsApp wheel scrolling; broader gesture/app verification remains pending. See `docs/BACKGROUND_SCROLL_021.md`.
+- Cross-device sync, other platforms, a graphical UI, monthly schedules, procedure memory and FERB mailbox
+  attachments are not implemented.
+- Chrome/Brave extension control and native fallback depend on installed permissions and actual app support.
+  Agent judgment cannot make a disconnected transport work. CAPTCHA/missing credentials can require owner input.
+- Files and shell use the macOS user's access; there is no per-resource command sandbox.
+- Today's activity/registry retrieval is lexical. Runtime switching uses the Codex/Claude adapters; a dedicated
+  coding-session adapter is not built. Requested settings and completion must be inspected through available tools.
+- Previous owner confirmations cover WhatsApp wheel scrolling and the last available YouTube comment. Broader
+  gestures and 0.22 authorization/recovery behavior remain pending live acceptance.

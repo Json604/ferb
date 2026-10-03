@@ -1,10 +1,7 @@
-"""Policy engine: one fixed evaluation order over the checks (section 10), returning a single verdict.
+"""Legacy policy evaluator, retained for compatibility tests and request/question/stop state.
 
-Order: stopped -> identity & scopes -> exposure -> navigate runs -> data flow -> the effect gate (send asks once per
-request / effect / target unless the owner named it; pay / destroy ask every time) -> undo window. The first check
-that decides wins, so e.g. `ferb stop` blocks even an approved action.
-Pure decision logic: the gateway (build step 4) calls it, records the reason, and publishes the events returned.
-"""
+The 0.22 execution gateway does NOT call evaluate. Do not reconnect legacy identity, exposure, effect or undo
+decisions: authorization and recovery belong to the orchestrator/worker contract."""
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal

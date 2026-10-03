@@ -10,6 +10,32 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.22.0 — 2026-10-03 — Agent-directed control and daily context
+
+- Replace the gateway's action-policy path with authenticated execution, resource locking, ledger/trace recording
+  and redaction. Remove active identity/phrase/profile permission checks, exposure tool withdrawal, contact gates,
+  mandatory effect floors, send holds, duplicate-send approvals, shell/path/script deny lists and automatic account
+  helper pages. Final-outcome authorization is interpreted by the orchestrator/worker from the owner's request.
+- Give task workers the installed action registry and `actions.search`. Add typed worker selection, blocked reports,
+  orchestrator recovery and question resolution. Preserve artifacts, recent reports and uncertain actions across
+  attempts; failed result checks return for repair. Explicit stop cancels recovery as well as execution.
+- Preserve clarification replies and FERB's earlier question as separate sources; remove the yes-word shortcut
+  that rewrote FERB's wording as the owner's. Finish and clean up truthfully if recovery context cannot be built.
+- Remove fixed task/attempt/action caps, report-keyword retry and the Claude adapter's turn cap. Keep silent-worker
+  liveness, actual OS/transport errors, resource ownership, fresh references, privacy handling and sealed secrets.
+- Record redacted what/where/when activity in `activity/today.jsonl`, resetting on first access after local-day rollover.
+  Retrieve bounded relevant memory, activity and registry entries every turn. Retrieval is currently lexical and
+  device-local; no cross-device sync claim.
+- Collect Mac permissions and selected app Automation at setup, with one-time collection when upgrading older
+  installations. Keep FERB-profile default and owner-directed profile selection in agent instructions.
+- Rewrite the cold-start architecture, code tour and supporting docs. Record retired policy assertions in
+  `docs/TEST_MIGRATION_022.md` instead of silently skipping them. Legacy pure-policy helpers are not live gates.
+- Validation: **514 offline tests passed, 50 deselected** (96.29 s); core mypy and Python compilation passed.
+  Fix the fake identity-pairing helper to wait for the token page, not the preceding wake page; sealed-secret
+  replay and origin checks remain covered.
+  No installed-daemon update, push or real app action. **Owner acceptance of 0.22 remains pending**, especially the
+  scaler Gmail → requested coding-session workflow, authorization judgment and desktop disturbance.
+
 ## 0.21.1 — 2026-10-03 — Verify the worker's existing browser tab
 
 - Owner confirmed the live Brave YouTube task reached the last available comment; an independent read matched

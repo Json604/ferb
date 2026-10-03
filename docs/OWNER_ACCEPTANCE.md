@@ -1,5 +1,23 @@
 # Owner acceptance: tasks you give FERB, verified by you
 
+## 0.22 acceptance — pending installation and owner observation
+
+Use the installed 0.22 build only after the owner approves updating/restarting it. Give the task naturally:
+“Check scaler Gmail for FMI Assignment 2, establish exactly what to submit, then use the requested Codex model and
+reasoning level to complete it. Report when the agent finishes.” Verify the actual email/source, requirements,
+configured coding session, final artifacts and completion evidence. The task does not request submission.
+
+The owner reports every desktop/window/tab disturbance. Tools must remain available after reading Gmail. A worker
+capability failure returns to the orchestrator before an owner question. No routine action permission or countdown
+should appear. A missing OTP is a factual input request. Stop must cancel the whole active recovery attempt.
+
+For final-outcome judgment, use an owner-selected disposable destination and concrete artifact: compare “get ready”
+with “send.” Do not send a real message merely to exercise this test. Offline routing tests are already present;
+real model judgment remains unverified until the owner observes it.
+
+The older sections below are historical where they expect gates/holds; use the 0.22 contract when judging behavior.
+
+
 Stale tests can't fool a person watching the screen. This is the list of things to ask FERB, what should happen,
 and what **you** check. Run `ferb watch` first (section A): it isolates each interaction type. Then the tasks in
 B–H go through `ferb chat`, exactly as you'd use FERB. Record each result in `docs/OWNER_ACCEPTANCE_LOG.md` (date,

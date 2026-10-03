@@ -14,7 +14,6 @@ import pytest
 from ferb.act.browser.ext_bridge import Router
 from ferb.core.errors import Refused
 from ferb.core.types import Identity, Task
-from ferb.orchestrator.guards import TreeGuard
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.targets import named
 
@@ -79,18 +78,6 @@ def test_the_tools_exist_only_for_the_owners_browser(daemon: Any) -> None:
 
 
 # ---------- scrolling isn't a loop ----------
-
-def test_scrolling_through_a_changing_page_is_not_a_loop_but_a_stuck_one_is() -> None:
-    g = TreeGuard(0.0)
-    for i in range(12):                                                              # new comments load each time
-        assert g.call("w", "browser.act", {"action": "scroll", "text": "down"}, False, f"ok{i}") is None
-        assert g.call("w", "browser.snapshot", {"tab": "t1"}, False, f"page{i}") is None
-    stuck = TreeGuard(0.0)
-    reasons = []
-    for _ in range(6):                                                               # the page never changes
-        reasons.append(stuck.call("w", "browser.act", {"action": "scroll", "text": "down"}, False, "ok"))
-        reasons.append(stuck.call("w", "browser.snapshot", {"tab": "t1"}, False, "same page"))
-    assert any(r and "loop" in r for r in reasons)
 
 
 def test_a_page_scrolls_without_an_element_and_an_old_extension_says_reload() -> None:

@@ -28,10 +28,10 @@ from typing import Any, Awaitable, Callable, Collection, Literal
 from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
-from ferb.act.mac.ax_browser import ACT_REFUSED, BROWSER_BUNDLES, is_browser
+from ferb.act.mac.ax_browser import BROWSER_BUNDLES, is_browser
 from ferb.act.mac.window_input import load_route
 from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, click_steps, is_arrow, is_enter, is_shortcut, key_steps,
-                                normalize, pointer_steps, quits_or_hides, switches_apps, type_steps, valid_combo, wheel_steps)
+                                normalize, pointer_steps, type_steps, valid_combo, wheel_steps)
 from ferb.act.mac.profile import Profiles
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
@@ -438,18 +438,11 @@ class MacComputerDriver:
 
     async def act(self, app: str, action: ComputerAction, holder: str = "", task: str | None = None) -> ActionResult:
         a = self.app(app)
-        if is_browser(a.bundle_id):
-            raise Refused(ACT_REFUSED)
         fg = bool(action.allow_foreground)
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
                 raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, pagedown, cmd+s)")
-            if switches_apps(action.text):
-                raise Refused(f"{action.text} switches the owner's apps or desktops; FERB works with {a.name} where it "
-                              "is — no need to bring it forward")
-            if quits_or_hides(action.text):
-                raise Refused(f"{action.text} quits, hides or minimises {a.name}: FERB never does that (close what "
-                              "you opened with its close button instead)")
+
             await self._key_rules(a, action.text)
             return await self._key(a, action.text, holder, task, fg)
         if action.kind == "scroll":
@@ -509,19 +502,8 @@ class MacComputerDriver:
     # ---- typing
 
     async def _key_rules(self, a: Any, combo: str) -> None:
-        """Buttons over keystrokes, whole values over cursor editing (owner decision 2026-10-01, every app)."""
-        if not (is_arrow(combo) or is_enter(combo)):
-            return
-        if await asyncio.to_thread(self.ax.focused_role, a.pid) not in ("textbox", "searchbox"):
-            return
-        if is_arrow(combo):
-            raise Refused(ARROW_REFUSED)
-        send = self._send_button(a.bundle_id)
-        if send is not None:
-            raise Refused(f"don't press Return in a text box: press the Send button ({send}) instead")
-        if self.communication(a.bundle_id):
-            raise Refused("in a messaging app Return would send without FERB's checks: press the Send button instead "
-                          "(take a new snapshot to find it — it may appear only once there's text)")
+        # Keyboard choice is an agent decision; key-code validation and delivery checks remain in act().
+        return
 
     def _send_button(self, bundle_id: str) -> str | None:
         from ferb.policy.effects import label_kind

@@ -259,25 +259,18 @@ def test_close_forgets_the_tab_only_once_the_browser_confirmed(bd: Any) -> None:
     assert tab2 not in router._tabs and _chrome_id(d, tab) not in ext.attached
 
 
-def test_the_youtube_account_page_is_read_once_per_connection_not_per_action(bd: Any) -> None:
+def test_actions_do_not_open_account_helper_tabs_or_block_account_mismatch(bd):
     d, launched = bd
     ext = pair(d, launched, "Personal")
     ext.wait_for(lambda: ext.gen is not None)
-    g = task(d, "y", OWNER, {"fill_form"}, sites=frozenset({"www.youtube.com"}))
+    g = task(d, "y", OWNER, {"fill_form"})
     tab = call(d, g, "browser.open", url="https://www.youtube.com/watch?v=x", profile="Personal")["content"]["tab"]
     ext.accounts["www.youtube.com"] = "someone.else@gmail.com"
-    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")
-    assert r["is_error"] and "wrong account" in r["content"]["error"]
     opens = ext.opens
-    ext.accounts["www.youtube.com"] = "me@gmail.com"                             # a mismatch is never cached
-    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    assert not call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")["is_error"]
-    assert ext.opens == opens + 1                                                # the helper tab, once
-    for _ in range(2):
+    for _ in range(3):
         snap = call(d, g, "browser.snapshot", tab=tab)["content"]
         assert not call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")["is_error"]
-    assert ext.opens == opens + 1                                                # not per action
+    assert ext.opens == opens
 
 
 def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:

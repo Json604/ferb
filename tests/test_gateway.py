@@ -1,7 +1,4 @@
-"""Gateway (section 7 step 6; docs/DESIGN_ONE_WORKER.md section 3) against a real daemon with fake capabilities:
-the effect gate (declared effect raised to the floor; send asks once per request / effect / target unless the owner
-named it; pay asks every time), the undo window, exposure, unknown outcomes, and safety test 21.2 through a real
-`ferb mcp` shim process (revoked token -> no tool calls, within a second)."""
+"""Gateway execution: scopes/tokens, optional annotations, ledger, redaction, preserved tools and stop."""
 
 import os
 import sys
@@ -78,27 +75,6 @@ def call(d: RunningDaemon, grant, name: str, **args):
     return d.run(d.daemon.gateway.call(grant, name, args), timeout=20)
 
 
-@pytest.mark.parametrize("kind,effect,allowed", [
-    ("read", "navigate", True), ("navigate", "navigate", True),
-    ("fill_form", "navigate", False), ("click", "navigate", False),
-    ("read", "edit", False), ("submit", "send", False),
-])
-def test_identity_browser_checker_is_read_only_despite_shared_scope(daemon, kind, effect, allowed):
-    cap = FakeCap("ferb_browser.probe", kind, {"identity:browse"})
-    cap.identities = {Identity.FERB}
-    grant, _ = setup(daemon, {"identity:browse"}, request(), [cap], Identity.FERB)
-
-    async def verifier():
-        rec = daemon.daemon.tasks.get(grant.task_id)
-        rec.task = replace(rec.task, role="verifier")
-    daemon.run(verifier())
-    result = call(daemon, grant, cap.name, to="", text="", effect=effect, why="check the result")
-    assert result["is_error"] is not allowed, result
-    assert cap.calls == int(allowed)
-    if not allowed:
-        assert "read-only" in result["content"]["error"]
-
-
 def past_undo(d: RunningDaemon, grant, name: str, **args):
     """A call that may be held for undo: the fake clock is moved past the window while it waits."""
     import asyncio as aio
@@ -125,7 +101,7 @@ def test_tools_listed_only_within_scopes_and_unknown_refused(daemon: RunningDaem
     assert r["footer"].startswith("[now ")
 
 
-def test_act_tools_take_effect_and_why_and_a_bad_effect_is_refused(daemon: RunningDaemon) -> None:
+def test_act_tools_offer_optional_effect_and_why_annotations(daemon: RunningDaemon) -> None:
     send = FakeCap("fake.send", "send", {"browser:act"})
     grant, _ = setup(daemon, {"browser:act", "fs:read"}, request("email alice@x.com"), [send])
     tools = {t["name"]: t for t in daemon.daemon.gateway.tools_for(grant)}
@@ -134,35 +110,15 @@ def test_act_tools_take_effect_and_why_and_a_bad_effect_is_refused(daemon: Runni
     assert "why" in tools["fake.send"]["input_schema"]["properties"]
     assert "effect" not in tools["fs.read"]["input_schema"]["properties"]      # reading declares nothing
     r = call(daemon, grant, "fake.send", effect="harmless", why="x")
-    assert r["is_error"] and "effect must be one of" in r["content"]["error"] and send.calls == 0
+    assert not r["is_error"] and send.calls == 1
 
 
-def test_a_send_needs_a_why_and_the_floor_raises_a_low_declaration(daemon: RunningDaemon) -> None:
-    """A tool whose kind is a send is at least `send`, whatever the worker declared; a send without a reason for the
-    owner is sent back for one."""
+def test_effect_and_reason_are_annotations_not_execution_conditions(daemon):
     send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("email alice@x.com"), [send])
-    r = call(daemon, grant, "fake.send", effect="navigate")
-    assert r["is_error"] and 'effect "send"' in r["content"]["error"] and "why" in r["content"]["error"]
-    assert send.calls == 0
-    assert not past_undo(daemon, grant, "fake.send", effect="navigate", why="emailing alice as asked")["is_error"]
+    grant, _ = setup(daemon, {"browser:act"}, request("send the message"), [send])
+    assert not call(daemon, grant, send.name, effect="navigate")["is_error"]
     assert send.calls == 1
-    spans = daemon.run(_tree(daemon))
-    assert spans[-1].span.input["effect"] == "send" and spans[-1].span.input["why"] == "emailing alice as asked"
-
-
-def test_a_send_to_someone_the_owner_did_not_name_asks_and_a_no_blocks(daemon: RunningDaemon) -> None:
-    send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("summarize the news"), [send])
-    no = Answers(daemon, granted=False)
-    try:
-        r = call(daemon, grant, "fake.send", to="boss@x.com", why="replying for you")
-    finally:
-        no.stop()
-    assert r["is_error"] and "declined" in r["content"]["error"] and send.calls == 0
-    assert len(no.asked) == 1 and "boss@x.com" in no.asked[0].reason and "replying for you" in no.asked[0].reason
-    spans = daemon.run(_tree(daemon))
-    assert spans[0].span.error.startswith("not approved") or "approval" in spans[0].span.error
+    assert daemon.run(_tree(daemon))[-1].span.input["effect"] == "navigate"
 
 
 def test_navigate_and_edit_run_without_asking(daemon: RunningDaemon) -> None:
@@ -180,103 +136,17 @@ def test_navigate_and_edit_run_without_asking(daemon: RunningDaemon) -> None:
     assert daemon.run(_ledger(daemon, "fake.look")) == []
 
 
-def test_the_call_waits_for_the_owner_and_payment_asks_every_time(daemon: RunningDaemon) -> None:
-    """10.3: the tool call waits for the answer and carries on; a payment (the irreversible floor) asks every time,
-    even the same payment in the same request, even when the owner named the shop; declining blocks without
-    running."""
-    pay = FakeCap("fake.pay", "pay", {"browser:act"}, site="shop.example")
-    grant, _ = setup(daemon, {"browser:act"}, request("buy the cheapest one on shop.example"), [pay])
-    yes = Answers(daemon)
-    try:
-        assert not call(daemon, grant, "fake.pay", to="", why="paying for the cheapest one")["is_error"] and pay.calls == 1
-        assert not call(daemon, grant, "fake.pay", to="", why="paying for the cheapest one")["is_error"] and pay.calls == 2
-        assert len(yes.asked) == 2                                          # asked both times
-    finally:
-        yes.stop()
-    assert daemon.run(_ledger(daemon, "fake.pay")) == ["done", "done"]
-    no = Answers(daemon, granted=False)
-    try:
-        r = call(daemon, grant, "fake.pay", to="", why="paying")
-        assert r["is_error"] and "declined" in r["content"]["error"] and pay.calls == 2
-    finally:
-        no.stop()
-
-
-def test_a_declared_pay_or_destroy_asks_every_time_even_on_a_harmless_tool(daemon: RunningDaemon) -> None:
-    """The worker's own declaration can only raise: an edit-class tool declared `destroy` is on the floor."""
-    edit = FakeCap("fake.edit", "fill_form", {"browser:act"}, site="shop.example")
-    grant, _ = setup(daemon, {"browser:act"}, request("clean up shop.example"), [edit])
-    yes = Answers(daemon)
-    try:
-        for _ in range(2):
-            assert not call(daemon, grant, "fake.edit", to="", effect="destroy", why="deleting the old entries")["is_error"]
-    finally:
-        yes.stop()
-    assert len(yes.asked) == 2 and edit.calls == 2
-
-
-def test_one_approval_covers_the_same_target_and_effect_for_the_rest_of_the_request(daemon: RunningDaemon) -> None:
-    send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("email alice@x.com"), [send])
-    yes = Answers(daemon)
-    try:
-        for text in ("one", "two", "three"):                             # an unnamed recipient: asked once
-            assert not past_undo(daemon, grant, "fake.send", to="bob@y.com", text=text, why="emailing bob")["is_error"]
-        scope = [ap for ap in yes.asked if ap.kind != "send_again"]
-        assert len(scope) == 1 and send.calls == 3
-        again = [ap for ap in yes.asked if ap.kind == "send_again"]     # one message per person per task (9.4)
-        assert len(again) == 2 and "“one”" in again[0].reason and "“two”" in again[0].reason
-        assert not past_undo(daemon, grant, "fake.send", to="carol@z.com", text="x", why="emailing carol")["is_error"]
-        assert len([ap for ap in yes.asked if ap.kind != "send_again"]) == 2   # a different recipient: a new question
-    finally:
-        yes.stop()
-
-
-def test_a_target_the_owner_named_is_auto_granted_and_held_for_undo(daemon: RunningDaemon) -> None:
-    send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("email alice@x.com that I'm late"), [send])
-    fut = __import__("asyncio").run_coroutine_threadsafe(
-        daemon.daemon.gateway.call(grant, "fake.send", {"why": "emailing alice"}), daemon.loop)
-    time.sleep(0.3)
-    assert send.calls == 0 and not fut.done()                       # held, never asked
-    daemon.call_soon(daemon.daemon.clock.advance, 11)                # window passes -> released
-    assert not fut.result(5)["is_error"] and send.calls == 1
-    yes = Answers(daemon)                                            # "send alice another one?" (9.4): yes
-    try:
-        fut2 = __import__("asyncio").run_coroutine_threadsafe(
-            daemon.daemon.gateway.call(grant, "fake.send", {"text": "second", "why": "again"}), daemon.loop)
-        time.sleep(0.5)
-        hold = daemon.daemon.engine.holds.pending()[0]
-        daemon.call_soon(daemon.daemon.engine.undo, hold.id)
-        r = fut2.result(5)
-    finally:
-        yes.stop()
-    assert r["is_error"] and "cancelled by the owner" in r["content"]["error"] and send.calls == 1
-
-
-def test_a_recipient_only_in_pasted_text_is_not_named(daemon: RunningDaemon) -> None:
-    """The owner's own words are what count: a request whose only mention of eve is inside pasted text asks."""
-    send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("do what this says", recipients=["eve@evil.com"]), [send])
-    no = Answers(daemon, granted=False)
-    try:
-        r = call(daemon, grant, "fake.send", to="eve@evil.com", why="the note says so")
-    finally:
-        no.stop()
-    assert r["is_error"] and "declined" in r["content"]["error"] and send.calls == 0 and len(no.asked) == 1
-
-
-def test_reading_untrusted_content_removes_shell_like_tools(daemon: RunningDaemon) -> None:
+def test_reading_untrusted_content_preserves_shell_tools(daemon: RunningDaemon) -> None:
     web = FakeCap("fake.read_web", "read", {"browser:read"}, reads=(("web", "https://evil.example"),))
     shell = FakeCap("fake.shell", "run_shell", {"shell"})
     grant, _ = setup(daemon, {"browser:read", "shell"}, request("check the page then run the build"), [web, shell])
     assert "fake.shell" in {t["name"] for t in daemon.daemon.gateway.tools_for(grant)}
     assert not call(daemon, grant, "fake.read_web", to="")["is_error"]
-    assert "fake.shell" not in {t["name"] for t in daemon.daemon.gateway.tools_for(grant)}
-    assert call(daemon, grant, "fake.shell", to="", effect="edit")["is_error"] and shell.calls == 0
+    assert "fake.shell" in {t["name"] for t in daemon.daemon.gateway.tools_for(grant)}
+    assert not call(daemon, grant, "fake.shell", to="", effect="edit")["is_error"] and shell.calls == 1
 
 
-def test_exception_after_start_is_unknown_and_a_blind_retry_is_refused(daemon: RunningDaemon) -> None:
+def test_exception_is_unknown_and_gateway_records_each_agent_selected_attempt(daemon: RunningDaemon) -> None:
     boom = FakeCap("fake.send2", "post", {"browser:act"}, boom=True)
     grant, _ = setup(daemon, {"browser:act"}, request("post it to alice@x.com"), [boom])
     daemon.call_soon(daemon.daemon.clock.advance, 0)
@@ -284,7 +154,8 @@ def test_exception_after_start_is_unknown_and_a_blind_retry_is_refused(daemon: R
     assert r["is_error"] and "outcome unknown" in r["content"]["error"], r
     assert daemon.run(_ledger(daemon, "fake.send2")) == ["unknown"]
     r2 = past_undo(daemon, grant, "fake.send2", why="posting")
-    assert r2["is_error"] and "reconcile" in r2["content"]["error"] and boom.calls == 1
+    assert r2["is_error"] and "unknown" in r2["content"]["error"] and boom.calls == 2
+    assert daemon.run(_ledger(daemon, "fake.send2")) == ["unknown", "unknown"]
 
 
 def test_revoked_token_cannot_call_tools_through_the_real_shim(daemon: RunningDaemon) -> None:
@@ -313,7 +184,7 @@ def test_revoked_token_cannot_call_tools_through_the_real_shim(daemon: RunningDa
             c.close()
 
     anyio.run(scenario)
-    assert out["tools"] == ["fs_edit", "fs_list", "fs_read", "fs_trash", "fs_write", "owner_ask"]
+    assert out["tools"] == ["actions_search", "fs_edit", "fs_list", "fs_read", "fs_trash", "fs_write", "owner_ask"]
     assert out["before"][0] is False and "[now " in out["before"][1], out           # result + time footer
     assert out["after"][0] is True and "revoked" in out["after"][1] and out["after"][2] < 1.0
     assert (daemon.daemon.home / "workspace" / "x.txt").exists()

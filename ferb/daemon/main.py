@@ -81,6 +81,8 @@ class Daemon:
         self.config = Config(self.home)
         self._redact_override = redact
         self.redact: Redact = redact or Redactor()
+        from ferb.sense.daily import DailyActivity
+        self.daily_activity = DailyActivity(self.home / 'activity' / 'today.jsonl', self.clock.now)
         self.bus = Bus(self.clock)
         self.tokens = RunTokens(self.clock)
         self.server = Server(socket_path(self.home), self.tokens, owner_uid)
@@ -455,6 +457,9 @@ class Daemon:
                                      on_task_end=self._task_end, facts=self._facts,
                                      checks=Checks(self.ledger, self._urls_of, self._account_of), roots=roots)
         self.supervisor.browser_context = self._browser_context
+        self.supervisor.relevant_context = self._relevant_context
+        self.supervisor.worker_types = lambda: ['default', *self.registry.runtimes]
+        self.gateway.route_question = self.supervisor.route_question
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
 
@@ -482,10 +487,6 @@ class Daemon:
         if self.hub is None or browser not in self.hub.unpaired.values() or self._owner_extension_connected(browser):
             return None
         name = {"brave": "Brave", "chrome": "Chrome"}.get(browser, browser)
-        if not self.config.get("gates", "owner_profiles", False):
-            return (f"The FERB extension is installed in {name} but not paired yet. Pairing your real profiles waits "
-                    "until FERB's safety tests all pass; tell the owner that, and don't fall back to screenshots of "
-                    f"{name}.")
         return (f"The FERB extension is installed in {name} but not paired. Tell the owner to pair it: "
                 f"`ferb browsers pair {browser} \"<profile name>\"` (or say yes when ferb chat offers it).")
 
@@ -1009,14 +1010,11 @@ class Daemon:
     def _schedule_create(self, spec: Any, own_words: str, request_id: str) -> str:
         """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future."""
         from ferb.orchestrator.schedules import Rule, ScheduleError
-        from ferb.orchestrator.supervisor import _wants_me
         from ferb.policy.targets import Targets
         norm = " ".join(own_words.lower().split())
         if len(spec.quote.strip()) < 3 or " ".join(spec.quote.lower().split()) not in norm:
             self._journal().append("schedule.refused", {"why": "quote not in the owner's words"})
             return "I couldn't set that up — could you ask me again in your own words?"
-        if _wants_me(spec.targets.recipients) and self._owner_email() is None:
-            return "What email address should I use for you? Tell me, then ask me to schedule it again."
         try:
             from ferb.clock.when import resolve
             first = resolve(spec.when, self.clock.now())                        # code computes the date, not the model
@@ -1370,6 +1368,15 @@ class Daemon:
         return ("\n\nExisting task tabs available for read-only verification (reuse these aliases; do not reopen "
                 "the page or guess tab ids): " + json.dumps(tabs)) if tabs else ""
 
+    def _relevant_context(self, words: str) -> str:
+        from ferb.act.catalog import search_actions
+        from ferb.sanitize.untrusted import wrap_untrusted
+        actions = search_actions(self.registry.capabilities, words)
+        activity = self.daily_activity.search(words)
+        return ('\nRelevant installed actions: ' + json.dumps(actions) +
+                '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)[:5000]) +
+                '\nWorker types: ' + json.dumps(['default', *self.registry.runtimes]) + '\n')
+
     def _named_browser(self, own_words: str) -> Any:
         """The browser / profile the owner's words name — never FERB's own profile (owner's report 2026-10-01)."""
         from ferb.act.browser.profiles import named_in
@@ -1535,7 +1542,7 @@ class Daemon:
         for drv in (self.router, self.ferb_identity):          # a wake never leaves the owner in the browser (9.3)
             drv.front, drv.put_back = self._front_bundle, self._put_owner_back
             drv.read_parent = self._browser_read_parent
-        self.router.named_for = self._named_for_task           # the browser the owner named, never another one
+        # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve
         self.server.extension_ids = lambda: frozenset(self.config.get("browser", "extension_ids",
@@ -1723,6 +1730,10 @@ class Daemon:
         return "\n".join(lines)
 
     def _publish(self, topic: str, data: dict[str, Any]) -> None:
+        if topic in ('trail.event', 'action.observed'):
+            self.daily_activity.record(self.redact(dict(data, what=data.get('what', data.get('source', topic)),
+                                                        where=data.get('where', data.get('data', {})),
+                                                        device_id=self.config.get('device', 'id', 'unknown-device'))))
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)
@@ -1730,24 +1741,23 @@ class Daemon:
             self._journal().append(topic, self.redact(data))
 
     def _runtime_violation(self, runtime: str, detail: str) -> None:
-        """Section 7: a run that shows a tool outside the allowlist unregisters its runtime."""
-        self.registry.unregistered[runtime] = detail
-        self._journal().append("runtime.unregistered", {"runtime": runtime, "detail": detail})
-        self._publish("policy.blocked", {"step": "runtime", "reason": f"{runtime} unregistered: {detail}"})
+        """Record this run’s tool-source violation; the orchestrator can select another attempt."""
+        self._journal().append("runtime.failed", {"runtime": runtime, "detail": detail})
 
     def _make_runtime(self, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any]) -> Any:
         name = str(self.config.get("runtimes", "orchestrator" if role == "orchestrator" else "worker", "codex"))
+        if role.startswith('worker:') and role != 'worker:default':
+            name = role.partition(':')[2]
         if name not in self.registry.runtimes:
             raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]")
-        if name in self.registry.unregistered:
-            raise FerbError(f"runtime {name} is unregistered: {self.registry.unregistered[name]}")
         shim = [sys.executable, "-m", "ferb.cli.mcp"]
         if name == "codex":
             from ferb.device.install import repo_root
             from ferb.runtimes.codex_exec import CodexRuntime, codex_binary
             workdir = self.home / "workspace" if mode == "worker" else self.home / "run" / "supervisor"
             return CodexRuntime(codex_binary(self.home, repo_root()), mode, workdir, self.home,  # type: ignore[arg-type]
-                                shim_cmd=shim, tool_names=tool_names, output_schema=schema)
+                                shim_cmd=shim, tool_names=tool_names, output_schema=schema,
+                                timeout_s=None if mode == 'worker' else 900)
         from ferb.runtimes.claude_sdk import ClaudeRuntime
         if self._proxy is None:
             self._proxy = ToolListProxy()

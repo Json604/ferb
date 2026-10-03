@@ -43,19 +43,6 @@ def test_an_app_the_owner_named_is_no_surprise(daemon: RunningDaemon) -> None:
 
 # ---------- the irreversible floor ----------
 
-def test_account_security_pages_and_declared_destroys_ask_every_time(daemon: RunningDaemon) -> None:
-    from ferb.act.browser.tools import security_page
-    assert security_page("https://myaccount.google.com/security") and not security_page("https://shop.example/buy")
-    change = FakeCap("fake.security", "account_security", {"browser:act"}, site="myaccount.google.com")
-    grant, _ = setup(daemon, {"browser:act"}, request("change my google password"), [change])
-    yes = Answers(daemon)
-    try:
-        for _ in range(2):
-            assert not daemon.run(daemon.daemon.gateway.call(grant, "fake.security", {"to": "", "why": "changing it"}))["is_error"]
-    finally:
-        yes.stop()
-    assert len(yes.asked) == 2 and change.calls == 2                      # the floor: asked each time, even when named
-
 
 # ---------- continuity ----------
 
@@ -172,7 +159,7 @@ def test_an_installed_but_unpaired_extension_is_reported(daemon: RunningDaemon) 
                 break
             time.sleep(0.05)
         note = daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))
-        assert note and "installed in Brave but not paired" in note and "safety tests" in note
+        assert note and "installed in Brave but not paired" in note and "ferb browsers pair brave" in note
         assert "not paired" in daemon.run(_async(daemon.daemon._facts))
         daemon.daemon.config.set("gates", "owner_profiles", True)
         assert "ferb browsers pair brave" in daemon.run(_async(lambda: daemon.daemon._unpaired_note("brave")))

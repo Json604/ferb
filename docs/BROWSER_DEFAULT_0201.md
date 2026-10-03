@@ -1,5 +1,8 @@
 # Browser defaults and the disconnected Brave task — 0.20.1
 
+> Historical design. The owner replaced action/identity/exposure/phrase gates in 0.22; see [the current contract](ORCHESTRATED_CONTROL_022.md). Platform evidence below remains version-specific.
+
+
 The owner's rule: basic browser work uses FERB's own profile. Personal profiles are used only when explicitly
 requested. The Zomato retry violated that rule: it was classified as owner-browser work, received all owner scopes,
 then tried Work and scaler. A phone number, saved address/payment or an earlier agent-selected profile is not

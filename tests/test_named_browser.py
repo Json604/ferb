@@ -122,22 +122,6 @@ def test_finder_names_and_home_folders(tmp_path: Path, monkeypatch: Any) -> None
     assert owner_path("Desktop/new/x", "/ws") == tmp_path / "Desktop" / "new" / "x"   # nothing there: as written
 
 
-def test_the_folder_question_comes_for_a_folder_named_in_the_owners_words() -> None:
-    """Owner's run (2026-10-01): the plan left ~/Desktop/clg:uni out of its intent, so FERB never asked for access and
-    every use was refused. A folder named in the owner's own words now gets the question; all of Desktop never does."""
-    import os
-
-    from ferb.daemon.gateway import _named_folder
-    home = os.path.expanduser("~")
-    said = "make a prompt for a claude session you will manage in clg:uni folder in desktop"
-    assert _named_folder(f"{home}/Desktop/clg:uni/prompt.md", said) == f"{home}/Desktop/clg:uni"
-    assert _named_folder(f"{home}/Desktop", said) is None                  # never the whole Desktop
-    assert _named_folder(f"{home}/Desktop/other/x.md", said) is None       # not a folder they named
-    assert _named_folder(f"{home}/Desktop/clg:uni", "") is None            # no words, no question
-
-
-
-
 def test_mac_kinds_are_facts_about_the_control() -> None:
     """Typing is input (a search box: a search); pressing a control is input unless its label hits the floor words;
     Return is a submit; opening a chat row or a link is plain input, left to the worker's declaration."""
@@ -181,27 +165,6 @@ def test_mac_menu_lists_freely_and_pressing_an_item_is_what_its_label_says() -> 
     assert tool.describe(inp("File > Search")).kind == Kind.MAC_INPUT
     assert tool.describe(inp("Chat > Delete Chat")).kind == Kind.DELETE_PERMANENT
     assert tool.describe(inp("Chat > Voice Call")).kind == Kind.CALL
-
-
-def test_a_declined_send_is_in_the_trail(daemon: RunningDaemon) -> None:
-    """Owner's run: the worker said it was blocked, but `ferb trace` showed nothing. Refusals are recorded."""
-    from tests.conftest import Answers
-    from tests.test_gateway import FakeCap, request, setup
-    send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("summarize the thread"), [send])
-    no = Answers(daemon, granted=False)
-    try:
-        r = daemon.run(daemon.daemon.gateway.call(grant, "fake.send", {"why": "replying"}))
-    finally:
-        no.stop()
-    assert r["is_error"] and "declined" in r["content"]["error"]
-
-    async def spans() -> list[Any]:
-        return daemon.daemon.spans.tree(grant.task_id)                          # type: ignore[union-attr]
-    def walk(nodes: list[Any]) -> list[Any]:
-        return [x for n in nodes for x in [n.span.error, *walk(n.children)]]
-    errs = walk(daemon.run(spans()))
-    assert any("blocked (approval)" in (e or "") and "declined" in (e or "") for e in errs)
 
 
 def test_page_kinds_an_email_row_is_a_click_and_security_pages_always_ask() -> None:

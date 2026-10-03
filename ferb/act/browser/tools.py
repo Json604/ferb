@@ -1,21 +1,8 @@
-"""Browser capabilities (section 5 Capability), in two families over two drivers (10.1):
+"""Browser tool families for owner profiles and FERB accounts. Both are available to task workers.
 
-- `browser.*` — OWNER tasks, the owner's paired Chrome/Brave profiles through the extension (scopes browser:read /
-  browser:act). Before a consequential action the signed-in account is checked (9.3); where it can't be, policy
-  asks once per site + profile.
-- `ferb_browser.*` — FERB tasks, FERB's own identity profile (scope identity:browse), plus `fill_secret` /
-  `fill_otp` (FERB's Keychain secrets and inbox codes; the worker never sees them).
+Agents choose accounts and authorization. Drivers bind operations to owned tabs and fresh references; sealed
+secret fills retain origin binding. HTTP(S) includes local development servers. Action kinds are metadata."""
 
-A task uses its own tabs; its registered checker can read/scroll them without taking ownership. Created tabs close
-when the task ends; attached owner tabs are only released. Only http(s) URLs to public hosts are
-opened (checked here, before any driver sees them). Policy kinds are facts about the element (last snapshot):
-following a link is `navigate`; typing into / submitting a search form is `search`; other typing is `fill_form`;
-a plain click is `click`; a form's submit control, Enter in a non-search form, or a label that hits the floor
-words (Send / Pay / Delete …, `policy/effects.py`) is a `submit` / `send` / `pay` / `delete_permanent`. The worker
-declares the effect; the gateway raises it to the floor.
-"""
-
-import ipaddress
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -82,17 +69,6 @@ def check_url(url: str, allow_local: bool) -> None:
     u = urlsplit(url)
     if u.scheme not in ("http", "https") or not u.hostname:
         raise Refused(f"only http(s) URLs can be opened, not {u.scheme or 'this'}")
-    if allow_local:
-        return
-    host = u.hostname
-    if host == "localhost" or host.endswith(".localhost") or host.endswith(".local"):
-        raise Refused("FERB's browser doesn't open local addresses")
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        return
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
-        raise Refused("FERB's browser doesn't open local or private addresses")
 
 
 def _err(msg: str) -> ToolResult:
@@ -155,8 +131,8 @@ class _Base:
         return ActionSpec(kind, Target(site=site), content=content, unverified_account=unverified)
 
     async def _account_ok(self, ref: TabRef, kind: str) -> None:
-        if self.family.identity is Identity.OWNER and kind not in REVERSIBLE:
-            await self.driver.check_account(ref)        # wrong account / signed out -> Refused (safety test 12)
+        # Account/session choice belongs to the orchestrator; snapshots expose the current account.
+        return
 
 
 class _Tab(BaseModel):
@@ -377,7 +353,7 @@ class BrowserAct(_Base):
             end = self.driver.element_info(str(getattr(args, "tab")), str(getattr(args, "end_element", "")))
             kind = max((Kind.FILL_FORM, kind, act_kind("click", None, end)), key=lambda k: RANK[floor_of(k)])
         if kind not in REVERSIBLE and security_page(self.driver.tab_url(str(getattr(args, "tab", "")))):
-            kind = Kind.ACCOUNT_SECURITY                                 # always asks, every time (10.3) — first
+            kind = Kind.ACCOUNT_SECURITY                                 # trace/ledger classification only
         content = text if action in ("type", "select") else None
         if action in {"click", "dblclick", "rightclick", "hover", "drag"}:
             content = f"{action}:{getattr(args, 'element')}:{getattr(args, 'end_element', '')}"
@@ -576,8 +552,8 @@ class MailboxSend:
     owner's request, to a recipient they named -> held ~10 s for undo, then sent; another recipient -> asks; a send
     the request didn't include -> blocked. The content is checked for owner data like any outbound action."""
     name = "mailbox.send"
-    description = ("Send an email from FERB's own address (not the owner's). Only to recipients the owner named; "
-                   "it's held briefly so the owner can undo it.")
+    description = ("Send an email from FERB's own address. Verify the recipient and requested final outcome "
+                   "from the owner's instructions before sending; inspect delivery afterward.")
     scopes = {"mailbox:send"}
     identities = {Identity.FERB}
     risk, reversible = RiskLevel.MEDIUM, False

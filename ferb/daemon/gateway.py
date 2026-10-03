@@ -1,15 +1,9 @@
-"""Tool gateway (section 7 step 6): run token -> identity + scope -> effect class (declared, raised to the floor) ->
-policy (exposure / data flow / the effect gate / undo) -> ledger intent -> capability -> sanitize -> span -> result
-+ time footer.
+"""Execution gateway: authenticated task and capability, valid arguments, locks, ledger, driver, redacted result.
 
-Every model action reaches the Mac only through here (rule 12). Failures are values: the worker always gets a
-result, never an exception. The gate (docs/DESIGN_ONE_WORKER.md section 3): every act call declares `effect` and
-`why`; the gateway computes `max(declared, floor)`; navigate and edit run, send asks once per (request, effect,
-target) unless the owner's own message names the target, pay and destroy ask every time.
-"""
+Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
+Optional effect/why annotations never gate execution; OS and transport failures remain factual results."""
 
 import asyncio
-import os
 import base64
 import dataclasses
 from dataclasses import dataclass
@@ -26,9 +20,8 @@ from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskTree
-from ferb.policy import contacts, effects, targets as targets_mod
-from ferb.policy.engine import PolicyEngine, Verdict
-from ferb.policy.exposure import LOST_WHEN_EXPOSED
+from ferb.policy import contacts, effects
+from ferb.policy.engine import PolicyEngine
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.store.spans import SpanStore
 
@@ -36,8 +29,6 @@ Publish = Callable[[str, dict[str, Any]], None]
 Redact = Callable[[Any], Any]
 
 OWNER_ASK = "owner.ask"
-PEOPLE_KINDS = {Kind.SEND, Kind.CALL, Kind.POST, Kind.REPLY, Kind.MAILBOX_SEND}   # go to someone: who matters
-NEEDS_WHY = {"send", "pay", "destroy"}
 
 
 @dataclass
@@ -48,14 +39,13 @@ class FsRoots:
 
 
 class Observer:
-    """What the orchestrator watches through the gateway: tool calls (runaway guards, liveness) and waits on the owner
-    (which pause the stall timer). No-ops until the supervisor installs its own."""
+    """Tool-call diagnostics, liveness and owner waits. No-ops until the supervisor installs its observer."""
 
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         pass
 
     def result(self, grant: RunGrant, tool: str, args: dict[str, Any], failed: bool, digest: str = "") -> None:
-        """Every answered call (runaway guards: the same failing action, loops)."""
+        """Observe every answered call without making retry or authorization decisions."""
 
     def waiting(self, worker: str, on: bool) -> None:
         pass
@@ -80,24 +70,20 @@ class Gateway:
         self.queue_question: Callable[[str, str, str], None] = lambda kind, target, text: None
         # Contacts (build step 16a): what this task's snapshots showed; the owner's words for a request + name
         self.seen = contacts.Seen()
-        self._sent: dict[str, dict[str, str]] = {}      # task tree -> who was sent a message -> what (9.4)
         self.owner_words: Callable[[str, str], str] = lambda request_id, name: ""
-        self._picked: dict[tuple[str, str], str] = {}     # the owner's answer, for the next attempt of that one action
         self.name_of: Callable[[str], str] = lambda target: target    # bundle id -> app name, for plain questions
+        self.route_question: Any = None
 
     @staticmethod
     def _acts(cap: Any) -> bool:
-        """An act-class tool: it can change something, so its calls declare an effect."""
+        """Tools with optional effect metadata describing their changes."""
         return not getattr(cap, "reversible", True)
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
-        """What this worker may call: scopes granted, identity allowed, and not lost to exposure."""
-        exposed = self.engine.exposure.state(grant.worker_id).exposed
+        """Installed tools covered by the run token; identity and read provenance do not withdraw them."""
         out = []
         for cap in self.caps.values():
-            if not cap.scopes <= grant.scopes or grant.identity not in cap.identities:
-                continue
-            if exposed and cap.scopes & LOST_WHEN_EXPOSED:
+            if not cap.scopes <= grant.scopes:
                 continue
             schema = cap.Input.model_json_schema()
             props = schema.setdefault("properties", {})
@@ -108,8 +94,8 @@ class Gateway:
         return out
 
     def tools_for_task(self, task: Any) -> list[str]:
-        """The tool names a worker of this task gets (its scopes and identity)."""
-        return [c.name for c in self.caps.values() if c.scopes <= set(task.scopes) and task.identity in c.identities]
+        """Tool names covered by the task's runtime scopes."""
+        return [c.name for c in self.caps.values() if c.scopes <= set(task.scopes)]
 
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         job = asyncio.current_task()
@@ -140,8 +126,6 @@ class Gateway:
                 self.engine.holds.undo(hold.id)
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if grant.task_id in self._cancelled_tasks:
-            return {"content": {"error": "task stopped by the owner"}, "is_error": True}
         rec = self.tasks.get(grant.task_id)
         started = rec.started_at if rec else None
         deadline = rec.task.deadline if rec else None
@@ -150,119 +134,41 @@ class Gateway:
             return {"content": self.redact(content), "is_error": is_error,
                     "footer": context.footer(self.clock.now(), started, deadline)}
 
-        cap = self.caps.get(name)
-        if cap is None or name not in {t["name"] for t in self.tools_for(grant)}:
-            return reply({"error": f"tool {name} is not available to this worker"}, True)
+        if self.engine.stopped or grant.task_id in self._cancelled_tasks:
+            return reply({"error": "task stopped by the owner"}, True)
         if rec is None:
             return reply({"error": "task is not running"}, True)
+        cap = self.caps.get(name)
+        if cap is None or not cap.scopes <= grant.scopes:
+            return reply({"error": f"tool {name} is not available to this worker",
+                          "next": "Inspect actions.search and report the capability gap to the orchestrator."}, True)
         arguments = dict(arguments)
-        why = str(arguments.pop("why", "") or "").strip()[:400]         # the worker's stated reason (kept in the trail)
-        declared = arguments.pop("effect", None)
-        if declared is not None and not effects.is_valid(declared):
-            return reply({"error": f"effect must be one of {', '.join(effects.EFFECTS)}"}, True)
+        why = str(arguments.pop("why", "") or "").strip()[:400]
+        effect = str(arguments.pop("effect", "") or "")  # agent annotation, never an authorization gate
         try:
             args = cap.Input.model_validate(arguments)
         except ValidationError as e:
             return reply({"error": "invalid arguments", "details": e.errors(include_url=False)}, True)
-        if hasattr(cap, "precheck") and (refused := cap.precheck(args)):   # refused before any policy step
-            return reply({"error": refused}, True)
-        if name == OWNER_ASK:                                             # a question for the owner, not an action
-            return reply(await self._ask_owner(grant, rec, args), False)
-
+        if name == OWNER_ASK:
+            answer = await self._ask_owner(grant, rec, args)
+            return reply(answer, bool(answer.get("error")))
         spec = cap.describe(args)
-        if name.startswith("mac."):
-            from ferb.act.mac.ax_browser import BROWSER_BUNDLES
-            if (spec.target.site or "").lower() in {b.lower() for b in BROWSER_BUNDLES} and not (
-                    {"browser:read", "browser:act"} & grant.scopes):
-                return reply({"error": "Personal browser access was not explicitly requested; use FERB's own "
-                              "browser. Mac tools cannot bypass this restriction."}, True)
-        floor = effects.floor_of(spec.kind)
-        effect = effects.raise_to(declared if isinstance(declared, str) else None, floor)
-        if rec.task.role == "verifier" and effect != "navigate":
-            return reply({"error": "Verification is read-only; this call would change the target."}, True)
-        if self._acts(cap) and effect in NEEDS_WHY and not why:
-            raised = f" (the control is a {spec.kind}: at least {floor})" if effects.RANK[floor] > effects.RANK.get(
-                str(declared), -1) else ""
-            return reply({"error": f"this call would {effect}{raised}: call again with effect \"{effect}\" and why = "
-                                   "one sentence for the owner"}, True)
-        # one worker reads and acts: what it types or sends after reading owner-account data may carry that data
-        labels = self.taint.labels_of(grant.worker_id) if spec.content else frozenset()        # (10.2, 21.9)
-        if labels:
-            spec = dataclasses.replace(spec, data_labels=spec.data_labels | labels)
-        if spec.target.path is not None:                 # the same path form the request's targets use
+        if spec.target.path is not None:
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
-        req = self.engine.requests.get(rec.task.request_id)
-        action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity, scopes=frozenset(cap.scopes),
-                               task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
-                               task_scopes=grant.scopes, target=spec.target, content=spec.content,
-                               data_labels=spec.data_labels, unverified_account=spec.unverified_account,
-                               effect=effect, why=why)
-        if spec.kind in (Kind.CALL, Kind.SEND) and "contact" in type(args).model_fields \
-                and self._needs_contact(spec.kind, req):                   # never guess between contacts (16a)
-            got = await self._contact(cap, name, args, action, grant, rec, req)
-            if isinstance(got, str):
-                return reply({"error": got}, True)
-            action, spec = got, dataclasses.replace(spec, target=got.target)
-        action = dataclasses.replace(action, owner_named=targets_mod.owner_named(
-            action.target, req, people_only=spec.kind in PEOPLE_KINDS))
-        tree = rec.tree_id or grant.task_id
-        if spec.kind == Kind.SEND and (to := _send_to(action.target)) and to in self._sent.get(tree, {}):
-            refused = await self._send_again(name, to, self._sent[tree][to], spec.content, action, grant)
-            if refused:
-                return reply({"error": refused}, True)
+        action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity,
+                               scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
+                               request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
+                               content=spec.content, effect=effect, why=why)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                                input={"tool": name, "args": arguments, "effect": effect}
-                                | ({"why": why} if why else {}))
+                               input={"tool": name, "args": arguments, "effect": effect}
+                               | ({"why": why} if why else {}))
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
-
-        verdict = self.engine.evaluate(action)
-        self._events(verdict)
-        if verdict.decision == "ask":                                    # wait for the owner, then carry on (10.3)
-            verdict = await self._await_owner(grant, action, verdict)
-        if verdict.decision == "block":
-            self.spans.finish(span, error=f"blocked ({verdict.step}): {verdict.reason}")
-            return reply({"error": f"blocked by FERB policy: {verdict.reason}"}, True)
-        if verdict.decision == "ask":
-            self.spans.finish(span, output={"needs_approval": verdict.approval_id})
-            return reply({"needs_owner_approval": verdict.approval_id, "reason": verdict.reason,
-                          "next": "The owner has been asked in `ferb chat`. Retry the exact same call after they "
-                                  "approve; don't change it."}, True)
-        if self.jev is not None and effect != "navigate":                # Jev: only ever stricter (section 12)
-            stricter = await self._jev_action(cap, name, spec, action, rec, req, span.id)
-            if stricter is not None:
-                if verdict.decision == "hold":
-                    self.engine.undo(verdict.hold_id or "")
-                kind, jev_why = stricter
-                if kind == "block":
-                    self.spans.finish(span, error=f"blocked (jev): {jev_why}")
-                    self.publish("policy.blocked", {"step": "jev", "reason": jev_why, "capability": name,
-                                                    "task_id": grant.task_id, "worker_id": grant.worker_id})
-                    return reply({"error": f"blocked by FERB policy: {jev_why}"}, True)
-                flagged = dataclasses.replace(action, flagged_irreversible=True)     # Jev: ask every time
-                if self.engine.approvals.consume(flagged) is None:
-                    ap = self.engine.approvals.request(flagged, jev_why)
-                    self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": spec.kind,
-                                                        "effect": effect, "reason": jev_why, "task_id": grant.task_id})
-                    answer = await self._wait_answer(grant, ap.id)
-                    if answer != "granted" or self.engine.approvals.consume(flagged) is None:
-                        self.spans.finish(span, error=f"not approved ({answer})")
-                        return reply({"error": _declined(answer)}, True)
-        if verdict.decision == "hold":
-            self.observer.waiting(grant.worker_id, True)                  # the undo window is the owner's time
-            try:
-                state = await self._wait_hold(verdict.hold_id or "")
-            finally:
-                self.observer.waiting(grant.worker_id, False)
-            if state != "released":
-                self.spans.finish(span, error="cancelled by the owner during the undo window")
-                return reply({"error": "cancelled by the owner (undo)"}, True)
-
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
         self.observer.tool_call(grant, done=False)
         try:
-            async with self.locks.hold(lock_keys, grant.worker_id):        # after policy, never across model calls
+            async with self.locks.hold(lock_keys, grant.worker_id):
                 return await self._execute(cap, name, args, spec, action, grant, rec, span, reply)
         finally:
             self.observer.tool_call(grant, done=True)
@@ -273,40 +179,35 @@ class Gateway:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:
-                intent_id = self.ledger.intend(grant.task_id, name, _target_dict(spec.target), payload_hash(action)).id
+                intent_id = self.ledger.intend(grant.task_id, name, _target_dict(spec.target), payload_hash(action), reconcile_first=False).id
                 self.ledger.mark(intent_id, "executing")
             except DuplicateUnresolved as e:
                 self.spans.finish(span, error=str(e))
                 return reply({"error": str(e)}, True)
 
         ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
-                          identity=grant.identity, scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
+                          identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
+                          scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                           workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                           untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id)
         if spec.target.path is not None:
             self.on_path(spec.target.path, grant.task_id)              # file events it causes are FERB's
         try:
             result = await cap.run(args, ctx)
-            if (result.is_error and name.startswith("fs.") and spec.target.path
-                    and "outside the allowed folders" in str(result.content.get("error", ""))):
-                folder = await self._folder_access(grant, action, spec.target.path)   # progressive setup (8)
-                if folder is not None:
-                    ctx = dataclasses.replace(ctx, owner_roots=self.roots.owner_roots)
-                    result = await cap.run(args, ctx)
         except asyncio.CancelledError:
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])
+            self._observed(name, spec, action, grant, "unknown")
             self.spans.finish(span, error="cancelled; outcome unknown")
             raise
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", [f"exception: {type(e).__name__}"])
+            self._observed(name, spec, action, grant, "unknown")
             self.spans.finish(span, error=f"{type(e).__name__}: {e}")
             return reply({"error": f"{name} failed ({type(e).__name__}); outcome unknown"}, True)
         if intent_id:
             self.ledger.mark(intent_id, "failed" if result.is_error else "done", [span.id])
-        if spec.kind == Kind.SEND and not result.is_error and (to := _send_to(action.target)):
-            self._sent.setdefault(rec.tree_id or grant.task_id, {}).setdefault(to, spec.content or "")
         for kind, source_id in result.read_sources:
             self.taint.read(grant.worker_id, kind, source_id)
             if self.engine.exposure.read(grant.worker_id, kind, source_id):
@@ -316,16 +217,16 @@ class Gateway:
         if (name.endswith(".snapshot") or result.evidence) and not result.is_error:   # what was on screen (16a)
             shown = result.evidence or result.content
             self.seen.record(grant.task_id, self._where(cap, name, args, shown), shown)
-        if self.jev is not None:
-            stop = await self._jev_result(grant, name, result, content, span.id)
-            if stop is not None:
-                self.spans.finish(span, output=content, error=stop["error"])
-                return reply(stop, True)
         self.spans.finish(span, output=content, error=content.get("error") if result.is_error else None)
+        self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
         out = reply(content, result.is_error)
         if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
+
+    def _observed(self, name: str, spec: Any, action: ActionRequest, grant: RunGrant, status: str) -> None:
+        self.publish("action.observed", {"what": name, "where": _target_dict(spec.target), "actor": "ferb",
+                                         "task_id": grant.task_id, "status": status, "why": action.why})
 
     async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
         """Owner-only hidden input, passed directly to a sealed fill; never returned in a tool result or span."""
@@ -352,6 +253,19 @@ class Gateway:
         for the answer. A scheduled run (nobody at chat) is declined at once."""
         question = " ".join(str(getattr(args, "question")).split())
         options = [str(o).strip()[:80] for o in getattr(args, "options", []) if str(o).strip()]
+        if self.route_question is not None:
+            self.observer.waiting(grant.worker_id, True)
+            try:
+                decision = await self.route_question(grant.task_id, question, options)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return {'error': 'The orchestrator could not resolve the question. Report this capability gap.'}
+            finally:
+                self.observer.waiting(grant.worker_id, False)
+            if not decision['ask_owner']:
+                return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
+            question = decision['question'] or question
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": OWNER_ASK, "args": {"question": question, "options": options}})
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
@@ -377,29 +291,6 @@ class Gateway:
         self.spans.finish(span, output={"answer": text})
         return {"answer": text}
 
-    async def _send_again(self, name: str, to: str, first: str, text: str | None, action: ActionRequest,
-                          grant: RunGrant) -> str | None:
-        """A second message to the same contact in one task (owner decision 2026-10-01): never a retry by default —
-        the worker checks by reading the chat; sending again needs the owner's OK, with both texts shown."""
-        said = f": “{first[:120]}”" if first else ""
-        new = f": “{text[:120]}”" if text else ""
-        question = f"FERB already sent {to} a message in this task{said}. Send another one{new}?"
-        ask = dataclasses.replace(action, kind="send_again", flagged_irreversible=True)
-        ap = self.engine.approvals.request(ask, question)
-        self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": "send_again",
-                                            "reason": question, "task_id": grant.task_id})
-        answer = await self._wait_answer(grant, ap.id)
-        if answer != "granted":
-            return (_declined(answer, action.request_id in self.engine.approvals.unattended) +
-                    f"; the first message to {to} stands — check it by reading the chat, don't send again")
-        return None
-
-    @staticmethod
-    def _needs_contact(kind: str, req: targets_mod.Request) -> bool:
-        """Calls always name their contact; a send does when the request names a person rather than an address."""
-        if kind == Kind.CALL:
-            return True
-        return any("@" not in r and r.strip().lower() not in ("me", "myself", "owner") for r in req.targets.recipients)
 
     def _where(self, cap: Any, name: str, args: Any, content: dict[str, Any] | None) -> str:
         if name.startswith("mac."):
@@ -409,79 +300,6 @@ class Gateway:
         tab = (content or {}).get("tab") or getattr(args, "tab", "")
         return f"{name.split('.')[0]}:{tab}"
 
-    async def _contact(self, cap: Any, name: str, args: Any, action: ActionRequest, grant: RunGrant,
-                       rec: Any, req: targets_mod.Request) -> ActionRequest | str:
-        """The selected contact must have been on screen; several matches (and nothing the owner said picks one)
-        means asking "Which Rahul?". The owner's answer is for this one action. Returns the action (its target now
-        naming the exact contact) or why not. A person the owner never named isn't refused here: the send then
-        isn't auto-granted, and the owner is asked with the message shown."""
-        c: contacts.Contact | None = getattr(args, "contact")
-        if c is None:
-            return ("say who this is for: contact = {name as the owner said it, selected as the screen shows it, "
-                    "detail (number / username / subtitle) as the screen shows it}")
-        rname = next((r for r in req.targets.recipients if r.strip().lower() == c.name.strip().lower()), None)
-        if rname is None and targets_mod.named(c.name, req.words):
-            rname = c.name.strip()
-        shots = self.seen.shots(grant.task_id, self._where(cap, name, args, None))
-        words = self.owner_words(action.request_id, c.name)
-        key = (grant.task_id, c.name.strip().lower())
-        res = contacts.check(c, shots, words, self._picked.pop(key, None))
-        how = "on screen"
-        if res.decision == "ask":
-            ap = self.engine.approvals.request_choice(action, res.why, res.options)
-            self.publish("approval.requested", {"approval_id": ap.id, "capability": name, "kind": "contact_choice",
-                                                "reason": res.why, "options": list(res.options),
-                                                "task_id": grant.task_id})
-            answer = await self._wait_answer(grant, ap.id)
-            if answer != "granted" or ap.choice is None:
-                return _declined(answer, action.request_id in self.engine.approvals.unattended)
-            res, how = contacts.check(c, shots, words, ap.choice), "the owner chose"
-            if res.decision != "ok":
-                self._picked[key] = ap.choice                                  # the retry of this one action
-        if res.decision != "ok":
-            return res.why
-        shown = contacts.display(c)
-        self.publish("contact.selected", {"task_id": grant.task_id, "name": c.name, "contact": shown, "how": how})
-        return dataclasses.replace(action, target=dataclasses.replace(
-            action.target, recipients=(rname,) if rname else (c.name.strip(),), contact=shown))
-
-    async def _folder_access(self, grant: RunGrant, action: ActionRequest, path: str) -> str | None:
-        """"Allow FERB to access ~/Projects?" — asked only for a folder the owner named in this request (content FERB
-        reads can't trigger it); a yes goes to config ([fs] owner_roots). An unattended run queues the question."""
-        req = self.engine.requests.get(action.request_id)
-        named = next((p for p in req.targets.paths if path == p or path.startswith(p.rstrip("/") + "/")), None)
-        if named is None:                       # not among the targets, but named in the owner's own words?
-            named = _named_folder(path, req.words)
-        if named is None:
-            return None
-        folder = named if not os.path.splitext(named)[1] else os.path.dirname(named)
-        shown = folder.replace(os.path.expanduser("~"), "~", 1)
-        if action.request_id in self.engine.approvals.unattended:
-            self.queue_question("folder_access", folder, f"Allow FERB to access {shown}?")
-            return None
-        ask = dataclasses.replace(action, kind="folder_access", target=dataclasses.replace(action.target, path=folder),
-                                  content=None, flagged_irreversible=False, effect="edit")
-        ap = self.engine.approvals.request(ask, f"Allow FERB to access {shown}?")
-        self.publish("approval.requested", {"approval_id": ap.id, "capability": "fs", "kind": "folder_access",
-                                            "reason": ap.reason, "task_id": grant.task_id})
-        if await self._wait_answer(grant, ap.id) != "granted":
-            return None
-        self.grant_folder(folder)
-        return folder
-
-    async def _await_owner(self, grant: RunGrant, action: ActionRequest, verdict: Verdict) -> Verdict:
-        """The tool call waits for the owner's answer (their time is never a stall), then policy runs again: a grant
-        covers this call (and, unless it's irreversible, the same effect and target for the rest of the request).
-        A yes also makes the action's destination one the owner approved (data flow)."""
-        answer = await self._wait_answer(grant, verdict.approval_id or "")
-        if answer != "granted":
-            return Verdict("block", _declined(answer, action.request_id in self.engine.approvals.unattended), "approval")
-        for d in (action.target.site, action.target.account, *action.target.recipients):
-            if d:
-                self.engine.requests.approve(action.request_id, d)
-        again = self.engine.evaluate(action)
-        self._events(again)
-        return again
 
     async def _wait_answer(self, grant: RunGrant, approval_id: str) -> str:
         self.observer.waiting(grant.worker_id, True)
@@ -499,111 +317,12 @@ class Gateway:
         finally:
             self.observer.waiting(grant.worker_id, False)
 
-    async def _jev_action(self, cap: Capability, name: str, spec: Any, action: ActionRequest, rec: Any,
-                          req: targets_mod.Request, span_id: str) -> tuple[str, str] | None:
-        """action.matches_request + action.risk in one request; ("block" | "ask", why) only when Jev is stricter."""
-        from ferb.decide.decider import Ask
-        t = req.targets
-        state = {"request": {"goal": rec.task.goal, "owner_words": req.words[:1000],
-                             "recipients": sorted(t.recipients), "sites": sorted(t.sites | t.apps),
-                             "paths": sorted(t.paths)},
-                 "action": {"tool": name, "kind": spec.kind, "effect": action.effect, "why": action.why,
-                            "target": _target_dict(spec.target), "content": (spec.content or "")[:2000]}}
-        ref = f"span:{span_id}"
-        got = await self.jev.ask(state, [Ask("action.matches_request", "yes", ref),
-                                         Ask("action.risk", getattr(cap.risk, "name", "LOW").lower(), ref)])
-        if got.get("action.matches_request") == "no":
-            self.jev.mark_effect("action.matches_request", ref, "blocked")
-            return "block", "a second check says this doesn't match what the owner asked for"
-        if got.get("action.matches_request") == "unsure":
-            self.jev.mark_effect("action.matches_request", ref, "asked the owner")
-            return "ask", "a second check isn't sure this matches what you asked for"
-        if got.get("action.risk") == "high":
-            self.jev.mark_effect("action.risk", ref, "asked the owner")
-            return "ask", "a second check rates this action high-risk"
-        return None
 
-    async def _jev_result(self, grant: RunGrant, name: str, result: Any, content: dict[str, Any],
-                          span_id: str) -> dict[str, Any] | None:
-        """content.injection_suspected (untrusted reads) + browser.login_state (owner snapshots) on one state.
-        Returns replacement content when a signed-out page stops the worker."""
-        from ferb.decide.decider import Ask
-        from ferb.policy.exposure import UNTRUSTED_KINDS
-        ref = f"span:{span_id}"
-        asks = []
-        if any(k in UNTRUSTED_KINDS for k, _ in result.read_sources):
-            asks.append(Ask("content.injection_suspected", "no", ref))
-        if name == "browser.snapshot":
-            asks.append(Ask("browser.login_state", "unknown", ref))
-        if not asks or result.is_error:
-            return None
-        got = await self.jev.ask({"tool": name, "content": content}, asks)
-        if got.get("content.injection_suspected") == "yes":
-            self.engine.exposure.injection_signal(grant.worker_id, "a second check found instructions in content")
-            self.jev.mark_effect("content.injection_suspected", ref, "worker exposed")
-            self.publish("worker.exposed", {"worker_id": grant.worker_id, "task_id": grant.task_id,
-                                            "reason": "injection signal"})
-        if got.get("browser.login_state") == "signed_out":
-            self.jev.mark_effect("browser.login_state", ref, "stopped: signed out")
-            return {"error": "this page looks signed out; FERB never signs in as the owner — stop and tell the owner"}
-        return None
-
-    async def _wait_hold(self, hold_id: str) -> str:
-        while True:
-            h = self.engine.holds.get(hold_id)
-            if h is None or h.state in ("released", "undone"):
-                return h.state if h else "undone"
-            await asyncio.sleep(self.hold_poll_s)
-
-    def _events(self, v: Verdict) -> None:
-        for topic, data in v.events:
-            self.publish(topic, data)
-
-
-EFFECT_HELP = ("What this call does to the owner's world. navigate: opens, scrolls, switches, searches, reads — "
-               "nothing of theirs changes. edit: changes something that can be changed back or only affects the "
-               "task's own targets (typing, filling fields, saving a draft, a setting, a file in a granted folder, "
-               "liking a song). send: anything that leaves the Mac or reaches another person or service (send, post, "
-               "reply, submit a form that applies / registers / orders, call, publish, share, invite). pay: money. "
-               "destroy: permanent deletion, account security, anything that can't be undone. FERB raises it when "
-               "the control says otherwise (a Send button is a send).")
-WHY_HELP = ("One sentence for the owner saying what this does and why — required when the effect is send, pay or "
-            "destroy (it's shown with the question when FERB asks them), optional otherwise (kept in the trail).")
-
-
-def _declined(answer: str, unattended: bool = False) -> str:
-    if answer == "expired" and unattended:
-        return "the owner didn't answer within an hour; skip this step and say so in your report"
-    return ("the owner didn't answer in time; don't try this again in this task" if answer == "expired"
-            else "the owner declined this; don't try it again in this task")
+EFFECT_HELP = "Optional description of this action's effect for the activity log; it does not grant permission."
+WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
 
 
 def _target_dict(t: Any) -> dict[str, Any]:
     return {k: v for k, v in {"account": t.account, "site": t.site, "recipients": list(t.recipients),
                               "path": t.path, "amount": t.amount, "contact": t.contact}.items()
             if v not in (None, [], ())}
-
-
-def _send_to(t: Any) -> str | None:
-    """Who a send goes to, for the one-message-per-contact rule: the exact contact, else the recipients."""
-    if t.contact:
-        return str(t.contact)
-    people = sorted(str(r) for r in t.recipients if r)
-    return ", ".join(people) if people else None
-
-
-def _named_folder(path: str, own_words: str) -> str | None:
-    """The deepest folder on `path` that the owner named in their own words this request ("clg:uni folder in
-    desktop" names ~/Desktop/clg:uni) — never a bare home folder (all of Desktop) and never from content FERB read
-    (owner's report 2026-10-01: the access question never came because the plan left the folder out)."""
-    from ferb.sanitize.untrusted import HOME_FOLDERS, targets_in_own_words
-    if not own_words:
-        return None
-    home = os.path.expanduser("~")
-    p = os.path.normpath(os.path.expanduser(path))
-    while p.startswith(home + os.sep):
-        rel = p[len(home) + 1:]
-        if rel.lower() not in HOME_FOLDERS and not targets_in_own_words([rel], own_words):
-            return p
-        p = os.path.dirname(p)
-    return None

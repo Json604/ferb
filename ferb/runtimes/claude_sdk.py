@@ -25,7 +25,7 @@ class ClaudeRuntime:
 
     def __init__(self, mode: Literal["supervisor", "worker"], proxy: ToolListProxy, ferb_home: str,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
-                 output_schema: dict[str, Any] | None = None, model: str | None = None, max_turns: int = 30) -> None:
+                 output_schema: dict[str, Any] | None = None, model: str | None = None, max_turns: int | None = None) -> None:
         self.mode, self.proxy, self.ferb_home, self.shim_cmd = mode, proxy, ferb_home, shim_cmd
         self.output_schema, self.model, self.max_turns = output_schema, model, max_turns
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}

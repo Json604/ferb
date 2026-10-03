@@ -24,6 +24,8 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 ## `docs/`: the rework, platform evidence and owner acceptance
 
+`ORCHESTRATED_CONTROL_022.md` is the current owner contract; `TEST_MIGRATION_022.md` records removed gate assertions. Earlier design notes are historical where they disagree.
+
 | File | What it is |
 |---|---|
 | `REWORK_PLAN.md` | Rework phases and the rule on hardcoding; procedure memory is still pending. |
@@ -61,25 +63,27 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `main.py` | The daemon itself. Startup and shutdown; every RPC method (`chat.send`, `chat.answer`, `trace.get`, `voice.switch`, `memory.*`, …); wiring of the supervisor, gateway, timers, watchers, voice, browsers and Jev. |
 | `server.py` | Owner-only Unix socket, newline-delimited JSON-RPC. The first message must be `auth.hello` with a role. |
 | `auth.py` | Connection roles (cli, mcp_shim, native_host, voice), the methods each role may call, and run tokens for workers. |
-| `gateway.py` | The tool gateway. Every model action reaches the Mac only through here: token → scopes → the effect gate (declared effect raised to the control's floor) → contact and duplicate-send checks → policy engine → approvals / undo window → locks → the tool → redaction → trace span. Also answers `owner.ask`. |
+| `gateway.py` | Execution gateway: authenticated task/capability/argument checks, locks, driver execution, ledger, redaction and daily action events. Routes worker questions through the orchestrator. No per-action policy gate. |
 
 ### `orchestrator/`: turning a chat message into work
 
 | File | What it is |
 |---|---|
-| `supervisor.py` | One chat turn: reply, clarify or task. Runs one worker per request with every tool its identity allows, then the checks; the worker's summary is FERB's answer. Also reminders and schedules from chat. |
-| `worker.py` | Runs one worker: issues its run token, starts the runtime, watches heartbeats and runaway guards, parses its typed result. Mixed into the supervisor. |
-| `dag.py` | The identity floor before anything runs: a `ferb` task never gets owner scopes or folders; the worker's scopes are its identity's, minus what isn't usable now. |
+| `supervisor.py` | Chat planning, all-registry workers, typed model-directed recovery, question resolution and result checks; durable conversation context, reminders and schedules. |
+| `worker.py` | Runs one adapter attempt with a run token, liveness tracking, typed report and cancellation. No fixed action/task caps or report-keyword retry. |
+| `dag.py` | Read-scope constants for independent inspection; no identity/intent plan validation. |
 | `schemas.py` | JSON schemas and pydantic models for every model output (supervisor outcome, task with targets and conditions, worker result, verifier, reconcile). |
 | `availability.py` | Builds the planner's "what workers can do right now" list in code from what's actually connected and permitted. |
-| `guards.py` | Runaway guards: the same failing call 3×, loops between steps, and tree caps (4 h, 50 worker runs, 1,000 tool calls). No token or dollar budgets. |
-| `ledger.py` | Action ledger: intended → executing → done / failed / unknown. Prevents a lost acknowledgement from becoming a second send. |
-| `verify.py` | Code checks after the worker finishes (file, ledger, tab URL, account). The supervisor sends undecided checks to a read-only verifier and reconciles `unknown` actions. |
+| `guards.py` | Observation digests and worker liveness with owner waits excluded. Fixed loop/tree caps removed. |
+| `ledger.py` | Records intended/executing/done/failed/unknown and reconciliation evidence. Orchestrator chooses inspection/retry; gateway does not reject unknown duplicates by policy. |
+| `verify.py` | File/driver result checks. Inconclusive checks use the verifier; failed requested results return to agent-directed recovery. |
 | `tree.py` | The running task tree, persisted, for the gateway, `ferb trace` and restarts. |
 | `schedules.py` | Scheduled and recurring tasks: rules, missed-run handling, pausing after three failures. |
 | `stop.py` | Emergency stop: revoke tokens, block actions, cancel held sends, run stop hooks. |
 | `prompts/supervisor.md` | Instructions for the supervisor model: reply, clarify or task. |
-| `prompts/worker.md` | Instructions for the one worker: what it can do, the effect classes, `owner_ask`, the report that is the owner's answer. |
+| `prompts/worker.md` | Reading and acting workflow, registry discovery, background preference, final-outcome authorization and truthful capability reports. |
+| `prompts/dispatch.md` | Orchestrator recovery: select worker/approach, unresolved owner question or truthful blocker. |
+| `prompts/question.md` | Resolve a worker question from the original request and relevant context before asking the owner. |
 | `prompts/verifier.md` | Instructions for the read-only checks (verifiers and reconcilers). |
 
 ### `runtimes/`: the model processes FERB starts
@@ -91,15 +95,15 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `proxy.py` | A local proxy for Claude runs that records only tool names per request, to prove nothing extra was offered. |
 | `tooltrace.py` | Reads the tool names Codex actually showed the model from its request trace; anything outside the allowlist stops the run. |
 
-### `policy/`: deciding whether an action may happen
+### `policy/`: question/request state, trace vocabulary and legacy policy helpers
 
 | File | What it is |
 |---|---|
-| `engine.py` | The fixed order of checks: stop → identity and scopes → exposure → navigate runs → data flow → the effect gate (send asks once per request / effect / target unless the owner named it; pay / destroy ask every time) → undo window. The first check that decides wins. |
+| `engine.py` | Legacy policy implementation and shared request/question/stop state. evaluate is not called by the gateway in 0.22. |
 | `rules.py` | Action kinds (`Kind`), the `REVERSIBLE` set, scopes, identity rules, hard floor, destructive patterns. |
 | `effects.py` | The effect classes (navigate / edit / send / pay / destroy), the floor each kind is at least, and the one floor word list for control labels (Send / Pay / Delete …). |
 | `targets.py` | What a request is about: the owner's own words and the targets the model understood; whether the owner named a target; a scheduled run's targets. |
-| `exposure.py` | A worker that read untrusted content loses shell, AppleScript and file-write for the rest of its run. |
+| `exposure.py` | Read-provenance tracking plus legacy exposure gates; the gateway records provenance without withdrawing tools. |
 | `taint.py` | Labels a worker that read the owner's account data, so what it then types or sends is checked. |
 | `dataflow.py` | Owner data may only go to a target of the request, something the owner named, or something they approved in an ask. |
 | `approvals.py` | Approval questions to the owner (yes / no, a numbered choice, or a worker's question with free-text answers), and the undo window for sends. |
@@ -118,7 +122,8 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 | File | What it is |
 |---|---|
-| `ask.py` | `owner.ask`: a worker's question to the owner, answered in chat (every identity, no scopes; the gateway answers it). |
+| `ask.py` | Worker questions: orchestrator resolves first, then unresolved choices use FERB chat; no direct worker-to-owner channel. |
+| `catalog.py` | Search the installed action registry by capability/goal. |
 | `locks.py` | Resource locks (tab, account, file, app), always taken in one fixed order. |
 | `gui_lock.py` | One real-input actor at a time. |
 | **`act/mac/`** | **Controlling Mac apps** |
@@ -130,9 +135,9 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `mac/input.py` | Real mouse and keyboard events, marked as FERB's, under the GUI lock, yielding to the owner. |
 | `mac/screenshot.py` | Captures one app window into memory, with numbered marks drawn on the controls. |
 | `mac/apps.py` | Running apps: list, launch, find by name or bundle id. Never quits an app. |
-| `mac/applescript.py` | AppleScript for one app at a time, wrapped and checked so it can't reach other apps. |
+| `mac/applescript.py` | Encodes the target bundle and wraps a script, with execution errors and size checks; no script-word deny list. |
 | `mac/resolve.py` | Picks the method per app (AppleScript for scriptable apps, else Accessibility). |
-| `mac/ax_browser.py` | Browser bundle ids, plus the rule that acting in a browser through Accessibility is refused (only the extension may act in browsers). The Mac driver and the window watcher import it. |
+| `mac/ax_browser.py` | Browser bundle facts used by native driver/watcher; historical ACT_REFUSED constant is not enforced. |
 | **`act/browser/`** | **Controlling browsers** |
 | `browser/tools.py` | The `browser.*` tools (the owner's Chrome/Brave profiles) and `ferb_browser.*` (FERB's own profile). Each classifies its action (navigate, search, submit, …). |
 | `browser/ext_bridge.py` | Driver through the FERB extension: native-host connections, one bridge per paired profile, waking a profile without a window, tabs, snapshots, actions; registered checker access to its parent's existing tabs without changing ownership. |
@@ -140,15 +145,15 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 | `browser/pairing.py` | Pairing an extension install to a browser profile: one-time tokens, per-install keys, HMAC and sequence numbers. |
 | `browser/profiles.py` | Finds browser profiles from `Local State`, resolves profile names, opens a profile in the background. |
 | `browser/resolver.py` | Picks the browser and profile for a site when the owner didn't name one. |
-| `browser/accounts.py` | Checks which account is signed in before a consequential action. |
+| `browser/accounts.py` | Account extraction helpers for explicit inspection; not a per-action permission gate. |
 | `browser/snapshot.py` | The shared page-snapshot format and the in-page walker. Password values never leave the page. |
 | **`act/fs/`** | |
-| `fs/files.py` | The `fs.*` tools: list / read / write / edit / trash inside allowed roots. Handles the owner's Desktop, Documents and Downloads, and Finder's ":" names. |
+| `fs/files.py` | Path normalization and file list/read/write/edit/trash with ordinary OS access and operation validation; no folder/identity jail. |
 | **`act/shell/`** | |
 | `shell/tools.py` | The `shell.*` tools: run, read, send, kill, list. Owner tasks only; lost when a worker is exposed. |
 | `shell/manager.py` | Owns running shell processes per task, and kills them when the task ends. |
 | `shell/pty_proc.py` | One process in a pseudo-terminal, with output kept in a ring buffer and a redacted log file. |
-| `shell/guard.py` | Pre-checks for commands: allowed folders, refused locations, destructive patterns that always ask. |
+| `shell/guard.py` | Validates working directory; annotates network provenance. No command permission classification or deny list. |
 
 ### `clock/`: time
 
@@ -165,6 +170,7 @@ approach) and generated folders (`node_modules/`, `__pycache__/`, `macapp/FERB/b
 
 | File | What it is |
 |---|---|
+| `daily.py` | Today’s redacted JSONL activity, local-date rollover and bounded keyword search. |
 | `trail.py` | One path for every observation: pause → exclusions → redaction → actor → saved → published. Metadata only. |
 | `manager.py` | Starts and stops the watchers; `ferb pause` / `resume`. |
 | `exclusions.py` | Apps, domains and paths the owner excludes: dropped before anything is written. |
@@ -309,7 +315,7 @@ ARCHITECTURE.md (`git show b993da5:ARCHITECTURE.md`).
 - `ferb/orchestrator/continuity.py`: durable conversation attachment, pending questions, scoped task context and legacy recovery.
 - `extensions/chromium/pointer.js`: fresh visual target resolution, trusted coordinate readiness and bounded/cancellable pointer gestures.
 - `tests/test_persistent_chat.py`: restart, legacy migration, scope isolation and unknown-outcome retry regressions.
-- `tests/test_pointer.py`, `tests/test_mac_pointer.py`: exact coordinates, stale refusal, cancellation cleanup and destination policy floors.
+- `tests/test_pointer.py`, `tests/test_mac_pointer.py`: exact coordinates, stale refusal, cancellation cleanup and destination metadata.
 - `docs/POINTER_CONTINUITY_020.md`: behavior, validation, deployment and remaining limits.
 
 0.20.1: `tests/test_browser_default.py` covers explicit profile authority and retry corrections;

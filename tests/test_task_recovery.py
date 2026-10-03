@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from ferb.core.types import ComputerAction
-from ferb.orchestrator.guards import TreeGuard, observation_digest
+from ferb.orchestrator.guards import observation_digest
 from ferb.policy.effects import label_kind
 from ferb.policy.rules import Kind
 from tests.test_background_input import Ax, ids, setup
@@ -16,28 +16,9 @@ def test_preview_words_do_not_turn_opening_a_conversation_into_a_purchase() -> N
     assert label_kind("Delete permanently") == Kind.DELETE_PERMANENT
 
 
-def test_refreshing_ids_does_not_hide_an_unchanged_action_loop() -> None:
-    guard = TreeGuard(0)
-    reasons = []
-    for i in range(10):
-        state = {"elements": [{"id": f"s{i}e1", "role": "button", "label": "Send One Time Password"}]}
-        reasons.append(guard.call("worker", "browser.snapshot", {"tab": "t1"}, False, observation_digest(state)))
-        reasons.append(guard.call("worker", "browser.act", {"tab": "t1", "element": f"s{i}e1", "action": "click",
-                                                          "why": f"retry {i}"}, False, "input dispatched"))
-    assert any(reasons)
-
-
 def test_changed_content_is_progress_even_when_element_ids_stay_the_same() -> None:
     assert observation_digest({"elements": [{"id": "s1e1", "value": "pending"}]}) != observation_digest(
         {"elements": [{"id": "s1e1", "value": "confirmed"}]})
-
-
-def test_repeated_send_without_observed_progress_stops_after_one_retry() -> None:
-    guard = TreeGuard(0)
-    assert guard.call("w", "browser.snapshot", {"tab": "t1"}, False, "unchanged") is None
-    assert guard.call("w", "browser.act", {"tab": "t1", "element": "s1e1", "action": "click", "effect": "send"}, False) is None
-    assert guard.call("w", "browser.snapshot", {"tab": "t1"}, False, "unchanged") is None
-    assert guard.call("w", "browser.act", {"tab": "t1", "element": "s2e1", "action": "click", "effect": "send"}, False)
 
 
 def test_ax_set_value_success_without_value_change_is_not_reported_as_success(monkeypatch) -> None:

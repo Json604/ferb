@@ -31,6 +31,8 @@ class Registry:
 
 def build() -> Registry:
     r = Registry()
+    from ferb.act.catalog import ActionsSearch
+    r.add(ActionsSearch(lambda: r.capabilities))
     # capabilities — one line each
     r.add(FsList())
     r.add(FsRead())
@@ -45,7 +47,7 @@ def build() -> Registry:
 
 
 def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool = False) -> None:
-    """FERB's own browser (identity FERB only): the extension in Chrome's "FERB" profile (build step 6b)."""
+    """Tools that target FERB's own paired browser profile."""
     f = replace(FERB_BROWSER, allow_local=allow_local)
     r.add(BrowserOpen(driver, f))
     r.add(BrowserNavigate(driver, f))
@@ -63,7 +65,7 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, allow_local: bool 
 
 
 def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = False) -> None:
-    """The owner's paired Chrome/Brave profiles through the extension (identity OWNER only; build step 6a)."""
+    """Tools that target the owner's paired Chrome/Brave profiles through the extension."""
     f = replace(OWNER_BROWSER, allow_local=allow_local)
     r.add(BrowserOpen(router, f))
     r.add(BrowserNavigate(router, f))
@@ -83,7 +85,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, allow_local: bool = 
 def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
             extension_ready: Callable[[str], bool] = lambda browser: False,
             unpaired: Callable[[str], str | None] = lambda browser: None) -> None:
-    """The owner's Mac (identity OWNER only; build steps 7 and 9)."""
+    """Native Mac tools for the installed device profile."""
     r.add(MacApps(driver, device_profile))
     r.add(MacOpen(driver, device_profile))
     r.add(MacSnapshot(driver, device_profile))
@@ -96,7 +98,7 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any,
 
 
 def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
-    """The owner's recorded activity (identity OWNER only; build step 11)."""
+    """Search the owner's recorded activity."""
     from ferb.sense.tools import TrailQuery
     r.add(TrailQuery(trail))
 
@@ -111,7 +113,7 @@ def add_time(r: Registry, timers: Callable[[], Any], now: Callable[[], Any], sle
 
 
 def add_shell(r: Registry, shells: ShellManager) -> None:
-    """Shell commands (identity OWNER only, lost when exposed; build step 7)."""
+    """Task-owned shell processes."""
     r.add(ShellRun(shells))
     r.add(ShellRead(shells))
     r.add(ShellSend(shells))

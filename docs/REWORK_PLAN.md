@@ -1,5 +1,8 @@
 # Rework plan: human-like control, background first, learning by doing
 
+> Historical design. The owner replaced action/identity/exposure/phrase gates in 0.22; see [the current contract](ORCHESTRATED_CONTROL_022.md). Platform evidence below remains version-specific.
+
+
 Branch: `rework/human-control`. Started 2026-10-02 from the independent audit (findings in the audit artifact;
 run-history numbers from `~/.ferb/ferb.db`: 11 of 66 task outcomes done, reader-policy blocks the top tool error).
 

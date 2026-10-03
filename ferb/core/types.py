@@ -46,7 +46,7 @@ class Task:
 @dataclass
 class Outcome:
     task_id: str
-    status: Literal["done", "failed", "unknown", "cancelled", "needs_user"]
+    status: Literal["done", "failed", "unknown", "cancelled", "needs_user", "blocked"]
     summary: str
     artifacts: list[str]
     evidence: list[str]
@@ -103,7 +103,6 @@ class MemoryItem:
     confidence: float
     origin: Literal["owner_stated", "observed", "inferred", "third_party"]
     status: Literal["proposed", "active", "retracted"]
-
 
 
 # ---------- actions (what a capability call means, for policy) ----------

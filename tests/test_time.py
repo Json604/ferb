@@ -207,36 +207,13 @@ def ferb_task(d: RunningDaemon, tid: str, words: str, recipients: frozenset[str]
     return g
 
 
-def test_mailbox_send_follows_the_normal_autonomy_rules(daemon: RunningDaemon) -> None:
+def test_mailbox_send_executes_agent_decision_and_records_delivery(daemon):
     mail = FakeMail()
     daemon.daemon.registry.capabilities["mailbox.send"] = MailboxSend(mail)
-    g = ferb_task(daemon, "m1", "email alice@x.com about lunch", frozenset({"alice@x.com"}))
-
-    async def send(to: str, advance: float = 11) -> dict[str, Any]:
-        job = asyncio.create_task(daemon.daemon.gateway.call(g, "mailbox.send", {"to": [to], "subject": "Hi",
-                                                                                  "body": "Lunch?",
-                                                                                  "why": "emailing as asked"}))
-        await asyncio.sleep(0.1)
-        daemon.daemon.clock.advance(advance)                             # the undo window passes
-        return await asyncio.wait_for(job, 5)
-    r = daemon.run(send("alice@x.com"))
-    assert not r["is_error"] and mail.sent == [(["alice@x.com"], "Hi", "Lunch?")]      # held, then sent
-    from tests.conftest import Answers
-    no = Answers(daemon, granted=False)
-    try:
-        r = daemon.run(send("eve@evil.example"))
-    finally:
-        no.stop()
-    assert "declined" in r["content"]["error"] and len(mail.sent) == 1 and len(no.asked) == 1   # not named: asks
-    g2 = ferb_task(daemon, "m2", "summarize my week")
-    no2 = Answers(daemon, granted=False)
-    try:
-        r = call(daemon, g2, "mailbox.send", to=["alice@x.com"], subject="Hi", body="x", why="sending the summary")
-    finally:
-        no2.stop()
-    assert r["is_error"] and "declined" in r["content"]["error"] and len(mail.sent) == 1   # nobody named: asks
-    owner = task(daemon, "o1", Identity.OWNER, {"shell"}, "email alice")
-    assert "mailbox.send" not in {t["name"] for t in daemon.daemon.gateway.tools_for(owner)}   # FERB's only
+    g = ferb_task(daemon, "m1", "email alice@x.com about lunch")
+    r = call(daemon, g, "mailbox.send", to=["alice@x.com"], subject="Hi", body="Lunch?")
+    assert not r["is_error"] and mail.sent == [(["alice@x.com"], "Hi", "Lunch?")]
+    assert not daemon.daemon.engine.approvals.pending() and not daemon.daemon.engine.holds.pending()
 
 
 def test_an_unconfirmed_send_is_unknown_and_never_retried_blindly(daemon: RunningDaemon) -> None:

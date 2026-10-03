@@ -41,6 +41,7 @@ CONDITION_SCHEMA = _obj({
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
+    "worker_type": {"type": "string"},
     "targets": TARGETS_SCHEMA,
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA},
 })
@@ -75,12 +76,25 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({
-    "status": {"type": "string", "enum": ["done", "failed", "needs_user"]},
+    "status": {"type": "string", "enum": ["done", "failed", "needs_user", "blocked"]},
     "summary": {"type": "string"}, "artifacts": _strings(), "evidence": _strings(),
 })
 
+DISPATCH_SCHEMA = _obj({
+    "action": {"type": "string", "enum": ["retry", "ask", "finish"]},
+    "worker_type": {"type": "string"},
+    "instructions": {"type": "string"},
+    "question": {"type": "string"},
+})
+
+QUESTION_SCHEMA = _obj({
+    "ask_owner": {"type": "boolean"},
+    "answer": {"type": "string"},
+    "question": {"type": "string"},
+})
+
 VERIFIER_SCHEMA: dict[str, Any] = _obj({
-    "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": "boolean"},
+    "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
                                                 "evidence": {"type": "string"}})},
 })
 
@@ -116,6 +130,7 @@ class Condition(BaseModel):
 class TaskSpec(BaseModel):
     goal: str
     identity: Literal["owner", "ferb"]
+    worker_type: str = 'default'
     targets: TargetsSpec = TargetsSpec()
     success_conditions: list[Condition] = []
 
@@ -181,15 +196,28 @@ SupervisorOutcome.model_rebuild()
 
 
 class WorkerOutcome(BaseModel):
-    status: Literal["done", "failed", "needs_user"]
+    status: Literal["done", "failed", "needs_user", "blocked"]
     summary: str
     artifacts: list[str]
     evidence: list[str]
 
 
+class DispatchOutcome(BaseModel):
+    action: Literal["retry", "ask", "finish"]
+    worker_type: str
+    instructions: str
+    question: str
+
+
+class QuestionOutcome(BaseModel):
+    ask_owner: bool
+    answer: str
+    question: str
+
+
 class VerifierResult(BaseModel):
     index: int
-    met: bool
+    met: bool | None
     evidence: str
 
 

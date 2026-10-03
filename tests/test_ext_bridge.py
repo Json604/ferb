@@ -271,45 +271,6 @@ def test_element_ids_go_stale_after_navigation(bd: Any) -> None:
 
 # ---------- accounts, 21.12 + ask once ----------
 
-def test_wrong_or_missing_account_refuses_consequential_actions(bd: Any) -> None:
-    d, launched = bd
-    ext = pair(d, launched, "Personal")                                          # profile account me@gmail.com
-    ext.wait_for(lambda: ext.gen is not None)
-    g = task(d, "m", OWNER, {"email"} | {"fill_form"}, sites=frozenset({"mail.google.com"}))
-    tab = call(d, g, "browser.open", url="https://mail.google.com/mail/u/0/", profile="Personal")["content"]["tab"]
-    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    to = next(e["id"] for e in snap["elements"] if e["label"] == "To")
-    ext.accounts["mail.google.com"] = "someone.else@gmail.com"
-    r = call(d, g, "browser.act", tab=tab, element=to, action="type", text="hi")
-    assert r["is_error"] and "wrong account" in r["content"]["error"] and not ext.acts
-    ext.accounts["mail.google.com"] = None
-    r = call(d, g, "browser.act", tab=tab, element=to, action="type", text="hi")
-    assert r["is_error"] and "not signed in" in r["content"]["error"] and not ext.acts
-    ext.accounts["mail.google.com"] = "me@gmail.com"
-    assert not call(d, g, "browser.act", tab=tab, element=to, action="type", text="hi")["is_error"]
-    assert len(ext.acts) == 1
-
-
-def test_unverifiable_site_asks_once_per_site_and_profile(bd: Any) -> None:
-    d, launched = bd
-    ext = pair(d, launched, "Work")
-    ext.wait_for(lambda: ext.gen is not None)
-    g = task(d, "u", OWNER, {"fill_form"})
-    tab = call(d, g, "browser.open", url="https://shop.example/form")["content"]["tab"]
-    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    name = snap["elements"][0]["id"]
-    from tests.conftest import Answers
-    yes = Answers(d)
-    try:
-        r = call(d, g, "browser.act", tab=tab, element=name, action="type", text="Ada")
-    finally:
-        yes.stop()
-    assert not r["is_error"] and len(ext.acts) == 1 and "can't check which account" in yes.asked[0].reason
-    assert "shop.example @ chrome/Profile 1" in d.daemon.config.get("policy", "trusted_accounts")
-    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="type", text="Bob")
-    assert not r["is_error"] and len(ext.acts) == 2 and len(yes.asked) == 1      # not asked again
-
 
 # ---------- resolver + discovery (deterministic, before any model) ----------
 
@@ -441,21 +402,19 @@ async def _start_wake(d: RunningDaemon) -> None:
     d.daemon.router.wake = d.daemon.wake                                        # type: ignore[union-attr]
 
 
-def test_youtube_account_is_read_from_its_account_page_in_a_closed_helper_tab(bd: Any) -> None:
+def test_explicit_account_lookup_reports_visible_account_without_extra_tabs(bd):
     d, launched = bd
-    ext = pair(d, launched, "Personal")                                          # profile account me@gmail.com
+    ext = pair(d, launched, "Personal")
     ext.wait_for(lambda: ext.gen is not None)
-    g = task(d, "y", OWNER, {"fill_form"}, sites=frozenset({"www.youtube.com"}))
-    tab = call(d, g, "browser.open", url="https://www.youtube.com/watch?v=x", profile="Personal")["content"]["tab"]
-    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    ext.accounts["www.youtube.com"] = "someone.else@gmail.com"
-    before = set(ext.tabs)
-    r = call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")
-    assert r["is_error"] and "wrong account" in r["content"]["error"] and not ext.acts
-    assert set(ext.tabs) == before                                             # the helper tab was closed
+    g = task(d, "y", OWNER, {"fill_form"})
+    alias = call(d, g, "browser.open", url="https://www.youtube.com/account", profile="Personal")["content"]["tab"]
     ext.accounts["www.youtube.com"] = "me@gmail.com"
-    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    assert not call(d, g, "browser.act", tab=tab, element=snap["elements"][0]["id"], action="click")["is_error"]
+    before = set(ext.tabs)
+    async def lookup():
+        tab = d.daemon.router.owned_by(alias, g.task_id)
+        return await d.daemon.router.account_of(g.task_id, "www.youtube.com")
+    assert d.run(lookup()) == "me@gmail.com"
+    assert set(ext.tabs) == before
 
 
 WORKER_HARNESS = r"""
@@ -522,7 +481,6 @@ def test_the_profile_that_owns_a_window_says_whether_its_tab_has_a_password_fiel
     assert d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0))) is False
     assert d.run(ask("chrome", (1.0, 1.0, 5.0, 5.0))) is None
     assert d.run(ask("brave", (10.0, 20.0, 800.0, 600.0))) is None
-
 
 
 def test_waking_a_profile_never_leaves_the_owner_in_the_browser() -> None:

@@ -99,13 +99,13 @@ def test_email_me_asks_once_then_uses_the_remembered_address(daemon: RunningDaem
     now = daemon.daemon.clock.now()
     ask = schedule_reply(daemon, "email me the report", "every morning at 9 email me the report",
                          now + timedelta(hours=10), "daily", recipients=("me",), paths=())
-    install(daemon, [ask, json.dumps({"kind": "reply", "text": "Got it.", "task": None, "timers": [],
+    install(daemon, [sup("clarify", "What email address should I use for you?"), json.dumps({"kind": "reply", "text": "Got it.", "task": None, "timers": [],
                                       "schedule": None, "schedule_changes": [], "remember": [
                                           {"kind": "fact", "subject": "owner", "key": "email",
                                            "content": "The owner's email is me@owner.example",
                                            "quote": "my email is me@owner.example"}]}), ask])
     evs = chat(daemon, "every morning at 9 email me the report")
-    assert "What email address" in [e["text"] for e in evs if e["type"] == "timer"][0]      # asked at creation
+    assert "What email address" in [e["text"] for e in evs if e["type"] == "clarify"][0]  # the planner asks
     chat(daemon, "my email is me@owner.example")
     evs = chat(daemon, "every morning at 9 email me the report")
     assert [e["text"] for e in evs if e["type"] == "timer"][0].startswith("🗓 scheduled")
@@ -142,7 +142,7 @@ def fire(d: RunningDaemon, seconds: float) -> None:
         time.sleep(0.05)
 
 
-def test_a_run_is_held_to_the_recorded_targets_and_its_answer_waits(daemon: RunningDaemon) -> None:
+def test_scheduled_run_receives_original_request_and_its_answer_waits(daemon: RunningDaemon) -> None:
     notes: list[tuple[str, str]] = []
 
     async def note(title: str, text: str) -> None:
@@ -161,10 +161,11 @@ def test_a_run_is_held_to_the_recorded_targets_and_its_answer_waits(daemon: Runn
     assert nxt is not None and nxt > daemon.daemon.clock.now()                               # the next one is set
     # the next run's task wants to email someone: not in the recorded targets -> not run
     install(daemon, [sup("task", "x", task("write report.md and email eve@evil.com", recipients=("eve@evil.com",),
-                                           paths=("report.md",)))])
+                                           paths=("report.md",)))], {"worker": writes(daemon.sock, "report.md", "updated")})
     fire(daemon, (nxt - daemon.daemon.clock.now()).total_seconds() + 1)
     blocked = results(daemon)
-    assert blocked and "didn't include when you scheduled it" in blocked[0]["answer"]
+    assert blocked and blocked[0]["status"] == "done"
+    assert (daemon.daemon.home / "workspace/report.md").read_text() == "updated"
 
 
 def test_a_scheduled_run_never_asks_the_owner_a_question(daemon: RunningDaemon) -> None:
@@ -224,43 +225,9 @@ def test_unattended_approvals_wait_an_hour_then_the_step_is_skipped() -> None:
     a = ActionRequest("x", "send", Identity.OWNER, frozenset(), "t", "w", "sched-run", frozenset(), Target())
     q = ap.request(a, "?")
     assert q.expires_at - clock.monotonic() == UNATTENDED_TTL_S == 3600
-    from ferb.daemon.gateway import _declined
-    assert "skip this step" in _declined("expired", True)
 
 
 # ---------- progressive setup: folders ----------
-
-def test_a_folder_the_owner_named_is_asked_about_once(daemon: RunningDaemon, tmp_path: Path) -> None:
-    from tests.test_mac_shell import call, task
-    projects = Path.home() / f".ferb-test-projects-{tmp_path.name[-6:]}"
-    projects.mkdir(exist_ok=True)
-    (projects / "notes.md").write_text("hello")
-    try:
-        g = task(daemon, "f1", __import__("ferb.core.types", fromlist=["Identity"]).Identity.OWNER, {"fs:read"},
-                 None)
-
-        async def rec() -> None:
-            daemon.daemon.engine.requests.record(Request("req-f1", "summarize my notes", Targets.of(paths=[str(projects)])))
-        daemon.run(rec())
-        yes = Answers(daemon)
-        try:
-            r = call(daemon, g, "fs.read", path=str(projects / "notes.md"))
-        finally:
-            yes.stop()
-        assert not r["is_error"] and "hello" in json.dumps(r["content"]), r
-        assert len(yes.asked) == 1 and "Allow FERB to access" in yes.asked[0].reason
-        assert str(projects) in daemon.daemon.config.get("fs", "owner_roots")
-        again = Answers(daemon)
-        try:
-            assert not call(daemon, g, "fs.read", path=str(projects / "notes.md"))["is_error"]
-        finally:
-            again.stop()
-        assert again.asked == []                                                  # remembered
-        other = call(daemon, g, "fs.read", path=str(Path.home() / ".zshrc"))
-        assert other["is_error"]                                                  # not named: no question at all
-    finally:
-        import shutil
-        shutil.rmtree(projects, ignore_errors=True)
 
 
 # ---------- time awareness ----------

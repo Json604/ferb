@@ -318,27 +318,14 @@ async def _checkpoint(d: RunningDaemon) -> None:
     d.daemon.db.conn.execute("PRAGMA wal_checkpoint(FULL)")
 
 
-def test_browsers_go_through_the_extension_first(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
-    """9.2: with a paired owner profile of that browser connected, the Mac layer needs a stated reason (recorded);
-    without one connected, or for other apps, it's used directly."""
+def test_native_browser_controls_do_not_need_a_fallback_permission(daemon, monkeypatch):
     shots, _ = _fake_mac(daemon, monkeypatch)
-    shots.top = 120                                                      # Brave's window (pid 12) is on top
-    connected = {"brave"}
-    for cap in ("mac.screenshot", "mac.click"):
-        daemon.daemon.gateway.caps[cap].extension_ready = lambda b: b in connected     # type: ignore[attr-defined]
+    shots.top = 120
     g = task(daemon, "e", Identity.OWNER, {"screen", "mac:act", "browser:read"}, {"use_app"})
     r = call(daemon, g, "mac.screenshot", app="Brave")
-    assert r["is_error"] and "browser_* tools" in r["content"]["error"]
-    r = call(daemon, g, "mac.screenshot", app="Brave", fallback_reason="the permission prompt is browser UI")
     assert not r["is_error"], r
-    assert call(daemon, g, "mac.click", app="Brave", shot="shot1", x=5, y=5)["is_error"]
-    r = call(daemon, g, "mac.click", app="Brave", shot="shot1", x=5, y=5, fallback_reason="browser UI")
+    r = call(daemon, g, "mac.click", app="Brave", shot="shot1", x=5, y=5)
     assert not r["is_error"], r
-    assert not call(daemon, g, "mac.screenshot", app="Notes")["is_error"]              # not a browser
-    connected.clear()
-    assert not call(daemon, g, "mac.screenshot", app="Brave")["is_error"]              # no extension to prefer
-    spans = daemon.run(_span_inputs(daemon))
-    assert any("the permission prompt is browser UI" in s for s in spans)            # the reason is on record
 
 
 async def _span_inputs(d: RunningDaemon) -> list[str]:

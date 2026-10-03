@@ -87,7 +87,7 @@ def test_context_is_redacted_and_legacy_tasks_are_recovered_without_grants(daemo
     daemon.run(verify())
 
 
-def test_unknown_previous_action_cannot_be_replayed_in_a_new_attempt(daemon):
+def test_retry_receives_unknown_prior_action_for_inspection(daemon):
     session = attach(daemon)
     install(daemon, [sup("task", "Starting", task("send on shop.example", "owner"))],
             {"worker": json.dumps({"status": "needs_user", "summary": "Unclear", "artifacts": [], "evidence": []})})
@@ -100,10 +100,11 @@ def test_unknown_previous_action_cannot_be_replayed_in_a_new_attempt(daemon):
     daemon.run(lost())
     retry = json.loads(sup("task", "Retrying", task("try again", "owner")))
     retry["control"] = {"task_id": first["task_id"], "action": "retry"}
-    script = install(daemon, [json.dumps(retry)], {})
+    script = install(daemon, [json.dumps(retry)], {"worker": json.dumps({"status":"done", "summary":"Inspected delivery.", "artifacts":[], "evidence":[]})})
     result = chat(daemon, "try again", session=session)
-    assert "outcome is unknown" in result[-1]["text"]
-    assert all(key == "supervisor" for _, key, _, _ in script.contexts)
+    assert outcome(result)["status"] == "done"
+    ctx = next(ctx for _, key, ctx, _ in script.contexts if key == "worker")
+    assert "Uncertain prior actions" in ctx and "shop.example" in ctx
 
 
 def test_unknown_task_id_is_repaired_to_a_specific_question_without_running(daemon):

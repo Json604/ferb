@@ -107,7 +107,7 @@ class CodexRuntime:
 
     def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], workdir: Path, ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
-                 output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float = 900) -> None:
+                 output_schema: dict[str, Any] | None = None, model: str = MODEL, timeout_s: float | None = 900) -> None:
         self.binary, self.mode, self.workdir, self.ferb_home = binary, mode, workdir, ferb_home
         self.shim_cmd, self.output_schema, self.model, self.timeout_s = shim_cmd, output_schema, model, timeout_s
         self.allowed = BASE_TOOLS | {f"mcp__ferb.{mcp_name(n)}" for n in (tool_names or [])}

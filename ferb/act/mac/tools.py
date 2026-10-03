@@ -1,9 +1,5 @@
-"""mac.* capabilities (OWNER tasks only, section 10.1): list/open apps, read an app's window (Accessibility), act on
-it (Accessibility first, real input as the fallback under the GUI lock), and AppleScript for scriptable apps.
-
-Kinds are facts about the control (docs/DESIGN_ONE_WORKER.md section 3): typing is input, pressing a control is
-input unless its label hits the floor words (Send / Pay / Delete …, `policy/effects.py`), Return is a submit, a
-search box is a search. The worker declares the effect; the gateway raises it to the floor."""
+"""Native Mac capabilities. Agents choose actions; kinds/contact/effect values describe trace metadata.
+Drivers retain actual window/element/coordinate validity, background mechanics and privacy handling."""
 
 import asyncio
 from typing import Any, Callable, Literal
@@ -49,15 +45,7 @@ class _Base:
         self.unpaired = unpaired
 
     def _extension_first(self, args: BaseModel) -> str | None:
-        """Browsers go through the extension (9.2); the Mac layer is the fallback, used with a stated reason when a
-        paired profile of that browser is connected."""
-        b = BROWSER_BUNDLES.get(self._bundle(args))
-        note = self.unpaired(b) if b else None
-        if note:                                  # installed but unpaired: tell the owner, don't work around it
-            return note
-        if b and self.extension_ready(b) and not (getattr(args, "fallback_reason", None) or "").strip():
-            return (f"{b} is connected through the FERB extension: use the browser_* tools. If they can't do this "
-                    "(e.g. browser UI, a canvas-only page), call again with fallback_reason saying why.")
+        """The orchestrator selects browser or Mac control using the registry and current state."""
         return None
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
@@ -209,9 +197,8 @@ class MacAct(_Base):
                    "title), scroll (element in the intended pane, direction up/down/left/right, amount bounded steps; also steps a "
                    "slider), or key (e.g. return, tab, escape, pagedown, cmd+s: a cmd shortcut runs its menu item "
                    "and is refused while the app reports that item disabled; escape dismisses an open sheet / "
-                   "dialog / menu). Arrow keys in a text box are refused (use edit). Prefer buttons to keystrokes: "
-                   "press the Send button (never Return in a message box). After sending, check it went by taking a "
-                   "snapshot — never send again to check; a second message to the same person needs the owner's OK. "
+                   "dialog / menu). Prefer semantic controls when available. After sending, inspect a fresh snapshot "
+                   "rather than sending again to check. "
                    "Never types passwords. When the background ways fail the result says so; only then, if the "
                    "owner's screen may move to the app, call again with allow_foreground=true.")
     scopes = {"mac:act"}
@@ -243,7 +230,7 @@ class MacAct(_Base):
 
     def _kind(self, args: BaseModel) -> str:
         """Facts about the control: typing is input (a search box: a search); pressing a control is input unless its
-        label hits the floor words (Send → a send, held for undo; Pay; Delete …); Return is a submit; focusing is
+        label identifies a recorded action kind (Send / Pay / Delete); Return is a submit; focusing is
         nothing."""
         action = getattr(args, "action")
         if action == "focus":
@@ -320,9 +307,9 @@ class MacClick(_Base):
         x: float = Field(ge=0)
         y: float = Field(ge=0)
         purpose: Literal["call", "send", "other"] | None = Field(None, description=(
-            "required in messaging / calling apps: call (starts a call), send (sends a message), other"))
+            "optional description: call (starts a call), send (sends a message), other"))
         contact: Contact | None = Field(None, description="purpose call / send: who, as the owner said it and as "
-                                                          "the app shows it (FERB checks it was on screen)")
+                                                          "the app shows it (context for the activity log)")
         fallback_reason: str | None = Field(None, max_length=300, description=(
             "browsers only: why the browser_* tools (FERB extension) can't do this"))
         allow_foreground: bool = Field(default=False, description="last resort: the app may be brought in front of "
@@ -332,10 +319,7 @@ class MacClick(_Base):
         return self._bundle(args).lower() in communication_bundles()
 
     def precheck(self, args: BaseModel) -> str | None:
-        """In a messaging / calling app an undeclared click is refused: it could start a call or send a message."""
-        if self._communication(args) and getattr(args, "purpose") is None:
-            return (f"{getattr(args, 'app')} is a messaging / calling app: say what this click is for — purpose "
-                    "\"call\" or \"send\" (with contact), or \"other\"")
+        """No semantic permission precheck; the agent chooses the action."""
         return None
 
     def describe(self, args: BaseModel) -> ActionSpec:
@@ -405,8 +389,6 @@ class MacPointer(MacClick):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app = str(getattr(args, "app"))
-        if self._bundle(args) in BROWSER_BUNDLES:
-            return _err("use browser screenshot/point/act for browser pointer input")
         end = (getattr(args, "end_x"), getattr(args, "end_y")) if getattr(args, "action") == "drag" else None
         r = await self.driver.pointer_at(app, getattr(args, "shot"), getattr(args, "x"), getattr(args, "y"),
                                          getattr(args, "action"), end, ctx.worker_id,
@@ -418,7 +400,7 @@ class MacPointer(MacClick):
 class MacAppleScript(_Base):
     name = "mac.applescript"
     description = ("Run AppleScript statements inside one scriptable app (FERB wraps them in `tell application`; "
-                   "no nested tell, System Events, shell or other scripts). Returns the script's result.")
+                   "the body may use the operations needed for the requested task). Returns the script's result.")
     scopes = {"applescript"}
     risk, reversible = RiskLevel.MEDIUM, False
 

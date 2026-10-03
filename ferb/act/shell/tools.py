@@ -1,4 +1,4 @@
-"""shell.* capabilities (OWNER tasks only; lost when a worker is exposed, 10.2): run a command and get its output,
+"""shell.* capabilities (task-owned processes; provenance does not withdraw tools): run a command and get its output,
 or leave it running and read / send / kill it later. Destructive commands always ask the owner (hard floor)."""
 
 from pydantic import BaseModel, Field

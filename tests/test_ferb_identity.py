@@ -70,9 +70,11 @@ def pair_identity(d: RunningDaemon, launched: list[list[str]], confirm: bool = F
     n = len(launched)
     t.start()
     try:
-        ext.wait_for(lambda: len(launched) > n or "error" in out, 10)
-        if len(launched) > n:
-            ext.pair(launched[-1][-1].split("#token=")[1])
+        # An unconnected profile opens a wake page before its pairing page. Wait for the actual token.
+        ext.wait_for(lambda: any("pair.html#token=" in args[-1] for args in launched[n:]) or "error" in out, 10)
+        pairing_url = next((args[-1] for args in launched[n:] if "pair.html#token=" in args[-1]), None)
+        if pairing_url is not None:
+            ext.pair(pairing_url.split("#token=")[1])
         t.join(15)
     finally:
         c.close()

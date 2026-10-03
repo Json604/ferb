@@ -13,12 +13,9 @@ from ferb.act.shell.manager import ShellManager
 from ferb.core.errors import Refused
 
 
-def test_do_script_cannot_reach_terminal() -> None:
-    """`do script` ran any shell command through Terminal, bypassing the shell guard (Terminal is scriptable)."""
-    with pytest.raises(Refused):
-        applescript.wrap("com.apple.Terminal", 'do script "rm -rf ~"')
-    with pytest.raises(Refused):
-        applescript.wrap("com.apple.Terminal", 'tell window 1\n  do  script "ls"\nend')
+def test_applescript_script_content_is_not_classified_by_keywords():
+    body = 'tell window 1\n  do script "ls"\nend'
+    assert body in applescript.wrap("com.apple.Terminal", body)
 
 
 def test_codex_run_token_never_appears_on_the_command_line(tmp_path: Path) -> None:
@@ -115,7 +112,7 @@ def test_extension_wait_and_backoff_are_bounded() -> None:
 
 def test_worker_prompt_matches_the_gateway_on_approvals() -> None:
     md = Path("ferb/orchestrator/prompts/worker.md").read_text()
-    assert "call the exact same tool again" in md and "wait for nothing" not in md
+    assert "owner_ask goes to the orchestrator first" in md and "concrete result ready for review" in md
 
 
 def test_stats_reads_outcomes_and_errors_from_the_database(tmp_path: Path) -> None:

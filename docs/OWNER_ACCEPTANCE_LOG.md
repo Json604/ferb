@@ -27,3 +27,11 @@ is pending an owner-authorized update. No daemon restart, profile switch or new 
 
 Branch validation after the handoff fix: 546 offline tests passed, 50 deselected (119.96 s); core mypy and
 `git diff --check` passed. These checks do not replace the owner's live verdict.
+
+
+## 2026-10-03 — 0.22 orchestration rewrite
+
+Repository-only work on `astra/version`. No installed-daemon update, real app operation or external message was
+performed for this rewrite. Offline tests cover the new control contracts; live acceptance is **pending**. Prior
+WhatsApp/YouTube scroll confirmations remain limited to the earlier tested operations. Next owner check is the
+scaler Gmail → coding-session task in `OWNER_ACCEPTANCE.md`.

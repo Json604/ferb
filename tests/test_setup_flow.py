@@ -120,14 +120,14 @@ def test_refuses_while_a_foreground_dev_daemon_holds_the_socket(world: dict[str,
     assert world["runner"].ran("uv", "python", "install") == 0
 
 
-def test_full_setup_walks_permissions_restarts_for_screen_recording_and_skips_brave(world: dict[str, Any]) -> None:
-    env, out = make_env(world, ["", ""], daemon_up=False)
+def test_full_setup_collects_permissions_and_selected_automation_including_brave(world: dict[str, Any]) -> None:
+    env, out = make_env(world, ["", "", "", "1,2,3"], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
     d = world["daemon"]
     assert world["panes"][:2] == ["accessibility", "screen_recording"]
     assert d.perms["accessibility"] == d.perms["screen_recording"] == "granted"
     text = out.getvalue()
-    assert not d.automation_requests                                    # progressive: asked on first use (8)
+    assert set(d.automation_requests[0]) == {"com.brave.Browser", "com.google.Chrome", "com.apple.Notes"}                                    # progressive: asked on first use (8)
     assert "Optional" not in text and "identity profile" not in text and "4/4" in text
     assert "Setup complete." in text
     assert (world["home"] / "device").is_dir()
@@ -135,16 +135,16 @@ def test_full_setup_walks_permissions_restarts_for_screen_recording_and_skips_br
 
 def test_skipping_a_required_permission_is_allowed_with_a_warning(world: dict[str, Any]) -> None:
     world["daemon"].perms["screen_recording"] = "granted"
-    env, out = make_env(world, ["skip", "n", ""], daemon_up=False)
+    env, out = make_env(world, ["skip", "", ""], daemon_up=False)
     assert S.setup(env) == 0
     assert "Skipped Accessibility" in out.getvalue() and "cannot act on the Mac" in out.getvalue()
 
 
-def test_input_monitoring_is_requested_only_when_the_tap_fails(world: dict[str, Any]) -> None:
+def test_input_monitoring_is_collected_at_setup(world: dict[str, Any]) -> None:
     d = world["daemon"]
     d.perms.update(accessibility="granted", screen_recording="granted", input_monitoring="denied")
     d.tap_ok = False
-    env, out = make_env(world, ["skip", "n", ""], daemon_up=False)
+    env, out = make_env(world, ["skip", "", ""], daemon_up=False)
     S.setup(env)
     assert "input_monitoring" in world["panes"]
 
@@ -180,3 +180,16 @@ def test_uninstall_purge_needs_typed_confirmation(world: dict[str, Any]) -> None
     assert S.uninstall(env, purge=True) == 0
     assert not world["home"].exists()
     assert "remove" in out.getvalue() and "Accessibility" in out.getvalue()
+
+
+def test_update_collects_setup_permissions_once(world):
+    world['inst'].install()
+    d = world['daemon']
+    d.perms.update(accessibility='granted', screen_recording='granted', input_monitoring='granted')
+    env, out = make_env(world, [''])  # Full Disk Access; no saved app scan on this fake installation
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    assert world['panes'] == ['full_disk_access']
+    assert Config(world['home']).get('setup', 'permissions_version') == 22
+    env2, out2 = make_env(world, [])
+    assert S.setup(env2, update=True) == 0, out2.getvalue()
+    assert world['panes'] == ['full_disk_access']
