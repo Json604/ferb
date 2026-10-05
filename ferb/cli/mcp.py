@@ -1,8 +1,9 @@
-"""`ferb mcp`: the stdio MCP shim runtimes spawn (section 2). No logic: it lists the tools the daemon says this
+"""Translate MCP requests to daemon tool RPC and back. Must not bypass gateway validation or duplicate orchestration.
+
+`ferb mcp`: the stdio MCP shim runtimes spawn. No logic: it lists the tools the daemon says this
 worker may use and forwards each call, with FERB_RUN_TOKEN, to the gateway. Every decision happens in the daemon.
 
-Tool names the model sees use `_` instead of `.` (OpenAI function names allow only [a-zA-Z0-9_-]).
-"""
+Tool names the model sees use `_` instead of `.` (OpenAI function names allow only [a-zA-Z0-9_-])."""
 
 import json
 import os

@@ -1,8 +1,7 @@
-"""Socket JSON-RPC server (section 2): owner-only Unix socket, newline-delimited JSON-RPC 2.0, max 1 MiB/message.
+"""Own authenticated local RPC transport. Must not plan tasks, truncate frames or choose recovery.
 
 The first request on a connection must be `auth.hello {role, token?}`; afterwards only the role's methods are
-allowed. A handler returns a result, or (streaming methods) an async iterator of notifications.
-"""
+allowed. A handler returns a result, or (streaming methods) an async iterator of notifications."""
 
 import asyncio
 import contextlib
@@ -99,9 +98,9 @@ class Server:
         self.owner_uid = os.getuid() if owner_uid is None else owner_uid
         self.unary: dict[str, Unary] = {}
         self.streams: dict[str, Stream] = {}
-        self.native: Channel | None = None               # extension message channel (build step 6a)
+        self.native: Channel | None = None               # extension message channel
         self.extension_ids: Callable[[], frozenset[str]] = lambda: frozenset()
-        # FERB.app (20.1): where it's installed and how to check its signature; unset = voice refused
+        # FERB.app: where it's installed and how to check its signature; unset = voice refused
         self.voice_app: Callable[[], str | None] = lambda: None
         self.voice_signed: Callable[[str], bool] = lambda path: False
         self._server: asyncio.base_events.Server | None = None

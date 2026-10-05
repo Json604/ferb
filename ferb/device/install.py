@@ -1,10 +1,11 @@
-"""Dedicated interpreter + venv + LaunchAgent (section 8 steps 5-6), `ferb setup --update`, and uninstall.
+"""Own daemon bundle and launch-agent installation mechanics. Must not decide app targets or task behavior.
+
+Dedicated interpreter + venv + LaunchAgent, `ferb setup --update`, and uninstall.
 
 - The interpreter lives in ~/.ferb/python (uv-managed, used only by FERB). TCC grants attach to it (spike 8/15).
 - FERB is installed into ~/.ferb/venv as a copy (not a link to the repo): the daemon never runs code from the
   repo, and only changes when `ferb setup --update` reinstalls it.
-- Uninstall removes only FERB's own things; `--purge` refuses a folder without the `.ferb-home` marker.
-"""
+- Uninstall removes only FERB's own things; `--purge` refuses a folder without the `.ferb-home` marker."""
 
 import hashlib
 import json
@@ -26,7 +27,7 @@ MARKER = ".ferb-home"
 NATIVE_HOST_NAME = "com.ferb.native_host"            # extensions/chromium/protocol.js FERB_HOST
 NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
 _SUPPORT = Path.home() / "Library" / "Application Support"
-# Chrome's folder is read by Chrome and Brave (measured before build step 6); Brave's own is a harmless extra copy.
+# Chrome's folder is read by Chrome and Brave (verified during native-host installation tests); Brave's own is a harmless extra copy.
 NATIVE_HOSTS_DIRS = (_SUPPORT / "Google" / "Chrome" / "NativeMessagingHosts",
                      _SUPPORT / "BraveSoftware" / "Brave-Browser" / "NativeMessagingHosts")
 
@@ -213,7 +214,7 @@ class Installer:
         else:
             self.restart()
 
-    # ---------- native host (section 8 step 3) ----------
+    # ---------- native host ----------
 
     @property
     def native_host_launcher(self) -> Path:
@@ -241,7 +242,7 @@ class Installer:
     # ---------- uninstall ----------
 
     def uninstall(self, purge: bool = False) -> list[str]:
-        """Remove the LaunchAgent (and, from build step 6, native-host files). purge=True also deletes FERB's home,
+        """Remove the LaunchAgent and native-host files. purge=True also deletes FERB's home,
         after the caller has asked the owner. Returns what was removed."""
         removed = []
         if self.loaded():

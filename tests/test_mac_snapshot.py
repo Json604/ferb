@@ -66,7 +66,7 @@ def test_controls_are_what_exposes_an_action_whatever_the_role(monkeypatch: pyte
     assert ("group", "Rahul") in by and by[("group", "Rahul")].actions == ("press", "menu")
     assert by[("group", "Rahul")].ax_role == "AXGroup" and by[("group", "Rahul")].rect == (1.0, 2.0, 30.0, 10.0)
     assert ("group", "Priya running late") in by                       # named by its own text
-    assert not [n for n in t.nodes if n.label == "just a container"]   # an actionless group isn't a control
+    assert all(not n.actions for n in t.nodes if n.label == "just a container")   # an actionless group isn't a control
     assert ("image", "avatar") in by and by[("cell", "")].selected is True
     assert by[("popup", "Format")].value == "Rich Text"                # a pop-up button, not a combobox
     assert by[("searchbox", "Search")].actions == ("confirm",)         # the AXSearchField subrole
@@ -90,7 +90,7 @@ def test_sheets_menus_and_dialogs_are_in_the_snapshot_with_their_place(monkeypat
     ])
     t = walk(win)
     assert t.containers == ["sheet"]
-    assert {n.label: n.container for n in t.nodes} == {"": None, "Delete": "sheet", "Cancel": "sheet", "Save": "sheet"}
+    assert {n.label: n.container for n in t.nodes if n.actions} == {"": None, "Delete": "sheet", "Cancel": "sheet", "Save": "sheet"}
     assert "keep this new document" in t.text
     # state changes show in the signature; element order and refs don't matter to it
     t2 = walk(win)
@@ -124,7 +124,7 @@ def test_truncation_says_why_and_the_password_scan_goes_on_past_the_element_cap(
     deep = El("AXWindow", children=[El("AXGroup", children=[El("AXGroup", children=[
         El("AXGroup", children=[El("AXButton", {"AXTitle": "deep"}, acts=["AXPress"])])])])])
     t = walk(deep)
-    assert t.nodes == [] and t.truncated_by == "depth"
+    assert t.nodes and t.truncated_by == "depth"  # retained containers support subtree retrieval
 
 
 def test_the_profile_is_seeded_from_a_probe_and_learns_from_outcomes(tmp_path: Path) -> None:

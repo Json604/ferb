@@ -1,0 +1,146 @@
+{
+  "timestamp_utc": "2026-10-05T14:07:48Z",
+  "scope": "Only newly launched isolated TextEdit PID and temporary local fixture; Finder reads that fixture metadata only",
+  "checks": [
+    {
+      "check": "isolated_background_launch",
+      "result": {
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": ""
+      }
+    },
+    {
+      "check": "AX_read_exact_fixture",
+      "matching_text_fields": 1,
+      "window": "FERB-026-disposable.txt"
+    },
+    {
+      "check": "AX_set_value_and_independent_readback",
+      "action": {
+        "ok": true,
+        "detail": "value set and read back",
+        "facts": {
+          "method": "ax_value",
+          "accepted": true,
+          "value_matches": true
+        }
+      },
+      "verified": true
+    },
+    {
+      "check": "AX_selected_text_edit",
+      "action": {
+        "ok": true,
+        "detail": "edited: 4 characters at 0 replaced with the text (20 characters)",
+        "facts": {}
+      },
+      "verified": true
+    },
+    {
+      "check": "Finder_fixture_metadata_only",
+      "status": "untested",
+      "reason": "Automation preflight: not_determined"
+    }
+  ],
+  "sentinel": [
+    {
+      "kind": "disturbance.baseline",
+      "snapshot": {
+        "unavailable": {},
+        "active_space_epoch": 0,
+        "frontmost_app": {
+          "pid": 41154,
+          "bundle_id": "com.microsoft.VSCode"
+        },
+        "key_window": {
+          "pid": 41154,
+          "ax_identity": 1752175009
+        },
+        "fullscreen": true,
+        "cursor": [
+          1095.00390625,
+          542.25390625
+        ],
+        "visible_window_order": [
+          {
+            "id": 90790,
+            "pid": 28265,
+            "layer": 1000
+          },
+          {
+            "id": 47094,
+            "pid": 28265,
+            "layer": 26
+          },
+          {
+            "id": 70253,
+            "pid": 170,
+            "layer": 24
+          },
+          {
+            "id": 70238,
+            "pid": 41154,
+            "layer": 0
+          },
+          {
+            "id": 70242,
+            "pid": 514,
+            "layer": -2147483622
+          },
+          {
+            "id": 70241,
+            "pid": 514,
+            "layer": -2147483624
+          },
+          {
+            "id": 2,
+            "pid": 170,
+            "layer": -2147483626
+          }
+        ]
+      },
+      "sample_interval_s": 0.25,
+      "space_identity": "transition_epoch_only"
+    },
+    {
+      "kind": "disturbance.summary",
+      "samples": 19,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "sample_interval_s": 0.25,
+      "max_sample_ms": 35.72708391584456,
+      "coverage": "sampled; short changes between samples may be missed; Space transitions use notifications",
+      "authorization": "not_inferred",
+      "attribution": "temporal_correlation_only"
+    }
+  ],
+  "profiles": {
+    "com.apple.TextEdit": {
+      "bundle": "com.apple.TextEdit",
+      "updated": "2026-10-05T14:07:48+00:00",
+      "seeded_from": null,
+      "mechanisms": {
+        "ax_value": {
+          "landed": 1,
+          "failed": 0,
+          "streak": 0,
+          "attempted_at": "2026-10-05T14:07:48+00:00",
+          "last": "landed"
+        },
+        "ax_selected_text": {
+          "landed": 1,
+          "failed": 0,
+          "streak": 0,
+          "attempted_at": "2026-10-05T14:07:48+00:00",
+          "last": "landed"
+        }
+      },
+      "diagnostics": []
+    }
+  },
+  "fixture_path": "/var/folders/xn/whqtw2sn7hj8fp_5hkf1nj3r0000gn/T/ferb-026-native-bz8fcsyp",
+  "target_pid": 18084,
+  "cleanup": "isolated process terminated; temp fixture retained for evidence"
+}

@@ -1,4 +1,6 @@
-"""ShellManager (section 5): start / read / send / wait / kill / list, with task ownership and cleanup.
+"""Own task process lifetimes, reads, signals and cleanup. Must not rewrite commands or decide their meaning.
+
+ShellManager: start / read / send / wait / kill / list, with task ownership and cleanup.
 
 Processes belong to the task that started them; a worker only sees its own task's. When the task ends its
 processes are killed unless started as long-lived (servers); `ferb stop` kills them all; `ferb ps` / `ferb kill`
@@ -34,7 +36,7 @@ class ProcInfo:
     running: bool
     exit_code: int | None
     long_lived: bool
-    network: bool = False                     # it fetches from the network: its output is untrusted (10.2)
+    network: bool = False                     # it fetches from the network: its output is untrusted
     capture_error: str | None = None
 
 

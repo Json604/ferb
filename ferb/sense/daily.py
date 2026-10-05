@@ -1,4 +1,6 @@
-"""Today's searchable JSON activity log. Long-term memory is stored separately."""
+"""Assemble recorded activity for daily context. Must not turn observations into authorization or hide retrieval limits.
+
+Today's searchable JSON activity log. Long-term memory is stored separately."""
 
 import json
 import os

@@ -155,7 +155,7 @@ def test_snapshot_reports_viewport_and_scrollers_and_scroll_targets_a_container(
     assert r["is_error"] and "no container c9" in r["content"]["error"]
 
 
-def test_dialogs_are_dismissed_unless_the_act_declared_one(bd: Any) -> None:
+def test_dialogs_remain_pending_until_an_explicit_agent_decision(bd: Any) -> None:
     d, launched = bd
     ext, g = _ready(d, launched)
     tab = call(d, g, "browser.open", url=f"{SHOP}/dialog")["content"]["tab"]
@@ -163,9 +163,12 @@ def test_dialogs_are_dismissed_unless_the_act_declared_one(bd: Any) -> None:
     confirm = next(e["id"] for e in snap["elements"] if e["label"] == "Confirm")
     r = call(d, g, "browser.act", tab=tab, element=confirm, action="click")
     assert not r["is_error"], r
-    assert ext.dialogs[-1]["handled"] == "dismissed"
+    assert ext.dialogs[-1]["handled"] == "pending"
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
-    assert snap["dismissed_dialogs"] == ["confirm: Sure? (dismissed)"]          # the worker learns what happened
+    assert snap["dialogs"] == ["confirm: Sure? (pending)"]
+    observed=call(d,g,"browser.dialog",tab=tab)["content"]
+    assert observed["pending"]["message"] == "Sure?"
+    assert call(d,g,"browser.dialog",tab=tab,decision="dismiss")["content"]["handled"] == "dismissed"
     confirm = next(e["id"] for e in snap["elements"] if e["label"] == "Confirm")
     r = call(d, g, "browser.act", tab=tab, element=confirm, action="click", expect_dialog="accept")
     assert not r["is_error"] and ext.dialogs[-1]["handled"] == "accepted"
@@ -294,7 +297,7 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.connect()
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
-    assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and version_ok("0.12.0") and not version_ok("0.11.1") and not version_ok("0.6.9")
+    assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and not version_ok("0.12.0") and not version_ok("0.11.1") and not version_ok("0.6.9")
     assert json.loads((EXT / "manifest.json").read_text())["version"] == MIN_EXTENSION_VERSION   # bumped together
 
 

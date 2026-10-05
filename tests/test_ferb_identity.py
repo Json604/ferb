@@ -198,7 +198,9 @@ def test_otp_feed_and_code_travel_sealed(fd: Any) -> None:
     g = task(d, "o", Identity.FERB, FERB_SCOPES, {"sign_in"})
     tab = call(d, g, "ferb_browser.open", url=f"{SITE}/login")["content"]["tab"]
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, type="password"), secret=REF.key)
+    inventory=call(d,g,"ferb_browser.otp_candidates",tab=tab,element=el(snap,type="password"),secret=REF.key)["content"]
+    assert len(inventory["candidates"]) == 1
+    r = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, type="password"), secret=REF.key, candidate=inventory["candidates"][0]["candidate"])
     assert not r["is_error"], r
     assert "482913" in ext.values.values() and "482913" in scrubbed
     nowhere(d, "482913", ext, r)                                               # not even inside the feed

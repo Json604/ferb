@@ -1,4 +1,6 @@
-"""Typed boundaries shared by drivers, runtimes and services; see ARCHITECTURE.md."""
+"""Owns typed boundaries between harness components. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Typed boundaries shared by drivers, runtimes and services; see ARCHITECTURE.md."""
 
 from datetime import datetime
 from typing import Any, AsyncIterator, Literal, Protocol

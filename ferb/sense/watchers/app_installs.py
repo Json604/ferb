@@ -1,4 +1,6 @@
-"""App install / removal (section 8): FSEvents on the app folders; each change rescans that app only (Info.plist),
+"""Observe changes to installed-app inventory. Must not launch newly discovered apps.
+
+App install / removal: FSEvents on the app folders; each change rescans that app only (Info.plist),
 updates the device profile, publishes `device.changed`, and is recorded in the trail (actor unknown: an installer
 can't be attributed)."""
 

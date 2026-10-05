@@ -1,11 +1,7 @@
-// FERB service worker: FERB's hands in the browser. Executes daemon commands and reports state; holds no policy
-// and no task logic (ARCHITECTURE.md 9.4). Reliability (spike 13): commands carry the connection generation; ids
-// are recorded as seen BEFORE executing (storage.session survives worker restarts); old-generation commands are
-// answered "stale" and never run; duplicates run once; hello re-announces owned tabs and seen ids.
-//
-// Background by construction (PLATFORM_BROWSER.md 13): one FERB window per profile, born minimized and kept;
-// every task tab is created inactive inside it; the debugger stays attached to a task tab for its life with focus
-// emulation on, so trusted input, scrolling and screenshots work while the owner never sees a thing.
+// Owns authenticated browser transport and exact-target CDP mechanics; must not select a source/account or infer permission.
+// Commands carry a connection generation and journaled ID. Stale/duplicate commands never execute.
+// Task tabs open inactive in the FERB minimized window. CDP focus emulation targets the tab only;
+// the daemon sentinel measures OS effects rather than assuming every browser build stays background.
 importScripts("protocol.js");
 importScripts("ax.js");
 importScripts("pointer.js");
@@ -18,9 +14,10 @@ let requiredRelease = null;          // structured daemon compatibility facts, n
 let activeCommands = 0;
 let updateCheck = null;
 let handshakeTimer = null;
-const outbox = [];                   // queued while disconnected (bounded)
-const OUTBOX_MAX = 200;
-const VIEWPORT = { width: 1280, height: 900 };   // Emulation.setDeviceMetricsOverride for FERB's own tabs (2.8)
+const resultTransfers = new Map();
+const commandTransfers = new Map();
+const outbox = [];                   // retain all queued results/events until reconnect; never discard evidence
+const VIEWPORT = { width: 1280, height: 900 };   // Emulation.setDeviceMetricsOverride for FERB's own tabs
 
 // ---------- state ----------
 
@@ -96,7 +93,7 @@ function send(type, body) {
       msg.mac = await hmac(st.key, `${msg.install_id}|${msg.seq}|${msg.type}|${msg.body_json}`);
     }
     if (port) { flushOutbox(); port.postMessage(msg); }
-    else { outbox.push(msg); if (outbox.length > OUTBOX_MAX) outbox.shift(); ensurePort(); }
+    else { outbox.push(msg); ensurePort(); }
   });
 }
 function flushOutbox() { while (outbox.length && port) port.postMessage(outbox.shift()); }
@@ -104,7 +101,7 @@ function flushOutbox() { while (outbox.length && port) port.postMessage(outbox.s
 // ---------- connection ----------
 
 async function connectionStatus(state, error = "") {
-  await chrome.storage.session.set({ferbConnection: {state, error: String(error).slice(0, 300),
+  await chrome.storage.session.set({ferbConnection: {state, error: String(error),
     version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL, at: Date.now()}});
 }
 
@@ -254,12 +251,20 @@ async function executeCommand(m) {
     body = { id: m.id, gen: m.gen, status: "ok", value };
   } catch (e) {
     if (m.op === "pointer") cancelPointer(m.args.tab_id, m.id);
-    body = { id: m.id, gen: m.gen, status: "error", error: String((e && e.message) || e).slice(0, 300) };
+    body = { id: m.id, gen: m.gen, status: "error", error: String((e && e.message) || e) };
   }
   // A handler error may follow partial input; a timeout does not cancel the renderer operation.
   const outcome = body.status === "ok" ? (body.value && body.value.ok === false ? "failed" : "done") : "unknown";
   body.outcome = outcome;
   await mutateSession(s => {if (Object.hasOwn(s.seen, m.id)) s.seen[m.id] = outcome;});
+  if (body.status === "ok" && m.op !== "result_part") {
+    // ASCII JSON avoids splitting a Unicode scalar across native-message chunks.
+    const serialized = JSON.stringify(body.value ?? null).replace(/[\u0080-\uffff]/g,c=>"\\u"+c.charCodeAt(0).toString(16).padStart(4,"0"));
+    if (serialized.length > 100000) {
+      resultTransfers.set(m.id, serialized);
+      body.value = {result_parts:{id:m.id,total_chars:serialized.length}};
+    }
+  }
   await send("result", body);
 }
 
@@ -299,7 +304,7 @@ function waitComplete(tabId, ms) {
   });
 }
 
-// ---------- FERB's window (13.1): one per profile, born minimized, never shown or focused by FERB ----------
+// ---------- FERB's window: one per profile, born minimized, never shown or focused by FERB ----------
 
 let windowCreation = null;
 async function ferbWindow() {
@@ -325,13 +330,6 @@ async function getFerbWindow() {
   return w.id;
 }
 
-async function ferbGroup(tabId, windowId) {
-  const groups = await chrome.tabGroups.query({ windowId, title: "FERB" });
-  if (groups.length) { await chrome.tabs.group({ tabIds: [tabId], groupId: groups[0].id }); return; }
-  const groupId = await chrome.tabs.group({ tabIds: [tabId], createProperties: { windowId } });
-  await chrome.tabGroups.update(groupId, { title: "FERB", color: "grey" });
-}
-
 async function inject(tabId, frameIds) {
   const target = frameIds ? { tabId, frameIds } : { tabId, allFrames: true };
   await chrome.scripting.executeScript({ target, files: ["content.js"] });
@@ -355,12 +353,12 @@ async function recordingState(tabId) {
   return frames.sort((a,b) => a.frameId-b.frameId);
 }
 
-// ---------- the debugger session (13.2): attached on a task tab's first action, kept for its life ----------
+// ---------- the debugger session: attached on a task tab's first action, kept for its life ----------
 
 const TABS = new Map();          // tabId -> { attached, detached, dialogs, expect, leaving, frames, ax, shot }
 function tabState(tabId) {
   let t = TABS.get(tabId);
-  if (!t) { t = { attached: false, detached: null, dialogs: [], expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null }; TABS.set(tabId, t); }
+  if (!t) { t = { attached: false, detached: null, dialogs: [], fileChoosers: [], inputErrors: [], expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null }; TABS.set(tabId, t); }
   return t;
 }
 
@@ -377,11 +375,18 @@ async function cdp(tabId, method, params, sessionId) {
 
 async function attach(tabId) {
   const t = tabState(tabId);
-  if (t.attached) return t;
+  if (t.attached) {
+    await Promise.all(t.sessions.values());
+    if (t.inputErrors.length) throw Error(`background_input_unavailable: ${t.inputErrors.join("; ")}`);
+    return t;
+  }
   await chrome.debugger.attach({ tabId }, "1.3");
   t.attached = true; t.detached = null;
   try {
     await cdp(tabId, "Page.enable", {});
+    // Intercept the browser mechanism, including indirect showPicker()/label/button routes.
+    // The event supplies evidence; it never chooses a local/Drive source or opens a native picker.
+    await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled: true});
     await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
     await cdp(tabId, "Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     const s = await session(), tab = await chrome.tabs.get(tabId);
@@ -418,32 +423,45 @@ chrome.debugger.onDetach.addListener((src, reason) => {
   if (!t.leaving) send("event", { event: "detached", tab_id: src.tabId, reason: t.detached });   // not FERB's own close
 });
 
-// Dialogs (13.5): a background tab's dialog is invisible to the owner, so the extension answers it: dismissed,
-// unless the act in flight declared it expects one; beforeunload is accepted only while FERB itself leaves the page.
+// Dialog decisions belong to the agent. An unexpected dialog remains pending, including beforeunload.
 chrome.debugger.onEvent.addListener((src, method, params) => {
   if (method === "Target.attachedToTarget") {
     const t = tabState(src.tabId), sid = params.sessionId;
     if (params.targetInfo && params.targetInfo.type === "iframe") {
-      t.sessions.set(sid, cdp(src.tabId, "Target.setAutoAttach",
-        {autoAttach: true, waitForDebuggerOnStart: false, flatten: true}, sid).catch(e => {
-          t.axErrors.push(String(e.message || e));
-        }));
+      t.sessions.set(sid, (async () => {
+        await cdp(src.tabId, "Page.enable", {}, sid);
+        await cdp(src.tabId, "Page.setInterceptFileChooserDialog", {enabled: true}, sid);
+        await cdp(src.tabId, "Target.setAutoAttach", {autoAttach: true, waitForDebuggerOnStart: false, flatten: true}, sid);
+      })().catch(e => {
+        const error = String(e.message || e); t.axErrors.push(error); t.inputErrors.push(error);
+      }));
     }
     return;
   }
   if (method === "Target.detachedFromTarget") { tabState(src.tabId).sessions.delete(params.sessionId); return; }
+  if (method === "Page.fileChooserOpened") {
+    const t = tabState(src.tabId);
+    const fact = {reason:"native_file_chooser_intercepted", frame_id:params.frameId,
+      session_id:src.sessionId || null, backend_node_id:params.backendNodeId, mode:params.mode,
+      native_picker_shown:false, transferred:false, direct_upload_available:true,
+      detail:"Native chooser suppressed for background operation. Inspect the file input and choose an explicit local source with browser upload; no source was selected."};
+    t.fileChoosers.push(fact);
+    t.dialogs.push({type:"file_chooser", message:JSON.stringify(fact), handled:"intercepted"});
+    send("event", {event:"file_chooser", tab_id:src.tabId, ...fact});
+    return;
+  }
   if (method !== "Page.javascriptDialogOpening") return;
   const t = TABS.get(src.tabId);
   if (!t) return;
-  const d = { type: params.type, message: String(params.message || "").slice(0, 300), default: String(params.defaultPrompt || "") };
-  let accept = false, promptText;
-  if (params.type === "beforeunload") accept = t.leaving;
-  else if (t.expect) { accept = t.expect.accept; promptText = t.expect.text || undefined; }
-  d.handled = accept ? "accepted" : "dismissed";
-  t.dialogs.push(d); if (t.dialogs.length > 10) t.dialogs.shift();
+  const d = { type: params.type, message: String(params.message || ""), default: String(params.defaultPrompt || ""), handled:"pending" };
+  t.pendingDialog = d;
+  t.dialogs.push(d);
   send("event", { event: "dialog", tab_id: src.tabId, ...d });
-  const p = { accept, ...(promptText !== undefined ? { promptText } : {}) };
-  cdp(src.tabId, "Page.handleJavaScriptDialog", p).catch(() => {});
+  if (t.expect) {
+    const expected = t.expect; t.expect = null;
+    commands.dialog({tab_id:src.tabId,decision:expected.accept ? "accept" : "dismiss",text:expected.text})
+      .catch(e => send("event",{event:"dialog",tab_id:src.tabId,...d,reason:String(e.message || e)}));
+  }
 });
 
 chrome.tabs.onRemoved.addListener(tabId => {
@@ -466,7 +484,7 @@ async function ready(tabId) {
   throw new Error("tab never became ready for input");
 }
 
-// ---------- trusted input (13.4, 13.6) ----------
+// ---------- trusted tab-local input ----------
 
 async function mouse(tabId, type, x, y, extra) {
   await cdp(tabId, "Input.dispatchMouseEvent", { type, x, y, ...(extra || {}) });
@@ -552,8 +570,8 @@ async function trusted(tabId, a) {
       let active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.isActive(g, i), [a.snap, a.el]);
       if (!active) active = await inFrame(tabId, a.frame_id, (g, i) => window.__ferb.focus(g, i), [a.snap, a.el]);
       if (!active) return { ok: false, detail: "focus_failed" };
-      if (!(await pressKey(tabId, a.text || "Enter"))) return { ok: false, detail: "unsupported_key" };
-      return { ok: true, detail: `pressed ${a.text || "Enter"} (trusted)` };
+      if (!(await pressKey(tabId, a.text))) return { ok: false, detail: "unsupported_key" };
+      return { ok: true, detail: `pressed ${a.text} (trusted)` };
     }
     return { ok: false, detail: "trusted input supports click, dblclick, rightclick, hover, type and press" };
   } finally {
@@ -612,12 +630,45 @@ async function settled(tabId, frameId, cid) {
 const SHOT_PART = 600000;        // base64 chars per message: well under the 1 MB native-messaging line
 
 const commands = {
+  async command_part({id,offset,text,total_chars}) {
+    if (typeof id !== "string" || typeof text !== "string" || !Number.isSafeInteger(offset) || offset<0 ||
+        !Number.isSafeInteger(total_chars) || total_chars<1 || offset+text.length>total_chars) throw Error("invalid command part");
+    if (offset===0 && !commandTransfers.has(id)) commandTransfers.set(id,{parts:[],length:0,total:total_chars});
+    const transfer=commandTransfers.get(id);
+    if (!transfer || transfer.length!==offset || transfer.total!==total_chars) throw Error("command parts are missing or out of order");
+    transfer.parts.push(text);transfer.length+=text.length;
+    if (transfer.length===total_chars) {
+      commandTransfers.delete(id);
+      const command=JSON.parse(transfer.parts.join(""));
+      if (command.id!==id || command.op==="command_part") throw Error("invalid assembled command");
+      await onCommand(command);
+    }
+    return {received:offset+text.length,total_chars};
+  },
+  async dialog({tab_id,decision,text}) {
+    const state=tabState(tab_id), pending=state.pendingDialog;
+    if (!decision) return {pending:pending || null, file_choosers:state.fileChoosers};
+    if (!["accept","dismiss"].includes(decision)) throw Error("invalid dialog decision");
+    if (!pending) return {ok:false,reason:"no_pending_dialog"};
+    await cdp(tab_id,"Page.handleJavaScriptDialog",{accept:decision === "accept",...(text !== undefined ? {promptText:text} : {})});
+    pending.handled=decision === "accept" ? "accepted" : "dismissed";
+    state.pendingDialog=null;
+    return {ok:true,...pending};
+  },
+  async result_part({id,offset=0}) {
+    const text=resultTransfers.get(id);
+    if (text===undefined) throw Error("result transfer unavailable; original operation must not be replayed without inspection");
+    if (!Number.isInteger(offset) || offset<0 || offset>text.length) throw Error("invalid result offset");
+    const end=Math.min(offset+100000,text.length);
+    const result={text:text.slice(offset,end),offset,next_offset:end<text.length?end:null,total_chars:text.length};
+    if (end===text.length) resultTransfers.delete(id);
+    return result;
+  },
   async open({ url }, id) {
     const windowId = await ferbWindow();
     const tab = await chrome.tabs.create({ windowId, url, active: false });      // never active, never focused (E3)
     await mutateSession(s => {s.owned.push({id, tabId:tab.id});});
     try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* Memory Saver opt-out is best effort */ }
-    try { await ferbGroup(tab.id, tab.windowId); } catch (_) { /* grouping is cosmetic */ }
     await waitComplete(tab.id, 20000);
     const t = await chrome.tabs.get(tab.id);
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId };
@@ -659,7 +710,7 @@ const commands = {
     return {tab_id, released:true, kept_open:keep_open || (await keptTabs()).includes(tab_id),
             url:maskUrl(tab.url || tab.pendingUrl || ''), window_id:tab.windowId};
   },
-  // Trusted wheel at the scroller's centre (13.4): the window, or a container from the latest snapshot.
+  // Trusted wheel at the scroller's centre: the window, or a container from the latest snapshot.
   async scroll({ tab_id, frame_id = 0, direction, container, dy }) {
     const cid = container || null;
     await attach(tab_id);
@@ -675,30 +726,31 @@ const commands = {
     return {container:cid, frame_id, y:s.y, height:s.height, viewport_h:s.viewport_h,
             at_end:direction === 'up' ? s.y <= 0 : s.at_end};
   },
-  async find({ tab_id, text }) {                   // the whole page's text, not just the snapshot's first screens
-    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab_id },
-      func: (q) => {
-        const needle = (q || "").toLowerCase();
-        const lines = (document.body ? document.body.innerText : "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
-        const hits = needle ? lines.filter((l) => l.toLowerCase().includes(needle)) : [];
-        return { count: hits.length, lines: lines.length, examples: hits.slice(0, 20).map((l) => l.slice(0, 160)) };
-      }, args: [text] });
-    return r && r.result ? r.result : { count: 0, lines: 0, examples: [] };
+  async find({tab_id, text}) {
+    const results = await chrome.scripting.executeScript({target:{tabId:tab_id,allFrames:true},
+      func:q => {
+        const needle=(q || "").toLowerCase();
+        const lines=(document.body ? document.body.innerText : "").split(/\n+/).map(line=>line.trim()).filter(Boolean);
+        return {lines:lines.length,hits:needle ? lines.filter(line=>line.toLowerCase().includes(needle)) : []};
+      },args:[text]});
+    const hits=results.flatMap(r=>(r.result?.hits || []).map(text=>({frame_id:r.frameId,text})));
+    return {count:hits.length,lines:results.reduce((n,r)=>n+(r.result?.lines || 0),0),hits};
   },
   async list_tabs() {
     const tabs = await chrome.tabs.query({}), s = await session(), kept = new Set(await keptTabs());
     return { tabs: tabs.map((t) => ({ tab_id: t.id, host: (() => { try { return new URL(t.url).hostname; } catch (_) { return ""; } })(),
-                                      active: t.active, window_id: t.windowId, kept_open:kept.has(t.id),
+                                      url:t.url || "",title:t.title || "", active: t.active, window_id: t.windowId, kept_open:kept.has(t.id),
                                       ferb: !kept.has(t.id) && s.windowId != null && t.windowId === s.windowId })) };
   },
   async snapshot({ tab_id, snap }) {
     tabState(tab_id).visual = null;
+    if (tabState(tab_id).pendingDialog) return {frames:[{frame_id:0,url:(await chrome.tabs.get(tab_id)).url || "",title:"",text:"[Page blocked by pending dialog; use browser.dialog]",elements:[],truncated:true}],dialogs:tabState(tab_id).dialogs.splice(0)};
     await inject(tab_id);
     const st = tabState(tab_id);
     st.axErrors = [];
     let attached = false;
     try { await attach(tab_id); attached = true; }
-    catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
+    catch (e) { st.axErrors.push(String(e.message || e)); }
     const results = await chrome.scripting.executeScript({ target: { tabId: tab_id, allFrames: true },
                                                            func: (g) => window.__ferb.snapshot(g), args: [snap] });
     const frames = results.filter((r) => r && r.result).map((r) => ({ frame_id: r.frameId, ...r.result }));
@@ -728,28 +780,46 @@ const commands = {
   pointer: exactPointer,
   async pointer_cancel({tab_id, command_id}) { return cancelPointer(tab_id, command_id); },
   async act({ tab_id, frame_id, snap, el, kind, text, page_mode, expect_dialog, dialog_text, append, per_key }) {
+    if (["type","select","press"].includes(kind) && typeof text !== "string")
+      return {ok:false,reason:"explicit_input_required",detail:"No default key or replacement text is supplied"};
+    const state = await attach(tab_id), before = state.fileChoosers.length;
     const page = page_mode === true || kind === "select" || kind === "scroll";
-    if (!page) {
-      return trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key });
-    }
-    const r = await inFrame(tab_id, frame_id, (g, i, k, t) => window.__ferb.act(g, i, k, t), [snap, el, kind, text ?? null]);
-    return r;
+    const result = page ? await inFrame(tab_id, frame_id, (g, i, k, t) => window.__ferb.act(g, i, k, t), [snap, el, kind, text ?? null])
+      : await trusted(tab_id, { frame_id, snap, el, kind, text, expect_dialog, dialog_text, append, per_key });
+    const choosers = state.fileChoosers.slice(before);
+    return choosers.length ? {...result, file_choosers:choosers} : result;
   },
-  // DOM.setFileInputFiles on the stamped element (13.7): no dialog, top frame only (DOM.querySelector doesn't pierce).
+  // Resolve a random stamp in the explicitly selected frame; no picker or source substitution.
   async upload({ tab_id, frame_id, snap, el, paths }) {
-    if (frame_id !== 0) return { ok: false, detail: "uploads work in the top frame only" };
-    const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
-    const s = await inFrame(tab_id, 0, (g, i, t) => window.__ferb.stamp(g, i, t), [snap, el, token]);
-    if (!s.ok) return s;
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, "0")).join("");
+    const stamped = await inFrame(tab_id, frame_id, (g, i, t) => window.__ferb.stamp(g, i, t), [snap, el, token]);
+    if (!stamped.ok) return {...stamped, reason:"upload_target_unavailable", frame_id, transferred:false};
+    const searches = [], targets = [];
     try {
-      await attach(tab_id);
-      const { root } = await cdp(tab_id, "DOM.getDocument", { depth: 0 });
-      const { nodeId } = await cdp(tab_id, "DOM.querySelector", { nodeId: root.nodeId, selector: `[data-ferb-node="${token}"]` });
-      if (!nodeId) return { ok: false, detail: "stale" };
-      await cdp(tab_id, "DOM.setFileInputFiles", { nodeId, files: paths });
-      return { ok: true, detail: `${paths.length} file(s) attached` };
+      const state = await attach(tab_id);
+      await Promise.all(state.sessions.values());
+      for (const sessionId of [undefined, ...state.sessions.keys()]) {
+        await cdp(tab_id,"DOM.getDocument",{depth:0},sessionId); // enables this exact target's DOM agent
+        const result = await cdp(tab_id, "DOM.performSearch", {query:`[data-ferb-node="${token}"]`}, sessionId);
+        searches.push({sessionId, searchId:result.searchId});
+        if (result.resultCount > 1) return {ok:false, reason:"upload_target_ambiguous", detail:"multiple nodes have the requested binding", transferred:false};
+        if (result.resultCount === 1) {
+          const {nodeIds} = await cdp(tab_id, "DOM.getSearchResults", {searchId:result.searchId,fromIndex:0,toIndex:1}, sessionId);
+          if (nodeIds?.length === 1 && nodeIds[0]) targets.push({sessionId,nodeId:nodeIds[0]});
+        }
+      }
+      if (targets.length !== 1) return {ok:false, reason:targets.length ? "upload_target_ambiguous" : "upload_route_unavailable",
+        detail:"the selected file input has no unique debugger binding", frame_id, transferred:false};
+      const target = targets[0];
+      await cdp(tab_id, "DOM.setFileInputFiles", {nodeId:target.nodeId,files:paths}, target.sessionId);
+      const selected_files = await inFrame(tab_id, frame_id, (g,i) => window.__ferb.uploadFiles(g,i), [snap,el]);
+      return {ok:true, detail:`${paths.length} file(s) set on the selected local upload input; inspect destination attachment`,
+        frame_id, selected_files, transferred:true};
     } finally {
-      try { await inFrame(tab_id, 0, (t) => window.__ferb.unstamp(t), [token]); } catch (_) {}
+      for (const search of searches) {
+        try { await cdp(tab_id,"DOM.discardSearchResults",{searchId:search.searchId},search.sessionId); } catch (_) { /* temporary query cleanup only */ }
+      }
+      try { await inFrame(tab_id, frame_id, t => window.__ferb.unstamp(t), [token]); } catch (_) { /* target may navigate after upload */ }
     }
   },
   async wait({ tab_id, until, value, _timeout_ms }) {
@@ -760,15 +830,17 @@ const commands = {
       if (until === "load" && t.status === "complete") return { met: true };
       if (until === "url" && (t.url || "").includes(value || "")) return { met: true };
       if (until === "text" && t.status === "complete") {
-        try { if ((await inFrame(tab_id, 0, () => window.__ferb.text(), [])).includes(value || "")) return { met: true }; }
+        try {
+          const found=await commands.find({tab_id,text:value || ""});
+          if (found.count) return {met:true,frames:[...new Set(found.hits.map(hit=>hit.frame_id))]};
+        }
         catch (_) { /* page between documents */ }
       }
       await sleep(250);
     }
     return { met: false, detail: "timeout" };
   },
-  async account({ tab_id }) { return inFrame(tab_id, 0, () => window.__ferb.account(), []); },
-  // jpeg, and split into parts when one message would come near the 1 MB native-messaging line (1.4).
+  // jpeg, and split into parts when one message would come near the 1 MB native-messaging line.
   async screenshot({ tab_id, format, quality, snap }) {
     await attach(tab_id);
     const before = snap == null ? null : JSON.stringify(await visualStates(tab_id));
@@ -835,19 +907,20 @@ const commands = {
     const u = new URL(t.url || "about:blank");
     if (`${u.origin}${u.pathname}` !== FEED_URL) throw new Error("read_source is only for FERB's inbox feed");
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab_id },
-      func: () => (document.documentElement ? document.documentElement.outerHTML.slice(0, 500000) : "") });
+      func: () => (document.documentElement ? document.documentElement.outerHTML : "") });
     const st = await install();
     if (!st.key) throw new Error("not paired");
     return { sealed: await seal(st.key, (r && r.result) || "", id, FEED_URL) };   // email content never in clear
   },
-  // Screenshot check (build step 9): does the active tab of this profile's window at exactly these screen bounds
+  // Screenshot privacy check: does the active tab of this profile's window at exactly these screen bounds
   // hold a password field, in any frame? Only yes / no / can't tell comes back, never page content.
   async window_password({ bounds }) {
     const [x, y, w, h] = bounds;
     const wins = await chrome.windows.getAll({ windowTypes: ["normal", "popup"] });
-    const win = wins.find((v) => Math.abs(v.left - x) <= 2 && Math.abs(v.top - y) <= 2 &&
+    const matches = wins.filter((v) => Math.abs(v.left - x) <= 2 && Math.abs(v.top - y) <= 2 &&
                                  Math.abs(v.width - w) <= 2 && Math.abs(v.height - h) <= 2);
-    if (!win) return { matched: false, password: null };
+    if (matches.length !== 1) return {matched:false,password:null,reason:matches.length ? "ambiguous_window" : "window_not_found"};
+    const win = matches[0];
     const [tab] = await chrome.tabs.query({ active: true, windowId: win.id });
     if (!tab) return { matched: true, password: null };
     try {

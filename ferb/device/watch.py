@@ -1,4 +1,6 @@
-"""`ferb watch`: the owner-verified background test (owner's request, 2026-10-02).
+"""Measure desktop/window observations for explicit diagnostics. Must not move Spaces or restore the owner desktop.
+
+`ferb watch`: the owner-verified background test (owner's request, 2026-10-02).
 
 Runs every kind of interaction FERB uses, one at a time, with the target app or browser in the background, and after
 each one asks the owner what they saw. The owner's answer is the verdict; FERB's own detector (Space changes, app
@@ -7,8 +9,7 @@ either side. Results: ~/.ferb/watch/<timestamp>.json.
 
 Mac steps act only on TextEdit and Calculator (documents the test creates; nothing is ever saved, sent or deleted;
 apps are never quit). Browser steps use a throwaway Chrome with its own user-data-dir under the FERB home — never the
-owner's profiles, never FERB's identity session. No GUI: the terminal asks the questions.
-"""
+owner's profiles, never FERB's identity session. No GUI: the terminal asks the questions."""
 
 from __future__ import annotations
 

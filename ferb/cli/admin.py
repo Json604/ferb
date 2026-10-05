@@ -1,4 +1,6 @@
-"""Admin commands. Build step 1: `ferb trace <task-id>` and `ferb daemon run`."""
+"""Render daemon health, settings, task traces and administrative commands. Must not infer task success from display formatting.
+
+Includes `ferb trace <task-id>` and `ferb daemon run`."""
 
 import json
 import re
@@ -37,6 +39,13 @@ def _span_text(node: dict[str, Any], full: bool) -> tuple[str, list[str]]:
         label = f"{node['kind']}  {inp.get('tool') or inp.get('goal') or ''}".rstrip()
         details = {key: value for key, value in node.items() if key != 'children'}
         return label, json.dumps(details, ensure_ascii=False, indent=2).splitlines()
+    if node["kind"].startswith("disturbance."):
+        if node["kind"] == "disturbance.change":
+            actions = ", ".join(f"{a['tool']} ({a['span_id']})" for a in out.get("actions", [])) or "no overlapping action"
+            return "desktop changed: " + ", ".join(out.get("changes", {})), [
+                f"Actions near change: {actions}; cause and authorization not inferred.",
+                "→ " + json.dumps(out.get("changes", {}), ensure_ascii=False)]
+        return node["kind"], ["→ " + json.dumps(out, ensure_ascii=False)]
     if node["kind"] == "tool.call":
         args = inp.get("args") or {}
         shown = [f"{k}={_clip(args[k], 120, full)}" for k in ARG_KEYS if args.get(k) not in (None, "")]
@@ -161,7 +170,7 @@ def _guide_install(client: Client, r: dict[str, Any], profile: str | None, brows
 
 def browsers(client: Client, cmd: str | None, profile: str | None, browser: str | None, out: TextIO,
              sleep: Callable[[float], None] = time.sleep) -> int:
-    """`ferb browsers [pair|unpair <profile>]` (section 15)."""
+    """`ferb browsers [pair|unpair <profile>]`."""
     if cmd == "pair":
         print(f"Opening the FERB pairing page in {profile}…", file=out)
         r = client.call("browsers.pair", {"profile": profile, "browser": browser})
@@ -207,7 +216,7 @@ def browsers(client: Client, cmd: str | None, profile: str | None, browser: str 
 
 
 def ps(client: Client, out: TextIO) -> int:
-    """`ferb ps`: FERB's processes (section 15)."""
+    """`ferb ps`: FERB's processes."""
     procs = client.call("ps.list")["processes"]
     if not procs:
         print("No processes.", file=out)
@@ -224,7 +233,7 @@ def kill(client: Client, proc_id: str, out: TextIO) -> int:
     return 0 if ok else 1
 
 
-# ---------- memory (build step 11) ----------
+# ---------- memory ----------
 
 ORIGIN = {"owner_stated": "you said", "observed": "observed", "inferred": "inferred", "third_party": "third-party"}
 
@@ -294,7 +303,7 @@ def timeline(client: Client, since: str | None, out: TextIO) -> int:
     return 0
 
 
-# ---------- Jev (build step 13) ----------
+# ---------- Jev ----------
 
 def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
     if args.dcmd == "stats":
@@ -335,7 +344,7 @@ def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
     return 0
 
 
-# ---------- reminders, device (build step 14) ----------
+# ---------- reminders, device ----------
 
 def reminders(client: Client, action: str, rid: str | None, out: TextIO) -> int:
     if action == "cancel":
@@ -397,7 +406,7 @@ def device(home: Any, action: str, connect: Any, out: TextIO) -> int:
     return 0
 
 
-# ---------- schedules (build step 15) ----------
+# ---------- schedules ----------
 
 def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
     if action != "list":

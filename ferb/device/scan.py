@@ -1,8 +1,9 @@
-"""Device scan (section 8 step 4): installed apps from their Info.plist only, scriptability, browsers present.
+"""Discover installed apps, declared scripting and command-line tools. Must not infer task targets from this inventory.
+
+Device scan: installed apps from their Info.plist only, scriptability, browsers present.
 
 Reads app bundles only — never app data folders. Browsers are detected by bundle presence; Brave is never read
-beyond that (owner's rule), and browser drivers are reported "not built yet" until build steps 5/6.
-"""
+beyond that (owner's rule). Driver descriptions identify available transports, not verified app capabilities."""
 
 import platform
 import plistlib

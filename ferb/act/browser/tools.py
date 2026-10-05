@@ -1,27 +1,21 @@
-"""Browser tool families for owner profiles and FERB accounts. Both are available to task workers.
+"""Owns model-facing browser primitives for owner profiles and FERB accounts; must not choose targets or claim outcomes.
 
-Agents choose accounts and authorization. Drivers bind operations to owned tabs and fresh references; sealed
-secret fills retain origin binding. HTTP(S) includes local development servers. Action kinds are metadata."""
+Agents choose accounts, sources, authorization and verification. Drivers enforce ownership and reference freshness.
+Sealed fills retain origin binding. Action kinds are descriptive metadata, never inferred owner permission."""
 
-import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ferb.act.browser.snapshot import for_model
 from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
-from ferb.policy.contacts import Contact
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, Identity, PageElement, RiskLevel,
                              SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
-from ferb.policy.rules import REVERSIBLE, Kind
+from ferb.policy.rules import Kind
 
-FORM_ROLES = {"checkbox", "radio", "switch", "option", "combobox", "textbox", "searchbox", "listbox", "slider",
-              "menuitemcheckbox", "menuitemradio"}
-OTP_LOOKBACK = timedelta(minutes=10)
 
 
 class Secrets(Protocol):
@@ -32,7 +26,7 @@ class Secrets(Protocol):
 
 class IdentityDriver(BrowserDriver, Protocol):
     """What the tools need beyond BrowserDriver: task-owned tabs, sync lookups from the last snapshot (describe()
-    is sync), navigation, the account check, and (FERB only) the origin-bound fills (10.1)."""
+    is sync), navigation, the account check, and (FERB only) the origin-bound fills."""
     secrets: Secrets
 
     async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef: ...
@@ -44,7 +38,7 @@ class IdentityDriver(BrowserDriver, Protocol):
     def element_info(self, tab_id: str, element_id: str) -> PageElement | None: ...
     def element_ref(self, tab: TabRef, element_id: str) -> ElementRef: ...
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult: ...
-    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, candidate: str,
                        intent_id: str = "") -> ActionResult: ...
     async def release(self, owner: str) -> list[dict[str, Any]] | None: ...
     async def shutdown(self) -> None: ...
@@ -138,7 +132,7 @@ class BrowserOpen(_Base):
     class Input(BaseModel):
         url: str = Field(description="http(s) URL")
         profile: str | None = Field(default=None, description="Owner browser: select a profile from the task context "
-                                   "(name or browser/folder). FERB's own browser ignores this argument.")
+                                   "(name or browser/folder). FERB's own browser does not accept this argument.")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.OPEN_TAB, Target(site=_host(getattr(args, "url"))))
@@ -146,6 +140,8 @@ class BrowserOpen(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         url = str(getattr(args, "url"))
         check_url(url)
+        if self.family.identity is Identity.FERB and getattr(args, "profile") is not None:
+            raise Refused("ferb_browser is bound to FERB's dedicated account profile; use browser.open for an explicit owner profile")
         profile = getattr(args, "profile") if self.family.identity is Identity.OWNER else None
         tab = await self.driver.open_for(url, ctx.task_id, profile)
         out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)}
@@ -178,19 +174,64 @@ class BrowserScroll(_Base):
 class BrowserFind(_Base):
     verb = "find"
     blurb = ("Search the whole page in one of this task's tabs ({whose}) for some text — everything loaded so far, "
-             "not just what a snapshot shows (snapshots keep only the top of long pages). Returns how many lines "
-             "contain it and up to 20 of them. For comments or feeds: scroll to the end first so they're loaded.")
+             "including child frames. Results are paged with next_offset; fetch all pages when needed. "
+             "For comments or feeds, scroll to load more content first.")
 
     class Input(_Tab):
-        text: str = Field(min_length=1, max_length=100)
+        text: str = Field(min_length=1)
+        offset: int = Field(default=0, ge=0)
+        max_chars: int = Field(default=12000, ge=1, le=100000)
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ, Target(site=self._site(args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
-        out = await self.driver.find(ref, str(getattr(args, "text")))                    # type: ignore[attr-defined]
+        out = await self.driver.find(ref, str(getattr(args, "text")), getattr(args,"offset"), getattr(args,"max_chars"))  # type: ignore[attr-defined]
         return ToolResult(out, read_sources=(("web", self.driver.tab_url(ref.tab_id) or ""),))
+
+
+class BrowserRead(_Base):
+    verb = "read"
+    blurb = "Fetch the complete last {p}_snapshot as paged JSON, including every element, frame and full text. Follow next_offset until null."
+
+    class Input(_Tab):
+        offset: int = Field(default=0, ge=0)
+        max_chars: int = Field(default=12000, ge=1, le=100000)
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=self._site(args)))
+
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(args.tab, ctx.task_id)
+        return ToolResult(await self.driver.read(ref, args.offset, args.max_chars),  # type: ignore[attr-defined]
+                          read_sources=(("web", self.driver.tab_url(ref.tab_id) or ""),))
+
+
+class BrowserProfiles(_Base):
+    verb = "profiles"
+    blurb = "List all discovered owner browser profiles with exact browser/folder, display name, account and connection evidence. You choose the profile; ambiguous identity requires owner clarification."
+    class Input(BaseModel):
+        pass
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ)
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        return ToolResult({"profiles": self.driver.profile_candidates()})  # type: ignore[attr-defined]
+
+
+class BrowserDialog(_Base):
+    verb = "dialog"
+    blurb = "Inspect a pending JavaScript dialog in this exact tab; explicitly choose accept/dismiss only after reading its message and resolving authorization. Unexpected dialogs are never answered automatically."
+    class Input(_Tab):
+        decision: Literal["accept", "dismiss"] | None = None
+        text: str | None = None
+    def _scopes(self) -> set[str]:
+        return {self.family.act}
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return self._spec(Kind.CLICK if getattr(args, "decision") else Kind.READ, args)
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(args.tab, ctx.task_id)
+        return ToolResult(await self.driver.dialog(ref, args.decision, args.text))  # type: ignore[attr-defined]
 
 
 class BrowserTabs(_Base):
@@ -258,7 +299,7 @@ class BrowserSnapshot(_Base):
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         s = await self.driver.snapshot(ref)
         sources: tuple[tuple[str, str], ...] = (("web", s.url),)
-        if self.family.identity is Identity.OWNER:                   # the owner's signed-in pages: owner data (10.2)
+        if self.family.identity is Identity.OWNER:                   # the owner's signed-in pages: owner data
             sources += (("owner_account", f"{_host(s.url) or ''}|"),)
         return ToolResult(for_model(s), read_sources=sources)
 
@@ -348,11 +389,17 @@ class BrowserAct(_Base):
                                                            "real input can't reach the element)")
         expect_dialog: Literal["accept", "dismiss"] | None = Field(
             default=None, description="if this action opens a confirm/alert/prompt: accept it or dismiss it "
-                                      "(dialogs are dismissed unless declared here)")
+                                      "(undeclared dialogs stay pending for {p}_dialog)")
         dialog_text: str | None = Field(default=None, description="the answer to a prompt() being accepted")
         files: list[str] | None = Field(default=None, description="upload: absolute paths of the files")
-        contact: Contact | None = Field(default=None, description="clicking call / send to a person: who, as the "
-                                        "owner said it and as this page shows it (FERB checks it was on screen)")
+
+        @model_validator(mode="after")
+        def explicit_input(self) -> "BrowserAct.Input":
+            if self.action in {"type", "select", "press"} and self.text is None:
+                raise ValueError(f"{self.action} requires explicit text; no default key or replacement value")
+            if self.action == "press" and not self.text:
+                raise ValueError("press requires explicit text naming a key")
+            return self
 
     def _scopes(self) -> set[str]:
         return {self.family.act}
@@ -360,12 +407,6 @@ class BrowserAct(_Base):
     def describe(self, args: BaseModel) -> ActionSpec:
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
-        if action == "drag":
-            from ferb.policy.effects import RANK, floor_of
-            end = self.driver.element_info(str(getattr(args, "tab")), str(getattr(args, "end_element", "")))
-            kind = max((Kind.FILL_FORM, kind, act_kind("click", None, end)), key=lambda k: RANK[floor_of(k)])
-        if kind not in REVERSIBLE and security_page(self.driver.tab_url(str(getattr(args, "tab", "")))):
-            kind = Kind.ACCOUNT_SECURITY                                 # trace/ledger classification only
         content = text if action in ("type", "select") else None
         if action in {"click", "dblclick", "rightclick", "hover", "drag"}:
             content = f"{action}:{getattr(args, 'element')}:{getattr(args, 'end_element', '')}"
@@ -382,7 +423,7 @@ class BrowserAct(_Base):
                                                     files=tuple(getattr(args, "files", None) or ()),
                                                     end_element=getattr(args, "end_element", None)),
                                   ctx.intent_id or "")
-        return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a new snapshot to see the result"},
+        return ToolResult({"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"},
                           is_error=not r.ok)
 
 
@@ -409,55 +450,13 @@ class BrowserLoginCode(_Base):
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a fresh snapshot to verify login"}, is_error=not r.ok)
 
 
-SECURITY_PAGE = re.compile(r"(passw|passcode|2fa|two[-_]?factor|two[-_]?step|mfa|authenticator|security|recovery|"
-                           r"backup[-_]?codes|delete[-_]?account|close[-_]?account|deactivate|signin[-_]?options|"
-                           r"sign[-_]?in[-_]?options|login[-_]?settings)", re.I)
-
-
-ACCOUNT_CONTEXT = re.compile(r"(settings|account|myaccount|profile|preferences|/user|/id\b|^id\.|auth|login|signin)",
-                             re.I)
-
-
-def security_page(url: str | None) -> bool:
-    """Account / security settings (10.3 floor): passwords, 2FA, recovery, account deletion."""
-    if not url:
-        return False
-    parts = urlsplit(url)
-    where = f"{parts.path}?{parts.query}#{parts.fragment}"
-    context = f"{parts.hostname or ''}{where}"
-    return bool(SECURITY_PAGE.search(where)) and bool(ACCOUNT_CONTEXT.search(context))
-
-
 def act_kind(action: str, text: str | None, el: PageElement | None) -> str:
-    """Facts about the element: what this action at least does."""
-    from ferb.policy.effects import label_kind
-    if action == "scroll":
+    """Physical operation only. The agent's declared effect supplies purpose; page labels never do."""
+    if action in {"scroll", "hover"}:
         return Kind.READ
-    if el is None:
-        return Kind.CLICK                                 # unknown element: the driver refuses a stale id anyway
-    search = el.form == "search"
-    if action == "hover":
-        return Kind.READ                                  # pointing at something changes nothing
-    if action == "upload" or el.input_type == "file":
-        return Kind.FILL_FORM                             # attaching a file fills a field; submitting is separate
-    if action in ("type", "select"):
-        return Kind.SEARCH if search else Kind.FILL_FORM
-    if action == "press":
-        if (text or "Enter") == "Enter":
-            return Kind.SEARCH if search else Kind.SUBMIT   # Return in a message box or a form submits it
-        return Kind.FILL_FORM if text in ("Backspace", "Space") else Kind.READ
-    floor = label_kind(el.label)
-    if floor is not None:                                 # "Send", "Pay", "Delete" …: the label is the action
-        return floor
-    if el.role == "link" and el.href:
-        return Kind.NAVIGATE
-    if el.role in ("tab", "treeitem"):
-        return Kind.NAVIGATE
-    if el.role in FORM_ROLES:
+    if action in {"type", "select", "upload", "press"}:
         return Kind.FILL_FORM
-    if el.form not in (None, "", "search") and (el.role == "button" or el.input_type == "submit"):
-        return Kind.SUBMIT                                # a form's button submits it (HTML's default)
-    return Kind.SEARCH if search else Kind.CLICK
+    return Kind.CLICK
 
 
 class BrowserWait(_Base):
@@ -540,26 +539,38 @@ class BrowserFillOtp(_Base):
     class Input(_El):
         secret: str = Field(description="The account the code is for (its secret name, e.g. ferb/email/password): "
                                         "the code is only filled on pages allowed for that account")
-        sender_contains: str | None = Field(default=None, description="Part of the sender's address, if known")
+        candidate: str = Field(description="Opaque candidate id explicitly selected from ferb_browser.otp_candidates evidence")
 
     def _scopes(self) -> set[str]:
         return {self.family.act, "secrets:fill", "mailbox:read"}
 
     @property
     def description(self) -> str:
-        return ("Fill a one-time code that was just emailed to FERB's inbox into a field (waits up to 2 minutes for "
-                "it; you never see the code). Trigger the email first. " + _accounts(self.driver))
+        return ("Fill the explicitly selected opaque inbox candidate into its origin-bound field; the code stays sealed. " + _accounts(self.driver))
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.FILL_SECRET, Target(site=self._site(args), account=_account(self.driver, args)))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
-        since = datetime.now(timezone.utc) - OTP_LOOKBACK
         r = await self.driver.fill_otp(self.driver.element_ref(ref, str(getattr(args, "element"))),
-                                       SecretRef(str(getattr(args, "secret"))), since,
-                                       getattr(args, "sender_contains"), ctx.intent_id or "")
+                                       SecretRef(str(getattr(args, "secret"))), getattr(args, "candidate"), ctx.intent_id or "")
         return ToolResult({"ok": r.ok, "detail": r.detail}, is_error=not r.ok)
+
+
+class BrowserOtpCandidates(BrowserFillOtp):
+    verb = "otp_candidates"
+    risk, reversible = RiskLevel.LOW, True
+    class Input(_El):
+        secret: str
+    @property
+    def description(self) -> str:
+        return "List every opaque numeric candidate in FERB's unread inbox with sender, time, account and message identity (subject/body withheld). Judge identity and freshness yourself; ask the owner if multiple candidates remain plausible or identity evidence is insufficient. Codes never reach the model. " + _accounts(self.driver)
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site=self._site(args), account=_account(self.driver,args)))
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        tab=self.driver.owned_by(args.tab,ctx.task_id)
+        return ToolResult(await self.driver.otp_candidates(self.driver.element_ref(tab,args.element),SecretRef(args.secret)))  # type: ignore[attr-defined]
 
 
 def _accounts(driver: IdentityDriver) -> str:
@@ -573,37 +584,3 @@ def _accounts(driver: IdentityDriver) -> str:
 def _account(driver: IdentityDriver, args: BaseModel) -> str | None:
     key = str(getattr(args, "secret", ""))
     return driver.secrets.spec(SecretRef(key)).account_hint if driver.secrets.has(SecretRef(key)) else None
-
-
-class MailboxSend:
-    """Send using FERB's mailbox; the worker interprets the owner's authorization and checks delivery."""
-    name = "mailbox.send"
-    description = ("Send an email from FERB's own address. Verify the recipient and requested final outcome "
-                   "from the owner's instructions before sending; inspect delivery afterward.")
-    scopes = {"mailbox:send"}
-    identities = {Identity.FERB}
-    risk, reversible = RiskLevel.MEDIUM, False
-
-    class Input(BaseModel):
-        to: list[str] = Field(min_length=1, max_length=10)
-        subject: str = Field(max_length=200)
-        body: str = Field(max_length=5000)
-
-    def __init__(self, driver: Any) -> None:
-        self.driver = driver
-
-    def describe(self, args: BaseModel) -> ActionSpec:
-        a: Any = args
-        return ActionSpec(Kind.MAILBOX_SEND, Target(recipients=tuple(t.strip().lower() for t in a.to)),
-                          content=f"{a.subject}\n{a.body}")
-
-    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        a: Any = args
-        if any("@" not in t or " " in t.strip() for t in a.to):
-            return ToolResult({"error": "each recipient must be an email address"}, is_error=True)
-        try:
-            await self.driver.send_mail([t.strip() for t in a.to], a.subject, a.body, ctx.task_id,
-                                        ctx.intent_id or "")
-        except Refused as e:
-            return ToolResult({"error": str(e)}, is_error=True)
-        return ToolResult({"sent": True, "to": a.to, "from": "FERB's own address"})

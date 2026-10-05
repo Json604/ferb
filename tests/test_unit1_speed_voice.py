@@ -83,24 +83,23 @@ def test_ferbs_own_codex_home_once_logged_in(tmp_path: Path) -> None:
     assert codex_home(tmp_path) == tmp_path / "codex-home"
 
 
-def test_older_turns_are_summarized_and_recent_ones_kept(daemon: RunningDaemon) -> None:
+def test_earlier_turns_keep_full_owner_words_within_context_budget(daemon: RunningDaemon) -> None:
     replies = [sup("reply", f"answer {i}") for i in range(13)]
     script = install(daemon, replies)
     for i in range(12):
         chat(daemon, f"message number {i} " + "x" * 700)
     chat(daemon, "latest")
     ctx = script.contexts[-1][2]
-    assert "Earlier (summarized):" in ctx and "message number 0" in ctx     # the day's start, one short line
-    assert ctx.count("\n[c") == 8                                           # the last 8 verbatim
-    assert "x" * 401 not in ctx                                             # each kept to 400 characters
+    assert "message number 0" in ctx and "message number 11" in ctx
+    assert "x" * 700 in ctx and "Context budget:" in ctx
 
 
 # ---------- plain reasons ----------
 
 def test_a_service_failure_is_recorded_and_told_plainly(daemon: RunningDaemon) -> None:
-    assert "usage limit is reached" in service_problem("You've hit your usage limit. Try again at 9:00")
-    assert "isn't signed in" in service_problem("401 Unauthorized: token expired")
-    assert "connection failed" in service_problem("stream disconnected: network error")
+    assert "You've hit your usage limit. Try again at 9:00" in service_problem("You've hit your usage limit. Try again at 9:00")
+    assert "401 Unauthorized: token expired" in service_problem("401 Unauthorized: token expired")
+    assert "stream disconnected: network error" in service_problem("stream disconnected: network error")
     script = install(daemon, [])
 
     async def failing(*a: Any, **k: Any) -> Any:
@@ -108,7 +107,7 @@ def test_a_service_failure_is_recorded_and_told_plainly(daemon: RunningDaemon) -
         raise ServiceError("You've hit your usage limit")
     daemon.daemon.supervisor._run = failing                                # type: ignore[method-assign]
     evs = chat(daemon, "who are you?")
-    assert evs[0]["text"].startswith("The AI service I use (Codex) says your usage limit is reached")
+    assert evs[0]["text"].startswith("The AI service I use (Codex) reported an error: You've hit your usage limit")
 
     async def failures() -> list[Any]:
         return [e.data for e in daemon.daemon._journal().entries() if e.kind == "chat.failed"]

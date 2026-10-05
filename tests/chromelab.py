@@ -313,6 +313,8 @@ const vm = require("vm"), fs = require("fs"), path = require("path");
 const noop = new Proxy(function(){}, {get: () => noop});
 const state = {s: {seen: {}, order: [], owned: [], windowId: 9}};
 const chrome = new Proxy({
+  debugger: new Proxy({onEvent: {listeners: [], addListener(fn) {this.listeners.push(fn);},
+    fire(...args) {for (const fn of this.listeners) fn(...args);}}}, {get: (o,k) => o[k] || noop}),
   storage: {local: {get: async () => ({ferb: {key: null}}), set: async () => {}},
             session: {get: async () => structuredClone(state), set: async x => Object.assign(state, x)}},
   runtime: new Proxy({getManifest: () => ({version: "test"}), connectNative: () => ({

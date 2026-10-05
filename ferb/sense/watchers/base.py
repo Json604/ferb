@@ -1,9 +1,10 @@
-"""Shared watcher plumbing (section 6 `Watcher`): the run shape, the focused app / window as the system reports it,
+"""Provide passive watcher timing and focused-app reads. Must not activate, focus or manipulate windows.
+
+Shared watcher plumbing: the run shape, the focused app / window as the system reports it,
 and an FSEvents stream on its own run-loop thread. Blocking pyobjc calls stay in threads.
 
 The frontmost app comes from Accessibility's system-wide focused application, read fresh on every poll (a daemon
-has no AppKit run loop, so NSWorkspace's cached app state can go stale).
-"""
+has no AppKit run loop, so NSWorkspace's cached app state can go stale)."""
 
 import asyncio
 import threading

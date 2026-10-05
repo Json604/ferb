@@ -1,4 +1,6 @@
-"""Time header (every model turn) and tool-result footer (section 13)."""
+"""Owns time facts attached to model turns and tool results. Must not infer ambiguous owner intent or turn reminders into unauthorized actions.
+
+Time header (every model turn) and tool-result footer."""
 
 from datetime import datetime
 
@@ -14,7 +16,7 @@ def _span(seconds: float) -> str:
 
 def header(now: datetime, task_started: datetime | None = None, deadline: datetime | None = None,
            owner_last_active: datetime | None = None, last_trail_event: datetime | None = None) -> str:
-    """For the start of every model turn. Unknown values say so (owner activity + trail arrive with build step 10)."""
+    """For the start of every model turn. Unknown values say so (owner activity or trail may be unavailable)."""
     parts = [f"now {now.strftime('%A %Y-%m-%d %H:%M:%S')} {now.strftime('%Z') or now.strftime('%z')}"]
     if task_started:
         parts.append(f"task started {task_started.strftime('%H:%M:%S')} (+{_span((now - task_started).total_seconds())})")
@@ -40,7 +42,7 @@ def footer(now: datetime, task_started: datetime | None = None, deadline: dateti
     return "[" + " | ".join(parts) + "]"
 
 
-# ---------- time awareness (section 13, build step 15) ----------
+# ---------- time awareness ----------
 
 def ago(then: datetime, now: datetime) -> str:
     """A relative age computed now, always with the absolute time: "3 days ago (Sat 26 Sep, 14:02)"."""

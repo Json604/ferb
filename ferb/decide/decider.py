@@ -1,4 +1,6 @@
-"""Jev behind FERB's own decisions (section 12).
+"""Owns optional Jev typed-decision transport, shadowing and recorded fallback. Must not expand enrichment into task authorization or silently replace the baseline.
+
+Jev behind FERB's own decisions.
 
 - Callers provide an observation or memory proposal and the baseline they would otherwise keep.
 - `JevClient` calls Jev (POST /v1/systemone, model pinned to jev-1.13.0: calibration differs between versions), with
@@ -9,8 +11,7 @@
   the baseline stands, the reason is logged, and nothing fails.
 
 What reaches Jev is built by callers from data that already passed exclusions and redaction, and is redacted once
-more here. Nothing sent is stored; decisions keep a reference to what was decided.
-"""
+more here. Nothing sent is stored; decisions keep a reference to what was decided."""
 
 import asyncio
 import json
@@ -38,7 +39,7 @@ class Ask:
     key: str                                     # question id, or "id#n" for one of several in a batch
     baseline: str
     ref: str | None = None
-    criteria: dict[str, str] | None = None       # per-call options (profile_match candidates)
+    criteria: dict[str, str] | None = None       # per-call typed choice options
 
     @property
     def question(self) -> Question:
@@ -138,11 +139,11 @@ class ShadowDecider:
     # ---------- calling Jev ----------
 
     async def _call(self, state: Any, asks: list[Ask], timeout: float, on: set[str]) -> dict[str, str]:
-        wire = self._state(state)
         names = {f"q{i}": a for i, a in enumerate(asks)}
         questions = {n: (a.question.api() | ({"criteria": a.criteria} if a.criteria else {})) for n, a in names.items()}
         started = time.monotonic()
         try:
+            wire = self._state(state)
             if self.client is None:
                 raise JevUnavailable("Jev isn't set up")
             data = await asyncio.wait_for(self.client.ask(wire, questions, timeout), timeout)
@@ -172,7 +173,9 @@ class ShadowDecider:
     def _state(self, state: Any) -> Any:
         s = self.redact(state)                                    # once more, whatever the caller did
         text = json.dumps(s, ensure_ascii=False, default=str)
-        return s if len(text) <= MAX_STATE_CHARS else text[:MAX_STATE_CHARS]
+        if len(text) > MAX_STATE_CHARS:
+            raise JevUnavailable(f"state exceeds {MAX_STATE_CHARS} characters; no partial state was sent")
+        return s
 
     def _record(self, a: Ask, jev: str | None, conf: Any, ms: int | None, error: str | None, mode: str) -> None:
         self.db.conn.execute(

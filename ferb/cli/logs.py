@@ -1,4 +1,6 @@
-"""`ferb logs [--tasks --trail --tools --browsers]`: live stream from the daemon's bus."""
+"""Render persisted daemon log events for inspection. Must not change their recorded meaning.
+
+`ferb logs [--tasks --trail --tools --browsers]`: live stream from the daemon's bus."""
 
 import json
 from datetime import datetime
@@ -25,7 +27,7 @@ def run(client: Client, filters: list[str], out: TextIO, limit: int | None = Non
 
 
 def voice(client: Client, out: TextIO, limit: int | None = None) -> int:
-    """`ferb voice`: push-to-talk as a conversation — what FERB heard you say, and what it said back (section 20.1)."""
+    """`ferb voice`: push-to-talk as a conversation — what FERB heard you say, and what it said back."""
     print("Push-to-talk, live — hold Right Option to talk. Ctrl-C to leave (voice keeps working).", file=out, flush=True)
     n = 0
     for ev in client.stream("logs.subscribe", {"filters": ["voice"]}):

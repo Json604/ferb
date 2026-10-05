@@ -1,14 +1,6 @@
-"""Real mouse + keyboard events (section 10.5), always marked as FERB's and always under the GUI lock.
-
-An action is a list of single events (one mouse event, one keystroke). Before each one the owner is checked: if
-they're using the mouse or keyboard, FERB waits until they've been quiet for the quiet period, then continues; if
-that takes longer than `yield_after_s`, the action stops and says where (`Yielded`: the gateway treats the partial
-effect as outcome-unknown). Long text is typed per keystroke, never pasted in one event, so it can stop mid-way.
-
-Events can also go straight to one app's process (`pid`, `CGEventPostToPid`), with the app in the background
-(ARCHITECTURE.md §5): keys reach the app's first responder wherever its window is; mouse and scroll events reach
-a window on the current Space in our earlier probes. Exact pointer input can alternatively use a window-addressed
-SkyLight route (window_input.py); app acceptance and cross-Space behavior require owner verification.
+"""Own marked process-directed and explicitly authorized foreground input mechanics.
+Never suppress owner events or choose recovery; foreground stops when owner activity begins.
+Background sequences serialize on the GUI lock and release held buttons on interruption.
 """
 
 import asyncio
@@ -24,7 +16,7 @@ STEP_S = 0.02
 
 class Yielded(FerbError):
     def __init__(self, done: int, total: int, what: str) -> None:
-        super().__init__(f"stopped for the owner after {done} of {total} steps ({what}); the owner kept using the "
+        super().__init__(f"stopped for the owner after {done} of {total} steps ({what}); the owner used the "
                          "mouse/keyboard")
         self.done, self.total = done, total
 
@@ -48,31 +40,14 @@ class RealInput:
         self.sleep, self.poll_s, self.on_wait = sleep, poll_s, on_wait     # on_wait: the owner's time isn't a stall
         self.available = available                                         # False while FERB is paused
 
-    async def run(self, steps: list[Step], holder: str, what: str,
-                  aside: Callable[[], Awaitable[None]] | None = None,
-                  back: Callable[[], Awaitable[None]] | None = None) -> int:
-        """Foreground input. When the owner touches the mouse or keyboard: `aside` (put their app back), wait until
-        they've been quiet, `back` (bring FERB's app forward again), carry on (10.5)."""
+    async def run(self, steps: list[Step], holder: str, what: str) -> int:
+        """Explicit foreground input stops on owner activity; never suppresses or replays owner events."""
         if not self.available():
-            raise Refused("FERB is paused (`ferb resume`): it can't tell when you're using the mouse or keyboard, "
-                          "so it doesn't use real input")
+            raise Refused("FERB is paused: no foreground input")
         async with self.gui.hold(holder):
             for i, step in enumerate(steps):
-                waited = 0.0
                 if self.owner_active():
-                    self.on_wait(holder, True)
-                    if aside is not None:
-                        await aside()
-                    try:
-                        while self.owner_active():           # the owner wins: wait for them to be quiet
-                            if waited >= self.yield_after_s:
-                                raise Yielded(i, len(steps), what)
-                            await self.sleep(self.poll_s)
-                            waited += self.poll_s
-                    finally:
-                        self.on_wait(holder, False)
-                    if back is not None:
-                        await back()
+                    raise Yielded(i, len(steps), what)
                 step.post()
                 await self.sleep(STEP_S)
         return len(steps)
@@ -161,7 +136,7 @@ def _post(ev: Any, pid: int | None = None) -> None:
 
 def click_steps(x: float, y: float, pid: int | None = None) -> list[Step]:
     """A move then a click at a screen point: real input, or posted to the app's process (reaches a window on the
-    current Space only — ARCHITECTURE.md §5)."""
+    current Space only)."""
     import Quartz
     src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
     pt = (x, y)
@@ -282,7 +257,7 @@ def switches_apps(combo: str) -> bool:
 
 
 def quits_or_hides(combo: str) -> bool:
-    """⌘Q quits the app (never: a background app with unsaved work wedges on its save sheet — ARCHITECTURE.md §5),
+    """⌘Q quits the app (never: a background app with unsaved work wedges on its save sheet),
     ⌘H / ⌥⌘H hide it and ⌘M minimises its window: the owner's screen, not FERB's."""
     parts = normalize(combo)
     if not parts:

@@ -22,7 +22,7 @@ from ferb.cli.client import Client
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, TabRef, Task, WaitCondition)
-from ferb.identity.mailbox import REASONS, GmailFeedMailbox, wait_for_code
+from ferb.identity.mailbox import GmailFeedMailbox
 from ferb.identity.secrets import KeychainSecretStore, normalize_origin, origin_allowed
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.targets import Request, Targets
@@ -231,26 +231,28 @@ class FakeIdentityDriver:
         e.value = value
         return ActionResult(True, f"ok ({ref.key})")
 
-    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
-                       intent_id: str = "") -> ActionResult:
-        if not self.secrets.has(ref):
-            raise Refused(f"no account {ref.key} is set up")
-        t, e = self._resolve(el)
-        if not origin_allowed(self._origin(t, e), self.secrets.spec(ref)):
-            raise Refused(f"refused: this field's page ({self._origin(t, e)}) isn't allowed for {ref.key}")
-
+    async def otp_candidates(self, el: ElementRef, ref: SecretRef) -> dict[str, Any]:
+        t,e=self._resolve(el)
+        if not origin_allowed(self._origin(t,e),self.secrets.spec(ref)):
+            raise Refused("origin isn't allowed")
         async def fetch(url: str) -> str:
             return self.feed_xml
-        mailbox = GmailFeedMailbox(fetch, ADDRESS)
-        mailbox.used = self.used_otps
-        found = await wait_for_code(mailbox, since, sender_contains, timeout=0.3, poll=0.1)
-        if not found.code:
-            return ActionResult(False, REASONS[found.reason])
+        self.mailbox=GmailFeedMailbox(fetch,ADDRESS)
+        self.mailbox.used=self.used_otps
+        return await self.mailbox.candidates()
+
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, candidate: str, intent_id: str = "") -> ActionResult:
+        t,e=self._resolve(el)
+        if not origin_allowed(self._origin(t,e),self.secrets.spec(ref)):
+            raise Refused("origin isn't allowed")
+        try:
+            found=self.mailbox.take(candidate)
+        except ValueError as error:
+            return ActionResult(False,str(error))
         self.add_secret_value(found.code)
-        e.value = found.code
-        if found.message_id:
-            self.used_otps.add(found.message_id)
-        return ActionResult(True, "ok (code from FERB's inbox)")
+        e.value=found.code
+        self.used_otps.add(found.message_id)
+        return ActionResult(True,"ok (explicit candidate)")
 
     async def release(self, owner: str) -> None:
         for tid in [k for k, t in self._tabs.items() if t.owner == owner]:

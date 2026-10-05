@@ -25,6 +25,9 @@ SPOTIFY = "com.spotify.client"
 class StubShot:
     id: str = "shot1"
     size: tuple[int, int] = (800, 600)
+    window: int = 1
+    pid: int = 16
+    bounds: tuple[int, int, int, int] = (0, 0, 800, 600)
 
 
 @dataclass
@@ -59,7 +62,7 @@ class StubMac:
     def snapshot_images(self) -> bool:
         return False
 
-    async def snapshot(self, name: str, window: str | None = None) -> tuple[RunningApp, dict[str, Any]]:
+    async def snapshot(self, name: str, window: str | None = None, subtree: str | None = None, offset: int = 0) -> tuple[RunningApp, dict[str, Any]]:
         a = self.app(name)
         nodes = {f"s1e{i + 1}": n for i, n in enumerate(self.windows.get(a.bundle_id, []))}
         self._nodes[a.bundle_id] = nodes
@@ -74,14 +77,14 @@ class StubMac:
         self.acted.append((app, action.kind, action.element, action.text))
         return ActionResult(True, action.kind)
 
-    async def screenshot(self, name: str, marks: Any = None) -> tuple[RunningApp, StubShot, bytes]:
+    async def screenshot(self, name: str, marks: Any = None, window: str | None = None, native_resolution: bool = False) -> tuple[RunningApp, StubShot, bytes]:
         return self.app(name), StubShot(), b"\xff\xd8\xff"
 
     def label_at(self, name: str, shot: str, x: float, y: float) -> str | None:
         return None
 
     async def click_at(self, app: str, shot: str, x: float, y: float, holder: str = "",
-                       task: str | None = None, allow_foreground: bool = False) -> ActionResult:
+                       task: str | None = None, allow_foreground: bool = False, mechanism: str = "pointer") -> ActionResult:
         self.clicked.append((app, x, y))
         return ActionResult(True, "clicked")
 
@@ -362,4 +365,5 @@ def test_8b_declining_a_workers_question_is_told_plainly(daemon: RunningDaemon) 
     finally:
         nobody.stop()
     assert got["r"]["content"] == {"declined": True} and out["status"] == "needs_user"
-    assert out["answer"] == "Tell me which account to use and I'll continue."
+    assert "sign in — unverified" in out["answer"]
+    assert "Question: Tell me which account to use and I'll continue." in out["answer"]

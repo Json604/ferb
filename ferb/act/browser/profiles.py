@@ -1,12 +1,7 @@
-"""Profile discovery and name resolution (section 9.5): deterministic code that runs before any model.
-
-Discovery reads only each Chromium browser's `Local State` -> profile.info_cache (folder -> display name, email);
-never cookies or other profile data. Resolution: exact display name -> email / email local part -> saved alias;
-a step matching more than one profile is ambiguous (never first match); no match lists what exists.
-Opening: only folders returned by discovery are ever passed to `--profile-directory` (an unknown folder silently
-creates a new profile). A running browser takes the request over; a browser that isn't running is started
-detached. FERB never quits or kills the owner's browser.
-"""
+"""Owns Chromium profile metadata discovery, candidate matching and explicit profile launch.
+Must not choose between plausible names/accounts or launch a visible URL as a background action.
+Discovery reads Local State only; exact configured folders prevent accidental creation of profiles.
+Name, account and saved-alias matches are returned together, never resolved by tier priority."""
 
 import json
 import subprocess
@@ -59,7 +54,7 @@ class Resolution:
             return f"{p.browser}/{p.folder}"
         if self.kind == "ambiguous":
             return f"'{spoken}' matches several profiles: " + ", ".join(
-                f"{p.browser}/{p.folder} ({p.display_name})" for p in self.candidates)
+                f"{p.browser}/{p.folder} (name={p.display_name!r}, account={p.email or 'unknown'})" for p in self.candidates)
         return f"no profile called '{spoken}'; found: " + (", ".join(
             f"{p.browser}/{p.display_name}" for p in available) or "none")
 
@@ -77,12 +72,11 @@ def resolve(spoken: str, profiles: list[BrowserProfile], aliases: dict[str, tupl
         ("email", [p for p in pool if p.email and (p.email == s or p.email.split("@")[0] == s)]),
         ("alias", [p for p in pool if aliases and aliases.get(s) == (p.browser, p.folder)]),
     ]
-    for step, hits in steps:
-        if len(hits) == 1:
-            return Resolution("one", step, (hits[0],))
-        if len(hits) > 1:
-            return Resolution("ambiguous", step, tuple(hits))
-    return Resolution("none", "", ())
+    # A display name must not hide another profile's account or saved alias.
+    hits = list(dict.fromkeys(p for _, candidates in steps for p in candidates))
+    matched_steps = ",".join(step for step, candidates in steps if candidates)
+    return Resolution("one" if len(hits) == 1 else "ambiguous" if hits else "none", matched_steps, tuple(hits))
+
 
 
 def running(browser: str) -> bool:
@@ -113,10 +107,10 @@ def open_known_profile(browser: str, folder: str, url: str | None, known: list[B
     running browser and loaded FERB's profile without bringing anything forward."""
     if not any(p.browser == browser and p.folder == folder for p in known):
         raise ValueError(f"{browser}/{folder} isn't a discovered profile; refusing to create one")
+    if background and url is not None:
+        raise ValueError("needs_foreground: URL launch requires an explicit foreground setup step")
     if background and url is None and is_running(browser):
         launch([BROWSERS[browser][1], f"--profile-directory={folder}", "--no-startup-window"])
-    elif background and is_running(browser):              # a wake page into a running browser: only the binary works
-        launch([BROWSERS[browser][1], f"--profile-directory={folder}", url or ""])
     elif background:
         launch(["open", "-g", "-b", BUNDLES[browser], "--args", f"--profile-directory={folder}",
                 url or "--no-startup-window"])

@@ -1,13 +1,6 @@
-"""KeychainSecretStore (section 5 SecretStore, 10.1): FERB identity only.
-
-Keychain item: generic password, service "ferb", account = SecretRef.key (e.g. "ferb/email/password"). The
-owner creates it in their own terminal (`security add-generic-password -s ferb -a <key> -w`), never through chat.
-Its SecretSpec (allowed origins, account hint) is not secret and lives in the owner-only config.toml.
-
-There is no public reveal: `_reveal` is called only by the identity browser driver's origin-bound fill, right
-before the value is sent to be set on an element in a verified frame. Errors never carry the value, stdout or
-stderr.
-"""
+"""Owns configured FERB Keychain secret storage and exact origin constraints; must not expose values to models.
+The account hint/origin specification is nonsecret. Only the driver's sealed fill reveals a value after origin checks.
+Owner setup creates Keychain entries in their terminal; errors never include secret values or subprocess output."""
 
 import asyncio
 from pathlib import Path

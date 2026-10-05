@@ -238,7 +238,7 @@ def test_everything_happens_in_a_minimized_window_and_the_owner_is_never_moved(
         out["type"] = await router.act(router.element_ref(tab, user.id), BrowserAction("type", "ada"), "")
         out["click"] = await router.act(router.element_ref(tab, go_btn.id), BrowserAction("click"), "")
         out["press"] = await router.act(router.element_ref(tab, trusted.id), BrowserAction("press", "Enter"), "")
-        out["dismissed"] = await router.act(router.element_ref(tab, ask.id), BrowserAction("click"), "")
+        out["dismissed"] = await router.act(router.element_ref(tab, ask.id), BrowserAction("click", expect_dialog="dismiss"), "")
         s = await router.snapshot(tab)
         out["after_input"] = s.text
         out["dialogs"] = s.dialogs

@@ -1,11 +1,12 @@
-"""Browser tabs (section 11): page loads and tab switches, as metadata (browser, profile, host, masked URL, title).
+"""Record extension-reported browser-tab observations. Must not select tabs, profiles or accounts.
+
+Browser tabs: page loads and tab switches, as metadata (browser, profile, host, masked URL, title).
 
 - Paired Chrome / Brave profiles: the extension's `tab_event`s, handed over by the Hub (`TabSink`). Tabs FERB opened
   for a task are FERB's; everything in FERB's own identity profile is FERB's; private windows are never recorded.
 - Safari, and Chrome / Brave while no profile of theirs is connected: an AppleScript read of the front tab, only
   while that browser is frontmost and only if the owner has already granted Automation for it (never asked for
-  here). The profile is unknown there.
-"""
+  here). The profile is unknown there."""
 
 import asyncio
 import subprocess

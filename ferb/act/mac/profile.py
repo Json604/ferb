@@ -1,8 +1,5 @@
-"""Per-app learned capability profiles (rework phase 3 / 5): which background mechanisms landed or failed in each app,
-counted, updated by every real action's outcome and seedable from `ferb.device.probe`. Nothing here is written by
-hand per app: the driver asks the profile, and the profile only knows what it saw.
-
-Kept in memory and, when a directory is given, as JSON under <ferb home>/device/apps/<bundle>.json.
+"""Own per-app observations of attempted mechanisms, including storage diagnostics.
+Profiles are evidence for agents; they never choose a method or authorize a fallback.
 """
 
 from __future__ import annotations
@@ -45,6 +42,7 @@ class Profiles:
     def __init__(self, directory: Path | None = None) -> None:
         self.dir = directory
         self._mem: dict[str, AppProfile] = {}
+        self.diagnostics: dict[str, list[dict[str, str]]] = {}
 
     # ---- reading
 
@@ -102,7 +100,8 @@ class Profiles:
     def as_dict(self, bundle: str) -> dict[str, Any]:
         p = self.get(bundle)
         return {"bundle": p.bundle, "updated": p.updated, "seeded_from": p.seeded_from,
-                "mechanisms": {k: asdict(v) for k, v in p.mechanisms.items()}}
+                "mechanisms": {k: asdict(v) for k, v in p.mechanisms.items()},
+                "diagnostics": self.diagnostics.get(bundle, [])}
 
     # ---- files
 
@@ -121,7 +120,8 @@ class Profiles:
             mechs = {k: Mechanism(**{f: int(v) if f in {"landed", "failed", "streak"} else v for f, v in d.items() if f in Mechanism.__dataclass_fields__})
                      for k, d in (raw.get("mechanisms") or {}).items()}
             return AppProfile(bundle, mechs, str(raw.get("updated") or ""), raw.get("seeded_from"))
-        except (OSError, ValueError, TypeError):
+        except (OSError, ValueError, TypeError) as exc:
+            self.diagnostics.setdefault(bundle, []).append({"operation": "load", "path": str(path), "error": str(exc)})
             return None
 
     def _save(self, p: AppProfile) -> None:
@@ -133,8 +133,8 @@ class Profiles:
             tmp = path.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(self.as_dict(p.bundle), indent=1))
             tmp.replace(path)
-        except OSError:
-            pass                                     # the in-memory profile still serves this daemon's life
+        except OSError as exc:
+            self.diagnostics.setdefault(p.bundle, []).append({"operation": "save", "path": str(path), "error": str(exc)})
 
 
 def _now() -> str:

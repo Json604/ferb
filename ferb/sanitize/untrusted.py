@@ -1,9 +1,8 @@
-"""Mark pasted or quoted content in the owner's chat message as untrusted data (section 10.2).
+"""Own source provenance markers for pasted data. Must not discard the complete request or infer its meaning.
 
 Pasted/quoted = terminal bracketed paste (ESC[200~ ... ESC[201~), fenced code blocks (```), and `>` quote lines.
 Each is wrapped in <untrusted-data id="..."> tags with a random id (so pasted text can't forge a closing tag), and
-the owner's own words are returned separately for the orchestrator to interpret intent.
-"""
+the owner's own words are returned separately for the orchestrator to interpret intent."""
 
 import re
 import secrets

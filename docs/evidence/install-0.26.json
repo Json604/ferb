@@ -1,0 +1,51 @@
+{
+  "checkout_version": "0.26.0",
+  "daemon_version": "0.26.0",
+  "code_hash_matches_checkout": true,
+  "daemon_pid": 49677,
+  "stopped": false,
+  "permissions": {
+    "accessibility": "granted",
+    "screen_recording": "granted",
+    "input_monitoring": "granted",
+    "full_disk_access": "granted"
+  },
+  "date": "2026-10-05",
+  "operations": [
+    {
+      "action": "install",
+      "exit_code": 0
+    },
+    {
+      "action": "doctor",
+      "exit_code": 0
+    }
+  ],
+  "observations": [
+    {
+      "task_id": "release-install-and-doctor-026",
+      "kind": "disturbance.summary",
+      "data": {
+        "samples": 25,
+        "changes": 0,
+        "errors": 0,
+        "unavailable": {
+          "fullscreen": "AXFullScreen: AX error -25205"
+        },
+        "sample_interval_s": 0.25,
+        "max_sample_ms": 87.26649987511337,
+        "coverage": "sampled; short changes between samples may be missed; Space transitions use notifications",
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    }
+  ],
+  "doctor_warnings": [
+    "identity session deliberately not checked; no browser opened",
+    "one paired personal browser disconnected; not opened",
+    "device profile reports one changed item; permission/setup UI not opened"
+  ],
+  "scope": "Authorized package update/restart and observational doctor; no account-session or permission-prompt selftest",
+  "interpretation": "Installation/restart and observational doctor succeeded. No sampled changes. AXFullScreen unavailable; brief transitions can be missed.",
+  "frontmost_bundle_at_start": "com.apple.loginwindow"
+}

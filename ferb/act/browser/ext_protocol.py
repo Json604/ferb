@@ -1,14 +1,8 @@
-"""Extension message protocol (section 9.4), mirrored by extensions/chromium/protocol.js.
+"""Owns the versioned extension wire schema and message authentication; must not interpret page or owner intent.
 
-ext -> daemon: `{install_id, type, body_json, seq?, mac?}`. Once paired, every message carries a strictly
-increasing `seq` and `mac` = base64 HMAC-SHA256(key, "install_id|seq|type|body_json") (section 9.6).
-daemon -> ext: `{type: "cmd", id, gen, op, args, timeout_ms}` for commands; `paired` / `refused` for control.
-Protocol 6: explicit tab release/retention and frame-bound container scrolling.
-Protocol 5: exact visual pointer gestures and cancellation.
-Protocol 4 introduced AX-first snapshots, point resolution and explicit command outcomes.
-Protocol 3 introduced FERB's own minimized window, a debugger session per task tab, `event` messages
-(dialogs, a detached debugger), container scrolls, uploads, chunked screenshots.
-"""
+Extension messages carry install_id, type, body_json, monotonic seq and HMAC. Commands bind id and generation.
+Protocol 8 adds multipart full evidence/action transport, explicit dialogs and exact-frame local upload receipts.
+Chromium native-message size is a per-frame transport bound; content travels in chunks without clipping."""
 
 import base64
 import hashlib
@@ -18,15 +12,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 7
-MIN_EXTENSION_VERSION = "0.12.0"
+PROTOCOL_VERSION = 8
+MIN_EXTENSION_VERSION = "0.13.0"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
 ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
-             "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "ping", "point", "pointer", "pointer_cancel", "release_tab"]
+             "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
+             "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -83,14 +77,21 @@ class TabEvent(BaseModel):
 
 
 class Event(BaseModel):
-    """Something that happened to a task tab without a command asking: a JS dialog the extension answered, or the
-    debugger leaving the tab (the owner pressed Cancel on the infobar, or the tab closed)."""
-    event: Literal["dialog", "detached"]
+    """Observed tab dialog, intercepted file chooser, or debugger detachment; no implied user decision."""
+    event: Literal["dialog", "detached", "file_chooser"]
     tab_id: int
     type: str | None = None                    # dialog: alert | confirm | prompt | beforeunload
     message: str | None = None
     handled: str | None = None                 # dialog: accepted | dismissed
     reason: str | None = None                  # detached: canceled_by_user | target_closed | ...
+    frame_id: str | None = None
+    session_id: str | None = None
+    backend_node_id: int | None = None
+    mode: str | None = None
+    native_picker_shown: bool | None = None
+    transferred: bool | None = None
+    direct_upload_available: bool | None = None
+    detail: str | None = None
 
 
 def mac_text(install_id: str, seq: int, mtype: str, body_json: str) -> bytes:

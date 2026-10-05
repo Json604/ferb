@@ -1,4 +1,4 @@
-// Exact screenshot coordinates stay inside the task tab. No OS cursor and no unbalanced down/up API.
+// Owns exact tab-local pointer gestures; must not choose a target, move the OS cursor or leave buttons down.
 const CANCELLED_POINTERS = new Set();
 
 async function visualStates(tabId) {
@@ -16,17 +16,20 @@ async function checkVisual(tabId, visual = tabState(tabId).visual) {
 async function resolveVisualPoint(tabId, snap, x, y) {
   const refs = tabState(tabId).frameRefs;
   let frame = 0, px = x, py = y;
-  for (let depth = 0; depth < 30; depth++) {
+  const visited = new Set();
+  while (!visited.has(frame)) {
+    visited.add(frame);
     const hit = await inFrame(tabId, frame, (g, a, b) => window.__ferb.point(g, a, b), [snap, px, py]);
     if (hit.error) throw new Error(hit.error);
     if (hit.element) return {x, y, frame_id: frame, frame_x: px, frame_y: py, element: hit.element};
-    const child = refs && [...refs.values()].find(f => f.parent_frame_id === frame && f.owner_binding === hit.frame);
-    if (!child) throw new Error("frame_offset_unknown");
+    const children = refs ? [...refs.values()].filter(f => f.parent_frame_id === frame && f.owner_binding === hit.frame) : [];
+    if (children.length !== 1) throw new Error(children.length ? "ambiguous_frame_binding" : "frame_offset_unknown");
+    const child=children[0];
     const r = await inFrame(tabId, frame, token => window.__ferb.frameRect(token), [hit.frame]);
     if (r.error || r.occluded) throw new Error(r.error || "frame_occluded");
     px -= r.x; py -= r.y; frame = child.frame_id;
   }
-  throw new Error("frame_depth");
+  throw new Error("frame_binding_cycle");
 }
 
 async function checkPoint(tabId, point, visual) {

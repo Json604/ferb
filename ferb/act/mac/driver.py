@@ -1,21 +1,5 @@
-"""MacComputerDriver (section 5 ComputerDriver): takes an action on an app, background first, foreground by request.
-
-Order per primitive (ARCHITECTURE.md §5 and the owner-verified rules), each rung tried only after the one
-before it verifiably did nothing, with the per-app learned profile (ferb.act.mac.profile) recording what landed:
-  press     AXPress → AXPress on the nearest ancestor that lists it → AXFocused + Return / Space to the process
-  type      AXFocused + unicode keys to the process (read back) → the Accessibility keyboard (apps the profile
-            marks) → AXValue → foreground
-  edit      AXSelectedTextRange + AXSelectedText → AXValue rewrite with the edit applied (no arrow keys, ever)
-  key       a ⌘ shortcut goes through the menu item it maps to, pressed only when that item is enabled (a disabled
-            key equivalent would only beep); Escape dismisses a sheet / dialog / menu with AXCancel; other keys go
-            to the process and are checked by what changed
-  scroll    scroll bar value / increment → Page keys for text views; exact window-targeted wheel via pointer
-  select    AXPress the pop-up button, then AXPress the menu item by title (AXValue where settable)
-  click at  the app's own hit test → AXPress → exact window-targeted pointer delivery;
-            legacy process/explicit foreground modes only when that transport is unavailable
-The foreground (real input, the app brought forward once per stretch, the owner's input held back and winning,
-their app put back) runs only when the call carries allow_foreground=true. Excluded apps are never read or acted
-on. Native browser fallback is available. Element ids come from the latest snapshot of that app.
+"""Own native target references and explicit AX/process/foreground input mechanics.
+Agents choose methods and retries; this driver never substitutes targets, replays uncertain input or restores focus.
 """
 
 import asyncio
@@ -29,7 +13,7 @@ from ferb.act.mac import apps as appsm
 from ferb.act.mac import screenshot as shotm
 from ferb.act.mac.ax_browser import BROWSER_BUNDLES, is_browser
 from ferb.act.mac.window_input import load_route
-from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, click_steps, is_arrow, is_enter, is_shortcut, key_steps,
+from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, click_steps, key_steps,
                                 normalize, pointer_steps, type_steps, valid_combo, wheel_steps)
 from ferb.act.mac.profile import Profiles
 from ferb.core.errors import Refused, StaleRef
@@ -43,25 +27,11 @@ UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "
 PASSWORD_REFUSED = "that window shows a password field; FERB doesn't capture it (the frame was dropped)"
 
 
-STRETCH_IDLE_S = 3.0          # the owner's app comes back after this long without foreground work in FERB's app
 SETTLE_S = 0.4                # after background events, before reading what changed (one read, from the walker)
 TREE_FRESH_S = 1.0            # a walk this recent serves a second reader (the snapshot's image check)
 FOCUS_ELSEWHERE = ("something else in the app has the keyboard focus (a dialog or sheet may be open), so nothing was "
                    "typed; take a new snapshot")
-ARROW_REFUSED = ("arrow keys in a text box aren't used (a background text view beeps at them): use action edit "
-                 "with select (start, length) / \"all\" / \"end\" and text, or set_value for the whole text")
-FOREGROUND_HINT = ("this method did not confirm background delivery; inspect a fresh screenshot and consider "
-                   "mac.pointer or another background tool. allow_foreground=true uses the owner's desktop and "
-                   "mouse; a failed method is not a reason to switch modes automatically")
-TEXT_KINDS = axm.TEXT_KINDS
 
-
-class _NoGuard:
-    def engage(self) -> bool:
-        return False
-
-    def release(self) -> None:
-        return None
 
 
 @dataclass(frozen=True)
@@ -77,6 +47,7 @@ class Shot:
 
 @dataclass
 class _AppState:
+    pid: int = 0
     gen: int = 0
     nodes: dict[str, axm.AxNode] = field(default_factory=dict)
     shots: int = 0
@@ -94,21 +65,20 @@ class MacComputerDriver:
                  web_password: Callable[[str, tuple[float, float, float, float]], Awaitable[bool | None]] | None = None,
                  profiles: Profiles | None = None) -> None:
         self.device_id, self.input, self.excluded, self.ax, self.apps = device_id, real_input, excluded, ax, apps
-        self.shots, self.web_password = shots, web_password     # web_password: the extension's check (9.4)
+        self.shots, self.web_password = shots, web_password     # web_password: the extension's check
         self.profiles = profiles if profiles is not None else Profiles(None)   # what landed per app, learned
         self.on_activate: Callable[[str, str | None], None] = lambda bundle, task: None   # the trail's attribution
         self._state: dict[str, _AppState] = {}
         self.snapshot_images: Callable[[], bool] = lambda: True   # `[mac] snapshot_image` (owner request, 2026-10-01)
-        self.communication: Callable[[str], bool] = lambda bundle: False  # messaging / calling apps (9.3)
-        self.guard: Any = _NoGuard()                    # holds back the owner's input while FERB's app is forward
-        self._forward_app: str | None = None            # the app FERB brought forward, while a stretch lasts
-        self._owner_app: Any = None                     # the app the owner was in, to put back
-        self._restore_at: asyncio.TimerHandle | None = None
         self._exposed: set[int] = set()                 # app processes asked for their full tree (Electron)
 
     def app(self, name_or_bundle: str) -> Any:
         a = self.apps.find(name_or_bundle)
         if a is None:
+            candidates = self.apps.candidates(name_or_bundle) if hasattr(self.apps, "candidates") else []
+            if candidates:
+                raise Refused("ambiguous app identity; choose pid from mac.apps: " +
+                              "; ".join(f"{c.name} {c.bundle_id} pid:{c.pid}" for c in candidates))
             raise Refused(f"{name_or_bundle} isn't running (open it first)")
         ex = {e.lower() for e in self.excluded()}
         if a.bundle_id.lower() in ex or a.name.lower() in ex:
@@ -132,33 +102,34 @@ class MacComputerDriver:
         return ok
 
     async def ensure_window(self, bundle_id: str, wait_s: float = 10.0) -> bool:
-        """After opening an app: wait for its main window — one with a title; slow starters (Electron apps) show an
-        untitled panel first — reopening it from the app's own menu if there's none (in the background). True once
-        there's a window (titled, or untitled when that's all it shows by the end)."""
-        reopened, untitled = False, False
-        for i in range(int(wait_s / 0.25)):
+        """Observe launch readiness only. Opening an app's menu/window is a separate agent choice."""
+        deadline = time.monotonic() + wait_s
+        while True:
             a = self.apps.find(bundle_id)
             if a is not None:
                 await self._expose(a)
-                win = await asyncio.to_thread(self.ax.app_window, a.pid)
-                if win is not None and self.ax.window_title(win):
+                if await asyncio.to_thread(self.ax.app_window, a.pid) is not None:
                     return True
-                untitled = untitled or win is not None
-                if win is None and not reopened and i >= 4:        # running ~1 s and still no window
-                    reopened = await asyncio.to_thread(self.ax.open_window, a.pid, a.name)
+            if time.monotonic() >= deadline:
+                return False
             await asyncio.sleep(0.25)
-        return untitled
 
     # ---------- the one walk ----------
 
-    async def _walk(self, a: Any, window: Any = None) -> axm.AxTree:
+    async def _walk(self, a: Any, window: Any = None, offset: int = 0) -> axm.AxTree:
         """One Accessibility walk of the app's window, cached per app: the snapshot, the signature before / after an
         action and the password-field scan all read from it."""
-        if window is None:
+        if offset:
+            tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id), window, offset)
+        elif window is None:
             tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id))
         else:
             tree = await asyncio.to_thread(self.ax.read_tree, a.pid, is_browser(a.bundle_id), window)
         st = self._state.setdefault(a.bundle_id, _AppState())
+        if st.pid and st.pid != a.pid:
+            st = _AppState(gen=st.gen)
+            self._state[a.bundle_id] = st
+        st.pid = a.pid
         st.tree, st.tree_at = tree, time.monotonic()
         return tree
 
@@ -166,19 +137,27 @@ class MacComputerDriver:
         """What the window shows, to tell whether a background event did anything (snapshot ids untouched)."""
         return (await self._walk(a)).signature()
 
-    async def snapshot(self, name_or_bundle: str, window: str | None = None) -> tuple[Any, dict[str, Any]]:
+    async def snapshot(self, name_or_bundle: str, window: str | None = None, subtree: str | None = None, offset: int = 0) -> tuple[Any, dict[str, Any]]:
         a = self.app(name_or_bundle)
         await self._expose(a)
         win = None
+        subtree_node = None
         if window:
             win = await asyncio.to_thread(self.ax.window_named, a.pid, window)
             if win is None:
                 listed = await asyncio.to_thread(self.ax.windows, a.pid)
                 names = ", ".join(f"{w['title'] or '(untitled)'} [{w['id']}]" for w in listed) or "none"
                 raise Refused(f"{a.name} has no window {window!r} that Accessibility can reach right now "
-                              f"(its windows: {names}); a window on another Space is reachable only while it is "
-                              "the app's focused or main window")
-        tree = await self._walk(a, win)
+                              f"(its windows: {names}); no window was substituted or brought forward")
+        if subtree:
+            st = self._state.get(a.bundle_id)
+            if st and st.pid != a.pid:
+                raise StaleRef("element process changed; take a new snapshot")
+            if window:
+                raise Refused("choose window or subtree, not both")
+            subtree_node = self.node(a.bundle_id, subtree)
+            win = subtree_node.ref
+        tree = await self._walk(a, win, offset)
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.gen += 1
         st.tree_unread = True
@@ -202,7 +181,17 @@ class MacComputerDriver:
                 d["in"] = n.container
             els.append(d)
         out: dict[str, Any] = {"app": a.name, "bundle_id": a.bundle_id, "window": tree.title, "elements": els,
-                               "text": tree.text}
+                               "text": tree.text, "offset": offset, "next_offset": tree.next_offset,
+                               "profile": self.profiles.as_dict(a.bundle_id), "repeated_ax_nodes": tree.repeated_nodes}
+        if tree.next_offset is not None:
+            continuation: dict[str, Any] = {"offset": tree.next_offset}
+            if subtree_node is not None:
+                root_ref = f"s{st.gen}e0"
+                st.nodes[root_ref] = subtree_node
+                continuation["subtree"] = root_ref
+            elif window:
+                continuation["window"] = window
+            out["continuation"] = continuation
         if tree.windows:
             out["windows"] = tree.windows
         if tree.headings:
@@ -211,6 +200,7 @@ class MacComputerDriver:
             out["open"] = sorted(set(tree.containers))      # a sheet / menu / dialog / popover is up: its
         if tree.truncated:                                  # controls are in `elements` with "in"
             out["truncated"] = tree.truncated_by or True
+            out["retrieval"] = "mac.snapshot with returned continuation arguments continues this exact page/subtree; subtree=<element id> retrieves below the depth limit; full text values are not clipped"
         return a, out
 
     def node(self, bundle_id: str, element: str) -> axm.AxNode:
@@ -246,7 +236,8 @@ class MacComputerDriver:
         return tree.secure
 
     async def screenshot(self, name_or_bundle: str,
-                         marks: list[tuple[str, tuple[float, float, float, float]]] | None = None
+                         marks: list[tuple[str, tuple[float, float, float, float]]] | None = None,
+                         window: str | None = None, native_resolution: bool = False
                          ) -> tuple[Any, Shot, bytes]:
         """The app's front window only, in memory. A password field the Accessibility tree shows (or, for a browser,
         the extension reports in the tab on screen), before or after the capture, drops the frame; when neither can
@@ -255,9 +246,17 @@ class MacComputerDriver:
         browser = BROWSER_BUNDLES.get(a.bundle_id)
 
         def find() -> Any:
-            w = self.shots.front_window(a.pid, self.ax.frame(self.ax.app_window(a.pid)))
+            if window and window.isdigit():
+                w = self.shots.window(int(window))
+                if w is not None and w.pid != a.pid:
+                    w = None
+            else:
+                axwin = self.ax.window_named(a.pid, window) if window else self.ax.app_window(a.pid)
+                if window and axwin is None:
+                    raise Refused("no unique reachable window matches that exact title; choose a window id")
+                w = self.shots.front_window(a.pid, self.ax.frame(axwin))
             if w is None:
-                raise Refused(f"{a.name} has no window on screen")
+                raise Refused(f"{a.name} has no unique capture target; choose an exact window id from mac.snapshot")
             return w
 
         async def check(w: Any, fresh: bool) -> None:
@@ -268,6 +267,8 @@ class MacComputerDriver:
 
         def grab(w: Any) -> tuple[bytes, int, int]:
             try:
+                if native_resolution:
+                    return self.shots.capture(w, marks=marks, max_edge=None)
                 if marks:
                     return self.shots.capture(w, marks=marks)     # type: ignore[no-any-return]
                 return self.shots.capture(w)                  # type: ignore[no-any-return]
@@ -372,15 +373,13 @@ class MacComputerDriver:
         if kind != "hover":
             self.profiles.record(a.bundle_id, "pid_pointer_" + kind, changed)
         return ActionResult(True, f"{kind} input delivered to the app process; visible state "
-                            f"{'changed' if changed else 'not confirmed changed'}; verify with a fresh screenshot")
+                            f"{'changed' if changed else 'not confirmed changed'}; verify with a fresh screenshot",
+                            {'method': 'window_pointer' if route else 'pid_pointer', 'delivered': True,
+                             'observed_change': changed, 'outcome_verified': False, 'replayed': False})
 
     async def click_at(self, name_or_bundle: str, shot_id: str, x: float, y: float, holder: str = "",
-                       task: str | None = None, allow_foreground: bool = False) -> ActionResult:
-        """Hit-test through AX, then use the exact window-targeted pointer transport.
-
-        A dispatched pointer click is never replayed as foreground input just because AX did not change.
-        Legacy same-Space/explicit foreground paths apply only when the window transport is unavailable.
-        """
+                       task: str | None = None, allow_foreground: bool = False, mechanism: str = "pointer") -> ActionResult:
+        """Use one explicit pointer, AX or foreground method for the exact captured window."""
         a = self.app(name_or_bundle)
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
@@ -394,38 +393,22 @@ class MacComputerDriver:
         bx, by, bw, bh = shot.bounds
         px, py = bx + x * bw / shot.size[0], by + y * bh / shot.size[1]
 
-        # 1. the app's own hit test: the element under the point, pressed through Accessibility
-        el = await asyncio.to_thread(self.ax.hit_element, a.pid, px, py)
-        if el is not None:
-            win_frame = await asyncio.to_thread(lambda: self.ax.frame(axm._attr(el, "AXWindow")))
-            if win_frame is None or _same(win_frame, shot.bounds):
-                self.profiles.record(a.bundle_id, "hit_test", True)
-                if await asyncio.to_thread(self.ax.press, el):
-                    self.profiles.record(a.bundle_id, "ax_press", True)
-                    what = await asyncio.to_thread(self.ax.describe, el)
-                    return ActionResult(True, f"pressed the {what} under ({x:.0f}, {y:.0f}) through Accessibility")
-                pressed = await asyncio.to_thread(self.ax.press_ancestor, el)
-                if pressed:
-                    return ActionResult(True, f"pressed the {pressed} around ({x:.0f}, {y:.0f}) through Accessibility")
-            else:
-                self.profiles.record(a.bundle_id, "hit_test", False)
-        # 2. The same screenshot-bound route as mac.pointer, including off-Space windows. One dispatch only;
-        #    an unobservable result must be inspected, not automatically repeated with the shared mouse.
-        if load_route() is not None:
+        if mechanism == "pointer":
             return await self.pointer_at(name_or_bundle, shot_id, x, y, "click", holder=holder)
-
-        # 3. Legacy process input when the window-addressed transport is absent; kept if it changed
-        #    something
-        if await asyncio.to_thread(self.shots.on_screen, shot.window):
-            before = await self._signature(a)
-            await self.input.to_process(click_steps(px, py, a.pid), holder)
-            await asyncio.sleep(SETTLE_S)
-            landed = await self._signature(a) != before
-            self.profiles.record(a.bundle_id, "pid_mouse", landed)
-            if landed:
-                return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id} (posted to the app in the background)")
-        # 4. the real mouse, only by explicit mode choice
-
+        if mechanism == "ax":
+            el = await asyncio.to_thread(self.ax.hit_element, a.pid, px, py)
+            if el is None:
+                return ActionResult(False, "AX hit test unavailable; no pointer input attempted",
+                                    {"method": "ax", "performed": False})
+            win_frame = await asyncio.to_thread(lambda: self.ax.frame(axm._attr(el, "AXWindow")))
+            if win_frame is None or not _same(win_frame, shot.bounds):
+                return ActionResult(False, "AX hit target cannot be bound to the captured window",
+                                    {"method": "ax", "performed": False})
+            ok = await asyncio.to_thread(self.ax.press, el)
+            return ActionResult(ok, "AX press accepted; inspect the result" if ok else "AX press refused",
+                                {"method": "ax", "accepted": ok, "outcome_verified": False})
+        if mechanism != "foreground":
+            raise Refused("click mechanism must be pointer, ax or foreground")
         def reaches_the_window() -> bool:
             h = self.ax.hit(px, py)                       # the system's hit test: overlays that ignore clicks don't count
             if h is not None:
@@ -448,88 +431,79 @@ class MacComputerDriver:
             return ActionResult(True, f"clicked ({x:.0f}, {y:.0f}) in {shot.id}; {r.detail}")
         return r
 
-    def label_at(self, name_or_bundle: str, shot_id: str, x: float, y: float) -> str | None:
-        """What control is at (x, y) of the app's latest screenshot, by Accessibility (None: it can't tell)."""
-        a = self.app(name_or_bundle)
-        st = self._state.get(a.bundle_id)
-        shot = st.shot if st else None
-        if shot is None or shot.id != shot_id:
-            raise StaleRef(f"{shot_id} isn't {a.name}'s latest screenshot; take a new one")
-        bx, by, bw, bh = shot.bounds
-        label = self.ax.label_at(bx + x * bw / shot.size[0], by + y * bh / shot.size[1])
-        return str(label) if label else None
-
-    async def screen_text(self, name_or_bundle: str) -> dict[str, Any]:
-        """The window's Accessibility text, for FERB's own checks only (who was on screen): it doesn't change the
-        element ids of the latest snapshot and never reaches the model."""
-        a = self.app(name_or_bundle)
-        tree = await self._walk(a)
-        return {"bundle_id": a.bundle_id, "text": tree.text,
-                "elements": [{"role": n.role, "label": n.label, "value": None if n.secret else n.value}
-                             for n in tree.nodes]}
-
     # ---------- actions ----------
 
     async def act(self, app: str, action: ComputerAction, holder: str = "", task: str | None = None) -> ActionResult:
+        if action.kind in {"key", "type", "set_value", "select"} and action.text is None:
+            raise Refused(f"{action.kind} requires explicit text; omitted text never means clear or Return")
         a = self.app(app)
-        fg = bool(action.allow_foreground)
+        st = self._state.get(a.bundle_id)
+        if action.element and st and st.pid and st.pid != a.pid:
+            raise StaleRef("element process changed; take a new snapshot")
+        mechanism = action.mechanism or ("pid" if action.kind in {"type", "key"} else "ax")
+        if mechanism == "foreground" and not action.allow_foreground:
+            return ActionResult(False, "This explicit route needs task-wide foreground permission.",
+                                {"code": "needs_foreground", "method": mechanism, "performed": False})
         if action.kind == "key":
             if not action.text or not valid_combo(action.text):
-                raise Refused(f"unsupported key {action.text!r} (e.g. return, tab, escape, pagedown, cmd+s)")
-
-            return await self._key(a, action.text, holder, task, fg)
+                raise Refused(f"unsupported key {action.text!r}")
+            return await self._key(a, action.text, holder, task, mechanism)
         if action.kind == "scroll":
-            return await self._scroll(a, action, holder, task, fg)
+            return await self._scroll(a, action, holder, task, mechanism)
         if action.element is None:
             raise Refused("this action needs an element id from a snapshot")
         n = self.node(a.bundle_id, action.element)
         if n.secret and action.kind in ("set_value", "type", "edit"):
             raise Refused("that's a password field; FERB never types passwords for the owner")
+        if mechanism == "foreground":
+            if action.kind in {"press", "click"}:
+                return await self._real(a, click_steps(*self.ax.center(n)), holder, "click", task)
+            if action.kind == "type":
+                async def focus_it() -> None:
+                    await asyncio.to_thread(self.ax.focus, n.ref)
+                    if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is not True:
+                        raise Refused(FOCUS_ELSEWHERE)
+                return await self._real(a, type_steps(action.text), holder, "typing", task, focus_it)
+            raise Refused(f"{action.kind} has no foreground implementation; choose its documented primitive")
         if action.kind in ("press", "click"):
-            return await self._press(a, n, holder, task, fg)
+            if mechanism != "ax":
+                raise Refused("press uses AX; use mac.pointer for process/window mouse input")
+            return await self._press(a, n, holder, task, False)
+        if action.kind == "cancel":
+            if mechanism != "ax":
+                raise Refused("cancel requires an exact AX element")
+            ok = await asyncio.to_thread(self.ax.cancel, n.ref)
+            return ActionResult(ok, "AXCancel accepted" if ok else "AXCancel refused",
+                                {"method": "ax", "accepted": ok, "outcome_verified": False})
         if action.kind == "focus":
             ok = await asyncio.to_thread(self.ax.focus, n.ref)
             self.profiles.record(a.bundle_id, "ax_focus", ok)
-            return ActionResult(ok, "focused" if ok else "the element refused the focus")
+            return ActionResult(ok, "AX focus request accepted" if ok else "AX focus request refused",
+                                {"method": "ax", "accepted": ok, "outcome_verified": False})
         if action.kind == "set_value":
-            return await self._set_value(a, n, action.text or "", holder, task, fg)
+            if mechanism not in {"ax", "ax_value"}:
+                raise Refused("set_value uses AXValue; choose type for keyboard delivery")
+            return await self._set_value(a, n, action.text, holder, task, False)
         if action.kind == "type":
-            return await self._type(a, n, action.text or "", holder, task, fg)
+            return await self._type(a, n, action.text, holder, task, mechanism)
         if action.kind == "edit":
-            return await self._edit(a, n, action.select, action.text)
+            return await self._edit(a, n, action.select, action.text, mechanism)
         if action.kind == "select":
-            return await self._select(a, n, action.text or "")
+            return await self._select(a, n, action.text)
         raise Refused(f"unknown action {action.kind}")
 
     async def _foreground(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None, allow: bool,
                           why: str, prepare: Callable[[], Awaitable[None]] | None = None) -> ActionResult:
-        """The last rung: only when the call allows the owner's screen to move; otherwise say what was tried."""
         if not allow:
-            return ActionResult(False, f"{why}; {FOREGROUND_HINT}")
+            return ActionResult(False, why, {"code": "needs_foreground", "performed": False})
         return await self._real(a, steps, holder, what, task, prepare)
 
-    # ---- press
-
     async def _press(self, a: Any, n: axm.AxNode, holder: str, task: str | None, fg: bool) -> ActionResult:
-        if await asyncio.to_thread(self.ax.press, n.ref):
-            self.profiles.record(a.bundle_id, "ax_press", True)
-            return ActionResult(True, "pressed")
-        self.profiles.record(a.bundle_id, "ax_press", False)
-        pressed = await asyncio.to_thread(self.ax.press_ancestor, n.ref)
-        if pressed:
-            self.profiles.record(a.bundle_id, "ax_press", True)
-            return ActionResult(True, f"pressed (its enclosing {pressed} took the press)")
-        before = await self._signature(a)
-        if await asyncio.to_thread(self.ax.focus, n.ref):
-            key = "space" if n.role in ("checkbox", "radio") else "return"
-            await self.input.to_process(key_steps(key, a.pid), holder)
-            await asyncio.sleep(SETTLE_S)
-            landed = await self._signature(a) != before
-            self.profiles.record(a.bundle_id, "pid_keycodes", landed)
-            if landed:
-                return ActionResult(True, f"pressed (focused, then {key} in the background)")
-        return await self._foreground(a, click_steps(*self.ax.center(n)), holder, "click", task, fg,
-                                      "it ignores Accessibility presses and the keyboard in the background")
+        ok = await asyncio.to_thread(self.ax.press, n.ref)
+        self.profiles.record(a.bundle_id, "ax_press", ok)
+        return ActionResult(ok, "AX press request accepted; inspect the outcome" if ok else
+                            "AX press request refused; choose another mechanism from fresh evidence",
+                            {"method": "ax", "accepted": ok, "outcome_verified": False})
 
     # ---- typing
 
@@ -544,92 +518,49 @@ class MacComputerDriver:
                 return False, after
             await asyncio.sleep(0.05)
 
-    @staticmethod
-    def _text_field(n: axm.AxNode) -> bool:
-        return n.ax_role in {"AXTextField", "AXTextArea", "AXComboBox"} if n.ax_role else n.role in TEXT_KINDS
-
     async def _set_value(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None,
                          fg: bool) -> ActionResult:
-        # only a real text field takes a value that the app then acts on (WhatsApp's search "button" accepts a
-        # set value but never searches on it — Sept 30 trail); anything else is focused / pressed and typed into
-        if self._text_field(n):
-            ok = await asyncio.to_thread(self.ax.set_value, n.ref, text)
-            ok = ok and await asyncio.to_thread(self.ax.value, n.ref) == text
-            self.profiles.record(a.bundle_id, "ax_value", ok)
-            if ok:
-                return ActionResult(True, "value set")
-        return await self._type(a, n, text, holder, task, fg)
+        accepted = await asyncio.to_thread(self.ax.set_value, n.ref, text)
+        observed = await asyncio.to_thread(self.ax.value, n.ref)
+        ok = accepted and observed == text
+        self.profiles.record(a.bundle_id, "ax_value", ok)
+        return ActionResult(ok, "value set and read back" if ok else "AXValue result not confirmed; no typing attempted",
+                            {"method": "ax_value", "accepted": accepted, "value_matches": observed == text})
 
-    async def _type(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None, fg: bool) -> ActionResult:
-        """Keystrokes go to the app's keyboard focus: typed only once that is the box FERB means (a Save sheet or a
-        dialog can hold it — then nothing is typed, here or in the foreground)."""
-        if not self._text_field(n):
-            await asyncio.to_thread(self.ax.press, n.ref)
+    async def _type(self, a: Any, n: axm.AxNode, text: str, holder: str, task: str | None,
+                    mechanism: str) -> ActionResult:
+        if mechanism not in {"pid", "ax_keyboard"}:
+            raise Refused("type needs mechanism pid or ax_keyboard; set_value is a separate whole-value operation")
         await asyncio.to_thread(self.ax.focus, n.ref)
-        focused = await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref)
-        if focused is False:          # a different control or dialog holds the keyboard
+        if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is not True:
             raise Refused(FOCUS_ELSEWHERE)
         before = await asyncio.to_thread(self.ax.value, n.ref)
-        if focused:
-            sig = await self._signature(a) if before is None else None
+        sig = await self._signature(a)
+        if mechanism == "pid":
             await self.input.to_process(type_steps(text, a.pid), holder)
-            if before is not None:
-                landed, _ = await self._value_changed(n, before)
-            else:
-                await asyncio.sleep(SETTLE_S)
-                landed = await self._signature(a) != sig
-            self.profiles.record(a.bundle_id, "pid_keys", landed)
-            if landed:
-                return ActionResult(True, "typed (in the background)")
-        landed = await self._ax_type(a, n, text)
-        self.profiles.record(a.bundle_id, "ax_keyboard", landed)
-        if landed:
-            return ActionResult(True, "typed (in the background, Accessibility keyboard)")
-        if self._text_field(n):                                      # replace the whole value, the edit applied
-            new = (before or "") + text
-            ok = await asyncio.to_thread(self.ax.set_value, n.ref, new)
-            ok = ok and await asyncio.to_thread(self.ax.value, n.ref) == new
-            self.profiles.record(a.bundle_id, "ax_value", ok)
-            if ok:
-                return ActionResult(True, "typed by setting the box's value (Accessibility)")
-        if not self._text_field(n):
-            # Not a real text field (WhatsApp's search box reports itself as an unlabeled button and only searches on
-            # real typing — Sept 30 trail): click it in front, then type, as a person would.
-            return await self._foreground(a, click_steps(*self.ax.center(n)) + type_steps(text), holder,
-                                          "click + typing", task, fg, "it takes no typing in the background")
-
-        async def focus_it() -> None:                          # in front now: focus the box, and check it took
-            await asyncio.to_thread(self.ax.focus, n.ref)
-            if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is False:
-                raise Refused(FOCUS_ELSEWHERE)
-        return await self._foreground(a, type_steps(text), holder, "typing", task, fg,
-                                      "it takes no typing in the background", prepare=focus_it)
-
-    async def _ax_type(self, a: Any, n: axm.AxNode, text: str) -> bool:
-        """Spike 20: press (a box that isn't a text field) or focus it through Accessibility, then type through the
-        Accessibility keyboard API — still in the background. True once the window shows the change."""
-        if self._text_field(n):
-            await asyncio.to_thread(self.ax.focus, n.ref)
+            accepted = True
         else:
-            await asyncio.to_thread(self.ax.press, n.ref)                # WhatsApp's search "button" focuses its box
-        await asyncio.sleep(0.3)
-        if await asyncio.to_thread(self.ax.has_focus, a.pid, n.ref) is not True:
-            return False
-        before = await self._signature(a)              # focus changes are not evidence of text arriving
-        if not await asyncio.to_thread(self.ax.post_text, a.pid, text):
-            return False
-        await asyncio.sleep(SETTLE_S + 0.6)                              # the app filters / updates
-        return await self._signature(a) != before
+            accepted = await asyncio.to_thread(self.ax.post_text, a.pid, text)
+        await asyncio.sleep(SETTLE_S)
+        after = await asyncio.to_thread(self.ax.value, n.ref)
+        changed = after != before if before is not None else await self._signature(a) != sig
+        self.profiles.record(a.bundle_id, "pid_keys" if mechanism == "pid" else "ax_keyboard", changed)
+        return ActionResult(accepted, "typing delivered in the background; " +
+                            ("a value change was observed" if changed else "result unconfirmed; inspect before retrying"),
+                            {"method": mechanism, "delivered": accepted, "observed_change": changed,
+                             "outcome_verified": False, "replayed": False})
 
     # ---- editing text in place
 
-    async def _edit(self, a: Any, n: axm.AxNode, select: Any, text: str | None) -> ActionResult:
+    async def _edit(self, a: Any, n: axm.AxNode, select: Any, text: str | None, mechanism: str = "ax") -> ActionResult:
         """Insert or replace text at an exact range through AXSelectedTextRange + AXSelectedText (verified on this Mac
-        in the background), else rewrite the whole value with the edit applied. Never arrow keys."""
+        in the background). Whole-value replacement is a separate explicit ax_value method."""
         value = await asyncio.to_thread(self.ax.value, n.ref)
         length = len(value or "")
         if select in (None, "", "caret"):
-            rng = await asyncio.to_thread(self.ax.selected_range, n.ref) or (length, 0)
+            rng = await asyncio.to_thread(self.ax.selected_range, n.ref)
+            if rng is None:
+                raise Refused("caret range unavailable; choose an explicit range after inspecting the value")
         elif select == "all":
             rng = (0, length)
         elif select == "end":
@@ -637,11 +568,15 @@ class MacComputerDriver:
         elif select == "start":
             rng = (0, 0)
         elif isinstance(select, (list, tuple)) and len(select) == 2:
-            rng = (max(0, int(select[0])), max(0, int(select[1])))
+            rng = (int(select[0]), int(select[1]))
         else:
             raise Refused(f"select must be (start, length), \"all\", \"end\" or \"start\", not {select!r}")
-        start, count = min(rng[0], length), min(rng[1], max(0, length - min(rng[0], length)))
-        ok = await asyncio.to_thread(self.ax.set_selected_range, n.ref, start, count)
+        start, count = rng
+        if value is None or start < 0 or count < 0 or start + count > length:
+            raise Refused("edit range cannot be verified against the current full value")
+        if mechanism not in {"ax", "ax_value"}:
+            raise Refused("edit uses ax selected text or explicit ax_value rewrite")
+        ok = mechanism == "ax" and await asyncio.to_thread(self.ax.set_selected_range, n.ref, start, count)
         if ok and text is None:
             got = await asyncio.to_thread(self.ax.selected_range, n.ref)
             self.profiles.record(a.bundle_id, "ax_selected_text", got == (start, count))
@@ -658,71 +593,59 @@ class MacComputerDriver:
                 return ActionResult(True, f"edited: {count} characters at {start} replaced with the text "
                                           f"({len(text)} characters)" if count else
                                           f"inserted {len(text)} characters at {start}")
-        self.profiles.record(a.bundle_id, "ax_selected_text", False)
-        if value is not None and await asyncio.to_thread(self.ax.set_value, n.ref, expected):
+        if mechanism == "ax":
+            self.profiles.record(a.bundle_id, "ax_selected_text", False)
+        if mechanism == "ax_value" and await asyncio.to_thread(self.ax.set_value, n.ref, expected):
             if await asyncio.to_thread(self.ax.value, n.ref) == expected:
                 self.profiles.record(a.bundle_id, "ax_value", True)
                 return ActionResult(True, "edited by rewriting the box's whole value (the app's undo sees one change)")
-        return ActionResult(False, "that box takes neither a selection edit nor a new value through Accessibility; "
-                                   "set_value or type may still work")
+        return ActionResult(False, "the selected edit method did not confirm the requested value; inspect before retrying",
+                            {"method": mechanism, "outcome_verified": False, "replayed": False})
 
     # ---- keys
 
-    async def _key(self, a: Any, combo: str, holder: str, task: str | None, fg: bool) -> ActionResult:
+    async def _key(self, a: Any, combo: str, holder: str, task: str | None, mechanism: str) -> ActionResult:
         parts = normalize(combo)
         key, mods = parts[-1], parts[:-1]
-        if is_shortcut(combo):                                   # a key equivalent: the menu item it maps to
+        if mechanism == "foreground":
+            return await self._real(a, key_steps(combo), holder, combo, task)
+        if mechanism == "ax":
             found = await asyncio.to_thread(self.ax.menu_item_for_shortcut, a.pid, key, mods)
-            if found is not None:
-                item, path, enabled = found
-                if not enabled:
-                    raise Refused(f"{combo} is the menu item “{path}”, which {a.name} reports disabled right now (an "
-                                  f"app in the background often has no key window, so the key would only beep). "
-                                  f"Instead: {_alternative(key, mods)}")
-                if await asyncio.to_thread(self.ax.press, item):
-                    self.profiles.record(a.bundle_id, "menu_press", True)
-                    return ActionResult(True, f"{combo}: pressed its menu item “{path}” (Accessibility, in the "
-                                              "background)")
-        if key == "escape":                                      # dismiss what's open, never a blind Escape
-            win = await asyncio.to_thread(self.ax.app_window, a.pid)
-            panels = await asyncio.to_thread(self.ax.open_panels, a.pid, win)
-            panels += [("menu", m) for m in await asyncio.to_thread(self.ax.open_menus, a.pid)]
-            for kind, el in panels:
-                if await asyncio.to_thread(self.ax.cancel, el):
-                    return ActionResult(True, f"escape: dismissed the {kind} (AXCancel)")
-            if panels:
-                return ActionResult(False, f"a {panels[0][0]} is open but didn't take AXCancel: press its Cancel / "
-                                           "Close button (take a snapshot: its buttons are listed with \"in\")")
-        changed = False
+            if found is None:
+                return ActionResult(False, "no unique menu item exposes that key equivalent; inspect mac.menu",
+                                    {"method": "ax", "performed": False})
+            item, path, enabled = found
+            if not enabled:
+                return ActionResult(False, f"menu item {path!r} is disabled", {"method": "ax", "performed": False})
+            ok = await asyncio.to_thread(self.ax.press, item)
+            return ActionResult(ok, f"AX menu request {'accepted' if ok else 'refused'}: {path}",
+                                {"method": "ax", "accepted": ok, "outcome_verified": False})
         before = await self._signature(a)
-        await self.input.to_process(key_steps(combo, a.pid), holder)
+        if mechanism == "pid":
+            await self.input.to_process(key_steps(combo, a.pid), holder)
+            accepted = True
+        elif mechanism == "ax_keyboard":
+            accepted = await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[key], mods)
+        else:
+            raise Refused("key needs pid, ax_keyboard, ax (menu equivalent) or explicit foreground")
         await asyncio.sleep(SETTLE_S)
         changed = await self._signature(a) != before
         if changed:
-            self.profiles.record(a.bundle_id, "pid_keycodes", True)
-            return ActionResult(True, f"{combo} (in the background)")
-        if self.profiles.prefers(a.bundle_id, "pid_keycodes"):      # the app takes them; this key showed nothing
-            return ActionResult(True, f"{combo} sent in the background; nothing visibly changed")
-        # A key with nothing to act on (escape with no dialog, cmd+s on a saved document) changes nothing and
-        # proves nothing: it never marks the app as ignoring background input (audit 2026-10-02).
-        before = await self._signature(a)
-        if await asyncio.to_thread(self.ax.post_key, a.pid, KEYCODES[key], mods):
-            await asyncio.sleep(SETTLE_S + 0.4)
-            if await self._signature(a) != before:
-                self.profiles.record(a.bundle_id, "ax_keyboard", True)
-                return ActionResult(True, f"{combo} (in the background, Accessibility keyboard)")
-        if fg:
-            return await self._real(a, key_steps(combo), holder, combo, task)
-        return ActionResult(True, f"{combo} sent to {a.name} in the background; nothing visibly changed (take a "
-                                  "snapshot to check)")
+            self.profiles.record(a.bundle_id, "pid_keycodes" if mechanism == "pid" else "ax_keyboard", True)
+        return ActionResult(accepted, f"{combo} sent in the background; " +
+                            ("state changed; inspect the outcome" if changed else "nothing visibly changed; result unconfirmed"),
+                            {"method": mechanism, "delivered": accepted, "observed_change": changed,
+                             "outcome_verified": False, "replayed": False})
 
     # ---- scrolling
 
-    async def _scroll(self, a: Any, action: ComputerAction, holder: str, task: str | None, fg: bool) -> ActionResult:
+    async def _scroll(self, a: Any, action: ComputerAction, holder: str, task: str | None, mechanism: str) -> ActionResult:
         direction = (action.direction or "down").lower()
         if direction not in ("up", "down", "left", "right"):
             raise Refused("scroll direction must be up, down, left or right")
-        amount = max(1, min(50, int(action.amount or 1)))
+        amount = int(action.amount or 1)
+        if not 1 <= amount <= 50:
+            raise Refused("scroll amount must be 1–50 per bounded call")
         n = self.node(a.bundle_id, action.element) if action.element else None
         # AXScrollToVisible reveals a row; it says nothing about directional scrolling.
         if n is not None and n.ax_role in {"AXSlider", "AXStepper"}:
@@ -742,12 +665,22 @@ class MacComputerDriver:
         if area is None:
             return ActionResult(False, "no unique scroll container: choose an element inside the intended pane, "
                                 "or use mac.pointer action=scroll at a fresh screenshot point")
+        if mechanism == "foreground":
+            rect = await asyncio.to_thread(self.ax.frame, area)
+            if rect is None:
+                return ActionResult(False, "scroll pane has no current bounds", {"performed": False})
+            x, y, w, h = rect
+            return await self._real(a, wheel_steps(x + w / 2, y + h / 2,
+                                    -10 if direction in {"down", "right"} else 10,
+                                    horizontal=direction in {"left", "right"}), holder, "scroll", task)
+        if mechanism not in {"ax", "pid"}:
+            raise Refused("scroll supports ax scrollbar, pid text page keys or explicit foreground")
         content = await asyncio.to_thread(self.ax.scroll_content, area)
         vertical = direction in ("up", "down")
         bar = await asyncio.to_thread(self.ax.scroll_bar, area, vertical)
         # Page keys are only safe for an explicitly targeted text view, never a chat row/list selection.
         text_view = n is not None and n.ax_role == "AXTextArea" and vertical
-        moved, mechanism, stop = 0, "", "batch limit reached"
+        moved, route, stop = 0, "", "batch limit reached"
         before = await asyncio.to_thread(self.ax.scroll_position, area, content)
         for _ in range(amount):
             front = self.apps.frontmost()
@@ -757,20 +690,18 @@ class MacComputerDriver:
             if self._scroll_boundary(before, direction):
                 stop = "scroll bar boundary reached; verify content before claiming the last item"
                 break
-            if bar is not None:
+            if bar is not None and mechanism == "ax":
                 act = "AXIncrement" if direction in ("down", "right") else "AXDecrement"
                 if not await asyncio.to_thread(self.ax.perform, bar, act):
-                    cur = await asyncio.to_thread(self.ax.value, bar)
-                    if cur is not None:
-                        await asyncio.to_thread(self.ax.set_scroll_bar, bar,
-                                                float(cur) + (0.2 if act == "AXIncrement" else -0.2))
-                mechanism = "scroll bar"
-            elif text_view:
+                    stop = "AX scrollbar increment refused; no alternate route attempted"
+                    break
+                route = "scroll bar"
+            elif text_view and mechanism == "pid":
                 if not await asyncio.to_thread(self.ax.focus, n.ref):
                     stop = "text view could not take focus"
                     break
                 await self.input.to_process(key_steps("pageup" if direction == "up" else "pagedown", a.pid), holder)
-                mechanism = "Page Up" if direction == "up" else "Page Down"
+                route = "Page Up" if direction == "up" else "Page Down"
             else:
                 stop = "no directional AX route; use mac.pointer action=scroll with a fresh screenshot"
                 break
@@ -781,17 +712,10 @@ class MacComputerDriver:
                 break
             moved += 1
             before = after
-        detail = f"scrolled {direction}: {moved}/{amount} step(s) via {mechanism or 'AX'}; {stop}"
+        detail = f"scrolled {direction}: {moved}/{amount} step(s) via {route or mechanism}; {stop}"
         if moved or "boundary reached" in stop:
             return ActionResult(True, detail)
-        if fg:
-            rect = self.ax.frame(area)
-            if rect:
-                x, y, w, h = rect
-                return await self._foreground(a, wheel_steps(x + w / 2, y + h / 2,
-                    -10 if direction in ("down", "right") else 10, horizontal=not vertical),
-                    holder, "scroll", task, True, detail)
-        return ActionResult(False, detail + "; use pointer scroll or explicitly allow_foreground=true")
+        return ActionResult(False, detail, {"method": mechanism, "observed_steps": moved, "replayed": False})
 
     @staticmethod
     def _scroll_boundary(position: tuple[Any, ...], direction: str) -> bool:
@@ -865,30 +789,33 @@ class MacComputerDriver:
                     items = await asyncio.to_thread(self.ax.menu_items, menu)
                     if items:
                         break
-            hit = next((el for el, t in items if t.lower() == want), None) or \
-                next((el for el, t in items if t.lower().startswith(want)), None)
+            matches = [el for el, t in items if t == title]
+            hit = matches[0] if len(matches) == 1 else None
             if hit is not None and await asyncio.to_thread(self.ax.press, hit):
                 self.profiles.record(a.bundle_id, "ax_press", True)
                 await asyncio.sleep(0.3)
                 now = await asyncio.to_thread(self.ax.value, n.ref)
-                return ActionResult(True, f"selected “{title}”" + (f" (now shows {now!r})" if now else ""))
+                return ActionResult(True, f"AX selection press accepted for {title!r}; observed value: {now!r}",
+                                    {"method": "ax", "accepted": True, "observed_value": now, "outcome_verified": False})
             if menu is not None:
                 await asyncio.to_thread(self.ax.cancel, menu)
             if items:
-                return ActionResult(False, f"no item {title!r} in that menu; it has: " +
-                                           ", ".join(t for _, t in items[:40]))
-        if await asyncio.to_thread(self.ax.settable, n.ref, "AXValue") and \
-                await asyncio.to_thread(self.ax.set_value, n.ref, title):
-            return ActionResult(True, f"set to {title!r} (AXValue)")
-        return ActionResult(False, "that control opened no menu through Accessibility and takes no value")
+                return ActionResult(False, f"no unique exact item {title!r}; inspect the returned candidates",
+                                    {"code": "target_unresolved", "matches": len(matches),
+                                     "candidates": [{"label": t} for _, t in items], "performed": False})
+        return ActionResult(False, "no unique exact menu item; inspect candidates and choose an explicit element",
+                            {"code": "target_unresolved", "performed": False})
 
     # ---------- the foreground, last resort, only by request ----------
 
     async def _bring_forward(self, a: Any, shot: Shot) -> None:
         """After activating the app: raise the captured window itself and wait (~3 s) for it to be on screen — the
         app may switch to another Space or a full-screen window first."""
+        await asyncio.to_thread(self.ax.raise_window, a.pid, shot.bounds)
         for _ in range(12):
-            await asyncio.to_thread(self.ax.raise_window, a.pid, shot.bounds)
+            front = self.apps.frontmost()
+            if self.input.owner_active() or front is None or front.pid != a.pid:
+                raise Refused("owner input or focus changed while waiting for the explicitly requested window")
             if await asyncio.to_thread(self.shots.on_screen, shot.window):
                 await asyncio.sleep(0.2)
                 return
@@ -896,77 +823,27 @@ class MacComputerDriver:
 
     async def _real(self, a: Any, steps: list[Any], holder: str, what: str, task: str | None = None,
                     prepare: Callable[[], Awaitable[None]] | None = None) -> ActionResult:
-        """Real input goes to the frontmost app: bring this one forward (once per stretch of work), act, and leave it
-        there a moment for the next step; the owner's app comes back when the stretch ends. Every switch is FERB's
-        (the trail attributes it to the task)."""
+        """An explicitly chosen foreground action. Yield permanently if the owner takes over; restore nothing."""
         if not self.input.available():
-            return ActionResult(False, "FERB is paused (`ferb resume`): no real mouse / keyboard input")
-        await self.input.quiet(holder, what)                      # the owner is busy: don't pull them away now
-        await self._forward(a, task)
-
-        async def aside() -> None:                                # the owner touched the mouse / keyboard
-            self.restore_owner(task)
-
-        async def back() -> None:
-            await self._forward(a, task)
-            if prepare is not None:
-                await prepare()
-        try:
-            if prepare is not None:
-                await prepare()
-            n = await self.input.run(steps, holder, what, aside=aside, back=back)
-        finally:
-            self._restore_later(task)
-        return ActionResult(True, f"{what} ({n} steps, real input)")
-
-    async def _forward(self, a: Any, task: str | None) -> None:
-        if self._restore_at is not None:
-            self._restore_at.cancel()
-            self._restore_at = None
+            return ActionResult(False, "FERB is paused: no foreground input", {"performed": False})
+        await self.input.quiet(holder, what)
         front = self.apps.frontmost()
-        if self._forward_app is None and front is not None and front.bundle_id != a.bundle_id:
-            self._owner_app = front                               # where the owner was: put back at the end
-        if front is None or front.bundle_id != a.bundle_id:
-            if self._forward_app is None:
-                self.guard.engage()                               # before the switch: none of their input lands
+        if front is None or front.pid != a.pid:
             self.on_activate(a.bundle_id, task)
-            self.apps.activate(a.bundle_id)
+            self.apps.activate(a.bundle_id, a.pid)
             await asyncio.sleep(0.3)
-        self._forward_app = a.bundle_id
-
-    def restore_owner(self, task: str | None = None) -> None:
-        """End of a stretch, or the owner stepped in: their app in front again, the guard off."""
-        if self._restore_at is not None:
-            self._restore_at.cancel()
-            self._restore_at = None
-        if self._forward_app is None:
-            return
-        front = self.apps.frontmost()
-        owner, forwarded = self._owner_app, self._forward_app
-        self._owner_app = self._forward_app = None
-        # The owner may have moved to another app while a delayed cleanup was pending.
-        if owner is not None and front is not None and front.bundle_id == forwarded:
-            self.on_activate(owner.bundle_id, task)
-            self.apps.activate(owner.bundle_id)
-        self.guard.release()
-
-    def _restore_later(self, task: str | None) -> None:
-        if self._forward_app is None:
-            return
-        if self._restore_at is not None:
-            self._restore_at.cancel()
-        self._restore_at = asyncio.get_running_loop().call_later(STRETCH_IDLE_S, self.restore_owner, task)
-
-
-def _alternative(key: str, mods: list[str]) -> str:
-    """What does the same thing through Accessibility attributes when a key equivalent's menu item is disabled."""
-    if key in ("a", "c", "x", "v") and mods == ["cmd"]:
-        return ("action edit on the text box (select \"all\" / \"end\" / (start, length), with text to replace or "
-                "insert) works through AXSelectedTextRange and AXSelectedText without the key")
-    if key == "z":
-        return "there is no background undo; set_value or edit the text back instead"
-    return ("press the control or the menu item (mac_menu) once a snapshot shows it enabled, or use edit / set_value "
-            "on the element directly")
+        if prepare is not None:
+            await prepare()
+        def guarded(step: Step) -> Step:
+            def post() -> None:
+                front_now = self.apps.frontmost()
+                if front_now is None or front_now.pid != a.pid:
+                    raise PointerInterrupted("foreground target changed; input stopped without restoring an app")
+                step.post()
+            return Step(step.what, post)
+        n = await self.input.run([guarded(step) for step in steps], holder, what)
+        return ActionResult(True, f"{what} ({n} steps, explicit foreground input); inspect the result",
+                            {"method": "foreground", "delivered_steps": n, "outcome_verified": False})
 
 
 def _same(a: tuple[float, ...], b: tuple[float, ...]) -> bool:

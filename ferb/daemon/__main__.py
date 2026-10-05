@@ -1,4 +1,4 @@
-"""`python -m ferb.daemon`: how launchd starts the daemon (section 8 step 5)."""
+"""Own the daemon process entry point. Must not implement orchestration or tool policy."""
 
 from ferb.daemon.main import main
 

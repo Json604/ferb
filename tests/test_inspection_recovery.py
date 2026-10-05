@@ -36,12 +36,14 @@ def test_unknown_coverage_is_not_done_when_planner_cannot_complete_it(daemon, ac
              "worker.dispatch": dispatch(action, "I could only inspect one group.", "Which community is official?")})
     result = outcome(chat(daemon, "Check official groups"))
     assert result["status"] == status and not result["verified"]
-    assert ("Which community is official?" if action == "ask" else "I could only inspect one group.") in result["answer"]
+    assert ("Which community is official?" if action == "ask" else "Could not identify the remaining official groups.") in result["answer"]
 
 
 @pytest.mark.parametrize("observed", [None, "owner@example.com", "different@example.com"])
 def test_account_condition_is_judged_from_evidence_instead_of_alias_equality(daemon, observed):
+    calls = []
     async def account(task_id, site):
+        calls.append((task_id, site))
         return observed
     daemon.daemon.supervisor.checks.account_of = account
     condition = cond("Use owner account, or explain if unavailable", "account",
@@ -52,7 +54,8 @@ def test_account_condition_is_judged_from_evidence_instead_of_alias_equality(dae
     result = outcome(chat(daemon, "Check my owner calendar"))
     assert result["verified"] and result["verification"][0]["path"] == "verifier"
     context = next(c for _, key, c, _ in script.contexts if key == "worker.verify")
-    assert (observed or "unreadable") in context
+    assert "Use owner account, or explain if unavailable" in context
+    assert not calls  # an arbitrary first-tab account is not identity evidence
 
 
 def test_checker_can_navigate_native_views_using_the_installed_tools(daemon):

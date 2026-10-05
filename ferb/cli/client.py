@@ -1,4 +1,4 @@
-"""Socket client shared by all `ferb` commands. A missing, dying or vanished daemon is always `NotRunning`."""
+"""Own authenticated newline-JSON RPC socket transport. Must not implement daemon policy or task orchestration."""
 
 import json
 import socket

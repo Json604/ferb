@@ -1,4 +1,4 @@
-"""Span writer (every input/output passes the redaction seam) and the span tree query for `ferb trace`."""
+"""Own redacted span persistence, evidence reads and task exports. Must not invent missing observations."""
 
 import json
 from dataclasses import dataclass, field
@@ -48,8 +48,7 @@ class SpanStore:
     def tree(self, task_id: str) -> list[SpanNode]:
         """All spans of a task and its steps (<id>.<step>…) as a forest (roots = spans whose parent isn't among
         them), in start order."""
-        rows = self._db.conn.execute("SELECT * FROM spans WHERE task_id = ? OR task_id LIKE ? "
-                                     "ORDER BY started_at, rowid", (task_id, f"{task_id}.%")).fetchall()
+        rows = self._task_rows(task_id)
         nodes = {r["id"]: SpanNode(_row_to_span(r)) for r in rows}
         roots = []
         for node in nodes.values():
@@ -57,31 +56,110 @@ class SpanStore:
             (parent.children if parent else roots).append(node)
         return roots
 
-    def tool_call(self, task_id: str, span_id: str) -> dict[str, Any] | None:
-        """One exact task's recorded observation, excluding recursive evidence reads and model turns."""
-        row = self._db.conn.execute(
-            "SELECT * FROM spans WHERE task_id = ? AND id = ? AND kind = 'tool.call' "
-            "AND json_extract(input_json, '$.tool') != 'task.evidence'", (task_id, span_id)).fetchone()
+    def _task_rows(self, task_id: str) -> list[Any]:
+        """Include the intake planner by exact request ID; it ran before the task ID existed."""
+        root = self._db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        request_id = root[0] if root else None
+        return self._db.conn.execute(
+            "SELECT * FROM spans WHERE task_id = ? OR substr(task_id, 1, ?) = ? "
+            "OR (task_id IS NULL AND json_extract(input_json, '$.request_id') = ?) ORDER BY started_at, rowid",
+            (task_id, len(task_id) + 1, task_id + '.', request_id)).fetchall()
+
+    def outcome(self, task_id: str) -> dict[str, Any]:
+        """Export one redacted evidence object. Missing historical facts stay explicit, never reconstructed guesses."""
+        events = [_span_record(_row_to_span(row)) for row in self._task_rows(task_id)]
+        roots = [e for e in events if e['kind'] == 'task' and e['task_id'] == task_id]
+        root = roots[0] if len(roots) == 1 else {}
+        source = root.get('input', {})
+        tasks = []
+        for row in self._db.conn.execute("SELECT * FROM tasks WHERE tree_id = ? ORDER BY created_at, id", (task_id,)):
+            task = dict(row)
+            for name in ('scopes', 'depends', 'outcome'):
+                task[name] = json.loads(task.pop(name + '_json'))
+            tasks.append(task)
+        request_id = source.get('request_id') or (tasks[0]['request_id'] if tasks else None)
+        messages = []
+        if request_id:
+            messages = [{'id': r['id'], 'at': r['at'], 'data': json.loads(r['data_json'])}
+                        for r in self._db.conn.execute(
+                            "SELECT * FROM journal WHERE kind = 'chat.message' "
+                            "AND json_extract(data_json, '$.request_id') = ? ORDER BY seq", (request_id,))]
+        outcomes = [json.loads(r[0]) for r in self._db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind IN ('task.outcome', 'task.answer') "
+            "AND json_extract(data_json, '$.task_id') = ? ORDER BY seq", (task_id,))]
+        return {'schema_version': 1, 'task_id': task_id,
+                'request': {'id': request_id, 'text': source.get('request'),
+                            'authority_words': source.get('authority_words'), 'messages': messages},
+                'task_spec': source.get('task_spec'), 'tasks': tasks,
+                'planner_decisions': [e for e in events if e['kind'] == 'model.turn'
+                                      and e['input'].get('role') == 'supervisor'],
+                'approach_decisions': [e for e in events if e['kind'].startswith('model.')],
+                'context_sources': [e for e in events if e['kind'] == 'context.source'],
+                'worker_runs': [e for e in events if e['kind'] == 'worker'],
+                'intake': [e for e in events if e['kind'] == 'task.intake'],
+                'actions': [e for e in events if e['kind'] == 'tool.call'],
+                'verification': [e for e in events if e['kind'] in ('verification', 'verify')
+                                 or (e['task_id'] or '').endswith('.verify')],
+                'disturbances': [e for e in events if e['kind'].startswith('disturbance.')],
+                'cleanup': [e for e in events if e['kind'] == 'task.cleanup'],
+                'result': root.get('output'), 'outcome_records': outcomes, 'owner_verdict': None,
+                'coverage': {'full_request_recorded': 'request' in source,
+                             'sentinel_recorded': any(e['kind'] == 'disturbance.summary' for e in events),
+                             'owner_verdict': 'No owner-verdict collection API yet; null is not acceptance.'}}
+
+    def update_input(self, span_id: str, values: dict[str, Any]) -> None:
+        """Add measured runtime input after tokens/tools/time are assembled; redact before persistence."""
+        row = self._db.conn.execute("SELECT input_json FROM spans WHERE id = ?", (span_id,)).fetchone()
+        if row is None:
+            raise ValueError("unknown span")
+        data = json.loads(row[0]) | self._redact(values)
+        self._db.conn.execute("UPDATE spans SET input_json = ? WHERE id = ?", (json.dumps(data), span_id))
+
+    @staticmethod
+    def _evidence_where(task_id: str, root_id: str | None) -> tuple[str, list[Any]]:
+        # Root identity is resolved from the registered live task, never inferred from a name/prefix.
+        where = "(task_id = ? AND kind = 'tool.call' AND json_extract(input_json, '$.tool') NOT IN " \
+                "('task.evidence','chat.history','memory.read'))"
+        params: list[Any] = [task_id]
+        if root_id:
+            where += " OR (task_id = ? AND kind IN ('task','task.intake','context.source','disturbance.baseline'," \
+                     "'disturbance.change','disturbance.error','disturbance.summary'))"
+            params.append(root_id)
+            where += " OR (task_id IN (?, ?) AND kind IN ('worker','task.cleanup'))"
+            params.extend([task_id, task_id + ".verify"])
+        return "(" + where + ")", params
+
+    def tool_call(self, task_id: str, span_id: str, root_id: str | None = None) -> dict[str, Any] | None:
+        """An authorized recorded fact/report; never provider reasoning or recursive evidence copies."""
+        where, params = self._evidence_where(task_id, root_id)
+        row = self._db.conn.execute("SELECT * FROM spans WHERE " + where + " AND id = ?",
+                                    (*params, span_id)).fetchone()
         if row is None:
             return None
-        return {"id": row["id"], "task_id": task_id, "started_at": row["started_at"], "ended_at": row["ended_at"],
+        return {"id": row["id"], "kind": row["kind"], "task_id": row["task_id"],
+                "started_at": row["started_at"], "ended_at": row["ended_at"],
                 "input": json.loads(row["input_json"]),
                 "output": json.loads(row["output_json"]) if row["output_json"] else None, "error": row["error"]}
 
-    def tool_calls(self, task_id: str, query: str = '', after: int = 0, limit: int = 20) -> dict[str, Any]:
-        """Search actual redacted observations with literal text and chronological cursor pagination."""
+    def tool_calls(self, task_id: str, query: str = '', after: int = 0, limit: int = 20,
+                   root_id: str | None = None, kind: str = '') -> dict[str, Any]:
+        """Search full redacted observations using literal text; page references rather than dropping records."""
         if limit < 1 or after < 0:
             raise ValueError('limit must be positive and after nonnegative')
-        where = "task_id = ? AND kind = 'tool.call' AND json_extract(input_json, '$.tool') != 'task.evidence'"
-        params: list[Any] = [task_id]
+        where, params = self._evidence_where(task_id, root_id)
         if query:
-            where += " AND instr(lower(input_json || coalesce(output_json, '') || coalesce(error, '')), lower(?)) > 0"
+            where += " AND instr(lower(kind || input_json || coalesce(output_json, '') || coalesce(error, '')), lower(?)) > 0"
             params.append(query)
+        if kind:
+            where += " AND kind = ?"
+            params.append(kind)
         rows = self._db.conn.execute("SELECT rowid AS cursor, * FROM spans WHERE " + where +
                                      " AND rowid > ? ORDER BY rowid LIMIT ?", (*params, after, limit + 1)).fetchall()
-        records = [{"id": row["id"], "tool": json.loads(row["input_json"]).get('tool'),
+        records = [{"id": row["id"], "kind": row["kind"], "task_id": row["task_id"],
+                    "tool": json.loads(row["input_json"]).get('tool'),
                     "started_at": row["started_at"], "ended_at": row["ended_at"], "error": row["error"],
                     "input_preview": row["input_json"][:500], "input_truncated": len(row["input_json"]) > 500,
+                    "read_full": {"tool": "task.evidence", "span_id": row["id"]},
                     "has_output": row["output_json"] is not None} for row in rows[:limit]]
         return {"records": records, "next_after": rows[limit - 1]["cursor"] if len(rows) > limit else None}
 
@@ -93,3 +171,10 @@ def _row_to_span(r: Any) -> Span:
                 input=json.loads(r["input_json"]),
                 output=json.loads(r["output_json"]) if r["output_json"] else None,
                 cost_usd=r["cost_usd"], error=r["error"])
+
+
+def _span_record(span: Span) -> dict[str, Any]:
+    return {'id': span.id, 'parent_id': span.parent_id, 'task_id': span.task_id, 'kind': span.kind,
+            'started_at': span.started_at.isoformat(),
+            'ended_at': span.ended_at.isoformat() if span.ended_at else None,
+            'input': span.input, 'output': span.output, 'error': span.error, 'cost_usd': span.cost_usd}

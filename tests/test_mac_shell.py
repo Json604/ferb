@@ -52,7 +52,7 @@ def test_locks_take_one_global_order_and_serialize_without_deadlock() -> None:
 
 # ---------- real input yields to the owner ----------
 
-def test_real_input_waits_for_the_owner_then_resumes_or_yields_where_it_stopped() -> None:
+def test_real_input_stops_at_owner_input_without_resuming() -> None:
     posted: list[str] = []
     clock = {"t": 0.0}
 
@@ -65,7 +65,9 @@ def test_real_input_waits_for_the_owner_then_resumes_or_yields_where_it_stopped(
     # owner active between t=0.05 and t=1.0: the action pauses after step 2 and resumes
     busy = lambda: 0.05 <= clock["t"] < 1.0                                    # noqa: E731
     ri = RealInput(busy, GuiLock(), yield_after_s=5, sleep=fake_sleep)
-    assert asyncio.run(ri.run(steps(5), "w", "typing")) == 5 and len(posted) == 5
+    with pytest.raises(Yielded) as interrupted:
+        asyncio.run(ri.run(steps(5), "w", "typing"))
+    assert interrupted.value.done == len(posted) == 3
     posted.clear()
     clock["t"] = 0.0
     always = lambda: clock["t"] >= 0.03                                         # noqa: E731  owner never stops
@@ -192,7 +194,7 @@ def test_applescript_wraps_target_and_validates_bundle_syntax():
 # ---------- the Mac driver's method order ----------
 
 
-def test_mac_driver_prefers_accessibility_and_falls_back_to_real_input(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mac_driver_uses_explicit_mechanisms_without_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, apps, posted = mac(monkeypatch)
     _, out = asyncio.run(d.snapshot("Notes"))
     ids = {e["label"]: e["id"] for e in out["elements"]}
@@ -206,13 +208,11 @@ def test_mac_driver_prefers_accessibility_and_falls_back_to_real_input(monkeypat
     _, out2 = asyncio.run(d2.snapshot("Notes"))
     ids2 = {e["label"]: e["id"] for e in out2["elements"]}
     r = asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"])))
-    assert not r.ok and "allow_foreground" in r.detail                          # background rungs only, and it says
-    assert posted2 == ["key return to pid"] and apps2.activated == []            # focus + Return was tried
-    r = asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"], allow_foreground=True)))
-    assert r.ok and "real input" in r.detail and posted2[-1] == "click 10.0,10.0"
+    assert not r.ok and "refused" in r.detail                          # background rungs only, and it says
+    assert posted2 == [] and apps2.activated == []            # focus + Return was tried
+    r = asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"], allow_foreground=True, mechanism="foreground")))
+    assert r.ok and "foreground input" in r.detail and posted2[-1] == "click 10.0,10.0"
     assert apps2.activated == ["com.apple.Notes"]                              # brought forward for the stretch
-    d2.restore_owner()
-    assert apps2.activated == ["com.apple.Notes", "com.brave.Browser"]         # then put back, once
     asyncio.run(d2.snapshot("Notes"))
     with pytest.raises(StaleRef):
         asyncio.run(d2.act("Notes", ComputerAction("press", ids2["Save"])))     # a newer snapshot supersedes

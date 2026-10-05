@@ -1,4 +1,6 @@
-"""Core execution data (see ARCHITECTURE.md). Pure data: no I/O, imports nothing from ferb except core."""
+"""Owns shared task, action and observation data types. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Core execution data (see ARCHITECTURE.md). Pure data: no I/O, imports nothing from ferb except core."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -40,7 +42,7 @@ class Task:
     role: Literal["worker", "verifier", "mixed"]   # execution purpose, not a tool permission class
     request_id: str
     success_conditions: list[str]
-    deadline: datetime | None                # the tree's runaway time limit (section 7 step 10)
+    deadline: datetime | None                # an explicit deadline if supplied; ordinary tasks have none
 
 
 @dataclass
@@ -114,7 +116,7 @@ class Target:
     recipients: tuple[str, ...] = ()
     path: str | None = None
     amount: float | None = None
-    contact: str | None = None               # the exact contact a call / message goes to, as shown (step 16a)
+    contact: str | None = None               # the exact contact a call / message goes to, as shown
 
 
 @dataclass(frozen=True)
@@ -125,7 +127,7 @@ class ActionSpec:
     content: str | None = None
 
 
-# ---------- runtimes (section 5 AgentRuntime) ----------
+# ---------- runtimes ----------
 
 @dataclass(frozen=True)
 class RuntimeFeatures:
@@ -133,7 +135,7 @@ class RuntimeFeatures:
     continuation: bool
     per_call_hooks: bool
     usage_visibility: bool
-    native_tools_contained: bool             # must be True to be registered (section 5, 7)
+    native_tools_contained: bool             # must be True to be registered
 
 
 @dataclass
@@ -150,7 +152,7 @@ class RuntimeEvent:
     data: dict[str, Any]
 
 
-# ---------- tools (section 5 Capability) ----------
+# ---------- tools ----------
 
 @dataclass(frozen=True)
 class ToolContext:
@@ -176,7 +178,7 @@ class ToolResult:
     evidence: dict[str, Any] | None = None            # source observations used by result inspection
 
 
-# ---------- browsers (section 5 BrowserDriver) ----------
+# ---------- browsers ----------
 
 @dataclass(frozen=True)
 class TabRef:
@@ -227,6 +229,7 @@ class WaitCondition:
 class ActionResult:
     ok: bool
     detail: str = ""
+    facts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -264,11 +267,11 @@ class PageSnapshot:
     scrollers: list[dict[str, Any]] = field(default_factory=list)   # containers: {id, label, y, height, viewport_h, at_end}
 
 
-# ---------- Mac / computer (section 5 ComputerDriver) ----------
+# ---------- Mac / computer ----------
 
 @dataclass(frozen=True)
 class ComputerAction:
-    kind: Literal["press", "set_value", "focus", "click", "type", "key", "edit", "scroll", "select"]
+    kind: Literal["press", "set_value", "focus", "click", "type", "key", "edit", "scroll", "select", "cancel"]
     element: str | None = None               # element id from the latest snapshot of that app
     text: str | None = None                  # set_value / type / edit: the text; key: a combo like "cmd+s";
                                              # select: the pop-up item's title
@@ -276,4 +279,5 @@ class ComputerAction:
     direction: str | None = None             # scroll: up / down / left / right
     amount: int | None = None                # scroll: pages (keys) or steps (slider / scroll bar)
     window: str | None = None                # scroll with no element: the window (title or id) to scroll
-    allow_foreground: bool = False           # may bring the app forward (the owner's screen moves) as the last resort
+    allow_foreground: bool = False           # task-authorized permission, not a fallback instruction
+    mechanism: Literal['ax', 'pid', 'ax_keyboard', 'ax_value', 'foreground'] | None = None

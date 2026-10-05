@@ -1,4 +1,4 @@
-"""Request context. Targets describe intent without enforcing permission."""
+"""Own recorded request and target data. Must not resolve targets or enforce semantic permissions."""
 
 import json
 from dataclasses import dataclass, field
@@ -39,7 +39,7 @@ class Request:
     request_id: str
     words: str = ""                                   # the owner's own words (pasted text removed)
     targets: Targets = field(default_factory=Targets)
-    owner_email: str | None = None                    # "email me": the owner's own address counts as named
+    payload: str = ""                                # complete request, with pasted sources marked as data
 
 
 class Requests:

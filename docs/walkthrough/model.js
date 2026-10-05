@@ -4,12 +4,12 @@ const nodes = [
  ['owner','Owner / CLI','Your request and the final answer. Chat can disconnect while a task continues.','ferb/cli/chat.py','interface'],
  ['rpc','Daemon / RPC','Authenticates local calls and delivers progress, questions, stop and results.','ferb/daemon/main.py','code'],
  ['supervisor','Supervisor','Builds context, invokes decision models, owns attempts and reconciles the result.','ferb/orchestrator/supervisor.py','code'],
- ['context','Context / registry','Relevant memory, bounded chat history, daily activity, available tools and live device facts.','ferb/registry.py','data'],
+ ['context','Context / registry','Full owner request, token-budgeted optional history with fetch markers, intake receipts and full app inventory.','ferb/registry.py','data'],
  ['planner','Decision model','Chooses reply, clarification or task. Recovery and question decisions also use no-tool model calls.','ferb/orchestrator/prompts/supervisor.md','model'],
  ['worker','Worker runtime','Configured Codex/Claude adapter runs the tool-using agent; the model chooses the next action.','ferb/orchestrator/worker.py','model'],
  ['mcp','MCP transport','Per-run token connects the worker’s tool calls back to the daemon through stdio and RPC.','ferb/cli/mcp.py','code'],
  ['gateway','Action gateway','Validates arguments, task ownership and stop state; locks resources, executes, redacts and records.','ferb/daemon/gateway.py','code'],
- ['browser','Browser transport','Daemon bridge → native host → extension 0.12.0 / protocol 7 → per-tab CDP, AX + DOM.','ferb/act/browser/ext_bridge.py','platform'],
+ ['browser','Browser transport','Daemon bridge → native host → extension 0.13.0 / protocol 8 → per-tab CDP, AX + DOM.','ferb/act/browser/ext_bridge.py','platform'],
  ['mac','Native Mac driver','AX reads and app/window-directed input; exact-window screenshots. Support depends on the app and OS.','ferb/act/mac/driver.py','platform'],
  ['shell','Shell / PTY','Tracked commands and external coding sessions. This Claude process is separate from FERB’s internal worker.','ferb/act/shell/manager.py','platform'],
  ['files','Files / artifacts','Workspace, requested deliverables, process logs, recordings and receipts.','ferb/act/fs/files.py','data'],
@@ -20,18 +20,20 @@ const nodes = [
  ['store','Stores / observability','SQLite tasks, spans, ledger and results; event bus and daily JSON activity. Images are not saved in tool spans.','ferb/store/spans.py','data'],
  ['timers','Timers / sensing','Reminders, scheduled tasks and filtered background activity. Optional enrichment is separate from task routing.','ferb/clock/timers.py','code'],
  ['provider','Model services','External Codex / Claude inference and authentication. Provider errors become runtime failures.','ferb/runtimes/codex_exec.py','external'],
+ ['sentinel','Desktop observations','Task-wide sampled front app, key window, cursor, Space transitions and visible order. Missing fields and action correlation are explicit; no focus restoration.','ferb/daemon/disturbance.py','code'],
  ['secrets','Sealed credentials','Origin-bound secret handling and Keychain-backed identity. Raw OTPs do not go to the model.','ferb/identity','data']
 ].map(([id,label,description,source,kind])=>({id,label,description,source,kind}));
-const edges = [['owner','rpc'],['rpc','supervisor'],['supervisor','context'],['context','store'],['supervisor','planner'],['planner','provider'],['planner','supervisor'],['supervisor','worker'],['worker','provider'],['worker','mcp'],['mcp','rpc'],['rpc','gateway'],['gateway','browser'],['gateway','mac'],['gateway','shell'],['gateway','files'],['gateway','questions'],['questions','supervisor'],['questions','owner'],['questions','secrets'],['gateway','store'],['gateway','recording'],['recording','browser'],['recording','mac'],['recording','files'],['supervisor','checker'],['checker','mcp'],['supervisor','cleanup'],['cleanup','recording'],['cleanup','browser'],['cleanup','shell'],['cleanup','planner'],['cleanup','supervisor'],['supervisor','store'],['store','rpc'],['timers','supervisor'],['timers','rpc'],['mac','timers'],['browser','timers'],['timers','store'],['shell','files']];
+const edges = [['owner','rpc'],['rpc','supervisor'],['supervisor','context'],['context','store'],['supervisor','planner'],['planner','provider'],['planner','supervisor'],['supervisor','worker'],['worker','provider'],['worker','mcp'],['mcp','rpc'],['rpc','gateway'],['gateway','browser'],['gateway','mac'],['gateway','shell'],['gateway','files'],['gateway','questions'],['questions','supervisor'],['questions','owner'],['questions','secrets'],['gateway','store'],['gateway','recording'],['recording','browser'],['recording','mac'],['recording','files'],['supervisor','checker'],['checker','mcp'],['supervisor','cleanup'],['cleanup','recording'],['cleanup','browser'],['cleanup','shell'],['cleanup','planner'],['cleanup','supervisor'],['supervisor','store'],['store','rpc'],['timers','supervisor'],['timers','rpc'],['mac','timers'],['browser','timers'],['timers','store'],['shell','files'],['supervisor','sentinel'],['gateway','sentinel'],['sentinel','store']];
 const step=(from,to,title,detail,kind='code',proof='')=>({from,to,title,detail,kind,proof});
 const intake=[
  step('owner','rpc','A request arrives','Chat sends your words over authenticated local RPC. A voice turn joins the same planning path.'),
  step('rpc','supervisor','Keep the request with its conversation','The daemon hands the request to Supervisor.send. Disconnecting chat is different from cancelling the task.'),
- step('supervisor','context','Retrieve relevant context','Search memory, recent conversation/tasks, activity and the action registry. Context is bounded, not a complete replay of everything you have done.'),
+ step('supervisor','context','Retrieve relevant context','Search memory, recent conversation/tasks, activity and the action registry. The full request is protected. Optional whole blocks omitted under the token budget carry a marker and full-source fetch route.'),
  step('supervisor','planner','Decide how to respond','A no-tool model chooses reply, clarify or task plus success conditions. Shared interaction instructions carry background and profile preferences.','model'),
  step('planner','supervisor','Validate the plan','Code validates the schema and task references. One repair call is allowed for invalid output; failure here means no worker starts.'),
- step('supervisor','store','Create the task and attempt','Persist task specification and success conditions; register a task tree, fresh run token and liveness tracking.'),
- step('supervisor','worker','Start the chosen worker','The worker gets the installed action registry, owner words, relevant context and success conditions. Retry attempts retain earlier artifacts and uncertain actions.','model'),
+ step('supervisor','store','Create the task and attempt','Persist the complete request, task specification and success conditions; register task, token and liveness tracking. Intake receipts establish work already done in chat.'),
+ step('supervisor','sentinel','Start desktop observation','Sample the desktop throughout this task and cleanup. Space notifications and action-boundary samples supplement periodic sampling. No action is blocked by a change.'),
+ step('supervisor','worker','Start the chosen worker','The worker gets the installed action registry, full original request including marked source text, context, intake receipts and success conditions. Retry attempts retain earlier artifacts and uncertain actions.','model'),
  step('worker','mcp','Choose a tool','The worker discovers actions and chooses arguments. This is a model decision, not a keyword-based permission classifier.','model'),
  step('mcp','rpc','Transport the call','FERB MCP sends the run token and tool call over the daemon socket.'),
  step('rpc','gateway','Execute through the gateway','Validate task/token, stop state, schema and capability scopes. Take resource locks. Consequential actions are ledgered before execution.')
@@ -39,12 +41,13 @@ const intake=[
 const finish=[
  step('gateway','store','Record the observation','Redacted tool input/output enters the span store and action events. Ledger outcome is done, failed or unknown. A lost acknowledgment is not proof nothing happened.'),
  step('worker','supervisor','Return a claim and evidence','The worker reports status, summary, artifacts and evidence. This is a claim, not yet the final answer.','model'),
- step('supervisor','checker','Check success conditions','Mechanical file/URL checks run first. Judgment-based conditions use a checker with the same capability scopes, read-only by prompt. It can retrieve earlier task evidence.','model'),
+ step('supervisor','checker','Check success conditions','Mechanical file/URL checks run first. Judgment-based conditions use a checker with the same capability scopes, read-only by prompt. It receives the full request and intake receipts, retrieves full evidence, and judges outcomes rather than report wording or repeated worker actions.','model'),
  step('supervisor','cleanup','Release before promising success','Stop unfinished recordings before their targets. Close ordinary owned tabs, detach borrowed/kept tabs, stop ordinary managed processes, retain background=true processes.'),
  step('cleanup','supervisor','Reconcile final resource state','Nonempty cleanup observations trigger a no-tool resource review. If keeping a page open failed, the final answer cannot truthfully claim it is still open.','model'),
+ step('sentinel','store','Record desktop result','Persist changed fields, nearby action IDs, owner input and sampling limits. Temporal correlation does not prove who caused a change.'),
  step('supervisor','store','Persist final status','Stop, verification and cleanup affect the final outcome. Final idempotent cleanup also runs on all exit paths.'),
  step('store','rpc','Deliver the result','Attached chat gets the result. Detached/scheduled work is saved for later delivery; cancelled results do not produce a finished notification.'),
- step('rpc','owner','Speak as FERB','One answer should say what was established, where artifacts are, and what remains uncertain. A verified flag alone does not make a claim true.','model')
+ step('rpc','owner','Speak as FERB','Every failed or unverified condition appears verbatim before facts. Unchecked success prose cannot override it. Artifact paths are evidence without needing to be repeated in report prose.','model')
 ];
 const cases=[];
 function add(id,title,prompt,coverage,basis,steps,verdict){cases.push({id,title,prompt,coverage,basis,steps,verdict});}
@@ -77,7 +80,7 @@ add('whatsapp','05 · Search SST groups','List all WhatsApp group names containi
  step('gateway','mac','Search and scroll the relevant pane','The model chooses scroll distance and batch count. Pointer input binds to a fresh screenshot/window. A delivered event alone does not prove movement.','model'),
  step('mac','worker','Establish coverage','Inspect loaded results, group/community distinctions and changes after scrolling. One viewport or a frozen lazy-loading list does not establish all matches.','platform'),...finish],
  'A quick historical reply may reuse a previous result. It should say that, instead of claiming a fresh complete search. Earlier snapshots can support specific names but not unseen groups.');
-add('record','06 · Record two tabs correctly','Record both requested tabs while I keep working.','New recording • saved pixels • partial capture','Current 0.25.0 implementation walkthrough. Live owner acceptance is still pending.',[...intake,
+add('record','06 · Record two tabs correctly','Record both requested tabs while I keep working.','New recording • saved pixels • partial capture','Current 0.26.0 implementation walkthrough. Live owner acceptance is still pending.',[...intake,
  step('gateway','browser','Bind the two requested tabs','Each recording uses its own observed task-owned tab reference and original browser/profile identity. No foreground tab selection is required.'),
  step('gateway','recording','Start one recording per target','browser.record returns a task-owned handle. Default 2 samples/second, silent; .mp4 output and receipt must be new paths.'),
  step('recording','browser','Sample independently while actions continue','record_frame checks frame inventory and sensitive fields before/after CDP capture. Its own buffer does not invalidate action references. Capture errors halt sampling rather than substitute the desktop.'),
@@ -129,6 +132,15 @@ add('stop','12 · Stop, provider failure or restart','Stop this task.','Cancella
  step('rpc','store','Alternative: daemon restart','Active tasks are marked interrupted; unresolved ledger actions become unknown. Startup does not blindly replay them.'),
  step('rpc','owner','Report the actual status','Stopped, failed, needs_user and interrupted are different outcomes. Don’t replace them all with “Stopped.”','model')],
  'This scenario deliberately displays alternate exit paths. They are not all events in one run. No new live task is started by this walkthrough.');
-root.FERB_GUIDE={version:'0.25.0',nodes,edges,cases};
+add('upload','13 · Local file identity','Attach this local PDF to the disposable form.','Source identity • iframe upload • no fallback','0.26 mechanism; incident evidence is in AUDIT_0_26.md.',[...intake,
+ step('gateway','files','Inspect all plausible candidates','Read exact source/path, size, modified time and content. A same-name Drive file is a different candidate, not a substitute.','model'),
+ step('worker','questions','Resolve conflicting identities','Ask with candidates if context cannot establish which file. Confirm the prepared hard-to-undo outcome using the real source.','model'),
+ step('gateway','browser','Set the actual file input','Exact frame/backend node uses CDP and verifies selected bytes against the local SHA-256 receipt. An unsupported route returns facts; no native picker or Drive substitution.','platform'),...finish],
+ 'A selected filename is not identity proof. Final form attachment and submission evidence still need inspection.');
+add('study','14 · Complete study material','Use every part of these syllabi to make three files I can study from.','Full request • teaching depth • truthful final','0.26 regression and prompt contract; real course-quality acceptance remains an owner judgment.',[...intake,
+ step('worker','files','Build a syllabus-to-content map','Preserve all source sections. Write actual explanations, worked examples and practice; a heading list or keyword count is insufficient.','model'),
+ step('checker','files','Inspect actual teaching content','Read representative difficult sections and check complete coverage against source. Use intake receipt for stored link and artifact data for file paths.','model'),...finish],
+ 'The historical short files were not cut by fs.write; planning asked for concise content and checking mistook term coverage for depth.');
+root.FERB_GUIDE={version:'0.26.0',nodes,edges,cases};
 if(typeof module!=='undefined') module.exports=root.FERB_GUIDE;
 })(globalThis);

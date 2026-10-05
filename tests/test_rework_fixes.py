@@ -89,16 +89,12 @@ def test_completed_ledger_rows_do_not_prove_the_requested_goal(tmp_path: Path) -
     row = ledger.intend("task1", "mac.click", {"site": "com.spotify.client"}, "h")
     ledger.mark(row.id, "executing")
     ledger.mark(row.id, "done", ["span"])
-    checks = Checks(ledger, lambda t: [], _no_account)
+    checks = Checks(ledger, lambda t: [])
     cond = Condition(text="liked", check=Check(kind="ledger_done", path=None, text=None, url_contains=None,
                                                  site=None, expected="Spotify like current track"))
     ctx = ToolContext("task1", "verifier", "r", Identity.OWNER, frozenset(), "dev", None, str(tmp_path), (), ())
     r = asyncio.run(checks.run(0, cond, "task1", ctx))
     assert r.met is None and "done" in r.evidence
-
-
-async def _no_account(task_id: str, site: str) -> str | None:
-    return None
 
 
 def test_extension_wait_and_backoff_are_bounded() -> None:
@@ -118,14 +114,14 @@ def test_extension_wait_and_backoff_are_bounded() -> None:
 
 def test_worker_prompt_matches_the_gateway_on_approvals() -> None:
     md = Path("ferb/orchestrator/prompts/worker.md").read_text()
-    assert "owner_ask goes to the orchestrator first" in md and "concrete result ready for review" in md
+    assert "owner_ask goes to the orchestrator first" in md and "concrete reviewable" in md
 
 
 @pytest.mark.parametrize('role', ['supervisor.md', 'worker.md', 'dispatch.md', 'question.md', 'verifier.md', None])
 def test_every_task_system_prompt_carries_the_same_interaction_contract(role):
     from types import SimpleNamespace
     from ferb.orchestrator.supervisor import Supervisor
-    host = SimpleNamespace(facts=lambda: 'FERB profile is available.',
+    host = SimpleNamespace(_approach=lambda: 'orchestrator/prompts', facts=lambda: 'FERB profile is available.',
                            availability=lambda: SimpleNamespace(text='Installed actions'))
     system = ' '.join(Supervisor._system(host, role).split())
     assert 'Shared interaction contract' in system

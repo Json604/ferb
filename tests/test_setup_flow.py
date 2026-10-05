@@ -23,6 +23,7 @@ class FakeDaemon:
         self.pending_sr = False          # granted in Settings but not applied until restart
         self.tap_ok = True
         self.automation_requests: list[list[str]] = []
+        self.calls: list[tuple[str, dict[str, Any] | None]] = []
 
     def client(self) -> "FakeClient":
         return FakeClient(self)
@@ -33,13 +34,13 @@ class FakeClient:
         self.d = d
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.d.calls.append((method, params))
         if method == "ping":
             return {"pid": self.d.pid}
         if method == "doctor.check":
             st = [] if params and params.get("selftest") is False else [
                 {"name": "ax_read", "ok": True, "detail": "ok"},
-                {"name": "event_tap", "ok": self.d.tap_ok, "detail": "tap"},
-                {"name": "input_event", "ok": True, "detail": "seen"}]
+                {"name": "event_tap", "ok": self.d.tap_ok, "detail": "listen-only tap; no input posted"}]
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid}
         if method == "jev.stats":
@@ -55,7 +56,7 @@ class FakeClient:
                                   "connected": False, "version": None, "refused": None}], "extension_ids": []}
         if method == "identity.check":
             return {"address": "ferb@test.example", "profile": "Profile 22", "profile_ok": True,
-                    "profile_name": "FERB", "error": None, "session": True, "paired": True,
+                    "profile_name": "FERB", "error": None, "session": None if params and params.get("session") is False else True, "paired": True,
                     "secrets": [{"key": "ferb/email/password", "in_keychain": True}]}
         if method == "automation.request":
             self.d.automation_requests.append(params["bundle_ids"])
@@ -181,14 +182,21 @@ def test_uninstall_purge_needs_typed_confirmation(world: dict[str, Any]) -> None
     assert "remove" in out.getvalue() and "Accessibility" in out.getvalue()
 
 
-def test_update_collects_setup_permissions_once(world):
+def test_update_reports_missing_permissions_without_opening_settings_or_prompting(world):
     world['inst'].install()
-    d = world['daemon']
-    d.perms.update(accessibility='granted', screen_recording='granted', input_monitoring='granted')
-    env, out = make_env(world, [''])  # Full Disk Access; no saved app scan on this fake installation
+    env, out = make_env(world, [])  # any request for owner input would fail this test
     assert S.setup(env, update=True) == 0, out.getvalue()
-    assert world['panes'] == ['full_disk_access']
-    assert Config(world['home']).get('setup', 'permissions_version') == 22
-    env2, out2 = make_env(world, [])
-    assert S.setup(env2, update=True) == 0, out2.getvalue()
-    assert world['panes'] == ['full_disk_access']
+    assert world['panes'] == [] and world['daemon'].automation_requests == []
+    assert Config(world['home']).get('setup', 'permissions_version', 0) == 0
+    assert 'Permission setup deferred' in out.getvalue() and 'accessibility=denied' in out.getvalue()
+    assert ('doctor.check', {'selftest': False}) in world['daemon'].calls
+
+
+def test_doctor_never_wakes_browser_or_calls_not_checked_signed_out(world):
+    world['inst'].install()
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert ('identity.check', {'session': False}) in world['daemon'].calls
+    assert 'session not checked' in out.getvalue()
+    assert 'not signed in' not in out.getvalue()
+    assert not world['panes'] and not world['daemon'].automation_requests

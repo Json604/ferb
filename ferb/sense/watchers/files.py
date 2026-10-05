@@ -1,8 +1,9 @@
-"""File events (section 11) in the folders the owner lists in `[sense] watch_folders` only (empty by default): path and
+"""Observe configured filesystem changes and record paths. Must not open or modify file content.
+
+File events in the folders the owner lists in `[sense] watch_folders` only (empty by default): path and
 kind of change, never contents. A folder must exist, be a directory under the owner's home, and not be (or be
 inside) an excluded path; others are skipped and reported. Excluded paths inside a watched folder are dropped by the
-pipeline. `.DS_Store` and `.git` internals are noise and ignored. Repeats for one path within a second coalesce.
-"""
+pipeline. `.DS_Store` and `.git` internals are noise and ignored. Repeats for one path within a second coalesce."""
 
 import asyncio
 import os

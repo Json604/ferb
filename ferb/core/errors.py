@@ -1,4 +1,6 @@
-"""Errors shared across FERB."""
+"""Owns shared error types. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Errors shared across FERB."""
 
 
 class FerbError(Exception):

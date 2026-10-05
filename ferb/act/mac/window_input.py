@@ -1,9 +1,10 @@
-"""Optional window-addressed SkyLight mouse transport. No activation, focus changes or global posting.
+"""Post marked pointer events to one PID/window using the optional SkyLight transport. Must not manipulate Spaces or retry globally.
+
+Optional window-addressed SkyLight mouse transport. No activation, focus changes or global posting.
 
 Private ABI: missing symbols disable this route. Availability means we can attempt delivery, not that an app
 accepts it. Routing fields follow Cua's MIT-licensed implementation; see THIRD_PARTY_NOTICES.md.
-Deliberately posts once: posting through both transports could duplicate a click or a wheel tick.
-"""
+Deliberately posts once: posting through both transports could duplicate a click or a wheel tick."""
 
 import ctypes
 from functools import lru_cache

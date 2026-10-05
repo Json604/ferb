@@ -1,23 +1,16 @@
-"""Driver for browser profiles through the FERB extension (sections 9.4, 9.6).
+"""Owns authenticated extension transport and task-owned browser references; must not choose source/account intent.
 
-- `Hub` owns native-host connections: every message goes through pairing (`install_id` + HMAC + seq); unpaired
-  installs may only say hello and pair. A paired `hello` must carry this protocol version, or the install is
-  refused (a stale unpacked extension keeps running until it's reloaded).
-- `Bridge` (one per paired profile) runs commands: request id (the ledger intent id for consequential actions),
-  connection generation, timeout. A new connection bumps the generation; commands in flight on the old one fail
-  with `OutcomeUnknown` (the gateway marks the ledger `unknown`) and are reconciled from the re-announced state —
-  seen and done -> done, failed -> failed, absent or started -> stays unknown — never resent.
-- `Router` is what the owner `browser.*` tools use: task-owned tabs with short aliases, generation-scoped element
-  ids (a navigation or a newer snapshot makes older ids stale), and explicit profile selection.
-- `WakeServer` serves the unique blank local page that wakes a sleeping extension (spike 13).
-"""
+Hub binds authenticated installs to profiles. Bridge tracks generation-scoped command IDs, chunks large content,
+and records disconnected actions as unknown without replay. Router binds explicit profiles and element references.
+FerbIdentity adds origin-bound sealed fills and opaque mailbox candidates. Upload receipts retain local byte identity.
+WakeServer serves only the temporary local pairing page; ordinary wake launches no window or URL."""
 
 import asyncio
+import hashlib
 import json
 import os
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
@@ -28,7 +21,7 @@ from ferb.act.browser.profiles import BrowserProfile, open_known_profile, runnin
 from ferb.act.browser.resolver import Resolver
 from ferb.act.browser.snapshot import element as page_element
 from ferb.act.browser.tools import Secrets
-from ferb.identity.mailbox import FEED_URL, REASONS, GmailFeedMailbox, wait_for_code
+from ferb.identity.mailbox import FEED_URL, GmailFeedMailbox
 from ferb.identity.seal import seal, seal_key, unseal
 from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
 from ferb.core.errors import DriverError, Refused, StaleRef
@@ -37,7 +30,7 @@ from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, Elemen
 from ferb.orchestrator.ledger import Ledger
 
 Publish = Callable[[str, dict[str, Any]], None]
-CMD_TIMEOUT_S, WAKE_TIMEOUT_S = 30.0, 20.0
+CMD_TIMEOUT_S = 30.0
 WINDOWLESS_WAIT_S = 8.0          # a profile loaded with no window: its extension connects by then (spike 19)
 KEEPALIVE_S = 15.0               # while a task tab is open: a ping keeps the MV3 worker awake (idle limit 30 s, 1.1)
 TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "press"})   # real input by default
@@ -67,7 +60,6 @@ class Bridge:
     version: str = ""
     pending: dict[str, asyncio.Future[Result]] = field(default_factory=dict)
     lost: set[str] = field(default_factory=set)             # ledger ids in flight when a connection dropped
-    wake_url: str | None = None                              # the wake page, closed once FERB's own tab is open
     tabs: dict[int, tuple[str, bool]] = field(default_factory=dict)   # chrome tab id -> (host, active)
     navs: dict[int, int] = field(default_factory=dict)      # chrome tab id -> loads seen (stale-ref detection)
     connected: asyncio.Event = field(default_factory=asyncio.Event)
@@ -88,8 +80,16 @@ class Bridge:
         cid = cid or "c-" + secrets.token_hex(8)
         fut: asyncio.Future[Result] = asyncio.get_running_loop().create_future()
         self.pending[cid] = fut
-        conn.writer.write(json.dumps(command(cid, conn.gen, op, args, int(timeout * 1000))).encode() + b"\n")
+        wire = json.dumps(command(cid, conn.gen, op, args, int(timeout * 1000)))
         try:
+            if len(wire) > 500000:
+                # Native messaging has a per-message limit, not a deliverable limit. Only the fully
+                # assembled original command can perform an action; chunks have separate transport IDs.
+                for offset in range(0, len(wire), 100000):
+                    await self.call("command_part", {"id":cid,"offset":offset,"text":wire[offset:offset+100000],
+                                                     "total_chars":len(wire)}, timeout=timeout)
+            else:
+                conn.writer.write(wire.encode() + b"\n")
             await conn.writer.drain()
             r = await asyncio.wait_for(fut, timeout + 5)
         except asyncio.CancelledError:
@@ -105,6 +105,13 @@ class Bridge:
         finally:
             self.pending.pop(cid, None)
         if r.status == "ok":
+            if isinstance(r.value, dict) and "result_parts" in r.value:
+                transfer, pieces, offset = r.value["result_parts"], [], 0
+                while offset is not None:
+                    part = await self.call("result_part", {"id": transfer["id"], "offset": offset}, timeout=timeout)
+                    pieces.append(part["text"])
+                    offset = part["next_offset"]
+                return json.loads("".join(pieces))
             return r.value
         if r.status == "stale":
             raise StaleRef("the browser reconnected; take a new snapshot")
@@ -198,7 +205,7 @@ class Hub:
         self.bridges: dict[tuple[str, str], Bridge] = {}
         self.refused: dict[str, str] = {}                    # install_id -> why (e.g. protocol mismatch)
         self.unpaired: dict[str, str] = {}                   # install_id -> browser: installed, connected, not paired
-        # The trail (build step 10): every tab event goes to on_tab; while paused, only tabs FERB owns are tracked.
+        # The activity trail: every tab event goes to on_tab; while paused, only tabs FERB owns are tracked.
         self.on_tab: Callable[["Bridge", TabEvent], None] = lambda br, e: None
         self.paused: Callable[[], bool] = lambda: False
         self.owned: Callable[["Bridge", int], bool] = lambda br, tab_id: False
@@ -320,9 +327,11 @@ class Hub:
                 self.publish("browser.debugger_detached", {"profile": br.name, "tab_id": ev.tab_id,
                                                            "reason": ev.reason or "unknown",
                                                            "by_owner": ev.reason == "canceled_by_user"})
+            elif ev.event == "file_chooser":
+                self.publish("browser.file_chooser", {"profile": br.name, **ev.model_dump(exclude_none=True)})
             else:
                 self.publish("browser.dialog", {"profile": br.name, "tab_id": ev.tab_id, "type": ev.type,
-                                                "message": (ev.message or "")[:300], "handled": ev.handled})
+                                                "message": ev.message or "", "handled": ev.handled})
         elif m.type == "tab_event":
             try:
                 e = TabEvent.model_validate(body)
@@ -393,6 +402,8 @@ class _Tab:
     chrome_id: int
     owner: str | None
     url: str
+    snapshot_json: str = ""
+    searches: dict[str, tuple[str, int, int]] = field(default_factory=dict)
     snap_gen: int = 0
     visual: tuple[str, int, int, float, int, int] | None = None
     points: dict[str, str] = field(default_factory=dict)
@@ -438,12 +449,6 @@ class _TabDriver:
         # The extension opens an inactive tab in its minimized window. App focus belongs to the owner,
         # including while this command is pending; a newly foreground browser is not proof of focus theft.
         v = await br.call("open", {"url": url}, timeout=30)
-        if br.wake_url is not None:                           # FERB's own tab is open now: the wake page can go
-            wake, br.wake_url = br.wake_url, None
-            try:
-                await br.call("wake_close", {"url": wake}, timeout=5)
-            except DriverError:
-                pass
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, str(v.get("url") or url))
@@ -527,15 +532,33 @@ class _TabDriver:
                 scroll = f.get("scroll") or None
         child_text = [str(f.get("text", "")) for f in v["frames"] if int(f["frame_id"]) != 0 and f.get("text")]
         if child_text:
-            text = (text[:4000] + "\n[Embedded frames]\n" + "\n".join(child_text))[:8000]
-        dialogs = [f"{d.get('type')}: {str(d.get('message') or '')[:200]} ({d.get('handled')})"
+            text = text + "\n[Embedded frames]\n" + "\n".join(child_text)
+        dialogs = [f"{d.get('type')}: {str(d.get('message') or '')} ({d.get('handled')})"
                    for d in v.get("dialogs", []) if isinstance(d, dict)]
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
         t.containers = containers
-        return PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
-                            scroll, scrollers)
+        result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
+                              scroll, scrollers)
+        from ferb.act.browser.snapshot import for_model
+        full = for_model(result, full=True)
+        full["frames"] = [{k: f[k] for k in ("frame_id", "url", "text", "truncated") if k in f} for f in v["frames"]]
+        t.snapshot_json = json.dumps(full, ensure_ascii=False)
+        return result
+
+    async def read(self, tab: TabRef, offset: int = 0, max_chars: int = 12000) -> dict[str, Any]:
+        t = self._tab(tab)
+        if not t.snapshot_json:
+            raise Refused("take a browser snapshot before reading its full evidence")
+        end = min(offset + max_chars, len(t.snapshot_json))
+        return {"tab": tab.tab_id, "snapshot": t.snap_gen, "text": t.snapshot_json[offset:end], "offset": offset,
+                "next_offset": end if end < len(t.snapshot_json) else None, "total_chars": len(t.snapshot_json)}
+
+    async def dialog(self, tab: TabRef, decision: str | None = None, text: str | None = None) -> dict[str, Any]:
+        t = self._tab(tab)
+        return dict(await t.bridge.call("dialog", {"tab_id":t.chrome_id, "decision":decision,
+                                                   **({"text":text} if text is not None else {})}, timeout=10))
 
     async def act(self, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
@@ -548,7 +571,7 @@ class _TabDriver:
             return await self._upload(t, frame, snap, local, action.files, intent_id)
         args: dict[str, Any] = {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
                                 "kind": action.kind, "text": action.text,
-                                # real (debugger-dispatched) input is the default (13.6); page events on request
+                                # real (debugger-dispatched) input is the default; page events on request
                                 "page_mode": bool(action.page_mode and not action.trusted and action.kind in TRUSTED_KINDS)}
         if action.expect_dialog:
             args["expect_dialog"] = action.expect_dialog
@@ -562,7 +585,8 @@ class _TabDriver:
             raise
         if v.get("detail") == "stale":
             raise StaleRef(f"element {el.element_id} is gone; take a new snapshot")
-        return ActionResult(bool(v.get("ok")), str(v.get("detail", "")))
+        return ActionResult(bool(v.get("ok")), str(v.get("detail", "")),
+                            {k:value for k,value in v.items() if k not in {"ok","detail"}})
 
     async def _pointer(self, t: _Tab, el: ElementRef, action: BrowserAction, intent_id: str) -> ActionResult:
         if action.page_mode or action.kind not in {"click", "dblclick", "rightclick", "hover", "drag"}:
@@ -588,12 +612,21 @@ class _TabDriver:
 
     async def _upload(self, t: _Tab, frame: int, snap: int, local: int, files: tuple[str, ...],
                       intent_id: str) -> ActionResult:
-        paths = [os.path.abspath(os.path.expanduser(f)) for f in files]
+        paths = [os.path.realpath(os.path.expanduser(f)) for f in files]
         if not paths:
             raise Refused("upload needs at least one file path")
-        for p in paths:
-            if not os.path.isfile(p):
-                raise Refused(f"no such file to upload: {p}")
+        identities = []
+        for path in paths:
+            if not os.path.isfile(path):
+                raise Refused(f"no such file to upload: {path}")
+            with open(path, "rb") as source:
+                before = os.fstat(source.fileno())
+                digest = hashlib.file_digest(source, "sha256").hexdigest()
+                after = os.fstat(source.fileno())
+            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise Refused("upload source changed while reading identity; inspect the file again")
+            identities.append({"path": path, "size": before.st_size, "modified_ns": before.st_mtime_ns,
+                               "sha256": digest, "owner_uid": before.st_uid})
         try:
             v = await t.bridge.call("upload", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
                                                "paths": paths}, timeout=30, cid=intent_id or None)
@@ -603,20 +636,44 @@ class _TabDriver:
             raise
         if v.get("detail") == "stale":
             raise StaleRef("the file field is gone; take a new snapshot")
-        return ActionResult(bool(v.get("ok")), str(v.get("detail", "")))
+        facts = {k: value for k, value in v.items() if k not in {"ok", "detail"}}
+        facts.update(source="local", files=identities, transferred=bool(v.get("ok")))
+        selected = v.get("selected_files")
+        facts["bytes_match"] = (len(selected) == len(identities) and all(
+            a.get("sha256") == b["sha256"] and a.get("size") == b["size"]
+            for a,b in zip(selected,identities))) if isinstance(selected,list) else None
+        changed = []
+        for item in identities:
+            try:
+                stat = os.stat(item["path"])
+                if (stat.st_size, stat.st_mtime_ns) != (item["size"], item["modified_ns"]):
+                    changed.append(item["path"])
+            except OSError:
+                changed.append(item["path"])
+        if changed:
+            facts.update(reason="source_changed_during_upload", changed=changed, transferred=None)
+            return ActionResult(False, "source changed during upload; attached bytes are unverified", facts)
+        if v.get("ok") and facts["bytes_match"] is False:
+            facts["reason"] = "uploaded_bytes_mismatch"
+            return ActionResult(False, "file input contains different bytes; inspect before any submission", facts)
+        return ActionResult(bool(v.get("ok")), str(v.get("detail", "")), facts)
 
-    async def find(self, tab: TabRef, text: str) -> dict[str, Any]:
-        """Lines on the whole page (not just the snapshot's first screens) containing `text`: a count and a few."""
+    async def find(self, tab: TabRef, text: str, offset: int = 0, max_chars: int = 12000) -> dict[str, Any]:
+        """Search all accessible frames; page full hit text without selecting a candidate."""
         t = self._tab(tab)
-        try:
-            v = await t.bridge.call("find", {"tab_id": t.chrome_id, "text": text}, timeout=15)
-        except DriverError as e:
-            if "unknown op" in str(e):
-                raise Refused("the FERB extension in that browser is older than FERB: reload it (0.6.5 or later)") \
-                    from None
-            raise
-        return {"matches": int(v.get("count", 0)), "lines_on_page": int(v.get("lines", 0)),
-                "examples": [str(x)[:160] for x in v.get("examples", [])][:20]}
+        if offset == 0:
+            value = await t.bridge.call("find", {"tab_id": t.chrome_id, "text": text}, timeout=30)
+            hits = value.get("hits", [{"frame_id": 0, "text": x} for x in value.get("examples", [])])
+            t.searches[text] = (json.dumps(hits, ensure_ascii=False), int(value.get("count", 0)),
+                                int(value.get("lines", 0)))
+        if text not in t.searches:
+            raise Refused("start this search at offset=0 before fetching its saved result pages")
+        payload, count, lines = t.searches[text]
+        end = min(offset + max_chars, len(payload))
+        return {"matches": count, "lines_on_page": lines,
+                "text": payload[offset:end], "offset": offset, "next_offset": end if end < len(payload) else None,
+                "total_chars": len(payload), "examples": [h["text"] for h in json.loads(payload)] if len(payload) <= max_chars else [],
+                "note": "Saved all-frame search inventory. offset=0 refreshes it; later pages keep the same evidence."}
 
     async def scroll(self, tab: TabRef, direction: str, container: str | None = None) -> dict[str, Any]:
         """Scroll the page, or one scroll container from the latest snapshot, about one screen (a real wheel event
@@ -767,21 +824,12 @@ class _TabDriver:
         return t, frame, snap, local, info
 
     def urls_of(self, owner: str) -> list[str]:
-        """Last known URLs of a task's tabs (verification, section 7 step 8)."""
+        """Last known URLs of the task-owned tabs, exposed as verification facts."""
         return [t.url for t in self._tabs.values() if t.owner == owner]
 
     def tabs_of(self, owner: str) -> list[str]:
         """Existing aliases for verification; ownership stays with the original worker."""
         return [t.ref.tab_id for t in self._tabs.values() if t.owner == owner]
-
-    async def account_of(self, owner: str, site: str) -> str | None:
-        """The signed-in account on a task's tab for that site, from the site's account extractor (or None)."""
-        for t in self._tabs.values():
-            if t.owner == owner and (urlsplit(t.url).hostname or "").endswith(site):
-                v = await t.bridge.call("account", {"tab_id": t.chrome_id}, timeout=10)
-                acct = v.get("account") if v.get("supported") else None
-                return str(acct) if acct and acct != "signed_in_unknown" else None
-        return None
 
     async def release(self, owner: str) -> list[dict[str, Any]]:
         results, errors = [], []
@@ -806,6 +854,16 @@ class _TabDriver:
 class Router(_TabDriver):
     """Owner profiles chosen explicitly by the agent. Never FERB's identity profile or secrets."""
     identity = Identity.OWNER
+
+    def profile_candidates(self) -> list[dict[str, Any]]:
+        out = []
+        for p in self.profiles():
+            br = self.hub.bridge(p.browser, p.folder)
+            if br is not None and br.binding.identity is Identity.FERB:
+                continue
+            out.append({"profile":f"{p.browser}/{p.folder}", "name":p.display_name, "account":p.email,
+                        "paired":br is not None, "connected":bool(br is not None and br.conn is not None)})
+        return out
 
     def __init__(self, hub: Hub, resolver: Resolver, profiles: Callable[[], list[BrowserProfile]],
                  wake: WakeServer | None = None, launch: Callable[[list[str]], None] | None = None) -> None:
@@ -865,6 +923,8 @@ class Router(_TabDriver):
                 entry = {"tab_ref": f"{br.binding.browser}:{br.binding.folder}:{t['tab_id']}",
                             "profile": f"{br.binding.browser.capitalize()} “"
                                        f"{names.get((br.binding.browser, br.binding.folder), br.binding.folder)}”",
+                            "profile_id": f"{br.binding.browser}/{br.binding.folder}",
+                            "url":str(t.get("url") or ""), "title":str(t.get("title") or ""),
                             "site": str(t.get("host") or ""), "active": bool(t.get("active"))}
                 if mine is not None:
                     entry["taken_over_as"] = mine.ref.tab_id      # already this task's: use this tab id
@@ -892,7 +952,7 @@ class Router(_TabDriver):
             raise Refused("that tab isn't open any more")
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
-        self._tabs[ref.tab_id] = _Tab(ref, br, cid, owner, f"https://{tab.get('host') or ''}/", attached=True)
+        self._tabs[ref.tab_id] = _Tab(ref, br, cid, owner, str(tab.get("url") or ""), attached=True)
         return ref
 
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:
@@ -926,14 +986,14 @@ class Router(_TabDriver):
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         raise Refused("FERB's secrets are never used in the owner's profiles")
 
-    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, candidate: str,
                        intent_id: str = "") -> ActionResult:
         raise Refused("FERB's inbox codes are never used in the owner's profiles")
 
 
 class FerbIdentity(_TabDriver):
     """FERB's own profile (`ferb_browser.*`, identity FERB), bound by pairing. Secrets and one-time codes reach a
-    field only sealed (10.1): the frame's origin is checked against the secret's allowed origins BEFORE the Keychain
+    field only sealed: the frame's origin is checked against the secret's allowed origins BEFORE the Keychain
     is read, the value is sealed to this fill command and that origin, and the extension re-checks the origin in the
     same in-page call that sets it on the exact element."""
     identity = Identity.FERB
@@ -949,6 +1009,7 @@ class FerbIdentity(_TabDriver):
         self._store = secrets                                 # the Keychain: read only inside _sealed fills
         self.mailbox_address, self.pairing_key, self.feed_url = mailbox_address, pairing_key, feed_url
         self.used_otps: set[str] = set()
+        self._otp_inventory: dict[tuple[str | None, str, str], GmailFeedMailbox] = {}
 
     async def _bridge(self) -> Bridge:
         prof = self.profile()
@@ -962,51 +1023,6 @@ class FerbIdentity(_TabDriver):
 
     async def open(self, url: str, background: bool = True) -> TabRef:
         return await self.open_for(url, owner="")
-
-    async def _in_sent(self, tab: TabRef, subject: str, poll_s: float, tries: int) -> bool:
-        """The message is in FERB's Sent folder (searched by its exact subject): a real confirmation, not a toast."""
-        from urllib.parse import quote
-        url = "https://mail.google.com/mail/u/0/#search/" + quote(f'in:sent subject:"{subject}"', safe="")
-        for i in range(tries):
-            if i % 6 == 0:
-                await self.navigate(tab, url)                  # Gmail refreshes search results on navigation
-                await asyncio.sleep(1.0)
-            snap = await self.snapshot(tab)
-            if subject in snap.text and "No messages matched" not in snap.text:
-                return True
-            await asyncio.sleep(poll_s)
-        return False
-
-    async def send_mail(self, to: list[str], subject: str, body: str, owner: str, intent_id: str = "",
-                        poll_s: float = 0.5, tries: int = 30) -> str:
-        """Send from FERB's own Gmail (build step 14): its compose page in FERB's profile, a real click on Send, and
-        Gmail's "Message sent" as the confirmation. No confirmation after the click: outcome unknown (the ledger
-        reconciles from FERB's Sent folder; never sent twice)."""
-        from urllib.parse import urlencode
-        url = "https://mail.google.com/mail/?view=cm&fs=1&" + urlencode({"to": ",".join(to), "su": subject,
-                                                                          "body": body})
-        tab = await self.open_for(url, owner)
-        try:
-            send = None
-            for _ in range(tries):
-                snap = await self.snapshot(tab)
-                send = next((e for e in snap.elements if e.role == "button" and e.label.startswith("Send")), None)
-                if send is not None:
-                    break
-                await asyncio.sleep(poll_s)
-            if send is None:
-                raise Refused("Gmail's compose page didn't load in FERB's profile (is FERB's inbox signed in?)")
-            await self.act(self.element_ref(tab, send.id), BrowserAction("click", trusted=True), intent_id)
-            for _ in range(tries):                            # Gmail's own toast, when the tab shows it
-                snap = await self.snapshot(tab)
-                if "Message sent" in snap.text:
-                    return "sent"
-                await asyncio.sleep(poll_s)
-            if await self._in_sent(tab, subject, poll_s, tries * 3):   # a background tab may never show the toast
-                return "sent"
-            raise OutcomeUnknown("clicked Send but Gmail didn't confirm; check FERB's Sent folder")
-        finally:
-            await self.close(tab)
 
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         if not self.secrets.has(ref):
@@ -1022,24 +1038,42 @@ class FerbIdentity(_TabDriver):
         del value
         return ActionResult(r.ok, f"{r.detail} ({ref.key})")
 
-    async def fill_otp(self, el: ElementRef, ref: SecretRef, since: datetime, sender_contains: str | None,
-                       intent_id: str = "", timeout: float = 120.0, poll: float = 5.0) -> ActionResult:
+    async def otp_candidates(self, el: ElementRef, ref: SecretRef) -> dict[str, Any]:
+        if not self.secrets.has(ref):
+            raise Refused(f"no account {ref.key} is set up")
+        t, frame, _, _, _ = self._resolve(el)
+        origin = await self._checked_origin(t, frame, ref)
+        mailbox = GmailFeedMailbox(self._read_feed, self.mailbox_address(), self.feed_url)
+        mailbox.used = self.used_otps
+        result = await mailbox.candidates()
+        self._otp_inventory[(t.owner, ref.key, origin)] = mailbox
+        return {**result, "destination_origin":origin}
+
+    async def fill_otp(self, el: ElementRef, ref: SecretRef, candidate: str,
+                       intent_id: str = "") -> ActionResult:
         if not self.secrets.has(ref):
             raise Refused(f"no account {ref.key} is set up")
         t, frame, snap, local, _ = self._resolve(el)
-        await self._checked_origin(t, frame, ref)
-        mailbox = GmailFeedMailbox(self._read_feed, self.mailbox_address(), self.feed_url)
-        mailbox.used = self.used_otps
-        found = await wait_for_code(mailbox, since, sender_contains, timeout, poll)
-        if not found.code:
-            return ActionResult(False, REASONS[found.reason])
-        self.add_secret_value(found.code)
-        t, frame, snap, local, _ = self._resolve(el)          # the page may have moved while we waited
         origin = await self._checked_origin(t, frame, ref)
+        mailbox = self._otp_inventory.get((t.owner, ref.key, origin))
+        if mailbox is None:
+            raise Refused("inspect OTP candidates for this account and destination first")
+        try:
+            found = mailbox.take(candidate)
+        except ValueError as e:
+            raise Refused(str(e)) from None
+        self.add_secret_value(found.code)
         r = await self._sealed_fill(t, frame, snap, local, origin, found.code, intent_id)
-        if r.ok and found.message_id:
+        if r.ok:
             self.used_otps.add(found.message_id)
-        return ActionResult(r.ok, f"{r.detail} (code from FERB's inbox)")
+        return ActionResult(r.ok, f"{r.detail} (explicitly selected inbox candidate)",
+                            {"message_id":found.message_id,"source":self.feed_url,"destination_origin":origin})
+
+    async def release(self, owner: str) -> list[dict[str, Any]]:
+        try:
+            return await super().release(owner)
+        finally:
+            self._otp_inventory = {k:v for k,v in self._otp_inventory.items() if k[0] != owner}
 
     async def _checked_origin(self, t: _Tab, frame: int, ref: SecretRef) -> str:
         v = await t.bridge.call("frame_origin", {"tab_id": t.chrome_id, "frame_id": frame}, timeout=10)
@@ -1072,7 +1106,7 @@ class FerbIdentity(_TabDriver):
             t = self._tab(ref)
             cid = "r-" + secrets.token_hex(8)
             v = await br.call("read_source", {"tab_id": t.chrome_id}, timeout=20, cid=cid)
-            return unseal(seal_key(key), v["sealed"], cid, url)       # the feed travels sealed too (test 21)
+            return unseal(seal_key(key), v["sealed"], cid, url)       # the feed travels sealed too
         finally:
             await self.close(ref)
 

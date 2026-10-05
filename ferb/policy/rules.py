@@ -1,10 +1,13 @@
-"""Shared action kinds and ledger payload hashes; no permission or intent rules."""
+"""Own action metadata and stable ledger hashes. Must not classify request/UI text or authorize effects."""
 
 import hashlib
 import json
 from dataclasses import dataclass
 from ferb.core.types import Identity, Target
 
+
+# Agent-declared annotations; these do not grant authority or infer meaning from control labels.
+EFFECTS = ("navigate", "edit", "send", "pay", "destroy")
 
 class Kind:
     READ, NAVIGATE, SEARCH, OPEN_TAB, DRAFT = "read", "navigate", "search", "open_tab", "draft"
@@ -14,11 +17,11 @@ class Kind:
     FILL_SECRET, MAILBOX_READ, MAILBOX_SEND = "fill_secret", "mailbox_read", "mailbox_send"
     TIMER = "timer"                                       # a reminder / timer for the owner (cancelable)
     ACCOUNT_SECURITY = "account_security"                 # passwords, 2FA, recovery settings, account deletion
-    CALL = "call"                                         # starting a voice / video call (build step 16)
+    CALL = "call"                                         # starting a voice / video call
     CLICK = "click"                                       # a plain click on a page control (no floor word, no form)
 
 
-# Reversible kinds never get a ledger row (section 10.2): nothing of the owner's changes.
+# Reversible kinds never get a ledger row: nothing of the owner's changes.
 REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER}
 @dataclass(frozen=True)
 class ActionRequest:

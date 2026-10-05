@@ -1,12 +1,13 @@
-"""Durable timers (section 13, build step 14): SQLite-backed; survive restarts and sleep; delivered exactly once.
+"""Owns durable timer delivery. Must not infer ambiguous owner intent or turn reminders into unauthorized actions.
+
+Durable timers: SQLite-backed; survive restarts and sleep; delivered exactly once.
 
 - Due times are checked against the wall clock at least every POLL_S: the monotonic clock stops while the Mac sleeps,
   so a timer due during sleep (or while FERB was down) fires on the next check, with `overdue_s`.
-- Exactly once (safety test 19): a due timer is claimed (pending -> claimed, with a token), handed to its consumer,
+- Exactly once: a due timer is claimed (pending -> claimed, with a token), handed to its consumer,
   then acknowledged (-> delivered). A crash between claim and acknowledgement leaves it claimed; on start it's
   handed over again, and the consumer skips a timer id it already acted on (`timer_deliveries`, written in the same
-  transaction as the consumer's own record).
-"""
+  transaction as the consumer's own record)."""
 
 import asyncio
 import secrets
@@ -18,7 +19,6 @@ from ferb.core.interfaces import Clock, IdSource
 from ferb.store.db import Database
 
 POLL_S = 30.0
-MAX_AHEAD = timedelta(days=366)
 
 
 @dataclass(frozen=True)
@@ -52,13 +52,11 @@ class Timers:
         now = self.clock.now()
         if fire_at.tzinfo is None:
             raise ValueError("a timer needs a time zone")
-        if fire_at > now + MAX_AHEAD:
-            raise ValueError("timers can be at most a year ahead")
         tid = "tm-" + self.ids.new_id()
         self.db.conn.execute(
             "INSERT INTO timers (id, kind, fire_at, message, task_id, request_id, state, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
-            (tid, kind, fire_at.astimezone(timezone.utc).isoformat(), message[:500], task_id, request_id,
+            (tid, kind, fire_at.astimezone(timezone.utc).isoformat(), message, task_id, request_id,
              now.isoformat()))
         self._wake.set()
         t = self.get(tid)

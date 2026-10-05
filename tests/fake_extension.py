@@ -369,13 +369,23 @@ class FakeExtension:
         if a["kind"] == "click" and el.get("dialog"):          # the click opens a dialog the extension must answer
             expect = a.get("expect_dialog")
             d = {"type": el["dialog"], "message": "Sure?", "default": "",
-                 "handled": "accepted" if expect == "accept" else "dismissed"}
+                 "handled": "accepted" if expect == "accept" else "dismissed" if expect == "dismiss" else "pending"}
             self.dialogs.append({"tab_id": a["tab_id"], **d})
             self.pending_dialogs.setdefault(a["tab_id"], []).append(d)
             self.send("event", {"event": "dialog", "tab_id": a["tab_id"], **d})
         if a["kind"] == "click" and el.get("href"):
             self.op_navigate({"tab_id": a["tab_id"], "url": el["href"]}, cid)
         return {"ok": True, "detail": a["kind"] + (" (trusted)" if trusted else " (page events)")}
+
+    def op_dialog(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        pending = [d for d in self.dialogs if d["tab_id"] == a["tab_id"] and d["handled"] == "pending"]
+        if not a.get("decision"):
+            return {"pending":pending[-1] if pending else None}
+        if not pending:
+            return {"ok":False,"reason":"no_pending_dialog"}
+        d = pending[-1]
+        d["handled"] = "accepted" if a["decision"] == "accept" else "dismissed"
+        return {"ok":True, **d}
 
     def op_scroll(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self._attach(a["tab_id"])

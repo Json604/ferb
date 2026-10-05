@@ -1,4 +1,6 @@
-"""Focused window titles (section 11), when `[sense] window_titles` is on (default). Redacted like everything in
+"""Observe window geometry and titles under observation policy. Must not raise, move or resize windows.
+
+Focused window titles, when `[sense] window_titles` is on (default). Redacted like everything in
 the pipeline. Browsers are skipped: their pages are recorded by the tab watcher, where the URL lets the domain
 exclusions apply (a title alone can't be checked against them)."""
 

@@ -1,100 +1,43 @@
 ---
-title: FERB 0.25.0 — High-level design (current implementation)
-config:
-  theme: neutral
-  layout: elk
-  fontFamily: Arial, sans-serif
-  themeCSS: 'text, .nodeLabel, .edgeLabel, .cluster-label { font-family: Arial, sans-serif !important; }'
-  themeVariables:
-    fontFamily: Arial, sans-serif
-    fontSize: 16px
-  flowchart:
-    curve: linear
-    nodeSpacing: 40
-    rankSpacing: 55
+title: FERB 0.26 — responsibilities and boundaries
 ---
 flowchart TB
-    OWNER([Owner])
-    MODELS["External model services<br/>Codex / Claude authentication"]
-    JEV["Optional Jev service<br/>Activity / memory enrichment"]
-
-    subgraph MAC["Deployment boundary: owner's Mac — one local FERB installation"]
-        UI["Owner interfaces<br/>ferb CLI / chat<br/>Optional signed FERB.app microphone client"]
-
-        subgraph DAEMON["FERB daemon process — Python / asyncio"]
-            RPC["Authenticated Unix-socket RPC + event delivery<br/>Chat, voice controller, questions, stop, notifications"]
-            SUP["Supervisor + WorkerRuns + runtime adapters<br/>Plan → worker → inspect → cleanup → report<br/>Recovery chooses next sequential attempt"]
-            CTX["Context + installed registry<br/>Relevant memory, daily activity, chat / task history<br/>Action discovery, worker types, live device facts"]
-            GATE["Action gateway + live execution state<br/>Run tokens, schema / stop checks, locks, pending questions<br/>Execute capabilities; redact, trace and ledger outcomes"]
-            ACTIONS["Capability implementations / drivers<br/>Browser bridge, Mac, shell, files<br/>Owner questions, evidence, trail and time"]
-            CAPTURE["Task-owned recording manager<br/>Exact tab / window samples → silent MP4 + receipt<br/>Stop before target release; decode saved frames for inspection"]
-            BG["Background services<br/>Filtered activity watchers + memory distillation<br/>Timers: reminders, worker sleep, scheduled requests"]
-            RECORD["Persistence + observability services<br/>SQLite stores, journal, spans, event bus<br/>Daily activity mirror and task-result delivery"]
-        end
-
-        subgraph RUNS["Separate agent runtime processes / clients"]
-            RUNTIME["Codex CLI / Claude Agent SDK runtime<br/>Decision calls: no action tools<br/>Worker / checker: FERB MCP tools"]
-            MCP["ferb mcp stdio shim<br/>Per-run token → daemon tools.list / tools.call"]
-        end
-
-        subgraph BROWSER["Chrome / Brave control chain"]
-            HOST["Native host process ↔ FERB extension<br/>Native messaging; extension 0.12.0 / protocol 7<br/>Debugger / CDP, Accessibility + DOM references"]
-            TABS["Websites in selected profile<br/>FERB profile or explicitly selected owner profile<br/>Owned / borrowed / retained tabs"]
-        end
-        NATIVE["Native macOS applications<br/>Accessibility, AppleScript, screenshots<br/>App/window-targeted keyboard and pointer input"]
-        SHELL["Task-managed shell / PTY processes<br/>Commands and requested coding-agent sessions<br/>Independent of internal worker runtime"]
-
-        subgraph STORAGE["Persistent local state"]
-            DB[("~/.ferb/ferb.db<br/>Tasks, conversations, results, spans, journal<br/>Ledger, trail, memory, timers, schedules")]
-            FILES[("Local files<br/>activity/today.jsonl; memory exports; shell logs<br/>Workspace and owner-requested artifacts")]
-            KEYCHAIN[("Keychain / sealed credentials<br/>Origin-bound secret fills<br/>FERB identity and mailbox support")]
-        end
-    end
-
-    OWNER <-->|"Tasks, answers, results"| UI
-    UI <-->|"RPC / events / hidden OTP"| RPC
-    RPC -->|"Chat / task control"| SUP
-    SUP -->|"Retrieve bounded context"| CTX
-    SUP <-->|"Start / observe / cancel typed runs"| RUNTIME
-    RUNTIME <-->|"Model inference"| MODELS
-    RUNTIME <-->|"Worker / checker calls only"| MCP
-    MCP <-->|"Authenticated tool RPC"| RPC
-    RPC -->|"tools.call"| GATE
-    GATE <-->|"owner.ask → orchestrator first"| SUP
-    GATE <-->|"Question / hidden-code transport"| RPC
-    GATE <-->|"Capability call / result"| ACTIONS
-    CTX -.->|"Registered tools / schemas"| GATE
-    ACTIONS <-->|"Daemon bridge ↔ native-host socket"| HOST
-    HOST <-->|"Observe / operate / retain or close"| TABS
-    ACTIONS <-->|"Native control"| NATIVE
-    ACTIONS <-->|"Start / read / wait / stop"| SHELL
-    ACTIONS <-->|"Start / stop / inspect target recording"| CAPTURE
-    CAPTURE <-->|"Exact tab via record_frame"| HOST
-    CAPTURE <-->|"Exact window / PID screenshot"| NATIVE
-    CAPTURE -->|"MP4 + receipt / decoded review"| FILES
-    ACTIONS <-->|"File operations / shell logs"| FILES
-    ACTIONS -.->|"Sealed credential fills"| KEYCHAIN
-    SUP -->|"Release worker / checker resources"| ACTIONS
-    BG -->|"Scheduled request → planner"| SUP
-    BG -->|"Reminders"| RPC
-    ACTIONS <-->|"Time / sleep API"| BG
-    NATIVE -.->|"OS activity observations"| BG
-    HOST -.->|"Browser tab events"| BG
-    BG -->|"Via runtime adapter: no-tool distillation"| RUNTIME
-    BG -.->|"Optional enrichment"| JEV
-    CTX -.->|"Query relevant stored facts"| RECORD
-    SUP -.->|"Decisions / task lifecycle"| RECORD
-    GATE -.->|"Tool spans / ledger / action events"| RECORD
-    BG -.->|"Activity, memory, timers"| RECORD
-    RECORD -.->|"Read / write"| DB
-    RECORD -.->|"Daily activity / memory exports"| FILES
-    RECORD -.->|"Live progress / saved results"| RPC
-
-    classDef control fill:#e9f1ed,stroke:#366653,color:#14251d;
-    classDef runtime fill:#e9effc,stroke:#41649c,color:#142647;
-    classDef storage fill:#f1eafa,stroke:#7b5a9d,color:#322241;
-    classDef external fill:#fff4de,stroke:#947431,color:#3b2d0b;
-    class RPC,SUP,CTX,GATE,ACTIONS,BG,RECORD,CAPTURE control;
-    class RUNTIME,MCP runtime;
-    class DB,FILES,KEYCHAIN storage;
-    class OWNER,MODELS,JEV,TABS,NATIVE,SHELL external;
+  O[Owner CLI or future client] --> RPC
+  subgraph HARNESS[Harness — mechanics and observed facts]
+    RPC[Authenticated local RPC]
+    G[Gateway: validate, lock, own, execute]
+    S[Disturbance sentinel: task and action observations]
+    T[Stop and run tokens]
+    DB[(Spans, journal, tasks, ledger, results)]
+    E[Evidence pages and structured outcome export]
+    R[Target recordings and cleanup facts]
+    B[Browser bridge / native host / extension 0.13 protocol 8]
+    N[Native AX / PID / explicit foreground route]
+    F[Files and managed shell processes]
+    G --> B & N & F & R
+    G --> DB
+    S --> DB
+    E --> DB
+    T --> G
+    RPC --> E
+  end
+  subgraph APPROACH[Approach — agent judgment]
+    C[Full request + token-budgeted context + intake receipts]
+    P[Planner: meaning, source, identity, outcome conditions]
+    W[Worker: choose tools and inspect results]
+    Q[Question and recovery decisions]
+    V[Checker: outcome and identity evidence]
+    A[Final: unresolved conditions before facts]
+    C --> P --> W
+    W --> V --> A
+    W --> Q --> W
+    Q --> O
+  end
+  RPC --> C
+  W --> G
+  V --> G & E
+  S -. observes .-> B & N & F & R
+  A --> RPC
+  P -. single approach selection .-> Q & V
+  M[Memory / activity / timers / optional Jev typed seam] --> C
+  M --> DB

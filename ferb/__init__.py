@@ -1,3 +1,3 @@
-"""FERB: personal agent runtime for macOS."""
+"""FERB package and release identity. Must not perform orchestration at import time."""
 
-__version__ = "0.25.0"
+__version__ = "0.26.0"

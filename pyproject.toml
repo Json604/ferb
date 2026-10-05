@@ -1,6 +1,6 @@
 [project]
 name = "ferb"
-version = "0.25.0"
+version = "0.26.0"
 description = "FERB: personal agent runtime for macOS"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
     "pyobjc-framework-fsevents>=12.2.2",
     "pyobjc-framework-quartz>=12.2.2",
     "pyobjc-framework-screencapturekit>=12.2.2",
+    "tiktoken>=0.12,<1",
     "tomlkit>=0.15.1",
 ]
 

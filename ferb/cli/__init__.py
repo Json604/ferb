@@ -1,4 +1,6 @@
-"""`ferb` command line (section 15): logs, trace, daemon run, stop, resume-tasks, setup, doctor,
+"""Register CLI commands and common connection helpers. Must not implement task orchestration.
+
+`ferb` command line: logs, trace, daemon run, stop, resume-tasks, setup, doctor,
 uninstall."""
 
 import argparse

@@ -1,6 +1,8 @@
-"""CodexRuntime (section 5 AgentRuntime) over `codex exec --json` — supervisor and worker modes.
+"""Owns the pinned Codex CLI adapter and tool containment. Must not select task targets, authorize actions or expose tools outside the registered harness.
 
-Lockdown (spikes 1 + 21, section 7): pinned Codex 0.157.1 and MODEL below, run without code mode / sub-agents via
+CodexRuntime over `codex exec --json` — supervisor and worker modes.
+
+Tool containment (measured in spikes 1 and 21): pinned Codex 0.157.1 and MODEL below, run without code mode / sub-agents via
 FERB's own model catalog, user config and rules ignored,
 every disableable native tool off, read-only sandbox (makes the non-removable apply_patch inert),
 approval_policy=never. Worker mode's only tool source is `ferb mcp` (pre-approved); supervisor mode has none.
@@ -14,8 +16,7 @@ Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
   Codex's built-in instructions with FERB's own (model_instructions_file) — about half the input tokens — and drop
   Codex's environment / permissions / apps / collaboration instruction blocks; tasks (worker mode) are unchanged;
 - a supervisor-mode run ends at Codex's `turn.completed`; the process exits in the background (about 0.6 s saved
-  per turn). Worker runs still wait for the exit, so the tool-list check reads the whole trace.
-"""
+  per turn). Worker runs still wait for the exit, so the tool-list check reads the whole trace."""
 
 import asyncio
 import json
@@ -202,12 +203,13 @@ class CodexRuntime:
         watcher = asyncio.create_task(self._watch_trace(run, proc))
         last_message = ""
         completed = False
+        turn_completed = False
         try:
             async with asyncio.timeout(self.timeout_s):
                 async for raw in proc.stdout:
                     if run.state["violation"]:
                         break
-                    line = raw.decode(errors="replace").strip()
+                    line = raw.decode("utf-8").strip()
                     if not line.startswith("{"):
                         continue
                     ev = json.loads(line)
@@ -219,6 +221,7 @@ class CodexRuntime:
                         yield RuntimeEvent("tool_call", {"tool": item.get("tool"), "status": item.get("status"),
                                                          "arguments": item.get("arguments")})
                     elif ev.get("type") == "turn.completed":
+                        turn_completed = True
                         yield RuntimeEvent("usage", dict(ev.get("usage", {})))
                         if self.mode == "supervisor":            # no FERB tools: the answer is in, don't wait for
                             completed = True                     # Codex to exit (workers wait, so the tool-list
@@ -240,6 +243,10 @@ class CodexRuntime:
                     Path(run.state[key]).unlink(missing_ok=True)
         if run.state["violation"]:
             yield RuntimeEvent("violation", {"unexpected_tools": sorted(run.state["violation"])})
+            return
+        if not turn_completed or (not completed and proc.returncode != 0):
+            yield RuntimeEvent("error", {"message": f"Codex exited with code {proc.returncode}; "
+                                          f"completed_turn={turn_completed}. The last message is only a partial report."})
             return
         yield RuntimeEvent("final", {"text": last_message, "returncode": proc.returncode,
                                      "tools_seen": sorted(run.state["seen"])})

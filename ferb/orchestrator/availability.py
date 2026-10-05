@@ -1,4 +1,6 @@
-"""Installed tool families and observed connection facts, without routing or permission decisions."""
+"""Owns installed capability facts for planning. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Installed tool families and observed connection facts, without routing or permission decisions."""
 
 from dataclasses import dataclass, field
 

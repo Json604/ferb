@@ -1,4 +1,6 @@
-"""Task tree (section 3, section 7): what's running, for the gateway (request id, deadline, span, role, tree) and,
+"""Owns registered tasks and request execution state. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Task tree: what's running, for the gateway (request id, deadline, span, role, tree) and,
 persisted in SQLite, for `ferb trace` and restarts: a daemon that restarts marks subtasks that were running as
 `interrupted` (their consequential actions are already `unknown` in the ledger and get reconciled)."""
 

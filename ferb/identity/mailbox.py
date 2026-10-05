@@ -1,29 +1,21 @@
-"""FERB's inbox (section 3 identity/mailbox.py): read one-time codes. Block 1 reads only.
+"""Owns sealed unread-mail candidate inventory; must never choose an account, message or code for an agent.
 
-Source: Gmail's Atom feed of unread inbox mail (`/mail/feed/atom`), fetched inside FERB's identity browser with the
-seeded session — no extra credentials. The code goes straight from here into an origin-checked field
-(`browser.fill_otp`); it's never returned to a model, logged or stored (section 21 test 5). Email is untrusted:
-only a digit code is taken from it, and only when exactly one candidate is present.
+Gmail Atom exposes unread inbox entries only. Numeric strings are opaque candidates, not inferred OTPs; the agent
+judges sender, time and message identity. Subject/body stay sealed because unsupported secret formats cannot be
+safely masked by the numeric candidate grammar. Alphanumeric formats need an explicitly chosen alternative route.
+Transport failures propagate distinctly from an unavailable or wrong-account feed.
 """
-
-import asyncio
 import re
+import secrets
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Awaitable, Callable
-
-# What a worker is told when no code was filled (never the code itself).
-REASONS = {"no_new_message": "no new code arrived in FERB's inbox",
-           "no_code": "the newest email has no code in it",
-           "ambiguous": "the newest email has more than one code; refusing to guess",
-           "not_signed_in": "FERB's inbox is signed out"}
+from typing import Any, Awaitable, Callable
 
 FEED_URL = "https://mail.google.com/mail/feed/atom"
 NS = {"a": "http://purl.org/atom/ns#"}
-_CODE = re.compile(r"(?<![\w-])(?:G-)?(\d{4,8})(?![\w-])")
-_YEAR = re.compile(r"^(19|20)\d{2}$")
-
+_CODE = re.compile(r"(?<![\w-])(?:G-)?(\d{4,})(?![\w-])")
+_EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+")
 
 @dataclass(frozen=True)
 class Message:
@@ -33,13 +25,10 @@ class Message:
     summary: str
     issued: datetime
 
-
 @dataclass(frozen=True)
-class CodeResult:
-    code: str | None
-    message_id: str | None
-    reason: str                                  # "ok" | "no_new_message" | "no_code" | "ambiguous" | ...
-
+class CodeCandidate:
+    code: str
+    message_id: str
 
 def parse_feed(xml_text: str) -> tuple[str, list[Message]]:
     """-> (feed title, messages). Raises ValueError when it isn't an inbox feed (e.g. a sign-in page)."""
@@ -57,58 +46,57 @@ def parse_feed(xml_text: str) -> tuple[str, list[Message]]:
     return title, msgs
 
 
-def extract_code(msg: Message) -> str | None | bool:
-    """One code -> str; none -> None; several different ones -> False (ambiguous)."""
-    found = {m.group(1) for m in _CODE.finditer(f"{msg.subject}\n{msg.summary}") if not _YEAR.match(m.group(1))}
-    if not found:
-        return None
-    return found.pop() if len(found) == 1 else False
-
 
 class GmailFeedMailbox:
     def __init__(self, fetch: Callable[[str], Awaitable[str]], address: str, feed_url: str = FEED_URL) -> None:
         self.fetch, self.address, self.feed_url = fetch, address.lower(), feed_url
-        self.used: set[str] = set()              # message ids whose code was already filled (memory only)
+        self.used: set[str] = set()
+        self._candidates: dict[str, CodeCandidate] = {}
 
     async def _feed(self) -> tuple[str, list[Message]] | None:
-        """None when the feed can't be read as FERB's inbox (signed out: 401, a sign-in page, bad XML)."""
+        text = await self.fetch(self.feed_url)
         try:
-            return parse_feed(await self.fetch(self.feed_url))
-        except Exception:                        # load refused (e.g. 401) or not a feed: treat as signed out
+            return parse_feed(text)
+        except (ValueError, ET.ParseError):
             return None
+
+    def _account_matches(self, title: str) -> bool:
+        # Exact address equality avoids accepting another inbox merely containing FERB's address.
+        return set(e.lower() for e in _EMAIL.findall(title)) == {self.address}
 
     async def signed_in(self) -> bool:
         feed = await self._feed()
-        return feed is not None and self.address in feed[0].lower()
+        return feed is not None and self._account_matches(feed[0])
 
-    async def find_code(self, since: datetime, sender_contains: str | None = None) -> CodeResult:
+    async def candidates(self) -> dict[str, Any]:
         feed = await self._feed()
+        self._candidates.clear()
         if feed is None:
-            return CodeResult(None, None, "not_signed_in")
-        title, msgs = feed
-        if self.address not in title.lower():
-            return CodeResult(None, None, "not_signed_in")
-        fresh = [m for m in msgs if m.issued >= since and m.id not in self.used
-                 and (not sender_contains or sender_contains.lower() in m.sender)]
-        if not fresh:
-            return CodeResult(None, None, "no_new_message")
-        newest = max(fresh, key=lambda m: m.issued)
-        code = extract_code(newest)
-        if code is None:
-            return CodeResult(None, newest.id, "no_code")
-        if code is False:
-            return CodeResult(None, newest.id, "ambiguous")
-        assert isinstance(code, str)
-        return CodeResult(code, newest.id, "ok")
+            return {"available":False,"reason":"feed_unavailable","candidates":[]}
+        title, messages = feed
+        if not self._account_matches(title):
+            return {"available":False,"reason":"account_mismatch","expected_account":self.address,
+                    "observed_accounts":sorted(set(_EMAIL.findall(title))),"candidates":[]}
+        out = []
+        for msg in messages:
+            if msg.id in self.used:
+                continue
+            content = f"{msg.subject}\n{msg.summary}"
+            codes = list(dict.fromkeys(m.group(1) for m in _CODE.finditer(content)))
+            labels = {code:f"[candidate {i+1}: {len(code)} digits]" for i,code in enumerate(codes)}
+            for code in codes:
+                token = secrets.token_urlsafe(18)
+                self._candidates[token] = CodeCandidate(code,msg.id)
+                out.append({"candidate":token,"message_id":msg.id,"source":self.feed_url,"account":self.address,
+                            "sender":msg.sender,"issued":msg.issued.isoformat(),"marker":labels[code]})
+        return {"available":True,"candidates":out,"coverage":
+                "Unread inbox entries only; numeric candidates of at least four digits, not verified OTPs. "
+                "Subject and body are withheld to keep unsupported secret formats sealed. Alphanumeric and shorter "
+                "codes are unsupported by this inventory. No candidate is selected automatically; insufficient "
+                "identity evidence requires asking the owner or choosing another explicit route."}
 
-
-async def wait_for_code(mailbox: GmailFeedMailbox, since: datetime, sender_contains: str | None,
-                        timeout: float = 120.0, poll: float = 5.0) -> CodeResult:
-    """Poll the inbox until a fresh code arrives; stop early on a signed-out inbox or an ambiguous message."""
-    loop = asyncio.get_running_loop()
-    end = loop.time() + timeout
-    while True:
-        found = await mailbox.find_code(since, sender_contains)
-        if found.code or found.reason in ("ambiguous", "not_signed_in") or loop.time() >= end:
-            return found
-        await asyncio.sleep(poll)
+    def take(self, token: str) -> CodeCandidate:
+        candidate = self._candidates.pop(token, None)
+        if candidate is None or candidate.message_id in self.used:
+            raise ValueError("OTP candidate is unavailable, consumed or belongs to another inventory")
+        return candidate

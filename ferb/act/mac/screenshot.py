@@ -1,4 +1,6 @@
-"""On-demand capture of one app window (section 3 act/mac, build step 9). Blocking pyobjc calls — callers run them
+"""Capture one exact window into memory and map image coordinates. Must not capture the desktop or choose a substitute window.
+
+On-demand capture of one app window. Blocking pyobjc calls — callers run them
 in a thread.
 
 - Only the target window: ScreenCaptureKit's desktop-independent window filter renders that window's own content,
@@ -7,8 +9,7 @@ in a thread.
 - Marks (owner request, 2026-10-01): a snapshot's image can carry each control's number drawn on its box, so the model
   sees the same thing it acts on ("12" on the image = element s<gen>e12). Drawn on the in-memory image before encoding.
 - `window_at` answers "which normal window is topmost at this point": the fallback for checking that a click lands on
-  the window the model saw when Accessibility's hit test (accessibility.hit) can't answer.
-"""
+  the window the model saw when Accessibility's hit test (accessibility.hit) can't answer."""
 
 import threading
 from dataclasses import dataclass
@@ -60,26 +61,14 @@ def _window(d: dict[str, Any]) -> Window:
                   str(d.get("kCGWindowName") or ""))
 
 
-MIN_SIDE = 50                 # smaller layer-0 windows are helpers / strips, not something to look at
-
-
 def front_window(pid: int, like: tuple[float, float, float, float] | None = None) -> Window | None:
-    """The app's window to capture: the on-screen normal (layer 0) window matching `like` (its Accessibility window's
-    frame) if there is one, else its frontmost one of a real size."""
-    for everywhere in (False, True):                  # this Space first; then other Spaces / full screen (14a)
-        mine = [_window(d) for d in _info_windows(everywhere)
-                if int(d.get("kCGWindowOwnerPID", -1)) == pid and int(d.get("kCGWindowLayer", 1)) == 0
-                and float(d.get("kCGWindowAlpha", 1)) > 0]
-        mine = [w for w in mine if w.bounds[2] >= MIN_SIDE and w.bounds[3] >= MIN_SIDE]
-        if everywhere:
-            mine = [w for w in mine if w.title] or mine   # real windows have titles; helpers often don't
-        if like is not None:
-            match = next((w for w in mine if all(abs(a - b) <= 2 for a, b in zip(w.bounds, like))), None)
-            if match is not None:
-                return match
-        if mine:
-            return mine[0]
-    return None
+    """The unique process-owned normal window matching exact bounds, or None. Never choose by order or size."""
+    mine = [_window(d) for d in _info_windows(True)
+            if int(d.get("kCGWindowOwnerPID", -1)) == pid and int(d.get("kCGWindowLayer", 1)) == 0
+            and float(d.get("kCGWindowAlpha", 1)) > 0]
+    if like is not None:
+        mine = [w for w in mine if all(abs(a - b) <= 2 for a, b in zip(w.bounds, like))]
+    return mine[0] if len(mine) == 1 else None
 
 
 def on_screen(window_id: int) -> bool:
@@ -118,7 +107,7 @@ def _wait(start: Any) -> Any:
     return box["v"]
 
 
-def capture(w: Window, max_edge: int = MAX_EDGE, marks: list[Mark] | None = None) -> tuple[bytes, int, int]:
+def capture(w: Window, max_edge: int | None = MAX_EDGE, marks: list[Mark] | None = None) -> tuple[bytes, int, int]:
     """JPEG bytes of exactly this window, and the image size (px). `marks` (screen points) are drawn on it."""
     import ScreenCaptureKit as SCK
     content = _wait(lambda h: SCK.SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(
@@ -130,7 +119,7 @@ def capture(w: Window, max_edge: int = MAX_EDGE, marks: list[Mark] | None = None
     cfg = SCK.SCStreamConfiguration.alloc().init()
     scale = float(flt.pointPixelScale() or 1.0)
     fw, fh = w.bounds[2] * scale, w.bounds[3] * scale
-    k = min(1.0, max_edge / max(fw, fh))
+    k = min(1.0, max_edge / max(fw, fh)) if max_edge is not None else 1.0
     width, height = max(1, int(fw * k)), max(1, int(fh * k))
     cfg.setWidth_(width)
     cfg.setHeight_(height)

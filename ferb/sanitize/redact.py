@@ -1,6 +1,4 @@
-"""The one redaction pipeline (section 10.6). Runs before anything reaches a model, trace, log, exception message,
-journal, memory or export. Returns new objects; never mutates its input. Imports core only.
-"""
+"""Own secret redaction before model, trace and log boundaries. Must not use secret content to decide actions."""
 
 import codecs
 import re

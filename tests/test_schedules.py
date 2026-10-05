@@ -38,8 +38,8 @@ def test_recurrence_keeps_local_time_across_daylight_saving() -> None:
     assert nxt is not None and nxt.astimezone(NY).weekday() == 0                  # Friday -> Monday
     weekly = Rule.build("weekly", first, "monday", tz=NY)
     assert weekly.next_after(first, first).astimezone(NY).weekday() == 0          # type: ignore[union-attr]
-    with pytest.raises(ScheduleError, match="15 minutes"):
-        Rule.build("every", first, every_minutes=5, tz=NY)
+    with pytest.raises(ScheduleError, match="positive"):
+        Rule.build("every", first, every_minutes=0, tz=NY)
     assert Rule.build("none", first, tz=NY).next_after(first, first) is None
 
 
@@ -80,7 +80,7 @@ def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: Runnin
     assert len(run(daemon, daemon.daemon.schedules.all)) == 1
 
 
-def test_email_me_asks_once_then_uses_the_remembered_address(daemon: RunningDaemon) -> None:
+def test_remembered_address_does_not_rewrite_schedule_recipient(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
     ask = schedule_reply(daemon, "email me the report", "every morning at 9 email me the report",
                          now + timedelta(hours=10), "daily", recipients=("me",), paths=())
@@ -95,7 +95,7 @@ def test_email_me_asks_once_then_uses_the_remembered_address(daemon: RunningDaem
     evs = chat(daemon, "every morning at 9 email me the report")
     assert [e["text"] for e in evs if e["type"] == "timer"][0].startswith("🗓 scheduled")
     s = run(daemon, daemon.daemon.schedules.all)[0]
-    assert s.targets["recipients"] == ["me@owner.example"] and "every day at" in s.rule.describe()
+    assert s.targets["recipients"] == ["me"] and "every day at" in s.rule.describe()
 
 
 # ---------- runs ----------
@@ -212,7 +212,7 @@ def test_repeated_failure_does_not_silently_pause_a_recurring_task(daemon: Runni
     fire(daemon, 61)
     current = run(daemon, lambda: daemon.daemon.schedules.get(scheduled.id))
     assert current.state == 'active' and current.next_run > daemon.daemon.clock.now()
-    assert 'consecutive failures: 4' in script.contexts[0][2]
+    assert '"consecutive_failures": 4' in script.contexts[0][2]
 
 
 

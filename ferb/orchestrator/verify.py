@@ -1,13 +1,14 @@
-"""Result observations and mechanical checks (ARCHITECTURE.md section 9).
+"""Owns literal checks and observed result facts. Must not infer intent, choose a target or claim semantic success from transport facts.
 
-File existence/content and tab URLs can be checked directly. Account identity and uncertain action outcomes need
+Result observations and mechanical checks.
+
+File existence/content and tab URLs yield literal predicates, never final outcome judgments. Account identity and uncertain action outcomes need
 judgment: pass the observed facts to a checker with the task's tools and recorded source reads. Missing observations
-are unknown, not contradictions. Unknown or false conditions return to the planner for recovery.
-"""
+are unknown, not contradictions. Unknown or false conditions return to the planner for recovery."""
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from ferb.act.fs.files import PathRefused, resolve
 from ferb.core.types import ToolContext
@@ -29,11 +30,10 @@ class ConditionResult:
 
 
 class Checks:
-    """The deterministic checks. `urls_of` / `account_of` come from the browser drivers (a task's tabs)."""
+    """The deterministic checks. `urls_of` reports every current URL from the task's browser tabs."""
 
-    def __init__(self, ledger: Ledger, urls_of: Callable[[str], list[str]],
-                 account_of: Callable[[str, str], Awaitable[str | None]]) -> None:
-        self.ledger, self.urls_of, self.account_of = ledger, urls_of, account_of
+    def __init__(self, ledger: Ledger, urls_of: Callable[[str], list[str]]) -> None:
+        self.ledger, self.urls_of = ledger, urls_of
 
     def code_checkable(self, c: Condition, task_id: str | None = None) -> bool:
         """`ledger_done` is about actions FERB took: when the task took none (it only read — "WhatsApp is
@@ -42,19 +42,32 @@ class Checks:
         if k.kind == "ledger_done":
             return task_id is None or bool(self.ledger.for_task(task_id))
         return (k.kind == "file_exists" and bool(k.path)) or (k.kind == "file_contains" and bool(k.path and k.text)) \
-            or (k.kind == "tab_url" and bool(k.url_contains)) or (k.kind == "account" and bool(k.site and k.expected))
+            or (k.kind == "tab_url" and bool(k.url_contains))
 
     async def run(self, i: int, c: Condition, task_id: str, ctx: ToolContext) -> ConditionResult:
         k = c.check
         if k.kind in ("file_exists", "file_contains"):
             try:
                 p = resolve(k.path or "", ctx, must_exist=True)
+                if k.kind == "file_exists":
+                    return ConditionResult(i, c.text, True, "code", f"{p} exists")
+                needle = k.text or ""
+                found, carry = False, ""
+                if Path(p).is_file():
+                    with Path(p).open(encoding="utf-8") as source:
+                        while chunk := source.read(65536):
+                            text = carry + chunk
+                            if needle in text:
+                                found = True
+                                break
+                            carry = text[-(len(needle) - 1):] if len(needle) > 1 else ""
             except PathRefused as e:
                 return ConditionResult(i, c.text, False, "code", f"{k.path}: {e}")
-            if k.kind == "file_exists":
-                return ConditionResult(i, c.text, True, "code", f"{p} exists")
-            text = Path(p).read_text(errors="replace")[:2_000_000] if Path(p).is_file() else ""
-            found = (k.text or "") in text
+            except (OSError, UnicodeError) as e:
+                # One failed observation route must not prevent the checker from inspecting the artifact
+                # another way. Replacement decoding could invent text, so report the unavailable fact.
+                return ConditionResult(i, c.text, None, "code",
+                                       f"{k.path}: literal {k.kind} observation unavailable: {type(e).__name__}: {e}")
             return ConditionResult(i, c.text, found, "code", f"{p} {'contains' if found else 'does not contain'} "
                                                            f"the expected text")
         if k.kind == "ledger_done":
@@ -65,12 +78,8 @@ class Checks:
 
         if k.kind == "tab_url":
             urls = self.urls_of(task_id)
-            hit = next((u for u in urls if (k.url_contains or "") in u), None)
-            return ConditionResult(i, c.text, hit is not None, "code",
-                                   f"tab at {hit}" if hit else f"no tab URL contains {k.url_contains!r}")
-        acct = await self.account_of(task_id, k.site or "")
-        # An alias, a full address and a condition with alternatives need interpretation. An absent extractor
-        # or closed tab is missing evidence, not evidence of a wrong account. Give the checker the observation.
-        return ConditionResult(i, c.text, None, "code",
-                               f"observed account on {k.site}: {acct}; requested: {k.expected}" if acct else
-                               f"account on {k.site} unreadable; requested: {k.expected}; inspect page or recorded evidence")
+            matches = [url for url in urls if (k.url_contains or "") in url]
+            import json
+            return ConditionResult(i, c.text, bool(matches), "code", json.dumps({
+                "url_contains": k.url_contains, "all_task_urls": urls, "matching_urls": matches}))
+        return ConditionResult(i, c.text, None, "code", "Inspect the requested outcome with current source evidence")

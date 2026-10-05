@@ -1,4 +1,6 @@
-"""Worker liveness; explicit owner and process waits suspend the watchdog."""
+"""Owns worker heartbeat and wait accounting. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Worker liveness; explicit owner and process waits suspend the watchdog."""
 
 from dataclasses import dataclass, field
 from typing import Callable

@@ -40,7 +40,7 @@ def test_runtime_violation_reports_this_run_without_disabling_future_runs(daemon
 # ---------- running the task ----------
 
 
-def test_one_worker_with_every_tool_of_its_identity_verified_by_code(daemon: RunningDaemon) -> None:
+def test_one_worker_with_every_tool_and_literal_facts_reviewed_by_checker(daemon: RunningDaemon) -> None:
     t = task("write todo.md with milk", "ferb", paths=("todo.md",),
              conds=(cond("todo.md contains milk", "file_contains", path="todo.md", text="milk"),))
     script = install(daemon, [sup("task", "I'll write todo.md", t)], {"worker": writes(daemon.sock, "todo.md", "milk")})
@@ -48,7 +48,9 @@ def test_one_worker_with_every_tool_of_its_identity_verified_by_code(daemon: Run
     types = [e["type"] for e in evs]
     assert types[0] == "plan" and "subtask" in types and "verification" in types
     ver = next(e for e in evs if e["type"] == "verification")["results"][0]
-    assert ver["met"] is True and ver["path"] == "code"
+    assert ver["met"] is True and ver["path"] == "verifier"
+    checker_context = next(c for _, key, c, _ in script.contexts if key == "worker.verify")
+    assert '"predicate_met": true' in checker_context and "todo.md contains" in checker_context
     out = outcome(evs)
     assert out["status"] == "done" and out["verified"] is True and out["answer"] == "wrote todo.md"
     assert (daemon.daemon.home / "workspace" / "todo.md").read_text() == "milk"
@@ -81,26 +83,30 @@ def test_the_workers_summary_is_the_owners_answer_and_pages_are_data(daemon: Run
     assert "Your FERB tools (MCP server `ferb`):" in ctx and "fs_read" in ctx and "src.md" in ctx
 
 
-def test_no_budget_anywhere_the_model_or_owner_sees() -> None:
+def test_no_task_duration_or_deliverable_budget_is_imposed() -> None:
     from ferb.orchestrator import schemas
-    from ferb.orchestrator.supervisor import PROMPTS
-    text = json.dumps(schemas.SUPERVISOR_SCHEMA) + "".join(p.read_text() for p in PROMPTS.glob("*.md"))
-    assert "budget" not in text.lower() and "cost" not in text.lower() and "deadline_minutes" not in text
+    text = json.dumps(schemas.SUPERVISOR_SCHEMA)
+    assert "deadline_minutes" not in text and "maxLength" not in text
+    from ferb.core.context import ContextBlock, assemble_context
+    request = "Complete original source " * 100
+    assert request in assemble_context([ContextBlock(request, "request", protected=True)], budget_tokens=1)
 
 
 def test_judgment_conditions_go_to_a_checker_with_the_task_tools(daemon: RunningDaemon) -> None:
     t = task("write a friendly todo.md", paths=("todo.md",),
              conds=(cond("todo.md exists", "file_exists", path="todo.md"), cond("the note sounds friendly")))
-    verdict = json.dumps({"results": [{"index": 1, "met": False, "evidence": "it reads as curt"}]})
+    verdict = json.dumps({"results": [{"index": 0, "met": True, "evidence": "observed todo.md exists"},
+                                       {"index": 1, "met": False, "evidence": "it reads as curt"}]})
     script = install(daemon, [sup("task", "x", t)], {"worker": writes(daemon.sock, "todo.md", "milk."),
                                                      "worker.verify": verdict})
     evs = chat(daemon, "write a friendly todo.md")
     res = {r["index"]: r for r in next(e for e in evs if e["type"] == "verification")["results"]}
-    assert res[0]["path"] == "code" and res[0]["met"] is True
+    assert res[0]["path"] == "verifier" and res[0]["met"] is True
     assert res[1]["path"] == "verifier" and res[1]["met"] is False
     out = outcome(evs)
-    assert out["status"] == "failed" and out["verified"] is False and "Result not complete" in out["summary"]
-    assert "wrote todo.md" in out["answer"] and "Result not complete" in out["answer"]   # said plainly
+    assert out["status"] == "failed" and out["verified"] is False and "the note sounds friendly" in out["summary"]
+    assert "the note sounds friendly — failed: it reads as curt" in out["answer"]
+    assert "wrote todo.md" not in out["answer"]  # unchecked success prose cannot contradict the failure
     vtools = next(t for m, k, c, t in script.contexts if k == "worker.verify")
     assert {"fs.read", "fs.write", "mac.act", "task.evidence"} <= set(vtools)      # inspection intent is in its prompt
 

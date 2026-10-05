@@ -1,4 +1,6 @@
-"""Accessibility (AX) reads and actions for Mac apps (section 3 act/mac; rework phase 3, ARCHITECTURE.md §5).
+"""Read AX trees and perform exact element/window operations. Must not interpret labels or select among plausible targets.
+
+Accessibility (AX) reads and actions for Mac apps.
 Blocking pyobjc calls — callers run them in a thread.
 
 One walk per snapshot: `read_tree` visits the window (plus any sheet in it, the app's open menus, popovers and
@@ -8,16 +10,15 @@ after an action. Elements are controls by their available actions (AXUIElementCo
 an AXGroup with AXPress is a control; roles are reported as facts.
 
 Password fields (AXSecureTextField, role or subrole) are reported only as filled/empty: their value is never read.
-A browser's web area is built on demand: when the window shows a web area that is still empty, re-read for ~2 s.
-"""
+A browser's web area is built on demand: when the window shows a web area that is still empty, re-read for ~2 s."""
 
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-MAX_ELEMENTS, MAX_TEXT, MAX_LABEL, MAX_VALUE, MAX_DEPTH = 400, 8000, 120, 200, 40
-SCAN_MAX = 5000                   # elements visited at most (past MAX_ELEMENTS only role / subrole are read)
+MAX_DEPTH = 40
+MAX_ELEMENTS = 5000  # response page; every later node is retrievable with offset
 
 ROLES = {"AXButton": "button", "AXLink": "link", "AXTextField": "textbox", "AXTextArea": "textbox",
          "AXSecureTextField": "textbox", "AXCheckBox": "checkbox", "AXRadioButton": "radio",
@@ -68,6 +69,11 @@ class AxTree:
     web_empty: bool = False
     window: Any = None                 # the AX window walked
 
+    offset: int = 0
+    next_offset: int | None = None
+    repeated_nodes: int = 0
+    _visited: dict[int, list[Any]] = field(default_factory=dict, repr=False)
+
     def signature(self) -> tuple[Any, ...]:
         """What the window shows, to tell whether an action did anything (element ids untouched)."""
         return (self.title, self.text, tuple(self.containers),
@@ -92,8 +98,9 @@ def _point(v: Any, kind: int) -> tuple[float, float]:
     return (float(p.x), float(p.y)) if hasattr(p, "x") else (float(p.width), float(p.height))
 
 
-def _clip(s: Any, n: int) -> str:
-    return " ".join(str(s or "").split())[:n]
+def _text(s: Any) -> str:
+    """Source text stays lossless; traversal coverage is reported separately."""
+    return str(s or "")
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -121,12 +128,9 @@ def role_of(el: Any) -> str:
 # ---------- windows ----------
 
 def app_window(pid: int) -> Any:
-    """The app's window to read: focused, main, the first listed, or the focused element's (AXWindows is empty for
-    windows on another Space; the focused element still knows its window)."""
-    import ApplicationServices as AX
-    app = AX.AXUIElementCreateApplication(pid)
-    return (_attr(app, "AXFocusedWindow") or _attr(app, "AXMainWindow")
-            or next(iter(_attr(app, "AXWindows") or []), None) or _attr(_attr(app, "AXFocusedUIElement"), "AXWindow"))
+    """Return the sole reachable window. Multiple windows require explicit model selection."""
+    wins = ax_windows(pid)
+    return wins[0] if len(wins) == 1 else None
 
 
 def ax_windows(pid: int) -> list[Any]:
@@ -137,7 +141,7 @@ def ax_windows(pid: int) -> list[Any]:
     out: list[Any] = []
     for w in [_attr(app, "AXFocusedWindow"), _attr(app, "AXMainWindow"),
               _attr(_attr(app, "AXFocusedUIElement"), "AXWindow")] + list(_attr(app, "AXWindows") or []):
-        if w is not None and not any(_same(w, x) for x in out):
+        if w is not None and role_of(w) in {"AXWindow", "AXSheet"} and not any(_same(w, x) for x in out):
             out.append(w)
     return out
 
@@ -151,7 +155,7 @@ def cg_windows(pid: int) -> list[dict[str, Any]]:
     for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID) or []:
         b = w.get("kCGWindowBounds") or {}
         if int(w.get("kCGWindowOwnerPID", 0)) != pid or int(w.get("kCGWindowLayer", 0)) != 0 \
-                or float(b.get("Width", 0)) < 50 or float(b.get("Height", 0)) < 50:
+                or float(b.get("Width", 0)) <= 0 or float(b.get("Height", 0)) <= 0:
             continue
         out.append({"id": int(w["kCGWindowNumber"]), "title": str(w.get("kCGWindowName") or ""),
                     "onscreen": int(w["kCGWindowNumber"]) in on,
@@ -166,9 +170,11 @@ def windows(pid: int, current: Any = None) -> list[dict[str, Any]]:
     reach = [(w, frame(w), window_title(w)) for w in ax_windows(pid)]
     out = []
     for cg in cg_windows(pid):
-        ax = next((w for w, f, t in reach if (f is not None and all(abs(a - b) <= 2 for a, b in zip(f, cg["bounds"])))
-                   or (f is None and t and t == cg["title"])), None)
-        d = {"id": cg["id"], "title": cg["title"], "onscreen": cg["onscreen"], "reachable": ax is not None}
+        matches = [w for w, f, t in reach if f is not None and
+                   all(abs(a - b) <= 2 for a, b in zip(f, cg["bounds"]))]
+        ax = matches[0] if len(matches) == 1 else None
+        d = {"id": cg["id"], "title": cg["title"], "onscreen": cg["onscreen"], "reachable": ax is not None,
+             "bounds": cg["bounds"], "matching_ax_windows": len(matches)}
         if ax is not None and current is not None and _same(ax, current):
             d["current"] = True
         out.append(d)
@@ -176,24 +182,18 @@ def windows(pid: int, current: Any = None) -> list[dict[str, Any]]:
 
 
 def window_named(pid: int, which: str) -> Any:
-    """The AX window the caller means: a window id from the snapshot's list, or a title (exact, then prefix, case
-    insensitive). None when Accessibility has no object for it right now."""
+    """Resolve an exact unique title or exact observed id. Ambiguity is never settled by order/prefix."""
     want = which.strip()
-    bounds = None
-    if want.isdigit():
-        cg = next((w for w in cg_windows(pid) if w["id"] == int(want)), None)
-        if cg is None:
-            return None
-        want, bounds = cg["title"], cg["bounds"]
     reach = ax_windows(pid)
-    if bounds is not None:
-        for w in reach:
-            f = frame(w)
-            if f is not None and all(abs(a - b) <= 2 for a, b in zip(f, bounds)):
-                return w
-    low = want.lower()
-    return next((w for w in reach if window_title(w).lower() == low), None) or \
-        next((w for w in reach if window_title(w).lower().startswith(low)), None)
+    if want.isdigit():
+        cg = [w for w in cg_windows(pid) if w["id"] == int(want)]
+        if len(cg) != 1:
+            return None
+        matches = [w for w in reach if (f := frame(w)) is not None and
+                   all(abs(a - b) <= 2 for a, b in zip(f, cg[0]["bounds"]))]
+        return matches[0] if len(matches) == 1 else None
+    matches = [w for w in reach if window_title(w) == want]
+    return matches[0] if len(matches) == 1 else None
 
 
 def frame(win: Any) -> tuple[float, float, float, float] | None:
@@ -207,11 +207,10 @@ def frame(win: Any) -> tuple[float, float, float, float] | None:
 
 def window_with_frame(pid: int, bounds: tuple[float, float, float, float]) -> Any:
     """The app's Accessibility window at these screen bounds (the captured window), or None."""
-    for win in ax_windows(pid):
-        f = frame(win)
-        if f is not None and all(abs(a - b) <= 2 for a, b in zip(f, bounds)):
-            return win
-    return None
+    matches = [win for win in ax_windows(pid) if (f := frame(win)) is not None and
+               all(abs(a - b) <= 2 for a, b in zip(f, bounds))]
+    return matches[0] if len(matches) == 1 else None
+
 
 
 def raise_window(pid: int, bounds: tuple[float, float, float, float]) -> bool:
@@ -259,41 +258,25 @@ def hit_element(pid: int, x: float, y: float) -> Any:
     return el
 
 
-def label_at(x: float, y: float) -> str | None:
-    """The label of the control at a screen point (the element itself or, for its text, its parent button), or None
-    when Accessibility can't tell. Used to tell a call / send button from any other click (build step 16a)."""
-    import ApplicationServices as AX
-    err, el = AX.AXUIElementCopyElementAtPosition(AX.AXUIElementCreateSystemWide(), x, y, None)
-    if err != 0 or el is None:
-        return None
-    parts = []
-    for node in (el, _attr(el, "AXParent")):
-        if node is None:
-            continue
-        parts += [str(v) for v in (_attr(node, "AXTitle"), _attr(node, "AXDescription"), _attr(node, "AXHelp"))
-                  if v]
-    return " ".join(parts) or None
-
-
 def describe(el: Any) -> str:
     """A short description of an element for action results: role and label."""
     role = role_of(el)
     label = _attr(el, "AXTitle") or _attr(el, "AXDescription") or _attr(el, "AXValue") or ""
     kind = ROLES.get(role) or (role[2:].lower() if role.startswith("AX") else role) or "element"
-    return f"{kind} “{_clip(label, 60)}”" if label else kind
+    return f"{kind} “{_text(label)}”" if label else kind
 
 
 # ---------- the walk ----------
 
-def read_tree(pid: int, browser: bool = False, window: Any = None) -> AxTree:
-    """One walk of the app's window (the given one, else the focused / main one), its sheet, the app's open menus,
+def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int = 0) -> AxTree:
+    """One walk of the exact window (or sole reachable window), its sheet, the app's open menus,
     popovers and dialogs. For a browser whose web area is still empty, re-read for ~2 s."""
     import ApplicationServices as AX
     deadline = time.monotonic() + (2.0 if browser else 0.0)
     while True:
         app = AX.AXUIElementCreateApplication(pid)
         win = window if window is not None else app_window(pid)
-        tree = AxTree(title=_clip(_attr(win, "AXTitle"), MAX_LABEL) if win is not None else "", window=win)
+        tree = AxTree(title=_text(_attr(win, "AXTitle")) if win is not None else "", window=win, offset=offset)
         texts: list[str] = []
         seen = [0]
         if win is not None:
@@ -309,8 +292,8 @@ def read_tree(pid: int, browser: bool = False, window: Any = None) -> AxTree:
                 continue
             tree.containers.append(kind)
             _walk(child, tree, texts, 1, kind, seen)
-        tree.text = _clip(" ".join(texts), MAX_TEXT)
-        if tree.secure is False and (seen[0] > SCAN_MAX or "depth" in tree.truncated_by):
+        tree.text = _text(" ".join(texts))
+        if tree.secure is False and "depth" in tree.truncated_by:
             tree.secure = None                                 # not every corner was looked at
         tree.truncated = bool(tree.truncated_by)
         tree.windows = windows(pid, win)
@@ -326,10 +309,13 @@ def _mark(tree: AxTree, why: str) -> None:
 
 def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | None, seen: list[int]) -> None:
     import ApplicationServices as AX
-    seen[0] += 1
-    if seen[0] > SCAN_MAX:
-        _mark(tree, "elements")
+    import CoreFoundation as CF
+    key = int(CF.CFHash(el)) if hasattr(el, "__c_void_p__") else id(el)
+    bucket = tree._visited.setdefault(key, [])
+    if any(prior is el or _same(prior, el) for prior in bucket):
+        tree.repeated_nodes += 1
         return
+    bucket.append(el)
     role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
     secret = "AXSecureTextField" in (role, subrole)
     if secret:
@@ -344,19 +330,22 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | 
     if depth > MAX_DEPTH:
         _mark(tree, "depth")
         return
+    index = seen[0]
+    seen[0] += 1
     capped = len(tree.nodes) >= MAX_ELEMENTS
-    if not capped:
+    if index >= tree.offset and not capped:
         if role in TEXT_ROLES:
             v = _attr(el, "AXValue") or _attr(el, "AXTitle")
             if v:
                 texts.append(str(v))
                 if role == "AXHeading":
-                    tree.headings.append(_clip(v, MAX_LABEL))
+                    tree.headings.append(_text(v))
         acts = actions(el)
-        if role in ROLES or subrole == "AXSearchField" or CONTROL_ACTIONS & set(acts):
+        if role or subrole or acts:
             tree.nodes.append(_node(el, role, subrole, secret, acts, container, children))
-    elif role in ROLES or CONTROL_ACTIONS & set(actions(el)):
+    elif index >= tree.offset and capped:
         _mark(tree, "elements")
+        tree.next_offset = tree.offset + len(tree.nodes)
     for child in children:
         _walk(child, tree, texts, depth + 1, container, seen)
 
@@ -373,22 +362,22 @@ def _node(el: Any, role: str, subrole: str, secret: bool, acts: list[str], conta
     label = (_attr(el, "AXTitle") or _attr(el, "AXDescription") or _attr(el, "AXPlaceholderValue")
              or _attr(el, "AXHelp") or "")
     if not label and role not in ROLES:                         # a pressable row / cell: its own text names it
-        label = " ".join(str(_attr(c, "AXValue") or _attr(c, "AXTitle") or "") for c in children[:3]
+        label = " ".join(str(_attr(c, "AXValue") or _attr(c, "AXTitle") or "") for c in children
                          if role_of(c) in TEXT_ROLES).strip()
     value: str | None = None
     if secret:
         value = "filled" if _attr(el, "AXNumberOfCharacters") else ""
     elif role in VALUE_ROLES:
-        value = _clip(_attr(el, "AXValue"), MAX_VALUE)
+        value = _text(_attr(el, "AXValue"))
     else:
         v = _attr(el, "AXValue")
         if isinstance(v, str) and v:                            # e.g. a chat row's latest message
-            value = _clip(v, MAX_VALUE)
+            value = _text(v)
     x, y = _point(_attr(el, "AXPosition"), AX.kAXValueCGPointType)
     w, h = _point(_attr(el, "AXSize"), AX.kAXValueCGSizeType)
     enabled = _attr(el, "AXEnabled")
     selected, expanded = _attr(el, "AXSelected"), _attr(el, "AXExpanded")
-    return AxNode(el, kind, _clip(label, MAX_LABEL), value, (x, y, w, h), secret,
+    return AxNode(el, kind, _text(label), value, (x, y, w, h), secret,
                   bool(enabled) if enabled is not None else True, role,
                   tuple(ACTION_NAMES.get(a, a) for a in acts if a in ACTION_NAMES),
                   None if selected is None else bool(selected), None if expanded is None else bool(expanded),
@@ -415,7 +404,7 @@ def value(el: Any) -> str | None:
 def expose_tree(pid: int) -> bool:
     """Electron apps (Slack, Discord, VS Code…) build their full Accessibility tree only when an assistive app asks
     for it with AXManualAccessibility; set once per process. Other apps refuse the attribute (-25205), harmlessly.
-    AXEnhancedUserInterface is NOT set: AppKit answers -25208 and already reports it on (ARCHITECTURE.md §5)."""
+    AXEnhancedUserInterface is NOT set: AppKit answers -25208 and already reports it on."""
     import ApplicationServices as AX
     return bool(AX.AXUIElementSetAttributeValue(AX.AXUIElementCreateApplication(pid), "AXManualAccessibility",
                                                 True) == 0)
@@ -451,11 +440,11 @@ def press_menu(pid: int, path: list[str]) -> bool:
     level = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
     el = None
     for i, name in enumerate(path):
-        want = name.strip().lower()
         kids = _attr(level, "AXChildren") or []
         if i > 0:                                                  # menu items live under the menu (one child)
             kids = [x for m in kids for x in (_attr(m, "AXChildren") or [])]
-        el = next((k for k in kids if _title(k).lower() == want), None)
+        matches = [k for k in kids if _title(k) == name.strip()]
+        el = matches[0] if len(matches) == 1 else None
         if el is None:
             return False
         level = el
@@ -471,6 +460,7 @@ def menu_item_for_shortcut(pid: int, key: str, modifiers: list[str]) -> tuple[An
         want_mods |= 8
     bar = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
     stack = [(m, [_title(top)]) for top in (_attr(bar, "AXChildren") or []) for m in (_attr(top, "AXChildren") or [])]
+    matches = []
     while stack:
         menu, path = stack.pop()
         for item in _attr(menu, "AXChildren") or []:
@@ -479,32 +469,10 @@ def menu_item_for_shortcut(pid: int, key: str, modifiers: list[str]) -> tuple[An
             mods = _attr(item, "AXMenuItemCmdModifiers")
             if ch and ch.lower() == key.lower() and mods is not None and int(mods) == want_mods:
                 enabled = _attr(item, "AXEnabled")
-                return item, " > ".join(path + [t]), bool(enabled) if enabled is not None else True
+                matches.append((item, " > ".join(path + [t]), bool(enabled) if enabled is not None else True))
             for sub in _attr(item, "AXChildren") or []:
                 stack.append((sub, path + [t]))
-    return None
-
-
-REOPEN = re.compile(r"^(open|show) (the )?main window$", re.I)
-
-
-def open_window(pid: int, app_name: str) -> bool:
-    """A running app with no window: press its own menu item that opens it ("Open main window", or the app's entry in
-    the Window menu) — through Accessibility, so the app stays in the background (spike 18)."""
-    import ApplicationServices as AX
-    bar = _attr(AX.AXUIElementCreateApplication(pid), "AXMenuBar")
-    name = app_name.strip("‎").lower()
-    candidates: list[Any] = []
-    for top in _attr(bar, "AXChildren") or []:
-        top_title = str(_attr(top, "AXTitle") or "").strip("‎")
-        for menu in _attr(top, "AXChildren") or []:
-            for item in _attr(menu, "AXChildren") or []:
-                t = str(_attr(item, "AXTitle") or "").strip("‎")
-                if REOPEN.match(t):
-                    candidates.insert(0, item)
-                elif top_title == "Window" and t.lower() == name:
-                    candidates.append(item)
-    return any(AX.AXUIElementPerformAction(c, "AXPress") == 0 for c in candidates[:1])
+    return matches[0] if len(matches) == 1 else None
 
 
 def open_menus(pid: int) -> list[Any]:
@@ -518,31 +486,13 @@ def popup_menu(el: Any, pid: int) -> Any:
     for c in _attr(el, "AXChildren") or []:
         if role_of(c) == "AXMenu":
             return c
-    return next(iter(open_menus(pid)), None)
+    menus = open_menus(pid)
+    return menus[0] if len(menus) == 1 else None
 
 
 def menu_items(menu: Any) -> list[tuple[Any, str]]:
     return [(i, _title(i)) for i in (_attr(menu, "AXChildren") or []) if role_of(i) == "AXMenuItem"]
 
-
-def open_panels(pid: int, win: Any) -> list[tuple[str, Any]]:
-    """Sheets in the window, dialogs and popovers of the app: what AXCancel would dismiss, nearest first."""
-    import ApplicationServices as AX
-    out: list[tuple[str, Any]] = []
-    for s in list(_attr(win, "AXSheets") or []) + [c for c in (_attr(win, "AXChildren") or [])
-                                                   if role_of(c) == "AXSheet"]:
-        if not any(_same(s, x) for _, x in out):
-            out.append(("sheet", s))
-    for c in _attr(AX.AXUIElementCreateApplication(pid), "AXChildren") or []:
-        role = role_of(c)
-        if role == "AXPopover":
-            out.append(("popover", c))
-        elif role == "AXWindow" and is_dialog(c) and not (win is not None and _same(c, win)):
-            out.append(("dialog", c))
-    return out
-
-
-# ---------- focus, keys ----------
 
 def focused_element(pid: int) -> Any:
     import ApplicationServices as AX
@@ -564,30 +514,9 @@ def has_focus(pid: int, el: Any) -> bool | None:
     return False
 
 
-def focused_role(pid: int) -> str | None:
-    """The role (as in snapshots) of the app's focused element, read in the background; None when unknown."""
-    el = focused_element(pid)
-    if el is None:
-        return None
-    role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
-    return "searchbox" if subrole == "AXSearchField" else ROLES.get(role)
-
-
 def press(el: Any) -> bool:
     return perform(el, "AXPress")
 
-
-def press_ancestor(el: Any, action: str = "AXPress", levels: int = 6) -> str | None:
-    """Electron wraps the pressable node in groups: the nearest ancestor that lists the action takes it. Returns a
-    description of what was pressed, or None."""
-    node = _attr(el, "AXParent")
-    for _ in range(levels):
-        if node is None or role_of(node) in ("AXWindow", "AXApplication", "AXSheet"):
-            return None
-        if action in actions(node) and perform(node, action):
-            return describe(node)
-        node = _attr(node, "AXParent")
-    return None
 
 
 def cancel(el: Any) -> bool:
@@ -671,8 +600,9 @@ def scroll_area_in(root: Any, cap: int = 2000) -> Any:
 
 
 def scroll_content(area: Any) -> Any:
-    """What takes the keyboard focus inside a scroll area: its first child that isn't a scroll bar."""
-    return next((c for c in (_attr(area, "AXChildren") or []) if role_of(c) != "AXScrollBar"), None)
+    """The unique non-scrollbar child inside this exact area, or None when ambiguous."""
+    children = [c for c in (_attr(area, "AXChildren") or []) if role_of(c) != "AXScrollBar"]
+    return children[0] if len(children) == 1 else None
 
 
 def scroll_bar(area: Any, vertical: bool = True) -> Any:
@@ -726,11 +656,6 @@ def scroll_position(area: Any, content: Any = None) -> tuple[Any, ...]:
     v, h = _attr(scroll_bar(area, True), "AXValue"), _attr(scroll_bar(area, False), "AXValue")
     return (_scroll_fraction(v), _scroll_fraction(h),
             visible_range(content) if content is not None else None, _visible_scroll_items(area))
-
-
-def set_scroll_bar(bar: Any, value: float) -> bool:
-    import ApplicationServices as AX
-    return bool(AX.AXUIElementSetAttributeValue(bar, "AXValue", float(max(0.0, min(1.0, value)))) == 0)
 
 
 # ---------- the Accessibility keyboard (deprecated API, app-dependent) ----------

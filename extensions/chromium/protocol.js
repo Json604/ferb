@@ -1,10 +1,11 @@
-// FERB extension protocol (ARCHITECTURE.md 9.4), mirrored by ferb/act/browser/ext_protocol.py.
+// Owns protocol versions, sealing and allowed CDP mechanics; must not interpret task or page meaning.
+// FERB extension protocol , mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 7;
+const FERB_PROTOCOL = 8;
 const FERB_HOST = "com.ferb.native_host";
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
-// the renderer interprets a shortcut like ⌘A only through these (PLATFORM_BROWSER.md 2.4, probe S7). Anything
+// the renderer interprets a shortcut like ⌘A only through these (measured in the browser input probes). Anything
 // else in `commands` is refused by the allowlist below.
 const EDIT_COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "redo", "deleteBackward", "deleteForward",
   "deleteWordBackward", "deleteWordForward", "deleteToBeginningOfLine", "deleteToEndOfLine",
@@ -16,19 +17,20 @@ const EDIT_COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "red
   "moveToBeginningOfDocumentAndModifySelection", "moveToEndOfDocumentAndModifySelection",
   "insertNewline", "insertTab", "cancelOperation"]);
 
-// The exact CDP allowlist, enforced here even if the daemon asks for more (9.4). Each entry checks the params
+// The exact CDP allowlist, enforced here even if the daemon asks for more. Each entry checks the params
 // shape; anything not listed is refused: cookies/storage, other targets, free-form script evaluation.
-// Every method is used by background.js; the comment says where and why (PLATFORM_BROWSER.md section 13).
+// Every method is used by background.js; the comment states its mechanical purpose.
 const CDP_ALLOW = {
-  // 13.2: the per-tab session setup, in this order, right after chrome.debugger.attach.
-  "Page.enable": (p) => Object.keys(p).length === 0,                      // dialog events (2.6)
-  "Emulation.setFocusEmulationEnabled": (p) => typeof p.enabled === "boolean",   // input lands only with it (2.2)
+  // the per-tab session setup, in this order, right after chrome.debugger.attach.
+  "Page.enable": (p) => Object.keys(p).length === 0,                      // dialog events
+  "Page.setInterceptFileChooserDialog": (p) => p.enabled === true && Object.keys(p).length === 1,
+  "Emulation.setFocusEmulationEnabled": (p) => typeof p.enabled === "boolean",   // input lands only with it
   "Target.setAutoAttach": (p) => p.autoAttach === true && p.waitForDebuggerOnStart === false && p.flatten === true
-    && Object.keys(p).length === 3,                                         // OOPIFs through the tab session (2.5);
+    && Object.keys(p).length === 3,                                         // OOPIFs through the tab session;
                                                                             // the only Target.* call ever allowed
   "Emulation.setDeviceMetricsOverride": (p) => p.width === 1280 && p.height === 900 && p.deviceScaleFactor === 1
-    && p.mobile === false && Object.keys(p).length === 4,                   // layout independent of the window (2.8)
-  // 13.4 / 13.6: trusted input. Coordinates are CSS px of the top viewport (2.3).
+    && p.mobile === false && Object.keys(p).length === 4,                   // layout independent of the window
+  // trusted input. Coordinates are CSS px of the top viewport.
   "Input.dispatchMouseEvent": (p) => ["mouseMoved", "mousePressed", "mouseReleased", "mouseWheel"].includes(p.type)
     && Number.isFinite(p.x) && Number.isFinite(p.y)
     && (p.buttons === undefined || (Number.isInteger(p.buttons) && p.buttons >= 0 && p.buttons <= 31))
@@ -40,13 +42,13 @@ const CDP_ALLOW = {
     && (p.modifiers === undefined || (Number.isInteger(p.modifiers) && p.modifiers >= 0 && p.modifiers <= 15))
     && (p.commands === undefined || (Array.isArray(p.commands) && p.commands.every((c) => EDIT_COMMANDS.has(c)))),
   "Input.insertText": (p) => typeof p.text === "string",
-  // 13.5: dialogs are owned by the extension (2.6); accept only when the act declared it.
+  // Dialog responses require an explicit agent decision.
   "Page.handleJavaScriptDialog": (p) => typeof p.accept === "boolean"
     && (p.promptText === undefined || typeof p.promptText === "string"),
-  // 13.3: screenshot on request (2.7); jpeg so it fits the 1 MB native-messaging line.
+  // screenshot on request; jpeg so it fits the 1 MB native-messaging line.
   "Page.captureScreenshot": (p) => (!p.format || ["png", "jpeg"].includes(p.format))
     && (p.quality === undefined || (Number.isInteger(p.quality) && p.quality >= 1 && p.quality <= 100)),
-  // 13.3: the AX fallback for canvas / ARIA pages (2.9), with rects per node.
+  // the AX fallback for canvas / ARIA pages, with rects per node.
   "Accessibility.getFullAXTree": (p) => (p.depth === undefined || (Number.isInteger(p.depth) && p.depth > 0))
     && (p.frameId === undefined || typeof p.frameId === "string") && Object.keys(p).every(k => ["depth", "frameId"].includes(k)),
   "Page.getFrameTree": (p) => Object.keys(p).length === 0,
@@ -57,9 +59,12 @@ const CDP_ALLOW = {
   "DOM.setAttributeValue": (p) => Number.isInteger(p.nodeId) && p.name === "data-ferb-ax"
     && /^[a-f0-9]{16}$/.test(p.value) && Object.keys(p).length === 3,
   "DOM.getBoxModel": (p) => Number.isInteger(p.backendNodeId) && Object.keys(p).length === 1,
-  // 13.7: file uploads on a FERB-stamped element (2.8). depth 0 = the document node only, never the DOM.
+  // file uploads on a FERB-stamped element. depth 0 = the document node only, never the DOM.
   "DOM.getDocument": (p) => p.depth === 0 && Object.keys(p).length === 1,
   "DOM.querySelector": (p) => Number.isInteger(p.nodeId) && /^\[data-ferb-node="[a-f0-9]{16}"\]$/.test(p.selector),
+  "DOM.performSearch": p => Object.keys(p).length === 1 && /^\[data-ferb-node="[a-f0-9]{16}"\]$/.test(p.query),
+  "DOM.getSearchResults": p => typeof p.searchId === "string" && p.fromIndex === 0 && p.toIndex === 1 && Object.keys(p).length === 3,
+  "DOM.discardSearchResults": p => typeof p.searchId === "string" && Object.keys(p).length === 1,
   "DOM.setFileInputFiles": (p) => Number.isInteger(p.nodeId) && Array.isArray(p.files)
     && p.files.every((f) => typeof f === "string" && f.startsWith("/")),
 };
@@ -73,6 +78,8 @@ const CDP_RETURN_FIELDS = {                 // filtered return fields (only thes
   "DOM.pushNodesByBackendIdsToFrontend": ["nodeIds"],
   "DOM.getDocument": ["root"],
   "DOM.querySelector": ["nodeId"],
+  "DOM.performSearch": ["searchId", "resultCount"],
+  "DOM.getSearchResults": ["nodeIds"],
 };
 
 function cdpAllowed(method, params) {
@@ -89,7 +96,7 @@ function cdpFilter(method, result) {
   return out;
 }
 
-// ---------- keys (13.6): a press like "Enter", "cmd+a", "shift+Tab" -> Input.dispatchKeyEvent params ----------
+// ---------- keys: a press like "Enter", "cmd+a", "shift+Tab" -> Input.dispatchKeyEvent params ----------
 // Modifiers bitmask: Alt 1, Ctrl 2, Meta/Cmd 4, Shift 8 (CDP Input domain). Printables carry `text` so the
 // renderer inserts the character; mac editing shortcuts carry `commands` (probe S7: ⌘A selects only with it).
 const MOD_BITS = { alt: 1, opt: 1, option: 1, ctrl: 2, control: 2, meta: 4, cmd: 4, command: 4, shift: 8 };
@@ -161,7 +168,7 @@ function keyEvent(spec) {
   return { key, code, keyCode, text, modifiers, commands: commands ? commands.slice() : undefined };
 }
 
-// Sealed secrets (10.1): AES-GCM, key = HKDF-SHA256(pairing key, label "ferb seal v1"), AAD "<command id>|<origin>".
+// Sealed secrets: AES-GCM, key = HKDF-SHA256(pairing key, label "ferb seal v1"), AAD "<command id>|<origin>".
 // Opening fails (throws) for any other command id or origin: a sealed value can't be replayed elsewhere.
 const _b64d = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 async function sealKey(pairingKeyB64) {
@@ -170,7 +177,13 @@ async function sealKey(pairingKeyB64) {
                                    info: new TextEncoder().encode("ferb seal v1") },
                                  base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
-const _b64e = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+function _b64e(buf) {
+  // Bound each call's argument count, never the sealed source's length.
+  const bytes = new Uint8Array(buf), chunks = [];
+  for (let offset = 0; offset < bytes.length; offset += 32768)
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 32768)));
+  return btoa(chunks.join(""));
+}
 async function seal(pairingKeyB64, text, commandId, origin) {     // extension -> daemon (the inbox feed)
   const key = await sealKey(pairingKeyB64), iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: new TextEncoder().encode(`${commandId}|${origin}`) },
@@ -188,8 +201,8 @@ async function unseal(pairingKeyB64, sealed, commandId, origin) {
 const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page read_source may return
 
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
-             "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "ping", "point", "pointer", "pointer_cancel", "release_tab"];
+             "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
+             "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS };

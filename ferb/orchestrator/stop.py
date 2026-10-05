@@ -1,4 +1,6 @@
-"""Emergency stop (section 10.5): revoke all run tokens, block new actions at the gateway, cancel held sends,
+"""Owns emergency revocation and cancellation. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Emergency stop: revoke all run tokens, block new actions at the gateway, cancel held sends,
 and run every registered stop hook (workers, debuggers, task-owned processes register as they are built)."""
 
 from dataclasses import dataclass, field

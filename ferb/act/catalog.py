@@ -1,4 +1,4 @@
-"""Search the setup-installed action registry without inferring intent or permission."""
+"""Own paged capability discovery. Must not infer permission or select an execution route."""
 
 from typing import Any, Callable
 
@@ -8,7 +8,7 @@ from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolRe
 from ferb.sense.daily import terms
 
 
-def search_actions(caps: dict[str, Any], query: str, limit: int = 8) -> list[dict[str, Any]]:
+def search_actions(caps: dict[str, Any], query: str, limit: int | None = None) -> list[dict[str, Any]]:
     wanted = terms(query)
     ranked = []
     for name, cap in caps.items():
@@ -30,6 +30,7 @@ class ActionsSearch:
     class Input(BaseModel):
         query: str = ''
         limit: int = Field(12, ge=1, le=100)
+        offset: int = Field(0, ge=0, description='next_offset from a prior page; blank query lists all actions')
 
     def __init__(self, capabilities: Callable[[], dict[str, Any]]) -> None:
         self.capabilities = capabilities
@@ -38,4 +39,8 @@ class ActionsSearch:
         return ActionSpec('read')
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
-        return ToolResult({'actions': search_actions(self.capabilities(), args.query, args.limit)})
+        matches = search_actions(self.capabilities(), args.query)
+        end = args.offset + args.limit
+        return ToolResult({'actions': matches[args.offset:end], 'total': len(matches),
+                           'next_offset': end if end < len(matches) else None,
+                           'match_method': 'literal token overlap; query empty to list every installed action'})

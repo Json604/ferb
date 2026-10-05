@@ -1,4 +1,6 @@
-"""Markdown view of memory (section 14): regenerated from SQLite after every change, one file per subject, only the
+"""Owns regenerable Markdown views of durable memory. Must not treat retrieved observations as owner authorization or silently cut stored content.
+
+Markdown view of memory: regenerated from SQLite after every change, one file per subject, only the
 items active now (with where each came from). Owner-only permissions; no history kept; files for subjects that no
 longer have items are removed."""
 

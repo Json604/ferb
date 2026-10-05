@@ -1,4 +1,6 @@
-"""IdSource implementations."""
+"""Owns production and deterministic test identifiers. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+IdSource implementations."""
 
 import uuid
 

@@ -1,4 +1,4 @@
-"""Running apps: list, launch/activate, frontmost (section 3 act/mac). Never quits or force-quits an app."""
+"""Enumerate running processes and launch or explicitly activate one app. Must not resolve ambiguity by order or restore focus."""
 
 from dataclasses import dataclass
 
@@ -22,29 +22,27 @@ def running() -> list[RunningApp]:
     return out
 
 
-def find(name_or_bundle: str) -> RunningApp | None:
-    q = name_or_bundle.lower()
+def candidates(name_or_bundle: str) -> list[RunningApp]:
+    """Return all matching processes. Exact equality is lookup mechanics, never first-match selection."""
     apps = running()
-    return next((a for a in apps if a.bundle_id.lower() == q), None) or \
-        next((a for a in apps if a.name.lower().strip("\u200e") == q.strip("\u200e")), None) or \
-        _by_bundle(name_or_bundle)
+    if name_or_bundle.startswith("pid:"):
+        try:
+            pid = int(name_or_bundle[4:])
+        except ValueError:
+            return []
+        return [a for a in apps if a.pid == pid]
+    q = name_or_bundle.casefold().strip("\u200e")
+    return [a for a in apps if a.bundle_id.casefold() == q or a.name.casefold().strip("\u200e") == q]
 
 
-def _by_bundle(bundle_id: str) -> RunningApp | None:
-    """Asked of macOS directly — always current, even where the shared running-app list hasn't refreshed yet."""
-    if "." not in bundle_id:
-        return None
-    from AppKit import NSRunningApplication
-    for a in NSRunningApplication.runningApplicationsWithBundleIdentifier_(bundle_id):
-        if not a.isTerminated():
-            return RunningApp(str(a.bundleIdentifier()), str(a.localizedName() or ""), int(a.processIdentifier()),
-                              bool(a.isActive()))
-    return None
+def find(name_or_bundle: str) -> RunningApp | None:
+    matches = candidates(name_or_bundle)
+    return matches[0] if len(matches) == 1 else None
 
 
 def frontmost() -> RunningApp | None:
     """The app the owner is in. Accessibility's focused application first: NSWorkspace's "active" flag goes stale in
-    a long-running daemon (found in step 10), which made FERB "put back" the wrong app and leave the owner on another
+    a long-running daemon, which made FERB "put back" the wrong app and leave the owner on another
     desktop (owner's report, 2026-10-01)."""
     try:
         from ferb.sense.watchers.base import focused_app
@@ -56,18 +54,24 @@ def frontmost() -> RunningApp | None:
     return next((a for a in running() if a.active), None)
 
 
-def activate(bundle_id: str) -> bool:
+def activate(bundle_id: str, pid: int | None = None) -> bool:
+    """Explicit foreground route: activate one already-resolved process, never the first bundle match."""
     from AppKit import NSApplicationActivateIgnoringOtherApps, NSRunningApplication
-    apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_(bundle_id)
-    return bool(apps) and bool(apps[0].activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
+    matches = candidates(f"pid:{pid}" if pid is not None else bundle_id)
+    if len(matches) != 1 or matches[0].bundle_id != bundle_id:
+        return False
+    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(matches[0].pid)
+    return bool(app and app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
 
 
 def launch(bundle_id: str) -> bool:
     """Open (or bring back) an installed app by bundle id, without taking focus when it's already running."""
+    if candidates(bundle_id):
+        return True  # Running is a fact; reopening windows is a separate explicit action.
     from AppKit import NSWorkspace
     ws = NSWorkspace.sharedWorkspace()
     url = ws.URLForApplicationWithBundleIdentifier_(bundle_id)
     if url is None:
         return False
     import subprocess
-    return subprocess.run(["open", "-g", "-b", bundle_id], capture_output=True).returncode == 0
+    return subprocess.run(["open", "-g", "-j", "-b", bundle_id], capture_output=True).returncode == 0

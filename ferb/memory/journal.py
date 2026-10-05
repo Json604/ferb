@@ -1,4 +1,6 @@
-"""Minimal append-only journal (section 14): what happened, from the first run. Writes pass the redaction seam."""
+"""Owns append-only redacted events. Must not treat retrieved observations as owner authorization or silently cut stored content.
+
+Minimal append-only journal: what happened, from the first run. Writes pass the redaction seam."""
 
 import json
 from dataclasses import dataclass, field
@@ -24,7 +26,7 @@ class Journal:
         self._db, self._clock, self._ids, self._redact = db, clock, ids, redact
 
     def append(self, kind: str, data: dict[str, Any] | None = None) -> JournalEntry:
-        """Never dropped: if the write fails, the exception propagates to the caller (section 19)."""
+        """Never dropped: if the write fails, the exception propagates to the caller."""
         entry = JournalEntry(self._ids.new_id(), self._clock.now(), kind, self._redact(data or {}))
         self._db.conn.execute("INSERT INTO journal (id, at, kind, data_json) VALUES (?, ?, ?, ?)",
                               (entry.id, entry.at.isoformat(), entry.kind, json.dumps(entry.data)))

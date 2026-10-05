@@ -52,14 +52,13 @@ def test_mac_pointer_refuses_changed_window_and_never_activates(monkeypatch):
     asyncio.run(go())
 
 
-def test_native_drag_keeps_destination_policy_floor(monkeypatch):
+def test_native_drag_does_not_infer_intent_from_endpoint_text(monkeypatch):
     from ferb.act.mac.tools import MacPointer
     from ferb.policy.rules import Kind
     d, _, _, _, _ = vision(monkeypatch)
-    monkeypatch.setattr(d, "label_at", lambda app, shot, x, y: "Delete" if x == 800 else "Document")
     cap = MacPointer(d)
     args = cap.Input(app="Notes", shot="shot1", x=400, y=300, action="drag", end_x=800, end_y=600)
-    assert cap.describe(args).kind == Kind.DELETE_PERMANENT
+    assert cap.describe(args).kind == Kind.MAC_INPUT
 
 
 def test_native_interruption_after_press_has_unknown_outcome(monkeypatch):

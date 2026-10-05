@@ -1,4 +1,6 @@
-"""Shell working-directory validation and network-source annotations; no command deny list or permission gate."""
+"""Validate shell working directories and annotate possible network output. Must not interpret commands as intent or authorization.
+
+Shell working-directory validation and network-source annotations; no command deny list or permission gate."""
 
 import re
 from pathlib import Path

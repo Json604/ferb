@@ -88,52 +88,49 @@ def test_a_browser_tab_the_extension_reports_with_a_password_field_drops_the_fra
 
 # ---------- clicks ----------
 
-def test_clicks_map_image_pixels_to_the_window_and_refuse_stale_moved_or_covered(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_clicks_map_image_pixels_and_require_fresh_refs_for_each_attempt(monkeypatch):
     d, _, shots, apps, posted = vision(monkeypatch)
     _, shot, _ = asyncio.run(d.screenshot("Notes"))
-    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))              # image px at 2x
-    assert r.ok and "background" in r.detail and posted == ["move 300.0,200.0 to pid", "click 300.0,200.0 to pid"]
-    assert apps.activated == []                                          # the window took it: nothing moved
-    posted.clear()
-    shots.takes_pid_clicks = False                                       # it didn't: the real mouse, by leave only
     r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))
-    assert not r.ok and "allow_foreground" in r.detail and apps.activated == []
+    assert r.ok and posted == ["move 300.0,200.0 to pid", "click 300.0,200.0 to pid"]
+    assert apps.activated == []
+    with pytest.raises(StaleRef):
+        asyncio.run(d.click_at("Notes", shot.id, 400, 300))
+    shots.takes_pid_clicks = False
+    _, shot, _ = asyncio.run(d.screenshot("Notes"))
     r = asyncio.run(d.click_at("Notes", shot.id, 400, 300, allow_foreground=True))
+    assert r.ok and not r.facts['observed_change'] and apps.activated == []
+    _, shot, _ = asyncio.run(d.screenshot("Notes"))
+    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300, allow_foreground=True, mechanism="foreground"))
     assert r.ok and posted[-2:] == ["move 300.0,200.0", "click 300.0,200.0"]
-    assert getattr(d.ax, "raised", 0) >= 1                               # the window itself was raised first
-    assert apps.activated == ["com.apple.Notes"]                         # brought forward for the stretch
-    d.restore_owner()
-    assert apps.activated == ["com.apple.Notes", "com.brave.Browser"]   # then the owner's app put back, once
+    assert apps.activated == ["com.apple.Notes"]
     with pytest.raises(Refused, match="outside"):
         asyncio.run(d.click_at("Notes", shot.id, 1600, 10))
-    asyncio.run(d.screenshot("Notes"))
-    with pytest.raises(StaleRef):
-        asyncio.run(d.click_at("Notes", shot.id, 10, 10))              # a newer screenshot supersedes
     posted.clear()
     shots.bounds = (120.0, 50.0, 800.0, 600.0)
     with pytest.raises(StaleRef, match="moved"):
-        asyncio.run(d.click_at("Notes", "shot2", 10, 10))
-    assert posted == []
+        asyncio.run(d.click_at("Notes", shot.id, 10, 10))
     shots.bounds = BOUNDS
-    shots.top = 999                                                      # another window over that point
+    shots.top = 999
     with pytest.raises(StaleRef, match="another window"):
-        asyncio.run(d.click_at("Notes", "shot2", 10, 10, allow_foreground=True))
-    assert posted[-1].endswith("to pid")                                 # nothing reached the real mouse
+        asyncio.run(d.click_at("Notes", shot.id, 10, 10, allow_foreground=True, mechanism="foreground"))
+    assert posted == []
 
 
-def test_a_click_at_a_point_tries_the_apps_own_hit_test_first(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_explicit_ax_hit_test_never_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
     """The point becomes an element (AXUIElementCopyElementAtPosition on the app element) and is pressed through
     Accessibility: no mouse event at all, in front or behind."""
     d, ax, shots, apps, posted = vision(monkeypatch)
     _, shot, _ = asyncio.run(d.screenshot("Notes"))
     ax.hit_el = "Export"
-    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))
-    assert r.ok and "pressed the button “Export” under (400, 300)" in r.detail
+    import ferb.act.mac.driver as drv
+    monkeypatch.setattr(drv.axm, "_attr", lambda el, name: "win")
+    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300, mechanism="ax"))
+    assert r.ok and r.facts["method"] == "ax"
     assert posted == [] and apps.activated == [] and ax.calls[-1] == "ax.press"
-    assert d.profiles.prefers("com.apple.Notes", "hit_test") and d.profiles.prefers("com.apple.Notes", "ax_press")
-    ax.press_ok = False                                                  # the element refuses: the pid click next
-    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300))
-    assert r.ok and posted == ["move 300.0,200.0 to pid", "click 300.0,200.0 to pid"]
+    ax.press_ok = False
+    r = asyncio.run(d.click_at("Notes", shot.id, 400, 300, mechanism="ax"))
+    assert not r.ok and posted == []
 
 
 def test_the_accessibility_hit_test_decides_when_it_can(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -142,13 +139,13 @@ def test_the_accessibility_hit_test_decides_when_it_can(monkeypatch: pytest.Monk
     asyncio.run(d.screenshot("Notes"))
     shots.top = 999                                                      # the window list sees an overlay...
     ax.hit_answer = (11, BOUNDS)                                         # ...that ignores clicks: Notes gets it
-    assert asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True)).ok and posted
+    assert asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True, mechanism="foreground")).ok and posted
     posted.clear()
     shots.top = None
     for answer in ((12, BOUNDS), (11, (110.0, 60.0, 160.0, 160.0)), (11, None)):   # another app / window / a menu
         ax.hit_answer = answer
         with pytest.raises(StaleRef):
-            asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True))
+            asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True, mechanism="foreground"))
     assert not [p for p in posted if not p.endswith("to pid")]
 
 
@@ -165,8 +162,8 @@ def test_the_topmost_check_runs_before_every_event(monkeypatch: pytest.MonkeyPat
                                                                          lambda: posted.append("move to pid")),
                                                                     Step("click", lambda: posted.append("click"))])
     with pytest.raises(StaleRef):
-        asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True))
-    assert posted == ["move to pid", "click", "move"]                    # the real click itself never happened
+        asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True, mechanism="foreground"))
+    assert posted == ["move"]                    # the real click itself never happened
 
 
 def test_clicks_yield_to_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -174,7 +171,7 @@ def test_clicks_yield_to_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
     shots.takes_pid_clicks = False
     asyncio.run(d.screenshot("Notes"))
     with pytest.raises(Yielded):
-        asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True))
+        asyncio.run(d.click_at("Notes", "shot1", 10, 10, allow_foreground=True, mechanism="foreground"))
     assert not [p for p in posted if not p.endswith("to pid")] and apps.activated == []   # the owner never moved
 
 

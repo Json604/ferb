@@ -1,9 +1,10 @@
-"""Typed outcomes the supervisor and workers must return.
+"""Owns structured approach outputs and mechanical validation. Must not bypass the gateway or turn model uncertainty into an implicit target choice.
+
+Typed outcomes the supervisor and workers must return.
 
 JSON schemas in strict structured-output form (every property required, no extra properties, null where optional),
 plus pydantic models that validate what comes back. A chat turn is a reply, one clarifying question, or a task: the
-goal in plain words, the identity, the targets the model understood (informational), and success conditions.
-"""
+goal in plain words, the identity, the targets the model understood (informational), and success conditions."""
 
 from typing import Any, Literal
 
@@ -33,6 +34,7 @@ def _obj(props: dict[str, Any]) -> dict[str, Any]:
 TARGETS_SCHEMA = _obj({"apps": _strings(), "sites": _strings(), "paths": _strings(), "recipients": _strings()})
 CONDITION_SCHEMA = _obj({
     "text": {"type": "string"},
+    "layer": {"type": "string", "enum": ["outcome", "intake", "artifact", "external"]},
     # a code-checkable form when the condition allows one (verified without a model); kind "none" otherwise
     "check": _obj({"kind": {"type": "string", "enum": CHECK_KINDS}, "path": _nullable("string"),
                    "text": _nullable("string"), "url_contains": _nullable("string"), "site": _nullable("string"),
@@ -120,6 +122,7 @@ class Check(BaseModel):
 class Condition(BaseModel):
     text: str
     check: Check
+    layer: Literal["outcome", "intake", "artifact", "external"] = "outcome"
 
 
 class TaskSpec(BaseModel):
@@ -164,7 +167,7 @@ class SupervisorOutcome(BaseModel):
 
 
 class ScheduleRequest(BaseModel):
-    """A task to run later or repeatedly: in the owner's words, with the targets recorded now (build step 15)."""
+    """A task to run later or repeatedly: in the owner's words, with the targets recorded now."""
     request: str
     when: When                   # the first run, as the owner said it; code computes the time
     repeat: Literal["none", "daily", "weekdays", "weekly", "every"]
@@ -209,6 +212,14 @@ class DispatchOutcome(BaseModel):
     worker_type: str
     instructions: str
     question: str
+
+    @model_validator(mode="after")
+    def require_branch_content(self) -> "DispatchOutcome":
+        if self.action == "ask" and not self.question.strip():
+            raise ValueError("action=ask requires question")
+        if self.action in ("retry", "finish") and not self.instructions.strip():
+            raise ValueError(f"action={self.action} requires instructions; question is not its result field")
+        return self
 
 
 class QuestionOutcome(BaseModel):

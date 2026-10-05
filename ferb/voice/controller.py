@@ -1,4 +1,6 @@
-"""Push-to-talk in the daemon (section 20.1): the talk key's decisions become commands for FERB.app; what the owner said
+"""Coordinate push-to-talk transcription and explicit question routing. Must not select among pending questions by order.
+
+Push-to-talk in the daemon: the talk key's decisions become commands for FERB.app; what the owner said
 comes back as a transcript and runs as a chat turn in the "voice" session; FERB's replies are spoken.
 
 FERB.app is the only part that opens a microphone; this side decides which one (never a Bluetooth headset's), when to
@@ -67,7 +69,10 @@ class Voice:
                 return act
             device = choose(self.devices, self.mode())
             if device is None:
-                self._say("I can't find a microphone I'm allowed to use.")
+                self.publish("voice.device_unresolved", {"candidates": [
+                    {"uid": d.uid, "name": d.name, "transport": d.transport, "default": d.default}
+                    for d in self.devices]})
+                self._say("I can't identify one microphone from the configured preference.")
                 return act
             self.listening = True
             self.app.put_nowait({"op": "start", "device_uid": device.uid, "device": device.name})   # silent
@@ -93,13 +98,18 @@ class Voice:
     # ---------- what the owner said ----------
 
     async def transcript(self, text: str) -> dict[str, Any]:
-        text = " ".join(text.split())
         pending = self.pending()
-        if pending and getattr(pending[0], 'kind', '') == 'owner_login_code':
+        if any(getattr(q, 'kind', '') == 'owner_login_code' for q in pending):
             self._say("Enter the login code in ferb chat's hidden prompt.")
             return {"handled": "secure_input_required"}
+        if len(pending) > 1:
+            questions = [{"id": q.id, "question": getattr(q, "question", ""),
+                          "task_id": getattr(q, "task_id", None)} for q in pending]
+            self._say("Several questions are waiting. Select the intended question in ferb chat before answering.")
+            self.publish("voice.question_selection_required", {"questions": questions})
+            return {"handled": "question_selection_required", "questions": questions}
         self.publish("voice.heard", {"text": text})
-        if not text:
+        if not text.strip():
             self._say("I didn't catch that.")
             return {"handled": "empty"}
         if pending:
@@ -126,5 +136,5 @@ class Voice:
                     await asyncio.to_thread(self.speaker.wait)       # don't cut off what it's still saying
                     self._say(words, shown)
         except Exception as e:                                    # the owner hears it, the journal keeps it
-            self.journal.append("voice.failed", {"why": f"{type(e).__name__}: {e}"[:300]})
+            self.journal.append("voice.failed", {"why": f"{type(e).__name__}: {e}"})
             self._say("Sorry — something went wrong on my side.")

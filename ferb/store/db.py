@@ -1,4 +1,4 @@
-"""The single SQLite connection (WAL) and its migrations (section 3)."""
+"""Own SQLite connection and schema migrations. Must not infer task outcomes or rewrite source content."""
 
 import sqlite3
 from pathlib import Path
@@ -16,7 +16,7 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
-        self.conn.execute("PRAGMA secure_delete=ON")              # "forget" must really erase (section 14)
+        self.conn.execute("PRAGMA secure_delete=ON")              # "forget" must really erase
         path.chmod(0o600)
 
     def schema_version(self) -> int:

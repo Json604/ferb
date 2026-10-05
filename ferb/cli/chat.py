@@ -1,8 +1,10 @@
-"""`ferb chat`: talk to FERB (section 15, build step 14a).
+"""Render chat streaming and send explicit question answers. Must not decide task plans or answer questions for the owner.
+
+`ferb chat`: talk to FERB.
 
 - A real line editor (prompt_toolkit): Enter sends, Option-Enter (or Esc then Enter) adds a line, arrows and
   history work. A paste arrives whole — several lines, one message — and is still marked as data, not instructions:
-  FERB wraps each pasted piece in the paste markers the daemon treats as untrusted (section 10.2).
+  FERB wraps each pasted piece in the paste markers the daemon treats as untrusted.
 - Plain by default: FERB's own words, its questions, and their results. `--verbose` shows
   the plan, each step, tools and checks.
 - Ctrl-C while FERB works stops that task ("stopped by you"). Closing chat (Ctrl-D, /quit, closing the terminal)
@@ -11,8 +13,7 @@
   "FERB is working… (12s)" once a task starts), on the terminal only, cleared before anything is printed and while
   FERB asks a question.
 - On opening: answers that arrived while chat was closed, tasks still running, and any question waiting for the
-  owner.
-"""
+  owner."""
 
 import re
 import sys
@@ -66,7 +67,7 @@ def pasted_is_data() -> bool:
 
 
 def prepare(text: str, pastes: list[str], ask: Callable[[str], str]) -> str:
-    """What goes to the daemon. Pastes are data, never instructions (10.2) — unless the whole message is a paste and
+    """What goes to the daemon. Pastes are data, never instructions — unless the whole message is a paste and
     the owner says, here in their own terminal, that it's their request (e.g. copied from their own notes)."""
     if whole_paste(text, pastes) and ask(PASTE_QUESTION).strip().lower() in ("y", "yes"):
         return text

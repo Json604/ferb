@@ -1,4 +1,4 @@
-"""FERB's runtime locations (section 3): one place so the daemon and the CLI always agree."""
+"""Own FERB runtime directory locations. Must not resolve an ambiguous task file or change its source."""
 
 import os
 from pathlib import Path

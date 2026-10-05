@@ -1,4 +1,5 @@
-"""Resolve the profile explicitly selected by the agent; return candidates rather than infer account intent."""
+"""Owns matching an explicit profile selection to paired candidates; must not infer an account from browsing history.
+Ambiguous matches remain evidence for agent judgment and, when unresolved, owner clarification."""
 
 from dataclasses import dataclass
 from typing import Callable

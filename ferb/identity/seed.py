@@ -1,9 +1,6 @@
-"""FERB's identity profile (section 8 step 3): a dedicated "FERB" profile in the owner's normal Chrome, holding
-exactly FERB's account. Setup finds and confirms it; setup and doctor verify it. Nothing is copied.
-
-Only `Local State` and `Preferences` are parsed. Cookies and saved passwords are never read (safety test 20).
-Setup never quits Chrome and never looks at Brave.
-"""
+"""Owns setup/doctor verification of the explicitly configured dedicated FERB Chrome account profile.
+Must not copy credentials, inspect owner cookies or select among multiple eligible profiles.
+Local State and Preferences provide account metadata; setup requires exactly the configured FERB account."""
 
 import json
 from dataclasses import dataclass

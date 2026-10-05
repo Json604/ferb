@@ -1,9 +1,9 @@
-"""Resource locks (section 7 step 7): tab, account, file, app.
+"""Own ordered resource locks for tabs, accounts, files and apps. Must not choose resources or authorize actions.
 
 A capability says which resources one call touches (`locks(args)`); the gateway takes them after policy allowed the
 call and releases them when the call returns — held across observe -> act -> verify inside one call, never across
 model calls or approval waits. Several locks are always taken in one fixed order (kind order, then name), so two
-workers can never hold them crosswise: no deadlock (safety test 14).
+workers can never hold them crosswise: no deadlock.
 """
 
 import asyncio

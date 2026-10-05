@@ -1,5 +1,6 @@
-"""GUI lock (section 7 step 7): one GUI actor at a time. Taken for real mouse/keyboard input only, held across one
-action's observe -> act -> verify, never across model calls."""
+"""Own serialization of global mouse and keyboard actions. Must not hold the lock across model calls.
+
+One GUI actor holds the lock for its observe -> act -> verify operation."""
 
 import asyncio
 from contextlib import asynccontextmanager

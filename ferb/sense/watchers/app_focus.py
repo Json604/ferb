@@ -1,4 +1,6 @@
-"""Frontmost app changes (section 11): app name + bundle id only."""
+"""Observe frontmost-app changes and attach timing context. Must not activate apps or infer permission.
+
+Frontmost app changes: app name + bundle id only."""
 
 import asyncio
 from typing import Any, Callable

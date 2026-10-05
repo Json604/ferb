@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-05",
+  "test": "tests/test_browser_upload_real_026.py::test_direct_upload_top_same_origin_and_oopif_with_full_receipts",
+  "environment": "Disposable Chrome profile, local HTTP fixture, temporary generated upload bytes; no personal profiles/accounts/files accessed",
+  "result": {
+    "uploads": [
+      {
+        "frame": "0",
+        "bytes_match": true,
+        "native_chooser_intercepted": true,
+        "chooser_mode": "selectSingle"
+      },
+      {
+        "frame": "6",
+        "bytes_match": true,
+        "native_chooser_intercepted": true,
+        "chooser_mode": "selectSingle"
+      },
+      {
+        "frame": "7",
+        "bytes_match": true,
+        "native_chooser_intercepted": true,
+        "chooser_mode": "selectSingle"
+      }
+    ],
+    "full_snapshot_tail": true,
+    "unexpected_dialog": "pending until explicit dismissal"
+  },
+  "disturbance_summaries": [
+    {
+      "event": "disturbance.summary",
+      "samples": 20,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {
+        "fullscreen": "AXFullScreen: AX error -25205"
+      },
+      "sample_interval_s": 0.25,
+      "max_sample_ms": 99.93179095909,
+      "coverage": "sampled; short changes between samples may be missed; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+    }
+  ],
+  "disturbances": [],
+  "interpretation": "No changes observed during this sampled run. AXFullScreen was unavailable; full-screen behavior is not verified. Sampling can miss short changes between samples. The login window was frontmost; this is not active-owner-work acceptance.",
+  "frontmost_bundle_at_start": "com.apple.loginwindow"
+}

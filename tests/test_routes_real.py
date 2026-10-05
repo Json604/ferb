@@ -31,8 +31,7 @@ def codex() -> Iterator[RunningDaemon]:
     env = svc.Environment([("com.apple.Notes", "Notes")], [("brave", "Default", "Work")])
 
     def environment(words: str) -> dict[str, Any]:
-        named = svc.services_named(words, env)
-        stable, live = svc.summary(env, "26.0", named, set())
+        stable, live = svc.summary(env, "26.0", set())
         return {"stable": stable, "live": live}
     d.daemon.supervisor.environment = environment                                  # type: ignore[union-attr]
     d.daemon.supervisor.apps = lambda: env.apps                                    # type: ignore[union-attr]

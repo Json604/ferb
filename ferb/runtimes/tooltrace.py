@@ -1,4 +1,6 @@
-"""Model-visible tool names from a Codex request trace (spike 1): each request's `"tools":[...]` and every
+"""Owns normalized provider tool-call observations. Must not select task targets, authorize actions or expose tools outside the registered harness.
+
+Model-visible tool names from a Codex request trace (spike 1): each request's `"tools":[...]` and every
 `tool_search` result (logged as `output=[...]`, which loads MCP namespaces). Nameless hosted tools are kept by
 type — a tool the check can't see is exactly what it must never miss."""
 
@@ -42,5 +44,5 @@ def _flatten(tools: list[Any]) -> set[str]:
         if t.get("tools"):
             out |= {f"{t['name']}.{n}" for n in _flatten(t["tools"])}
         else:
-            out.add(t.get("name") or t.get("type") or json.dumps(t)[:80])
+            out.add(t.get("name") or t.get("type") or json.dumps(t))
     return out

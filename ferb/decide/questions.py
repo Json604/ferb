@@ -1,10 +1,13 @@
-"""The typed questions FERB asks Jev (section 12). Each names its possible answers, the answer FERB's own logic gives
+"""Owns the versioned typed-decision schema and its existing enrichment effects. Must not expand enrichment into task authorization or silently replace the baseline.
+
+The typed questions FERB asks Jev. Each names its possible answers, the answer FERB's own logic gives
 today (the baseline), and which of Jev's answers may have an effect once the owner enables it — only ever stricter
-than the baseline (extra redaction or dropping a memory proposal). Task decisions belong to the orchestrator.
-"""
+than the baseline (extra redaction or dropping a memory proposal). Task decisions belong to the orchestrator."""
 
 from dataclasses import dataclass
 from typing import Any, Literal
+
+from ferb.core.prompts import load_prompt
 
 
 @dataclass(frozen=True)
@@ -41,16 +44,15 @@ class Question:
 
 QUESTIONS: dict[str, Question] = {q.id: q for q in (
     Question("memory.worth_keeping", "noul",
-             "Is this worth remembering about the owner long term (durable, useful, not sensitive)?",
+             load_prompt("decide/prompts/memory.md"),
              {"true": "worth keeping", "false": "not worth keeping"},
              stricter=frozenset({"no"}), effect="no -> the proposal is dropped"),
     Question("trail.relevance", "choice",
-             "How relevant is this activity event to understanding the owner's day?",
+             load_prompt("decide/prompts/relevance.md"),
              {"ignore": "noise", "note": "worth noting", "summarize": "important for the day's summary"},
              shadow_sample=0.1, effect="stored on the row only; no task decisions"),
     Question("trail.sensitive", "noul",
-             "Does this activity event reveal something sensitive (health, finances, intimate life, credentials, "
-             "other people's private information)?",
+             load_prompt("decide/prompts/sensitive.md"),
              {"true": "sensitive", "false": "not sensitive"},
              stricter=frozenset({"yes"}), shadow_sample=0.1,
              effect="yes -> the row's titles and URLs are redacted"),

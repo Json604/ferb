@@ -1,7 +1,8 @@
-"""Starts and stops every watcher (section 11). `ferb pause` stops all of them — the owner-input tap included — and
+"""Start and stop enabled observation watchers. Must not execute agent tasks from raw observations.
+
+Starts and stops every watcher. `ferb pause` stops all of them — the owner-input tap included — and
 the trail records nothing until `ferb resume`; the pause survives a restart (a marker file). While paused, FERB can't
-tell when the owner is using the mouse or keyboard, so real input is refused (Accessibility actions still work).
-"""
+tell when the owner is using the mouse or keyboard, so real input is refused (Accessibility actions still work)."""
 
 import asyncio
 from pathlib import Path
@@ -48,7 +49,7 @@ class Sense:
         except asyncio.CancelledError:
             raise
         except Exception as e:                                  # one broken watcher never stops the others
-            why = f"{type(e).__name__}: {e}"[:300]
+            why = f"{type(e).__name__}: {e}"
             self.failed[w.source] = why
             self.trail.publish("sense.watcher_failed", {"source": w.source, "error": why})
             self.on_fail(w.source, why)

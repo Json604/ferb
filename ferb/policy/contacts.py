@@ -1,4 +1,4 @@
-"""Shared recipient metadata for browser and native action inputs."""
+"""Own typed observed recipient metadata. Must not choose a contact or infer identity from a name."""
 
 from pydantic import BaseModel, Field
 

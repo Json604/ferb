@@ -1,13 +1,14 @@
-"""Scheduled and recurring tasks (section 18 step 15).
+"""Owns durable schedules and calendar arithmetic. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Scheduled and recurring tasks.
 
 A schedule keeps the owner's full words and the targets recorded at scheduling time; the agent decides each run
 afresh using that context. Rules: once, daily at HH:MM, weekdays at HH:MM, weekly on a day at
-HH:MM, or every N minutes (N >= 15), in the owner's local time zone (so a daily 09:00 stays 09:00 across daylight-
-saving changes). Each next run is a durable timer (exactly once, step 14).
+HH:MM, or every positive N minutes, in the owner's local time zone (so a daily 09:00 stays 09:00 across daylight-
+saving changes). Each next run is a durable timer (exactly once).
 
 Missed runs are presented to the orchestrator with lateness and prior failures. Those observations do not cancel
-an occurrence or pause the owner's schedule automatically.
-"""
+an occurrence or pause the owner's schedule automatically."""
 
 import json
 from dataclasses import dataclass
@@ -20,7 +21,6 @@ from ferb.core.interfaces import Clock, IdSource
 from ferb.store.db import Database
 
 REPEATS = ("none", "daily", "weekdays", "weekly", "every")
-MIN_EVERY_MIN = 15
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
 
@@ -44,8 +44,8 @@ class Rule:
         zone = tz or local_zone()
         local = first.astimezone(zone)
         if repeat == "every":
-            if not every_minutes or every_minutes < MIN_EVERY_MIN:
-                raise ScheduleError(f"a repeating task runs at most every {MIN_EVERY_MIN} minutes")
+            if every_minutes is None or every_minutes <= 0:
+                raise ScheduleError("a repeating interval must be positive")
         wd = None
         if repeat == "weekly":
             wd = DAYS.index(weekday.lower()) if weekday and weekday.lower() in DAYS else local.weekday()
@@ -56,7 +56,9 @@ class Rule:
         if self.repeat == "none":
             return None
         if self.repeat == "every":
-            step = timedelta(minutes=self.every_minutes or MIN_EVERY_MIN)
+            if self.every_minutes is None or self.every_minutes <= 0:
+                raise ScheduleError("a repeating interval must be positive")
+            step = timedelta(minutes=self.every_minutes)
             n = max(0, int((after - anchor) / step) + 1)
             return anchor + n * step
         zone = ZoneInfo(self.tz)

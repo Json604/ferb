@@ -2,9 +2,9 @@
 
 FERB is a personal assistant for macOS. Talk to it with `ferb chat`; its orchestrator assigns workers, answers their
 questions from context and changes approach when needed. Agents interpret your request and decide what actions it
-authorizes. “Send Rahul the deck” authorizes sending; “prepare the deck for Rahul” calls for a choice once it is ready.
+authorizes. They prepare a concrete hard-to-undo action, confirm its identity, and carry that confirmation across retries.
 
-Version **0.25.0** on `astra/version`. This release is awaiting installation and owner-observed acceptance.
+Version **0.26.0** on `astra/0.26-hardening`. See the capability ledger for measured behavior and pending owner acceptance.
 The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) explains the implementation and limits.
 
 ## Setup
@@ -21,7 +21,7 @@ Setup installs a dedicated interpreter, environment, runtime and LaunchAgent und
 permissions and reports missing grants. `ferb setup --update` installs the current checkout and restarts the daemon;
 run it when existing work can be interrupted. The development environment and installed daemon are separate.
 
-Chrome and Brave need FERB extension **0.12.0**. Prepare its managed folder with `ferb browsers extension install`;
+Chrome and Brave need FERB extension **0.13.0**. Prepare its managed folder with `ferb browsers extension install`;
 `ferb browsers extension path` prints the path. Enable Developer mode in the browser's extensions page and Load
 unpacked from `~/.ferb/extensions/chromium`, once per profile. Pair with:
 
@@ -120,7 +120,7 @@ An unsupported or lost capture route returns a concrete error/partial result.
 
 These are silent sampled videos: 2 captures/second by default, configurable from 0.2–10. They are useful for task
 replays, not high-frame-rate video or audio recording. They need `ffmpeg` and `ffprobe` installed; FERB searches PATH
-and the usual Homebrew/user binary folders. Browser capture requires extension 0.12.0 / protocol 7; native capture
+and the usual Homebrew/user binary folders. Browser capture requires extension 0.13.0 / protocol 8; native capture
 requires macOS Screen Recording access and the target window to remain capturable.
 
 `recording.stop` finalizes the MP4 plus a JSON receipt of the target and capture times/errors. `recording.inspect`
@@ -131,6 +131,24 @@ of every frame. See [owner acceptance](docs/OWNER_ACCEPTANCE.md) for the disposa
 ### Guided architecture walkthrough
 
 Open [docs/walkthrough/index.html](docs/walkthrough/index.html) in your browser (or run
-`open docs/walkthrough/index.html`). It works offline without a server or dependencies. Twelve task journeys
+`open -g docs/walkthrough/index.html`). It works offline without a server or dependencies. Fourteen task journeys
 explain the current HLD/LLD step by step, with source links and evidence limits, including the interactive Claude
 Code trace. The page does not execute tasks. See [ARCHITECTURE.md](ARCHITECTURE.md) for full Mermaid sources.
+
+## Understanding and validating 0.26
+
+Start with [OWNER_GUIDE](docs/OWNER_GUIDE.md), the [capability ledger](docs/CAPABILITIES.md),
+[acceptance checklist](docs/OWNER_ACCEPTANCE.md) and [incident audit](docs/AUDIT_0_26.md).
+The [daemon RPC contract](docs/RPC.md) is the integration point for future clients.
+
+Full owner requests and artifact text are preserved. Optional context omitted under an explicit token budget has
+a visible fetch reference. Target/source ambiguity remains a question for the agent and owner; unsupported routes
+return facts. Final answers show every failed/unverified condition before outcome facts.
+
+Every task records desktop observations through cleanup. `ferb trace TASK --full` shows desktop changes and nearby
+actions; `--json` exports a structured outcome. Sampling can miss short changes and reports unavailable fields; it
+does not silently approve focus, block actions or restore an old foreground app.
+
+```sh
+uv run python scripts/check_doc_sources.py
+```

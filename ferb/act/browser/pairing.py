@@ -1,12 +1,6 @@
-"""Extension install <-> browser profile pairing (section 9.6): the daemon's decisions, persisted.
-
-- FERB issues a one-time token for (browser, folder, identity); it's handed to the extension only through the
-  extension's own pairing page opened in that profile. Tokens are single-use and expire in minutes.
-- Pairing binds install_id -> (browser, folder, identity) and issues a per-install key (never logged or returned
-  by any method). Re-pairing a profile replaces its previous install.
-- An unpaired install may send only `hello` and `pair`. Everything else needs a valid MAC and a strictly increasing
-  seq (persisted, so a daemon restart doesn't reopen replays).
-"""
+"""Owns authenticated extension-to-profile bindings, single-use pairing tokens and anti-replay sequence state.
+Must not choose a browser profile or account: setup supplies the explicit browser, folder and identity.
+Bindings and monotonic counters persist; secret pairing keys never enter model-visible results."""
 
 import base64
 import secrets
@@ -112,4 +106,3 @@ class Pairings:
         self.paired.add(str(token))
         return Verdict(True, "paired", reply={"type": "paired", "key": base64.b64encode(key).decode()},
                        binding=Binding(m.install_id, browser, folder, identity))
-

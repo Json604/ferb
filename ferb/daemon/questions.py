@@ -1,4 +1,4 @@
-"""Waiting owner questions and sealed login-code replies, not per-action permission grants."""
+"""Own pending question transport and exact answers. Must not treat timeout or ambiguity as consent."""
 
 import secrets
 from dataclasses import dataclass
@@ -45,7 +45,8 @@ class Approvals:
             raise ValueError(f"question {approval_id} expired")
         text = (text or "").strip() or None
         if text is not None and choice is None and ap.options:
-            choice = next((i for i, o in enumerate(ap.options, 1) if o.strip().lower() == text.lower()), None)
+            matches = [i for i, o in enumerate(ap.options, 1) if o.strip().casefold() == text.casefold()]
+            choice = matches[0] if len(matches) == 1 else None
             if choice is None and text.isdigit() and 1 <= int(text) <= len(ap.options):
                 choice = int(text)
         if granted and choice is not None:

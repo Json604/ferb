@@ -1,4 +1,6 @@
-"""Task-owned shell processes: start, wait, read, send and kill without detached launcher guesses."""
+"""Expose owned shell process operations through typed tools. Must not choose commands, retries or foreground methods.
+
+Task-owned shell processes: start, wait, read, send and kill without detached launcher guesses."""
 
 from pydantic import BaseModel, Field
 
@@ -13,7 +15,7 @@ TAIL = 8000
 
 def _untrusted(network: bool, command: str) -> tuple[tuple[str, str], ...]:
     """Network-fetching commands bring in untrusted content: annotate its source for the agent."""
-    return (("web", f"shell: {command[:200]}"),) if network else ()
+    return (("web", f"shell: {command}"),) if network else ()
 
 
 def _err(msg: str) -> ToolResult:
@@ -47,7 +49,7 @@ class ShellStart(_Base):
                    "asynchronously during a task. Starting a process does not prove it is ready or successful.")
 
     class Input(BaseModel):
-        command: str = Field(max_length=4000)
+        command: str
         cwd: str | None = Field(default=None, description="Working folder (default: FERB's workspace)")
         background: bool = False
 
@@ -71,7 +73,9 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
     text, offset, total = await shells.read(h, since, TAIL)
     info = shells.info(h)
     return ToolResult({"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
-                       "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error},
+                       "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error,
+                       "network_annotation": {"inferred": info.network, "certainty": "heuristic_only"},
+                       "retrieval": "shell.read with since=offset until more=false" if offset < total else None},
                       is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
                       read_sources=_untrusted(info.network, info.command))
 
@@ -93,7 +97,7 @@ class ShellRun(ShellStart):
                "total": total}
         if total > TAIL:
             out["output_truncated"] = True              # the end is shown; the whole output pages from the start
-            out["next"] = "shell_read with since=0 reads from the beginning, a page at a time"
+            out["next"] = "shell.read with since=0 reads from the beginning, a page at a time"
 
         info = self.shells.info(h)
         out["capture_error"] = info.capture_error
@@ -143,7 +147,7 @@ class ShellSend(_Base):
 
     class Input(BaseModel):
         id: str
-        text: str = Field(max_length=4000)
+        text: str
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.RUN_SHELL, content=str(getattr(args, "text")))

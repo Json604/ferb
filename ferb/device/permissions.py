@@ -1,8 +1,9 @@
-"""TCC permission checks (section 8 step 1) — never prompting — and open-settings helpers.
+"""Read TCC grant facts and expose explicit setup permission requests. Must not silently prompt during capability checks.
 
-Grants belong to the responsible process: the daemon runs these checks on itself (section 8 step 6), never the
-CLI's process. Automation can be *requested* (prompt) only from the daemon, so the grant attaches to it.
-"""
+TCC permission checks — never prompting — and open-settings helpers.
+
+Grants belong to the responsible process: the daemon runs these checks on itself, never the
+CLI's process. Automation can be *requested* (prompt) only from the daemon, so the grant attaches to it."""
 
 import ctypes
 import subprocess

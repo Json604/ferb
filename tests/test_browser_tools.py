@@ -115,12 +115,15 @@ def test_fill_otp_code_goes_to_the_field_never_to_the_worker(bd: Any) -> None:
     g = task(d, "o", Identity.FERB, FERB_SCOPES, "sign in")
     tab = call(d, g, "ferb_browser.open", url=f"{SITE}/otp")["content"]["tab"]
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
-    r = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
+    candidates=call(d,g,"ferb_browser.otp_candidates",tab=tab,element=el(snap,sensitive=True),secret=REF.key)["content"]["candidates"]
+    assert len(candidates) == 1
+    candidate=candidates[0]["candidate"]
+    r = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, sensitive=True), secret=REF.key, candidate=candidate)
     assert not r["is_error"] and "482913" not in json.dumps(r)
     assert drv.value(tab, 0) == "482913"
     snap = call(d, g, "ferb_browser.snapshot", tab=tab)["content"]
-    again = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, sensitive=True), secret=REF.key)
-    assert again["is_error"] and "no new code" in again["content"]["detail"]  # a used message is never reused
+    again = call(d, g, "ferb_browser.fill_otp", tab=tab, element=el(snap, sensitive=True), secret=REF.key, candidate=candidate)
+    assert again["is_error"] and "unavailable" in again["content"]["detail"]  # a used message is never reused
     _nowhere(d, "482913")
 
 
@@ -178,28 +181,12 @@ def test_http_urls_include_local_development_servers_but_not_file_schemes():
         check_url("file:///etc/passwd")
 
 
-def test_action_kinds_are_facts_about_the_element() -> None:
-    def e(role: str, form: str | None = None, href: str | None = None, label: str = "x",
-          input_type: str | None = None) -> PageElement:
-        return PageElement("s1e1", "f", role, label, None, (0, 0, 1, 1), True, href=href, form=form,
-                           input_type=input_type)
-    assert act_kind("click", None, e("link", href="https://x")) == Kind.NAVIGATE
-    assert act_kind("click", None, e("button", "search")) == Kind.SEARCH
-    assert act_kind("click", None, e("button", "other")) == Kind.SUBMIT           # a form's button submits it
-    assert act_kind("click", None, e("button", input_type="submit")) == Kind.CLICK   # no form: nothing to submit
-    assert act_kind("click", None, e("button")) == Kind.CLICK                     # a plain button: a click
-    assert act_kind("click", None, e("row", label="FMI assignment — new post")) == Kind.CLICK   # an email row
-    assert act_kind("click", None, e("button", label="Send")) == Kind.SEND          # the floor words
-    assert act_kind("click", None, e("button", label="Pay now")) == Kind.PAY
-    assert act_kind("click", None, e("button", label="Delete")) == Kind.DELETE_PERMANENT
-    assert act_kind("click", None, e("button", label="Archive")) == Kind.CLICK     # not on the floor
-    assert act_kind("click", None, e("checkbox", "other")) == Kind.FILL_FORM
-    assert act_kind("type", "hi", e("textbox", "search")) == Kind.SEARCH
-    assert act_kind("type", "hi", e("textbox", "login")) == Kind.FILL_FORM
-    assert act_kind("press", "Enter", e("textbox", "other")) == Kind.SUBMIT
-    assert act_kind("press", "Enter", e("textbox", None)) == Kind.SUBMIT          # Return in a message box: a send
-    assert act_kind("press", "Tab", e("textbox", "other")) == Kind.READ
-    assert act_kind("click", None, None) == Kind.CLICK                             # unknown element: the driver refuses
+def test_action_kinds_never_guess_purpose_from_page_text_or_enter() -> None:
+    for label in ("Send","Pay now","Delete permanently","Account security","Submit","Search"):
+        element=PageElement("s1e1","f","button",label,None,(0,0,1,1),True,form="other")
+        assert act_kind("click",None,element) == Kind.CLICK
+        assert act_kind("press","Enter",element) == Kind.FILL_FORM
+    assert act_kind("scroll",None,None) == Kind.READ
 
 
 def _nowhere(d: RunningDaemon, value: str) -> None:

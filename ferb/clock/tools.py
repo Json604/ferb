@@ -1,8 +1,9 @@
-"""time.* capabilities (section 13, build step 14): reminders for the owner and a worker's durable sleep.
+"""Owns timer and wait tool mechanics. Must not infer ambiguous owner intent or turn reminders into unauthorized actions.
 
-A reminder only reminds: it never starts work (scheduled tasks are build step 15). A sleep counts as waiting (not a
-stall) and ends with the task; the task's 4-hour limit still applies.
-"""
+time.* capabilities: reminders for the owner and a worker's durable sleep.
+
+A reminder only reminds: it never starts work (scheduled tasks are separate). A sleep counts as waiting (not a
+stall) and ends with the task; the task's 4-hour limit still applies."""
 
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -46,7 +47,7 @@ class TimeRemindAt(_Base):
     description = "Remind the owner at a time. It only reminds. " + WHEN_HELP
 
     class Input(When):
-        message: str = Field(max_length=300)
+        message: str
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
@@ -61,8 +62,8 @@ class TimeSetTimer(_Base):
     description = "Set a timer for the owner that goes off after some minutes. It only notifies."
 
     class Input(BaseModel):
-        minutes: float = Field(gt=0, le=60 * 24 * 366)
-        message: str = Field(max_length=300)
+        minutes: float = Field(gt=0, allow_inf_nan=False)
+        message: str
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         return self._add(self.now() + timedelta(minutes=float(getattr(args, "minutes"))), str(getattr(args, "message")),

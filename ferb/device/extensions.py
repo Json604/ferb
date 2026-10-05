@@ -1,4 +1,6 @@
-"""FERB's managed unpacked extension. Publishing files never opens or edits a browser profile."""
+"""Install and register the packaged browser extension/native host. Must not choose an owner browser profile.
+
+FERB's managed unpacked extension. Publishing files never opens or edits a browser profile."""
 import json
 import shutil
 import tempfile

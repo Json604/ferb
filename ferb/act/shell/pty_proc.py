@@ -1,4 +1,6 @@
-"""A task's process group and owner-only redacted output log. Offsets address the full log, not a lossy ring."""
+"""Own PTY transport, output storage and process-group termination. Must not truncate the retained output or choose commands.
+
+A task's process group and owner-only redacted output log. Offsets address the full log, not a lossy ring."""
 
 import asyncio
 import errno

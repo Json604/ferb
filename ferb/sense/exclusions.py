@@ -1,10 +1,11 @@
-"""The exclusion list (section 11 step 1), applied before anything is written, published or tagged. An excluded
+"""Apply owner-configured observation exclusions. Must not infer app/task preferences beyond those settings.
+
+The exclusion list, applied before anything is written, published or tagged. An excluded
 observation is dropped completely: no row, no bus event, no count (owner decision).
 
 Lists come from config `[privacy]`: `exclude_apps` (bundle ids or names; also what Mac control refuses),
 `exclude_domains` (a domain covers its subdomains), `exclude_paths` (skipped even inside a watched folder).
-Private / incognito browsing is never recorded.
-"""
+Private / incognito browsing is never recorded."""
 
 from dataclasses import dataclass, field
 from pathlib import Path

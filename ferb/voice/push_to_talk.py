@@ -1,4 +1,6 @@
-"""Push-to-talk (section 20.1): hold Right Option to talk, release to send.
+"""Own the push-to-talk hotkey state machine and recording signals. Must not interpret dictated task meaning.
+
+Push-to-talk: hold Right Option to talk, release to send.
 
 A hold under MIN_HOLD_S is a tap and is ignored; any other key pressed while it's down makes it a shortcut and what was
 heard is discarded. Fed from the daemon's listen-only event tap (owner input only; FERB's own marked events never)."""

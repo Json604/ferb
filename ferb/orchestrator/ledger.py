@@ -1,11 +1,12 @@
-"""Action ledger: intended -> executing -> done | failed | unknown (section 7 step 9, section 19).
+"""Owns action intentions and observed terminal states. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+Action ledger: intended -> executing -> done | failed | unknown.
 
 - The row is written before a consequential action runs; if that write fails, the action must not run.
 - After a crash/restart, anything still intended/executing becomes unknown.
 - `unknown` is reconciled from a fresh read, never blindly retried: while an identical action (same task,
   capability, payload hash) is unknown, a new intent for it is refused — so a lost ack after Send can't
-  become a second send.
-"""
+  become a second send."""
 
 import json
 from dataclasses import dataclass

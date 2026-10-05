@@ -1,4 +1,4 @@
-"""config.toml (section 6): load and save with tomlkit so comments and other sections survive.
+"""Own configuration parsing and persistence. Must not infer task intent or change owner values silently.
 
 - Refuses a config (or ~/.ferb) that others can read or write: allowed origins and policy live here.
 - Writes are atomic: temp file in the same folder (0600) -> fsync -> rename over the original.

@@ -1,4 +1,6 @@
-"""The permanent daily summary (sections 11, 14): written by code from the day's trail and journal, with no model, so
+"""Owns durable daily evidence summaries. Must not treat retrieved observations as owner authorization or silently cut stored content.
+
+The permanent daily summary: written by code from the day's trail and journal, with no model, so
 it always exists before the raw rows may be purged.
 
 The digest keeps the journey: per hour, the owner's main apps and sites; for the day, time per app, sites, folders
@@ -9,8 +11,7 @@ The same pass hands distillation its evidence as handles, each naming its source
 - E#: the owner's own trail rows (observed items may cite only these);
 - C#: the owner's own words in chat (pasted parts removed);
 - P#: text the owner pasted into chat (third-party);
-- F#: FERB's own activity (never evidence for the owner's habits or preferences).
-"""
+- F#: FERB's own activity (never evidence for the owner's habits or preferences)."""
 
 import json
 import re
@@ -23,7 +24,6 @@ from typing import Any
 from ferb.store.db import Database
 
 SUMMARY_KIND, NARRATIVE_KIND = "trail.day_summary", "trail.day_narrative"
-MAX_SOURCES_PER_HANDLE = 40
 UNTRUSTED = re.compile(r'<untrusted-data id="([0-9a-f]+)">\n(.*?)\n</untrusted-data id="\1">', re.S)
 Source = tuple[str, str]
 
@@ -37,7 +37,7 @@ class DayEvidence:
 
     def add(self, prefix: str, text: str, sources: list[Source]) -> None:
         h = f"{prefix}{sum(1 for k in self.handles if k.startswith(prefix)) + 1}"
-        self.handles[h] = sources[-MAX_SOURCES_PER_HANDLE:]
+        self.handles[h] = sources
         self.lines.append(f"{h}: {text}")
 
 
@@ -93,7 +93,7 @@ def build(db: Database, day: str) -> DayEvidence:
             folders[folder][str(d.get("change"))] += 1
             folder_ids[folder].append(("trail", r["id"]))
         elif r["source"] == "window" and d.get("title"):
-            key = f"{d.get('app')}: {d['title']}"[:120]
+            key = f"{d.get('app')}: {d['title']}"
             titles[key] += 1
             title_ids[key].append(("trail", r["id"]))
         elif r["source"] == "idle":
@@ -102,16 +102,16 @@ def build(db: Database, day: str) -> DayEvidence:
             elif idle_from is not None:
                 idle_s += (at - idle_from).total_seconds()
                 idle_from = None
-    top_apps = sorted(app_s.items(), key=lambda kv: -kv[1])[:15]
+    top_apps = sorted(app_s.items(), key=lambda kv: -kv[1])
     for name, secs in top_apps:
         ev.add("E", f"the owner used {name} for about {round(secs / 60)} min", app_ids[name])
-    for host, rs in sorted(sites.items(), key=lambda kv: -len(kv[1]))[:30]:
+    for host, rs in sorted(sites.items(), key=lambda kv: -len(kv[1])):
         profiles = sorted({f"{json.loads(r['data_json']).get('browser')}/{json.loads(r['data_json']).get('profile')}"
                            for r in rs})
         ev.add("E", f"the owner visited {host} {len(rs)} time(s) ({', '.join(profiles)})", [("trail", r["id"]) for r in rs])
-    for folder, c in sorted(folders.items(), key=lambda kv: -sum(kv[1].values()))[:20]:
+    for folder, c in sorted(folders.items(), key=lambda kv: -sum(kv[1].values())):
         ev.add("E", f"files changed in {folder}: {dict(c)}", folder_ids[folder])
-    for t, n in titles.most_common(10):
+    for t, n in titles.most_common():
         ev.add("E", f"window '{t}' ({n}x)", title_ids[t])
     ferb_counts = Counter(r["source"] for r in rows if r["actor"] == "ferb")
     if ferb_counts:
@@ -125,19 +125,20 @@ def build(db: Database, day: str) -> DayEvidence:
             text = str(d.get("text", ""))
             own = UNTRUSTED.sub("[pasted]", text).strip()
             if own:
-                ev.add("C", f"the owner said: {own[:600]}", [("journal", j["id"])])
+                ev.add("C", f"the owner said: {own}", [("journal", j["id"])])
             for m in UNTRUSTED.finditer(text):
-                ev.add("P", f"text the owner pasted (third-party): {m.group(2)[:600]}", [("journal", j["id"])])
+                ev.add("P", f"text the owner pasted (third-party): {m.group(2)}", [("journal", j["id"])])
         else:
-            tasks.append({"status": d.get("status"), "summary": str(d.get("summary", ""))[:200]})
-            ev.add("F", f"FERB ran a task ({d.get('status')}): {str(d.get('summary', ''))[:200]}", [("journal", j["id"])])
+            tasks.append({"status": d.get("status"), "summary": str(d.get("summary", ""))})
+            ev.add("F", f"FERB ran a task ({d.get('status')}): {str(d.get('summary', ''))}", [("journal", j["id"])])
     ev.digest = {
         "day": day,
-        "hours": {f"{h:02d}": [k for k, _ in c.most_common(4)] for h, c in sorted(hourly.items())},
+        "hours": {f"{h:02d}": [k for k, _ in c.most_common()] for h, c in sorted(hourly.items())},
         "apps_min": {k: round(v / 60) for k, v in top_apps},
-        "sites": {h: len(rs) for h, rs in sorted(sites.items(), key=lambda kv: -len(kv[1]))[:30]},
-        "folders": {f: dict(c) for f, c in sorted(folders.items(), key=lambda kv: -sum(kv[1].values()))[:20]},
-        "windows": [t for t, _ in titles.most_common(10)],
+        "sites": {h: len(rs) for h, rs in sorted(sites.items(), key=lambda kv: -len(kv[1]))},
+        "folders": {f: dict(c) for f, c in sorted(folders.items(), key=lambda kv: -sum(kv[1].values()))},
+        "windows": [t for t, _ in titles.most_common()],
+        "duration_estimate": {"method": "focus-event intervals", "maximum_gap_seconds": 3600},
         "idle_min": round(idle_s / 60),
         "events": len(owner),
         "chats": chats,

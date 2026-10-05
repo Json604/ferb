@@ -1,8 +1,9 @@
-"""DeviceProfile (section 8 step 4): load / save / diff, method resolution, and the local git history.
+"""Represent and persist device inventory and capability observations. Must not treat a historical probe as authorization.
+
+DeviceProfile: load / save / diff, method resolution, and the local git history.
 
 Saved to ~/.ferb/device/<device_id>.json and committed to a local git repo in ~/.ferb/device/ (history of the
-Mac's changes). Never pushed: no remote is ever added.
-"""
+Mac's changes). Never pushed: no remote is ever added."""
 
 import json
 import subprocess
@@ -18,7 +19,7 @@ class AppInfo:
     version: str
     path: str
     scriptable: bool
-    ax_support: str = "untested"             # probed in build step 7
+    ax_support: str = "untested"             # unknown until an explicit probe records evidence
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ class DeviceProfile:
 
 
 def methods_for(app: AppInfo) -> list[str]:
-    """Mac app method resolution (section 8): AppleScript / CLI -> Accessibility -> screenshot + click."""
+    """List declared app transports as evidence; agents choose the method."""
     return (["applescript"] if app.scriptable else []) + ["ax", "screenshot"]
 
 

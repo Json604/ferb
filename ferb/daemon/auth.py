@@ -1,11 +1,10 @@
-"""Connection roles, per-role method lists, and run tokens (section 2).
+"""Own connection roles and scoped run tokens. Must not infer task authorization or choose accounts.
 
 - cli: proven by socket ownership — the peer's uid must be the owner's.
 - mcp_shim: proven by a run token (scoped to one worker, expiring, revocable; only its hash is kept).
 - native_host: the relay a browser launches for the FERB extension. The socket peer must be the owner's uid and
   the caller origin one of FERB's extension ids; after that the connection is a message channel whose every
-  message is authenticated by pairing (install_id + HMAC + seq, section 9.6), not by method lists.
-"""
+  message is authenticated by pairing (install_id + HMAC + seq), not by method lists."""
 
 import hashlib
 import hmac
@@ -24,10 +23,10 @@ class Role(Enum):
     CLI = "cli"
     MCP_SHIM = "mcp_shim"
     NATIVE_HOST = "native_host"
-    VOICE = "voice"                        # FERB.app: push-to-talk transcripts (section 20.1)
+    VOICE = "voice"                        # FERB.app: push-to-talk transcripts
 
 
-# Fixed method list per role. Later build steps add methods here, never per-connection.
+# Fixed method list per role. New RPC methods declare their allowed roles here, never per-connection.
 METHODS: dict[Role, frozenset[str]] = {
     Role.CLI: frozenset({"ping", "logs.subscribe", "trace.get", "stop.engage", "stop.lift",
                          "doctor.check", "automation.request", "chat.send",
@@ -114,7 +113,7 @@ class RunTokens:
 
 def check_voice_peer(peer_uid: int, owner_uid: int, exe: str | None, expected_exe: str,
                      signed: Callable[[str], bool]) -> None:
-    """Only the installed FERB.app may speak for the owner (20.1): the owner's uid, the installed executable, and a code
+    """Only the installed FERB.app may speak for the owner: the owner's uid, the installed executable, and a code
     signature meeting the requirement recorded at setup. Anything else on the Mac is refused."""
     if peer_uid != owner_uid:
         raise AuthError("voice role requires the owner's uid")

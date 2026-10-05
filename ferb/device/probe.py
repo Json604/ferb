@@ -1,4 +1,6 @@
-"""Background-control probe for one running Mac app (rework phase 1, ARCHITECTURE.md §5).
+"""Measure disposable native app operations and save observations. Must not mutate personal app data or infer untested support.
+
+Background-control probe for one running Mac app (disposable, explicit probe).
 
 Given a bundle id, tries every background mechanism FERB might use (Accessibility actions and attributes, the
 Accessibility keyboard, keyboard / mouse / scroll events posted to the app's process) on HARMLESS targets, and prints
@@ -16,8 +18,7 @@ The probe never quits an app, not even one it launched (`open -g -b`): quitting 
 
 Run:  .venv/bin/python -m ferb.device.probe com.apple.TextEdit [--pid=N] [--json-only] [--seed]
       --seed writes the result into the app's learned profile (~/.ferb/device/apps/<bundle>.json), the one the
-      driver consults and updates with every action's outcome (ferb.act.mac.profile).
-"""
+      driver consults and updates with every action's outcome (ferb.act.mac.profile)."""
 
 from __future__ import annotations
 

@@ -1,10 +1,12 @@
-"""Memory items (section 14): SQLite is the source of truth; every rule about where an item may come from is here.
+"""Owns memory storage, provenance and versions. Must not treat retrieved observations as owner authorization or silently cut stored content.
+
+Memory items: SQLite is the source of truth; every rule about where an item may come from is here.
 
 Origins, enforced in code:
 - `owner_stated`: the owner's own words (`ferb memory add`, `edit`, or chat capture whose quote was checked against
   the owner's own words) -> active on commit; it supersedes any earlier version of the same fact.
 - `observed`: from the owner's own activity. Its sources must all be trail rows with actor "owner" (FERB's own
-  activity never becomes the owner's habits, safety test 18); it activates once that evidence spans 3 separate days.
+  activity never becomes the owner's habits); it activates once that evidence spans 3 separate days.
 - `inferred`: stays proposed until the owner confirms it.
 - `third_party`: pages, emails, pasted text. A fact about the world only: never a preference, never about the owner.
 
@@ -15,8 +17,7 @@ stated: both stay active and recall flags the conflict (the owner's wins).
 `forget` purges: the item, all its versions, items built on the same sources, the sources themselves (journal
 entries, trail rows) unless the owner keeps them, the search index, the WAL; days whose trail rows went are
 re-summarized (or their summary deleted once the raw rows are gone). A one-way fingerprint stops distillation from
-proposing it again.
-"""
+proposing it again."""
 
 import hashlib
 import json
@@ -45,8 +46,12 @@ def fingerprint(kind: str, subject: str, key: str, content: str) -> str:
     return hashlib.sha256(norm.encode()).hexdigest()
 
 
-def slug(text: str, n: int = 40) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")[:n] or "note"
+def slug(text: str, n: int | None = None) -> str:
+    value = re.sub(r"[^\w]+", "_", text.casefold()).strip("_") or "note"
+    if n is not None and len(value) > n:
+        # Filesystem/display keys remain bounded without collapsing two long subjects.
+        return value[:max(0, n - 17)] + "_" + hashlib.sha256(value.encode()).hexdigest()[:16]
+    return value
 
 
 @dataclass
@@ -83,7 +88,7 @@ class Memory:
     def __init__(self, db: Database, clock: Clock, ids: IdSource, publish: Callable[[str, dict[str, Any]], None],
                  on_change: Callable[[], None] = lambda: None, redact: Callable[[str], str] = lambda s: s) -> None:
         self.db, self.clock, self.ids, self.publish, self.on_change = db, clock, ids, publish, on_change
-        self.redact = redact                         # secrets never reach memory or its export (safety test 5)
+        self.redact = redact                         # secrets never reach memory or its export
         self.rebuild_summary: Callable[[str], bool] = lambda day: False   # summary.py (True: rebuilt)
         self.on_forget: Callable[[ForgetPlan], None] = lambda plan: None
 
@@ -123,16 +128,16 @@ class Memory:
     def recall(self, query: str, k: int = 8, at: datetime | None = None) -> list[Recalled]:
         """Keyword (FTS5) recall of active items valid now (or at `at`); conflicting versions are flagged and the
         owner's own statement comes first."""
-        words = [w for w in re.findall(r"[A-Za-z0-9]{3,}", query.lower())][:20]
+        words = list(dict.fromkeys(re.findall(r"\w+", query.casefold())))
         if not words:
             return []
         match = " OR ".join(f'"{w}"' for w in words)
+        when = (at or self.clock.now()).isoformat()
         rows = self.db.conn.execute(
             "SELECT m.* FROM memory_fts f JOIN memory_items m ON m.seq = f.rowid WHERE memory_fts MATCH ? "
-            "AND m.status = 'active' ORDER BY bm25(memory_fts) LIMIT ?", (match, k * 4)).fetchall()
-        when = (at or self.clock.now()).isoformat()
-        hits = [self._item(r) for r in rows
-                if r["valid_from"] <= when and (r["valid_to"] is None or r["valid_to"] > when)][:k]
+            "AND m.status = 'active' AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) "
+            "ORDER BY bm25(memory_fts) LIMIT ?", (match, when, when, k)).fetchall()
+        hits = [self._item(r) for r in rows]
         out = []
         for it in hits:
             others = [o for o in self._versions(it.kind, it.subject, it.key, at) if o.id != it.id]

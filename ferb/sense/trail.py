@@ -1,16 +1,16 @@
-"""The activity trail (section 11): one path for every observation, in a fixed order.
+"""Persist and query activity observations with provenance. Must not claim a correlated action caused an event.
+
+The activity trail: one path for every observation, in a fixed order.
 
 1. paused -> nothing; excluded (sense/exclusions.py) -> dropped completely; then redaction (sanitize/);
 2. id + actor (owner / ferb / unknown, from `Attribution`): the table refuses a row without an actor;
 3. persist to the append-only `trail` table, then publish `trail.event`;
-4. only then the tagging hook (Jev `trail.relevance` / `trail.sensitive`, build step 13; a no-op until then).
+4. only then the tagging hook (Jev `trail.relevance` / `trail.sensitive`, when configured).
 
 Metadata only: watchers never report keystrokes, clipboard or screen content.
 
-Retention (sections 11, 14): raw rows are kept 30 days, and a day may be purged only once the journal holds its
-permanent daily summary (written from build step 11). `purge` refuses any day that isn't summarized, so until step
-11 nothing is ever purged.
-"""
+Retention: raw rows are kept 30 days, and a day may be purged only once the journal holds its
+permanent daily summary. `purge` refuses any day that is not summarized."""
 
 import json
 import time
@@ -26,7 +26,7 @@ from ferb.store.db import Database
 
 Actor = Literal["owner", "ferb", "unknown"]
 ACTORS = ("owner", "ferb", "unknown")
-SUMMARY_KIND = "trail.day_summary"          # journal entry {"day": "YYYY-MM-DD", ...}: permanent (build step 11)
+SUMMARY_KIND = "trail.day_summary"          # journal entry {"day": "YYYY-MM-DD", ...}: permanent
 FERB_ACTIVATION_S = 3.0                     # a focus change this soon after FERB switched apps is FERB's
 FERB_FILE_S = 10.0                          # a file event this soon after a FERB file tool touched the path is FERB's
 
@@ -88,7 +88,7 @@ class Trail:
         self.db, self.clock, self.ids, self.redact = db, clock, ids, redact
         self.exclusions, self.publish, self.device_id, self.paused = exclusions, publish, device_id, paused
         self.attribution = attribution or Attribution()
-        self.tag: Callable[[TrailEvent], None] = lambda e: None      # Jev tagging (build step 13)
+        self.tag: Callable[[TrailEvent], None] = lambda e: None      # Jev tagging
         self.last_event_at: datetime | None = None
 
     def record(self, o: Observation) -> TrailEvent | None:
@@ -122,18 +122,31 @@ class Trail:
         return [TrailEvent(r["id"], datetime.fromisoformat(r["at"]), r["device_id"], r["actor"], r["task_id"],
                            r["source"], json.loads(r["data_json"])) for r in rows]
 
-    def owner_site_profile(self, site: str) -> tuple[str, str] | None:
-        """Resolver rule 2 (9.3): the browser + profile where the OWNER most recently used this site. FERB's own
-        activity never counts (safety test 18)."""
-        site = site.lower().lstrip(".")
-        rows = self.db.conn.execute("SELECT data_json FROM trail WHERE source = 'browser_tab' AND actor = 'owner' "
-                                    "ORDER BY seq DESC LIMIT 5000").fetchall()
-        for r in rows:
-            d = json.loads(r["data_json"])
-            host = str(d.get("host") or "").lower()
-            if host and (host == site or host.endswith("." + site)) and d.get("browser") and d.get("profile"):
-                return str(d["browser"]), str(d["profile"])
-        return None
+    def query(self, *, since: str, source: str | None = None, actor: str | None = None,
+              host: str | None = None, limit: int = 100, before_seq: int | None = None) -> dict[str, Any]:
+        """Filter before paging; ordering is chronology, never an instruction to choose the newest candidate."""
+        if limit < 1:
+            raise ValueError('limit must be positive')
+        query, params = 'SELECT * FROM trail WHERE at >= ?', [since]
+        for column, value in (('source', source), ('actor', actor)):
+            if value is not None:
+                query += f' AND {column} = ?'
+                params.append(value)
+        if before_seq is not None:
+            query += ' AND seq < ?'
+            params.append(before_seq)
+        if host:
+            # Literal suffix comparison avoids treating '%' or '_' in input as SQL wildcards.
+            query += (" AND (lower(json_extract(data_json, '$.host')) = ? OR "
+                      "substr(lower(json_extract(data_json, '$.host')), -?) = ?)")
+            suffix = '.' + host.casefold()
+            params.extend([host.casefold(), len(suffix), suffix])
+        rows = self.db.conn.execute(query + ' ORDER BY seq DESC LIMIT ?', (*params, limit + 1)).fetchall()
+        events = [{'id': r['id'], 'at': r['at'], 'source': r['source'], 'actor': r['actor'],
+                   'task_id': r['task_id'], 'data': json.loads(r['data_json'])} for r in rows[:limit]]
+        return {'events': events, 'count': len(events),
+                'next_before_seq': rows[limit - 1]['seq'] if len(rows) > limit else None,
+                'ordering': 'newest first; observations are evidence, not a selected profile or target'}
 
     # ---------- retention ----------
 

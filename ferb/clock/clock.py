@@ -1,4 +1,6 @@
-"""Clocks (section 13): wall time for timestamps/schedules, monotonic time for elapsed time and timeouts."""
+"""Owns wall and monotonic clocks. Must not infer ambiguous owner intent or turn reminders into unauthorized actions.
+
+Clocks: wall time for timestamps/schedules, monotonic time for elapsed time and timeouts."""
 
 import asyncio
 import time

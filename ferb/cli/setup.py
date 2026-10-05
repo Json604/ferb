@@ -1,9 +1,10 @@
-"""`ferb setup [--update]`, `ferb doctor`, `ferb uninstall [--purge]` (section 8, section 15).
+"""Own explicit installation, permission setup and update workflows. Must not run app interactions as task recovery.
+
+`ferb setup [--update]`, `ferb doctor`, `ferb uninstall [--purge]`.
 
 Interactive but injectable (installer, daemon connection, prompts, System Settings opener) so the flows are
 testable without touching the real Mac. Permissions are always checked by the daemon, never by this process.
-Setup never quits or kills a browser and never touches Brave.
-"""
+Setup never quits or kills a browser and never touches Brave."""
 
 import subprocess
 import time
@@ -80,11 +81,12 @@ def setup(env: Env, update: bool = False) -> int:
         inst.install(update_only=True)
         client = wait_for_daemon(env)
         config = Config(inst.home)
-        if config.get('setup', 'permissions_version', 0) < 22:
-            for perm in SETUP_PERMISSIONS:
-                client = _grant(env, client, perm, inst.granted_binary(), required=perm in REQUIRED_PERMISSIONS)
-            _automation(env, client, ProfileStore(inst.home).load(device_id(config)))
-            config.set('setup', 'permissions_version', 22)
+        health = client.call("doctor.check", {"selftest": False})
+        missing = [f"{name}={status}" for name, status in health.get("permissions", {}).items()
+                   if status != "granted"]
+        if config.get('setup', 'permissions_version', 0) < 22 or missing:
+            facts = ", ".join(missing) or "permission setup has not been recorded"
+            env.say(f"Permission setup deferred: {facts}. Run `ferb setup` when you want its permission dialogs.")
         client.close()
         env.say("Done.")
         return 0
@@ -278,9 +280,7 @@ def doctor(env: Env) -> int:
                                                                    "restart the daemon after investigating"))
         try:
             c = env.connect()
-            if hasattr(c, "set_timeout"):
-                c.set_timeout(IDENTITY_CHECK_S)                 # it may wake FERB's browser profile first
-            ident = c.call("identity.check")
+            ident = c.call("identity.check", {"session": False})
             c.close()
         except (NotRunning, FerbError) as e:
             ident = None
@@ -294,16 +294,12 @@ def doctor(env: Env) -> int:
                           if ident["profile_ok"] else str(ident["error"]),
                           "FERB's Chrome profile must hold only FERB's account; fix it in Chrome, or run "
                           "`ferb setup --identity`"))
-                if ident["profile_ok"] and ident.get("paired") and ident.get("error"):
-                    add(Check("identity session", "warn", f"couldn't check: {ident['error']}",
-                              "open FERB's Chrome profile (FERB reconnects within 30 s) and run doctor again"))
-                elif ident["profile_ok"]:
-                    add(Check("identity session", "ok" if ident.get("session") else
-                              ("fail" if ident.get("paired") else "warn"),
-                              f"signed in as {ident['address']} (through the extension)" if ident.get("session") else
-                              ("not signed in" if ident.get("paired") else "not paired"),
-                              "sign FERB's account into its Chrome profile" if ident.get("paired") else
-                              "run `ferb setup --identity`"))
+                if ident["profile_ok"]:
+                    paired = bool(ident.get("paired"))
+                    add(Check("identity session", "warn",
+                              "session not checked (observational doctor; no browser opened)" if paired else
+                              "not paired; session not checked",
+                              "" if paired else "run `ferb setup --identity`"))
             for s in ident["secrets"]:
                 add(Check(f"secret {s['key']}", "ok" if s["in_keychain"] else "warn",
                           "in Keychain" if s["in_keychain"] else "missing from Keychain",
@@ -375,11 +371,11 @@ def doctor(env: Env) -> int:
     return 1 if any(ch.status == "fail" for ch in checks) else 0
 
 
-# ---------- FERB's identity browser (section 8 step 3) ----------
+# ---------- FERB's identity browser ----------
 
 def identity_setup(env: Env, name: str | None = None, chrome_data: Path = seed.CHROME_DATA) -> int:
     """Find the Chrome profile holding exactly FERB's account, confirm it with the owner, record it. Nothing is
-    copied and Chrome is never quit; the extension is installed and paired there in build step 6."""
+    copied and Chrome is never quit; extension pairing is a separate setup action."""
     config = Config(env.inst.home)
     address = str(config.get("mailbox", "address", "") or "")
     if not address:
@@ -404,7 +400,7 @@ def identity_setup(env: Env, name: str | None = None, chrome_data: Path = seed.C
 
 
 def _identity_pair(env: Env, name: str) -> bool:
-    """Pair the extension in FERB's profile as identity FERB (section 9.6). Re-pairing asks the owner first."""
+    """Pair the extension in FERB's profile as identity FERB. Re-pairing asks the owner first."""
     from ferb.device.extensions import extension_path
     env.ask(f"     Load the FERB extension in the “{name}” profile (chrome://extensions → Developer mode → Load "
             f"unpacked → {extension_path(env.inst.home)}), then press Enter ")
@@ -498,7 +494,7 @@ CERTIFICATE = "FERB Local Code Signing"
 
 
 def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
-    """Push-to-talk (section 20.1): build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
+    """Push-to-talk: build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
     survive rebuilds), record its signature for the daemon's check, ask for Microphone and Speech Recognition once,
     turn push-to-talk on. The daemon is not restarted."""
     # not `-v`: that lists only certificates macOS trusts, and a self-made one never is (it still signs fine)

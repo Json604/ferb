@@ -151,3 +151,19 @@ def test_pending_question_survives_daemon_restart(home):
         d.run(check())
     finally:
         d.stop()
+
+
+def test_legacy_recovery_rejects_conflicting_request_sources(daemon):
+    from tests.conftest import done
+    install(daemon, [sup('task', 'Starting', task('inspect source'))], {'worker': done('read')})
+    first = outcome(chat(daemon, 'inspect source', session='legacy'))
+    async def check():
+        from pytest import raises
+        store = daemon.daemon.supervisor.continuity
+        task_id = first['task_id']
+        row = store.db.conn.execute('SELECT request_id FROM tasks WHERE id=?', (task_id,)).fetchone()
+        store.db.conn.execute('DELETE FROM task_context WHERE task_id=?', (task_id,))
+        daemon.daemon._journal().append('chat.message', {'request_id': row[0], 'text': 'different source'})
+        with raises(ValueError, match='Conflicting legacy request'):
+            store.attach()
+    daemon.run(check())

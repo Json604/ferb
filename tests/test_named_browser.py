@@ -60,7 +60,7 @@ def test_pairing_walks_the_owner_through_installing_the_extension_then_pairs() -
     assert c.calls == ["browsers.pair", "browsers.installed", "browsers.installed", "browsers.pair"]
 
 
-def test_finder_names_and_home_folders(tmp_path: Path, monkeypatch: Any) -> None:
+def test_paths_are_literal_and_home_is_explicit(tmp_path: Path, monkeypatch: Any) -> None:
     """macOS stores a Finder name "clg/uni" as clg:uni on disk; "Desktop/…" is the owner's Desktop, not FERB's
     workspace (owner's report 2026-10-01: FERB made a new empty clg/uni instead)."""
     from ferb.act.fs.files import normalize_path, owner_path
@@ -68,10 +68,10 @@ def test_finder_names_and_home_folders(tmp_path: Path, monkeypatch: Any) -> None
     monkeypatch.setenv("HOME", str(tmp_path))                               # ~ too
     (tmp_path / "Desktop" / "clg:uni").mkdir(parents=True)
     (tmp_path / "Desktop" / "clg").mkdir()                                  # a plain clg folder doesn't hide it
-    assert owner_path("Desktop/clg/uni", "/ws") == tmp_path / "Desktop" / "clg:uni"
-    assert normalize_path("~/Desktop/clg/uni", "/ws") == str(tmp_path / "Desktop" / "clg:uni")
+    assert owner_path("Desktop/clg/uni", "/ws") == Path("/ws/Desktop/clg/uni")
+    assert normalize_path("~/Desktop/clg/uni", "/ws") == str(tmp_path / "Desktop" / "clg" / "uni")
     assert owner_path("notes.md", "/ws") == Path("/ws/notes.md")            # other relative paths: the workspace
-    assert owner_path("Desktop/new/x", "/ws") == tmp_path / "Desktop" / "new" / "x"   # nothing there: as written
+    assert owner_path("Desktop/new/x", "/ws") == Path("/ws/Desktop/new/x")   # nothing there: as written
 
 
 def test_mac_kinds_are_facts_about_the_control() -> None:
@@ -98,10 +98,10 @@ def test_mac_kinds_are_facts_about_the_control() -> None:
     kind = lambda el, action="press", text=None: tool._kind(                     # noqa: E731
         tool.Input(app="WhatsApp", action=action, element=el, text=text))
     assert kind("s1e1") == kind("s1e6") == kind("s1e4") == Kind.MAC_INPUT       # a chat row, a link, unlabeled
-    assert kind("s1e2") == Kind.DELETE_PERMANENT and kind("s1e3") == Kind.SEND and kind("s1e5") == Kind.CALL
-    assert kind("s1e7", "set_value", "syllabus") == Kind.SEARCH                 # a search box: a search
+    assert kind("s1e2") == kind("s1e3") == kind("s1e5") == Kind.MAC_INPUT
+    assert kind("s1e7", "set_value", "syllabus") == Kind.MAC_INPUT                 # a search box: a search
     assert kind("s1e8", "set_value", "hi") == Kind.MAC_INPUT                    # a message box: input
-    assert kind(None, "key", "return") == Kind.SUBMIT and kind(None, "key", "cmd+s") == Kind.MAC_INPUT
+    assert kind(None, "key", "return") == Kind.MAC_INPUT and kind(None, "key", "cmd+s") == Kind.MAC_INPUT
     assert kind("s1e8", "focus") == Kind.NAVIGATE
 
 
@@ -115,14 +115,12 @@ def test_mac_menu_lists_freely_and_pressing_an_item_is_what_its_label_says() -> 
     inp = lambda path: tool.Input(app="WhatsApp", path=path)                      # noqa: E731
     assert tool.describe(inp(None)).kind == Kind.READ
     assert tool.describe(inp("File > Search")).kind == Kind.MAC_INPUT
-    assert tool.describe(inp("Chat > Delete Chat")).kind == Kind.DELETE_PERMANENT
-    assert tool.describe(inp("Chat > Voice Call")).kind == Kind.CALL
+    assert tool.describe(inp("Chat > Delete Chat")).kind == Kind.MAC_INPUT
+    assert tool.describe(inp("Chat > Voice Call")).kind == Kind.MAC_INPUT
 
 
-def test_page_kinds_an_email_row_is_a_click_and_security_pages_always_ask() -> None:
-    """Owner's run: opening an email in Gmail was refused as a "submit". An email row, a list item or a harmless
-    button is a click (edit, the worker declares it); Send / Submit are what they say; a security page is on the
-    floor first."""
+def test_page_labels_and_urls_do_not_infer_action_purpose() -> None:
+    """Only the physical primitive becomes code metadata; the agent declares semantic purpose."""
     from ferb.act.browser.tools import BrowserAct
     from ferb.core.types import PageElement
     from ferb.policy.rules import Kind
@@ -149,9 +147,9 @@ def test_page_kinds_an_email_row_is_a_click_and_security_pages_always_ask() -> N
     click = lambda el: tool.Input(tab="t1", element=el, action="click")        # noqa: E731
     assert tool.describe(click("row")).kind == Kind.CLICK                      # opening the email: a click
     assert tool.describe(click("archive")).kind == Kind.CLICK
-    assert tool.describe(click("link")).kind == Kind.NAVIGATE
-    assert tool.describe(click("send")).kind == Kind.SEND
-    assert tool.describe(click("submitbtn")).kind == Kind.SUBMIT
+    assert tool.describe(click("link")).kind == Kind.CLICK
+    assert tool.describe(click("send")).kind == Kind.CLICK
+    assert tool.describe(click("submitbtn")).kind == Kind.CLICK
     assert tool.describe(tool.Input(tab="t1", element="field", action="type", text="hi")).kind == Kind.FILL_FORM
     tool.driver.url = "https://myaccount.google.com/security"
-    assert tool.describe(click("row")).kind == Kind.ACCOUNT_SECURITY           # security pages: always ask, first
+    assert tool.describe(click("row")).kind == Kind.CLICK

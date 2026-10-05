@@ -1,13 +1,9 @@
-"""Worker questions go to the orchestrator first, then to owner chat only when it also needs the answer.
-The gateway handles this tool; hidden OTP input uses a separate sealed path."""
+"""Own worker question schema. Must not answer unresolved identity questions or create authorization."""
 
 from pydantic import BaseModel, Field
 
 from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolResult
 from ferb.policy.rules import Kind
-
-MAX_QUESTION, MAX_OPTIONS, MAX_OPTION = 300, 6, 80
-
 
 class OwnerAsk:
     name = "owner.ask"
@@ -19,9 +15,9 @@ class OwnerAsk:
     risk, reversible = RiskLevel.LOW, True
 
     class Input(BaseModel):
-        question: str = Field(min_length=1, max_length=MAX_QUESTION)
-        options: list[str] = Field(default_factory=list, max_length=MAX_OPTIONS,
-                                   description="0–6 short choices (the owner picks by number or answers freely)")
+        question: str = Field(min_length=1)
+        options: list[str] = Field(default_factory=list,
+                                   description="Candidate choices with distinguishing evidence; numbered or free-text answer")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ)

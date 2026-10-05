@@ -179,7 +179,8 @@ def test_a_window_on_another_space_is_still_found(monkeypatch: pytest.MonkeyPatc
                           "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 1470, "Height": 956},
                           "kCGWindowName": "Slack thread"}]                      # full screen, another Space
     monkeypatch.setattr(shots, "_info_windows", lambda all_=False: everywhere if all_ else here)
-    w = shots.front_window(9)
+    assert shots.front_window(9) is None  # two candidates: size/current Space never chooses one
+    w = shots.front_window(9, (0, 0, 1470, 956))
     assert w is not None and w.id == 2 and w.title == "Slack thread"
 
 

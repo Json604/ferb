@@ -1,10 +1,11 @@
-"""Tool-list proxy for FERB's Claude runtime only (section 7; owner's conditions):
+"""Owns recording the Claude provider tool list. Must not select task targets, authorize actions or expose tools outside the registered harness.
+
+Tool-list proxy for FERB's Claude runtime only:
 
 - bound to 127.0.0.1; used only as ANTHROPIC_BASE_URL of runs FERB starts;
 - records ONLY the tool names of each request (per run, from a /run/<id> path prefix) — never auth headers,
   prompts, replies or any other body content; nothing is logged or written to disk;
-- forwards everything else unchanged to the real API.
-"""
+- forwards everything else unchanged to the real API."""
 
 import http.server
 import json

@@ -1,4 +1,6 @@
-"""Daily distillation (section 14): for each past day, in order —
+"""Owns daily memory proposals and their evidence links. Must not treat retrieved observations as owner authorization or silently cut stored content.
+
+Daily distillation: for each past day, in order —
 1. the permanent summary, by code, before anything else (so a purge is never blocked on a model);
 2. one model run (the worker runtime from config, no tools, typed output, unmetered): a short narrative of the day
    and proposed memory items citing evidence handles (summary.py);
@@ -7,21 +9,20 @@
 Code checks every proposal before `Memory.propose` (which checks the sources again): handles must exist; an observed
 item cites only the owner's own trail (E); nothing about the owner or their preferences may rest on FERB's activity
 (F) or on pasted third-party text (P); a third-party item must cite pasted text. A model failure leaves the summary in
-place and is retried on later hourly runs or an explicit retry.
-"""
+place and is retried on later hourly runs or an explicit retry."""
 
 import json
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Any, Callable
 
 from ferb.core.interfaces import Clock
+from ferb.core.context import ContextBlock, assemble_context, count_tokens
+from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Task
 from ferb.memory import summary
 from ferb.memory.items import KINDS, Memory, MemoryRefused
 from ferb.store.db import Database
 
-PROMPT = Path(__file__).parent / "distill.md"
 DISTILL_SCHEMA: dict[str, Any] = {
     "type": "object", "additionalProperties": False, "required": ["narrative", "items"],
     "properties": {
@@ -60,7 +61,7 @@ class Distiller:
                  purge: Callable[[], Any] = lambda: None, device_id: str = "dev") -> None:
         self.db, self.journal, self.memory, self.make_runtime = db, journal, memory, make_runtime
         self.clock, self.purge, self.device_id = clock, purge, device_id
-        self.jev: Any = None                          # memory.worth_keeping (build step 13): may only drop
+        self.jev: Any = None                          # memory.worth_keeping: may only drop
 
     def pending_days(self, today: date | None = None) -> list[str]:
         """Past days with anything to remember that aren't done yet (oldest first)."""
@@ -92,11 +93,11 @@ class Distiller:
         try:
             out = await self._model(day, ev)                          # 2. one model run
         except Exception as e:                                        # summary stays; retried on a later run
-            self._run(day, "failed", f"{type(e).__name__}: {e}"[:300])
+            self._run(day, "failed", f"{type(e).__name__}: {e}")
             return {"day": day, "status": "failed"}
-        self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", ""))[:3000]})
+        self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", ""))})
         proposed, refused = 0, []
-        items = out.get("items", [])[:40]
+        items = out.get("items", [])
         drop: set[int] = set()
         if self.jev is not None and items:
             from ferb.decide.decider import Ask
@@ -121,7 +122,7 @@ class Distiller:
                 proposed += 1
             except (MemoryRefused, KeyError, ValueError) as e:
                 refused.append(str(e))
-        self._run(day, "distilled", json.dumps({"proposed": proposed, "refused": refused})[:1000])
+        self._run(day, "distilled", json.dumps({"proposed": proposed, "refused": refused}))
         return {"day": day, "status": "distilled", "proposed": proposed, "refused": refused}
 
     async def catch_up(self) -> list[dict[str, Any]]:
@@ -138,13 +139,18 @@ class Distiller:
             "distill_runs.detail)", (day, int(bump), status, now, detail, int(bump)))
 
     async def _model(self, day: str, ev: summary.DayEvidence) -> dict[str, Any]:
-        known = [f"- {i.kind} / {i.subject} / {i.key}: {i.content}" for i in self.memory.items("active")][:80]
+        known = [f"- {i.kind} / {i.subject} / {i.key}: {i.content}" for i in self.memory.items("active")]
         ctx = (f"Day: {day}\n\nEvidence (cite handles):\n" + "\n".join(ev.lines) +
                "\n\nWhat FERB already remembers (reuse a key to update a fact):\n" + ("\n".join(known) or "(nothing)"))
         rt = self.make_runtime("worker", mode="supervisor", tool_names=[], schema=DISTILL_SCHEMA)
         task = Task(f"distill-{day}", None, "distill", self.device_id, Identity.OWNER, set(), "verifier",
                     f"distill-{day}", [], None)
-        run = await rt.start(task, PROMPT.read_text(), ctx, "")
+        system = load_prompt("memory/distill.md")
+        # Distillation has no read tools. Preserve its evidence in full and disclose an overage
+        # rather than silently cut a source it cannot fetch back during the run.
+        ctx = assemble_context([ContextBlock(ctx, f"daily evidence {day}", protected=True)],
+                               reserved_tokens=count_tokens(system))
+        run = await rt.start(task, system, ctx, "")
         final = ""
         try:
             async for e in rt.events(run):

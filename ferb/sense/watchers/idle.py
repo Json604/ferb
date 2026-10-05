@@ -1,4 +1,6 @@
-"""Owner idle / active (section 11), from the owner-input tap (FERB's own marked input never counts). Records only the
+"""Observe idle/active transitions without reading keystrokes. Must not interpret idle time as task authorization.
+
+Owner idle / active, from the owner-input tap (FERB's own marked input never counts). Records only the
 transitions; nothing about what was typed or clicked."""
 
 import asyncio

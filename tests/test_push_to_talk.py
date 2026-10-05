@@ -158,7 +158,7 @@ def test_only_bluetooth_means_no_listening() -> None:
     v, speaker, _ = _voice()
     q = v.attach([{"uid": "bt", "name": "AirPods", "transport": "blue", "default": True}], {})
     v.on_key(RIGHT_OPTION, True, 0.0)
-    assert q.empty() and "can't find a microphone" in speaker.said[0]
+    assert q.empty() and "can't identify one microphone" in speaker.said[0]
 
 
 def test_spoken_answers_go_to_the_waiting_question() -> None:

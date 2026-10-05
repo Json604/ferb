@@ -1,12 +1,12 @@
-"""THE explicit list of what FERB loads (section 6, rule 3). No auto-discovery, no import-time side effects."""
+"""Own explicit capability and runtime registration. Must not choose methods, targets or authorization."""
 
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from ferb.act.browser.tools import (BrowserRecord, BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
-                                   BrowserFind, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
+                                   BrowserFind, BrowserRead, BrowserDialog, BrowserProfiles, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
-                                   MailboxSend, OWNER_BROWSER)
+                                   BrowserOtpCandidates, OWNER_BROWSER)
 from ferb.act.ask import OwnerAsk
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.act.mac.driver import MacComputerDriver
@@ -40,7 +40,7 @@ def build() -> Registry:
     r.add(FsEdit())
     r.add(FsTrash())
     r.add(OwnerAsk())                 # a worker's question to the owner (every identity, no scopes)
-    # runtimes — one line each (section 5 AgentRuntime); config chooses per role
+    # runtimes implement AgentRuntime; config chooses per role
     r.runtimes["codex"] = "ferb.runtimes.codex_exec"
     r.runtimes["claude"] = "ferb.runtimes.claude_sdk"
     return r
@@ -52,6 +52,8 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, recordings: Any = 
     r.add(BrowserOpen(driver, f))
     r.add(BrowserNavigate(driver, f))
     r.add(BrowserSnapshot(driver, f))
+    r.add(BrowserRead(driver, f))
+    r.add(BrowserDialog(driver, f))
     r.add(BrowserScreenshot(driver, f))
     r.add(BrowserPoint(driver, f))
     r.add(BrowserAct(driver, f))
@@ -62,7 +64,7 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, recordings: Any = 
     r.add(BrowserFind(driver, f))
     r.add(BrowserFillSecret(driver, f))
     r.add(BrowserFillOtp(driver, f))
-    r.add(MailboxSend(driver))
+    r.add(BrowserOtpCandidates(driver, f))
     if recordings is not None:
         r.add(BrowserRecord(driver, f, recordings))
 
@@ -73,6 +75,9 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, recordings: Any = No
     r.add(BrowserOpen(router, f))
     r.add(BrowserNavigate(router, f))
     r.add(BrowserSnapshot(router, f))
+    r.add(BrowserRead(router, f))
+    r.add(BrowserDialog(router, f))
+    r.add(BrowserProfiles(router, f))
     r.add(BrowserScreenshot(router, f))
     r.add(BrowserPoint(router, f))
     r.add(BrowserAct(router, f))
@@ -109,14 +114,22 @@ def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
     r.add(TrailQuery(trail))
 
 
-def add_evidence(r: Registry, spans: Any, parent: Callable[[str], str | None]) -> None:
+def add_evidence(r: Registry, spans: Any, parent: Callable[[str], str | None],
+                 root: Callable[[str], str | None] = lambda task_id: None) -> None:
     from ferb.orchestrator.evidence import TaskEvidence
-    r.add(TaskEvidence(spans, parent))
+    r.add(TaskEvidence(spans, parent, root))
+
+
+def add_context_readers(r: Registry, continuity: Any, root: Callable[[str], str | None],
+                        memory: Callable[[], Any]) -> None:
+    from ferb.orchestrator.evidence import ChatHistory, MemoryRead
+    r.add(ChatHistory(continuity, root))
+    r.add(MemoryRead(memory))
 
 
 def add_time(r: Registry, timers: Callable[[], Any], now: Callable[[], Any], sleep: Callable[[], Any],
              limit: Callable[[str], Any]) -> None:
-    """Reminders for the owner and a worker's durable sleep (build step 14)."""
+    """Reminders for the owner and a worker's durable sleep."""
     from ferb.clock.tools import TimeRemindAt, TimeSetTimer, TimeSleepUntil
     r.add(TimeRemindAt(timers, now))
     r.add(TimeSetTimer(timers, now))

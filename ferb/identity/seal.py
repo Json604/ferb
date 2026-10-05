@@ -1,13 +1,6 @@
-"""Sealed secrets for the extension path (section 10.1, safety test 21).
-
-A secret or one-time code travels daemon -> native host -> extension only as AES-GCM ciphertext:
-- key: HKDF-SHA256 of the per-install pairing key, label "ferb seal v1" (both sides derive it; it never crosses the
-  wire),
-- a fresh 12-byte nonce per seal,
-- associated data "<fill command id>|<allowed origin>", so a sealed value opens only for that command and origin.
-Only the extension's fill call opens it. This protects FERB's own messages and logs, not against malware running
-as the owner's user.
-"""
+"""Owns authenticated encryption of secret fills and mailbox feed text; must not choose their source or destination.
+HKDF derives a per-install AES-GCM key; associated command ID and allowed origin bind every sealed payload.
+Fresh nonces prevent ciphertext reuse. This protects transport/logs, not against malware running as the owner."""
 
 import base64
 import os

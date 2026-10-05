@@ -1,3 +1,4 @@
+// Owns AX-to-DOM evidence mapping; must not infer target identity or silently discard candidates.
 // Chromium's accessibility tree supplies names, roles and order. The isolated DOM walker supplies identity,
 // geometry, hit testing, forms and redacted values. All actions use that same DOM reference; never a blind AX click.
 const AX_ROLES = new Set(["button", "link", "textbox", "searchbox", "combobox", "checkbox", "radio", "menuitem", "tab",
@@ -28,12 +29,12 @@ async function accessibilitySnapshot(tabId, gen, frames) {
         for (const child of tree.childFrames || []) visit(child, tree.frame.id);
       };
       visit(frameTree);
-    } catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
+    } catch (e) { st.axErrors.push(String(e.message || e)); }
   }
   for (const job of jobs.values()) {
     const {frameId, sessionId} = job;
     try {
-      const {nodes} = await cdp(tabId, "Accessibility.getFullAXTree", {depth: 60, frameId}, sessionId);
+      const {nodes} = await cdp(tabId, "Accessibility.getFullAXTree", {frameId}, sessionId);
       const root = (nodes || []).find(n => n.role && n.role.value === "RootWebArea");
       if (root && root.backendDOMNodeId) {
         const {node} = await cdp(tabId, "DOM.describeNode", {backendNodeId: root.backendDOMNodeId, depth: 1}, sessionId);
@@ -50,14 +51,14 @@ async function accessibilitySnapshot(tabId, gen, frames) {
         const {frame, element} = bound;
         byCdpFrame.set(frameId, frame);
         element.role = role;
-        if (n.name && n.name.value) element.label = String(n.name.value).replace(/\s+/g, " ").slice(0, 120);
+        if (n.name && n.name.value) element.label = String(n.name.value).replace(/\s+/g, " ");
         // Never copy AX values: password and OTP metadata lives in the DOM, including autocomplete/name/type.
         element.ax = true;
         const list = ordered.get(frame) || [];
         if (!list.includes(element)) list.push(element);
         ordered.set(frame, list);
       }
-    } catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
+    } catch (e) { st.axErrors.push(String(e.message || e)); }
   }
   for (const [id, f] of byCdpFrame) {
     if (f.frame_id === 0) continue;
@@ -68,11 +69,11 @@ async function accessibilitySnapshot(tabId, gen, frames) {
       const {node} = await cdp(tabId, "DOM.describeNode", {backendNodeId, depth: 0}, parent.sessionId);
       const bound = frameOwners.get(bindingOf(node));
       if (bound) { f.parent_frame_id = bound.frame.frame_id; f.owner_binding = bound.owner.binding; }
-    } catch (e) { st.axErrors.push(String(e.message || e).slice(0, 160)); }
+    } catch (e) { st.axErrors.push(String(e.message || e)); }
   }
   for (const f of frames) {
     const primary = ordered.get(f) || [];
-    f.elements = primary.concat(f.elements.filter(e => !primary.includes(e))).slice(0, 400);
+    f.elements = primary.concat(f.elements.filter(e => !primary.includes(e)));
     f.ax = primary.length > 0;
   }
 }

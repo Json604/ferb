@@ -125,8 +125,8 @@ def test_attribution_of_app_switches_files_shell_and_tabs() -> None:
     assert a.decide(Observation("idle", {"state": "idle"}, {"actor": "owner"})) == ("owner", None)
 
 
-def test_ferbs_activity_never_becomes_resolver_history(daemon: RunningDaemon) -> None:
-    """Safety test 18: only the owner's own visits count for resolver rule 2."""
+def test_history_exposes_owner_and_task_provenance(daemon: RunningDaemon) -> None:
+    """Recorded profiles are candidate evidence; chronological order does not select one."""
     record(daemon, Observation("browser_tab", {"browser": "chrome", "profile": "Profile 1", "host": "docs.example",
                                                "url": "https://docs.example/", "title": "d"}))
     record(daemon, Observation("browser_tab", {"browser": "brave", "profile": "Default", "host": "docs.example",
@@ -135,8 +135,10 @@ def test_ferbs_activity_never_becomes_resolver_history(daemon: RunningDaemon) ->
                                                "url": "https://docs.example/y", "title": "d"}, {"ferb_identity": True}))
     trail = daemon.daemon.trail
     assert trail is not None
-    assert daemon.run(_async(lambda: trail.owner_site_profile("docs.example"))) == ("chrome", "Profile 1")
-    assert daemon.run(_async(lambda: trail.owner_site_profile("other.example"))) is None
+    page = daemon.run(_async(lambda: trail.query(since="2000-01-01", host="docs.example")))
+    assert len(page["events"]) == 3
+    assert {r["data"]["profile"] for r in page["events"]} == {"Profile 1", "Default", "Profile 22"}
+    assert sum(r["actor"] == "owner" for r in page["events"]) == 1
 
 
 def test_activity_does_not_change_an_explicit_profile_choice(bd: Any) -> None:  # noqa: F811

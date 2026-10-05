@@ -1,10 +1,7 @@
-"""ferb-native-host (section 2): the native-messaging host Chrome/Brave launch for the FERB extension. It only
-relays: native messages (4-byte little-endian length + JSON, stdin/stdout) <-> newline-delimited JSON on the daemon
-socket. It checks nothing but size; the daemon authenticates the caller origin and every message.
-
-Exits as soon as either side closes (spike 12): a host that outlives its daemon connection would swallow the
-extension's next message. Never logs message contents.
-"""
+"""Owns length-framed Chromium native messages and the daemon socket relay; must not inspect intent or choose routes.
+Checks physical frame sizes only; the daemon authenticates the caller origin and every signed extension message.
+Large content is chunked above this relay. A broken connection exits immediately, never swallows or replays actions.
+Message contents are never logged."""
 
 import json
 import os

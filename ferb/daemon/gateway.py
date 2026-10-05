@@ -1,4 +1,4 @@
-"""Execution gateway: authenticated task and capability, valid arguments, locks, ledger, driver, redacted result.
+"""Own tool validation, execution locks and recording. Must not infer intent, targets or authorization.
 
 Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
 Optional effect/why annotations never gate execution; OS and transport failures remain factual results."""
@@ -19,7 +19,7 @@ from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskTree
-from ferb.policy import effects
+from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.store.spans import SpanStore
@@ -58,8 +58,9 @@ class Gateway:
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._cancelled_tasks: set[str] = set()
         self.observer: Observer = Observer()
-        self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution (build step 10)
+        self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution
         self.route_question: Any = None
+        self.disturbance: Any = None
 
     @staticmethod
     def _acts(cap: Any) -> bool:
@@ -75,7 +76,7 @@ class Gateway:
             schema = cap.Input.model_json_schema()
             props = schema.setdefault("properties", {})
             if self._acts(cap):
-                props["effect"] = {"type": "string", "enum": list(effects.EFFECTS), "description": EFFECT_HELP}
+                props["effect"] = {"type": "string", "enum": list(EFFECTS), "description": EFFECT_HELP}
             props["why"] = {"type": "string", "description": WHY_HELP}
             out.append({"name": cap.name, "description": cap.description, "input_schema": schema})
         return out
@@ -125,7 +126,7 @@ class Gateway:
             return reply({"error": f"tool {name} is not available to this worker",
                           "next": "Inspect actions.search and report the capability gap to the orchestrator."}, True)
         arguments = dict(arguments)
-        why = str(arguments.pop("why", "") or "").strip()[:400]
+        why = str(arguments.pop("why", "") or "").strip()
         effect = str(arguments.pop("effect", "") or "")  # agent annotation, never an authorization gate
         try:
             args = cap.Input.model_validate(arguments)
@@ -148,10 +149,21 @@ class Gateway:
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
+        if name.startswith("fs.") and spec.target.path:
+            # Relative/absolute/symlink spellings of one file share a lock. This identifies
+            # the already requested path; it never searches for or substitutes another file.
+            from pathlib import Path
+            lock_keys = ["file:" + str(Path(spec.target.path).resolve())]
         self.observer.tool_call(grant, done=False)
         try:
             async with self.locks.hold(lock_keys, grant.worker_id):
-                return await self._execute(cap, name, args, spec, action, grant, rec, span, reply)
+                if self.disturbance is not None:
+                    await self.disturbance.before_action(grant.task_id, span.id, name, arguments)
+                try:
+                    return await self._execute(cap, name, args, spec, action, grant, rec, span, reply)
+                finally:
+                    if self.disturbance is not None:
+                        await self.disturbance.after_action(span.id)
         finally:
             self.observer.tool_call(grant, done=True)
 
@@ -226,8 +238,8 @@ class Gateway:
     async def _ask_owner(self, grant: RunGrant, rec: Any, args: Any) -> dict[str, Any]:
         """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits
         for the answer. A scheduled run (nobody at chat) is declined at once."""
-        question = " ".join(str(getattr(args, "question")).split())
-        options = [str(o).strip()[:80] for o in getattr(args, "options", []) if str(o).strip()]
+        question = str(getattr(args, "question"))
+        options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
         if self.route_question is not None:
             self.observer.waiting(grant.worker_id, True)
             try:

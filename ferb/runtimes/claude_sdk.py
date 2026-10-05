@@ -1,11 +1,12 @@
-"""ClaudeRuntime (section 5 AgentRuntime) over the Claude Agent SDK — supervisor and worker modes.
+"""Owns the Claude SDK adapter and tool containment. Must not select task targets, authorize actions or expose tools outside the registered harness.
+
+ClaudeRuntime over the Claude Agent SDK — supervisor and worker modes.
 
 Lockdown (spike 2): tools=[] (no built-in tools), permission_mode="dontAsk" (anything not pre-allowed is denied),
 setting_sources=[] (None would load ~/.claude user + project settings), strict MCP, no plugins/agents/skills.
 Telemetry off. Subscription login only: a run whose init reports an API key is refused (an inherited
 ANTHROPIC_API_KEY would otherwise silently take over). The tool list the API actually receives is checked through
-the local tool-list proxy after every turn.
-"""
+the local tool-list proxy after every turn."""
 
 import secrets
 from contextlib import suppress
@@ -26,9 +27,9 @@ class ClaudeRuntime:
 
     def __init__(self, mode: Literal["supervisor", "worker"], proxy: ToolListProxy, ferb_home: str,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
-                 output_schema: dict[str, Any] | None = None, model: str | None = None, max_turns: int | None = None) -> None:
+                 output_schema: dict[str, Any] | None = None, model: str | None = None) -> None:
         self.mode, self.proxy, self.ferb_home, self.shim_cmd = mode, proxy, ferb_home, shim_cmd
-        self.output_schema, self.model, self.max_turns = output_schema, model, max_turns
+        self.output_schema, self.model = output_schema, model
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}
         if output_schema:
             self.allowed.add(STRUCTURED_OUTPUT)        # the SDK's carrier for typed output (inert)
@@ -48,7 +49,7 @@ class ClaudeRuntime:
             tools=[], allowed_tools=sorted(self.allowed - {STRUCTURED_OUTPUT}), permission_mode="dontAsk",
             setting_sources=[],
             strict_mcp_config=True, plugins=[], agents=None, skills=None, mcp_servers=mcp, env=env,
-            model=self.model, max_turns=self.max_turns,
+            model=self.model,
             extra_args={"no-session-persistence": None},   # no transcript (tool results, screenshots) on disk
             output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)
 

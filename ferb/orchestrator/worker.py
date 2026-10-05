@@ -1,4 +1,6 @@
-"""One worker adapter attempt: scoped run token, registered tools, liveness, cancellation and typed report.
+"""Owns one contained model attempt, liveness and trace recording. Must not infer intent, choose a target or claim semantic success from transport facts.
+
+One worker adapter attempt: scoped run token, registered tools, liveness, cancellation and typed report.
 
 No action-count, attempt-count or task-duration cutoff. The orchestrator chooses recovery."""
 
@@ -11,6 +13,8 @@ from typing import TYPE_CHECKING, Any, Callable
 from pydantic import ValidationError
 
 from ferb.clock import context
+from ferb.core.context import ContextBlock, assemble_context, count_tokens
+from ferb.core.prompts import load_prompt
 from ferb.core.interfaces import AgentRuntime
 from ferb.core.types import Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
@@ -29,16 +33,8 @@ class ServiceError(ValueError):
 
 def service_problem(message: str, runtime: str = "Codex") -> str:
     """The owner-facing sentence for a model-service failure."""
-    m = message.lower()
-    if any(k in m for k in ("usage limit", "rate limit", "quota", "too many requests", "429", "limit reached")):
-        return (f"The AI service I use ({runtime}) says your usage limit is reached, so I couldn't start. It works again "
-                "once the limit resets.")
-    if any(k in m for k in ("login", "logged in", "unauthorized", "401", "auth", "token expired")):
-        return (f"The AI service I use ({runtime}) isn't signed in for me, so I couldn't start. `ferb doctor` shows how "
-                "to sign in.")
-    if any(k in m for k in ("timed out", "timeout", "connection", "network", "dns", "unreachable")):
-        return f"I couldn't reach the AI service I use ({runtime}) — the connection failed. Please try again in a moment."
-    return f"The AI service I use ({runtime}) returned an error, so I couldn't start: {message[:160]}"
+    return f"The AI service I use ({runtime}) reported an error: {message}"
+
 
 
 class RuntimeViolation(Exception):
@@ -73,15 +69,17 @@ class WorkerRuns:
     _worker_runs: dict[str, tuple[AgentRuntime, RunHandle]]
 
     _system: Callable[[str], str]
+    _approach: Callable[[], str]
     cancel_tree: Callable[["_Tree"], None]
+    context_budget_tokens: int
 
 
-    async def run_worker(self, tree: "_Tree", task: Task, prompt: str, ctx: str, schema: dict[str, Any],
+    async def run_worker(self, tree: "_Tree", task: Task, prompt: str, ctx: list[ContextBlock], schema: dict[str, Any],
                          span: str) -> tuple[dict[str, Any] | Outcome, str]:
         """One attempt. The orchestrator, rather than a report-word classifier, chooses recovery."""
         return await self._run_worker_once(tree, task, prompt, ctx, schema, span)
 
-    async def _run_worker_once(self, tree: "_Tree", task: Task, prompt: str, ctx: str, schema: dict[str, Any],
+    async def _run_worker_once(self, tree: "_Tree", task: Task, prompt: str, ctx: list[ContextBlock], schema: dict[str, Any],
                                span: str) -> tuple[dict[str, Any] | Outcome, str]:
         if tree.stop:
             return Outcome(task.id, "cancelled", tree.stop, [], []), ""
@@ -101,11 +99,10 @@ class WorkerRuns:
         names = ", ".join(n.replace(".", "_") for n in tools) or "none"
         owner_active, last_event = self.signals()
         if task.role == "verifier":
-            ctx += self.browser_context(task.id)
+            ctx = ctx + [ContextBlock(self.browser_context(task.id), "current browser observations", protected=True)]
         head = context.time_block(self.clock.now(), started, task.deadline, owner_active, last_event)
-        full_ctx = (f"{ctx}\n\nYour FERB tools (MCP server `ferb`): {names}. If you can't see them, they're behind "
-                    f"tool_search: search for \"ferb\" or the tool's name to load them — they are always there."
-                    f"\n\n{head}")                                         # time-dependent text last
+        full_ctx = ctx + [ContextBlock(load_prompt(self._approach() + "/runtime_tools.md", {"tool_names": names}) +
+                                       "\n\n" + head, "runtime tools and time facts", protected=True)]
         self.publish("task.started", {"task_id": task.id, "worker_id": worker_id})
         self.activity.start(worker_id)
         failure = None
@@ -124,11 +121,11 @@ class WorkerRuns:
         except (ValidationError, ValueError, Stalled) as e:
             failure = f"{type(e).__name__}: {e}"
             if worker_id in self._stalled:
-                result = Outcome(task.id, "failed", "stalled: no sign of life for 180 s (not counting waits on the "
+                result = Outcome(task.id, "failed", f"stalled: no sign of life for {self.stall_s:g} s (not counting waits on the "
                                                     "owner)", [], [])
             else:
                 result = Outcome(task.id, "cancelled" if tree.stop else "failed",
-                                 tree.stop or f"worker's report wasn't usable ({type(e).__name__})", [], [])
+                                 tree.stop or f"worker's report wasn't usable ({type(e).__name__}: {e})", [], [])
         except Exception as e:
             failure = f"{type(e).__name__}: {e}"
             result = Outcome(task.id, "blocked", f"Worker runtime unavailable: {type(e).__name__}: {e}", [], [])
@@ -142,9 +139,16 @@ class WorkerRuns:
                                        else str(result.get("status", "done"))})
         return result, worker_id
 
-    async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: str, token: str, parent_span: str,
+    async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str, parent_span: str,
                    tree: "_Tree" | None, worker_id: str) -> str:
-        run = await rt.start(task, system, ctx, token)
+        tool_schemas = self.gateway.tools_for(self.tokens.validate(token)) if token else []
+        output_schema = getattr(rt, "output_schema", None)
+        ctx_text = assemble_context(ctx, budget_tokens=self.context_budget_tokens,
+                                    reserved_tokens=count_tokens(system) + count_tokens(json.dumps(tool_schemas)) +
+                                                    count_tokens(json.dumps(output_schema)) + 1024)
+        self.spans.update_input(parent_span, {"context": ctx_text, "system_prompt": system,
+                                             "context_budget_tokens": self.context_budget_tokens})
+        run = await rt.start(task, system, ctx_text, token)
         self._active[run.id] = (rt, run)
         if worker_id:
             self._worker_runs[worker_id] = (rt, run)

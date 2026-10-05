@@ -108,7 +108,7 @@ class FakeApps:
         self.activated: list[str] = []
 
     def find(self, q: str) -> RunningApp | None:
-        return next((a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower())), None)
+        return next((a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower(), f"pid:{a.pid}")), None)
 
     def running(self) -> list[RunningApp]:
         return self.apps
@@ -116,7 +116,7 @@ class FakeApps:
     def frontmost(self) -> RunningApp | None:
         return next(a for a in self.apps if a.active)
 
-    def activate(self, bid: str) -> bool:
+    def activate(self, bid: str, pid: int | None = None) -> bool:
         self.activated.append(bid)
         self.apps = [RunningApp(a.bundle_id, a.name, a.pid, a.bundle_id == bid) for a in self.apps]
         return True
@@ -235,6 +235,7 @@ def vision(mp: pytest.MonkeyPatch, owner: Any = lambda: False,
                 ax.clicks += 1
         return [Step("move", lambda: posted.append(f"move {x},{y}{where}")), Step("click", click)]
     mp.setattr(drv, "click_steps", clicks)
+    mp.setattr(drv, "pointer_steps", lambda start, end, kind, pid, **kwargs: (clicks(*start, pid), lambda: None))
     return d, ax, shots, apps, posted
 
 
@@ -341,27 +342,16 @@ class Apps:
         self.activated: list[str] = []
 
     def find(self, q: str) -> RunningApp | None:
-        return next((a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower())), None)
+        return next((a for a in self.apps if q.lower() in (a.bundle_id.lower(), a.name.lower(), f"pid:{a.pid}")), None)
 
     def frontmost(self) -> RunningApp | None:
         return next(a for a in self.apps if a.active)
 
-    def activate(self, bid: str) -> bool:
+    def activate(self, bid: str, pid: int | None = None) -> bool:
         self.activated.append(bid)
         self.apps = [RunningApp(a.bundle_id, a.name, a.pid, a.bundle_id == bid) for a in self.apps]
         return True
 
-
-class Guard:
-    def __init__(self, log: list[str]) -> None:
-        self.log = log
-
-    def engage(self) -> bool:
-        self.log.append("guard on")
-        return True
-
-    def release(self) -> None:
-        self.log.append("guard off")
 
 
 def background_mac(mp: pytest.MonkeyPatch, ax: Ax, owner: list[bool] | None = None,
@@ -395,7 +385,6 @@ def background_mac(mp: pytest.MonkeyPatch, ax: Ax, owner: list[bool] | None = No
     d = MacComputerDriver("dev", RealInput(busy, GuiLock(), sleep=no_sleep, poll_s=0.1, yield_after_s=5),
                           ax=ax, apps=apps, profiles=profiles)
     d.communication = lambda b: comm and b == CHAT
-    d.guard = Guard(posted)
     return d, apps, posted
 
 

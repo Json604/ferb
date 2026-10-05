@@ -41,7 +41,7 @@ async def command(*args: str) -> bytes:
         await proc.wait()
         raise
     if proc.returncode:
-        raise Refused(f'{Path(args[0]).name} failed: {err.decode(errors="replace")[-1600:]}')
+        raise Refused(f'{Path(args[0]).name} failed: {err.decode(errors="replace")}')
     return out
 
 

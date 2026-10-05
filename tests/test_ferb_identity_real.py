@@ -230,7 +230,9 @@ async def _otp(d: Any, site: Site, since: datetime) -> bool:
     await asyncio.sleep(0.5)
     s = await fi.snapshot(tab)
     el = fi.element_ref(tab, next(e.id for e in s.elements if e.label == "Code"))
-    r = await fi.fill_otp(el, ref, since, None, timeout=600, poll=5)
+    inventory = await fi.otp_candidates(el, ref)
+    assert len(inventory["candidates"]) == 1
+    r = await fi.fill_otp(el, ref, inventory["candidates"][0]["candidate"])
     if r.ok:
         s = await fi.snapshot(tab)
         await fi.act(fi.element_ref(tab, next(e.id for e in s.elements if e.label == "Verify")), BrowserAction("click"), "")
@@ -260,47 +262,23 @@ def test_local_inbox_code_is_filled_sealed(stand_in: Any, monkeypatch: pytest.Mo
         site.srv.shutdown()
 
 
-def test_account_extractors_on_representative_local_dom(stand_in: Any) -> None:
-    rd, chrome, _ = stand_in
-    site = Site()
-    content = (Path(__file__).parents[1] / "extensions" / "chromium" / "content.js").read_text()
-    tab_id = chrome.owner_tab(f"{site.L}/plain")
-    wait_for(lambda: any(t["type"] == "page" and t["url"] == f"{site.L}/plain" for t in chrome.targets()),
-             10, "local account fixture did not load")
-    target = next(t for t in chrome.targets() if t["type"] == "page" and t["url"] == f"{site.L}/plain")
-    session = chrome.send("Target.attachToTarget", {"targetId": target["targetId"], "flatten": True})["sessionId"]
-    try:
-        for host, path, title, body in (
-            ("mail.google.com", "/mail/u/0/", f"Inbox - {ADDRESS} - Gmail", ""),
-            ("www.youtube.com", "/account", "YouTube", f"Signed in as {ADDRESS}"),
-        ):
-            # Only the account reader sees a representative provider location. No provider request is made.
-            expression = """(() => {
-              document.title = TITLE; document.body.textContent = BODY;
-              const fakeLocation = LOCATION, fakeWindow = {};
-              return (new Function('location', 'window', CONTENT + ';return window.__ferb.account();'))(fakeLocation, fakeWindow);
-            })()""".replace("TITLE", json.dumps(title)).replace("BODY", json.dumps(body)).replace(
-                "LOCATION", json.dumps({"hostname": host, "pathname": path})).replace("CONTENT", json.dumps(content))
-            assert chrome.evaluate(session, expression) == {"supported": True, "account": ADDRESS}
-    finally:
-        chrome.evaluate(chrome.sw, f"chrome.tabs.remove({tab_id})")
-        site.srv.shutdown()
-
-
-def test_compose_confirmation_on_local_mail_ui(stand_in: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_compose_confirmation_on_local_mail_ui(stand_in: Any) -> None:
+    """The test agent selects the fixture Send control; production code does not search for or choose it."""
     rd, _, _ = stand_in
     site = Site()
     fi = rd.daemon.ferb_identity
-    original_open = fi.open_for
-
-    async def local_compose(url: str, owner: str, profile: str | None = None):
-        from urllib.parse import urlsplit
-        assert url.startswith("https://mail.google.com/mail/?"), url
-        return await original_open(f"{site.L}/compose?{urlsplit(url).query}", owner)
-
-    monkeypatch.setattr(fi, "open_for", local_compose)
+    async def send_fixture():
+        from urllib.parse import urlencode
+        args={"to":ADDRESS,"su":"Local self-test","body":"Local test body","view":"cm","fs":"1"}
+        tab=await fi.open_for(f"{site.L}/compose?"+urlencode(args),"mail-test")
+        await asyncio.sleep(.5)
+        snap=await fi.snapshot(tab)
+        candidates=[e for e in snap.elements if e.label == "Send"]
+        assert len(candidates) == 1
+        await fi.act(fi.element_ref(tab,candidates[0].id),BrowserAction("click"),"")
+        await fi.close(tab)
     try:
-        assert rd.run(fi.send_mail([ADDRESS], "Local self-test", "Local test body", "mail-test"), timeout=60) == "sent"
+        rd.run(send_fixture(),timeout=60)
         wait_for(lambda: bool(site.posted), 5, "local send did not reach the fixture")
         assert site.posted == [{"to": [ADDRESS], "su": ["Local self-test"], "body": ["Local test body"],
                                 "view": ["cm"], "fs": ["1"]}]

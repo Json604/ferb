@@ -174,8 +174,7 @@ def test_contact_schema_does_not_promise_removed_confirmation():
 
 
 def test_planner_text_never_overrides_a_valid_action_plan(daemon):
-    from ferb.orchestrator.supervisor import COULDNT
-    install(daemon, [sup('task', COULDNT, task('Read the available source'))], {'worker': done('Source read.')})
+    install(daemon, [sup('task', 'I could not find that yet.', task('Read the available source'))], {'worker': done('Source read.')})
     assert outcome(chat(daemon, 'Read the source'))['status'] == 'done'
 
 
@@ -330,7 +329,7 @@ def test_repeated_calls_do_not_have_a_hard_action_limit(daemon):
 
 def test_worker_runtimes_have_no_task_duration_or_turn_cap(daemon):
     from ferb.runtimes.claude_sdk import ClaudeRuntime
-    assert ClaudeRuntime('worker', None, '/tmp/unused').max_turns is None
+    assert 'max_turns' not in __import__('inspect').signature(ClaudeRuntime).parameters
     rt = daemon.daemon._make_runtime('worker:codex', mode='worker', tool_names=[], schema={})
     assert rt.timeout_s is None
 

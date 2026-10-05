@@ -27,8 +27,8 @@ class FakeBridge:
     async def call(self, op: str, args: dict[str, Any], timeout: float = 30, cid: str | None = None) -> Any:
         self.calls.append(op)
         if op == "list_tabs":
-            return {"tabs": [{"tab_id": 11, "host": "www.youtube.com", "active": True},
-                             {"tab_id": 12, "host": "mail.google.com", "active": False}]}
+            return {"tabs": [{"tab_id": 11, "host": "www.youtube.com", "url":"https://www.youtube.com/watch?v=fixture", "title":"Lesson", "active": True},
+                             {"tab_id": 12, "host": "mail.google.com", "url":"https://mail.google.com/mail/", "title":"Inbox", "active": False}]}
         if op == "release_tab":
             return {"released": True, "kept_open": bool(args.get("keep_open")), "tab_id": args["tab_id"]}
         return {"closed": True}
@@ -51,9 +51,9 @@ def test_the_owners_open_tabs_can_be_taken_over_and_are_never_closed() -> None:
     r, br = router()
     tabs = asyncio.run(r.open_tabs())
     assert tabs[0] == {"tab_ref": "brave:Default:11", "profile": "Brave “Work”", "site": "www.youtube.com",
-                       "active": True}
+                       "active": True,"profile_id":"brave/Default","url":"https://www.youtube.com/watch?v=fixture","title":"Lesson"}
     ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
-    assert r.owned_by(ref.tab_id, "task-1") == ref and r.tab_url(ref.tab_id) == "https://www.youtube.com/"
+    assert r.owned_by(ref.tab_id, "task-1") == ref and r.tab_url(ref.tab_id) == "https://www.youtube.com/watch?v=fixture"
     assert asyncio.run(r.attach("brave:Default:11", "task-1")) == ref                # same tab, same id
     assert [t["tab_ref"] for t in asyncio.run(r.open_tabs())] == ["brave:Default:12"]   # now in use by the task
     asyncio.run(r.release("task-1"))                                                 # the task ends
@@ -241,4 +241,4 @@ def test_find_searches_the_whole_page() -> None:
         return {"tabs": []}
     br.call = page                                                                   # type: ignore[method-assign]
     got = asyncio.run(r.find(ref, "arpit"))
-    assert got["matches"] == 23 and got["lines_on_page"] == 900 and len(got["examples"]) == 20
+    assert got["matches"] == 23 and got["lines_on_page"] == 900 and len(got["examples"]) == 25

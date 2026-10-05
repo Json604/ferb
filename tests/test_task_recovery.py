@@ -3,18 +3,7 @@ import asyncio
 import pytest
 
 from ferb.core.types import ComputerAction
-from ferb.policy.effects import label_kind
-from ferb.policy.rules import Kind
 from tests.mackit import Ax, ids, background_mac as setup
-
-
-def test_preview_words_do_not_turn_opening_a_conversation_into_a_purchase() -> None:
-    assert label_kind("‎Students community, 92 unread messages from Buy & Sell and Announcements") is None
-    assert label_kind("Send One Time Password") == Kind.SEND
-    assert label_kind("Buy now") == Kind.PAY
-    assert label_kind("Delete permanently") == Kind.DELETE_PERMANENT
-
-
 
 
 def test_ax_set_value_success_without_value_change_is_not_reported_as_success(monkeypatch) -> None:
@@ -28,10 +17,16 @@ def test_ax_set_value_success_without_value_change_is_not_reported_as_success(mo
 
 
 def test_search_semantics_do_not_make_an_ax_button_a_writable_text_field(monkeypatch) -> None:
-    from ferb.act.mac.accessibility import AxNode
-    from ferb.act.mac.driver import MacComputerDriver
+    from ferb.act.mac.accessibility import AxNode, AxTree
     node = AxNode("x", "searchbox", "Search", None, (0, 0, 10, 10), False, True, ax_role="AXButton")
-    assert not MacComputerDriver._text_field(node)
+    ax = Ax()
+    ax.read_tree = lambda *args: AxTree([node])
+    ax.post_text = lambda *args: pytest.fail("a search label does not authorize a keyboard fallback")
+    d, apps, posted = setup(monkeypatch, ax)
+    ref = ids(d)["Search"]
+    result = asyncio.run(d.act("WhatsApp", ComputerAction("set_value", ref, "query")))
+    assert not result.ok and result.facts["accepted"] is False
+    assert not posted and not apps.activated
 
 
 def test_learned_input_failures_are_observations_not_permissions() -> None:

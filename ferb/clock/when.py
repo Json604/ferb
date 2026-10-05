@@ -1,4 +1,6 @@
-"""When something should happen, in the owner's terms; code turns it into an absolute time (owner decision,
+"""Owns arithmetic for explicitly typed dates and times. Must not infer ambiguous owner intent or turn reminders into unauthorized actions.
+
+When something should happen, in the owner's terms; code turns it into an absolute time (owner decision,
 2026-09-30: the model never computes dates for reminders, schedules or sleeps).
 
 The model fills only what the owner said:
@@ -7,13 +9,12 @@ The model fills only what the owner said:
 - day: "today", "tomorrow", "day_after_tomorrow", "end_of_month", a weekday ("friday": the next one — today counts
   while the time is still ahead) or "next_friday" (the Friday of next week, Monday-based);
 - date: "MM-DD" or "YYYY-MM-DD" for a calendar date ("on 31 October"); without a year, the next one;
-- time: "HH:MM", 24-hour, local ("at 5 pm" = "17:00"). A day without a time means 09:00; a time without a day means
+- time: "HH:MM", 24-hour, local ("at 5 pm" = "17:00"). A day requires an explicit time; a time without a day means
   the next one (today if still ahead, else tomorrow).
 Which fields a fuzzy phrase maps to ("next Friday", "evening", "this weekend") is not a rule here: the model guesses
 from context or follows the owner's stored meaning (a `time:<phrase>` preference); these fields are then exact.
 Wall-clock times are local (the Mac's time zone): "tomorrow at 9" stays 09:00 across a daylight-saving change, and a
-time that doesn't exist that day (skipped by the change) moves forward by the gap.
-"""
+time that doesn't exist that day (skipped by the change) moves forward by the gap."""
 
 import os
 import re
@@ -26,8 +27,6 @@ from pydantic import BaseModel
 
 DAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 DAY_WORDS = ("today", "tomorrow", "day_after_tomorrow", "end_of_month", *DAYS, *(f"next_{d}" for d in DAYS))
-DEFAULT_TIME = time(9, 0)
-MAX_AHEAD = timedelta(days=366)
 
 
 class WhenError(ValueError):
@@ -69,8 +68,8 @@ def local_zone() -> ZoneInfo:
             name = None
     try:
         return ZoneInfo(name) if name else ZoneInfo(_t.tzname[0])
-    except Exception:
-        return ZoneInfo("UTC")
+    except Exception as exc:
+        raise WhenError(f"local time zone unavailable: {name or _t.tzname[0]}") from exc
 
 
 def _clock(text: str) -> time:
@@ -123,6 +122,8 @@ def _day(w: When, today: date) -> date | None:
 def resolve(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
     """The absolute time (UTC) for `w`, strictly after `now`."""
     zone = zone or local_zone()
+    if sum(value is not None for value in (w.day, w.date, w.in_days)) > 1:
+        raise WhenError("give only one calendar day source: day, date or in_days")
     if w.in_minutes is not None:
         if w.in_minutes <= 0:
             raise WhenError("in_minutes must be more than 0")
@@ -135,17 +136,17 @@ def resolve(w: When, now: datetime, zone: ZoneInfo | None = None) -> datetime:
         t = _clock(w.time) if w.time else None
         if d is None and t is None:
             raise WhenError("say when: a time, a day, a date or how long from now")
-        at = _wall(d or local_now.date(), t or DEFAULT_TIME, zone)
+        if t is None:
+            raise WhenError("a calendar day needs an explicit local time; resolve it from owner context")
+        at = _wall(d or local_now.date(), t, zone)
         if at <= now:
             if d is None:                                         # a time alone: the next one
-                at = _wall(local_now.date() + timedelta(days=1), t or DEFAULT_TIME, zone)
+                at = _wall(local_now.date() + timedelta(days=1), t, zone)
             elif (w.day or "").lower() in DAYS:                   # "friday" at a time already gone: next week's
-                at = _wall(d + timedelta(days=7), t or DEFAULT_TIME, zone)
+                at = _wall(d + timedelta(days=7), t, zone)
             elif (w.day or "").lower() == "end_of_month":
                 nxt = (d + timedelta(days=1))
-                at = _wall(nxt.replace(day=monthrange(nxt.year, nxt.month)[1]), t or DEFAULT_TIME, zone)
+                at = _wall(nxt.replace(day=monthrange(nxt.year, nxt.month)[1]), t, zone)
     if at <= now:
         raise WhenError(f"that's in the past ({at.astimezone(zone):%a %d %b %H:%M})")
-    if at - now > MAX_AHEAD:
-        raise WhenError("that's more than a year away")
     return at.astimezone(timezone.utc)

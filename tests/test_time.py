@@ -16,7 +16,6 @@ import pytest
 
 from ferb.clock.when import When, WhenError, resolve
 from ferb.act.browser.ext_bridge import OutcomeUnknown
-from ferb.act.browser.tools import MailboxSend
 from ferb.clock.timers import Timers
 from ferb.core.types import Identity
 from ferb.policy.targets import Request, Targets
@@ -165,6 +164,29 @@ def test_a_tasks_sleep_ends_with_the_task_but_its_reminders_stay(daemon: Running
 
 # ---------- mailbox send ----------
 
+class MailAction:
+    """Test-only delivery boundary: exercise gateway unknown-outcome handling without a semantic Gmail helper."""
+    from pydantic import BaseModel
+    from ferb.core.types import RiskLevel
+    name="mailbox.send"
+    description="Test delivery boundary"
+    scopes={"mailbox:send"}
+    identities={Identity.FERB}
+    risk,reversible=RiskLevel.MEDIUM,False
+    class Input(BaseModel):
+        to: list[str]
+        subject: str
+        body: str
+    def __init__(self,mail): self.mail=mail
+    def describe(self,args):
+        from ferb.core.types import ActionSpec,Target
+        return ActionSpec("mailbox_send",Target(recipients=tuple(args.to)),content=args.subject+args.body)
+    async def run(self,args,ctx):
+        from ferb.core.types import ToolResult
+        await self.mail.send_mail(args.to,args.subject,args.body,ctx.task_id,ctx.intent_id or "")
+        return ToolResult({"sent":True})
+
+
 class FakeMail:
     def __init__(self) -> None:
         self.sent: list[tuple[list[str], str, str]] = []
@@ -189,7 +211,7 @@ def ferb_task(d: RunningDaemon, tid: str, words: str, recipients: frozenset[str]
 
 def test_mailbox_send_executes_agent_decision_and_records_delivery(daemon):
     mail = FakeMail()
-    daemon.daemon.registry.capabilities["mailbox.send"] = MailboxSend(mail)
+    daemon.daemon.registry.capabilities["mailbox.send"] = MailAction(mail)
     g = ferb_task(daemon, "m1", "email alice@x.com about lunch")
     r = call(daemon, g, "mailbox.send", to=["alice@x.com"], subject="Hi", body="Lunch?")
     assert not r["is_error"] and mail.sent == [(["alice@x.com"], "Hi", "Lunch?")]
@@ -199,7 +221,7 @@ def test_mailbox_send_executes_agent_decision_and_records_delivery(daemon):
 def test_an_unconfirmed_send_is_unknown_and_never_retried_blindly(daemon: RunningDaemon) -> None:
     mail = FakeMail()
     mail.unknown = True
-    daemon.daemon.registry.capabilities["mailbox.send"] = MailboxSend(mail)
+    daemon.daemon.registry.capabilities["mailbox.send"] = MailAction(mail)
     g = ferb_task(daemon, "m3", "email alice@x.com", frozenset({"alice@x.com"}))
 
     async def send() -> dict[str, Any]:
@@ -249,29 +271,29 @@ def local(at: datetime, zone: ZoneInfo) -> str:
 
 def test_next_friday_and_weekdays() -> None:
     wed = datetime(2026, 9, 30, 12, 0, tzinfo=IST)                                   # Wednesday
-    assert local(resolve(w(day="friday"), wed, IST), IST) == "Fri 02 Oct 2026 09:00 IST"
+    assert local(resolve(w(day="friday", time="09:00"), wed, IST), IST) == "Fri 02 Oct 2026 09:00 IST"
     assert local(resolve(w(day="next_friday", time="17:00"), wed, IST), IST) == "Fri 09 Oct 2026 17:00 IST"
     fri = datetime(2026, 10, 2, 10, 0, tzinfo=IST)
     assert local(resolve(w(day="friday", time="17:00"), fri, IST), IST) == "Fri 02 Oct 2026 17:00 IST"  # still ahead
     assert local(resolve(w(day="friday", time="09:00"), fri, IST), IST) == "Fri 09 Oct 2026 09:00 IST"  # gone: next
-    assert local(resolve(w(day="next_friday"), fri, IST), IST) == "Fri 09 Oct 2026 09:00 IST"
+    assert local(resolve(w(day="next_friday", time="09:00"), fri, IST), IST) == "Fri 09 Oct 2026 09:00 IST"
     sun = datetime(2026, 10, 4, 10, 0, tzinfo=IST)
-    assert local(resolve(w(day="next_monday"), sun, IST), IST) == "Mon 05 Oct 2026 09:00 IST"
+    assert local(resolve(w(day="next_monday", time="09:00"), sun, IST), IST) == "Mon 05 Oct 2026 09:00 IST"
     assert local(resolve(w(time="08:00"), wed, IST), IST) == "Thu 01 Oct 2026 08:00 IST"   # a time alone: next one
 
 
 def test_end_of_month_and_dates() -> None:
     sep30 = datetime(2026, 9, 30, 12, 0, tzinfo=IST)
-    assert local(resolve(w(day="tomorrow"), sep30, IST), IST) == "Thu 01 Oct 2026 09:00 IST"
-    assert local(resolve(w(in_days=2), sep30, IST), IST) == "Fri 02 Oct 2026 09:00 IST"
+    assert local(resolve(w(day="tomorrow", time="09:00"), sep30, IST), IST) == "Thu 01 Oct 2026 09:00 IST"
+    assert local(resolve(w(in_days=2, time="09:00"), sep30, IST), IST) == "Fri 02 Oct 2026 09:00 IST"
     assert local(resolve(w(day="end_of_month", time="17:00"), sep30, IST), IST) == "Wed 30 Sep 2026 17:00 IST"
     assert local(resolve(w(day="end_of_month", time="09:00"), sep30, IST), IST) == "Sat 31 Oct 2026 09:00 IST"
     leap = datetime(2028, 2, 10, 12, 0, tzinfo=IST)
-    assert local(resolve(w(day="end_of_month"), leap, IST), IST) == "Tue 29 Feb 2028 09:00 IST"
+    assert local(resolve(w(day="end_of_month", time="09:00"), leap, IST), IST) == "Tue 29 Feb 2028 09:00 IST"
     assert local(resolve(w(date="10-31", time="18:30"), sep30, IST), IST) == "Sat 31 Oct 2026 18:30 IST"
-    assert local(resolve(w(date="01-15"), sep30, IST), IST) == "Fri 15 Jan 2027 09:00 IST"      # the next one
+    assert local(resolve(w(date="01-15", time="09:00"), sep30, IST), IST) == "Fri 15 Jan 2027 09:00 IST"
     for bad in (w(date="02-30"), w(date="2026-01-01"), w(), w(time="25:00"), w(in_minutes=-5),
-                w(date="2028-01-01")):                                              # impossible, past, none, > 1 year
+                w(date="2028-01-01")):                                              # impossible, past, none, missing time
         with pytest.raises(WhenError):
             resolve(bad, sep30, IST)
 

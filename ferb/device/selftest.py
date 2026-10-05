@@ -1,19 +1,12 @@
-"""Self-test run inside the daemon (section 8 step 5): the process that will really act proves it can.
-
-- AX read: the Dock's accessibility tree (a system process; never the owner's frontmost app).
-- Event tap: a listen-only tap can be created (owner-input watcher, section 10.5).
-- One input event: a *marked* mouse-moved to where the pointer already is (no visible effect), seen by our tap.
-Browser self-tests arrive with build steps 5 and 6.
+"""Own passive daemon permission diagnostics. Never post input, activate an app or move the cursor.
+A readable AX surface/listen-only event tap is a capability fact, not proof of successful app interaction.
 """
 
 import threading
-import time
 from dataclasses import dataclass
 
 import ApplicationServices as AX
 import Quartz
-
-from ferb.sense.watchers.owner_input import FERB_EVENT_MARK  # FERB's own input events (section 10.5)
 
 
 @dataclass(frozen=True)
@@ -38,17 +31,14 @@ def ax_read() -> Result:
 
 
 class _Tap:
-    """Listen-only tap on mouse-moved events, counting FERB-marked ones, on its own run loop thread."""
+    """Create a listen-only event tap without injecting input or retaining its content."""
 
     def __init__(self) -> None:
-        self.marked = 0
         self.tap = None
         self._loop = None
         ready = threading.Event()
 
         def cb(proxy, etype, event, refcon):  # noqa: ANN001
-            if Quartz.CGEventGetIntegerValueField(event, Quartz.kCGEventSourceUserData) == FERB_EVENT_MARK:
-                self.marked += 1
             return event
 
         def run() -> None:
@@ -75,32 +65,15 @@ class _Tap:
             Quartz.CFRunLoopStop(self._loop)
 
 
-def post_marked_still_move() -> None:
-    src = Quartz.CGEventSourceCreate(Quartz.kCGEventSourceStatePrivate)
-    here = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
-    ev = Quartz.CGEventCreateMouseEvent(src, Quartz.kCGEventMouseMoved, here, Quartz.kCGMouseButtonLeft)
-    Quartz.CGEventSetIntegerValueField(ev, Quartz.kCGEventSourceUserData, FERB_EVENT_MARK)
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
-
-
-def event_tap_and_input() -> list[Result]:
+def event_tap() -> list[Result]:
     tap = _Tap()
     try:
-        if tap.tap is None:
-            return [Result("event_tap", False, "couldn't create a listen-only event tap "
-                                               "(needs Accessibility or Input Monitoring)"),
-                    Result("input_event", False, "skipped: no event tap to confirm it")]
-        post_marked_still_move()
-        end = time.monotonic() + 1.0
-        while tap.marked == 0 and time.monotonic() < end:
-            time.sleep(0.01)
-        return [Result("event_tap", True, "listen-only tap created"),
-                Result("input_event", tap.marked > 0,
-                       "marked input event posted and seen" if tap.marked else
-                       "posted input event never arrived (Accessibility needed to post events)")]
+        return [Result("event_tap", tap.tap is not None,
+                       "listen-only tap created; no input posted" if tap.tap is not None else
+                       "couldn't create a listen-only event tap (Accessibility/Input Monitoring unavailable)")]
     finally:
         tap.close()
 
 
 def run_all() -> list[Result]:
-    return [ax_read(), *event_tap_and_input()]
+    return [ax_read(), *event_tap()]

@@ -26,6 +26,37 @@ from tests.browserkit import OWNER, bd, call, chrome_data, pair, task  # noqa: F
 
 # ---------- pairing, 21.16 ----------
 
+def test_file_chooser_event_reaches_real_bus_without_dropping_extension_connection(bd: Any) -> None:
+    """Exercise authenticated native transport -> Hub -> daemon publisher -> real Bus, then another command."""
+    import asyncio
+    d, launched = bd
+    ext = pair(d, launched, "Work")
+    ext.wait_for(lambda: ext.gen is not None)
+
+    async def receive() -> None:
+        sub = d.daemon.bus.subscribe({"browser.file_chooser", "browser.disconnected"})
+        bridge = d.daemon.hub.bridges[("chrome", "Profile 1")]
+        connection = bridge.conn
+        facts = {"event":"file_chooser", "tab_id":73, "frame_id":"child-frame", "session_id":"child-session",
+                 "backend_node_id":71, "mode":"selectSingle", "reason":"native_file_chooser_intercepted",
+                 "native_picker_shown":False, "transferred":False, "direct_upload_available":True,
+                 "detail":"No source selected"}
+        try:
+            ext.send("event", facts)
+            event = await asyncio.wait_for(anext(sub.__aiter__()), 3)
+            assert event.topic == "browser.file_chooser", event
+            assert event.data == {"profile":"chrome/Profile 1", **facts}
+            assert bridge.conn is connection and connection is not None
+            assert await bridge.call("ping", {}, timeout=2) == {"ok":True}
+        finally:
+            sub.close()
+
+    try:
+        d.run(receive(), timeout=8)
+    finally:
+        ext.kill()
+
+
 @pytest.mark.parametrize('pairing_error', [None, 'bad_mac', 'replay'])
 def test_refusal_metadata_distinguishes_protocol_failure_from_pairing_failure(pairing_error):
     import asyncio
@@ -311,9 +342,12 @@ def test_profile_discovery_resolution_and_only_known_folders_open(tmp_path: Path
     assert "found:" in resolve("nobody", ps).message("nobody", ps)
     launched: list[list[str]] = []
     stopped, started = (lambda b: False), (lambda b: True)
-    open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append, is_running=stopped)
+    with pytest.raises(ValueError, match="needs_foreground"):
+        open_known_profile("chrome", "Profile 1", "https://x/", ps, launch=launched.append, is_running=stopped)
+    assert not launched
+    open_known_profile("chrome", "Profile 1", None, ps, launch=launched.append, is_running=stopped)
     assert launched[0] == ["open", "-g", "-b", "com.google.Chrome", "--args", "--profile-directory=Profile 1",
-                           "https://x/"]                                 # background: never takes focus (spike 19)
+                           "--no-startup-window"]
     open_known_profile("chrome", "Profile 1", None, ps, launch=launched.append, is_running=started)
     assert launched[-1][1:] == ["--profile-directory=Profile 1", "--no-startup-window"]   # running: `open` can't
     assert launched[-1][0].endswith("Google Chrome")                                     # reach it; the binary can
@@ -375,7 +409,6 @@ def test_disconnected_profile_does_not_open_a_visible_wake_tab(
         bd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     import ferb.act.browser.ext_bridge as eb
     monkeypatch.setattr(eb, "WINDOWLESS_WAIT_S", 0.05)
-    monkeypatch.setattr(eb, "WAKE_TIMEOUT_S", 0.05)
     d, launched = bd
     ext = pair(d, launched, "Work")
     ext.wait_for(lambda: ext.gen is not None)
@@ -393,21 +426,6 @@ def test_disconnected_profile_does_not_open_a_visible_wake_tab(
 
 async def _start_wake(d: RunningDaemon) -> None:
     d.daemon.router.wake = d.daemon.wake                                        # type: ignore[union-attr]
-
-
-def test_explicit_account_lookup_reports_visible_account_without_extra_tabs(bd):
-    d, launched = bd
-    ext = pair(d, launched, "Personal")
-    ext.wait_for(lambda: ext.gen is not None)
-    g = task(d, "y", OWNER, {"fill_form"})
-    alias = call(d, g, "browser.open", url="https://www.youtube.com/account", profile="Personal")["content"]["tab"]
-    ext.accounts["www.youtube.com"] = "me@gmail.com"
-    before = set(ext.tabs)
-    async def lookup():
-        tab = d.daemon.router.owned_by(alias, g.task_id)
-        return await d.daemon.router.account_of(g.task_id, "www.youtube.com")
-    assert d.run(lookup()) == "me@gmail.com"
-    assert set(ext.tabs) == before
 
 
 WORKER_HARNESS = r"""
