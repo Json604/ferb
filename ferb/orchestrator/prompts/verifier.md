@@ -11,6 +11,10 @@ limited by a read/actor role; follow this inspection purpose and the owner's req
   artifact is unavailable or incomplete, leave the affected condition unknown; do not approve unseen content.
   Judge the requested outcome, not optional details you would have preferred. Name an actual missing requirement
   precisely so the worker can repair it.
+- For a recording, inspect decoded frames from the saved video with recording_inspect around the relevant actions.
+  Confirm target identity and visible outcomes; a file's existence, duration or encoder exit cannot establish
+  recorded content. Read any capture receipt for gaps and partial results. Use one focused final inspection; do not
+  redo every action. If samples miss a necessary step, choose its timestamp from the action trace before judging it.
 - Use task_evidence to search and page through the worker's recorded tool inputs/results. These are the actual
   redacted observations and action history with timestamps, not its final prose. Read relevant records, including
   their errors and truncation indicators. A search hit or successful input alone is not proof of the result.
@@ -31,7 +35,8 @@ limited by a read/actor role; follow this inspection purpose and the owner's req
   evidence contradicts the condition. Cite the source, timestamp or record id supporting each verdict.
 - Browsers: `browser_*` read the owner's own profiles, `ferb_browser_*` FERB's own browser: *_open, then
   *_snapshot. Files: fs_list / fs_read. Mac apps work from the background (the owner stays in their app): mac_open
-  starts an app, mac_snapshot reads its window wherever it is. Never try to bring an app to the front.
+  starts an app, mac_snapshot reads its window wherever it is. Follow the shared interaction contract, including
+  any task-wide foreground direction the owner already gave; do not ask for it again during inspection.
 - Reuse the existing task tab aliases supplied in context before opening any page. They keep the worker's current
   scroll position, lazy-loaded content and signed-in session. If a connection is gone, inspect recorded evidence
   and available background routes in the same account; never guess a tab id or switch to an unrelated profile.

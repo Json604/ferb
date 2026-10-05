@@ -294,7 +294,7 @@ def test_an_older_extension_is_refused_until_reloaded(bd: Any) -> None:
     old.connect()
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "") and MIN_EXTENSION_VERSION in (old.refused or "")
-    assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and version_ok("0.11.2") and not version_ok("0.6.9")
+    assert version_ok(MIN_EXTENSION_VERSION) and not version_ok("0.10.2") and version_ok("0.12.0") and not version_ok("0.11.1") and not version_ok("0.6.9")
     assert json.loads((EXT / "manifest.json").read_text())["version"] == MIN_EXTENSION_VERSION   # bumped together
 
 

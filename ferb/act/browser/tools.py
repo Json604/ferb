@@ -48,6 +48,7 @@ class IdentityDriver(BrowserDriver, Protocol):
                        intent_id: str = "") -> ActionResult: ...
     async def release(self, owner: str) -> list[dict[str, Any]] | None: ...
     async def shutdown(self) -> None: ...
+    def recording_source(self, tab: TabRef, owner: str) -> tuple[dict[str, Any], Any]: ...
 
 
 @dataclass(frozen=True)
@@ -279,6 +280,29 @@ class BrowserScreenshot(_Base):
             sources += (("owner_account", f"{self._site(args) or ''}|"),)
         return ToolResult({"shot": shot, "width": w, "height": h, "next": "use browser_point to resolve a visible target"},
                           read_sources=sources, image=jpeg)
+
+
+class BrowserRecord(_Base):
+    verb = 'record'
+    blurb = ('Start a sampled video of this exact task tab in {whose}, including while inactive/minimized. '
+             'No tab selection or desktop focus change. Silent video, default 2 fps; one output per target. '
+             'Use recording_stop to finalize, then recording_inspect to check saved content. Requires ffmpeg/ffprobe.')
+    class Input(BaseModel):
+        tab: str
+        path: str = Field(description='New .mp4 output path; existing files are never overwritten')
+        fps: float = Field(2, ge=0.2, le=10, allow_inf_nan=False)
+    def __init__(self, driver: IdentityDriver, family: Family, recordings: Any) -> None:
+        super().__init__(driver, family)
+        self.recordings = recordings
+    def _scopes(self) -> set[str]: return {self.family.read, 'fs:write'}
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec('write_file', Target(site=self._site(args), path=args.path))
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        from ferb.act.fs.files import resolve
+        tab = self.driver.owned_by(args.tab, ctx.task_id)
+        target, capture = self.driver.recording_source(tab, ctx.task_id)
+        result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps)
+        return ToolResult(result, read_sources=(('web', self.driver.tab_url(tab.tab_id) or ''),))
 
 
 class BrowserPoint(_Base):

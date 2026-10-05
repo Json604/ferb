@@ -283,7 +283,9 @@ class Hub:
                 why = (f"extension {hello.version} (protocol {hello.protocol}), FERB needs {MIN_EXTENSION_VERSION} "
                        f"(protocol {PROTOCOL_VERSION}): reload the FERB extension")
                 self.refused[m.install_id] = why
-                conn.writer.write(json.dumps({"type": "refused", "reason": why}).encode() + b"\n")
+                conn.writer.write(json.dumps({"type": "refused", "reason": why,
+                                              "required_protocol": PROTOCOL_VERSION,
+                                              "minimum_version": MIN_EXTENSION_VERSION}).encode() + b"\n")
                 await conn.writer.drain()
                 return
             self.refused.pop(m.install_id, None)
@@ -667,6 +669,26 @@ class _TabDriver:
         for i in range(int(v.get("parts", 0))):
             parts.append(str((await t.bridge.call("screenshot_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
         return base64.b64decode("".join(parts))
+
+    def recording_source(self, tab: TabRef, owner: str) -> tuple[dict[str, Any], Any]:
+        t = self._tab(tab)
+
+        async def capture() -> bytes:
+            import base64
+            self.owned_by(tab.tab_id, owner)
+            if self._tab(tab) is not t:
+                raise Refused('recording tab identity changed')
+            result = await t.bridge.call('record_frame', {'tab_id': t.chrome_id})
+            if 'data' in result:
+                return base64.b64decode(result['data'])
+            parts = []
+            for i in range(int(result['parts'])):
+                part = await t.bridge.call('record_frame', {'tab_id': t.chrome_id, 'part': i,
+                                                           'capture_id': result['capture_id']})
+                parts.append(part['data'])
+            return base64.b64decode(''.join(parts))
+        return {'kind': 'tab', 'browser': tab.browser, 'profile': tab.profile, 'tab_id': t.chrome_id,
+                'tab': tab.tab_id}, capture
 
     async def visual_snapshot(self, tab: TabRef) -> tuple[str, bytes, int, int]:
         import Quartz

@@ -149,9 +149,11 @@ class Supervisor(WorkerRuns):
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
         gateway.observer = _Watch(self)
 
-    def _system(self, name: str) -> str:
+    def _system(self, name: str | None = None) -> str:
         facts = self.facts()
-        text = (PROMPTS / name).read_text()
+        text = (PROMPTS / 'interaction.md').read_text().strip()
+        if name is not None:
+            text += '\n\n' + (PROMPTS / name).read_text()
         if "{capabilities}" in text:                          # built in code: only what's usable right now
             text = text.replace("{capabilities}", self.availability().text)
         return text + (f"\n\nFacts about this FERB:\n{facts}\n" if facts else "")
@@ -727,7 +729,7 @@ class Supervisor(WorkerRuns):
                         'inspection_before_cleanup': [r.as_dict() for r in tree.verification],
                         'resources_after_cleanup': tree.resources, 'cleanup_errors': tree.cleanup_errors}
         ctx = self._context(tree) + '\nFinal lifecycle observations (data): ' + wrap_untrusted(json.dumps(observations))
-        system = ("You are FERB's orchestrator. Produce the final owner-facing result after task resource cleanup. "
+        system = (self._system() + "\n\nYou are FERB's orchestrator. Produce the final owner-facing result after task resource cleanup. "
                   "Reconcile the requested outcome and the worker's claim with the actual resource records. "
                   "A successful inspection before cleanup does not prove the requested state survived cleanup. "
                   "A closed tab cannot still host an ongoing class or session. A kept_open acknowledgement proves "

@@ -26,6 +26,30 @@ from tests.browserkit import OWNER, bd, call, chrome_data, pair, task  # noqa: F
 
 # ---------- pairing, 21.16 ----------
 
+@pytest.mark.parametrize('pairing_error', [None, 'bad_mac', 'replay'])
+def test_refusal_metadata_distinguishes_protocol_failure_from_pairing_failure(pairing_error):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from ferb.act.browser.ext_bridge import Hub
+    from ferb.act.browser.ext_protocol import ExtMessage, MIN_EXTENSION_VERSION, PROTOCOL_VERSION
+    verdict = SimpleNamespace(accepted=pairing_error is None, reason=pairing_error, reply=None, binding=object())
+    hub = Hub(SimpleNamespace(handle=lambda m: verdict), None, lambda *a: None, lambda: 'test-device')
+    writes = []
+    conn = SimpleNamespace(writer=SimpleNamespace(write=writes.append, drain=AsyncMock()))
+    message = ExtMessage(install_id='test-install', type='hello', body_json=json.dumps({
+        'version':MIN_EXTENSION_VERSION, 'protocol':PROTOCOL_VERSION - 1,
+    }))
+    asyncio.run(hub._handle(conn, message))
+    reply = json.loads(writes[0])
+    assert reply['type'] == 'refused'
+    if pairing_error:
+        assert 'required_protocol' not in reply and 'minimum_version' not in reply
+    else:
+        assert reply['required_protocol'] == PROTOCOL_VERSION
+        assert reply['minimum_version'] == MIN_EXTENSION_VERSION
+
+
 def test_reinstalled_extension_is_reported_without_claiming_a_profile(bd: Any) -> None:
     d, launched = bd
     old = pair(d, launched, "Work")
@@ -147,6 +171,10 @@ def test_protocol_mismatch_is_refused(bd: Any) -> None:
     old.connect()
     old.wait_for(lambda: old.refused is not None)
     assert "reload the FERB extension" in (old.refused or "")
+    from ferb.act.browser.ext_protocol import MIN_EXTENSION_VERSION, PROTOCOL_VERSION
+    refusal = next(json.loads(msg) for msg in old.wire if json.loads(msg).get('type') == 'refused')
+    assert refusal['required_protocol'] == PROTOCOL_VERSION
+    assert refusal['minimum_version'] == MIN_EXTENSION_VERSION
 
 
 # ---------- the native host ----------

@@ -1,0 +1,248 @@
+---
+title: FERB 0.25.0 — Low-level request lifecycle (current implementation)
+config:
+  theme: neutral
+  fontFamily: Arial, sans-serif
+  themeCSS: 'text { font-family: Arial, sans-serif !important; }'
+  themeVariables:
+    fontFamily: Arial, sans-serif
+    fontSize: 15px
+  sequence:
+    useMaxWidth: false
+    wrap: true
+    width: 150
+    actorMargin: 35
+    messageMargin: 25
+    noteMargin: 12
+    mirrorActors: true
+---
+sequenceDiagram
+    autonumber
+    actor U as Owner / chat UI
+    participant D as Daemon RPC / timers
+    participant S as Supervisor / WorkerRuns
+    participant B as Context / stores
+    participant M as Decision model<br/>(no action tools)
+    participant W as Worker runtime
+    participant V as Checker runtime
+    participant G as Gateway / questions
+    participant X as Capabilities / platforms
+    participant R as Recording manager
+
+    Note over U,X: Lanes are responsibilities, not nine processes. Model lanes use configured Codex / Claude adapters.<br/>Worker and checker calls reach Gateway through ferb mcp + authenticated daemon RPC (expanded in HLD).<br/>Solid arrows = calls / events, dashed arrows = results. Numbering is a reading order, not fixed action IDs.
+
+    Note over S,V: Shared interaction.md applies to all task-model roles, including recovery and resource review.<br/>Owner-authorized foreground use carries across retries, later owner direction supersedes it.
+
+    rect rgb(235, 243, 255)
+        Note over U,X: 1 — INTAKE, CONTEXT AND PLANNING
+        alt Interactive chat (or a normal voice turn)
+            U->>D: chat.send(text, conversation), subscribe to progress
+            D->>S: send(session, text), task can outlive this connection
+            S->>B: Load pending clarification, record message,<br/>retrieve memory, recent chat/tasks and environment
+            B-->>S: Bounded context, exact resumable task IDs
+        else Scheduled occurrence
+            D->>B: Rearm recurrence or finish one-shot timer
+            D->>S: run_scheduled(saved request, lateness, failures)<br/>Separate schedule session, unattended if a task starts
+        end
+        S->>B: Search relevant daily activity and action registry,<br/>assemble time / availability / context facts
+        S->>M: supervisor.md + context → SupervisorOutcome JSON
+        M-->>S: reply / clarify / task, optional control and memory/timer changes
+        S->>S: Validate schema and referenced prior task
+        opt Invalid schema or unknown task reference
+            S->>M: One repair call with validation problems
+            M-->>S: Corrected decision or clarification
+        end
+        break Planning cannot produce a usable decision
+            S-->>D: Failure / clarification, no worker starts
+            D-->>U: Explain problem
+        end
+        opt Interactive stop / retry / continue of a prior task
+            S->>B: Resolve exact task within this conversation
+            S->>S: Stop old run, wait up to 10 seconds for it to settle
+            break Stop-only request or old run still settling
+                S-->>D: Stopped / already ended / still settling
+                D-->>U: Return without starting a new worker
+            end
+            S->>S: Carry prior goal, result and owner words into a fresh attempt
+        end
+        opt Interactive turn contains requested memory / reminder / schedule changes
+            S->>B: Apply quote-checked changes, record actual results
+            S-->>D: Memory / timer events
+            D-->>U: Display saved / scheduled / cancelled result
+        end
+    end
+
+    alt Decision is reply or clarify
+        S->>B: Interactive: save reply and pending clarification if needed
+        S-->>D: Reply or question, scheduled clarification → needs_user
+        D-->>U: Deliver response / scheduled result
+    else Decision contains a task
+        rect rgb(234, 246, 239)
+            Note over S,X: 2 — TASK AND ATTEMPT SETUP
+            S->>B: Persist root + logical worker, task specification,<br/>success conditions and original request context
+            S->>S: Register in-memory task tree,<br/>worker scopes = union of installed capabilities
+            S-->>D: task.created + plan
+            D-->>U: Starting task / progress
+        end
+
+        par Task lifecycle (while not explicitly stopped)
+            loop Worker attempts, continue only on dispatch retry and not stopped
+                S->>B: Refresh relevant context, include previous reports,<br/>artifacts and unknown prior ledger actions
+                S->>S: New worker ID and run token, start liveness tracking
+                S->>W: worker.md + goal / owner words / conditions / tools<br/>Start selected worker type with structured report schema
+
+                rect rgb(249, 246, 232)
+                    Note over W,X: 3 — MODEL-DRIVEN TOOL LOOP (zero or more calls)<br/>A tool error is an observation, the worker decides its next action.
+                    loop Worker observes, chooses an installed action, then observes again
+                        W->>G: tools.call(name, arguments, run token)
+                        G->>G: Authenticate grant via RPC, check stop / task / tool / scopes,<br/>validate input schema
+                        alt Invalid call or stopped task
+                            G-->>W: Structured error, do not execute the action
+                        else owner.ask
+                            G->>S: route_question(task, question, options)
+                            S->>M: question.md + task context (no tools)
+                            M-->>S: Answer from context OR ask owner
+                            S-->>G: Decision
+                            alt Orchestrator can answer
+                                G-->>W: Answer, no owner interruption
+                            else Owner needed in an unattended scheduled run
+                                G-->>W: Declined: owner absent
+                            else Owner needed in interactive run
+                                G->>D: Pending question, approval.requested event
+                                D-->>U: FERB question with options / free text
+                                U->>D: chat.answer / chat.approve
+                                D->>G: Resolve pending question
+                                G-->>W: Answer OR declined / expired<br/>600-second TTL, owner wait pauses watchdog
+                            end
+                        else Ordinary capability (including browser.login_code)
+                            G->>G: Describe target, record tool span, acquire capability locks
+                            opt Action kind is outside REVERSIBLE
+                                G->>B: Ledger: intended → executing BEFORE execution
+                            end
+                            G->>X: cap.run(arguments, task / identity context)
+                            opt Target recording requested
+                                X->>R: Start task-owned capture callback bound to exact tab or window/PID
+                                Note over X,R: Sampling runs asynchronously alongside worker actions, the loop below summarizes it.
+                                loop Until stopped or capture fails
+                                    R->>X: Independent frame capture, preserve action references
+                                    X-->>R: JPEG or target/privacy error (halt, no foreground fallback)
+                                end
+                                X->>R: recording.stop → encode MP4 + receipt
+                                R-->>X: Capture complete or partial, content not automatically verified
+                                X->>R: recording.inspect → decode saved frames
+                                R-->>X: Contact sheet for model / owner inspection
+                            end
+                            opt browser.login_code requested by worker
+                                X->>X: Validate task-owned ref, OTP metadata,<br/>HTTPS field origin and supported input
+                                alt Unsupported / unlabelled split OTP field
+                                    X-->>G: Error before asking owner, no code entered
+                                else Supported field and interactive run
+                                    X->>G: ask_login_code(origin)
+                                    G->>D: Hidden-code question (bypasses decision model)
+                                    D-->>U: Hidden terminal OTP prompt, voice redirects here
+                                    U->>D: Secret code / cancel
+                                    D->>G: Code directly to pending secure reply
+                                    G-->>X: Secret or no answer, clear pending code
+                                    opt A code was supplied
+                                        X->>X: Revalidate ref / origin, sealed single-field fill<br/>Raw code never goes to a model or normal tool log
+                                    end
+                                else Unattended run
+                                    G-->>X: No code / owner unavailable
+                                end
+                            end
+                            X-->>G: Result / platform refusal / exception
+                            G->>B: Finish span, ledger done / failed, or unknown<br/>on exception / cancellation if ledgered
+                            G->>D: Redacted action.observed → bus + daily activity
+                            G-->>W: Redacted result + status, image if present<br/>Images reach model, not persisted in tool spans
+                        end
+                    end
+                end
+
+                W-->>S: WorkerOutcome: status, summary, artifacts, evidence<br/>Or mapped runtime / provider / unusable-report failure
+                S->>S: Revoke run token, stop liveness tracking,<br/>close runtime handles, merge attempt artifacts / evidence
+
+                rect rgb(244, 238, 252)
+                    Note over S,X: 4 — COMPLETION CHECKS (automatic after worker claims done)
+                    opt status = done, success conditions present, not stopped
+                        S->>B: Mechanical checks: file exists / contains,<br/>read action ledger observations
+                        S->>X: Read task tab URLs / account observations as needed
+                        S->>S: Direct file / URL checks → true or false,<br/>account / ledger / other or unknown checks → model judgment
+                        opt Some conditions require judgment
+                            S->>V: verifier.md + complete claim / conditions / evidence<br/>Own run token, same worker type and capability scopes
+                            Note over V,X: Checker is read-only by PROMPT, not a restricted tool list.<br/>It may inspect worker-owned tabs through validated handoff.
+                            loop Evidence queries and fresh reads / navigation as needed
+                                V->>G: task.evidence or app / browser / file tools
+                                G->>X: Same validated execution path as worker
+                                X-->>G: Recorded observations or fresh result
+                                G-->>V: Redacted result
+                            end
+                            V-->>S: Each condition: true / false / unknown + evidence
+                            S->>S: Revoke checker token, clean up runtime handles
+                        end
+                        S->>S: Any false / unknown condition makes outcome blocked<br/>Checker failure becomes unknown, not success
+                    end
+                end
+
+                rect rgb(255, 241, 231)
+                    Note over S,X: 5 — RESOURCE RELEASE AND RECOVERY
+                    opt Outcome still done and not stopped
+                        S->>X: _release_resources(worker + checker)
+                        X->>R: Stop unfinished task recordings before releasing targets
+                        R-->>X: Finalization receipts, partial if not explicitly stopped
+                        X->>X: Close ordinary owned tabs, detach borrowed / kept tabs,<br/>stop ordinary shell processes, preserve background=true
+                        X-->>S: Cleanup records / errors
+                        opt Nonempty cleanup records or errors, not stopped
+                            S->>M: Reconcile report + checks + actual final resource state<br/>model.resources (no tools, inline prompt)
+                            M-->>S: Revised outcome / answer, may invalidate done
+                        end
+                    end
+                    S->>S: Keep bounded attempt reports in memory<br/>Model / tool diagnostics are already persisted
+                    alt Outcome done / cancelled, or task stopped
+                        S->>S: Leave attempt loop
+                    else Blocked / failed / needs_user after execution or review
+                        S->>M: dispatch.md + current report / checks / previous attempts
+                        M-->>S: retry(worker type, instructions) / ask / finish
+                        alt retry
+                            S->>S: Keep artifacts / evidence, next iteration uses selected worker
+                        else ask
+                            S->>S: Leave loop with needs_user and question<br/>This ends the attempt, it is not a waiting owner.ask call
+                        else finish or dispatch error
+                            S->>S: Leave loop with failed outcome and concrete reason
+                        end
+                    end
+                end
+            end
+        and Explicit stop may interrupt ANY active task step
+            opt Owner explicitly stops the task
+                U->>D: Ctrl-C → task.stop, or global ferb stop
+                D->>S: Mark stop, stop wins over success / recovery
+                S->>G: Cancel in-flight calls, reject new task calls
+                S->>S: Revoke active run tokens, cancel task runtime handles
+                Note over S,X: No new recovery after stop. In-flight consequential actions can be unknown.<br/>Cleanup still runs. Closing chat / Ctrl-D is NOT task.stop.
+            end
+        end
+
+        rect rgb(234, 243, 248)
+            Note over U,X: 6 — FINALIZATION AND DELIVERY
+            S->>X: Final idempotent release on ALL exits<br/>(done path may already have released everything)
+            X->>R: Idempotent stop before remaining target release
+            R-->>X: Any remaining recording outcomes
+            X-->>S: Remaining cleanup records / errors
+            opt New cleanup observations and not stopped
+                S->>M: Final resource reconciliation, no further worker loop here
+                M-->>S: Final reviewed outcome, or failure if review fails
+            end
+            S->>S: _final: apply stop / verification / cleanup outcome
+            S->>B: Persist final task status, answer, spans and outcome
+            S->>S: Remove live task, request and gateway registrations
+            S-->>D: outcome event
+            D->>B: Save task_result for delivery
+            alt Chat still attached
+                D-->>U: Final FERB answer
+            else Chat detached or scheduled run (not cancelled)
+                D-->>U: Notify, expose unseen result on next chat.status
+            end
+            Note over U,D: Cancelled results are marked shown and do not trigger a finished notification.
+        end
+    end
+    Note over U,X: Independent failure lifecycle: silent worker/checker → watchdog cancellation → attempt failure / recovery.<br/>Explicit owner / process / sleep waits suspend the silence timer. Daemon restart marks active tasks interrupted<br/>and unresolved ledger entries unknown, it does not automatically replay the task.

@@ -30,7 +30,7 @@ from ferb.act.mac.driver import MacComputerDriver, profiles_dir
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
-from ferb.registry import add_evidence, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
+from ferb.registry import add_recording, add_evidence, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
@@ -88,7 +88,10 @@ class Daemon:
         self._macos_task: asyncio.Task[None] | None = None
         self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
         self.identity_browser: IdentityDriver | None = None    # the extension in Chrome's FERB profile (step 6)
+        from ferb.act.recording import RecordingManager
+        self.recordings = RecordingManager()
         self.registry = build_registry()
+        add_recording(self.registry, self.recordings)
         self.tasks = TaskTree()
         self.gateway: Gateway | None = None
         self.supervisor: Supervisor | None = None
@@ -216,6 +219,7 @@ class Daemon:
             self.supervisor.cancel_all()
         if self._proxy:
             self._proxy.close()
+        await self.recordings.shutdown()
         if self.identity_browser is not None:
             await self.identity_browser.shutdown()
         if self.router is not None:
@@ -396,10 +400,10 @@ class Daemon:
     def use_identity_browser(self, driver: IdentityDriver) -> None:
         """Attach FERB's own browser: registers the browser.* tools; its tabs close with their task and on stop."""
         self.identity_browser = driver
-        add_identity_browser(self.registry, driver)
+        add_identity_browser(self.registry, driver, self.recordings)
 
     async def _task_end(self, task_id: str) -> list[dict[str, Any]]:
-        resources = []
+        resources = await self.recordings.end_task(task_id)
         for name, drv in (("ferb_browser", self.identity_browser), ("browser", self.router)):
             if drv is not None:
                 try:
@@ -414,6 +418,7 @@ class Daemon:
         return resources
 
     def _stop_identity_browser(self) -> None:
+        asyncio.get_event_loop().create_task(self.recordings.shutdown())
         for drv in (self.identity_browser, self.router):
             if drv is not None:
                 asyncio.get_event_loop().create_task(drv.shutdown())
@@ -473,7 +478,7 @@ class Daemon:
                 self.owner_input.owner_event()
                 loop.call_soon_threadsafe(mac.restore_owner, None)
             self.mac.guard = InputGuard(stepped_in)
-        add_mac(self.registry, self.mac, self._device_profile)
+        add_mac(self.registry, self.mac, self._device_profile, self.recordings)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,
                                    stream_factory=getattr(self.redact, "stream", None))
         add_shell(self.registry, self.shells)
@@ -1358,7 +1363,7 @@ class Daemon:
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.add_secret_value = self._add_secret_value
-        add_owner_browsers(self.registry, self.router)
+        add_owner_browsers(self.registry, self.router, self.recordings)
         pairings = self.pairings
         self.ferb_identity = FerbIdentity(self.hub, self._identity_profile, self.secrets, self._add_secret_value,
                                           lambda: str(self.config.get("mailbox", "address", "") or ""),

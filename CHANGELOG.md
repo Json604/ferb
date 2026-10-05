@@ -10,6 +10,46 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## Unreleased
+
+- Add an offline architecture walkthrough for checkout 0.25.0: 12 task journeys, HLD/LLD step controls, source
+  links and evidence limits. Include the inspected interactive Claude trace; distinguish a managed PTY reaching
+  the prompt from an owner-visible terminal. Update full Mermaid sources; historical 0.24.0 SVG exports are
+  explicitly labelled pending regeneration. Navigation/data checks pass; browser visual inspection is pending.
+
+## 0.25.0 — 2026-10-05 — Record the requested target and inspect saved pixels
+
+- Add task-owned browser-tab and native-window recording. Bind captures to the observed profile/tab or window/PID,
+  preserve action references during sampling, and finalize silent sampled MP4s with target/timing receipts.
+  Capture failure produces a partial result; cleanup stops recording before releasing its targets.
+- Decode the saved video for inspection. Worker/checker instructions require actual content evidence before
+  claiming the requested process was recorded. This addresses the 0.24.0 demo task whose MP4 contained VS Code
+  while its worker claimed to have recorded both browser tabs.
+- Preserve owner-authorized foreground use across the whole task and its retries without repeating permission.
+  Incorporate the 0.24.1 background recovery/updater changes below. Extension 0.12.0 and protocol 7 add `record_frame`.
+- Recording needs FFmpeg/ffprobe. Native capture needs macOS Screen Recording access. Browser and native live
+  acceptance are pending; the disposable two-tab check is `tests/test_recording_real.py`.
+- Validation: 51 focused recording/recovery/extension checks pass. Full suite: 339 passed, 54 deselected;
+  273 failures/errors hit sandbox restrictions (local sockets, Keychain or LaunchAgent writes). This is not a
+  fully passing integration run. No installed daemon or personal browser was updated.
+
+## 0.24.1 — 2026-10-05 — Preserve background operation through recovery
+
+- Reproduce the Discord signup trace's recovery failure: the dispatcher allowed foreground input after an extension
+  protocol refusal, and the worker repeatedly activated Chrome through shell/AppleScript. Share one interaction
+  contract across planning, workers, questions, inspection, recovery and final resource review. Preserve owner
+  background/profile constraints and require profile discovery before opening; recovery cannot invent permission
+  to take focus. Keep these decisions with the agents; no command deny list or per-action approval is added.
+- Extension 0.11.1 (protocol 6) accepts structured compatibility facts in a daemon refusal. Once idle, an eligible
+  local bundle can reload once even when its version matches but its running protocol is stale. Persist version/
+  protocol attempts, preserve pairing and retained tabs, and wait through commands/owned tabs/gestures/storage races.
+  Pairing failures, older bundles and malformed versions do not trigger this repair.
+- Add extension regressions and shared-prompt delivery checks, including a full recovery/question/inspection/cleanup
+  scenario for execution in an environment that permits local sockets. Installation and owner acceptance are pending.
+- Validation: 28 focused checks pass, along with JavaScript syntax, `mypy ferb/core` and `git diff --check`.
+  The full-suite attempt had 322 passes and 273 permission-related failures/errors (local sockets, test Keychain
+  creation and LaunchAgent writes); it is not a green integration run. No installed daemon/browser was restarted.
+
 ## 0.24.0 — 2026-10-03 — Agent-directed lifetime and audit cleanup
 
 - Give browser workers a keep-open handoff so requested class/result pages survive task cleanup. Release borrowed

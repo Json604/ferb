@@ -121,6 +121,22 @@ def test_worker_prompt_matches_the_gateway_on_approvals() -> None:
     assert "owner_ask goes to the orchestrator first" in md and "concrete result ready for review" in md
 
 
+@pytest.mark.parametrize('role', ['supervisor.md', 'worker.md', 'dispatch.md', 'question.md', 'verifier.md', None])
+def test_every_task_system_prompt_carries_the_same_interaction_contract(role):
+    from types import SimpleNamespace
+    from ferb.orchestrator.supervisor import Supervisor
+    host = SimpleNamespace(facts=lambda: 'FERB profile is available.',
+                           availability=lambda: SimpleNamespace(text='Installed actions'))
+    system = ' '.join(Supervisor._system(host, role).split())
+    assert 'Shared interaction contract' in system
+    assert 'shell' in system and 'AppleScript' in system
+    assert 'Only an owner-directed foreground interaction' in system
+    assert 'Never guess a profile directory' in system
+    assert 'that direction covers its necessary actions and retries' in system
+    assert 'do not ask again for each step or worker switch' in system
+    assert 'FERB profile is available.' in system
+
+
 def test_stats_reads_outcomes_and_errors_from_the_database(tmp_path: Path) -> None:
     import io
     from ferb.cli.admin import stats

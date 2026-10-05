@@ -1,8 +1,93 @@
-# FERB architecture — 0.24.0
+# FERB architecture — 0.25.0
 
 This is the current implementation contract. Historical contracts remain in Git; they are not instructions to
 restore removed permission engines. Live acceptance and its limits are recorded in
 [docs/OWNER_ACCEPTANCE.md](docs/OWNER_ACCEPTANCE.md).
+
+## Implementation diagrams
+
+The **[local interactive walkthrough](docs/walkthrough/index.html)** describes checkout **0.25.0** on
+`astra/version` (2026-10-05). Open the HTML file in a browser; no server or installation is required.
+Choose an example, then use Next/Back, the step slider or optional Play. HLD maps responsibilities; LLD follows
+calls and observations. Switching views preserves the current step. Source links and evidence labels distinguish
+local trace observations from illustrative current-code paths. The page performs no live actions or network calls.
+
+The Mermaid sources below are updated to 0.25.0, including shared interaction instructions and target recording.
+The SVG exports remain explicitly **historical 0.24.0 / commit `51e8244`**: this environment cannot launch the
+rendering browser to regenerate them. They must not be used as current diagrams or evidence of installed state.
+
+| View | Current guided view | Current editable Mermaid | Historical 0.24.0 export |
+|---|---|---|---|
+| **HLD — components and boundaries** | [Walkthrough](docs/walkthrough/index.html#calendar/hld/1) | [HLD source](docs/diagrams/ferb-hld.mmd) | [Historical HLD SVG](docs/diagrams/ferb-hld.svg) |
+| **LLD — request lifecycle and alternatives** | [Walkthrough](docs/walkthrough/index.html#calendar/lld/1) | [LLD source](docs/diagrams/ferb-lld.mmd) | [Historical LLD SVG](docs/diagrams/ferb-lld.svg) |
+
+The HLD uses a component/deployment view: boxes are components, grouped boxes name boundaries, and cylinders are
+persistent stores. Solid connections carry calls/control; dotted connections describe data, discovery or observation.
+Blue boxes are runtime infrastructure, green boxes are daemon responsibilities, purple cylinders are stored state.
+In-memory tokens, locks and pending questions live in the gateway/execution state, not SQLite. Connections are
+logical interfaces, not one OS process per box. Mac input support still depends on the target app and OS.
+
+The LLD uses a UML-style sequence view. Read downward, following one branch of each `alt`, optional `opt` blocks,
+and repeated `loop` blocks. The `par` fragment makes explicit stop an optional interruption of the active task,
+not a step that every successful task performs. Model decisions and tool execution have separate lanes. Its six
+shaded phases are intake/planning, task setup, tool execution, completion checks, cleanup/recovery and delivery.
+The long SVG is intended for zooming and vertical scrolling. Numbered arrows identify diagram steps, not trace IDs.
+
+### Source map for inspecting each phase
+
+| Diagram responsibility | Implementation to inspect |
+|---|---|
+| Entry, streaming, detached results, scheduled delivery | [`daemon/main.py`](ferb/daemon/main.py): `_chat_send`, `_task_result`, `_run_schedule`; [`cli/chat.py`](ferb/cli/chat.py); [`voice/controller.py`](ferb/voice/controller.py) |
+| RPC identity and MCP transport | [`daemon/server.py`](ferb/daemon/server.py), [`daemon/auth.py`](ferb/daemon/auth.py), [`cli/mcp.py`](ferb/cli/mcp.py) |
+| Context, planning, control and request persistence | [`orchestrator/supervisor.py`](ferb/orchestrator/supervisor.py): `send`, `_decide`, `_supervise`, `recent`, `_context`; [`continuity.py`](ferb/orchestrator/continuity.py); [`schemas.py`](ferb/orchestrator/schemas.py) |
+| Worker attempts, runtime handles and watchdog | [`orchestrator/worker.py`](ferb/orchestrator/worker.py); [`runtimes/codex_exec.py`](ferb/runtimes/codex_exec.py), [`runtimes/claude_sdk.py`](ferb/runtimes/claude_sdk.py); daemon `_make_runtime` |
+| Gateway execution, questions, locks and ledger | [`daemon/gateway.py`](ferb/daemon/gateway.py): `_call`, `_execute`, `_ask_owner`, `ask_login_code`; [`questions.py`](ferb/daemon/questions.py); [`registry.py`](ferb/registry.py); [`orchestrator/ledger.py`](ferb/orchestrator/ledger.py) |
+| Browser transport and OTP validation | [`act/browser/ext_bridge.py`](ferb/act/browser/ext_bridge.py): `owner_code`, `release`; [`native_host/main.py`](ferb/native_host/main.py); [`extensions/chromium/`](extensions/chromium/) |
+| Native input, managed processes and files | [`act/mac/driver.py`](ferb/act/mac/driver.py), [`window_input.py`](ferb/act/mac/window_input.py); [`act/shell/manager.py`](ferb/act/shell/manager.py); [`act/fs/files.py`](ferb/act/fs/files.py) |
+| Completion evidence and conditions | Supervisor `verify`, `_verifier`; [`orchestrator/verify.py`](ferb/orchestrator/verify.py); [`evidence.py`](ferb/orchestrator/evidence.py) |
+| Cleanup, recovery, final answer and stop | Supervisor `_worker`, `_dispatch`, `_release_resources`, `_reconcile_resources`, `_final`, `stop_tree`, `cancel_tree`; daemon `_task_end`; [`orchestrator/stop.py`](ferb/orchestrator/stop.py) |
+| Background context and persistence | [`sense/`](ferb/sense/), [`memory/`](ferb/memory/), [`clock/`](ferb/clock/), [`orchestrator/schedules.py`](ferb/orchestrator/schedules.py), [`store/`](ferb/store/), [`bus.py`](ferb/bus.py) |
+
+### Current constraints that matter when reviewing the diagrams
+
+- **Model calls:** planning uses `supervisor.md`; recovery uses `dispatch.md`; worker questions use `question.md`;
+  resource reconciliation uses an inline prompt. These calls have no action tools. Execution uses `worker.md`;
+  judgment-based completion checks use `verifier.md`, the same worker type and capability scopes. The checker is
+  constrained to inspection by its prompt, not by a separate read-only tool inventory. Prompts live in
+  [`ferb/orchestrator/prompts/`](ferb/orchestrator/prompts/).
+  Since 0.24.1, `_system` prepends `interaction.md` to every task role, including resource reconciliation. This keeps
+  background operation and profile selection consistent across recovery, questions, workers and inspection. These
+  are model instructions, not a new command-word filter; model compliance still needs live acceptance.
+- **Context is bounded:** recent conversation uses the last 24 hours, the latest eight entries clipped to 400
+  characters each, plus up to twelve older owner-message gists of 70 characters. Relevant daily-activity JSON is
+  clipped to 5,000 characters. Recovery retains six attempt reports, with summaries clipped to 3,000 characters
+  and the latest forty evidence strings; the current dispatch report itself is supplied in full. Stored records
+  and retrievable tool evidence are separate from these prompt limits.
+- **Two kinds of question:** `owner.ask` can wait inside a live worker after the orchestrator tries to answer.
+  Recovery's `ask` returns `needs_user` and ends that attempt. Scheduled runs cannot wait for the owner. Hidden
+  OTP bypasses the question model; the current driver requires recognized secret-field metadata and fills one
+  field. Unlabelled split OTP boxes can be rejected before any owner prompt. This limitation is not fixed here.
+- **Code still makes lifecycle decisions:** schema validation gets one repair call; false or unknown completion
+  conditions block success; nonempty cleanup records trigger a resource-review model call even without errors.
+  Failed cleanup review becomes failure. Done-path invalidation can enter recovery; the final all-exit cleanup
+  review runs outside that recovery loop. `_final` then formats the status/answer from stop state and check results.
+- **Waits and stop:** pending owner questions expire after 600 seconds. The worker/checker watchdog polls every
+  five seconds and cancels after 180 seconds without activity, excluding registered owner/process/sleep waits.
+  There is no fixed action or attempt count and no task deadline here; the Codex adapter separately gives no-tool
+  supervisor-mode calls a 900-second timeout. Chat disconnect leaves tasks running; explicit stop cancels them.
+  Restart marks active work interrupted and unresolved ledger actions unknown, rather than replaying them.
+- **Resource ownership:** ordinary owned tabs close at task end; borrowed and explicitly kept-open tabs detach.
+  Ordinary managed processes stop; `background=true` processes survive. A coding CLI launched through a shell
+  action is a separate task workload, not the internal Codex/Claude worker. Screenshot pixels and unrecorded
+  provider reasoning are not recoverable from persisted tool traces.
+
+The `.mmd` files are editable sources. The 0.25.0 updates passed Mermaid grammar parsing with a Node-only
+text-sanitization stub (no DOM/layout rendering); the old SVGs were rendered with Mermaid CLI 11.12.0
+(Mermaid 11.17.2). Current SVG regeneration and visual browser inspection remain pending. The interactive
+walkthrough uses dependency-free SVG and local JavaScript; its navigation/content checks are not a browser visual test.
+Regenerate exports in a normal terminal with `mmdc -i docs/diagrams/ferb-hld.mmd -o docs/diagrams/ferb-hld.svg -b white`
+(and the corresponding LLD paths), then visually inspect and update the historical labels. Use a disposable
+headless browser profile. The HLD Mermaid source uses ELK; other renderers may lay it out differently.
 
 ## 1. Decisions and execution
 
@@ -126,8 +211,13 @@ and frame; screenshots preserve exact pixels. Container scrolling carries the fr
 If that target cannot be reached, the tool reports it instead of scrolling the top document and claiming the pane
 moved. Account inspection is an explicit agent read, not an automatic prerequisite/helper-page gate.
 
-Extension 0.11.0 uses protocol 6. Setup publishes `~/.ferb/extensions/chromium`; managed installations reload a newer
-local version when task resources are idle. Pairing is stored identity; connection is current transport state.
+Extension 0.12.0 uses protocol 7 (adds `record_frame`). Setup publishes `~/.ferb/extensions/chromium`; managed installations reload a newer
+local version when task resources are idle. Protocol refusals carry the required protocol and minimum version. If
+the local release meets that minimum but the running worker still reports an older protocol, one same-version reload
+is attempted. The persisted attempt key includes versions and protocols to prevent reload loops; active commands,
+owned/attached tabs and gestures defer reload until idle. Pairing failures do not request a protocol reload, and
+older or malformed local versions are not loaded. Pairing and retained-tab state are preserved.
+Pairing is stored identity; connection is current transport state.
 Lost pairing, old protocol and closed browser are distinct diagnostics. A disconnected profile may receive a
 windowless wake attempt, never an automatic visible wake tab. No stale foreground-app restoration runs afterward.
 Initial unpacked installation/migration remains a browser setup step; arbitrary personal browser restarts are not
@@ -206,3 +296,38 @@ Native app/OS support varies. A decorative second cursor does not itself deliver
 authorization and recovery are model judgments that can still fail. Provider/service outages and unavailable accounts
 can block tasks. Preserve evidence, state the limitation and validate fixes with the owner rather than adding a new
 hardcoded rule for each failed task.
+
+## Target recording and inspection (0.25)
+
+`browser.record` / `ferb_browser.record` select an existing task-owned tab; `mac.record` selects the window/PID
+observed in a fresh `mac.screenshot`. The tool passes a bound capture callback to `RecordingManager`, which owns
+sampling, output paths and cleanup for that task. The browser extension captures the tab's own surface using
+[CDP Page.captureScreenshot](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-captureScreenshot);
+native capture reuses ScreenCaptureKit's
+[desktop-independent window filter](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos).
+Neither route switches the selected target to the owner's foreground window.
+
+Browser `record_frame` uses a separate field inventory and chunk buffer, so sampling does not replace snapshot
+references, visual points or screenshot chunks used by concurrent actions. Missing frame inventories, sensitive
+fields and a document change during capture drop the frame. Native capture checks the selected PID/window and
+existing password-field handling before and after the capture. A capture error stops sampling and marks the output
+partial; agents decide recovery. Targets are never silently substituted, and capture has no foreground fallback.
+
+Frames are sampled at the requested rate (default 2/s); elapsed timestamps set their hold durations. FFmpeg writes
+a silent 1280×720 letterboxed MP4 on `recording.stop`. The 25-fps encoded stream repeats sampled frames to preserve
+elapsed time; it does not claim 25 distinct captures/s. The JSON receipt retains target identity, source sample times,
+duration and errors. Raw temporary frames are removed after finalization. Existing outputs are not overwritten.
+This requires FFmpeg/ffprobe; unavailable dependencies are reported rather than automatically installed.
+
+`recording.inspect` decodes actual saved pixels at selected timestamps and returns a labelled contact sheet to the
+model. It does not classify the content or assert semantic success. Worker/checker instructions require comparison
+with the requested target/actions, with trace timestamps helping choose moments. A playable file alone is not
+completion evidence. Images retain the existing tool-image path (not persisted in text spans).
+
+Daemon task cleanup stops unfinished recordings before releasing tabs; unfinished recordings remain partial.
+Global stop and shutdown halt sampling as well. Completed recording handles are forgotten at task cleanup; the MP4
+and receipt are durable artifacts. A daemon crash can leave temporary frames and a receipt marked running: these
+are incomplete recovery evidence, not a finalized recording. There is no crash-resume recorder in this version.
+
+Task-wide foreground direction is shared across planning, execution, retries and inspection. No keyword detector
+or repeated per-action permission is added. Model adherence and real focus/Space behavior still need owner acceptance.

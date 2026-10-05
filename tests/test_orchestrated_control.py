@@ -7,6 +7,49 @@ import json
 import pytest
 
 
+@pytest.mark.parametrize('owner_words', [
+    "Use FERB's verified profile to read the page in the background; leave my desktop alone.",
+    "You can use my desktop throughout this task, including retries. Use FERB's verified profile to read the page.",
+])
+def test_interaction_contract_reaches_every_task_role_and_preserves_owner_direction(daemon, monkeypatch, owner_words):
+    """Prompt delivery across real recovery/question/check/cleanup paths, not a claim about model compliance."""
+    from pathlib import Path
+    from tests.conftest import FakeRuntime, tool
+    systems = {}
+    original = FakeRuntime.start
+    async def capture(runtime, task, system, context, token):
+        key = task.id.split('.', 1)[1] if '.' in task.id else 'supervisor'
+        systems.setdefault(key, []).append(system)
+        return await original(runtime, task, system, context, token)
+    monkeypatch.setattr(FakeRuntime, 'start', capture)
+    def first(token):
+        tool(daemon.sock, token, 'owner.ask', question='The extension is disconnected. Which fallback fits?', options=[])
+        return json.dumps({'status':'blocked', 'summary':'Extension protocol mismatch; background input unavailable.',
+                           'artifacts':[], 'evidence':[]})
+    cleaned = set()
+    async def cleanup(task_id):
+        if task_id.endswith('.worker') and task_id not in cleaned:
+            cleaned.add(task_id)
+            return [{'resource':'tab', 'kept_open':True}]
+        return []
+    daemon.daemon.supervisor.on_task_end = cleanup
+    script = install(daemon, [sup('task', 'Reading', task(owner_words))], {
+        'worker':[first, done('Page read.')],
+        'worker.question':json.dumps({'ask_owner':False, 'answer':'Inspect the available routes in the same profile.', 'question':''}),
+        'worker.dispatch':json.dumps({'action':'retry', 'worker_type':'default',
+                                     'instructions':'Recover the connection in the requested profile.', 'question':''}),
+        'worker.resources':done('Page read; retained tab remains open.'),
+    })
+    assert outcome(chat(daemon, owner_words))['status'] == 'done'
+    assert set(systems) == {'supervisor', 'worker', 'worker.question', 'worker.dispatch', 'worker.verify', 'worker.resources'}
+    contract = Path('ferb/orchestrator/prompts/interaction.md').read_text().strip()
+    assert contract and 'shell' in contract and 'AppleScript' in contract
+    for role, prompts in systems.items():
+        assert all(contract in prompt for prompt in prompts), role
+    for _, role, context, _ in script.contexts:
+        assert owner_words in context, role
+
+
 @pytest.mark.parametrize('conditions', [[], [cond('   ')]])
 def test_new_task_without_success_conditions_is_repaired_by_planner(daemon, conditions):
     invalid = task('Read current groups')

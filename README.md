@@ -4,7 +4,7 @@ FERB is a personal assistant for macOS. Talk to it with `ferb chat`; its orchest
 questions from context and changes approach when needed. Agents interpret your request and decide what actions it
 authorizes. “Send Rahul the deck” authorizes sending; “prepare the deck for Rahul” calls for a choice once it is ready.
 
-Version **0.24.0** on `astra/version`. This release is awaiting installation and owner-observed acceptance.
+Version **0.25.0** on `astra/version`. This release is awaiting installation and owner-observed acceptance.
 The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) explains the implementation and limits.
 
 ## Setup
@@ -21,7 +21,7 @@ Setup installs a dedicated interpreter, environment, runtime and LaunchAgent und
 permissions and reports missing grants. `ferb setup --update` installs the current checkout and restarts the daemon;
 run it when existing work can be interrupted. The development environment and installed daemon are separate.
 
-Chrome and Brave need FERB extension **0.11.0**. Prepare its managed folder with `ferb browsers extension install`;
+Chrome and Brave need FERB extension **0.12.0**. Prepare its managed folder with `ferb browsers extension install`;
 `ferb browsers extension path` prints the path. Enable Developer mode in the browser's extensions page and Load
 unpacked from `~/.ferb/extensions/chromium`, once per profile. Pair with:
 
@@ -110,3 +110,27 @@ The [owner acceptance record](docs/OWNER_ACCEPTANCE.md) separates observed resul
 Read [CLAUDE.md](CLAUDE.md) before making changes. Folder ownership, execution flow and troubleshooting are in
 [ARCHITECTURE.md](ARCHITECTURE.md). [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) preserves required attribution.
 Historical implementation documents are retained in Git rather than duplicated alongside the current design.
+
+### Target recordings
+
+For requested screen recordings, FERB can record specific task tabs (`browser.record`, `ferb_browser.record`) or a
+native window selected by a fresh screenshot (`mac.record`). Captures stay bound to that tab/profile or window/PID,
+including when you use another app. They never fall back to capturing the whole display or raising a window.
+An unsupported or lost capture route returns a concrete error/partial result.
+
+These are silent sampled videos: 2 captures/second by default, configurable from 0.2–10. They are useful for task
+replays, not high-frame-rate video or audio recording. They need `ffmpeg` and `ffprobe` installed; FERB searches PATH
+and the usual Homebrew/user binary folders. Browser capture requires extension 0.12.0 / protocol 7; native capture
+requires macOS Screen Recording access and the target window to remain capturable.
+
+`recording.stop` finalizes the MP4 plus a JSON receipt of the target and capture times/errors. `recording.inspect`
+decodes chosen moments from the actual saved video into a contact sheet. FERB must inspect those pixels before
+claiming the requested actions were recorded. Sampled inspection is evidence for the moments viewed, not proof
+of every frame. See [owner acceptance](docs/OWNER_ACCEPTANCE.md) for the disposable two-tab check.
+
+### Guided architecture walkthrough
+
+Open [docs/walkthrough/index.html](docs/walkthrough/index.html) in your browser (or run
+`open docs/walkthrough/index.html`). It works offline without a server or dependencies. Twelve task journeys
+explain the current HLD/LLD step by step, with source links and evidence limits, including the interactive Claude
+Code trace. The page does not execute tasks. See [ARCHITECTURE.md](ARCHITECTURE.md) for full Mermaid sources.

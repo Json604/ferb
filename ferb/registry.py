@@ -3,14 +3,14 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ferb.act.browser.tools import (BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
+from ferb.act.browser.tools import (BrowserRecord, BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
                                    BrowserFind, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    MailboxSend, OWNER_BROWSER)
 from ferb.act.ask import OwnerAsk
 from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
 from ferb.act.mac.driver import MacComputerDriver
-from ferb.act.mac.tools import (MacApps, MacAct, MacAppleScript, MacClick, MacPointer, MacMenu, MacOpen, MacScreenshot,
+from ferb.act.mac.tools import (MacRecord, MacApps, MacAct, MacAppleScript, MacClick, MacPointer, MacMenu, MacOpen, MacScreenshot,
                                 MacSnapshot)
 from ferb.act.shell.manager import ShellManager
 from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRun, ShellSend, ShellStart, ShellWait
@@ -46,7 +46,7 @@ def build() -> Registry:
     return r
 
 
-def add_identity_browser(r: Registry, driver: IdentityDriver) -> None:
+def add_identity_browser(r: Registry, driver: IdentityDriver, recordings: Any = None) -> None:
     """Tools that target FERB's own paired browser profile."""
     f = FERB_BROWSER
     r.add(BrowserOpen(driver, f))
@@ -63,9 +63,11 @@ def add_identity_browser(r: Registry, driver: IdentityDriver) -> None:
     r.add(BrowserFillSecret(driver, f))
     r.add(BrowserFillOtp(driver, f))
     r.add(MailboxSend(driver))
+    if recordings is not None:
+        r.add(BrowserRecord(driver, f, recordings))
 
 
-def add_owner_browsers(r: Registry, router: IdentityDriver) -> None:
+def add_owner_browsers(r: Registry, router: IdentityDriver, recordings: Any = None) -> None:
     """Tools that target the owner's paired Chrome/Brave profiles through the extension."""
     f = OWNER_BROWSER
     r.add(BrowserOpen(router, f))
@@ -82,9 +84,11 @@ def add_owner_browsers(r: Registry, router: IdentityDriver) -> None:
     r.add(BrowserTabs(router, f))                      # the owner's open tabs (owner decision, 2026-09-30)
     r.add(BrowserUseTab(router, f))
     r.add(BrowserLoginCode(router, f))
+    if recordings is not None:
+        r.add(BrowserRecord(router, f, recordings))
 
 
-def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any) -> None:
+def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordings: Any = None) -> None:
     """Native Mac tools for the installed device profile."""
     r.add(MacApps(driver, device_profile))
     r.add(MacOpen(driver, device_profile))
@@ -95,6 +99,8 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any) -> None
     r.add(MacScreenshot(driver, device_profile))
     r.add(MacClick(driver, device_profile))
     r.add(MacPointer(driver, device_profile))
+    if recordings is not None:
+        r.add(MacRecord(driver, recordings))
 
 
 def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
@@ -126,3 +132,9 @@ def add_shell(r: Registry, shells: ShellManager) -> None:
     r.add(ShellSend(shells))
     r.add(ShellKill(shells))
     r.add(ShellList(shells))
+
+
+def add_recording(r: Registry, manager: Any) -> None:
+    from ferb.act.recording import RecordingStop, RecordingInspect
+    r.add(RecordingStop(manager))
+    r.add(RecordingInspect())

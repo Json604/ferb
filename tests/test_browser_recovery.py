@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import pytest
 from tests.chromelab import worker
 
 
@@ -168,6 +169,89 @@ def test_update_does_not_reload_for_same_or_older_bundle() -> None:
         globalThis.fetch = async () => ({ok: true, json: async () => ({version})});
         await checkExtensionUpdate();
       }
+      return {reloads};
+    })()''')
+    assert result == {'reloads': 0}
+
+
+@pytest.mark.parametrize('required, minimum, disk, expected', [
+    ('FERB_PROTOCOL + 1', '0.11.1', '0.11.1', 1),
+    ('FERB_PROTOCOL', '0.11.1', '0.11.1', 0),
+    ('FERB_PROTOCOL - 1', '0.11.1', '0.11.1', 0),
+    ('FERB_PROTOCOL + 1', '0.11.2', '0.11.1', 0),
+    ('FERB_PROTOCOL + 1', '0.11.0', '0.11.0', 0),
+    ('FERB_PROTOCOL + 1', '0.11.1', '0.11.1.bad', 0),
+    ('null', '0.11.1', '0.11.1', 0),
+])
+def test_protocol_refusal_reloads_eligible_same_version_bundle_once(required, minimum, disk, expected):
+    result = worker('''(async () => {
+      const local = {ferb: {installId: 'existing', key: 'keep', seq: 42}, ferbKeptTabs: [19]};
+      chrome.storage.local = {get: async () => structuredClone(local), set: async x => Object.assign(local, x)};
+      chrome.runtime.getManifest = () => ({version: '0.11.1'});
+      chrome.runtime.getURL = p => 'chrome-extension://test/' + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      globalThis.fetch = async (url, opts) => {
+        if (!url.endsWith('/manifest.json') || opts.cache !== 'no-store') throw Error('wrong source');
+        return {ok: true, json: async () => ({version: DISK})};
+      };
+      const refusal = {type:'refused', reason:'protocol mismatch', required_protocol: REQUIRED, minimum_version: MINIMUM};
+      await onDaemon(refusal); await onDaemon(refusal); await checkExtensionUpdate();
+      return {reloads, pairing:local.ferb, kept:local.ferbKeptTabs, local};
+    })()'''.replace('REQUIRED', required).replace('MINIMUM', json.dumps(minimum)).replace('DISK', json.dumps(disk)))
+    assert result['reloads'] == expected
+    assert result['pairing'] == {'installId': 'existing', 'key': 'keep', 'seq': 42}
+    assert result['kept'] == [19]
+    # The guard is durable: restarting the worker with unchanged code must not create a reload loop.
+    again = worker('''(async () => {
+      const local = LOCAL;
+      chrome.storage.local = {get: async () => structuredClone(local), set: async x => Object.assign(local, x)};
+      chrome.runtime.getManifest = () => ({version:'0.11.1'});
+      chrome.runtime.getURL = p => 'chrome-extension://test/' + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      globalThis.fetch = async () => ({ok:true, json:async () => ({version:DISK})});
+      await onDaemon({type:'refused', reason:'still mismatched', required_protocol:REQUIRED, minimum_version:MINIMUM});
+      return {reloads};
+    })()'''.replace('LOCAL', json.dumps(result['local'])).replace('REQUIRED', required)
+                   .replace('MINIMUM', json.dumps(minimum)).replace('DISK', json.dumps(disk)))
+    assert again['reloads'] == 0
+
+
+@pytest.mark.parametrize('busy', ['command', 'owned_tab', 'attached_tab', 'gesture', 'storage_race'])
+def test_protocol_repair_waits_for_resources_then_retries_when_idle(busy):
+    result = worker('''(async () => {
+      const local = {}; let busy = true;
+      chrome.storage.local = {get: async () => structuredClone(local), set: async x => {
+        Object.assign(local, x);
+        if (BUSY === 'storage_race' && busy && x.ferbUpdateAttempt) activeCommands = 1;
+      }};
+      chrome.runtime.getManifest = () => ({version:'0.11.1'});
+      chrome.runtime.getURL = p => 'chrome-extension://test/' + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      globalThis.fetch = async () => ({ok:true, json:async () => ({version:'0.11.1'})});
+      if (BUSY === 'command') activeCommands = 1;
+      if (BUSY === 'owned_tab') ownedTabs = async () => busy ? [{tab_id:7}] : [];
+      if (BUSY === 'attached_tab') tabState(7).attached = true;
+      if (BUSY === 'gesture') tabState(7).gesture = {id:'drag'};
+      await onDaemon({type:'refused', reason:'protocol mismatch', required_protocol:FERB_PROTOCOL + 1, minimum_version:'0.11.1'});
+      const during = reloads;
+      busy = false; activeCommands = 0; TABS.clear();
+      await checkExtensionUpdate();
+      return {during, after:reloads};
+    })()'''.replace('BUSY', json.dumps(busy)))
+    assert result == {'during': 0, 'after': 1}
+
+
+def test_successful_handshake_clears_protocol_repair_request():
+    result = worker('''(async () => {
+      activeCommands = 1;
+      await onDaemon({type:'refused', reason:'protocol mismatch', required_protocol:FERB_PROTOCOL + 1, minimum_version:'0.11.1'});
+      await onDaemon({type:'welcome', gen:2});
+      chrome.runtime.getManifest = () => ({version:'0.11.1'});
+      chrome.runtime.getURL = p => 'chrome-extension://test/' + p;
+      let reloads = 0; chrome.runtime.reload = () => {reloads++;};
+      globalThis.fetch = async () => ({ok:true, json:async () => ({version:'0.11.1'})});
+      activeCommands = 0;
+      await checkExtensionUpdate();
       return {reloads};
     })()''')
     assert result == {'reloads': 0}

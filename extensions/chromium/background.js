@@ -14,6 +14,7 @@ let port = null;
 let gen = null;                      // connection generation, assigned by the daemon ("welcome" / "paired")
 let retryMs = 1000;
 let refused = null;
+let requiredRelease = null;          // structured daemon compatibility facts, never inferred from error prose
 let activeCommands = 0;
 let updateCheck = null;
 let handshakeTimer = null;
@@ -122,10 +123,16 @@ async function checkExtensionUpdate() {
     const response = await fetch(chrome.runtime.getURL('manifest.json'), {cache: 'no-store'});
     if (!response.ok) return;
     const disk = await response.json(), current = chrome.runtime.getManifest().version;
-    if (typeof disk.version !== 'string' || !newerVersion(disk.version, current)) return;
+    if (typeof disk.version !== 'string' || !/^\d+(?:\.\d+){0,3}$/.test(disk.version) ||
+        newerVersion(current, disk.version)) return;
+    // A cached worker can advertise the new manifest version while still running an older imported protocol.
+    // The daemon's required release permits one reload even when the visible version number is unchanged.
+    const repair = requiredRelease && requiredRelease.protocol > FERB_PROTOCOL &&
+      !newerVersion(requiredRelease.version, disk.version);
+    if (!newerVersion(disk.version, current) && !repair) return;
     if (activeCommands || [...TABS.values()].some(t => t.gesture || t.attached) || (await ownedTabs()).length) return;
     const {ferbUpdateAttempt} = await chrome.storage.local.get('ferbUpdateAttempt');
-    const attempt = current + '->' + disk.version;
+    const attempt = `${current}/p${FERB_PROTOCOL}->${disk.version}/p${requiredRelease?.protocol ?? FERB_PROTOCOL}`;
     if (ferbUpdateAttempt === attempt) return;  // a failed reload must not loop forever
     await chrome.storage.local.set({ferbUpdateAttempt: attempt});  // never overwrite pairing state
     await connectionStatus('updating', 'Loading local extension ' + disk.version);
@@ -177,16 +184,16 @@ async function ensurePort() {
 
 async function onDaemon(m) {
   if (m.type === "welcome") {
-    clearTimeout(handshakeTimer); refused = null; gen = m.gen; retryMs = 1000;
+    clearTimeout(handshakeTimer); refused = null; requiredRelease = null; gen = m.gen; retryMs = 1000;
     await connectionStatus('connected'); return;
   }
   if (m.type === "pairing_required") {
-    clearTimeout(handshakeTimer); gen = null;
+    clearTimeout(handshakeTimer); gen = null; requiredRelease = null;
     await connectionStatus('pairing_required', 'This extension has no pairing; run ferb browsers pair for its profile');
     return;
   }
   if (m.type === "paired" && m.key) {
-    clearTimeout(handshakeTimer); refused = null;
+    clearTimeout(handshakeTimer); refused = null; requiredRelease = null;
     await serially(async () => {
       const st = await install();
       st.key = m.key; st.seq = 0;
@@ -200,6 +207,9 @@ async function onDaemon(m) {
   }
   if (m.type === "refused") {
     clearTimeout(handshakeTimer); gen = null; refused = m.reason || "refused";
+    requiredRelease = Number.isInteger(m.required_protocol) && m.required_protocol > 0 &&
+      typeof m.minimum_version === 'string' && /^\d+(?:\.\d+){0,3}$/.test(m.minimum_version)
+      ? {protocol: m.required_protocol, version: m.minimum_version} : null;
     await connectionStatus('refused', refused);
     await checkExtensionUpdate(); return;
   }
@@ -332,6 +342,17 @@ async function inFrame(tabId, frameId, func, args) {
   const [r] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func, args });
   if (!r || r.result == null) throw new Error("script failed in the page");   // null = threw (spike 4)
   return r.result;
+}
+
+async function recordingState(tabId) {
+  await inject(tabId);
+  const results = await chrome.scripting.executeScript({target: {tabId, allFrames: true},
+    func: () => window.__ferb.captureState()});
+  const frames = results.filter(r => r && r.result).map(r => ({frameId:r.frameId, ...r.result}));
+  // Missing/inaccessible child frames leave the capture inventory incomplete. AX binding gaps do not.
+  if (!frames.some(r => r.frameId === 0) || frames.length !== 1 + frames.reduce((n,r) => n+r.frames,0))
+    throw new Error('recording field inventory incomplete');
+  return frames.sort((a,b) => a.frameId-b.frameId);
 }
 
 // ---------- the debugger session (13.2): attached on a task tab's first action, kept for its life ----------
@@ -761,6 +782,30 @@ const commands = {
     if (data.length <= SHOT_PART) { st.shot = null; return { data, format: format || "jpeg" }; }
     st.shot = data;
     return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg" };
+  },
+  async record_frame({tab_id, part, capture_id}) {
+    const st = tabState(tab_id);
+    if (part !== undefined) {
+      const saved = st.recordFrame;
+      if (!saved || saved.id !== capture_id || !Number.isInteger(part) || part < 0 || part*SHOT_PART >= saved.data.length)
+        throw new Error('recording frame expired or invalid part');
+      const data = saved.data.slice(part*SHOT_PART, (part+1)*SHOT_PART);
+      if ((part+1)*SHOT_PART >= saved.data.length) st.recordFrame = null;
+      return {data};
+    }
+    await attach(tab_id);
+    const check = async () => {
+      const frames = await recordingState(tab_id);
+      if (frames.some(f => f.secret || !f.complete)) throw new Error('recording sensitive field or incomplete inventory');
+      return JSON.stringify(frames.map(f => [f.frameId,f.documentId]));
+    };
+    const before = await check();
+    const {data} = await cdp(tab_id, 'Page.captureScreenshot',
+      {format:'jpeg', quality:70, fromSurface:true, captureBeyondViewport:false});
+    if (before !== await check()) throw new Error('recording document changed during capture');
+    if (data.length <= SHOT_PART) return {data};
+    const id = crypto.randomUUID(); st.recordFrame = {id, data};
+    return {parts:Math.ceil(data.length/SHOT_PART), capture_id:id};
   },
   async screenshot_part({ tab_id, part }) {
     const st = TABS.get(tab_id);

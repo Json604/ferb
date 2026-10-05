@@ -70,6 +70,7 @@ class Shot:
     window: int                                    # CGWindowID
     bounds: tuple[float, float, float, float]      # window, screen points
     size: tuple[int, int]                          # image px
+    pid: int = 0                                  # process observed with this window, not a later app instance
     at: float = field(default_factory=time.monotonic)
     signature: tuple[Any, ...] | None = None
 
@@ -278,9 +279,35 @@ class MacComputerDriver:
         await check(w, fresh=True)                            # appeared while capturing: the frame is dropped
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
-        st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height),
+        st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height), pid=a.pid,
                        signature=st.tree.signature() if st.tree else None)
         return a, st.shot, jpeg
+
+    def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
+        """Pin the window the worker actually saw; repeated captures never replace its action references."""
+        a = self.app(name)
+        st = self._state.get(a.bundle_id)
+        shot = st.shot if st else None
+        if shot is None or shot.id != shot_id or shot.pid != a.pid or time.monotonic() - shot.at > 30:
+            raise Refused('take a fresh mac_screenshot to select the recording window')
+        browser = BROWSER_BUNDLES.get(a.bundle_id)
+
+        async def current() -> Any:
+            w = await asyncio.to_thread(self.shots.window, shot.window)
+            if w is None or w.pid != a.pid or self.app(a.bundle_id).pid != a.pid:
+                raise Refused('recording window closed or changed owner')
+            if await self._secure(a, w.bounds, fresh=True):
+                raise Refused(PASSWORD_REFUSED)
+            if browser and self.web_password and await self.web_password(browser, w.bounds):
+                raise Refused(PASSWORD_REFUSED)
+            return w
+
+        async def capture() -> bytes:
+            w = await current()
+            image, _, _ = await asyncio.to_thread(self.shots.capture, w)
+            await current()
+            return image
+        return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': shot.window}, capture
 
     async def pointer_at(self, name: str, shot_id: str, x: float, y: float, kind: str,
                          end: tuple[float, float] | None = None, holder: str = "", *,

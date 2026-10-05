@@ -1,6 +1,6 @@
 // FERB extension protocol (ARCHITECTURE.md 9.4), mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 6;
+const FERB_PROTOCOL = 7;
 const FERB_HOST = "com.ferb.native_host";
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
@@ -187,7 +187,7 @@ async function unseal(pairingKeyB64, sealed, commandId, origin) {
 
 const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page read_source may return
 
-const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
+const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "ping", "point", "pointer", "pointer_cancel", "release_tab"];
 

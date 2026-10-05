@@ -285,6 +285,20 @@
     return out;
   }
 
+  function captureState() {
+    // A separate field inventory: recording must not replace snapshot/point bindings while the worker acts.
+    let secret = false, frames = 0;
+    const walk = root => {
+      for (const el of root.querySelectorAll('*')) {
+        if (isSecret(el) && visible(el)) secret = true;
+        if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') frames++;
+        if (el.shadowRoot) walk(el.shadowRoot);
+      }
+    };
+    walk(document);
+    return {documentId, secret, frames, complete: true};
+  }
+
   function snapshot(gen) {
     for (const [token, ref] of bindings) {
       const el = ref.deref();
@@ -523,7 +537,7 @@
     return { ok: el.value === value, detail: el.value === value ? "filled" : "field_rejected_value" };
   }
 
-  window.__ferb = { snapshot, adopt, point, frameRect, visualState,
+  window.__ferb = { snapshot, adopt, point, frameRect, visualState, captureState,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
                     scrolled, probeArm, probeSeen: () => probeSeen, account,

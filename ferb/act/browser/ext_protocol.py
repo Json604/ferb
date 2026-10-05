@@ -18,13 +18,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 6
-MIN_EXTENSION_VERSION = "0.11.0"
+PROTOCOL_VERSION = 7
+MIN_EXTENSION_VERSION = "0.12.0"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
 ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
-Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part",
+Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "account", "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "ping", "point", "pointer", "pointer_cancel", "release_tab"]
 
