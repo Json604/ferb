@@ -10,12 +10,45 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
-## Unreleased
+## 0.26.0 — 2026-10-05 — Correct by judgment, legible by design
 
-- Add an offline architecture walkthrough for checkout 0.25.0: 12 task journeys, HLD/LLD step controls, source
-  links and evidence limits. Include the inspected interactive Claude trace; distinguish a managed PTY reaching
-  the prompt from an owner-visible terminal. Update full Mermaid sources; historical 0.24.0 SVG exports are
-  explicitly labelled pending regeneration. Navigation/data checks pass; browser visual inspection is pending.
+Implementation, regressions and documentation: `fd7d7f8` (from `88368e8` on `astra/version`).
+
+- Reconstruct the wrong-source upload and short-study-guide incidents from their actual traces, write failing
+  regressions, and audit every production area with a rotated independent pass. The upload happened on 5 October:
+  code refused an iframe input; the model substituted a same-name Drive file and the checker accepted its name.
+  The study task already received the plain request; a concise planner rubric and weak term/name checks caused
+  shallow deliverables. Intake-memory and artifact-path facts were judged at the wrong layer, and cleanup prose
+  hid failed checks. Evidence and finding-by-finding dispositions are in `docs/AUDIT_0_26.md`.
+- Observe desktop changes for every task and action, including cancellation/cleanup. The read-only sentinel records
+  frontmost app, key window, cursor, visible order, focused full-screen state and public Space-transition events.
+  Missing fields and sampling limits stay explicit; temporal overlap does not invent causation or permission.
+- Preserve the full original request, pasted sources and deliverables. Replace silent context clips with a named
+  token estimate, one final budget accounting, protected required blocks and fetchable omission markers. Persist
+  actual runtime prompts, intake receipts, context sources and paged history/memory/evidence.
+- Remove target/source shortcuts and native foreground recovery. Native actions use one explicit mechanism and
+  return observed failures. Browser uploads address exact top/child/OOPIF inputs directly, intercept native choosers,
+  compare selected bytes with canonical local identity, and carry large content through multipart transport.
+  Extension 0.13.0 / protocol 8. Unexpected dialogs await an explicit choice. OTP message content stays sealed;
+  opaque numeric candidates never automatically select the latest message or a guessed code.
+- Make independent checkers judge outcomes against the request, including mechanical predicate observations.
+  Final answers put every unresolved condition before confirmed facts and exclude unchecked success prose.
+  Cleanup cannot resurrect rejected or missing inspection; daemon shutdown awaits task finalizers before teardown.
+- Remove obsolete semantic policy/Gmail helpers, native resolution/focus-restore branches, unused runtime knobs,
+  stale comments, superseded acceptance prose and mislabeled SVGs. Preserve typed Jev hooks and one supervisor
+  approach selector. Prompts share one versioned loader. Structured task exports include approach decisions,
+  actions, verification, disturbances and cleanup; owner verdict remains an explicit future client seam.
+- Publish the owner guide, capability ledger, 16-task live acceptance checklist and daemon RPC client contract.
+  Refresh architecture, Mermaid and the 14-journey walkthrough; check source links/symbols automatically.
+- Validation: **706 passed, 55 deselected** on this Mac; `mypy ferb/core`, JavaScript syntax and seven-document
+  source-reference checks pass. Disposable TextEdit edits and top/child/OOPIF uploads passed with zero observed
+  disturbances, with explicit missing-field limits. The real Codex RPC pipeline preserved and checked the full
+  pasted Unicode source. Account workflows, another-Space targets and broad owner acceptance remain unverified.
+- Installed with `ferb setup --update`; daemon 0.26.0 / code hash match verified; `ferb doctor` exits 0 with all grants.
+  It leaves account session/disconnected profile/device-change warnings explicit. Post-install isolated live rerun:
+  **2 passed**; 20 browser samples and 221 real-model samples saw zero changes/errors, with the login window frontmost and
+  full-screen AX unavailable. Earlier 19 TextEdit samples preserved frontmost full-screen VS Code with all fields available.
+  25 update/doctor samples also saw zero changes/errors. These are scoped observations, not owner acceptance.
 
 ## 0.25.0 — 2026-10-05 — Record the requested target and inspect saved pixels
 
