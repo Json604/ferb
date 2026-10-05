@@ -51,7 +51,7 @@ def test_the_owners_open_tabs_can_be_taken_over_and_are_never_closed() -> None:
     r, br = router()
     tabs = asyncio.run(r.open_tabs())
     assert tabs[0] == {"tab_ref": "brave:Default:11", "profile": "Brave “Work”", "site": "www.youtube.com",
-                       "active": True,"profile_id":"brave/Default","url":"https://www.youtube.com/watch?v=fixture","title":"Lesson"}
+                       "active": True,"profile_id":"brave/Default","url":"https://www.youtube.com/watch?v=fixture","title":"Lesson","window_id":None}
     ref = asyncio.run(r.attach("brave:Default:11", "task-1"))
     assert r.owned_by(ref.tab_id, "task-1") == ref and r.tab_url(ref.tab_id) == "https://www.youtube.com/watch?v=fixture"
     assert asyncio.run(r.attach("brave:Default:11", "task-1")) == ref                # same tab, same id

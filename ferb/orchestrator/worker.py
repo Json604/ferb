@@ -170,6 +170,12 @@ class WorkerRuns:
                 elif ev.kind == "error":
                     raise ServiceError(str(ev.data.get("message")), rt.name)
                 elif ev.kind == "final":
+                    if "tools_seen" in ev.data:
+                        observed = self.spans.start("runtime.tools", task_id=task.id,
+                                                    parent_id=parent_span, input={"runtime": rt.name})
+                        self.spans.finish(observed, output={"tools_seen": ev.data["tools_seen"],
+                            "returncode": ev.data.get("returncode"),
+                            "meaning": "tool names observed in provider request traces; not proof of invocation or complete deferred inventory"})
                     final = str(ev.data.get("text", ""))
         finally:
             if watchdog is not None:

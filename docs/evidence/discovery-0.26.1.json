@@ -1,0 +1,2587 @@
+{
+  "task_id": "3cc0abc8478d47fe86d2a67178ef5cf4",
+  "status": "failed",
+  "verified": false,
+  "stop_reason": "fixture.primary_feed is disconnected and does not provide a current inventory; newer feed entries are unknown, so the latest item cannot be determined.",
+  "source_calls": 1,
+  "synthetic_tools": 221,
+  "runtime_tools_recorded": 2,
+  "disturbances": [
+    {
+      "samples": 161,
+      "changes": 40,
+      "errors": 0,
+      "unavailable": {},
+      "sample_interval_s": 0.25,
+      "max_sample_ms": 294.865750009194,
+      "coverage": "sampled; short changes between samples may be missed; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+    }
+  ],
+  "disturbance_records": [
+    {
+      "at": "2026-10-06T00:08:51.336309+05:30",
+      "kind": "disturbance.baseline",
+      "facts": {
+        "snapshot": {
+          "unavailable": {},
+          "active_space_epoch": 0,
+          "frontmost_app": {
+            "pid": 489,
+            "bundle_id": "com.brave.Browser"
+          },
+          "key_window": {
+            "pid": 489,
+            "ax_identity": 1668245912
+          },
+          "fullscreen": true,
+          "cursor": [
+            972.9140625,
+            743.46875
+          ],
+          "visible_window_order": [
+            {
+              "id": 90790,
+              "pid": 28265,
+              "layer": 1000
+            },
+            {
+              "id": 47094,
+              "pid": 28265,
+              "layer": 26
+            },
+            {
+              "id": 81802,
+              "pid": 170,
+              "layer": 24
+            },
+            {
+              "id": 229,
+              "pid": 489,
+              "layer": 0
+            },
+            {
+              "id": 228,
+              "pid": 489,
+              "layer": 0
+            },
+            {
+              "id": 81788,
+              "pid": 489,
+              "layer": 0
+            },
+            {
+              "id": 227,
+              "pid": 489,
+              "layer": 0
+            },
+            {
+              "id": 81790,
+              "pid": 514,
+              "layer": -2147483622
+            },
+            {
+              "id": 81789,
+              "pid": 514,
+              "layer": -2147483624
+            },
+            {
+              "id": 2,
+              "pid": 170,
+              "layer": -2147483626
+            }
+          ]
+        },
+        "sample_interval_s": 0.25,
+        "space_identity": "transition_epoch_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:56.161528+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              972.9140625,
+              743.46875
+            ],
+            "after": [
+              834.2265625,
+              615.3984375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225536.1559098
+        },
+        "sample_duration_ms": 5.018790950998664,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:56.417297+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              834.2265625,
+              615.3984375
+            ],
+            "after": [
+              812.7421875,
+              572.9296875
+            ]
+          },
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91362,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225536.236464
+        },
+        "sample_duration_ms": 4.037166014313698,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:57.189404+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              812.7421875,
+              572.9296875
+            ],
+            "after": [
+              812.49609375,
+              571.96484375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225537.077921
+        },
+        "sample_duration_ms": 4.720125114545226,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:57.449747+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              812.49609375,
+              571.96484375
+            ],
+            "after": [
+              812.75390625,
+              570.99609375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225537.442131
+        },
+        "sample_duration_ms": 7.40995816886425,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:57.710493+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              812.75390625,
+              570.99609375
+            ],
+            "after": [
+              812.98828125,
+              570.515625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225537.57157
+        },
+        "sample_duration_ms": 7.7471251133829355,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:57.967340+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              812.98828125,
+              570.515625
+            ],
+            "after": [
+              812.7421875,
+              569.30859375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225537.807612
+        },
+        "sample_duration_ms": 4.399667028337717,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:58.226878+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              812.7421875,
+              569.30859375
+            ],
+            "after": [
+              812.7421875,
+              564.6328125
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225538.225266
+        },
+        "sample_duration_ms": 6.9619580172002316,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:58.481957+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              812.7421875,
+              564.6328125
+            ],
+            "after": [
+              699.54296875,
+              352.5859375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225538.395657
+        },
+        "sample_duration_ms": 2.849958837032318,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:58.737852+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              699.54296875,
+              352.5859375
+            ],
+            "after": [
+              708.85546875,
+              368.1640625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225538.734816
+        },
+        "sample_duration_ms": 3.2998749520629644,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:58.992874+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              708.85546875,
+              368.1640625
+            ],
+            "after": [
+              744.8671875,
+              415.546875
+            ]
+          },
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91362,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225538.985594
+        },
+        "sample_duration_ms": 2.213916974142194,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:59.247416+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              744.8671875,
+              415.546875
+            ],
+            "after": [
+              767.6015625,
+              453.4609375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225539.244011
+        },
+        "sample_duration_ms": 2.4005419109016657,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:59.464556+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              767.6015625,
+              453.4609375
+            ],
+            "after": [
+              790.9453125,
+              459.4375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225539.462785
+        },
+        "sample_duration_ms": 2.097667194902897,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:59.502688+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              790.9453125,
+              459.4375
+            ],
+            "after": [
+              794.328125,
+              460.34765625
+            ]
+          }
+        },
+        "actions": [
+          {
+            "task_id": "3cc0abc8478d47fe86d2a67178ef5cf4.worker",
+            "span_id": "1a1b747a594546d7b1e73a2c9eae7f2b",
+            "tool": "fixture.primary_feed",
+            "foreground_argument": null,
+            "started_monotonic": 1392142.664549125,
+            "state": "recently_ended",
+            "ended_monotonic": 1392142.6699415
+          }
+        ],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225539.495042
+        },
+        "sample_duration_ms": 2.663584193214774,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:08:59.759536+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              794.328125,
+              460.34765625
+            ],
+            "after": [
+              797.5078125,
+              461.640625
+            ]
+          },
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91362,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [
+          {
+            "task_id": "3cc0abc8478d47fe86d2a67178ef5cf4.worker",
+            "span_id": "1a1b747a594546d7b1e73a2c9eae7f2b",
+            "tool": "fixture.primary_feed",
+            "foreground_argument": null,
+            "started_monotonic": 1392142.664549125,
+            "state": "recently_ended",
+            "ended_monotonic": 1392142.6699415
+          }
+        ],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225539.648799
+        },
+        "sample_duration_ms": 4.39833290874958,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:01.036232+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              797.5078125,
+              461.640625
+            ],
+            "after": [
+              733.53125,
+              559.83984375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225541.030766
+        },
+        "sample_duration_ms": 2.976667135953903,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:01.293759+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              733.53125,
+              559.83984375
+            ],
+            "after": [
+              723.19140625,
+              572.49609375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225541.120534
+        },
+        "sample_duration_ms": 4.848458105698228,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:01.803984+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91362,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225541.791342
+        },
+        "sample_duration_ms": 3.4373749513179064,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:02.316874+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              723.19140625,
+              572.49609375
+            ],
+            "after": [
+              733.4453125,
+              608.9453125
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225542.284666
+        },
+        "sample_duration_ms": 3.8442499935626984,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:13.511363+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              733.4453125,
+              608.9453125
+            ],
+            "after": [
+              786.83203125,
+              514.9375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225553.508885
+        },
+        "sample_duration_ms": 7.32025015167892,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:13.766587+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              786.83203125,
+              514.9375
+            ],
+            "after": [
+              788.33984375,
+              514.36328125
+            ]
+          },
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91363,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225553.525213
+        },
+        "sample_duration_ms": 3.312832908704877,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:14.027391+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              788.33984375,
+              514.36328125
+            ],
+            "after": [
+              817.80859375,
+              502.2734375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225554.026346
+        },
+        "sample_duration_ms": 7.321000099182129,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:14.281299+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              817.80859375,
+              502.2734375
+            ],
+            "after": [
+              866.1171875,
+              483.1640625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225554.074792
+        },
+        "sample_duration_ms": 2.3358340840786695,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:14.534135+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91363,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225554.074792
+        },
+        "sample_duration_ms": 1.6920419875532389,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:15.801429+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              866.1171875,
+              483.1640625
+            ],
+            "after": [
+              850.7578125,
+              501.21875
+            ]
+          }
+        },
+        "actions": [
+          {
+            "task_id": "3cc0abc8478d47fe86d2a67178ef5cf4.worker",
+            "span_id": "02ad8573fe5940c2ba775e67c84618ca",
+            "tool": "actions.search",
+            "foreground_argument": null,
+            "started_monotonic": 1392158.69668225,
+            "state": "recently_ended",
+            "ended_monotonic": 1392158.699733416
+          }
+        ],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225555.796808
+        },
+        "sample_duration_ms": 1.6192919574677944,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:16.056583+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              850.7578125,
+              501.21875
+            ],
+            "after": [
+              846.54296875,
+              508.5703125
+            ]
+          },
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91363,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225555.837085
+        },
+        "sample_duration_ms": 3.521332982927561,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:19.092129+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91363,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225559.0808399
+        },
+        "sample_duration_ms": 3.4666669089347124,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:23.408413+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              846.54296875,
+              508.5703125
+            ],
+            "after": [
+              823.64453125,
+              475.765625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225563.40254
+        },
+        "sample_duration_ms": 1.7079589888453484,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:23.662062+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              823.64453125,
+              475.765625
+            ],
+            "after": [
+              815.828125,
+              466.75390625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225563.6611671
+        },
+        "sample_duration_ms": 1.9462089985609055,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:23.915287+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              815.828125,
+              466.75390625
+            ],
+            "after": [
+              815.3046875,
+              465.53125
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225563.8471081
+        },
+        "sample_duration_ms": 1.6712918877601624,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:24.169046+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91363,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225563.8471081
+        },
+        "sample_duration_ms": 2.040499821305275,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:24.930535+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              815.3046875,
+              465.53125
+            ],
+            "after": [
+              1392.3359375,
+              279.578125
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225564.914616
+        },
+        "sample_duration_ms": 1.5507079660892487,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:25.436151+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 91363,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225564.914616
+        },
+        "sample_duration_ms": 1.2482090387493372,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:25.982017+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              1392.3359375,
+              279.578125
+            ],
+            "after": [
+              1245.6171875,
+              19.7890625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225565.884236
+        },
+        "sample_duration_ms": 294.865750009194,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:26.236252+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 89193,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 31333,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 91359,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 88966,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 48,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 50,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 60,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 51,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 58,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 49,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225565.884236
+        },
+        "sample_duration_ms": 2.9052910394966602,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:27.502679+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              1245.6171875,
+              19.7890625
+            ],
+            "after": [
+              1246.20703125,
+              32.49609375
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225567.501556
+        },
+        "sample_duration_ms": 2.22949986346066,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:27.945308+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              1246.20703125,
+              32.49609375
+            ],
+            "after": [
+              1327.9609375,
+              210.3203125
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225567.784639
+        },
+        "sample_duration_ms": 191.21308298781514,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:28.198052+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "visible_window_order": {
+            "before": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 89193,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 31333,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 91359,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 88966,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 48,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 50,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 60,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 51,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 58,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 49,
+                "pid": 516,
+                "layer": 25
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ],
+            "after": [
+              {
+                "id": 90790,
+                "pid": 28265,
+                "layer": 1000
+              },
+              {
+                "id": 47094,
+                "pid": 28265,
+                "layer": 26
+              },
+              {
+                "id": 81802,
+                "pid": 170,
+                "layer": 24
+              },
+              {
+                "id": 229,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 228,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81788,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 227,
+                "pid": 489,
+                "layer": 0
+              },
+              {
+                "id": 81790,
+                "pid": 514,
+                "layer": -2147483622
+              },
+              {
+                "id": 81789,
+                "pid": 514,
+                "layer": -2147483624
+              },
+              {
+                "id": 2,
+                "pid": 170,
+                "layer": -2147483626
+              }
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225567.784639
+        },
+        "sample_duration_ms": 0.942666083574295,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:29.462471+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              1327.9609375,
+              210.3203125
+            ],
+            "after": [
+              1343.71484375,
+              274.51953125
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225569.450249
+        },
+        "sample_duration_ms": 1.2286659330129623,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:29.715058+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              1343.71484375,
+              274.51953125
+            ],
+            "after": [
+              1345.14453125,
+              275.015625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225569.676586
+        },
+        "sample_duration_ms": 1.2089591473340988,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:29.919607+05:30",
+      "kind": "disturbance.change",
+      "facts": {
+        "changes": {
+          "cursor": {
+            "before": [
+              1345.14453125,
+              275.015625
+            ],
+            "after": [
+              1345.14453125,
+              273.31640625
+            ]
+          }
+        },
+        "actions": [],
+        "owner_input": {
+          "monitored": true,
+          "recent": true,
+          "last_event_wall": 1791225569.862387
+        },
+        "sample_duration_ms": 1.1051672045141459,
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    },
+    {
+      "at": "2026-10-06T00:09:29.919780+05:30",
+      "kind": "disturbance.summary",
+      "facts": {
+        "samples": 161,
+        "changes": 40,
+        "errors": 0,
+        "unavailable": {},
+        "sample_interval_s": 0.25,
+        "max_sample_ms": 294.865750009194,
+        "coverage": "sampled; short changes between samples may be missed; Space transitions use notifications",
+        "permission_assessment": "not_inferred",
+        "attribution": "temporal_correlation_only"
+      }
+    }
+  ],
+  "scope": "Isolated real Codex runtime; 221 inert/read-only synthetic fixture tools, no desktop/account/filesystem action tools",
+  "earlier_run": {
+    "source_calls": 1,
+    "verified": false,
+    "disturbance_samples": 215,
+    "observed_changes": 54,
+    "errors": 0,
+    "detail_retention": "Only summary retained; changes cannot be individually attributed."
+  }
+}

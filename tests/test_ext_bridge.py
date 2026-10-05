@@ -399,10 +399,11 @@ def test_a_profile_is_woken_with_no_window_first(bd: Any) -> None:
     d.daemon.router.launch = on_launch                                          # type: ignore[union-attr]
     g = task(d, "w", OWNER, {"research"})
     r = call(d, g, "browser.open", url="https://example.com/", profile="Work")
-    assert not r["is_error"], r
+    assert r["is_error"] and r["content"]["reason"] == "window_selection_required", r
     assert launched[-1] == ["open", "-g", "-b", "com.google.Chrome", "--args", "--profile-directory=Profile 1",
                             "--no-startup-window"]                              # background, no window
-    assert list(ext.tabs.values())[-1] == "https://example.com/"
+    assert "https://example.com/" not in ext.tabs.values()
+    assert ext.gen is not None  # Transport woke; no hidden window creation followed.
 
 
 def test_disconnected_profile_does_not_open_a_visible_wake_tab(

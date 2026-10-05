@@ -134,7 +134,8 @@ class FakeIdentityDriver:
         self._tabs[ref.tab_id] = t
         return ref
 
-    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
+    async def open_for(self, url: str, owner: str, profile: str | None = None, *,
+                       window_id: int | None = None, allow_foreground: bool = False) -> TabRef:
         ref = await self.open(url)
         self.claim(ref, owner)
         return ref

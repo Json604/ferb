@@ -83,6 +83,7 @@ class _Tree:
     intake_receipts: list[str] = field(default_factory=list)
     context_sources: dict[str, str] = field(default_factory=dict)
     owner_question: str = ""
+    stop_reason: str = ""
 
 
 class _Watch(Observer):
@@ -687,6 +688,7 @@ class Supervisor(WorkerRuns):
                 tree.owner_question = choice.question
                 return Outcome(task.id, "needs_user", choice.question, artifacts, evidence)
             if choice.action == "finish":
+                tree.stop_reason = choice.stop_reason
                 return Outcome(task.id, "failed", choice.instructions or out.summary, artifacts, evidence)
             tree.spec.worker_type = choice.worker_type
             instructions = "\nOrchestrator continuation: " + choice.instructions
@@ -889,6 +891,8 @@ class Supervisor(WorkerRuns):
             # code cannot safely repair its meaning, so do not reuse it as the owner-facing summary.
             lines = ["I couldn't confirm the task was complete:"]
             lines.extend(f"- {r.text} — {'failed' if r.met is False else 'unverified'}: {r.evidence}" for r in unresolved)
+            if tree.stop_reason:
+                lines += ["", "Why work stopped: " + tree.stop_reason]
             met = [r for r in results if r.met is True]
             if met:
                 lines += ["", "Confirmed:"] + [f"- {r.text}" for r in met]
@@ -912,4 +916,4 @@ class Supervisor(WorkerRuns):
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},
-                "artifacts": sorted(out.artifacts), "resources": tree.resources}
+                "artifacts": sorted(out.artifacts), "resources": tree.resources, "stop_reason": tree.stop_reason}

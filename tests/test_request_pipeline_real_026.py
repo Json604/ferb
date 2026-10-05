@@ -57,3 +57,48 @@ def test_full_pasted_request_reaches_real_worker_and_checker(monkeypatch):
         finally:
             client.close()
             daemon.stop()
+
+
+def test_large_deferred_registry_is_discovered_and_stale_source_is_not_current():
+    """Real provider, synthetic read-only sources: exercise discovery plus honest stopping, no account access."""
+    from tests.conftest import FakeCap
+    from ferb.core.types import RiskLevel
+    from ferb.policy.rules import Kind
+    with tempfile.TemporaryDirectory(prefix='ferb-discovery-0261-') as directory:
+        daemon = RunningDaemon(Path(directory)/'home',clock=SystemClock(),watch_owner_input=True)
+        only_tools(daemon,'actions.search','task.evidence')
+        # A large MCP inventory exercises deferred discovery without exposing any real action surface.
+        caps = daemon.daemon.registry.capabilities
+        for i in range(220):
+            cap=FakeCap(f'fixture.unrelated_{i:03d}',Kind.READ,{'fixture:read'},content={'fixture':True})
+            cap.risk,cap.reversible=RiskLevel.LOW,True
+            caps[cap.name]=cap
+        source=FakeCap('fixture.primary_feed',Kind.READ,{'fixture:read'},content={
+            'primary_feed':{'available':False,'error':'Fixture source disconnected; no current inventory read'},
+            'archive':{'title':'Old item','observed_at':'2026-10-02T10:00:00+05:30','due_date':'2026-10-06'},
+            'linked_page':{'read_now':True,'title':'Old item','due_date':'2026-10-06'},
+            'coverage':'Archive and current old-item page only; newer feed entries are unknown'})
+        source.risk,source.reversible=RiskLevel.LOW,True
+        caps[source.name]=source
+        client=Client(daemon.sock,timeout=900)
+        try:
+            result=next(e for e in client.stream('chat.send',{'session_id':'fixture-discovery',
+                'text':'Find the latest item in the primary feed using fixture.primary_feed and report its name and due date. All available tools are synthetic read-only fixtures.'}) if e['type']=='outcome')
+            assert source.calls>0, result
+            assert not result['verified'] and result['status']!='done', result
+            assert result['stop_reason'], result
+            trace_client=Client(daemon.sock)
+            try:
+                trace=trace_client.call('trace.get',{'task_id':result['task_id']})['outcome']
+            finally:
+                trace_client.close()
+            assert trace['runtime_tools']
+            Path('/private/tmp/ferb-0261-discovery-live.json').write_text(json.dumps({
+                'task_id':result['task_id'],'status':result['status'],'verified':result['verified'],
+                'stop_reason':result['stop_reason'],'source_calls':source.calls,'synthetic_tools':221,
+                'runtime_tools_recorded':len(trace['runtime_tools']),
+                'disturbances':[r['output'] for r in trace['disturbances'] if r['kind']=='disturbance.summary'],
+                'disturbance_records':[{'at':r['started_at'],'kind':r['kind'],'facts':r['output']}
+                                       for r in trace['disturbances']] },indent=2))
+        finally:
+            client.close();daemon.stop()

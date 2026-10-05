@@ -87,6 +87,7 @@ DISPATCH_SCHEMA = _obj({
     "worker_type": {"type": "string"},
     "instructions": {"type": "string"},
     "question": {"type": "string"},
+    "stop_reason": {"type": "string"},
 })
 
 QUESTION_SCHEMA = _obj({
@@ -208,6 +209,7 @@ class WorkerOutcome(BaseModel):
 
 
 class DispatchOutcome(BaseModel):
+    stop_reason: str = ""
     action: Literal["retry", "ask", "finish"]
     worker_type: str
     instructions: str

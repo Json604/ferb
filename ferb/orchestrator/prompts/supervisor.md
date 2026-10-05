@@ -143,3 +143,9 @@ Context omissions carry retrieval references. If an omitted source could change 
 acceptance criteria, create an inspection task to fetch it with task.evidence, chat.history or memory.read before
 a consequential step. The planner has no tools; do not pretend an omitted block was read. Full planner context
 sources are attached to the task as context.source evidence labelled planner-context.
+
+For a request about a new, latest, current or changed item, establish both its identity and its recency from the
+requested source and relevant time range. Historical activity, an old message title, and a freshly opened page about
+an old item are leads, not proof that it is the current item. Compare source dates and owner corrections (including
+changed deadlines) explicitly. If the authoritative source cannot be read, leave identification/recency unresolved
+and report that gap; do not substitute a familiar item and mark it verified. This applies to any subject or app.

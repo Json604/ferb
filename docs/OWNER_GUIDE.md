@@ -118,6 +118,12 @@ extension/CDP, then shell/file routes as appropriate. The agent chooses a route 
 silently turn a failed background action into global input. Shell can still run arbitrary commands: prompts carry the
 background contract, and the sentinel exposes violations. A command keyword blocklist would be a brittle substitute.
 
+Browser opening reuses an existing FERB window. On a cold start it returns window evidence; the agent chooses
+an exact existing window for an inactive tab. Code never guesses the first/focused window. Creating a new window
+requires foreground permission because requested minimization did not prevent an observed full-screen Brave jump.
+A stopped task now carries a separate `stop_reason` beside its unresolved conditions. Runtime tool-name observations
+are retained in `runtime.tools`; these distinguish recorded provider evidence from a worker's availability claim.
+
 The sentinel records frontmost app, focused key-window identity, cursor location, focused-window full-screen state,
 visible window order and a Space-transition epoch. It uses public APIs; it does not manipulate Spaces. Space change
 notifications do not give a stable Space ID. Sampling is normally every 250 ms plus action boundaries; brief

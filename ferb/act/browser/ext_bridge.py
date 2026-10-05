@@ -445,10 +445,18 @@ class _TabDriver:
             raise DriverError(f"{br.name} isn't connected")
         return br
 
-    async def _open_in(self, br: Bridge, url: str, owner: str | None) -> TabRef:
-        # The extension opens an inactive tab in its minimized window. App focus belongs to the owner,
+    async def _open_in(self, br: Bridge, url: str, owner: str | None, *,
+                       window_id: int | None = None, allow_foreground: bool = False) -> TabRef:
+        # The extension opens an inactive tab in the selected existing window or returns window choices. App focus belongs to the owner,
         # including while this command is pending; a newly foreground browser is not proof of focus theft.
-        v = await br.call("open", {"url": url}, timeout=30)
+        args: dict[str, Any] = {"url": url}
+        if window_id is not None:
+            args["window_id"] = window_id
+        if allow_foreground:
+            args["allow_foreground"] = True
+        v = await br.call("open", args, timeout=30)
+        if v.get("opened") is False:
+            raise DriverError(str(v["detail"]), facts=v)
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
         self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, str(v.get("url") or url))
@@ -873,14 +881,16 @@ class Router(_TabDriver):
         self.add_secret_value: Callable[[str], None] = lambda value: None
         self.secrets: Secrets = _NoSecrets()
 
-    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
+    async def open_for(self, url: str, owner: str, profile: str | None = None, *,
+                       window_id: int | None = None, allow_foreground: bool = False) -> TabRef:
         choice = self.resolver.choose(profile)
         br = self.hub.bridge(choice.browser, choice.folder)
         if br is None:
             raise Refused(f"{choice.browser}/{choice.folder} isn't paired with FERB")
         if br.binding.identity is not Identity.OWNER:
             raise Refused("that profile belongs to FERB's identity, not the owner")
-        return await self._open_in(await self._connected(br), url, owner)
+        return await self._open_in(await self._connected(br), url, owner, window_id=window_id,
+                                   allow_foreground=allow_foreground)
 
     async def open(self, url: str, background: bool = True) -> TabRef:
         return await self.open_for(url, owner="")
@@ -925,7 +935,8 @@ class Router(_TabDriver):
                                        f"{names.get((br.binding.browser, br.binding.folder), br.binding.folder)}”",
                             "profile_id": f"{br.binding.browser}/{br.binding.folder}",
                             "url":str(t.get("url") or ""), "title":str(t.get("title") or ""),
-                            "site": str(t.get("host") or ""), "active": bool(t.get("active"))}
+                            "site": str(t.get("host") or ""), "active": bool(t.get("active")),
+                            "window_id": t.get("window_id")}
                 if mine is not None:
                     entry["taken_over_as"] = mine.ref.tab_id      # already this task's: use this tab id
                 out.append(entry)
@@ -1018,8 +1029,10 @@ class FerbIdentity(_TabDriver):
             raise Refused("FERB's identity profile isn't paired: run `ferb setup --identity`")
         return await self._connected(br)
 
-    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
-        return await self._open_in(await self._bridge(), url, owner)
+    async def open_for(self, url: str, owner: str, profile: str | None = None, *,
+                       window_id: int | None = None, allow_foreground: bool = False) -> TabRef:
+        return await self._open_in(await self._bridge(), url, owner, window_id=window_id,
+                                   allow_foreground=allow_foreground)
 
     async def open(self, url: str, background: bool = True) -> TabRef:
         return await self.open_for(url, owner="")

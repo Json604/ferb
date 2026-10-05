@@ -51,10 +51,14 @@ def test_direct_upload_top_same_origin_and_oopif_with_full_receipts():
             try:
                 with tempfile.TemporaryDirectory(prefix='ferb-upload-026-') as temp:
                     source=Path(temp)/'assignment.pdf';source.write_bytes(b'Capital budgeting: disposable fixture only')
-                    with browser_lab() as (daemon,chrome,front):
+                    with browser_lab(headless=True) as (daemon,chrome,front):
+                        # Provision only this headless fixture; ordinary cold opens must return choices.
+                        cold=chrome.evaluate(chrome.sw, "commands.open({url:'about:blank'},'cold-probe')")
+                        assert cold['opened'] is False and cold['reason']=='window_selection_required'
+                        window=chrome.evaluate(chrome.sw, "ferbWindow(true)")
                         driver=daemon.daemon.router
                         async def uploads():
-                            tab=await driver.open_for(f'http://127.0.0.1:{server.server_port}/',task_id,'Lab')
+                            tab=await driver.open_for(f'http://127.0.0.1:{server.server_port}/',task_id,'Lab',window_id=int(window))
                             try:
                                 snap=await driver.snapshot(tab)
                                 targets=[e for e in snap.elements if e.input_type == 'file']

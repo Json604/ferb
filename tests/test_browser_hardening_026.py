@@ -191,3 +191,43 @@ def test_large_action_input_is_reassembled_before_exactly_one_delivery() -> None
       return {deliveries:received.length,exact:received[0]===original,id:sent[0].id};
     })()''')
     assert result == {'deliveries':1,'exact':True,'id':'write'}
+
+
+def test_cold_open_returns_window_choices_without_creating_or_focusing():
+    result = worker('''(async()=>{
+      await mutateSession(s=>{s.windowId=null;});
+      const touched=[];
+      chrome.windows={getAll:async()=>[{id:7,state:'fullscreen',focused:true,type:'normal'},
+          {id:8,state:'minimized',focused:false,type:'normal'}],
+        create:async()=>{touched.push('create');return {id:9};},
+        get:async id=>({id,state:'minimized'}),update:async()=>touched.push('update')};
+      chrome.tabs.create=async()=>{touched.push('tab');return {id:10};};
+      const value=await commands.open({url:'https://example.test'},'cold');
+      return {value,touched};
+    })()''')
+    assert result['touched'] == []
+    assert result['value']['opened'] is False
+    assert result['value']['reason'] == 'window_selection_required'
+    assert [w['id'] for w in result['value']['windows']] == [7, 8]
+
+
+def test_explicit_window_opens_only_inactive_tab_and_never_creates_window():
+    result = worker('''(async()=>{
+      const calls=[]; chrome.windows={get:async id=>({id,state:'fullscreen',type:'normal'}),
+        create:async()=>{throw Error('must not create a window');}};
+      chrome.tabs.create=async args=>{calls.push(args);return {id:10};};
+      chrome.tabs.update=async()=>{};chrome.tabs.get=async()=>({id:10,windowId:7,url:'https://example.test'});
+      waitComplete=async()=>{};
+      return {value:await commands.open({url:'https://example.test',window_id:7},'explicit'),calls};
+    })()''')
+    assert result['calls'] == [{'windowId': 7, 'url': 'https://example.test', 'active': False}]
+    assert result['value']['window_id'] == 7
+
+
+def test_disappeared_explicit_window_never_falls_back_to_another_window():
+    result = worker('''(async()=>{
+      chrome.windows={get:async()=>{throw Error('No window');},create:async()=>{throw Error('wrong fallback');}};
+      try {await commands.open({url:'https://example.test',window_id:77},'gone');return 'unexpected success';}
+      catch(e){return String(e);}
+    })()''')
+    assert 'No window' in result

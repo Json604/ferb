@@ -269,7 +269,8 @@ def test_close_forgets_the_tab_only_once_the_browser_confirmed(bd: Any) -> None:
     ext.hold = False
     ext.connect()
     ext.wait_for(lambda: ext.gen is not None and ext.gen >= 2)
-    tab2 = call(d, g, "browser.open", url=f"{SHOP}/b")["content"]["tab"]
+    tab2 = call(d, g, "browser.open", url=f"{SHOP}/b",
+                window_id=ext.tab_windows[_chrome_id(d, tab)])["content"]["tab"]
     call(d, g, "browser.close", tab=tab2)
     assert tab2 not in router._tabs and _chrome_id(d, tab) not in ext.attached
 
@@ -412,3 +413,19 @@ def test_dead_ops_are_gone_and_the_op_lists_match() -> None:
     assert 'state: "normal"' not in src and "focused: true" not in src            # never shown, never focused
     assert 'state: "minimized", focused: false' in src and "active: false" in src
     assert "autoDiscardable: false" in src
+
+
+def test_cold_window_choices_survive_gateway_and_exact_window_reaches_extension(bd):
+    d, launched = bd
+    ext, g = _ready(d, launched)
+    ext.ferb_window = None
+    ext.tabs[7], ext.tab_windows[7], ext.tab_active[7] = 'https://news.example/', 7, True
+    created = ext.windows_created
+    missing = call(d,g,'browser.open',url=f'{SHOP}/cold')['content']
+    assert missing['reason'] == 'window_selection_required'
+    assert 7 in [w['id'] for w in missing['windows']]
+    assert ext.windows_created == created and not ext.owned
+    opened = call(d,g,'browser.open',url=f'{SHOP}/cold',window_id=7)['content']
+    cid = _chrome_id(d,opened['tab'])
+    assert ext.tab_windows[cid] == 7 and not ext.tab_active[cid]
+    assert ext.tab_active[7] and ext.windows_created == created

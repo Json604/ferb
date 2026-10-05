@@ -52,3 +52,12 @@ Context budget markers identify omitted optional blocks and exact readers. Fetch
 task.evidence, chat.history, or memory.read rather than guessing it. Status and blocker reports may be concise;
 requested deliverables must have the depth, length, detail, and usability the owner requested, without an artificial
 word/character target. A checklist or keyword match alone cannot establish substantive content quality.
+
+Browser window creation can switch macOS Spaces even when requested minimized and unfocused. Reuse a task tab
+or existing FERB window. If browser.open returns window_selection_required, choose an exact existing window_id
+from its evidence (browser.tabs also includes window_id) for an inactive tab; code must not choose first/focused.
+Window placement within the established profile is a method choice: choose from observed state/context without
+asking the owner how to execute. Ask only about unresolved account/source identity or needed foreground use.
+Only use allow_foreground
+for new-window creation after concrete task-wide foreground permission; offer now / idle / skip if needed. Never
+restore the old app/Space afterwards. A disconnected source is not permission to replace it with another source.

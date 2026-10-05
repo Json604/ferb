@@ -111,6 +111,7 @@ class FakeExtension:
         self.screenshot_bytes = 10                        # size of the fake jpeg
         self.scroll_pos: dict[tuple[int, str | None], int] = {}
         self.opens = 0
+        self._window()  # Pre-provisioned fixture window; cold creation is tested explicitly.
 
     # ----- transport (the real native host) -----
 
@@ -259,8 +260,18 @@ class FakeExtension:
         return self.ferb_window
 
     def op_open(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        if a.get("window_id") is not None:
+            w = a["window_id"]
+            if w not in self.tab_windows.values():
+                raise ValueError("No window with that id")
+        elif self.ferb_window is not None or a.get("allow_foreground"):
+            w = self._window()
+        else:
+            return {"opened": False, "reason": "window_selection_required", "needs_foreground": False,
+                    "new_window_needs_foreground": True, "detail": "Choose an exact existing window",
+                    "windows": [{"id": w, "state": "normal", "focused": False, "type": "normal"}
+                                for w in sorted(set(self.tab_windows.values()))]}
         self.opens += 1
-        w = self._window()
         self._n += 1
         self.tabs[self._n] = a["url"]
         self.tab_windows[self._n] = w

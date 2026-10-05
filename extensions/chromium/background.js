@@ -304,24 +304,27 @@ function waitComplete(tabId, ms) {
   });
 }
 
-// ---------- FERB's window: one per profile, born minimized, never shown or focused by FERB ----------
+// ---------- Reuse FERB's window; cold creation requires explicit foreground permission ----------
 
 let windowCreation = null;
-async function ferbWindow() {
-  if (!windowCreation) windowCreation = getFerbWindow().finally(() => {windowCreation = null;});
+async function ferbWindow(allowForeground = false) {
+  if (!windowCreation) windowCreation = getFerbWindow(allowForeground).finally(() => {windowCreation = null;});
   return windowCreation;
 }
 
-async function getFerbWindow() {
+async function getFerbWindow(allowForeground = false) {
   const s = await session();
   if (s.windowId != null) {
     try {
       const w = await chrome.windows.get(s.windowId);
       // An owner may restore it to watch a handed-off class. Never minimize it again behind their back.
       return w.id;
-    } catch (_) { /* gone: recreate */ }
+    } catch (_) { /* gone: return choices unless creation is explicitly allowed */ }
   }
-  // Born minimized (probe E5, S10); focused:false on top (probe E1). A blank placeholder tab keeps the window
+  // Window creation may switch macOS Spaces before its requested minimized state takes effect.
+  // Return all choices instead of guessing an owner window or creating one without foreground consent.
+  if (!allowForeground) return null;
+  // Requested minimized (probe E5, S10); focused:false on top (probe E1). A blank placeholder tab keeps the window
   // alive when FERB's last task tab closes, so a window is created once per browser session, not per task.
   const w = await chrome.windows.create({ url: "about:blank", state: "minimized", focused: false });
   await mutateSession(s => {s.windowId = w.id;});
@@ -664,8 +667,16 @@ const commands = {
     if (end===text.length) resultTransfers.delete(id);
     return result;
   },
-  async open({ url }, id) {
-    const windowId = await ferbWindow();
+  async open({ url, window_id = null, allow_foreground = false }, id) {
+    const windowId = window_id !== null ? (await chrome.windows.get(window_id)).id
+                                        : await ferbWindow(allow_foreground);
+    if (windowId === null) {
+      const windows = await chrome.windows.getAll({populate:false});
+      return {opened:false, reason:'window_selection_required', needs_foreground:false,
+        new_window_needs_foreground:true,
+        detail:'No FERB window is available. Choose an exact existing window_id for an inactive tab; creating a new window can switch Spaces and requires foreground permission.',
+        windows:windows.map(w=>({id:w.id,state:w.state,focused:w.focused,type:w.type,incognito:w.incognito}))};
+    }
     const tab = await chrome.tabs.create({ windowId, url, active: false });      // never active, never focused (E3)
     await mutateSession(s => {s.owned.push({id, tabId:tab.id});});
     try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* Memory Saver opt-out is best effort */ }

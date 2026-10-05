@@ -228,7 +228,7 @@ def wait_for(cond: Any, timeout: float, what: str) -> None:
 
 
 @contextmanager
-def browser_lab(*, ferb_identity: bool = False):
+def browser_lab(*, ferb_identity: bool = False, headless: bool = False):
     """One isolated daemon, native host, extension, profile and Chrome process per lab."""
     from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
     from ferb.clock.clock import SystemClock
@@ -258,7 +258,7 @@ def browser_lab(*, ferb_identity: bool = False):
         write_native_host(udd, d.sock, FERB_EXTENSION_ID)
         front, chrome = Frontmost(), None
         try:
-            chrome = ChromeLab(udd)
+            chrome = ChromeLab(udd, extra_args=["--headless=new"] if headless else None)
             assert chrome.load_extension(Path(__file__).parents[1] / "extensions" / "chromium") == FERB_EXTENSION_ID
             wait_for(lambda: "chrome" in dm.hub.unpaired.values(), 30, "the extension never said hello")
 

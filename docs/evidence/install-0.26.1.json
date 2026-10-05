@@ -1,0 +1,38 @@
+{
+  "version": "0.26.1",
+  "installed_code_matches_checkout": true,
+  "code_hash": "e9745d9633c7012f",
+  "operations": [
+    {
+      "action": "install",
+      "exit_code": 0
+    },
+    {
+      "action": "doctor",
+      "exit_code": 0
+    }
+  ],
+  "disturbance_summary": [
+    {
+      "samples": 22,
+      "changes": 0,
+      "errors": 0,
+      "unavailable": {},
+      "sample_interval_s": 0.25,
+      "max_sample_ms": 89.70383298583329,
+      "coverage": "sampled; short changes between samples may be missed; Space transitions use notifications",
+      "permission_assessment": "not_inferred",
+      "attribution": "temporal_correlation_only"
+    }
+  ],
+  "baseline": {
+    "frontmost_app": "Brave",
+    "fullscreen": true
+  },
+  "doctor_warnings": [
+    "identity session not checked; observational doctor opens no browser",
+    "one paired personal Chrome profile disconnected",
+    "device profile has one changed entry"
+  ],
+  "scope": "Authorized update/restart and observational doctor. Personal profiles were not opened. Brave extension reported 0.13.1."
+}

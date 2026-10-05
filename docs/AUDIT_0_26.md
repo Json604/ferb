@@ -1046,3 +1046,64 @@ transport/pipeline behavior in that state, not concurrent active-owner-work acce
 TextEdit run had VSCode frontmost/full-screen with all fields available and19samples/0changes/errors.
 No desktop was unlocked, activated or rearranged to manufacture acceptance. The owner checklist remains the
 source of active-work acceptance. All measured disturbances in these runs are reported: none were observed.
+
+
+## 0.26.1 owner follow-up: cold windows, current sources and hidden blockers
+
+Owner task `68e7005769a748df9bbda3fb5f3c1fa0` (5 October23:41–23:44 IST) exposed a missed case. During
+`browser.open` span `efd0a04b989f4c2b982c5730aa4a5a59`, the focused Brave window changed from full-screen to
+non-full-screen at23:42:44, followed by app/key-window transitions without recent owner input. The minimized +
+unfocused creation code was unchanged from0.25; its post-creation minimization cannot prevent a transient OS
+switch. The trace does not record which internal create/minimize step caused it or why the previous FERB window
+was unavailable. Earlier release tests did not validate cold creation from the owner's full-screen Brave Space.
+
+Patch: retain existing FERB windows. Without one, return all observed windows and no mutation; the model chooses
+an exact existing window_id for an inactive tab. A missing explicit window fails without fallback. New-window
+creation is an explicit allow_foreground route, still requesting minimization, with task-wide permission and no
+restoration. This is a generic route contract, not a Brave/site/full-screen keyword branch. Window choice is a
+method decision within the already established profile, not a mandatory new owner question. Protocol9 refuses old
+workers that cannot honor this contract.
+
+That task also treated October2 mail-history metadata plus a current old-competition page as proof of the newly
+received item, after fresh Scaler access failed. Planner/worker/checker prompts now require source recency and
+coverage evidence for comparative/current claims. An unavailable primary source leaves identity/recency unknown.
+No hardcoded course/domain/date rule was introduced.
+
+Task `45ebcf5c4b9c463b87f0e282ac682729` (23:47–23:48) made zero tool actions. Codex reported unavailable tools
+without an observed discovery result; the Claude retry declined the request; recovery produced a refusal reason.
+The0.26 final formatter then discarded that reason with unchecked summary prose. A distinct typed stop_reason now
+survives alongside every unresolved condition; success prose remains excluded. The actual original cause of Codex's
+claim is unproven. Runtime tool-name observations are now persisted/exported, and prompts require tool discovery
+evidence rather than inferring FERB capability from the provider's native read-only sandbox. This patch does not
+claim to override model/provider refusals.
+
+Regression evidence: cold/explicit/disappeared-window and hidden-stop-reason tests failed before fixes; runtime
+tool-observation retention separately failed before instrumentation. Gateway/native-host integration checks retain
+window choices and send the exact selected ID while preserving the owner's active tab. Existing warm-window and
+explicitly authorized new-window creation mechanics remain covered.
+
+Validation and installation (6 October): **712 passed, 56 deselected**; strict core typing, JavaScript syntax and
+seven-document reference checks pass. Disposable headless Chrome passed cold-window refusal, exact existing-window
+selection, and top/child/OOPIF byte-identity uploads: 13 sentinel samples, zero changes/errors, all fields available.
+This does not establish owner full-screen Brave acceptance. A real Codex request with 221 synthetic deferred tools
+found the source tool and correctly left “latest” unverified because the primary inventory was unavailable, with
+the actual reason in the final answer. Its 161 samples recorded 40 cursor/window-order changes, all alongside recent
+owner input, and no focus/full-screen/Space changes; no desktop action tools were available. Each observation is in
+`docs/evidence/discovery-0.26.1.json`; an earlier run retained only its 54-change aggregate and is identified there.
+Installation/restart and doctor succeeded, installed Python code matches checkout, and connected Brave reported
+extension0.13.1. The release sentinel recorded 22 samples, zero changes/errors, all fields available, with Brave
+full-screen at baseline. Doctor still reports an unchecked identity session, a disconnected paired Chrome profile,
+and one device-profile change; no personal profile was opened to clear these observations.
+
+### Decisions I made for you — follow-up
+
+- How to handle a missing FERB window: recreate minimized automatically, choose an owner window in code, or return
+  choices. Chose full window facts plus exact model-selected existing-window routing; retained minimized creation
+  only with explicit foreground permission. Creation itself may disturb before minimization, and code cannot guess
+  the right window. Existing minimized-window reuse remains intact.
+- Whether to exercise personal full-screen Brave automatically: use the owner's profile or disposable Chrome.
+  Chose disposable headless Chrome under the standing personal-profile restriction. The precise owner scenario is
+  the first pending acceptance task, not a claimed pass.
+- Whether to label the original worker's tool failure a proven transport defect: infer the cause or retain uncertainty.
+  Chose explicit discovery evidence and runtime tool observations. A fresh real-model discovery run passes, but the
+  original trace does not establish why Codex reported unavailable tools; provider refusal is not repaired by retries.

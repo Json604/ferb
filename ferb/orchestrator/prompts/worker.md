@@ -124,3 +124,9 @@ Return the supplied JSON schema:
 - artifacts: paths of deliverables created or changed.
 - evidence: observations supporting the result and the exact failures useful for recovery.
 Do not claim a requested agent finished, a submission happened, or a message arrived without evidence.
+
+For a request about a new, latest, current or changed item, establish both its identity and its recency from the
+requested source and relevant time range. Historical activity, an old message title, and a freshly opened page about
+an old item are leads, not proof that it is the current item. Compare source dates and owner corrections (including
+changed deadlines) explicitly. If the authoritative source cannot be read, leave identification/recency unresolved
+and report that gap; do not substitute a familiar item and mark it verified. This applies to any subject or app.

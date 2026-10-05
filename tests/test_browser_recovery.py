@@ -308,7 +308,7 @@ def test_concurrent_opens_share_one_window_without_losing_owned_tabs() -> None:
       chrome.tabs.get = async id => ({id, windowId: 9, url: 'https://example.test/'});
       chrome.tabs.update = async () => {};
       ferbGroup = async () => {}; waitComplete = async () => {};
-      await Promise.all([commands.open({url:'https://example.test/'}, 'a'), commands.open({url:'https://example.test/'}, 'b')]);
+      await Promise.all([commands.open({url:'https://example.test/',allow_foreground:true}, 'a'), commands.open({url:'https://example.test/',allow_foreground:true}, 'b')]);
       return {windows, state: await session()};
     })()''')
     assert result['windows'] == 1

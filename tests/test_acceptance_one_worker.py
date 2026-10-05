@@ -99,7 +99,8 @@ class StubBrowser:
     _tabs: dict[str, str] = field(default_factory=dict)
     _gen: int = 0
 
-    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef:
+    async def open_for(self, url: str, owner: str, profile: str | None = None, *,
+                       window_id: int | None = None, allow_foreground: bool = False) -> TabRef:
         self._tabs[f"t{len(self._tabs) + 1}"] = url
         return TabRef("dev", "chrome", profile or "Default", 1, f"t{len(self._tabs)}")
 

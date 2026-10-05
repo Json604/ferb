@@ -1,5 +1,10 @@
 # Owner acceptance — 0.26.0
 
+The 0.26.1 patch follows the owner's full-screen Brave regression. First rerun a harmless read task while Brave
+is full-screen and FERB has no remembered task window. The agent must choose an existing window from returned
+facts; no new window may be created without foreground permission. The active tab, Space, key window and focus
+must remain unchanged. Headless transport tests do not accept this real desktop case.
+
 The 0.26 branch is `astra/0.26-hardening`. The [audit](AUDIT_0_26.md) explains the three incidents; the
 [capability ledger](CAPABILITIES.md) separates live results from offline contracts. Earlier acceptance records and
 obsolete 0.24/0.25 checklists remain in Git. An old successful gesture does not accept a changed release.

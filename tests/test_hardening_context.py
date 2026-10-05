@@ -379,3 +379,41 @@ def test_unreadable_literal_predicate_does_not_prevent_outcome_judgment(daemon):
     context = next(text for _, key, text, _ in script.contexts if key == 'worker.verify')
     assert 'UnicodeDecodeError' in context
     assert result['verification'][1]['met'] is True
+
+
+def test_stop_reason_survives_unverified_completion_without_reusing_success_prose(daemon):
+    reason = 'The requested account connection is unavailable. Nothing was submitted.'
+    finish = json.dumps({'action':'finish','worker_type':'default','instructions':'Everything is complete.',
+                         'question':'','stop_reason':reason})
+    install(daemon, [sup('task','Checking',task(conds=(cond('Fresh source inspected'),)))],
+            {'worker':json.dumps({'status':'blocked','summary':'Connection unavailable',
+                                  'artifacts':[],'evidence':[]}), 'worker.dispatch':finish})
+    result = outcome(chat(daemon,'Check the current source'))
+    assert reason in result['answer']
+    assert 'Fresh source inspected' in result['answer']
+    assert 'Everything is complete.' not in result['answer']
+    assert result['stop_reason'] == reason
+    assert not result['verified']
+
+
+def test_runtime_tool_catalog_facts_are_recorded_for_missing_tool_diagnosis(daemon, monkeypatch):
+    from tests.conftest import FakeRuntime
+    from ferb.core.types import RuntimeEvent
+    from ferb.cli.client import Client
+    original = FakeRuntime.events
+    async def events(self, run):
+        async for event in original(self, run):
+            if event.kind == 'final':
+                yield RuntimeEvent('final', dict(event.data, tools_seen=['tool_search','mcp__ferb.actions_search'],returncode=0))
+            else:
+                yield event
+    monkeypatch.setattr(FakeRuntime,'events',events)
+    install(daemon,[sup('task','Working',task())],{'worker':done('Done')})
+    result=outcome(chat(daemon,'Inspect disposable source'))
+    c=Client(daemon.sock)
+    try:
+        trace=c.call('trace.get',{'task_id':result['task_id']})
+    finally:
+        c.close()
+    assert 'mcp__ferb.actions_search' in json.dumps(trace)
+    assert 'runtime.tools' in json.dumps(trace)

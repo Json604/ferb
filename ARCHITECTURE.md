@@ -1,4 +1,4 @@
-# FERB architecture — 0.26.0
+# FERB architecture — 0.26.1
 
 The [owner guide](docs/OWNER_GUIDE.md) is the starting point for understanding the code. This document is the
 implementation contract. [Capabilities](docs/CAPABILITIES.md) distinguishes measured behavior from offline tests;
@@ -124,8 +124,9 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.13.0 / protocol 8** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in a
-minimized task window. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
+Extension **0.13.1 / protocol 9** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
+open returns all window candidates without creating anything. New-window creation requires explicit foreground
+permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Local uploads use `DOM.setFileInputFiles` on the identified input, including supported iframe/OOPIF routes. Canonical
 path, size, modified time and SHA-256 receipts tie the chosen local bytes to the selected files. Unknown/unsupported
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs

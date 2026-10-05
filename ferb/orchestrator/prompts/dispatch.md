@@ -15,7 +15,11 @@ on the basis of a prior confirmation of a different file/account. An OS/transpor
 action=retry: pick a worker_type from the supplied catalog and provide concrete instructions.
 action=ask: give one concise question in FERB's voice; use only when you also need the owner's answer.
 action=finish: put the concrete external blocker in instructions, and leave question empty. Use this only after
-recovery options are exhausted. Never put a success answer in question or pretend completion.
+recovery options are exhausted. Put the actual reason in stop_reason: the concrete unavailable source/capability,
+failed outcome, or the worker's stated decision not to perform the request. Distinguish a worker report from an
+independently observed transport fact. Do not claim completion or put a success summary in stop_reason. This field
+is displayed with unresolved conditions; instructions is not displayed as completion prose. For retry/ask use an
+empty stop_reason. Never hide a refusal or capability failure behind a generic verification disclaimer.
 
 A false or unknown result check is unfinished work. Read the supplied inspection findings, including met=null.
 If the recorded source evidence supplies a missing detail or identifies a repairable

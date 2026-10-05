@@ -3,6 +3,9 @@
 Errors shared across FERB."""
 
 
+from typing import Any
+
+
 class FerbError(Exception):
     """Base class for FERB errors."""
 
@@ -32,4 +35,8 @@ class StaleRef(Refused):
 
 
 class DriverError(FerbError):
-    """A browser driver failed (connection lost, command error). Never carries command arguments."""
+    """A driver failed or needs an explicit route; optional facts contain observations, not command arguments."""
+
+    def __init__(self, message: str, *, facts: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.facts = facts or {}

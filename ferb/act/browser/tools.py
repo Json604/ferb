@@ -29,7 +29,8 @@ class IdentityDriver(BrowserDriver, Protocol):
     is sync), navigation, the account check, and (FERB only) the origin-bound fills."""
     secrets: Secrets
 
-    async def open_for(self, url: str, owner: str, profile: str | None = None) -> TabRef: ...
+    async def open_for(self, url: str, owner: str, profile: str | None = None, *,
+                       window_id: int | None = None, allow_foreground: bool = False) -> TabRef: ...
     async def navigate(self, tab: TabRef, url: str) -> None: ...
     def claim(self, tab: TabRef, owner: str) -> None: ...
     def owned_by(self, tab_id: str, owner: str) -> TabRef: ...
@@ -98,7 +99,7 @@ class _Base:
         except DriverError as e:
             if type(e).__name__ == "OutcomeUnknown":
                 raise                                   # the gateway marks the ledger `unknown`; never retried blindly
-            return _err(f"browser error: {e}")
+            return ToolResult({**e.facts, "error": f"browser error: {e}"}, is_error=True)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         raise NotImplementedError
@@ -127,10 +128,13 @@ class _El(_Tab):
 
 class BrowserOpen(_Base):
     verb = "open"
-    blurb = "Open a URL in a new background tab in {whose}. Returns the tab id; then call {p}_snapshot."
+    blurb = ("Open an inactive tab in {whose}. Reuses an existing FERB window; otherwise returns window choices. "
+             "Select an exact window_id to avoid creating a window. Returns tab id; then call {p}_snapshot.")
 
     class Input(BaseModel):
         url: str = Field(description="http(s) URL")
+        window_id: int | None = Field(default=None, ge=0, description="Exact existing window id from returned choices or tabs. Never guessed from first/last/focused window.")
+        allow_foreground: bool = Field(default=False, description="Only after task-wide owner permission to create a window that may switch Spaces. No automatic focus restoration.")
         profile: str | None = Field(default=None, description="Owner browser: select a profile from the task context "
                                    "(name or browser/folder). FERB's own browser does not accept this argument.")
 
@@ -143,7 +147,9 @@ class BrowserOpen(_Base):
         if self.family.identity is Identity.FERB and getattr(args, "profile") is not None:
             raise Refused("ferb_browser is bound to FERB's dedicated account profile; use browser.open for an explicit owner profile")
         profile = getattr(args, "profile") if self.family.identity is Identity.OWNER else None
-        tab = await self.driver.open_for(url, ctx.task_id, profile)
+        tab = await self.driver.open_for(url, ctx.task_id, profile,
+                                         window_id=getattr(args, "window_id"),
+                                         allow_foreground=getattr(args, "allow_foreground"))
         out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)}
         if self.family.identity is Identity.OWNER:
             out["profile"] = f"{tab.browser}/{tab.profile}"

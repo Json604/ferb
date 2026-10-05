@@ -96,6 +96,7 @@ class SpanStore:
                 'approach_decisions': [e for e in events if e['kind'].startswith('model.')],
                 'context_sources': [e for e in events if e['kind'] == 'context.source'],
                 'worker_runs': [e for e in events if e['kind'] == 'worker'],
+                'runtime_tools': [e for e in events if e['kind'] == 'runtime.tools'],
                 'intake': [e for e in events if e['kind'] == 'task.intake'],
                 'actions': [e for e in events if e['kind'] == 'tool.call'],
                 'verification': [e for e in events if e['kind'] in ('verification', 'verify')

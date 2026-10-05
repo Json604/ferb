@@ -49,7 +49,7 @@ browser bridge pages large observations; client RPC and extension protocol versi
 
 `chat.send` events contain a `type`; examples include plan, progress/tool events, verification, approval/question,
 and outcome. Render unknown event types safely rather than treating them as completion. `outcome` includes status,
-answer, artifacts/evidence through subtasks, verification and resource outcomes. Display the supplied `answer`
+answer, artifacts/evidence through subtasks, verification, a separate `stop_reason`, and resource outcomes. Display the supplied `answer`
 verbatim: rebuilding a cheerful summary can hide failed conditions.
 
 A streaming request occupies its connection. Use a second authenticated connection for question replies, stop,
@@ -73,7 +73,7 @@ and fills only the origin/task-bound secret destination. Account and OTP candida
 ## Outcomes, observations and errors
 
 The `outcome` export has schema version 1: request and original messages, task specification, persisted tasks,
-planner and all approach decisions (including recovery/questions/resource review), full context-source records,
+planner and all approach decisions (including recovery/questions/resource review), full context-source records, provider tool-catalog observations,
 worker runs, intake receipts, tool actions/results, verification, disturbances, cleanup, result and outcome
 journal records. `owner_verdict` is null until a verdict API exists. Historical coverage flags distinguish missing
 request/sentinel data from a tested success. Fields may be added compatibly; clients should preserve unknown ones.
