@@ -10,6 +10,31 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.26.1 — 2026-10-06 — Background window reuse and honest blockers
+
+Implementation, regressions and evidence: `46c0be7` (from `f6ff8ad`).
+
+- Stop automatically creating a browser window when no FERB window exists. Minimized creation was retained from
+  0.25, but the owner's full-screen Brave task still recorded a transition during its first open. Return all window
+  choices without mutation; the model selects an exact existing window for an inactive tab. A missing selected
+  window fails without fallback. New-window creation requires explicit foreground permission. Keep warm minimized
+  windows reusable. Extension 0.13.1 / protocol 9 makes this contract mandatory across the bridge.
+- Preserve a typed reason for stopping alongside every failed/unverified condition. The previous formatter removed
+  the actual worker/recovery blocker with unchecked success prose, leaving a checklist that concealed why work
+  stopped. Do not restore optimistic summaries or claim that model refusals are solved.
+- Require fresh primary-source evidence for “new/latest/current” claims. Old mail metadata plus a fresh page for an
+  old assignment does not establish the newest assignment. Preserve runtime tool-name observations in traces and
+  exports, and require actual deferred-tool discovery before claiming FERB tools are unavailable.
+- Validation: **712 passed, 56 deselected**; core mypy, JavaScript syntax and documentation references pass.
+  Disposable headless browser cold-window routing and byte-identity uploads passed with zero observed disturbances.
+  A real Codex run discovered a tool among 221 fixtures and correctly reported an unavailable primary source instead
+  of identifying an old item as current. Its 40 cursor/window-order observations all coincided with recent owner
+  input; there were no focus/full-screen/Space changes. Evidence retains individual observations and sampling limits.
+- Installed and restarted the daemon; installed code matches checkout and connected Brave reports extension0.13.1.
+  Installation/doctor recorded zero changes while Brave was full-screen. The exact owner full-screen browsing
+  scenario remains pending acceptance; headless tests are not proof of that case. See `docs/AUDIT_0_26.md`, the
+  updated acceptance checklist, and `docs/evidence/*0.26.1.json`.
+
 ## 0.26.0 — 2026-10-05 — Correct by judgment, legible by design
 
 Implementation, regressions and documentation: `fd7d7f8` (from `88368e8` on `astra/version`).
