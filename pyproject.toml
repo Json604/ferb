@@ -42,9 +42,10 @@ packages = ["ferb"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not real'"
+addopts = "-m 'not real and not real_claude and not real_api'"
 markers = ["real: real models / browsers / Mac (Codex only); run with -m real",
-           "real_claude: the Claude-runtime variants of real tests; only when the owner runs -m real_claude"]
+           "real_claude: the Claude-runtime variants of real tests; only when the owner runs -m real_claude",
+           "real_api: the direct-API runtime variants of real tests (billed per token); only when the owner runs -m real_api"]
 
 [tool.mypy]
 python_version = "3.12"

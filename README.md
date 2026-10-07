@@ -79,8 +79,14 @@ Borrowed owner tabs stay open. Cleanup results and errors are recorded so the fi
 | `ferb voice on`, `ferb voice off` | Toggle push-to-talk |
 | `ferb decide stats` | Inspect optional enrichment decisions |
 | `ferb verdict TASK pass\|fail [--note TEXT]` | Record your acceptance verdict on a task; `ferb trace --json` shows it |
+| `ferb runtimes` | The model runtimes (Codex, Claude, Anthropic, OpenAI, Google), what each can do, which are usable, and what each role uses |
+| `ferb runtimes use ROLE RUNTIME [--model M]` | Make `orchestrator`, `worker` or `checker` use a runtime from its next call (`[runtimes]` and `[models]` in `config.toml`; the checker follows the worker unless set) |
+| `ferb setup --key PROVIDER` | Store an Anthropic, OpenAI or Google API key in the Keychain (`security` asks for it) and make one tiny test call |
 | `ferb baseline` | Save a read-only metrics snapshot to `~/.ferb/baselines/` for comparing milestones |
 | `ferb regress [SET]` | Run a regression task set (default: the built-in smoke set) and print the verdict lines for you |
+
+The Codex and Claude runtimes use your subscriptions. The Anthropic, OpenAI and Google API runtimes bill per token
+against the key you add; `ferb runtimes` labels each runtime's billing.
 
 Use `ferb COMMAND --help` for options.
 

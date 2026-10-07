@@ -10,6 +10,41 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0-dev — 2026-10-07 — F2 model runtime layer
+
+Milestone F2 of `docs/0.27_PLAN.md` (D32, P20). Implementation, tests and documentation: `d3ca7d3` (the F2 plan) through
+this documentation commit (every F2 commit after `d3ca7d3`). The version in `pyproject.toml` and `ferb/__init__.py`
+stays 0.26.1 while 0.27 is in development.
+
+- One request shape for every runtime (`77168ee`): `ModelRequest(system, parts, cacheable)` with `assemble_parts` and
+  `ContextBlock.cache`. The orchestrator marks device facts and chat history as the cacheable prefix; task calls mark the
+  owner's original request and the task specification.
+- Typed answers are checked in one place, `check_final` (`ferb/core/structured.py`), for every runtime (`1388173`).
+- One usage record for every runtime (`193a7a0`): `Usage` has input (cached included), cached, cache-write, output
+  (reasoning included) and reasoning tokens, plus cost from the provider or the dated price table (`ferb/runtimes/prices.py`;
+  an unlisted model has no cost). The memory live test now sums `cache_write_tokens` and `cached_input_tokens`.
+- Capability table and per-role selection (`99b4baa`): `CATALOG`, `[runtimes] orchestrator|worker|checker` (checker falls
+  back to worker), `[models] <runtime>`, `ferb runtimes` and `ferb runtimes use ROLE RUNTIME [--model M]`.
+- Codex runs with its own empty HOME (`~/.ferb/codex-user`) and `skill_mcp_dependency_install` disabled, so the owner's
+  personal skills never load (`df3173a`, `2ef1ff6`).
+- `ApiRuntime` and `GatewayBridge` (`463c7fc`, `13f0595`): FERB's own tool loop for direct APIs; tools only through the
+  gateway; retries with backoff on transport errors and 408/409/429/5xx/529; a tool the run was not offered is a
+  violation, with every name in a turn checked before any call runs; cancellation is honoured and tool calls run as child
+  tasks (an owner stop ends the tool call and the model is told); keys come from the Keychain and are removed from errors.
+- Anthropic, OpenAI and Gemini adapters (`d1ab98b`, `ed75c32`, `fdb9115`, `9341f69`, `096da93`, `e081a02`) under a shared
+  contract suite: Anthropic cache markers, OpenAI explicit breakpoints on gpt-6 and gpt-5.6 and a per-role
+  `prompt_cache_key`, Gemini's implicit cache. Each rejects stop states other than a normal end (output limit, refusal,
+  early stop), so a partial answer is never final. OpenAI requests include `reasoning.encrypted_content` (stateless).
+- API runtimes are selectable per role (`243abb1`, `2130c3d`, `d52f1b3`): only usable runtimes are offered as worker
+  types, `ferb setup --key PROVIDER` stores a key and checks it through the `runtimes.check` RPC (which tolerates
+  non-JSON answers), `ferb doctor` has a line per role, and offline test daemons skip the real Keychain. The daemon
+  keeps one `Redactor` across config reloads, so exact secret values (API keys, OTPs) stay redacted everywhere, and
+  Google API keys are redacted by pattern.
+- Live tests (this commit): marker `real_api` (deselected by default), API variants in `tests/test_real_runtimes.py`
+  and `tests/test_runtime_cache_real.py` (second call reads the cache). Owner decision: no keys for now, so only the Codex
+  and Claude CLI live checks run; the API checks wait for keys (`docs/OWNER_ACCEPTANCE.md`).
+- Not changed: Codex's cache key is its per-process session id; use an API runtime for the orchestrator to cache across calls.
+
 ## 0.27.0-dev — 2026-10-07 — F1 correctness fixes
 
 Milestone F1 of `docs/0.27_PLAN.md`. Implementation, tests and documentation: `c7d8c43` (the F1 plan) through this

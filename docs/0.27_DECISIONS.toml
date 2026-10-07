@@ -159,8 +159,8 @@ summary = "Escape hatch for boundaries enforced by code only"
 
 [D32]
 milestone = "F2"
-tests = []
-note = "Probe 2026-10-07: Codex 0.157.1 defers MCP tools behind tool_search unless the model catalog sets supports_search_tool = false; F1 sets it in CATALOG_LOCKDOWN (tools then appear directly as mcp__ferb.<tool>). With --disable skill_search Codex still tried to load the owner's personal skills from ~/.agents/skills; the F2 adapter must keep them out."
+tests = ["tests/test_runtime_contract.py", "tests/test_api_runtime.py", "tests/test_runtime_selection.py", "tests/test_usage_prices.py", "tests/test_codex_isolation.py"]
+note = "Probe 2026-10-07: Codex 0.157.1 defers MCP tools behind tool_search unless the model catalog sets supports_search_tool = false; F1 sets it in CATALOG_LOCKDOWN (tools then appear directly as mcp__ferb.<tool>). With --disable skill_search Codex still tried to load the owner's personal skills from ~/.agents/skills; F2 fixed this: Codex runs with its own empty HOME (~/.ferb/codex-user) and skill_mcp_dependency_install disabled. F2 built the five runtimes (Codex, Claude, Anthropic, OpenAI, Google) behind one interface, selectable per role. Live API checks (-m real_api) wait for the owner's keys."
 summary = "Universal model runtimes: one model interface defined by FERB"
 
 [MP1]
@@ -280,9 +280,9 @@ summary = "Never retry a consequential action with an unknown outcome without th
 
 [P20]
 milestone = "F2"
-tests = ["tests/test_prompt_order.py"]
+tests = ["tests/test_prompt_order.py", "tests/test_model_request.py"]
 summary = "Stable content first, changing content last, for prompt caching in every runtime"
-note = "F1 made the orchestrator context append-only (device facts first, history tags from the oldest). Remaining for F2: Codex's prompt_cache_key is its per-process session id, so the runtime layer needs a cache-routing key that stays the same per role (measured 2026-10-07)."
+note = "F1 made the orchestrator context append-only (device facts first, history tags from the oldest). F2 done for the API runtimes: ModelRequest marks the cacheable prefix, Anthropic gets cache markers, OpenAI explicit breakpoints and a per-role prompt_cache_key, Gemini the implicit cache. Remaining: Codex's prompt_cache_key is its per-process session id and FERB cannot change it (measured 2026-10-07); an API runtime for the orchestrator caches across calls."
 
 [P21]
 milestone = "F6"

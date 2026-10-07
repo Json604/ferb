@@ -177,7 +177,61 @@ the next planner. A failed run does not silently pause a schedule.
 The Jev question registry, typed client and shadow/effect recording remain extension seams with tests. Oversized
 state is explicitly unavailable rather than partial JSON. No task authorization or target-routing rule depends on Jev.
 
-## 9. Documentation and diagrams
+## 9. Model runtimes (F2, D32)
+
+Every model call goes through one interface. `ModelRequest(system, parts, cacheable)` ([`core/types.py`](ferb/core/types.py))
+carries FERB's instructions and the context as ordered parts; the first `cacheable` parts repeat across a role's calls and
+adapters cache them (P20). `assemble_parts` ([`core/context.py`](ferb/core/context.py)) returns the parts and that count from
+the `ContextBlock`s whose `cache=True` leads the list. The supervisor marks the device facts and the chat history for the
+orchestrator, and the owner's original request and the task specification for task calls
+([`supervisor.py`](ferb/orchestrator/supervisor.py)). Everything model-specific stays in the adapter.
+
+| Runtime | Adapter | Billing | Cache |
+|---|---|---|---|
+| `codex` | [`codex_exec.py`](ferb/runtimes/codex_exec.py) | subscription | automatic prefix; no FERB cache key |
+| `claude` | [`claude_sdk.py`](ferb/runtimes/claude_sdk.py) | subscription | automatic prefix |
+| `anthropic` | [`anthropic_api.py`](ferb/runtimes/anthropic_api.py) | per token | FERB places cache markers |
+| `openai` | [`openai_api.py`](ferb/runtimes/openai_api.py) | per token | explicit breakpoints on gpt-6 and gpt-5.6, else implicit; a per-role `prompt_cache_key` |
+| `google` | [`google_api.py`](ferb/runtimes/google_api.py) | per token | implicit |
+
+`CATALOG` ([`runtimes/catalog.py`](ferb/runtimes/catalog.py)) holds each runtime's default model, its `Capabilities`
+(tools, cache, cache key, typed output, reasoning effort, image input, continuation, live messaging, billing) and whether
+it is usable on this Mac; `ferb runtimes` prints it. A role picks its runtime in `config.toml`: `[runtimes]`
+`orchestrator`, `worker`, `checker` (the checker falls back to the worker's) and `[models]` `<runtime>`; `ferb runtimes use ROLE RUNTIME
+[--model M]` writes them and applies from the next call. Only usable runtimes are offered to the planner as worker types.
+
+`ApiRuntime` ([`runtimes/api.py`](ferb/runtimes/api.py)) is FERB's own tool loop for the three APIs. Each tool call runs
+through `GatewayBridge`, the same gateway path as the MCP shim, so the run token's scopes decide what is offered; a provider
+class per API translates requests, responses, cache markers, typed output and usage. Behavior:
+- A model that calls a tool it was not offered ends the run with a `violation` event; every name in a turn is checked before
+  any call in it runs.
+- Transport errors and `RETRY_STATUS` replies (408, 409, 429, 5xx, 529) are retried with backoff, honouring `Retry-After`;
+  other errors surface as an `error` event with the key removed from the text.
+- Tool calls run as their own tasks. `cancel` ends the run; the gateway cancelling a job (an owner stop) ends that tool call
+  and the model is told, not the whole worker; cancellation of the consuming task propagates.
+- Each adapter accepts only a normal end of turn and raises `ProviderError` for any other stop state (cut off at the output
+  limit, refusal, early stop), so a partial answer is never taken as final.
+- OpenAI requests include `reasoning.encrypted_content` and are stateless (`store` false), so reasoning is replayed.
+- No turn or token budget; stop and the stall watchdog end a run. Provider-hosted tools are never enabled.
+
+Typed answers are checked in one place, `check_final` ([`core/structured.py`](ferb/core/structured.py)), whatever the runtime.
+Every runtime reports `Usage` ([`runtimes/usage.py`](ferb/runtimes/usage.py)) in one meaning: input includes cached, plus cache
+write, output includes reasoning, and the cost from the provider if it reported one, else from the dated
+[`prices.py`](ferb/runtimes/prices.py) table (an unlisted model has no cost). Subscription runtimes report an
+API-equivalent estimate labelled `billing: subscription`.
+
+API keys live in the Keychain (service `ferb`, account `api/<provider>`, [`runtimes/keys.py`](ferb/runtimes/keys.py)), stored
+by `ferb setup --key PROVIDER` and read at call time; the daemon adds each key it reads to its `Redactor`
+([`sanitize/redact.py`](ferb/sanitize/redact.py)). The `Redactor` is reconfigured in place on a config reload, so the journal, spans and
+gateway keep the one instance that knows exact secret values (API keys, OTPs); a Google API key pattern (`AIza...`) is
+also redacted by shape. Codex runs with its own empty HOME (`~/.ferb/codex-user`) and
+`skill_mcp_dependency_install` disabled, so the owner's personal skills never load.
+
+Remaining: Codex sends its per-process session id as the cache key, so its calls rarely reach the previous prefix's cache
+and FERB cannot change that. The remedy is an API runtime for the orchestrator (the owner's choice); the P20 re-check with
+back-to-back turns is in [owner acceptance](docs/OWNER_ACCEPTANCE.md).
+
+## 10. Documentation and diagrams
 
 The [offline walkthrough](docs/walkthrough/index.html) is a local teaching aid, not an executable agent or live trace.
 The [HLD Mermaid source](docs/diagrams/ferb-hld.mmd) maps responsibilities and the
@@ -185,7 +239,7 @@ The [HLD Mermaid source](docs/diagrams/ferb-hld.mmd) maps responsibilities and t
 them. Current diagrams and walkthrough describe 0.26. Source-reference checks flag broken current-doc paths and
 explicit qualified Python symbols. Historical changelog/audit evidence is intentionally exempt.
 
-## 10. Change rule
+## 11. Change rule
 
 Do not fix a failure by adding a keyword rule for that one failure. Expose platform facts, give the agent full evidence,
 and test the general boundary. A filename match does not prove identity; a topic match does not prove teaching depth;

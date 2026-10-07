@@ -99,7 +99,7 @@ def test_one_day_of_distillation_on_a_real_model(rt: tuple[str, RunningDaemon]) 
     assert all(i.origin != "owner_stated" for i in items)
     assert not any("mail.google" in i.content for i in items if i.subject == "owner"), items   # FERB's tab isn't a habit
     tokens = {k: sum(int(u.get(k) or 0) for u in usage)
-              for k in ("input_tokens", "cached_input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+              for k in ("input_tokens", "cached_input_tokens", "cache_write_tokens",
                         "output_tokens")}
     prev = json.loads(USAGE.read_text()) if USAGE.exists() else {}
     prev[runtime] = {"tokens": tokens, "proposed": r.get("proposed"), "refused": r.get("refused"),
