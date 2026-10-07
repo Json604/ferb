@@ -407,3 +407,18 @@ summary = "The final checker gets observation tools only; unverifiable becomes u
 milestone = "F5"
 tests = []
 summary = "\"Already authorized\" decided by code from provenance; the orchestrator may only add a question; Jev in shadow"
+
+[D34]
+milestone = "F4"
+tests = []
+summary = "A named target FERB can't find becomes a what/which question; a substitute is never reported as the named target"
+
+[D35]
+milestone = "F4"
+tests = []
+summary = "Browser downloads never open a dialog on the owner's screen; FERB takes the file into its workspace as facts"
+
+[D36]
+milestone = "F5"
+tests = []
+summary = "FERB may write the clipboard and approve another agent's prompts; logged, no code gate"
