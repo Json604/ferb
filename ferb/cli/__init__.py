@@ -123,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     wp.add_argument("--dry-run", action="store_true", help="list the steps and exit")
     stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs (from the database)")
     stp.add_argument("--days", type=int, default=7)
+    sub.add_parser("baseline", help="capture current metrics to ~/.ferb/baselines for milestone comparison")
     xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
     xp.add_argument("--purge", action="store_true")
 
@@ -134,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "stats":
         return admin.stats(ferb_home(), sys.stdout, args.days)
+    if args.cmd == "baseline":
+        return admin.baseline(ferb_home(), sys.stdout)
     if args.cmd == "watch":
         from ferb.device.watch import main as watch_main
         flags = [f for f, on in (("--mac", args.mac), ("--browser", args.browser), ("--dry-run", args.dry_run)) if on]

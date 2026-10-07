@@ -432,6 +432,57 @@ def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
     return 0
 
 
+def baseline(home: Any, out: TextIO) -> int:
+    """Capture the numbers every milestone is compared against into ~/.ferb/baselines/<ISO8601>.json. Read-only
+    against the database, so it works whether or not the daemon runs."""
+    import sqlite3
+    from datetime import timezone
+    from pathlib import Path as _P
+    root = _P(str(home))
+    db = root / "ferb.db"
+    if not db.exists():
+        print(f"no database at {db}", file=out)
+        return 1
+
+    def pct(num: int, den: int) -> int:
+        return (100 * num // den) if den else 0
+
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        requests, done, verified = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0), "
+            "COALESCE(SUM(json_extract(outcome_json, '$.verified') = 1), 0) "
+            "FROM tasks WHERE parent_id IS NULL").fetchone()
+        owner_verdicts, owner_pass = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(verdict = 'pass'), 0) FROM ("
+            "SELECT v.verdict FROM owner_verdicts v JOIN tasks t ON t.id = v.task_id AND t.parent_id IS NULL "
+            "WHERE v.seq = (SELECT MAX(seq) FROM owner_verdicts WHERE task_id = v.task_id))").fetchone()
+        calls, errors = c.execute("SELECT COUNT(*), COALESCE(SUM(error IS NOT NULL), 0) FROM spans "
+                                  "WHERE kind = 'tool.call'").fetchone()
+        runs = {kind: {"n": n, "avg_s": avg or 0} for kind, n, avg in c.execute(
+            "SELECT kind, COUNT(*), ROUND(AVG((julianday(ended_at) - julianday(started_at)) * 86400), 1) "
+            "FROM spans WHERE kind IN ('model.turn', 'worker') GROUP BY kind")}
+        cached, total_in = c.execute(
+            "SELECT COALESCE(SUM(json_extract(output_json, '$.cached_input_tokens')), 0), "
+            "COALESCE(SUM(json_extract(output_json, '$.input_tokens')), 0) "
+            "FROM spans WHERE kind = 'model.usage'").fetchone()
+        avg_bytes = c.execute("SELECT AVG(LENGTH(input_json) + LENGTH(COALESCE(output_json, ''))) "
+                              "FROM spans").fetchone()[0]
+    finally:
+        c.close()
+    captured = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    data = {"captured_at": captured, "days": "all", "requests": requests, "done": done,
+            "done_pct": pct(done, requests), "verified": verified, "verified_pct": pct(verified, requests),
+            "owner_verdicts": owner_verdicts, "owner_pass": owner_pass, "tool_calls": calls,
+            "tool_errors": errors, "model_runs": runs, "cache_pct": pct(cached, total_in),
+            "avg_trace_bytes": int(avg_bytes or 0)}
+    target = root / "baselines" / f"{captured}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, indent=2) + "\n")
+    print(str(target), file=out)
+    return 0
+
+
 def stats(home: Any, out: TextIO, days: int = 7) -> int:
     """How FERB is really doing (audit 2026-10-02): task outcomes, the top tool-error reasons, model runs. Read
     straight from the database, read-only, so it works whether or not the daemon runs."""
