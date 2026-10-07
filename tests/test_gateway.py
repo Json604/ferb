@@ -150,3 +150,58 @@ def test_tool_call_span_records_action_kind_and_target(daemon: RunningDaemon) ->
     spans = [r.span for r in daemon.run(_tree(daemon)) if r.span.input.get("tool") == send.name]
     assert spans[-1].input["kind"] == "send"
     assert spans[-1].input["target"]["recipients"] == ["mom@example.com"]
+
+
+def test_test_mode_allowlist_blocks_unlisted_recipient_and_allows_listed(daemon: RunningDaemon) -> None:
+    send = FakeCap("fake.send", "send", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
+    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
+    watch = Answers(daemon)
+    try:
+        blocked = call(daemon, grant, "fake.send", to="attacker@evil.example", effect="send")
+        assert blocked["is_error"] and "allowlist" in str(blocked["content"])
+        ok = call(daemon, grant, "fake.send", to="ok@example.com", effect="send")
+        assert not ok["is_error"]
+    finally:
+        watch.stop()
+        daemon.daemon.gateway.test_send_allowlist = None
+    assert send.calls == 1  # only the allowed one executed
+
+
+def test_allowlist_refusal_leaves_no_ledger_row_and_span_carries_error(daemon: RunningDaemon) -> None:
+    send = FakeCap("fake.send", "send", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
+    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
+    try:
+        blocked = call(daemon, grant, "fake.send", to="attacker@evil.example")
+    finally:
+        daemon.daemon.gateway.test_send_allowlist = None
+    assert blocked["is_error"] and blocked["content"]["recipients"] == ["attacker@evil.example"]
+    assert daemon.run(_ledger(daemon, "fake.send")) == []
+    spans = [r.span for r in daemon.run(_tree(daemon)) if r.span.input.get("tool") == "fake.send"]
+    assert "allowlist" in str(spans[-1].error) and send.calls == 0
+
+
+def test_allowlist_refuses_send_without_checkable_recipient_only_in_test_mode(daemon: RunningDaemon) -> None:
+    send = FakeCap("fake.send", "send", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
+    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
+    try:
+        blocked = call(daemon, grant, "fake.send", to="")
+        assert blocked["is_error"] and blocked["content"]["recipients"] == [] and "recipient" in str(blocked["content"]["error"])
+        assert send.calls == 0
+    finally:
+        daemon.daemon.gateway.test_send_allowlist = None
+    assert not call(daemon, grant, "fake.send", to="")["is_error"]
+    assert send.calls == 1
+
+
+def test_allowlist_never_affects_non_send_kinds(daemon: RunningDaemon) -> None:
+    look = FakeCap("fake.look", "read", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"}, request("look"), [look])
+    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
+    try:
+        assert not call(daemon, grant, "fake.look", to="anyone@evil.example")["is_error"]
+    finally:
+        daemon.daemon.gateway.test_send_allowlist = None
+    assert look.calls == 1

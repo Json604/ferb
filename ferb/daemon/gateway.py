@@ -28,6 +28,7 @@ Publish = Callable[[str, dict[str, Any]], None]
 Redact = Callable[[Any], Any]
 
 OWNER_ASK = "owner.ask"
+_SEND_KINDS = {Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.PAY}
 
 
 @dataclass
@@ -61,6 +62,7 @@ class Gateway:
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution
         self.route_question: Any = None
         self.disturbance: Any = None
+        self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
 
     @staticmethod
     def _acts(cap: Any) -> bool:
@@ -173,6 +175,13 @@ class Gateway:
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[[dict[str, Any], bool], dict[str, Any]]) \
             -> dict[str, Any]:
+        if self.test_send_allowlist is not None and spec.kind in _SEND_KINDS:
+            recipients = list(spec.target.recipients) + ([spec.target.contact] if spec.target.contact else [])
+            unlisted = [r for r in recipients if r not in self.test_send_allowlist]
+            if not recipients or unlisted:
+                error = "blocked by FERB test-mode send allowlist" + ("" if recipients else ": no checkable recipient")
+                self.spans.finish(span, error=error)
+                return reply({"error": error, "recipients": unlisted}, True)
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:
