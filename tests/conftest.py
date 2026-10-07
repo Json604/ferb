@@ -38,6 +38,8 @@ class RunningDaemon:
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
         self.thread.start()
         self.daemon: Daemon = self.run(self._make(home, kwargs))
+        # Offline: never run `security` against the real Keychain. Tests that need others patch it themselves.
+        self.daemon._runtime_available = lambda name: name in ("codex", "claude")   # type: ignore[method-assign]
         self.run(self.daemon.start())
 
     @staticmethod

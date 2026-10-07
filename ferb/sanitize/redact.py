@@ -24,6 +24,7 @@ SECRET_PATTERNS = [
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
     re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{12,}"),
 ]
@@ -47,9 +48,13 @@ def secret_key(key: str) -> bool:
 
 class Redactor:
     def __init__(self, exclude_domains: set[str] | None = None, exclude_apps: set[str] | None = None) -> None:
+        self.configure(exclude_domains, exclude_apps)
+        self._values: set[str] = set()      # exact secret values; memory only, never persisted
+
+    def configure(self, exclude_domains: set[str] | None = None, exclude_apps: set[str] | None = None) -> None:
+        """Change the exclusions in place: the journal, spans and gateway hold this instance, so it must stay one."""
         self.exclude_domains = {d.lower().lstrip(".") for d in (exclude_domains or set())}
         self.exclude_apps = {a.lower() for a in (exclude_apps or set())}
-        self._values: set[str] = set()      # exact secret values; memory only, never persisted
 
     def add_secret_value(self, value: str) -> None:
         """E.g. a password fill_secret just typed: scrub it if a page or error echoes it back."""

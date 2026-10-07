@@ -391,7 +391,11 @@ class Daemon:
     def _load_config(self) -> None:
         self._ptt = bool(self.config.get("voice", "push_to_talk", False))
         if self._redact_override is None:
-            self.redact = Redactor(set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps()))
+            domains, apps = set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps())
+            if isinstance(self.redact, Redactor):      # the journal, spans and gateway hold this instance: keep it
+                self.redact.configure(domains, apps)
+            else:
+                self.redact = Redactor(domains, apps)
 
     async def _macos_events(self) -> None:
         """Give macOS's event system a turn on the daemon's thread, a few times a second. Without it, its running-app
@@ -1641,7 +1645,13 @@ class Daemon:
         try:
             async for ev in rt.events(run):
                 if ev.kind == "final":
-                    return {"ok": json.loads(ev.data["text"]).get("ok") is True, "detail": "answered"}
+                    try:
+                        answer = json.loads(ev.data["text"])
+                    except (TypeError, ValueError):
+                        answer = None
+                    if not isinstance(answer, dict):
+                        return {"ok": False, "detail": 'the answer was not {"ok": ...}'}
+                    return {"ok": answer.get("ok") is True, "detail": "answered"}
                 if ev.kind in ("error", "violation"):
                     detail = str(ev.data)
         finally:
