@@ -10,6 +10,26 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0-dev — 2026-10-07 — F1 correctness fixes
+
+Milestone F1 of `docs/0.27_PLAN.md`. Implementation, tests and documentation: `c7d8c43` (the F1 plan) through this
+documentation commit and the F1 review fixes (every F1 commit after `c7d8c43`).
+The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 is in development.
+
+- Chat history (`HISTORY_TOKENS`) and resumable attempts (`ATTEMPTS_TOKENS`) are capped to their newest entries, kept
+  whole and listed oldest first with an omission note, instead of being dropped whole when over budget.
+- Recall drops query terms that match most memories (more than half, with a floor of 2; data-driven) and tokenizes by
+  Unicode category; migration 0014 rebuilds the memory index so Devanagari words index whole.
+- Observed patterns accumulate evidence by kind/subject/key while still proposed, and the distiller sees pending
+  patterns, so they can activate after 3 days. An active observed item matches only identical content, so a changed
+  pattern becomes a new proposal that can supersede the old version.
+- FERB's MCP tools stay directly visible to Codex workers and checkers: the Codex catalog lockdown sets
+  `supports_search_tool` to false, so Codex 0.157.1 lists them as `mcp__ferb.<tool>` instead of deferring them behind
+  tool_search (verified live 2026-10-07). As a fallback (for example when Codex's models cache is missing and the
+  lockdown cannot apply), a worker or checker whose runtime reported tools without any FERB tool is re-run once with
+  that fact, traced as `runtime.tools_not_loaded`.
+- The context budget report closes the context and the owner's message is the last block (P20).
+
 ## 0.27.0-dev — 2026-10-07 — F0 process and measurement
 
 Milestone F0 of `docs/0.27_PLAN.md`. Implementation, tests and documentation: `97ba205` through the F0 review fixes

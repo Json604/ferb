@@ -160,6 +160,7 @@ summary = "Escape hatch for boundaries enforced by code only"
 [D32]
 milestone = "F2"
 tests = []
+note = "Probe 2026-10-07: Codex 0.157.1 defers MCP tools behind tool_search unless the model catalog sets supports_search_tool = false; F1 sets it in CATALOG_LOCKDOWN (tools then appear directly as mcp__ferb.<tool>). With --disable skill_search Codex still tried to load the owner's personal skills from ~/.agents/skills; the F2 adapter must keep them out."
 summary = "Universal model runtimes: one model interface defined by FERB"
 
 [MP1]
@@ -279,7 +280,7 @@ summary = "Never retry a consequential action with an unknown outcome without th
 
 [P20]
 milestone = "F2"
-tests = []
+tests = ["tests/test_prompt_order.py"]
 summary = "Stable content first, changing content last, for prompt caching in every runtime"
 
 [P21]

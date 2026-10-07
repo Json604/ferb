@@ -71,6 +71,12 @@ optional blocks with a fetch reference. A protected overflow is explicit instead
 runtime context is recorded. Provider context/output capacity remains a provider constraint; a refusal is not a
 truncated success. Brevity instructions apply to status reports, never requested artifacts.
 
+As built in F1: chat history (`HISTORY_TOKENS` 12000) and resumable attempts (`ATTEMPTS_TOKENS` 2000) keep their newest
+entries whole, oldest first, with an omission note (`ferb/orchestrator/supervisor.py`). Blocks are ordered stable
+first, the owner's message last and the budget report at the end (P20). The Codex catalog lockdown sets
+`supports_search_tool` false so FERB's tools are directly visible; a worker or checker whose runtime shows no FERB
+tool loaded is re-run once, traced as `runtime.tools_not_loaded` (`ferb/orchestrator/worker.py`).
+
 `task.evidence` pages the full redacted observations, reports, intake and registered task-root context sources.
 `chat.history` and `memory.read` retrieve complete source text and candidate pages. Browser/native snapshots and
 file/shell reads expose page cursors or full-source routes. File writes do not impose a deliverable byte cap.
@@ -153,7 +159,9 @@ Managed extension reload is version/protocol transport maintenance, deferred whi
 
 Owner-stated memory and observed proposals retain source provenance. Retrieval is an explicit search, not authority
 to pick a file or recipient. Complete items are available through `memory.read`; proposal and narrative text are not
-silently clipped. Daily summaries retain source handles; raw activity retention requires a persisted summary before
+silently clipped. Recall drops query terms that match most memories (`query_terms` in `ferb/memory/items.py`); the FTS
+index uses `unicode61 categories 'L* N* Co M*'` (migration 0014) so Devanagari words stay whole. Observed items
+accumulate evidence by kind/subject/key only while proposed; an active one matches identical content only. Daily summaries retain source handles; raw activity retention requires a persisted summary before
 purge. Privacy exclusions and redaction deliberately omit protected data and are separate from context budgeting.
 
 Calendar arithmetic operates on model-supplied typed values. Missing local time or invalid timezone is reported;
