@@ -1,0 +1,245 @@
+"""Owns FERB's own tool loop for direct provider APIs (D32). Must not choose targets, authorize actions or offer tools the
+run token doesn't cover.
+
+One loop for every provider: ask the model, run each tool call through FERB's gateway (GatewayBridge, the same path as the
+MCP shim), send the results back, until the model answers. A small Provider class per API translates requests, responses,
+cache markers, typed output and usage. A tool the run wasn't offered stops the run (violation), as with Codex and Claude.
+No turn or token budget; stop and the stall watchdog end a run. Keys come from the Keychain at start and never appear in
+errors. Provider-hosted tools are never enabled."""
+
+import asyncio
+import json
+import secrets
+from dataclasses import asdict, dataclass
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Protocol
+
+import httpx
+
+from ferb.cli.mcp import mcp_name
+from ferb.core.errors import FerbError, Unsupported
+from ferb.core.types import Capabilities, ModelRequest, RunHandle, RuntimeEvent, Task
+from ferb.runtimes.usage import Usage
+
+RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
+
+
+class ProviderError(Exception):
+    """A provider failure, worded without the key or the request."""
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str                        # as the model sees it (dots become underscores)
+    description: str
+    schema: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+    arguments_error: str = ""        # set when the model's arguments weren't a JSON object
+
+
+@dataclass(frozen=True)
+class ToolOutcome:
+    call: ToolCall
+    text: str
+    is_error: bool
+    image: dict[str, str] | None = None     # {"data": base64, "mime": "image/png"}
+
+
+@dataclass(frozen=True)
+class Turn:
+    calls: list[ToolCall]
+    final: str | None
+    usage: Usage
+    stop: str = ""
+
+
+class Provider(Protocol):
+    name: str
+    model: str
+    capabilities: Capabilities
+    def begin(self, request: ModelRequest, tools: list[ToolSpec], schema: dict[str, Any] | None, effort: str | None,
+              cache_key: str) -> dict[str, Any]: ...
+    def http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]: ...
+    def auth(self, key: str) -> dict[str, str]: ...
+    def parse(self, state: dict[str, Any], data: dict[str, Any]) -> Turn: ...
+    def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None: ...
+
+
+class Bridge(Protocol):
+    def tools(self, run_token: str) -> list[dict[str, Any]]: ...
+    async def call(self, run_token: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
+
+
+class GatewayBridge:
+    """FERB's gateway in-process: the tools a run token covers, and each call validated and traced by the gateway."""
+    def __init__(self, gateway: Any, tokens: Any) -> None:
+        self.gateway, self.tokens = gateway, tokens
+
+    def tools(self, run_token: str) -> list[dict[str, Any]]:
+        return self.gateway.tools_for(self.tokens.validate(run_token))  # type: ignore[no-any-return]
+
+    async def call(self, run_token: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        return await self.gateway.call(self.tokens.validate(run_token), name, arguments)  # type: ignore[no-any-return]
+
+
+def inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """The schema with local #/$defs references written out (not every provider accepts $defs). A reference to a
+    definition already being expanded becomes a plain object, so recursive models can't loop."""
+    defs = schema.get("$defs", {})
+
+    def walk(node: Any, stack: tuple[str, ...]) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref")
+            if isinstance(ref, str) and ref.startswith("#/$defs/"):
+                name = ref.removeprefix("#/$defs/")
+                if name in stack or name not in defs:
+                    return {"type": "object"}
+                return walk(defs[name], stack + (name,))
+            return {k: walk(v, stack) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [walk(v, stack) for v in node]
+        return node
+    return walk(schema, ())  # type: ignore[no-any-return]
+
+
+@dataclass
+class _Run:
+    state: dict[str, Any]
+    key: str
+    token: str
+    names: dict[str, str]                       # model-visible tool name -> capability name
+    client: httpx.AsyncClient
+    cancelled: bool = False
+    inflight: "asyncio.Future[Turn] | None" = None
+
+
+class ApiRuntime:
+    def __init__(self, provider: Provider, *, mode: Literal["supervisor", "worker"], role: str,
+                 tool_names: list[str] | None, output_schema: dict[str, Any] | None, bridge: Bridge | None,
+                 key: Callable[[str], Awaitable[str | None]], transport: httpx.AsyncBaseTransport | None = None,
+                 sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, retries: int = 4, backoff_s: float = 1.0,
+                 timeout_s: float = 600.0) -> None:
+        self.provider, self.name, self.capabilities = provider, provider.name, provider.capabilities
+        self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
+        self.bridge, self.key, self.transport, self.sleep = bridge, key, transport, sleep
+        self.retries, self.backoff_s, self.timeout_s = retries, backoff_s, timeout_s
+
+    async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
+        key = await self.key(self.name)
+        if not key:
+            raise Unsupported(f"no {self.name} API key in the Keychain: run `ferb setup --key {self.name}`")
+        tools: list[ToolSpec] = []
+        names: dict[str, str] = {}
+        if self.mode == "worker" and self.bridge is not None and self.tool_names:
+            offered = {t["name"]: t for t in self.bridge.tools(run_token)}
+            for capability in self.tool_names:
+                if capability in offered:
+                    t = offered[capability]
+                    tools.append(ToolSpec(mcp_name(capability), str(t["description"]), inline_refs(t["input_schema"])))
+                    names[mcp_name(capability)] = capability
+        state = self.provider.begin(request, tools, self.output_schema, "low" if self.mode == "supervisor" else None,
+                                    f"ferb:{self.role.partition(':')[0]}:{self.mode}")
+        client = httpx.AsyncClient(timeout=self.timeout_s, transport=self.transport)
+        return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
+                         {"run": _Run(state, key, run_token, names, client)})
+
+    async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
+        r: _Run = run.state["run"]
+        try:
+            while True:
+                r.inflight = asyncio.ensure_future(self._call(r))
+                try:
+                    turn = await r.inflight
+                except asyncio.CancelledError:
+                    if r.cancelled:
+                        return
+                    raise
+                except ProviderError as e:
+                    yield RuntimeEvent("error", {"message": str(e)})
+                    return
+                yield RuntimeEvent("usage", asdict(turn.usage))
+                if not turn.calls:
+                    if not turn.final:
+                        yield RuntimeEvent("error", {"message": f"{self.name}: the model ended without an answer"})
+                        return
+                    yield RuntimeEvent("final", {"text": turn.final})
+                    return
+                results = []
+                for call in turn.calls:
+                    capability = r.names.get(call.name)
+                    if capability is None:
+                        yield RuntimeEvent("violation", {"unexpected_tools": [call.name]})
+                        return
+                    yield RuntimeEvent("tool_call", {"tool": call.name, "arguments": call.arguments})
+                    results.append(await self._execute(r, capability, call))
+                self.provider.add_results(r.state, turn, results)
+        finally:
+            await r.client.aclose()
+
+    async def _execute(self, r: _Run, capability: str, call: ToolCall) -> ToolOutcome:
+        if call.arguments_error:
+            return ToolOutcome(call, f"FERB refused: the tool arguments were not a JSON object ({call.arguments_error})",
+                               True)
+        assert self.bridge is not None
+        try:
+            out = await self.bridge.call(r.token, capability, call.arguments)
+        except FerbError as e:
+            return ToolOutcome(call, f"FERB refused: {e}", True)
+        text = json.dumps(out["content"], ensure_ascii=False) + "\n" + str(out.get("footer", ""))
+        return ToolOutcome(call, text, bool(out.get("is_error")), out.get("image"))
+
+    async def _call(self, r: _Run) -> Turn:
+        url, headers, body = self.provider.http(r.state)
+        headers = {**headers, **self.provider.auth(r.key)}
+        delay = self.backoff_s
+        for attempt in range(self.retries + 1):
+            try:
+                resp = await r.client.post(url, headers=headers, json=body)
+            except httpx.TransportError as e:
+                if attempt < self.retries:
+                    await self.sleep(delay)
+                    delay *= 2
+                    continue
+                raise ProviderError(f"{self.name}: network error ({type(e).__name__})") from None
+            if resp.status_code in RETRY_STATUS and attempt < self.retries:
+                await self.sleep(_retry_after(resp) or delay)
+                delay *= 2
+                continue
+            if resp.status_code != 200:
+                raise ProviderError(self._error_text(resp, r.key))
+            try:
+                data = resp.json()
+            except ValueError:
+                raise ProviderError(f"{self.name}: the reply was not JSON") from None
+            return self.provider.parse(r.state, data)
+        raise ProviderError(f"{self.name}: still failing after {self.retries} retries")
+
+    def _error_text(self, resp: httpx.Response, key: str) -> str:
+        try:
+            err = resp.json().get("error") or {}
+        except (ValueError, AttributeError):
+            err = {}
+        detail = (err.get("message") or err.get("type") or err.get("status") or "") if isinstance(err, dict) else str(err)
+        text = f"{self.name} HTTP {resp.status_code}" + (f": {str(detail)[:300]}" if detail else "")
+        return text.replace(key, "[key]") if key else text
+
+    async def continue_(self, run: RunHandle, message: str) -> None:
+        raise Unsupported("direct-API runs are one-shot; the supervisor re-sends the chat history each turn")
+
+    async def cancel(self, run: RunHandle) -> None:
+        r: _Run = run.state["run"]
+        r.cancelled = True
+        if r.inflight is not None and not r.inflight.done():
+            r.inflight.cancel()
+
+
+def _retry_after(resp: httpx.Response) -> float | None:
+    try:
+        return min(float(resp.headers.get("retry-after", "")), 60.0)
+    except ValueError:
+        return None
