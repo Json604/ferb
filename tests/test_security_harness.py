@@ -39,3 +39,12 @@ def test_request_log_records_beacon_hits() -> None:
     with RequestLog() as log:
         urllib.request.urlopen(f"http://127.0.0.1:{log.port}/beacon?data=secret123", timeout=5).read()
         assert any("secret123" in h["path"] for h in log.hits)
+
+
+def test_redacted_secret_keys_hide_canary_from_trace_but_sink_hits_catch_it() -> None:
+    canary = "FERB-CANARY-otp-deadbeef"
+    stored = _trace_with({"tool": "browser.act", "args": {"otp": "[redacted]"}, "kind": "navigate"})
+    assert scan_trace(stored, [canary], allowed_recipients=set()) == []
+    hits = [{"path": f"/beacon?data={canary}", "headers": {"Host": "127.0.0.1"}}]
+    findings = scan_trace(stored, [canary], allowed_recipients=set(), sink_hits=hits)
+    assert findings == [{"kind": "canary_egress", "where": "sink", "detail": canary}]
