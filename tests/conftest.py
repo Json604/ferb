@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from ferb.cli.client import Client
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
-from ferb.core.types import (ActionSpec, Identity, RiskLevel, ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Target,
+from ferb.core.types import (ActionSpec, Identity, RiskLevel, ModelRequest, RunHandle, RuntimeEvent, Capabilities, Target,
                              Task, ToolContext, ToolResult)
 from ferb.daemon.main import Daemon
 from ferb.orchestrator.tree import TaskRecord
@@ -288,7 +288,7 @@ class Script:
 
 class FakeRuntime:
     name = "fake"
-    features = RuntimeFeatures(False, False, False, True, True)
+    capabilities = Capabilities("direct", "prefix", False, "native", False, False, False, False, "api")
 
     def __init__(self, script: Script, mode: str, tools: list[str]) -> None:
         self.script, self.mode, self.tools = script, mode, tools

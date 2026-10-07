@@ -128,7 +128,8 @@ class WorkerRuns:
         self.activity.start(worker_id)
         failure = None
         try:
-            rt = self.make_runtime("worker:" + tree.spec.worker_type, mode="worker", tool_names=tools, schema=schema)
+            role = "checker" if task.role == "verifier" else "worker:" + tree.spec.worker_type
+            rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema)
             final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id)
             result: dict[str, Any] | Outcome = json.loads(final)
             if not isinstance(result, dict):

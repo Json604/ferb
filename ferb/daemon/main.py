@@ -1553,25 +1553,39 @@ class Daemon:
         """Record this run’s tool-source violation; the orchestrator can select another attempt."""
         self._journal().append("runtime.failed", {"runtime": runtime, "detail": detail})
 
+    def _runtime_for(self, role: str) -> str:
+        """The runtime a role uses: a planner-chosen worker type, else [runtimes] orchestrator / worker / checker."""
+        if role.startswith("worker:") and role != "worker:default":
+            return role.partition(":")[2]
+        if role == "orchestrator":
+            return str(self.config.get("runtimes", "orchestrator", "codex"))
+        worker = str(self.config.get("runtimes", "worker", "codex"))
+        return str(self.config.get("runtimes", "checker", worker)) if role == "checker" else worker
+
+    def _model_for(self, name: str) -> str | None:
+        model = self.config.get("models", name) or (self.config.get("runtimes", "claude_model") if name == "claude" else None)
+        return str(model) if model else None
+
     def _make_runtime(self, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any]) -> Any:
-        name = str(self.config.get("runtimes", "orchestrator" if role == "orchestrator" else "worker", "codex"))
-        if role.startswith('worker:') and role != 'worker:default':
-            name = role.partition(':')[2]
+        return self._build_runtime(self._runtime_for(role), role, mode=mode, tool_names=tool_names, schema=schema)
+
+    def _build_runtime(self, name: str, role: str, *, mode: str, tool_names: list[str], schema: dict[str, Any]) -> Any:
         if name not in self.registry.runtimes:
             raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]")
+        model = self._model_for(name)
         shim = [sys.executable, "-m", "ferb.cli.mcp"]
         if name == "codex":
             from ferb.device.install import repo_root
-            from ferb.runtimes.codex_exec import CodexRuntime, codex_binary
+            from ferb.runtimes.codex_exec import MODEL, CodexRuntime, codex_binary
             workdir = self.home / "workspace" if mode == "worker" else self.home / "run" / "supervisor"
             return CodexRuntime(codex_binary(self.home, repo_root()), mode, workdir, self.home,  # type: ignore[arg-type]
-                                shim_cmd=shim, tool_names=tool_names, output_schema=schema,
+                                shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,
                                 timeout_s=None if mode == 'worker' else 900)
         from ferb.runtimes.claude_sdk import ClaudeRuntime
         if self._proxy is None:
             self._proxy = ToolListProxy()
         return ClaudeRuntime(mode, self._proxy, str(self.home), shim_cmd=shim, tool_names=tool_names,  # type: ignore[arg-type]
-                             output_schema=schema, model=self.config.get("runtimes", "claude_model"))
+                             output_schema=schema, model=model)
 
     async def _tools_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if session.grant is None or self.gateway is None:

@@ -130,12 +130,18 @@ class ActionSpec:
 # ---------- runtimes ----------
 
 @dataclass(frozen=True)
-class RuntimeFeatures:
-    live_messaging: bool
+class Capabilities:
+    """What a model runtime supports (D32's capability table): facts for planning and for `ferb runtimes`."""
+    tools: Literal["direct", "deferred", "none"]      # how FERB's gateway tools reach the model
+    cache: Literal["prefix", "markers"]               # automatic on an identical start, or FERB marks the cacheable prefix
+    cache_key: bool                                   # FERB keeps one cache-routing key per role
+    structured_output: Literal["native", "tool"]      # the provider enforces the schema, or a final-answer tool carries it
+    reasoning_effort: bool
+    image_input: bool                                 # image tool results reach the model
     continuation: bool
-    per_call_hooks: bool
-    usage_visibility: bool
-    native_tools_contained: bool             # must be True to be registered
+    live_messaging: bool
+    billing: Literal["subscription", "api"]
+    native_tools_contained: bool = True               # must be True to be registered
 
 
 @dataclass(frozen=True)

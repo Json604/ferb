@@ -14,7 +14,7 @@ from contextlib import suppress
 from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
-from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Task
+from ferb.core.types import ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.usage import from_anthropic
 
@@ -24,8 +24,7 @@ STRUCTURED_OUTPUT = "StructuredOutput"                # tool the SDK adds when o
 
 class ClaudeRuntime:
     name = "claude"
-    features = RuntimeFeatures(live_messaging=True, continuation=True, per_call_hooks=True, usage_visibility=True,
-                               native_tools_contained=True)
+    capabilities = Capabilities("direct", "prefix", False, "native", False, True, True, True, "subscription")
 
     def __init__(self, mode: Literal["supervisor", "worker"], proxy: ToolListProxy, ferb_home: str,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,

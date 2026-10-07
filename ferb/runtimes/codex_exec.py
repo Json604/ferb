@@ -29,7 +29,7 @@ from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import Unsupported
-from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Task
+from ferb.core.types import ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.usage import from_codex
 from ferb.runtimes.tooltrace import tools_in
 
@@ -108,8 +108,8 @@ async def check_version(binary: Path) -> None:
 
 class CodexRuntime:
     name = "codex"
-    features = RuntimeFeatures(live_messaging=False, continuation=False, per_call_hooks=False,
-                               usage_visibility=True, native_tools_contained=True)
+    # image_input False: unverified; no test, spike or trace shows an MCP image result reaching Codex
+    capabilities = Capabilities("direct", "prefix", False, "native", True, False, False, False, "subscription")
 
     def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], workdir: Path, ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,

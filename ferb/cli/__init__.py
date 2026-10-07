@@ -77,6 +77,13 @@ def main(argv: list[str] | None = None) -> int:
     rp = sub.add_parser("reminders", help="pending reminders and timers (cancel <id> to cancel one)")
     rp.add_argument("action", nargs="?", choices=["list", "cancel"], default="list")
     rp.add_argument("id", nargs="?")
+    rp = sub.add_parser("runtimes", help="model runtimes: capability table, what each role uses; `use` switches a role")
+    rsub = rp.add_subparsers(dest="rcmd")
+    ru = rsub.add_parser("use", help="make a role (orchestrator, worker, checker) use a runtime, from its next call")
+    ru.add_argument("role")
+    ru.add_argument("runtime")
+    ru.add_argument("--model", default=None)
+
     dvp = sub.add_parser("device", help="this Mac's device profile (apps, scriptable apps, browsers); scan rescans")
     dvp.add_argument("action", nargs="?", choices=["show", "scan"], default="show")
     tl = sub.add_parser("timeline", help="the journal: chats, task outcomes, daily summaries")
@@ -147,6 +154,11 @@ def main(argv: list[str] | None = None) -> int:
         from ferb.cli.mcp import main as mcp_main
         mcp_main()
         return 0
+    if args.cmd == "runtimes":
+        from ferb.cli import runtimes as runtimes_cli
+        if args.rcmd == "use":
+            return runtimes_cli.use(ferb_home(), args.role, args.runtime, args.model, sys.stdout)
+        return runtimes_cli.show(ferb_home(), sys.stdout)
     if args.cmd == "chat":
         from ferb.cli.chat import main_chat
         try:
