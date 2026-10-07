@@ -572,7 +572,7 @@ def key_setup(env: Env, provider: str) -> int:
     except (NotRunning, FerbError) as e:
         env.say(f"Stored. The daemon couldn't check it yet: {e}")
         return 1
-    env.say(f"{provider} answered; to use it, set a role to "{provider}" under [runtimes] in ~/.ferb/config.toml." if out.get("ok")
+    env.say(f"{provider} answered; use it with `ferb runtimes use ROLE {provider}`." if out.get("ok")
             else f"Stored, but the check failed: {out.get('detail')}")
     return 0 if out.get("ok") else 1
 
