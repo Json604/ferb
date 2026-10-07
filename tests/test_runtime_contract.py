@@ -285,7 +285,7 @@ def test_google_tools_use_json_schema_parameters() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("finish", ["OTHER", "UNEXPECTED_TOOL_CALL", "SAFETY", "LANGUAGE", "MALFORMED_FUNCTION_CALL"])
-async def test_google_only_stop_ends_normally(finish) -> None:
+async def test_google_non_stop_finish_reason_is_an_error(finish) -> None:
     reply = {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"ok": tr'}]}, "finishReason": finish}],
              "usageMetadata": {}}
     events = await run(make(CASES["google"], Scripted([(200, reply)]), mode="supervisor"), token="")
