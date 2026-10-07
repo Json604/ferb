@@ -134,7 +134,9 @@ def test_a_non_owner_version_never_overrides_what_the_owner_said(daemon: Running
     run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses Zed", "owner_stated", [("journal", s)], 1.0))
     inf = run(daemon, lambda: m.propose("preference", "owner", "editor", "Uses VS Code", "inferred", [("journal", s)]))
     run(daemon, lambda: m.confirm(inf.id))
-    hits = run(daemon, lambda: m.recall("editor"))
+    run(daemon, lambda: m.propose("fact", "owner", "diet", "Eats vegetarian", "owner_stated", [("journal", s)], 1.0))
+    run(daemon, lambda: m.propose("fact", "owner", "city", "Lives in Pune", "owner_stated", [("journal", s)], 1.0))
+    hits = run(daemon, lambda: m.recall("editor"))   # an unrelated memory exists, so "editor" is not a term of all
     assert [h.item.content for h in hits] == ["Uses Zed", "Uses VS Code"] and all(h.conflict for h in hits)
 
 

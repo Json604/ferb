@@ -22,6 +22,7 @@ proposing it again."""
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Iterable, Literal
@@ -39,6 +40,23 @@ Source = tuple[Literal["journal", "trail"], str]
 
 class MemoryRefused(FerbError):
     pass
+
+
+def query_terms(text: str) -> list[str]:
+    """Casefolded word runs by Unicode category (letters, numbers, marks, private use), matching the FTS tokenizer
+    (migration 0014). Python's \\w drops combining marks and would split Devanagari words."""
+    terms: list[str] = []
+    current = ""
+    for ch in text.casefold():
+        cat = unicodedata.category(ch)
+        if cat[0] in "LNM" or cat == "Co":
+            current += ch
+        elif current:
+            terms.append(current)
+            current = ""
+    if current:
+        terms.append(current)
+    return list(dict.fromkeys(terms))
 
 
 def fingerprint(kind: str, subject: str, key: str, content: str) -> str:
@@ -128,11 +146,26 @@ class Memory:
     def recall(self, query: str, k: int = 8, at: datetime | None = None) -> list[Recalled]:
         """Keyword (FTS5) recall of active items valid now (or at `at`); conflicting versions are flagged and the
         owner's own statement comes first."""
-        words = list(dict.fromkeys(re.findall(r"\w+", query.casefold())))
-        if not words:
-            return []
-        match = " OR ".join(f'"{w}"' for w in words)
         when = (at or self.clock.now()).isoformat()
+        terms = query_terms(query)
+        if not terms:
+            return []
+        valid = "m.status = 'active' AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)"
+        total = int(self.db.conn.execute(f"SELECT COUNT(*) FROM memory_items m WHERE {valid}",
+                                         (when, when)).fetchone()[0])
+        if total == 0:
+            return []
+
+        def matches(term: str) -> int:
+            return int(self.db.conn.execute(
+                f"SELECT COUNT(*) FROM memory_fts f JOIN memory_items m ON m.seq = f.rowid "
+                f"WHERE memory_fts MATCH ? AND {valid}", (f'"{term}"', when, when)).fetchone()[0])
+
+        # A term that matches most memories says nothing about any one of them (data-driven, no word list).
+        terms = [t for t in terms if total < 2 or matches(t) * 2 <= total]
+        if not terms:
+            return []
+        match = " OR ".join(f'"{t}"' for t in terms)
         rows = self.db.conn.execute(
             "SELECT m.* FROM memory_fts f JOIN memory_items m ON m.seq = f.rowid WHERE memory_fts MATCH ? "
             "AND m.status = 'active' AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?) "
