@@ -411,7 +411,7 @@ summary = "\"Already authorized\" decided by code from provenance; the orchestra
 [D34]
 milestone = "F4"
 tests = []
-summary = "A named target FERB can't find becomes a what/which question; a substitute is never reported as the named target"
+summary = "A named target FERB can't find becomes a what/which question, answered once and remembered as the owner's words; never a substitute"
 
 [D35]
 milestone = "F4"
