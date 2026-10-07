@@ -193,7 +193,7 @@ class Daemon:
                          ("memory.forget", self._memory_forget), ("memory.distill", self._memory_distill),
                          ("jev.stats", self._jev_stats), ("jev.enable", self._jev_enable), ("jev.reload", self._jev_reload),
                          ("timeline.get", self._timeline),
-                         ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("stop.engage", self._stop_engage),
+                         ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("verdict.set", self._verdict_set), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift),
                          ("doctor.check", self._doctor_check),
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
@@ -1682,6 +1682,24 @@ class Daemon:
                 task_id = str(matches[0]['id'])
         return {"task_id": task_id, "spans": [_node_json(n) for n in self.spans.tree(task_id)],
                 "outcome": self.spans.outcome(task_id)}
+
+    async def _verdict_set(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`ferb verdict`: the owner's pass/fail on a task. Acceptance is their word; code never infers it."""
+        if self.db is None:
+            raise FerbError("daemon not started")
+        task_id = str(params.get("task_id") or "")
+        verdict = str(params.get("verdict") or "")
+        if verdict not in ("pass", "fail"):
+            raise FerbError("verdict must be 'pass' or 'fail'")
+        if not self.db.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone():
+            raise FerbError(f"unknown task {task_id!r}")
+        self.db.conn.execute(
+            "INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES (?,?,?,?,?)",
+            (self.ids.new_id(), task_id, verdict, self.redact({"note": str(params.get("note") or "")})["note"],
+             self.clock.now().isoformat()))
+        self.db.conn.commit()
+        self._journal().append("owner.verdict", {"task_id": task_id, "verdict": verdict})
+        return {"task_id": task_id, "verdict": verdict}
 
     async def _stop_engage(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         summary = self.stop_control.engage()

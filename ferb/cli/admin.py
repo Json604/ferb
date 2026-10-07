@@ -100,6 +100,12 @@ def render_trace(result: dict[str, Any], full: bool = False) -> list[str]:
     return lines
 
 
+def verdict(client: Client, task_id: str, verdict_: str, note: str, out: TextIO) -> int:
+    r = client.call("verdict.set", {"task_id": task_id, "verdict": verdict_, "note": note})
+    print(f"Recorded {r['verdict']} for {r['task_id']}.", file=out)
+    return 0
+
+
 def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, raw: bool = False) -> int:
     result = client.call("trace.get", {"task_id": task_id or "last"})
     if raw:

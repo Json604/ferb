@@ -32,6 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     trace_format.add_argument("--full", action="store_true", help="show all recorded span fields")
     trace_format.add_argument("--json", action="store_true", help="export the complete recorded trace as JSON")
 
+    vd = sub.add_parser("verdict", help="record your pass/fail verdict on a task (acceptance is your word)")
+    vd.add_argument("task_id")
+    vd.add_argument("verdict", choices=["pass", "fail"])
+    vd.add_argument("--note", default="")
+
     dp = sub.add_parser("daemon", help="run the daemon")
     dp.add_argument("action", choices=["run"])
 
@@ -203,6 +208,8 @@ def main(argv: list[str] | None = None) -> int:
                 return logs.voice(client, sys.stdout)
             if args.cmd == "trace":
                 return admin.trace(client, args.task_id, sys.stdout, args.full, args.json)
+            if args.cmd == "verdict":
+                return admin.verdict(client, args.task_id, args.verdict, args.note, sys.stdout)
             if args.cmd == "stop":
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":

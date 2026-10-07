@@ -87,6 +87,11 @@ class SpanStore:
         outcomes = [json.loads(r[0]) for r in self._db.conn.execute(
             "SELECT data_json FROM journal WHERE kind IN ('task.outcome', 'task.answer') "
             "AND json_extract(data_json, '$.task_id') = ? ORDER BY seq", (task_id,))]
+        verdict_row = self._db.conn.execute(
+            "SELECT verdict, note, at FROM owner_verdicts WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
+            (task_id,)).fetchone()
+        owner_verdict = ({'verdict': verdict_row['verdict'], 'note': verdict_row['note'], 'at': verdict_row['at']}
+                         if verdict_row else None)
         return {'schema_version': 1, 'task_id': task_id,
                 'request': {'id': request_id, 'text': source.get('request'),
                             'authority_words': source.get('authority_words'), 'messages': messages},
@@ -103,10 +108,10 @@ class SpanStore:
                                  or (e['task_id'] or '').endswith('.verify')],
                 'disturbances': [e for e in events if e['kind'].startswith('disturbance.')],
                 'cleanup': [e for e in events if e['kind'] == 'task.cleanup'],
-                'result': root.get('output'), 'outcome_records': outcomes, 'owner_verdict': None,
+                'result': root.get('output'), 'outcome_records': outcomes, 'owner_verdict': owner_verdict,
                 'coverage': {'full_request_recorded': 'request' in source,
                              'sentinel_recorded': any(e['kind'] == 'disturbance.summary' for e in events),
-                             'owner_verdict': 'No owner-verdict collection API yet; null is not acceptance.'}}
+                             'owner_verdict': 'recorded' if owner_verdict else 'no owner verdict collected; null is not acceptance'}}
 
     def update_input(self, span_id: str, values: dict[str, Any]) -> None:
         """Add measured runtime input after tokens/tools/time are assembled; redact before persistence."""
