@@ -69,5 +69,5 @@ recovery. A model may choose another supported method; it must ask you about an 
 foreground action with approximate duration and now / idle / skip options.
 
 For each result append: date, checkout/installed version, exact task ID, content verdict, disturbance verdict, unavailable
-fields, cleanup outcome and any corrective instruction. The export currently has `owner_verdict: null`; this checklist
-is the owner acceptance record until a dedicated verdict API is built.
+fields, cleanup outcome and any corrective instruction. Record the pass/fail itself with `ferb verdict TASK pass|fail
+--note TEXT`; the export then shows it as `owner_verdict`. This checklist keeps the detailed record.

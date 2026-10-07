@@ -4,7 +4,8 @@ FERB is a personal assistant for macOS. Talk to it with `ferb chat`; its orchest
 questions from context and changes approach when needed. Agents interpret your request and decide what actions it
 authorizes. They prepare a concrete hard-to-undo action, confirm its identity, and carry that confirmation across retries.
 
-Version **0.26.1** on `astra/0.26-hardening`. See the capability ledger for measured behavior and pending owner acceptance.
+Version **0.26.1**; 0.27 is in development on `astra/0.27-upgrade` ([plan](docs/0.27_PLAN.md)). See the capability
+ledger for measured behavior and pending owner acceptance.
 The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) explains the implementation and limits.
 
 ## Setup
@@ -77,6 +78,9 @@ Borrowed owner tabs stay open. Cleanup results and errors are recorded so the fi
 | `ferb watch --dry-run` | Preview owner-supervised interaction checks |
 | `ferb voice on`, `ferb voice off` | Toggle push-to-talk |
 | `ferb decide stats` | Inspect optional enrichment decisions |
+| `ferb verdict TASK pass\|fail [--note TEXT]` | Record your acceptance verdict on a task; `ferb trace --json` shows it |
+| `ferb baseline` | Save a read-only metrics snapshot to `~/.ferb/baselines/` for comparing milestones |
+| `ferb regress [SET]` | Run a regression task set (default: the built-in smoke set) and print the verdict lines for you |
 
 Use `ferb COMMAND --help` for options.
 

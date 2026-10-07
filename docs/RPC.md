@@ -44,6 +44,7 @@ browser bridge pages large observations; client RPC and extension protocol versi
 | `stop.engage` | `{}` | Persistent global stop, revokes run tokens and invokes stop hooks |
 | `stop.lift` | `{}` | Lifts global stop; does not replay completed/uncertain actions |
 | `trace.get` | `{task_id: exact_id_or_unique_prefix_or_last}` | Redacted span forest plus structured `outcome` |
+| `verdict.set` | `{task_id: exact_root_id_or_unique_prefix, verdict: "pass"\|"fail", note?}` | Appends the owner's verdict (note redacted); refuses `last` and child tasks, naming the root |
 | `timeline.get` | `{since?: ISO timestamp}` | Complete matching journal entries, chronological |
 | `logs.subscribe` | Optional `filters` list and `maxsize` queue bound | `logs.subscribe.event` notifications; overflow is explicit |
 
@@ -75,7 +76,8 @@ and fills only the origin/task-bound secret destination. Account and OTP candida
 The `outcome` export has schema version 1: request and original messages, task specification, persisted tasks,
 planner and all approach decisions (including recovery/questions/resource review), full context-source records, provider tool-catalog observations,
 worker runs, intake receipts, tool actions/results, verification, disturbances, cleanup, result and outcome
-journal records. `owner_verdict` is null until a verdict API exists. Historical coverage flags distinguish missing
+journal records. `owner_verdict` is the latest `verdict.set` record (`verdict`, `note`, `at`), or null when none was
+given; null is not acceptance. Historical coverage flags distinguish missing
 request/sentinel data from a tested success. Fields may be added compatibly; clients should preserve unknown ones.
 
 Disturbance spans have baseline/change/error/summary kinds. A change lists before/after facts, overlapping/recent

@@ -10,6 +10,35 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0-dev — 2026-10-07 — F0 process and measurement
+
+Milestone F0 of `docs/0.27_PLAN.md`. Implementation, tests and documentation: `97ba205`..`fd1af93` plus the commit
+that adds this entry.
+The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 is in development.
+
+- `ferb verdict TASK pass|fail [--note TEXT]` records the owner's acceptance. Verdicts are appended to a new
+  `owner_verdicts` table (migration 0013) for a root task, given by exact ID or a unique 6+ character prefix; child
+  tasks are refused with their root named. `ferb trace --json` shows the latest one as `owner_verdict`, replacing the
+  old null placeholder. Code never infers a verdict.
+- `ferb baseline` writes a read-only snapshot to `~/.ferb/baselines/<timestamp>.json`: done and checker-verified
+  rates, owner verdicts, tool calls and errors, model-run times, cache rate and average trace size.
+- `ferb regress [set-file]` runs a regression set in one fresh conversation (default: the packaged
+  `ferb/eval/sets/smoke.toml`, two harmless prompts). It declines owner questions so the run never blocks, writes
+  one row per task to `~/.ferb/regression/`, and prints a `ferb verdict` line per started task for the owner.
+- Security harness skeleton in `ferb/eval/security/`: per-run canary tokens, a localhost request logger, and an
+  offline `scan_trace` that flags canary egress (in the trace or in logger hits) and unexpected recipients.
+- Gateway `tool.call` spans now record the action `kind` and its non-empty `target`, so exported traces can be
+  scanned. `Gateway.test_send_allowlist` refuses send-class actions to unlisted or unidentifiable recipients before
+  the ledger; it is None, and changes nothing, outside tests. GUI typing into a messaging app is not covered.
+- `docs/0.27_DECISIONS.toml` maps every D*/MP* decision to a milestone; `tests/test_decision_coverage.py` fails if
+  one is missing.
+- CLAUDE.md carries the 0.27 rules instead of the 0.26-hardening ones (D25): code enforces where/what boundaries,
+  never intent; code-enforced confirmations for hard-to-undo actions; one full access level made secure by design;
+  acceptance is the owner's `ferb verdict`; pluggable model runtimes behind FERB's gateway. README, architecture,
+  RPC, owner guide, capabilities and acceptance docs now describe verdict collection instead of a null placeholder.
+- Validation: **742 passed, 56 deselected**; core mypy, documentation references and `git diff --check` pass.
+  Offline only: nothing was installed, no live run was made, and no owner verdict has been collected yet.
+
 ## 0.26.1 — 2026-10-06 — Background window reuse and honest blockers
 
 Implementation, regressions and evidence: `46c0be7` (from `f6ff8ad`).

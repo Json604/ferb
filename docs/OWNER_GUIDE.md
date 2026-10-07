@@ -107,9 +107,9 @@ Read the trace in this order:
 
 `trace --json` contains an `outcome` object with the request, task specification, planner/recovery/question/resource-review decisions, worker runs and context sources, actions/results,
 verification, intake, disturbances, cleanup and final outcome records. Older traces explicitly show missing full-request
-or sentinel coverage. `owner_verdict` is currently null: there is no per-task verdict collection API yet. Acceptance
-notes and `ferb watch` observations are separate. This is the principal missing piece for a future learning signal;
-no learning loop is implemented in 0.26.
+or sentinel coverage. `owner_verdict` shows your latest `ferb verdict TASK pass|fail` for the task, or null when you
+have not given one. Acceptance notes and `ferb watch` observations are separate. Verdicts are collected, but no
+learning loop uses them yet.
 
 ## Background work and the sentinel
 

@@ -36,6 +36,7 @@ override with default fallback. No learning loop or additional Jev decision fami
 | Memory, sensing, reminders and schedules | [`memory/`](ferb/memory/), [`sense/`](ferb/sense/), [`clock/`](ferb/clock/), [`schedules.py`](ferb/orchestrator/schedules.py) |
 | Optional typed enrichment | [`decide/`](ferb/decide/) |
 | Installation/diagnostics and voice transport | [`device/`](ferb/device/), [`voice/`](ferb/voice/), [`macapp/`](macapp/) |
+| Measurement: regression runner, security test harness | [`eval/regress.py`](ferb/eval/regress.py), [`eval/security/`](ferb/eval/security/) |
 
 Public store methods own their queries. Keep edits within these responsibilities. Split a module only for a real
 ownership boundary; do not add wrappers to preserve dead behavior.
@@ -77,9 +78,16 @@ Incoming RPC frames retain an explicit 1 MiB bound: oversize is refused, never c
 provider transport bounds are documented in the audit’s limits ledger.
 
 The trace forest includes the pre-task planner by exact request ID. `trace --json` also exports one structured
-outcome with request, plan, actions/results, verification, disturbances, cleanup and final records. Owner verdicts
-are not yet collected through RPC: the export says null, not accepted. Compact CLI previews use `--full`/`--json`
+outcome with request, plan, actions/results, verification, disturbances, cleanup and final records. `ferb verdict`
+(RPC `verdict.set`) appends the owner's pass/fail to the `owner_verdicts` table for a root task; the export shows the
+latest one as `owner_verdict`, and null means no verdict, not acceptance. Compact CLI previews use `--full`/`--json`
 for all fields. Redacted secrets and unstored screenshots are intentionally unrecoverable from tool text.
+
+`ferb/eval/` holds the 0.27 measurement tools. `ferb regress` submits a TOML task set (default
+`ferb/eval/sets/smoke.toml`) in one fresh conversation, declines owner questions, writes one row per task to
+`~/.ferb/regression/` and never decides pass or fail. `ferb baseline` reads the database read-only into
+`~/.ferb/baselines/<timestamp>.json`. `ferb/eval/security/` has canary tokens, a localhost request logger and
+`scan_trace`, which flags canary egress and unexpected recipients in an exported trace.
 
 ## 5. Gateway, questions and stop
 
@@ -87,6 +95,10 @@ The owner-only Unix socket authenticates client roles. Worker run tokens are sco
 `Gateway.call` validates, binds the task, locks the actual resource, records the action, invokes the chosen tool and
 returns redacted facts. Canonical filesystem locks preserve the exact requested path. Ledger transitions distinguish
 intended, executing, done, failed and unknown delivery. A delivered event is not proof of the requested outcome.
+Each `tool.call` span records the action `kind` and its non-empty `target` fields, so exported traces can be scanned
+offline. `Gateway.test_send_allowlist` is for tests only: when set, send-class actions to unlisted or unidentifiable
+recipients are refused before the ledger; it is None (inert) in normal running. GUI typing into a messaging app is
+kind `mac_input`, not send-class, so the allowlist does not cover it.
 
 Ordinary `owner.ask` first goes to the orchestrator with context. If what/who/which remains ambiguous, the owner gets
 candidates and their evidence. Before a hard-to-undo action, preparation and target confirmation are concrete; an

@@ -123,7 +123,7 @@ summary = "Big jobs show plan with time and cost estimate and wait for go-ahead"
 
 [D25]
 milestone = "F0"
-tests = []
+tests = ["tests/test_decision_coverage.py"]
 summary = "CLAUDE.md is rewritten once planning ends to match this plan"
 
 [D26]

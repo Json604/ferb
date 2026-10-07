@@ -59,7 +59,7 @@ route needs focus and explicit permission. The table does not infer that such a 
 | Stop, resume, chat reconnect | Offline-tested only | True background for orchestration | Token revocation, task stop, persistent stop marker and reconnect tests; no replay of unknown effect |
 | Disturbance sentinel and trace export | **Verified** for disposable sessions; offline-tested for action/task integration | True background observation | Native/browser receipts, `test_disturbance.py`, outcome-export and cleanup integration tests |
 | Future Android / replacement UI client | Not built | Not applicable | [RPC contract](RPC.md); local auth/stream/questions/stop/results remain the integration seam |
-| Verified-approach learning loop / expanded Jev decisions | Not built intentionally | Not applicable | `Supervisor._approach`, typed Jev registry and tests retained; export owner verdict remains null |
+| Verified-approach learning loop / expanded Jev decisions | Not built intentionally | Not applicable | `Supervisor._approach`, typed Jev registry and tests retained; owner verdicts are collected (`ferb verdict`) but nothing learns from them yet |
 
 The conservative limitation is deliberate: no account-based workflow is labelled live-verified from a local HTML
 fixture, a dictionary listing or a successful tool return. Run the [acceptance checklist](OWNER_ACCEPTANCE.md) to
