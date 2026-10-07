@@ -491,6 +491,18 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 4: A run that never loaded FERB's tools is re-run once with that fact
 
+> **Amendment (controller ruling F1-R1, 2026-10-07):** research found the root fix, verified live on Codex 0.157.1:
+> Codex defers MCP tools when the model's catalog entry has `supports_search_tool: true`
+> (codex-rs `spec_plan.rs`: `search_tool_enabled = model_info.supports_search_tool && ...`; github.com/openai/codex
+> issue 36382). With `supports_search_tool: false` the dummy server's tools were directly visible (`mcp__<server>.<tool>`)
+> and `tool_search` disappeared; the side effects (ChatGPT connector tools, sub-agent tools) are removed by
+> `--disable apps --disable plugins --disable multi_agent`, which FERB already passes (`ferb/runtimes/codex_exec.py:37`).
+> So this task ALSO adds `"supports_search_tool": False` to `CATALOG_LOCKDOWN` (`ferb/runtimes/codex_exec.py:59-60`),
+> with a test that `locked_catalog` sets it on every model and that `DISABLED` still contains `apps`, `plugins` and
+> `multi_agent`, and updates `ferb/orchestrator/prompts/runtime_tools.md` so it says FERB's tools are normally
+> directly visible and `tool_search` is only the fallback. The re-run guard below stays as the fallback for when
+> `locked_catalog` returns None (no `models_cache.json`).
+
 Codex 0.157.1 always hides MCP tools behind `tool_search` (probe 2026-10-07: a dummy MCP server's tools were not directly visible with default flags, with `--disable tool_search_always_defer_mcp_tools`, or with `--enable deferred_tool_world_state`; the flag is listed as "removed"). A worker or checker that skips `tool_search` works blind — the live HF-cache checker returned all-unknown ("Tool discovery was not attempted"), costing a full retry. The runtime reports `tools_seen` in its final event (`ferb/orchestrator/worker.py:173-178`); FERB tools appear there with "ferb" in the name (e.g. `mcp__ferb.browser_open`) once loaded.
 
 **Files:**
