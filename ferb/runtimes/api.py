@@ -10,7 +10,7 @@ errors. Provider-hosted tools are never enabled."""
 import asyncio
 import json
 import secrets
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Protocol
 
 import httpx
@@ -99,7 +99,9 @@ def inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
                 name = ref.removeprefix("#/$defs/")
                 if name in stack or name not in defs:
                     return {"type": "object"}
-                return walk(defs[name], stack + (name,))
+                expanded = walk(defs[name], stack + (name,))
+                siblings = {k: walk(v, stack) for k, v in node.items() if k not in ("$ref", "$defs")}
+                return {**expanded, **siblings} if isinstance(expanded, dict) else expanded
             return {k: walk(v, stack) for k, v in node.items() if k != "$defs"}
         if isinstance(node, list):
             return [walk(v, stack) for v in node]
@@ -110,12 +112,12 @@ def inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
 @dataclass
 class _Run:
     state: dict[str, Any]
-    key: str
+    key: str = field(repr=False)
     token: str
     names: dict[str, str]                       # model-visible tool name -> capability name
     client: httpx.AsyncClient
     cancelled: bool = False
-    inflight: "asyncio.Future[Turn] | None" = None
+    inflight: "asyncio.Future[Any] | None" = None
 
 
 class ApiRuntime:
@@ -152,11 +154,13 @@ class ApiRuntime:
         r: _Run = run.state["run"]
         try:
             while True:
+                if r.cancelled:
+                    return
                 r.inflight = asyncio.ensure_future(self._call(r))
                 try:
                     turn = await r.inflight
                 except asyncio.CancelledError:
-                    if r.cancelled:
+                    if r.cancelled and not _consumer_cancelled():
                         return
                     raise
                 except ProviderError as e:
@@ -169,27 +173,39 @@ class ApiRuntime:
                         return
                     yield RuntimeEvent("final", {"text": turn.final})
                     return
+                unoffered = [c.name for c in turn.calls if c.name not in r.names]
+                if unoffered:
+                    yield RuntimeEvent("violation", {"unexpected_tools": unoffered})
+                    return
                 results = []
                 for call in turn.calls:
-                    capability = r.names.get(call.name)
-                    if capability is None:
-                        yield RuntimeEvent("violation", {"unexpected_tools": [call.name]})
-                        return
                     yield RuntimeEvent("tool_call", {"tool": call.name, "arguments": call.arguments})
-                    results.append(await self._execute(r, capability, call))
+                    outcome = await self._execute(r, r.names[call.name], call)
+                    if outcome is None or r.cancelled:
+                        return
+                    results.append(outcome)
                 self.provider.add_results(r.state, turn, results)
         finally:
             await r.client.aclose()
 
-    async def _execute(self, r: _Run, capability: str, call: ToolCall) -> ToolOutcome:
+    async def _execute(self, r: _Run, capability: str, call: ToolCall) -> ToolOutcome | None:
+        """None means the run was cancelled. The gateway call runs as its own task, so the gateway cancelling its job
+        (an owner stop) ends that tool call, not this whole worker."""
         if call.arguments_error:
             return ToolOutcome(call, f"FERB refused: the tool arguments were not a JSON object ({call.arguments_error})",
                                True)
         assert self.bridge is not None
+        r.inflight = asyncio.ensure_future(self.bridge.call(r.token, capability, call.arguments))
         try:
-            out = await self.bridge.call(r.token, capability, call.arguments)
+            out = await r.inflight
         except FerbError as e:
             return ToolOutcome(call, f"FERB refused: {e}", True)
+        except asyncio.CancelledError:
+            if _consumer_cancelled():
+                raise
+            if r.cancelled:
+                return None
+            return ToolOutcome(call, "FERB stopped this tool call", True)
         text = json.dumps(out["content"], ensure_ascii=False) + "\n" + str(out.get("footer", ""))
         return ToolOutcome(call, text, bool(out.get("is_error")), out.get("image"))
 
@@ -225,8 +241,10 @@ class ApiRuntime:
         except (ValueError, AttributeError):
             err = {}
         detail = (err.get("message") or err.get("type") or err.get("status") or "") if isinstance(err, dict) else str(err)
-        text = f"{self.name} HTTP {resp.status_code}" + (f": {str(detail)[:300]}" if detail else "")
-        return text.replace(key, "[key]") if key else text
+        detail = str(detail)
+        if key:
+            detail = detail.replace(key, "[key]")      # before truncating: a key at the cut would keep its prefix
+        return f"{self.name} HTTP {resp.status_code}" + (f": {detail[:300]}" if detail else "")
 
     async def continue_(self, run: RunHandle, message: str) -> None:
         raise Unsupported("direct-API runs are one-shot; the supervisor re-sends the chat history each turn")
@@ -236,6 +254,12 @@ class ApiRuntime:
         r.cancelled = True
         if r.inflight is not None and not r.inflight.done():
             r.inflight.cancel()
+        await r.client.aclose()
+
+
+def _consumer_cancelled() -> bool:
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() > 0
 
 
 def _retry_after(resp: httpx.Response) -> float | None:

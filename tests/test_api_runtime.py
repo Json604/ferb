@@ -124,3 +124,125 @@ async def test_cancel_stops_a_slow_call() -> None:
 def test_inline_refs_resolves_local_definitions() -> None:
     schema = {"type": "object", "properties": {"a": {"$ref": "#/$defs/A"}}, "$defs": {"A": {"type": "string"}}}
     assert inline_refs(schema) == {"type": "object", "properties": {"a": {"type": "string"}}}
+
+
+class SlowBridge(FakeBridge):
+    def __init__(self, gate: asyncio.Event) -> None:
+        super().__init__()
+        self.gate, self.tasks = gate, []
+
+    async def call(self, run_token, name, arguments):
+        self.tasks.append(asyncio.current_task())
+        self.calls.append((name, arguments))
+        await self.gate.wait()
+        return self.result
+
+
+@pytest.mark.anyio
+async def test_consumer_cancellation_propagates() -> None:
+    rt = runtime(Scripted([None]))
+    run = await rt.start(TASK, REQ, "tok")
+
+    async def consume():
+        async for _ in rt.events(run):
+            pass
+    consumer = asyncio.create_task(consume())
+    await asyncio.sleep(0.05)
+    asyncio.get_running_loop().create_task(rt.cancel(run))
+    consumer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await consumer
+
+
+@pytest.mark.anyio
+async def test_cancel_during_a_slow_tool_call_stops_the_run() -> None:
+    gate = asyncio.Event()
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/"}]]}), (200, {"text": "done"})])
+    bridge = SlowBridge(gate)
+    rt = runtime(script, bridge=bridge)
+    run = await rt.start(TASK, REQ, "tok")
+    collected: list = []
+
+    async def consume():
+        async for e in rt.events(run):
+            collected.append(e)
+    consumer = asyncio.create_task(consume())
+    await asyncio.sleep(0.05)
+    assert bridge.calls
+    await rt.cancel(run)
+    await asyncio.wait_for(consumer, 2)
+    assert len(script.requests) == 1 and not any(e.kind == "final" for e in collected)
+
+
+@pytest.mark.anyio
+async def test_cancel_before_events_makes_no_request() -> None:
+    script = Scripted([(200, {"text": "ok"})])
+    rt = runtime(script)
+    run = await rt.start(TASK, REQ, "tok")
+    await rt.cancel(run)
+    assert [e async for e in rt.events(run)] == [] and script.requests == []
+
+
+@pytest.mark.anyio
+async def test_gateway_call_runs_on_its_own_task() -> None:
+    gate = asyncio.Event()
+    gate.set()
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/"}]]}), (200, {"text": "done"})])
+    bridge = SlowBridge(gate)
+    seen = []
+
+    async def consume():
+        seen.append(asyncio.current_task())
+        return await run_all(runtime(script, bridge=bridge))
+    events = await asyncio.create_task(consume())
+    assert events[-1].kind == "final" and bridge.tasks[0] is not seen[0]
+
+
+@pytest.mark.anyio
+async def test_gateway_cancelling_a_tool_call_does_not_end_the_run() -> None:
+    gate = asyncio.Event()
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/"}]]}), (200, {"text": "done"})])
+    bridge = SlowBridge(gate)
+    rt = runtime(script, bridge=bridge)
+    run = await rt.start(TASK, REQ, "tok")
+    consumer = asyncio.create_task(_collect(rt, run))
+    await asyncio.sleep(0.05)
+    bridge.tasks[0].cancel()
+    events = await asyncio.wait_for(consumer, 2)
+    assert events[-1].kind == "final"
+    assert script.requests[1][1]["results"][0][0][1:3] == ["FERB stopped this tool call", True]
+
+
+async def _collect(rt, run) -> list:
+    return [e async for e in rt.events(run)]
+
+
+@pytest.mark.anyio
+async def test_one_unoffered_tool_blocks_the_whole_turn() -> None:
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/"}], ["c2", "shell_run", {}]]})])
+    bridge = FakeBridge()
+    events = await run_all(runtime(script, bridge=bridge))
+    assert events[-1].kind == "violation" and bridge.calls == []
+
+
+@pytest.mark.anyio
+async def test_key_at_the_truncation_point_is_fully_replaced() -> None:
+    message = "x" * 295 + "sk-secret" + "y" * 50
+    events = await run_all(runtime(Scripted([(401, {"error": {"message": message}})])))
+    text = events[-1].data["message"]
+    assert "sk-secre" not in text and "[key]" in text
+
+
+@pytest.mark.anyio
+async def test_run_repr_and_cancel_hide_and_close() -> None:
+    rt = runtime(Scripted([]))
+    run = await rt.start(TASK, REQ, "tok")
+    assert "sk-secret" not in repr(run)
+    await rt.cancel(run)
+    assert run.state["run"].client.is_closed
+    assert [e async for e in rt.events(run)] == []       # closing twice is harmless
+
+
+def test_inline_refs_keeps_siblings_of_a_reference() -> None:
+    schema = {"properties": {"a": {"$ref": "#/$defs/A", "description": "the a"}}, "$defs": {"A": {"type": "string"}}}
+    assert inline_refs(schema) == {"properties": {"a": {"type": "string", "description": "the a"}}}
