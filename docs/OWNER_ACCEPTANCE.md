@@ -27,9 +27,9 @@ note down Kabeer's assignment messages on WhatsApp, read the linked Google Doc, 
 
 | Task | What happened | What the owner saw / decided |
 |---|---|---|
-| `91f095dc…` WhatsApp notes | Read the Kabeer chat in the background and the doc via its public text export; checker inspected the evidence | No comment yet; verdict pending |
-| `c4072385…` doc + handoff | Opened the doc in the owner's Brave and navigated it to the doc's text export, which opened Brave's Save dialog; found no "Code Astra" and asked to use the screen instead of asking what it is | The Save dialog appeared on screen at 16:41 (screenshot); verdict pending |
-| `b2fb7b1e…` start the session | Typed the brief into VS Code's Copilot agent and reported "I started Code Astra"; Copilot created five session folders; FERB yielded twice when the owner used the keyboard or mouse | Copilot was used, not Codex astra; the owner had the five folders moved to the Trash (repo clean); verdict pending |
+| `91f095dc…` WhatsApp notes | Read the Kabeer chat in the background and the doc via its public text export; checker inspected the evidence | **pass** (`ferb verdict`) |
+| `c4072385…` doc + handoff | Opened the doc in the owner's Brave and navigated it to the doc's text export, which opened Brave's Save dialog; found no "Code Astra" and asked to use the screen instead of asking what it is | The Save dialog appeared on screen at 16:41 (screenshot); **fail** (`ferb verdict`) |
+| `b2fb7b1e…` start the session | Typed the brief into VS Code's Copilot agent and reported "I started Code Astra"; Copilot created five session folders; FERB yielded twice when the owner used the keyboard or mouse | Copilot was used, not Codex astra; the owner had the five folders moved to the Trash (repo clean); **fail** (`ferb verdict`) |
 
 F1 evidence from these traces: workers and the checker listed FERB's tools directly (no `tool_search`, no
 `runtime.tools_not_loaded` re-run), and "yeah use it" continued the right task. Recall and caching were not checked
