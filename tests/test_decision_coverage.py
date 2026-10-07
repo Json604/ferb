@@ -9,7 +9,7 @@ REGISTRY = Path(__file__).resolve().parents[1] / "docs" / "0.27_DECISIONS.toml"
 
 def test_parser_finds_known_ids() -> None:
     ids = plan_decision_ids(PLAN)
-    assert {"D1", "D23", "D32", "MP1"} <= ids
+    assert {"D1", "D23", "D32", "MP1", "P1", "P31", "S1", "S10", "W1", "W4"} <= ids
 
 
 def test_every_decided_id_has_a_registry_entry_with_a_milestone() -> None:

@@ -23,9 +23,11 @@ look at a specific experiment only when needed. Historical documentation remains
 
 ## Working rules
 
-1. Work on `astra/0.27-upgrade`. It stays local until the owner says to push; never merge or force-push.
-2. Build in the plan's final order, F0–F10. Take anything the plan leaves Proposed or Open to the owner first.
-3. Every D*/MP* decision needs a milestone in `docs/0.27_DECISIONS.toml`, or `tests/test_decision_coverage.py`
+1. All 0.27 work happens on the one branch `astra/0.27-upgrade`, pushed to `origin` as work lands; never merge or
+   force-push, and never start a new branch per step (owner, 2026-10-07).
+2. Build in the plan's final order, F0–F10. The plan's "Decision status" table is authoritative; take anything it
+   marks OPEN to the owner first.
+3. Every D*/MP*/P*/S*/W* decision needs a milestone in `docs/0.27_DECISIONS.toml`, or `tests/test_decision_coverage.py`
    fails; the owning milestone adds the decision's tests. Commit messages cite decision IDs.
 4. If a rule here conflicts with the plan, name both and ask the owner; don't silently follow or break either.
 5. Code enforces where/what boundaries: argument validity, paths, destinations, recoverability, the destructive

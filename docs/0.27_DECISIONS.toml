@@ -1,4 +1,4 @@
-# Decision registry: every D*/MP* item in docs/0.27_PLAN.md maps to its milestone.
+# Decision registry: every D*/MP*/P*/S*/W* item in docs/0.27_PLAN.md maps to its milestone.
 # tests are filled by the owning milestone. Checked by tests/test_decision_coverage.py.
 
 [D1]
@@ -196,3 +196,208 @@ summary = "Code finds candidates; agents decide relevance"
 milestone = "F8"
 tests = []
 summary = "Memory must prove it helps via an evaluation set from the owner's history"
+
+[P1]
+milestone = "F7"
+tests = []
+summary = "Jev batcher: send at ~10k tokens, a time limit or an interrupting event; split bursts, never cut"
+
+[P2]
+milestone = "F5"
+tests = []
+summary = "Drop Jev's trail.sensitive question once code redaction covers the secret classes"
+
+[P3]
+milestone = "F6"
+tests = []
+summary = "Context layers 1-6 (identity, situation, recent activity, memory, request, task state), stable first"
+
+[P4]
+milestone = "F7"
+tests = []
+summary = "FERB's own input recorded as FERB's; Secure Input and field role guard password fields"
+
+[P5]
+milestone = "F5"
+tests = []
+summary = "Secret classes for code redaction (incl. OTPs, payment cards, concealed clipboard); Keychain overrides"
+
+[P6]
+milestone = "F8"
+tests = []
+summary = "Full-text search now, embeddings behind the same function"
+
+[P8]
+milestone = "F5"
+tests = []
+summary = "Setup/doctor check FileVault; redaction keeps secrets out; database encryption once a signed helper exists"
+
+[P10]
+milestone = "F8"
+tests = []
+summary = "Episodic, semantic and procedural memory, searchable by content and time"
+
+[P11]
+milestone = "F7"
+tests = []
+summary = "Notification triage with owner rules and already-told records; scope mutes applied by code"
+
+[P12]
+milestone = "F7"
+tests = []
+summary = "New-software watch: signer, notarization, source, permissions, login items; FERB judges and warns"
+
+[P14]
+milestone = "F7"
+tests = []
+summary = "One Jev call per notification with conversation-scoped state within its budget"
+
+[P15]
+milestone = "F6"
+tests = []
+summary = "Large-input fan-out: inventory, map/reduce, feasibility validation, coverage checked by code"
+
+[P16]
+milestone = "F4"
+tests = []
+summary = "Verification design V1-V8"
+
+[P17]
+milestone = "F8"
+tests = []
+summary = "Local memory dashboard with origin, evidence, confirm/edit/forget"
+
+[P18]
+milestone = "F7"
+tests = []
+summary = "Keystroke capture rules: Secure Input, field role, ~0.5 s hold, OTP redaction"
+
+[P19]
+milestone = "F4"
+tests = []
+summary = "Never retry a consequential action with an unknown outcome without the owner"
+
+[P20]
+milestone = "F2"
+tests = []
+summary = "Stable content first, changing content last, for prompt caching in every runtime"
+
+[P21]
+milestone = "F6"
+tests = []
+summary = "Owner-maintained skills directory, loaded by FERB for every runtime"
+
+[P22]
+milestone = "F6"
+tests = []
+summary = "ferb attach: watch and take over FERB's own terminal session"
+
+[P23]
+milestone = "F5"
+tests = []
+summary = "Escape hatch for code-enforced boundaries (D31)"
+
+[P24]
+milestone = "F5"
+tests = []
+summary = "Disk-usage tool inside FERB returning sizes only, never contents"
+
+[P25]
+milestone = "F6"
+tests = []
+summary = "Neutral acknowledgment list, picked at random without repeats"
+
+[P26]
+milestone = "F3"
+tests = []
+summary = "Three trace levels built by code: story, steps, full/json, with token and cost line"
+
+[P27]
+milestone = "F6"
+tests = []
+summary = "Rules for everything FERB says to the owner"
+
+[P28]
+milestone = "F7"
+tests = []
+summary = "Setup persona from apps actually used, confirmed by the owner"
+
+[P29]
+milestone = "F6"
+tests = []
+summary = "Always-on chat with routing, status line and keys"
+
+[P30]
+milestone = "F6"
+tests = []
+summary = "Answer shape: outcome first, only what the owner needs, unverified items, pending next step"
+
+[P31]
+milestone = "F6"
+tests = []
+summary = "Worker writes the owner answer in the same output; checker verdict decides the first line"
+
+[S1]
+milestone = "F4"
+tests = []
+summary = "Recovery: Trash plus 7-day pre-change copies, snapshots before bulk or destructive work"
+
+[S2]
+milestone = "F5"
+tests = []
+summary = "Shell sandbox with never-read/never-write lists and network only through FERB's proxy"
+
+[S3]
+milestone = "F3"
+tests = []
+summary = "Origin labels on every record; consequential arguments matched against the owner's words"
+
+[S4]
+milestone = "F5"
+tests = []
+summary = "Sink rule: the narrow cases where FERB must confirm"
+
+[S5]
+milestone = "F7"
+tests = []
+summary = "Jev classifies untrusted text FERB already has; no reader role"
+
+[S6]
+milestone = "F5"
+tests = []
+summary = "Alignment check: Jev flags request/action mismatches to the orchestrator, never the guarantee"
+
+[S7]
+milestone = "F8"
+tests = []
+summary = "Memory: origin-bound authority, quarantine of outside-sourced procedure steps, cascade deletion"
+
+[S8]
+milestone = "F5"
+tests = []
+summary = "Secrets and identity through a small signed helper; Developer ID later"
+
+[S9]
+milestone = "F5"
+tests = []
+summary = "Security suite: offline replay plus live top-priority subset per milestone, full suite before release"
+
+[S10]
+milestone = "F5"
+tests = []
+summary = "Daily digest of new destinations, confirmations, blocked flows, outside-origin memory"
+
+[W1]
+milestone = "F5"
+tests = []
+summary = "No reader role; one worker per plan step with its identity's tools"
+
+[W2]
+milestone = "F5"
+tests = []
+summary = "Boundary by effect: tools report the kind of action; consequential kinds pass the floor and sink rule"
+
+[W4]
+milestone = "F5"
+tests = []
+summary = "The final checker gets observation tools only; unverifiable becomes unknown, never a block"
