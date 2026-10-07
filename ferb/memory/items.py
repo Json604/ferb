@@ -201,10 +201,16 @@ class Memory:
         srcs = list(dict.fromkeys(sources))
         self._check(kind, subject, key, content, origin, srcs)
         now = self.clock.now()
-        same = self.db.conn.execute(
-            "SELECT id FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND lower(content) = lower(?) "
-            "AND origin = ? AND status != 'retracted' AND valid_to IS NULL", (kind, subject, key, content,
-                                                                               origin)).fetchone()
+        if origin == "observed":                                 # a pattern: same key = same pattern, any wording
+            same = self.db.conn.execute(
+                "SELECT id FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND origin = 'observed' "
+                "AND status != 'retracted' AND valid_to IS NULL ORDER BY seq LIMIT 1",
+                (kind, subject, key)).fetchone()
+        else:
+            same = self.db.conn.execute(
+                "SELECT id FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND lower(content) = lower(?) "
+                "AND origin = ? AND status != 'retracted' AND valid_to IS NULL",
+                (kind, subject, key, content, origin)).fetchone()
         if same is not None:                                     # the same fact again: more evidence, no new item
             item_id = same["id"]
         else:

@@ -140,8 +140,12 @@ class Distiller:
 
     async def _model(self, day: str, ev: summary.DayEvidence) -> dict[str, Any]:
         known = [f"- {i.kind} / {i.subject} / {i.key}: {i.content}" for i in self.memory.items("active")]
+        pending = [f"- {i.kind} / {i.subject} / {i.key}: {i.content}" for i in self.memory.items("proposed")
+                   if i.origin == "observed"]
         ctx = (f"Day: {day}\n\nEvidence (cite handles):\n" + "\n".join(ev.lines) +
-               "\n\nWhat FERB already remembers (reuse a key to update a fact):\n" + ("\n".join(known) or "(nothing)"))
+               "\n\nWhat FERB already remembers (reuse a key to update a fact):\n" + ("\n".join(known) or "(nothing)") +
+               "\n\nPatterns seen before, not yet confirmed (if today's evidence shows one again, propose it with the "
+               "same key):\n" + ("\n".join(pending) or "(none)"))
         rt = self.make_runtime("worker", mode="supervisor", tool_names=[], schema=DISTILL_SCHEMA)
         task = Task(f"distill-{day}", None, "distill", self.device_id, Identity.OWNER, set(), "verifier",
                     f"distill-{day}", [], None)
