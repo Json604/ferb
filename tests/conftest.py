@@ -87,10 +87,21 @@ def daemon(home: Path) -> Iterator[RunningDaemon]:
     d.stop()
 
 
+def real_codex_login() -> Path | None:
+    """FERB's own Codex login (`ferb setup --codex-login`), when the owner has one; never the owner's personal ~/.codex."""
+    login = Path.home() / ".ferb" / "codex-home"
+    return login if (login / "auth.json").exists() else None
+
+
 @pytest.fixture(autouse=True)
 def no_real_models(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Offline tests must never reach a real model (cost, flakiness): only `-m real` tests may."""
+    """Offline tests must never reach a real model (cost, flakiness): only `-m real` tests may. Live tests run daemons
+    in temporary homes, so they borrow FERB's own Codex login (Codex refuses to run without one, F2-R11)."""
     if request.node.get_closest_marker("real"):
+        import ferb.runtimes.codex_exec as cx
+        login = real_codex_login()
+        if login is not None:
+            monkeypatch.setattr(cx, "codex_home", lambda ferb_home: login)
         return
 
     async def refuse(*a: Any, **k: Any) -> None:

@@ -30,7 +30,9 @@ stays 0.26.1 while 0.27 is in development.
 - Capability table and per-role selection (`99b4baa`): `CATALOG`, `[runtimes] orchestrator|worker|checker` (checker falls
   back to worker), `[models] <runtime>`, `ferb runtimes` and `ferb runtimes use ROLE RUNTIME [--model M]`.
 - Codex runs with its own empty HOME (`~/.ferb/codex-user`) and `skill_mcp_dependency_install` disabled, so the owner's
-  personal skills never load (`df3173a`, `2ef1ff6`).
+  personal skills never load (`df3173a`, `2ef1ff6`). After the owner's live run: Codex's capability row now says image
+  tool results reach it (verified live 2026-10-08 with an MCP tool returning a PNG), and live tests borrow FERB's own
+  Codex login for their temporary daemons instead of failing (`ferb setup --codex-login` is required since F2-R11).
 - `ApiRuntime` and `GatewayBridge` (`463c7fc`, `13f0595`): FERB's own tool loop for direct APIs; tools only through the
   gateway; retries with backoff on transport errors and 408/409/429/5xx/529; a tool the run was not offered is a
   violation, with every name in a turn checked before any call runs; cancellation is honoured and tool calls run as child

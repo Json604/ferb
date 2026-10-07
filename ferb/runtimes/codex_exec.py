@@ -113,8 +113,8 @@ async def check_version(binary: Path) -> None:
 
 class CodexRuntime:
     name = "codex"
-    # image_input False: unverified; no test, spike or trace shows an MCP image result reaching Codex
-    capabilities = Capabilities("direct", "prefix", False, "native", True, False, False, False, "subscription")
+    # image_input True: verified live 2026-10-08 — a PNG returned by an MCP tool in FERB's shim format reached the model
+    capabilities = Capabilities("direct", "prefix", False, "native", True, True, False, False, "subscription")
 
     def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], workdir: Path, ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,

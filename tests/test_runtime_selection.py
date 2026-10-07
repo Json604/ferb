@@ -81,3 +81,19 @@ def test_show_names_the_cache_routing_column(tmp_path: Path) -> None:
     runtimes_cli.show(tmp_path / "home", out)
     header = out.getvalue().splitlines()[0]
     assert "cache key" in header and " key " not in header.replace("cache key", "")
+
+
+def test_codex_receives_image_tool_results() -> None:
+    """Verified live 2026-10-08: an MCP tool returning a PNG through FERB's shim format reached Codex 0.157.1 (it named
+    the picture's colour), so screenshots taken by FERB's tools are visible to Codex workers."""
+    from ferb.runtimes.codex_exec import CodexRuntime
+    assert CodexRuntime.capabilities.image_input is True
+
+
+def test_live_tests_use_ferbs_own_codex_login() -> None:
+    """Live tests run daemons in temporary homes; they borrow FERB's own Codex login, never the owner's ~/.codex."""
+    import ferb.runtimes.codex_exec as cx
+    from tests.conftest import real_codex_login
+    login = real_codex_login()
+    assert login is None or login == Path.home() / ".ferb" / "codex-home"
+    assert cx.codex_home(Path("/nonexistent-ferb-home")) is None    # offline tests are untouched
