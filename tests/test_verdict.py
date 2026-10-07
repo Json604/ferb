@@ -50,3 +50,36 @@ async def _outcome(d: RunningDaemon, task_id: str) -> dict:
 async def _add_task(d: RunningDaemon, task_id: str) -> None:
     d.daemon.db.conn.execute(TASK_INSERT, (task_id, task_id, NOW, NOW))
     d.daemon.db.conn.commit()
+
+
+async def _add_child(d: RunningDaemon, child_id: str, root_id: str) -> None:
+    d.daemon.db.conn.execute(TASK_INSERT, (child_id, root_id, NOW, NOW))
+    d.daemon.db.conn.execute("UPDATE tasks SET parent_id = ? WHERE id = ?", (root_id, child_id))
+
+
+def test_verdict_rejects_child_task_and_names_root(daemon: RunningDaemon) -> None:
+    daemon.run(_add_task(daemon, "rootaaaa"))
+    daemon.run(_add_child(daemon, "rootaaaa.1", "rootaaaa"))
+    c = Client(daemon.sock)
+    try:
+        with pytest.raises(RpcError, match="rootaaaa"):
+            c.call("verdict.set", {"task_id": "rootaaaa.1", "verdict": "pass"})
+    finally:
+        c.close()
+    assert daemon.run(_outcome(daemon, "rootaaaa"))["owner_verdict"] is None
+
+
+def test_verdict_resolves_prefix_and_rejects_ambiguous_and_last(daemon: RunningDaemon) -> None:
+    daemon.run(_add_task(daemon, "abcdef111111"))
+    daemon.run(_add_task(daemon, "abcdef222222"))
+    daemon.run(_add_task(daemon, "uniq99887766"))
+    c = Client(daemon.sock)
+    try:
+        assert c.call("verdict.set", {"task_id": "uniq99", "verdict": "pass"})["task_id"] == "uniq99887766"
+        with pytest.raises(RpcError, match="ambiguous"):
+            c.call("verdict.set", {"task_id": "abcdef", "verdict": "pass"})
+        with pytest.raises(RpcError):
+            c.call("verdict.set", {"task_id": "last", "verdict": "pass"})
+    finally:
+        c.close()
+    assert daemon.run(_outcome(daemon, "uniq99887766"))["owner_verdict"]["verdict"] == "pass"

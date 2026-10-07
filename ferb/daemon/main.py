@@ -1664,22 +1664,28 @@ class Daemon:
         return {"pid": os.getpid(), "role": session.role.value, "now": self.clock.now().isoformat(),
                 "stopped": self.state.stopped}
 
-    async def _trace(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        task_id = str(params.get("task_id") or "last")
-        if self.spans is None or self.db is None:
+    def _resolve_root_task(self, task_id: str, allow_last: bool = False) -> str:
+        """Owner-typed task id: exact id, or a unique 6+ character root-task prefix; `last` only when allowed."""
+        if self.db is None:
             raise FerbError("daemon not started")
-        if task_id == "last":  # Explicit CLI request for the latest task, never target resolution for an action.
+        if task_id == "last" and allow_last:  # Explicit CLI request for the latest task, never an action target.
             row = self.db.conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL "
                                        "ORDER BY created_at DESC, rowid DESC LIMIT 1").fetchone()
-            if row:
-                task_id = str(row['id'])
-        elif len(task_id) >= 6 and not self.db.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone():
+            return str(row['id']) if row else task_id
+        if len(task_id) >= 6 and not self.db.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone():
             matches = self.db.conn.execute("SELECT id FROM tasks WHERE substr(id, 1, ?) = ? "
                                            "AND parent_id IS NULL ORDER BY id", (len(task_id), task_id)).fetchall()
             if len(matches) > 1:
                 raise FerbError('ambiguous task prefix: ' + ', '.join(r['id'] for r in matches))
             if matches:
-                task_id = str(matches[0]['id'])
+                return str(matches[0]['id'])
+        return task_id
+
+    async def _trace(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(params.get("task_id") or "last")
+        if self.spans is None or self.db is None:
+            raise FerbError("daemon not started")
+        task_id = self._resolve_root_task(task_id, allow_last=True)
         return {"task_id": task_id, "spans": [_node_json(n) for n in self.spans.tree(task_id)],
                 "outcome": self.spans.outcome(task_id)}
 
@@ -1687,12 +1693,16 @@ class Daemon:
         """`ferb verdict`: the owner's pass/fail on a task. Acceptance is their word; code never infers it."""
         if self.db is None:
             raise FerbError("daemon not started")
-        task_id = str(params.get("task_id") or "")
         verdict = str(params.get("verdict") or "")
         if verdict not in ("pass", "fail"):
             raise FerbError("verdict must be 'pass' or 'fail'")
-        if not self.db.conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone():
-            raise FerbError(f"unknown task {task_id!r}")
+        given = str(params.get("task_id") or "")
+        task_id = self._resolve_root_task(given)
+        row = self.db.conn.execute("SELECT parent_id, tree_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if row is None:
+            raise FerbError(f"unknown task {given!r}")
+        if row["parent_id"] is not None:
+            raise FerbError(f"task {task_id} is part of {row['tree_id']}; give the verdict for {row['tree_id']}")
         self.db.conn.execute(
             "INSERT INTO owner_verdicts (id, task_id, verdict, note, at) VALUES (?,?,?,?,?)",
             (self.ids.new_id(), task_id, verdict, self.redact({"note": str(params.get("note") or "")})["note"],
