@@ -116,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--identity", action="store_true",
                     help="choose FERB's identity profile in your Chrome (it must hold only FERB's account)")
     sp.add_argument("--profile", help="with --identity: the Chrome profile's name, if several hold FERB's account")
+    sp.add_argument("--key", choices=["anthropic", "openai", "google"],
+                    help="store a provider's API key in the Keychain and check it answers (direct-API runtimes)")
     sp.add_argument("--jev", action="store_true", help="store the Jev API key in the Keychain and check it answers")
     sp.add_argument("--codex-login", action="store_true",
                     help="sign in FERB's own Codex (its own home: your personal Codex settings and skills stay out)")
@@ -190,6 +192,8 @@ def main(argv: list[str] | None = None) -> int:
         inst = Installer(ferb_home(), native_hosts_dirs=NATIVE_HOSTS_DIRS, extension_ids=(FERB_EXTENSION_ID,))
         env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout)
         try:
+            if args.cmd == "setup" and args.key:
+                return setup_cmd.key_setup(env, args.key)
             if args.cmd == "setup" and args.jev:
                 return setup_cmd.jev_setup(env)
             if args.cmd == "setup" and args.voice:

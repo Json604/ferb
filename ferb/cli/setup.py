@@ -273,6 +273,13 @@ def doctor(env: Env) -> int:
                 used = name in (rs.get("orchestrator"), rs.get("worker"))
                 add(Check(f"runtime {name}", "ok" if ok else ("fail" if used else "warn"), str(rs[name]),
                           "run `ferb setup --update`" if not ok else ""))
+        from ferb.runtimes.catalog import CATALOG, ROLES
+        cfg = Config(inst.home)
+        for role in ROLES:
+            default = cfg.get("runtimes", "worker", "codex") if role == "checker" else "codex"
+            rname = str(cfg.get("runtimes", role, default))
+            usable, fix = CATALOG[rname].available(inst.home) if rname in CATALOG else (False, "check config.toml [runtimes]")
+            add(Check(f"runtime {role}", "ok", rname) if usable else Check(f"runtime {role}", "warn", f"{rname} not usable", fix))
         if rs:
             add(Check("roles", "ok", f"supervisor {rs.get('orchestrator')}, worker {rs.get('worker')}"))
         for name, why in rs.get("unregistered", {}).items():
@@ -546,6 +553,28 @@ def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     env.say("Push-to-talk is ready: hold Right Option, speak, let go. A tap or a shortcut (Right Option + a key) is ignored.")
     env.say("It uses the built-in mic whenever your default input is a Bluetooth headset (it never opens a headset's mic).")
     return 0
+
+
+def key_setup(env: Env, provider: str) -> int:
+    """The key goes straight into the Keychain (`security` asks for it; never an argument, never in chat or config),
+    then the daemon makes one tiny typed call with it."""
+    import subprocess
+    from ferb.identity.secrets import SERVICE
+    from ferb.runtimes.keys import account
+    env.say(f"Paste your {provider} API key when `security` asks (twice; nothing is shown):")
+    if subprocess.run(["security", "add-generic-password", "-U", "-s", SERVICE, "-a", account(provider), "-w"]).returncode:
+        env.say("The key wasn't stored.")
+        return 1
+    try:
+        c = env.connect()
+        out = c.call("runtimes.check", {"runtime": provider})
+        c.close()
+    except (NotRunning, FerbError) as e:
+        env.say(f"Stored. The daemon couldn't check it yet: {e}")
+        return 1
+    env.say(f"{provider} answered; to use it, set a role to "{provider}" under [runtimes] in ~/.ferb/config.toml." if out.get("ok")
+            else f"Stored, but the check failed: {out.get('detail')}")
+    return 0 if out.get("ok") else 1
 
 
 def jev_setup(env: Env) -> int:

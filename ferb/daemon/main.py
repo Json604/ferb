@@ -7,6 +7,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
@@ -63,6 +64,17 @@ LOG_FILTERS = {"tasks": "task.*", "trail": "trail.event", "tools": "tool.called"
 MACOS_TICK_S = 0.2
 
 
+def _provider(name: str, model: str) -> Any:
+    if name == "anthropic":
+        from ferb.runtimes.anthropic_api import AnthropicProvider
+        return AnthropicProvider(model)
+    if name == "openai":
+        from ferb.runtimes.openai_api import OpenAIProvider
+        return OpenAIProvider(model)
+    from ferb.runtimes.google_api import GoogleProvider
+    return GoogleProvider(model)
+
+
 class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None,
@@ -94,6 +106,7 @@ class Daemon:
         add_recording(self.registry, self.recordings)
         self.tasks = TaskTree()
         self.gateway: Gateway | None = None
+        self._available_cache: dict[str, tuple[float, bool]] = {}
         self.supervisor: Supervisor | None = None
         self._proxy: ToolListProxy | None = None
         # Owner browser profiles through the extension. Tests override the data dirs and the launcher.
@@ -191,7 +204,7 @@ class Daemon:
                          ("memory.add", self._memory_add), ("memory.confirm", self._memory_confirm),
                          ("memory.edit", self._memory_edit), ("memory.retract", self._memory_retract),
                          ("memory.forget", self._memory_forget), ("memory.distill", self._memory_distill),
-                         ("jev.stats", self._jev_stats), ("jev.enable", self._jev_enable), ("jev.reload", self._jev_reload),
+                         ("jev.stats", self._jev_stats), ("jev.enable", self._jev_enable), ("jev.reload", self._jev_reload), ("runtimes.check", self._runtimes_check),
                          ("timeline.get", self._timeline),
                          ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("verdict.set", self._verdict_set), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift),
@@ -416,7 +429,7 @@ class Daemon:
         add_context_readers(self.registry, self.supervisor.continuity,
                             lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None),
                             lambda: self.memory)
-        self.supervisor.worker_types = lambda: ['default', *self.registry.runtimes]
+        self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
@@ -1250,7 +1263,7 @@ class Daemon:
         activity = self.daily_activity.search(words)
         return ('\nRelevant installed actions: ' + json.dumps(actions) +
                 '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) +
-                '\nWorker types: ' + json.dumps(['default', *self.registry.runtimes]) + '\n')
+                '\nWorker types: ' + json.dumps(['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]) + '\n')
 
     def _profile_state(self, p: Any) -> str:
         """connected / paired (FERB opens it) / installed, not paired / no extension."""
@@ -1581,11 +1594,59 @@ class Daemon:
             return CodexRuntime(codex_binary(self.home, repo_root()), mode, workdir, self.home,  # type: ignore[arg-type]
                                 shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,
                                 timeout_s=None if mode == 'worker' else 900)
+        if name in ("anthropic", "openai", "google"):
+            from ferb.runtimes.api import ApiRuntime, GatewayBridge
+            from ferb.runtimes.catalog import CATALOG
+            provider = _provider(name, model or CATALOG[name].default_model)
+            return ApiRuntime(provider, mode=mode, role=role, tool_names=tool_names,  # type: ignore[arg-type]
+                              output_schema=schema, bridge=GatewayBridge(self.gateway, self.tokens), key=self._api_key)
         from ferb.runtimes.claude_sdk import ClaudeRuntime
         if self._proxy is None:
             self._proxy = ToolListProxy()
         return ClaudeRuntime(mode, self._proxy, str(self.home), shim_cmd=shim, tool_names=tool_names,  # type: ignore[arg-type]
                              output_schema=schema, model=model)
+
+    async def _api_key(self, provider: str) -> str | None:
+        """From the Keychain at call time; added to the redactor so an echo never reaches a trace or the journal."""
+        from ferb.runtimes import keys
+        key = await keys.api_key(provider)
+        if key:
+            self._add_secret_value(key)
+        return key
+
+    def _runtime_available(self, name: str) -> bool:
+        from ferb.runtimes.catalog import CATALOG
+        now = time.monotonic()
+        hit = self._available_cache.get(name)
+        if hit is None or now - hit[0] > 60:
+            hit = (now, name in CATALOG and CATALOG[name].available(self.home)[0])
+            self._available_cache[name] = hit
+        return hit[1]
+
+    async def _runtimes_check(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """One tiny typed call through a runtime: proves the key, model and network work (costs a fraction of a cent)."""
+        from ferb.core.types import ModelRequest, Task
+        name = str(params.get("runtime"))
+        self._available_cache.pop(name, None)
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"],
+                  "additionalProperties": False}
+        try:
+            rt = self._build_runtime(name, "orchestrator", mode="supervisor", tool_names=[], schema=schema)
+            device = str(self.config.get("device", "id", "unknown-device"))
+            task = Task("runtime-check", None, "chat", device, Identity.OWNER, set(), "mixed", "runtime-check", [], None)
+            run = await rt.start(task, ModelRequest('Answer {"ok": true}.', ("Check.",), 0), "")
+        except Exception as e:
+            return {"ok": False, "detail": f"{type(e).__name__}: {e}"}
+        detail = ""
+        try:
+            async for ev in rt.events(run):
+                if ev.kind == "final":
+                    return {"ok": json.loads(ev.data["text"]).get("ok") is True, "detail": "answered"}
+                if ev.kind in ("error", "violation"):
+                    detail = str(ev.data)
+        finally:
+            await rt.cancel(run)
+        return {"ok": False, "detail": detail or "no answer"}
 
     async def _tools_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if session.grant is None or self.gateway is None:

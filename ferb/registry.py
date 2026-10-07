@@ -43,6 +43,9 @@ def build() -> Registry:
     # runtimes implement AgentRuntime; config chooses per role
     r.runtimes["codex"] = "ferb.runtimes.codex_exec"
     r.runtimes["claude"] = "ferb.runtimes.claude_sdk"
+    r.runtimes["anthropic"] = "ferb.runtimes.anthropic_api"
+    r.runtimes["openai"] = "ferb.runtimes.openai_api"
+    r.runtimes["google"] = "ferb.runtimes.google_api"
     return r
 
 
