@@ -141,3 +141,12 @@ def test_revoked_token_cannot_call_tools_through_the_real_shim(daemon: RunningDa
     assert out["after"][0] is True and "revoked" in out["after"][1] and out["after"][2] < 1.0
     assert (daemon.daemon.home / "workspace" / "x.txt").exists()
     assert not (daemon.daemon.home / "workspace" / "y.txt").exists()
+
+
+def test_tool_call_span_records_action_kind_and_target(daemon: RunningDaemon) -> None:
+    send = FakeCap("fake.send", "send", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"}, request("send the message"), [send])
+    assert not call(daemon, grant, send.name, to="mom@example.com")["is_error"]
+    spans = [r.span for r in daemon.run(_tree(daemon)) if r.span.input.get("tool") == send.name]
+    assert spans[-1].input["kind"] == "send"
+    assert spans[-1].input["target"]["recipients"] == ["mom@example.com"]
