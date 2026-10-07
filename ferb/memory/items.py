@@ -201,12 +201,12 @@ class Memory:
         srcs = list(dict.fromkeys(sources))
         self._check(kind, subject, key, content, origin, srcs)
         now = self.clock.now()
-        if origin == "observed":                                 # a pattern: same key = same pattern, any wording
+        same = None
+        if origin == "observed":                 # a pending pattern: same key = same pattern, any wording
             same = self.db.conn.execute(
                 "SELECT id FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND origin = 'observed' "
-                "AND status != 'retracted' AND valid_to IS NULL ORDER BY seq LIMIT 1",
-                (kind, subject, key)).fetchone()
-        else:
+                "AND status = 'proposed' AND valid_to IS NULL ORDER BY seq LIMIT 1", (kind, subject, key)).fetchone()
+        if same is None:                         # an active item, or any other origin, matches on identical content only
             same = self.db.conn.execute(
                 "SELECT id FROM memory_items WHERE kind = ? AND subject = ? AND key = ? AND lower(content) = lower(?) "
                 "AND origin = ? AND status != 'retracted' AND valid_to IS NULL",

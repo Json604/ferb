@@ -13,11 +13,15 @@ def test_same_key_different_wording_on_three_days_activates_once(daemon: Running
             ("2099-01-03", "Evening coding happens in VS Code"))
     rows = [trail_row(daemon, day) for day, _ in days]
 
-    async def go() -> tuple[list[str], Any]:
-        ids = [mem.propose("preference", "owner", "editor", wording, "observed", [("trail", src)]).id
-               for (_, wording), src in zip(days, rows)]
-        return ids, mem.get(ids[0])
-    ids, item = daemon.run(go())
+    async def go() -> tuple[list[str], list[str], Any]:
+        ids, statuses = [], []
+        for (_, wording), src in zip(days, rows):
+            it = mem.propose("preference", "owner", "editor", wording, "observed", [("trail", src)])
+            ids.append(it.id)
+            statuses.append(it.status)
+        return ids, statuses, mem.get(ids[0])
+    ids, statuses, item = daemon.run(go())
+    assert statuses == ["proposed", "proposed", "active"]
     assert len(set(ids)) == 1
     assert item.status == "active"
 
@@ -45,3 +49,30 @@ def test_distiller_sees_pending_observed_proposals(daemon: RunningDaemon) -> Non
         pass
     assert "Patterns seen before, not yet confirmed" in seen["context"]
     assert "editor" in seen["context"]
+
+
+def test_changed_pattern_is_a_new_proposal_not_merged_into_the_active_item(daemon: RunningDaemon) -> None:
+    mem = daemon.daemon.memory
+    rows = [trail_row(daemon, f"2099-02-0{n}") for n in (1, 2, 3, 4)]
+
+    async def go() -> tuple[Any, Any, Any]:
+        first = None
+        for src in rows[:3]:
+            first = mem.propose("preference", "owner", "editor", "Codes in VS Code", "observed", [("trail", src)])
+        assert first is not None and first.status == "active"
+        new = mem.propose("preference", "owner", "editor", "Codes in Cursor", "observed", [("trail", rows[3])])
+        return first, new, mem.get(first.id)
+    first, new, old = daemon.run(go())
+    assert new.id != first.id and new.status == "proposed"
+    assert old.content == "Codes in VS Code" and old.status == "active"
+
+
+def test_non_observed_origin_with_other_wording_stays_a_separate_item(daemon: RunningDaemon) -> None:
+    mem = daemon.daemon.memory
+    rows = [trail_row(daemon, "2099-03-01"), trail_row(daemon, "2099-03-02")]
+
+    async def go() -> list[str]:
+        return [mem.propose("preference", "owner", "editor", wording, "inferred", [("trail", src)]).id
+                for wording, src in (("Codes in VS Code", rows[0]), ("Uses VS Code to code", rows[1]))]
+    ids = daemon.run(go())
+    assert len(set(ids)) == 2
