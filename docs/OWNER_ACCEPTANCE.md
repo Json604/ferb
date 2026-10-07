@@ -63,16 +63,20 @@ Owner decision (2026-10-07): no API keys for now, so only the Codex and Claude C
 
 Run now (Codex and Claude CLI):
 1. `ferb runtimes` shows the table: five runtimes, which are usable, what each role uses.
-2. After `ferb setup --update`, a Codex worker run's trace (`ferb trace TASK --full`) has no owner skill loads and no
-   `failed to load skill`.
+2. After `ferb setup --update` (`~/.ferb/codex-user` appears only then), a Codex worker run's trace
+   (`ferb trace TASK --full`) has no owner skill loads and no `failed to load skill`. Codex also needs
+   `ferb setup --codex-login`; without it the chat says so (F2-R11).
 3. The Codex and Claude live suites (`uv run pytest -m real` with the Codex runtime; `-m real_claude`, owner-run only)
    still pass: tool allowlists, blocked native paths, one full chat turn.
 
 When the owner adds keys (per provider the owner chooses; API use bills per token):
 4. `ferb setup --key P` answers, `ferb runtimes use orchestrator P` works for a few back-to-back chat turns, and
    `ferb baseline` / the per-turn cached tokens in the trace improve. Switch back with
-   `ferb runtimes use orchestrator codex` if preferred.
+   `ferb runtimes use orchestrator codex` if preferred. Watch for an HTTP 400 on a Gemini image tool result: that
+   request shape is only documented, not yet exercised.
 5. `uv run pytest -m real_api` (owner-run; skips providers without a key).
+
+Known limit: `ferb runtimes` reports Claude usable without checking its login (plan-mandated).
 
 ## What has been observed in this pass
 

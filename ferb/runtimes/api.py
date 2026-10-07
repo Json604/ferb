@@ -180,6 +180,8 @@ class ApiRuntime:
                 results = []
                 for call in turn.calls:
                     yield RuntimeEvent("tool_call", {"tool": call.name, "arguments": call.arguments})
+                    if r.cancelled:
+                        return
                     outcome = await self._execute(r, r.names[call.name], call)
                     if outcome is None or r.cancelled:
                         return

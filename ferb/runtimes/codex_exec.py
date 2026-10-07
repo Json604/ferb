@@ -10,8 +10,9 @@ Codex runs with its own empty HOME to keep the owner's personal skills out. Ephe
 request trace on every run; anything outside the allowlist kills the run.
 
 Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
-- FERB's own CODEX_HOME (`~/.ferb/codex-home`, once logged in there) so the owner's personal skills and settings
-  never load; until then the default home is used and `ferb doctor` says how to log in;
+- FERB's own CODEX_HOME (`~/.ferb/codex-home`, from `ferb setup --codex-login`) so the owner's personal skills and
+  settings never load; HOME is always `~/.ferb/codex-user`. There is no fallback to `~/.codex`: without that login
+  the daemon refuses to build a Codex runtime and says to run `ferb setup --codex-login`;
 - supervisor-mode runs (the planner, the answer writer, distillation: no tools) use low reasoning effort and replace
   Codex's built-in instructions with FERB's own (model_instructions_file) — about half the input tokens — and drop
   Codex's environment / permissions / apps / collaboration instruction blocks; tasks (worker mode) are unchanged;

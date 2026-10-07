@@ -61,3 +61,23 @@ def test_runtimes_use_writes_config_and_show_lists_roles(tmp_path: Path) -> None
     assert runtimes_cli.show(home, out) == 0
     text = out.getvalue()
     assert all(role in text for role in ROLES) and "codex" in text and "claude" in text
+
+
+def test_use_warns_when_the_runtime_is_not_usable_yet(tmp_path: Path, monkeypatch) -> None:
+    import ferb.runtimes.keys as keys
+    monkeypatch.setattr(keys, "has_api_key", lambda provider: False)
+    out = io.StringIO()
+    assert runtimes_cli.use(tmp_path / "home", "orchestrator", "openai", None, out) == 0      # configuring ahead is allowed
+    assert Config(tmp_path / "home").get("runtimes", "orchestrator") == "openai"
+    assert "openai isn't usable on this Mac yet: run `ferb setup --key openai`. The orchestrator will fail" in out.getvalue()
+    monkeypatch.setattr(keys, "has_api_key", lambda provider: True)
+    out = io.StringIO()
+    runtimes_cli.use(tmp_path / "home", "orchestrator", "openai", None, out)
+    assert "isn't usable" not in out.getvalue()
+
+
+def test_show_names_the_cache_routing_column(tmp_path: Path) -> None:
+    out = io.StringIO()
+    runtimes_cli.show(tmp_path / "home", out)
+    header = out.getvalue().splitlines()[0]
+    assert "cache key" in header and " key " not in header.replace("cache key", "")

@@ -697,7 +697,7 @@ class Daemon:
 
     def _record_distill_usage(self, runtime: str, data: dict[str, Any]) -> None:
         span = self.spans.start("model.usage", task_id=None, parent_id=None, input={"runtime": runtime, "role": "distill"})
-        self.spans.finish(span, output=data)
+        self.spans.finish(span, output=data, cost_usd=data.get("cost_usd"))
 
     def _purge_trail(self) -> Any:
         if self.trail is None:
@@ -1593,7 +1593,10 @@ class Daemon:
         shim = [sys.executable, "-m", "ferb.cli.mcp"]
         if name == "codex":
             from ferb.device.install import repo_root
-            from ferb.runtimes.codex_exec import MODEL, CodexRuntime, codex_binary
+            from ferb.core.errors import Unsupported
+            from ferb.runtimes.codex_exec import MODEL, CodexRuntime, codex_binary, codex_home
+            if codex_home(self.home) is None:
+                raise Unsupported("Codex isn't signed in for FERB: run `ferb setup --codex-login`")
             workdir = self.home / "workspace" if mode == "worker" else self.home / "run" / "supervisor"
             return CodexRuntime(codex_binary(self.home, repo_root()), mode, workdir, self.home,  # type: ignore[arg-type]
                                 shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,

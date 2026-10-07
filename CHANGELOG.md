@@ -16,6 +16,10 @@ Milestone F2 of `docs/0.27_PLAN.md` (D32, P20). Implementation, tests and docume
 this documentation commit (every F2 commit after `d3ca7d3`). The version in `pyproject.toml` and `ferb/__init__.py`
 stays 0.26.1 while 0.27 is in development.
 
+- Final-review fixes (D32): a Codex runtime is refused with "run `ferb setup --codex-login`" when FERB's own Codex home
+  has no login (F2-R11); the API runtime checks the cancel flag between a tool-call event and the bridge call;
+  `ferb runtimes use` warns when the chosen runtime is not usable yet (F2-R12); usage cost reaches the span cost column.
+
 - One request shape for every runtime (`77168ee`): `ModelRequest(system, parts, cacheable)` with `assemble_parts` and
   `ContextBlock.cache`. The orchestrator marks device facts and chat history as the cacheable prefix; task calls mark the
   owner's original request and the task specification.

@@ -23,7 +23,8 @@ def _codex_available(home: Path) -> tuple[bool, str]:
     from ferb.core.errors import Unsupported
     from ferb.runtimes.codex_exec import codex_binary, codex_home
     try:
-        codex_binary(home)
+        from ferb.device.install import repo_root
+        codex_binary(home, repo_root())
     except Unsupported:
         return False, "run `ferb setup --update`"
     return (True, "") if codex_home(home) is not None else (False, "run `ferb setup --codex-login`")

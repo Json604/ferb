@@ -96,3 +96,28 @@ def test_runtimes_check_reports_a_non_json_answer(daemon: RunningDaemon, monkeyp
 def test_offline_daemons_never_ask_the_real_keychain(daemon: RunningDaemon) -> None:
     d = daemon.daemon
     assert [n for n in d.registry.runtimes if d._runtime_available(n)] == ["codex", "claude"]
+
+
+def test_codex_without_ferbs_own_login_is_refused_with_the_fix(daemon: RunningDaemon) -> None:
+    import pytest
+    from ferb.core.errors import Unsupported
+    d = daemon.daemon
+    assert not (d.home / "codex-home" / "auth.json").exists()
+    d.config.set("runtimes", "orchestrator", "codex")
+    with pytest.raises(Unsupported, match="ferb setup --codex-login"):
+        d._make_runtime("orchestrator", mode="supervisor", tool_names=[], schema={"type": "object"})
+
+
+def test_a_usage_events_cost_lands_in_the_span_cost_column(daemon: RunningDaemon) -> None:
+    from tests.conftest import chat, done, install, outcome, sup, task
+    install(daemon, [sup("task", "Working", task())], {"worker": lambda _: done("ok")})
+    outcome(chat(daemon, "Create the requested file"))
+    async def rows(sql):
+        return [dict(r) for r in daemon.daemon.db.conn.execute(sql).fetchall()]
+    usage = daemon.run(rows("SELECT cost_usd FROM spans WHERE kind = 'model.usage'"))
+    assert usage and any(r["cost_usd"] == 0.001 for r in usage)
+
+    async def distill():
+        daemon.daemon._record_distill_usage("fake", {"input_tokens": 1, "cost_usd": 0.5})
+        return await rows("SELECT cost_usd FROM spans WHERE input_json LIKE '%distill%'")
+    assert daemon.run(distill())[0]["cost_usd"] == 0.5

@@ -246,3 +246,17 @@ async def test_run_repr_and_cancel_hide_and_close() -> None:
 def test_inline_refs_keeps_siblings_of_a_reference() -> None:
     schema = {"properties": {"a": {"$ref": "#/$defs/A", "description": "the a"}}, "$defs": {"A": {"type": "string"}}}
     assert inline_refs(schema) == {"properties": {"a": {"type": "string", "description": "the a"}}}
+
+
+@pytest.mark.anyio
+async def test_cancel_while_the_consumer_handles_the_tool_call_event_skips_the_bridge() -> None:
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/"}]]}), (200, {"text": "done"})])
+    bridge = FakeBridge()
+    rt = runtime(script, bridge=bridge)
+    run = await rt.start(TASK, REQ, "tok")
+    events = []
+    async for e in rt.events(run):
+        events.append(e)
+        if e.kind == "tool_call":
+            await rt.cancel(run)                      # the consumer awaits while handling the event
+    assert bridge.calls == [] and len(script.requests) == 1 and not any(e.kind == "final" for e in events)

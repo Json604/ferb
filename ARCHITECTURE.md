@@ -209,6 +209,7 @@ class per API translates requests, responses, cache markers, typed output and us
   other errors surface as an `error` event with the key removed from the text.
 - Tool calls run as their own tasks. `cancel` ends the run; the gateway cancelling a job (an owner stop) ends that tool call
   and the model is told, not the whole worker; cancellation of the consuming task propagates.
+  The cancel flag is checked before each provider call, before each tool call and after each tool call.
 - Each adapter accepts only a normal end of turn and raises `ProviderError` for any other stop state (cut off at the output
   limit, refusal, early stop), so a partial answer is never taken as final.
 - OpenAI requests include `reasoning.encrypted_content` and are stateless (`store` false), so reasoning is replayed.

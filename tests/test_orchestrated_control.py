@@ -330,6 +330,8 @@ def test_repeated_calls_do_not_have_a_hard_action_limit(daemon):
 def test_worker_runtimes_have_no_task_duration_or_turn_cap(daemon):
     from ferb.runtimes.claude_sdk import ClaudeRuntime
     assert 'max_turns' not in __import__('inspect').signature(ClaudeRuntime).parameters
+    (daemon.daemon.home / 'codex-home').mkdir(exist_ok=True)
+    (daemon.daemon.home / 'codex-home' / 'auth.json').write_text('{}')      # signed in for FERB
     rt = daemon.daemon._make_runtime('worker:codex', mode='worker', tool_names=[], schema={})
     assert rt.timeout_s is None
 
