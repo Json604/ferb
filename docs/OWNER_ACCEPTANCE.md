@@ -78,6 +78,21 @@ When the owner adds keys (per provider the owner chooses; API use bills per toke
 
 Known limit: `ferb runtimes` reports Claude usable without checking its login (plan-mandated).
 
+### 0.27 F2 live run (2026-10-08)
+
+- `ferb runtimes` (owner ran it): five runtimes; Codex and Claude usable; API runtimes need keys. The owner asked why
+  Codex showed `images: no`: it was marked unverified; a live probe (MCP tool returning a PNG in FERB's shim format)
+  got the right colour back, so Codex now shows `images: yes` (`fa00358`).
+- Live runtime tests, run by Claude Code at the owner's request: Codex `-m real` 4 passed (12 API variants skipped:
+  no keys); Claude `-m real_claude` 4 passed. First runs failed for two test-side reasons, both fixed: temporary test
+  daemons had no FERB Codex login (since F2-R11; live tests now borrow FERB's own login, `fa00358`), and the
+  containment test was stale since 2026-10-03 (`4e0976a` removed fs roots): it expected only the five fs tools and
+  that FERB's own fs.write / fs.read can't reach outside the workspace. Now it checks the run offers exactly what the
+  token covers, the model sees exactly that, native shell / apply_patch / network / sub-agents never work, and any
+  outside write or read is explained by an audited FERB fs call (protected-path lists arrive in F5).
+- Observed: Codex's worker wrote the probe file with FERB's fs.write and read the canary with fs.read (both through
+  the gateway); apply_patch was refused by the read-only sandbox; no shell, fetch or sub-agent tool existed.
+
 ## What has been observed in this pass
 
 | Disposable check | Evidence | Verdict and limits |
