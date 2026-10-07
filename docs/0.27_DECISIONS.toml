@@ -1,0 +1,197 @@
+# Decision registry: every D*/MP* item in docs/0.27_PLAN.md maps to its milestone.
+# tests are filled by the owning milestone. Checked by tests/test_decision_coverage.py.
+
+[D1]
+milestone = "F0"
+tests = []
+summary = "Python stays; work on astra/0.27-upgrade"
+
+[D2]
+milestone = "F8"
+tests = []
+summary = "Similarity search runs before FERB plans, giving it similar past tasks"
+
+[D3]
+milestone = "F6"
+tests = []
+summary = "Chat is never blocked by a loader"
+
+[D4]
+milestone = "F7"
+tests = []
+summary = "Log every event on the Mac through system-wide sources, not per-app watchers"
+
+[D5]
+milestone = "F7"
+tests = []
+summary = "No system log (log stream) monitoring: too much noise"
+
+[D6]
+milestone = "F4"
+tests = []
+summary = "No continuous screen capture or text recognition; a screenshot goes with each task turn"
+
+[D7]
+milestone = "F7"
+tests = []
+summary = "Keystrokes recorded with content, stored as text typed per field"
+
+[D8]
+milestone = "F5"
+tests = []
+summary = "Secrets are redacted by code at capture for a defined set of secret classes"
+
+[D9]
+milestone = "F3"
+tests = []
+summary = "Raw events kept N days; daily summaries kept forever, structured and idempotent"
+
+[D10]
+milestone = "F7"
+tests = []
+summary = "Jev filters batches of events to decide whether FERB should see them"
+
+[D11]
+milestone = "F7"
+tests = []
+summary = "The clipboard is recorded through the same code redaction"
+
+[D12]
+milestone = "F5"
+tests = []
+summary = "Secrets are entered through a hidden secure input"
+
+[D13]
+milestone = "F5"
+tests = []
+summary = "Screenshot redaction by code: on-device text recognition plus password-field frames"
+
+[D14]
+milestone = "F3"
+tests = []
+summary = "Retention: raw events 30 days; typed text and clipboard 7 days; daily summaries forever"
+
+[D15]
+milestone = "F8"
+tests = []
+summary = "FERB gets its own local-only memory system designed for years of use"
+
+[D16]
+milestone = "F5"
+tests = []
+summary = "One access level, no modes: full access"
+
+[D17]
+milestone = "F5"
+tests = []
+summary = "Security designed now; tests built from real documented scenarios"
+
+[D18]
+milestone = "F8"
+tests = []
+summary = "Procedures are text with tool-call templates and expect lines"
+
+[D19]
+milestone = "F8"
+tests = []
+summary = "Inferred memory is stored as inferred, unconfirmed, used as labeled hints"
+
+[D20]
+milestone = "F4"
+tests = []
+summary = "Verification: separate done-but-unverified status; media evidence kept"
+
+[D21]
+milestone = "F3"
+tests = []
+summary = "Trace retention: full traces and Jev decisions 30 days; task records kept"
+
+[D22]
+milestone = "F5"
+tests = []
+summary = "Default access is full, secured by design, with setup opt-out"
+
+[D23]
+milestone = "F5"
+tests = []
+summary = "Every consequential action is classified by Jev (destructive / ...)"
+
+[D24]
+milestone = "F6"
+tests = []
+summary = "Big jobs show plan with time and cost estimate and wait for go-ahead"
+
+[D25]
+milestone = "F0"
+tests = []
+summary = "CLAUDE.md is rewritten once planning ends to match this plan"
+
+[D26]
+milestone = "F4"
+tests = []
+summary = "One screenshot per task turn; screenshot when a worker starts on an app"
+
+[D27]
+milestone = "F5"
+tests = []
+summary = "Security: S1 recovery, SQ3 shell commands, and related controls"
+
+[D28]
+milestone = "F5"
+tests = []
+summary = "OTPs are secrets: redacted, filled only through the sealed input"
+
+[D29]
+milestone = "F4"
+tests = []
+summary = "Screenshots and recordings cover only the app FERB is working on"
+
+[D30]
+milestone = "F6"
+tests = []
+summary = "Task loop: plan step types do / map / reduce / wait / ask / converse"
+
+[D31]
+milestone = "F5"
+tests = []
+summary = "Escape hatch for boundaries enforced by code only"
+
+[D32]
+milestone = "F2"
+tests = []
+summary = "Universal model runtimes: one model interface defined by FERB"
+
+[MP1]
+milestone = "F3"
+tests = []
+summary = "Raw evidence is append-only, redacted at capture, and the source of truth"
+
+[MP2]
+milestone = "F3"
+tests = []
+summary = "Trust follows origin, permanently"
+
+[MP3]
+milestone = "F8"
+tests = []
+summary = "Facts are invalidated, never overwritten"
+
+[MP4]
+milestone = "F8"
+tests = []
+summary = "Agents on tasks do not rewrite memory; an offline sleep consolidator does"
+
+[MP5]
+milestone = "F8"
+tests = []
+summary = "Learn only from verified outcomes; failure lessons are scoped and evidenced"
+
+[MP6]
+milestone = "F8"
+tests = []
+summary = "Code finds candidates; agents decide relevance"
+
+[MP7]
+milestone = "F8"
+tests = []
+summary = "Memory must prove it helps via an evaluation set from the owner's history"
