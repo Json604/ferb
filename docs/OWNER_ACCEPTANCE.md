@@ -48,6 +48,11 @@ Recall and caching (same session, later):
   cache lifetime, and had nothing cached. Code inspection found two prefix breakers, fixed after the run: history
   tags counted from the newest message (every new message renumbered earlier lines) and the stable device-facts
   block sat after history. Needs a re-check with back-to-back turns after `ferb setup --update`.
+- Re-check after the fix (four turns 9–13 s apart, "he" / "do" / "no" / "idk"): consecutive contexts now share
+  their first ~5,500 tokens and grow only at the end, yet the provider cached 6,656, 6,656, 6,656 and 0 tokens.
+  Three identical probe calls with FERB's flags cached 6,656, 6,656 and 13,824 of 14,840: Codex sends a new
+  `prompt_cache_key` (its session id) on every run, so calls are routed to caches that rarely hold the previous
+  prefix. Carried to F2 (P20 note). The disk task `c9d4f481…`: **pass** (`ferb verdict`, "i pass ig").
 
 ## What has been observed in this pass
 

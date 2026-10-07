@@ -282,6 +282,7 @@ summary = "Never retry a consequential action with an unknown outcome without th
 milestone = "F2"
 tests = ["tests/test_prompt_order.py"]
 summary = "Stable content first, changing content last, for prompt caching in every runtime"
+note = "F1 made the orchestrator context append-only (device facts first, history tags from the oldest). Remaining for F2: Codex's prompt_cache_key is its per-process session id, so the runtime layer needs a cache-routing key that stays the same per role (measured 2026-10-07)."
 
 [P21]
 milestone = "F6"
