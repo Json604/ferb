@@ -93,6 +93,15 @@ Known limit: `ferb runtimes` reports Claude usable without checking its login (p
 - Observed: Codex's worker wrote the probe file with FERB's fs.write and read the canary with fs.read (both through
   the gateway); apply_patch was refused by the read-only sandbox; no shell, fetch or sub-agent tool existed.
 
+- Installed copy (after `ferb setup --update`): the Codex probe ran with HOME `~/.ferb/codex-user` (owner-only,
+  empty); no `~/.agents/skills` path, no skill-load attempt, normal answer.
+- Chat check (owner): small talk, "which model are you?" and "how do you work in code-level detail?" — replies judged
+  passing by the owner (chat replies, no task to give a verdict on). FERB didn't know its model and gave a generic
+  design; the owner decided not to change that (public release; P27 rule 8 scope in the plan).
+
+Owner sign-off: F2 accepted (2026-10-08, "lets move forward"). Live acceptance covered Codex and Claude CLI only; the
+direct-API runtimes wait for keys.
+
 ## What has been observed in this pass
 
 | Disposable check | Evidence | Verdict and limits |
