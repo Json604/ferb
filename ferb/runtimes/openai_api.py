@@ -50,7 +50,9 @@ class OpenAIProvider:
             items.append({"role": "developer", "content": [self._text(request.system, True)]})
         items.append({"role": "user", "content": [self._text(p, i == request.cacheable - 1)
                                                   for i, p in enumerate(request.parts)]})
-        body: dict[str, Any] = {"model": self.model, "input": items, "store": False, "prompt_cache_key": cache_key}
+        # store false: replayed reasoning items need their encrypted content, so ask for it on every call
+        body: dict[str, Any] = {"model": self.model, "input": items, "store": False, "prompt_cache_key": cache_key,
+                                "include": ["reasoning.encrypted_content"]}
         if tools:
             body["tools"] = [{"type": "function", "name": t.name, "description": t.description, "parameters": t.schema,
                               "strict": False} for t in tools]

@@ -78,11 +78,6 @@ async def run(rt, token="tok"):
     return [e async for e in rt.events(handle)]
 
 
-@pytest.fixture(params=sorted(CASES))
-def case(request):
-    return CASES[request.param]
-
-
 @pytest.mark.anyio
 async def test_typed_answer_with_cache_placement(case) -> None:
     script = Scripted([(200, case["final"])])
@@ -162,6 +157,7 @@ def check_openai_first(body: dict) -> None:
     assert body["text"]["format"] == {"type": "json_schema", "name": "ferb_result", "schema": SCHEMA, "strict": True}
     assert body["store"] is False and body["prompt_cache_key"] == "ferb:worker:supervisor"
     assert body["reasoning"] == {"effort": "low"} and "instructions" not in body
+    assert body["include"] == ["reasoning.encrypted_content"]
 
 
 def check_openai_result(body: dict, image: bool) -> None:
@@ -190,6 +186,12 @@ CASES["openai"] = {
     "check_first": check_openai_first,
     "check_result": check_openai_result,
 }
+
+
+# defined after every case is registered, so params=sorted(CASES) sees them all
+@pytest.fixture(params=sorted(CASES))
+def case(request):
+    return CASES[request.param]
 
 
 @pytest.mark.anyio
@@ -221,6 +223,14 @@ async def test_openai_non_completed_status_is_an_error(status) -> None:
         reply["error"] = {"code": "server_error", "message": "boom"}
     events = await run(make(CASES["openai"], Scripted([(200, reply)]), mode="supervisor"), token="")
     assert events[-1].kind == "error" and not any(e.kind == "final" for e in events)
-    assert str(status) in events[-1].data["message"] or status is None
+    assert f"did not complete ({status})" in events[-1].data["message"] or status == "failed"
     if status == "failed":
         assert "boom" in events[-1].data["message"]
+
+
+@pytest.mark.anyio
+async def test_openai_refusal_is_an_error() -> None:
+    reply = {"status": "completed", "usage": {}, "output": [
+        {"type": "message", "role": "assistant", "content": [{"type": "refusal", "refusal": "I can't help with that."}]}]}
+    events = await run(make(CASES["openai"], Scripted([(200, reply)]), mode="supervisor"), token="")
+    assert events[-1].kind == "error" and not any(e.kind == "final" for e in events)
