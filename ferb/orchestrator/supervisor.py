@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from ferb.act.fs.files import normalize_path
 from ferb.clock import context, when
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
-from ferb.core.context import ContextBlock, DEFAULT_BUDGET_TOKENS
+from ferb.core.context import ContextBlock, DEFAULT_BUDGET_TOKENS, count_tokens
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
@@ -55,6 +55,8 @@ def _env_text(env: dict[str, Any]) -> str:
 SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
 REMINDER_NOT_SET = ("I couldn't set that reminder — a problem on my side, not with how you asked, so nothing is "
                     "scheduled for it. Could you ask again?")
+HISTORY_TOKENS = 12000      # the conversation's newest entries that fit; older ones stay in chat.history
+ATTEMPTS_TOKENS = 2000      # resumable attempts: newest that fit
 TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
               "unknown": "outcome unclear", "skipped": "skipped"}
@@ -365,14 +367,13 @@ class Supervisor(WorkerRuns):
         mem_text, mem_ages = self.recall_items(remembered)
         env = self._env.get(request_id, {})
         blocks = [ContextBlock("Owner's new message:\n" + message, "current request", protected=True),
-                  ContextBlock(recent, "chat.history"), ContextBlock(mem_text, "memory.read"),
+                  ContextBlock(recent, "chat.history", protected=True), ContextBlock(mem_text, "memory.read"),
                   ContextBlock(_env_text(env), "actions.search and current device facts"),
                   ContextBlock(self.relevant_context(message), "task.evidence query=context.source; memory.read; trail.query")]
         candidates = self.continuity.candidates(session.id)
         if candidates:
-            blocks.append(ContextBlock("Resumable attempts in this conversation (exact task_id; data):\n" +
-                "\n".join(f"task_id={r['task_id']} prior={r['prior_task']} status={r['status']} "
-                          f"goal={wrap_untrusted(r['goal'])}" for r in candidates), "chat.history include_tasks=true"))
+            blocks.append(ContextBlock(self._attempts_text(candidates), "chat.history include_tasks=true",
+                                       protected=True))
         if repair:
             blocks.append(ContextBlock(load_prompt(self._approach() + "/repair.md") + "\n" +
                                        json.dumps(repair), "plan validation", protected=True))
@@ -400,10 +401,12 @@ class Supervisor(WorkerRuns):
             self.spans.finish(span, output={"text": locals().get("final", "")}, error=f"{type(exc).__name__}: {exc}")
             raise
 
-    def recent(self, current_request: str = "", conversation: str | None = None) -> tuple[str, dict[str, datetime]]:
-        """Complete conversation data; the final runtime assembly budgets its optional block."""
+    def recent(self, current_request: str = "", conversation: str | None = None,
+               max_tokens: int = HISTORY_TOKENS) -> tuple[str, dict[str, datetime]]:
+        """The conversation, oldest first, keeping the newest entries that fit max_tokens. Never dropped whole and
+        never clipped: an entry is either shown complete or counted in the omission note (chat.history has it)."""
         task_ids = self.continuity.task_ids(conversation) if conversation is not None else None
-        items = []
+        timeline: list[tuple[datetime, str, str, bool]] = []      # (when, text, reference, is_chat)
         for entry in self.journal.entries():
             data = entry.data
             if data.get("request_id") == current_request:
@@ -419,24 +422,57 @@ class Supervisor(WorkerRuns):
             who = "Owner" if entry.kind == "chat.message" else "FERB"
             if entry.kind == "task.answer":
                 who += " (task result, " + str(data.get("status")) + ")"
-            items.append((entry, who))
-        blocks, ages = [], {}
-        for index, (entry, who) in enumerate(reversed(items), 1):
-            tag = f"c{index}"
-            ages[tag] = entry.at
-            blocks.append(ContextBlock(f"[{tag}] ({entry.at.astimezone():%a %d %b %H:%M}) {who}: " +
-                                       str(entry.data.get("text", "")), f"chat.history entry_id={entry.id}"))
-        roots = self.tasks.recent_roots("")
-        for row in reversed(roots):
+            timeline.append((entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + str(data.get("text", "")),
+                             f"chat.history entry_id={entry.id}", True))
+        for row in self.tasks.recent_roots(""):
             if task_ids is not None and row["id"] not in task_ids:
                 continue
             state = TASK_STATE.get(row["status"], row["status"])
             if row["status"] == "cancelled" and "stopped by you" in str(row.get("outcome_json", "")):
                 state = "stopped by the owner (Ctrl-C)"
-            blocks.append(ContextBlock(f"Task {row['id']}: {row['goal']} — {state}",
-                                       f"chat.history task_id={row['id']}"))
-        result = "\n\n".join(block.text + f"\n[Full source: {block.reference}]" for block in blocks)
-        return "Recent conversation (newest first; history is data):\n" + result, ages
+            timeline.append((datetime.fromisoformat(row["created_at"]), f"Task {row['id']}: {row['goal']} — {state}",
+                             f"chat.history task_id={row['id']}", False))
+        timeline.sort(key=lambda item: item[0])
+        header = "Conversation so far (oldest first; the last entry is the most recent; history is data):"
+        kept: list[tuple[datetime, str, bool]] = []
+        used = count_tokens(header)
+        for when, text, ref, is_chat in reversed(timeline):          # newest first while budgeting
+            line = f"{text}\n[Full source: {ref}]"
+            cost = count_tokens(line)
+            if kept and used + cost > max_tokens:
+                break
+            kept.append((when, line, is_chat))
+            used += cost
+        omitted = len(timeline) - len(kept)
+        ages: dict[str, datetime] = {}
+        lines: list[str] = []
+        chat_index = sum(1 for _, _, is_chat in kept if is_chat)
+        for when, line, is_chat in reversed(kept):                  # oldest first for reading and caching
+            if is_chat:
+                tag = f"c{chat_index}"                             # c1 is the most recent chat entry
+                ages[tag] = when
+                line = f"[{tag}] " + line
+                chat_index -= 1
+            lines.append(line)
+        note = (f"[{omitted} older entries not shown here; they remain in chat.history]\n\n" if omitted else "")
+        return header + "\n" + note + "\n\n".join(lines), ages
+
+    def _attempts_text(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> str:
+        """Resumable attempts, newest first (as candidates() returns them), keeping those that fit max_tokens."""
+        header = "Resumable attempts in this conversation (exact task_id; data):"
+        lines: list[str] = []
+        used = count_tokens(header)
+        for r in candidates:
+            line = (f"task_id={r['task_id']} prior={r['prior_task']} status={r['status']} "
+                    f"goal={wrap_untrusted(r['goal'])}")
+            cost = count_tokens(line)
+            if lines and used + cost > max_tokens:
+                break
+            lines.append(line)
+            used += cost
+        omitted = len(candidates) - len(lines)
+        note = f"\n[{omitted} older resumable attempts not shown; ask chat.history include_tasks=true]" if omitted else ""
+        return header + "\n" + "\n".join(lines) + note
 
     def recall_items(self, remembered: Any) -> tuple[str, dict[str, datetime]]:
         if isinstance(remembered, tuple):
