@@ -6,7 +6,7 @@ Tool containment (measured in spikes 1 and 21): pinned Codex 0.157.1 and MODEL b
 FERB's own model catalog, user config and rules ignored,
 every disableable native tool off, read-only sandbox (makes the non-removable apply_patch inert),
 approval_policy=never. Worker mode's only tool source is `ferb mcp` (pre-approved); supervisor mode has none.
-Ephemeral: nothing is written into the owner's ~/.codex sessions. The model-visible tool list is scanned from the
+Codex runs with its own empty HOME to keep the owner's personal skills out. Ephemeral: nothing is written into the owner's ~/.codex sessions. The model-visible tool list is scanned from the
 request trace on every run; anything outside the allowlist kills the run.
 
 Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
@@ -39,12 +39,16 @@ _NATIVE_BIN = Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple
 DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "multi_agent_v2", "apps", "plugins",
             "remote_plugin", "tool_suggest", "skill_search", "hooks", "browser_use", "browser_use_external",
             "in_app_browser", "computer_use", "image_generation", "view_image", "goals", "sleep_tool",
-            "code_mode_host"]
+            "code_mode_host", "skill_mcp_dependency_install"]
 # Native tools Codex always offers: inert (MCP resource plumbing over FERB's server only; request_user_input fails
 # closed in exec; apply_patch can't write in the read-only sandbox).
 SUPERVISOR_SETTINGS = ["-c", 'model_reasoning_effort="low"', "-c", "include_environment_context=false",
                        "-c", "include_permissions_instructions=false", "-c", "include_apps_instructions=false",
                        "-c", "include_collaboration_mode_instructions=false"]
+# Codex finds the owner's personal skills through HOME (~/.agents/skills), even with skill_search disabled and its own
+# CODEX_HOME. An empty, owner-only HOME of its own keeps them out (verified 2026-10-07: no skill loads, auth unaffected,
+# because auth lives in CODEX_HOME). FERB's MCP shim is unaffected: it gets FERB_HOME explicitly.
+CODEX_USER = "codex-user"
 BASE_TOOLS = frozenset({"list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource", "tool_search",
                         "request_user_input", "apply_patch"})
 
@@ -179,6 +183,9 @@ class CodexRuntime:
                     f.write(system)
                 instructions = Path(iname)
             env = {**os.environ, "RUST_LOG": "trace"}
+            user_home = self.ferb_home / CODEX_USER
+            user_home.mkdir(mode=0o700, parents=True, exist_ok=True)
+            env["HOME"] = str(user_home)
             home = codex_home(self.ferb_home)
             if home is not None:
                 env["CODEX_HOME"] = str(home)                       # the owner's personal Codex setup never loads
