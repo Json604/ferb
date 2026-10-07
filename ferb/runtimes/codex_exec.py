@@ -23,12 +23,14 @@ import json
 import os
 import secrets
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import Unsupported
 from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Task
+from ferb.runtimes.usage import from_codex
 from ferb.runtimes.tooltrace import tools_in
 
 CODEX_VERSION = "0.157.1"
@@ -226,7 +228,7 @@ class CodexRuntime:
                                                          "arguments": item.get("arguments")})
                     elif ev.get("type") == "turn.completed":
                         turn_completed = True
-                        yield RuntimeEvent("usage", dict(ev.get("usage", {})))
+                        yield RuntimeEvent("usage", asdict(from_codex(self.model, dict(ev.get("usage", {})))))
                         if self.mode == "supervisor":            # no FERB tools: the answer is in, don't wait for
                             completed = True                     # Codex to exit (workers wait, so the tool-list
                             break                                # check sees the whole trace)

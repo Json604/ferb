@@ -666,7 +666,8 @@ class Daemon:
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
-                                   purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")))
+                                   purge=self._purge_trail, device_id=str(self.config.get("device", "id", "dev")),
+                                   record_usage=self._record_distill_usage)
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
             self.supervisor.pasted_is_data = lambda: bool(self.config.get("policy", "pasted_text_is_data", True))
@@ -676,6 +677,10 @@ class Daemon:
             self.supervisor.remember = self._remember
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
+
+    def _record_distill_usage(self, runtime: str, data: dict[str, Any]) -> None:
+        span = self.spans.start("model.usage", task_id=None, parent_id=None, input={"runtime": runtime, "role": "distill"})
+        self.spans.finish(span, output=data)
 
     def _purge_trail(self) -> Any:
         if self.trail is None:

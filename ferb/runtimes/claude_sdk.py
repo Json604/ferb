@@ -9,12 +9,14 @@ ANTHROPIC_API_KEY would otherwise silently take over). The tool list the API act
 the local tool-list proxy after every turn."""
 
 import secrets
+from dataclasses import asdict
 from contextlib import suppress
 from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Task
 from ferb.runtimes.proxy import ToolListProxy
+from ferb.runtimes.usage import from_anthropic
 
 SDK_VERSION = "0.2.160"
 STRUCTURED_OUTPUT = "StructuredOutput"                # tool the SDK adds when output_format is set
@@ -89,7 +91,9 @@ class ClaudeRuntime:
                     elif hasattr(b, "text") and b.text:
                         yield RuntimeEvent("message", {"text": b.text})
             elif isinstance(m, ResultMessage):
-                yield RuntimeEvent("usage", {**(m.usage or {}), "cost_usd": m.total_cost_usd})
+                yield RuntimeEvent("usage", asdict(from_anthropic(self.model or "claude", dict(m.usage or {}),
+                                                                  billing="subscription",
+                                                                  provider_cost=m.total_cost_usd)))
                 if getattr(m, "is_error", False):
                     yield RuntimeEvent("error", {"message": m.result or str(getattr(m, "errors", None)) or m.subtype})
                     return

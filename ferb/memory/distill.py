@@ -59,9 +59,11 @@ def check(item: dict[str, Any], ev: summary.DayEvidence) -> list[tuple[str, str]
 
 class Distiller:
     def __init__(self, db: Database, journal: Any, memory: Memory, make_runtime: Callable[..., Any], clock: Clock,
-                 purge: Callable[[], Any] = lambda: None, device_id: str = "dev") -> None:
+                 purge: Callable[[], Any] = lambda: None, device_id: str = "dev",
+                 record_usage: Callable[[str, dict[str, Any]], None] = lambda runtime, data: None) -> None:
         self.db, self.journal, self.memory, self.make_runtime = db, journal, memory, make_runtime
         self.clock, self.purge, self.device_id = clock, purge, device_id
+        self.record_usage = record_usage
         self.jev: Any = None                          # memory.worth_keeping: may only drop
 
     def pending_days(self, today: date | None = None) -> list[str]:
@@ -161,6 +163,8 @@ class Distiller:
             async for e in rt.events(run):
                 if e.kind == "final":
                     final = str(e.data.get("text", ""))
+                elif e.kind == "usage":
+                    self.record_usage(rt.name, dict(e.data))
                 elif e.kind in ("error", "violation"):
                     raise RuntimeError(str(e.data))
         finally:
