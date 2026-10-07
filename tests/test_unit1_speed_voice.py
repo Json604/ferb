@@ -201,6 +201,8 @@ def test_gpt6_catalog_lockdown_and_namespaced_tools(tmp_path: Path, monkeypatch:
     models = json.loads(out.read_text())["models"]
     assert all(m["tool_mode"] is None and m["multi_agent_version"] is None and m["experimental_supported_tools"] == []
                for m in models)
+    assert all(m["supports_search_tool"] is False for m in models)           # FERB's MCP tools stay directly visible
+    assert {"apps", "plugins", "multi_agent"} <= set(cx.DISABLED)            # side effects of that stay disabled
     assert models[0]["context_window"] == 1                                   # everything else untouched
     rt = CodexRuntime(Path("/x/codex"), "supervisor", tmp_path, tmp_path)
     cmd = rt._cmd(None, "")

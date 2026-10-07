@@ -56,8 +56,11 @@ def codex_home(ferb_home: Path) -> Path | None:
 # A model's catalog entry can switch on tools no feature flag turns off (spike 21, owner's move to GPT-6): code mode
 # (`functions.exec` runs code), multi-agent v2 (`collaboration.*` sub-agents outside FERB's gateway) and experimental
 # tools (ask the user, wait). FERB hands Codex its own copy of the catalog with these neutralized, for every model.
+# supports_search_tool False keeps FERB's MCP tools directly visible instead of deferred behind tool_search (Codex
+# 0.157.1, verified 2026-10-07); the side effects that brings (apps, plugins, sub-agents) stay in DISABLED.
 CATALOG_LOCKDOWN: dict[str, Any] = {"tool_mode": None, "multi_agent_version": None,
-                                    "multi_agent_reasoning_effort": None, "experimental_supported_tools": []}
+                                    "multi_agent_reasoning_effort": None, "experimental_supported_tools": [],
+                                    "supports_search_tool": False}
 
 
 def locked_catalog(ferb_home: Path) -> Path | None:

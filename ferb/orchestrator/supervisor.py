@@ -125,6 +125,8 @@ class Supervisor(WorkerRuns):
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
+        self._tools_seen: dict[str, list[str]] = {}       # worker id -> tool names its runtime reported
+        self._tools_offered: dict[str, bool] = {}         # worker id -> whether FERB offered it any tools
         self._worker_runs: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self.activity = Activity(clock.monotonic)
         # (owner last active, last trail event) for the time header; the daemon supplies them
