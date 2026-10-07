@@ -9,6 +9,7 @@ import pytest
 from ferb.core.types import Identity, ModelRequest, Task
 from ferb.runtimes.anthropic_api import AnthropicProvider
 from ferb.runtimes.api import ApiRuntime
+from ferb.runtimes.google_api import GoogleProvider
 from ferb.runtimes.openai_api import OpenAIProvider
 from tests.support.runtime_fakes import FakeBridge, Scripted
 
@@ -188,12 +189,6 @@ CASES["openai"] = {
 }
 
 
-# defined after every case is registered, so params=sorted(CASES) sees them all
-@pytest.fixture(params=sorted(CASES))
-def case(request):
-    return CASES[request.param]
-
-
 @pytest.mark.anyio
 async def test_openai_malformed_arguments_return_an_error_result() -> None:
     bad = {"status": "completed", "output": [{"type": "function_call", "id": "fc_1", "call_id": "call_1",
@@ -234,3 +229,72 @@ async def test_openai_refusal_is_an_error() -> None:
         {"type": "message", "role": "assistant", "content": [{"type": "refusal", "refusal": "I can't help with that."}]}]}
     events = await run(make(CASES["openai"], Scripted([(200, reply)]), mode="supervisor"), token="")
     assert events[-1].kind == "error" and not any(e.kind == "final" for e in events)
+
+
+def google_tool(name, args):
+    return {"candidates": [{"content": {"role": "model", "parts": [
+        {"functionCall": {"name": name, "args": args, "id": "fc1"}, "thoughtSignature": "sig1"}]},
+        "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 10}}
+
+
+def check_google_first(body: dict) -> None:
+    assert body["systemInstruction"] == {"parts": [{"text": "FERB instructions"}]}
+    assert [p["text"] for p in body["contents"][0]["parts"]] == ["device facts", "history", "memory", "message"]
+    assert body["generationConfig"]["responseMimeType"] == "application/json"
+    assert body["generationConfig"]["responseJsonSchema"] == SCHEMA
+    assert body["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
+
+
+def check_google_result(body: dict, image: bool) -> None:
+    model_turn, reply = body["contents"][-2], body["contents"][-1]
+    assert model_turn["parts"][0]["thoughtSignature"] == "sig1"              # passed back exactly as received
+    response = reply["parts"][0]["functionResponse"]
+    assert response["name"] == "fs_list" and response["id"] == "fc1"
+    assert ("parts" in response) == image
+    if image:
+        assert response["parts"][0]["inlineData"] == {"mimeType": "image/png", "data": "aGVsbG8="}
+
+
+CASES["google"] = {
+    "provider": lambda: GoogleProvider("gemini-3.8-flash"),
+    "final": {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"ok": true}'}]}, "finishReason": "STOP"}],
+              "usageMetadata": {"promptTokenCount": 5000, "cachedContentTokenCount": 3000, "candidatesTokenCount": 30,
+                                "thoughtsTokenCount": 20, "toolUsePromptTokenCount": 100}},
+    "tool": google_tool,
+    "cut": {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"ok'}]}, "finishReason": "MAX_TOKENS"}],
+            "usageMetadata": {}},
+    "usage": {"input_tokens": 5100, "cached_input_tokens": 3000, "cache_write_tokens": 0, "output_tokens": 50},
+    "key_header": ("x-goog-api-key", "sk-secret"),
+    "check_first": check_google_first,
+    "check_result": check_google_result,
+}
+
+
+# defined after every case is registered, so params=sorted(CASES) sees them all
+@pytest.fixture(params=sorted(CASES))
+def case(request):
+    return CASES[request.param]
+
+
+def test_google_tools_use_json_schema_parameters() -> None:
+    from ferb.runtimes.api import ToolSpec
+    state = GoogleProvider().begin(REQ, [ToolSpec("fs_list", "List.", {"type": "object"})], None, None, "k")
+    declaration = state["body"]["tools"][0]["functionDeclarations"][0]
+    assert declaration == {"name": "fs_list", "description": "List.", "parametersJsonSchema": {"type": "object"}}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("finish", ["OTHER", "UNEXPECTED_TOOL_CALL", "SAFETY", "LANGUAGE", "MALFORMED_FUNCTION_CALL"])
+async def test_google_only_stop_ends_normally(finish) -> None:
+    reply = {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"ok": tr'}]}, "finishReason": finish}],
+             "usageMetadata": {}}
+    events = await run(make(CASES["google"], Scripted([(200, reply)]), mode="supervisor"), token="")
+    assert events[-1].kind == "error" and not any(e.kind == "final" for e in events)
+    assert f"the model stopped ({finish})" in events[-1].data["message"]
+
+
+@pytest.mark.anyio
+async def test_google_missing_finish_reason_is_a_normal_end() -> None:
+    reply = {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"ok": true}'}]}}], "usageMetadata": {}}
+    events = await run(make(CASES["google"], Scripted([(200, reply)]), mode="supervisor"), token="")
+    assert events[-1].kind == "final"
