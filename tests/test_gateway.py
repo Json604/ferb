@@ -156,14 +156,12 @@ def test_test_mode_allowlist_blocks_unlisted_recipient_and_allows_listed(daemon:
     send = FakeCap("fake.send", "send", {"browser:act"})
     grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
     daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
-    watch = Answers(daemon)
     try:
         blocked = call(daemon, grant, "fake.send", to="attacker@evil.example", effect="send")
         assert blocked["is_error"] and "allowlist" in str(blocked["content"])
         ok = call(daemon, grant, "fake.send", to="ok@example.com", effect="send")
         assert not ok["is_error"]
     finally:
-        watch.stop()
         daemon.daemon.gateway.test_send_allowlist = None
     assert send.calls == 1  # only the allowed one executed
 
@@ -205,3 +203,38 @@ def test_allowlist_never_affects_non_send_kinds(daemon: RunningDaemon) -> None:
     finally:
         daemon.daemon.gateway.test_send_allowlist = None
     assert look.calls == 1
+
+
+class _ContactCap(FakeCap):
+    """FakeCap whose destination is `contact` (WhatsApp/iMessage style), plus optional recipients."""
+
+    class Input(FakeCap.Input):
+        contact: str = ""
+
+    def describe(self, args):  # type: ignore[no-untyped-def]
+        from ferb.core.types import ActionSpec, Target
+        to = getattr(args, "to")
+        return ActionSpec(self.kind, Target(recipients=(to,) if to else (), contact=getattr(args, "contact") or None),
+                          content=getattr(args, "text"))
+
+
+def test_allowlist_checks_contact_even_when_recipients_are_listed(daemon: RunningDaemon) -> None:
+    send = _ContactCap("fake.msg", "send", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"}, request("message"), [send])
+    daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
+    try:
+        blocked = call(daemon, grant, "fake.msg", to="ok@example.com", contact="+15550000")
+        assert blocked["is_error"] and blocked["content"]["recipients"] == ["+15550000"] and send.calls == 0
+    finally:
+        daemon.daemon.gateway.test_send_allowlist = None
+
+
+def test_allowlist_allows_contact_only_destination_when_listed(daemon: RunningDaemon) -> None:
+    send = _ContactCap("fake.msg", "send", {"browser:act"})
+    grant, _ = setup(daemon, {"browser:act"}, request("message"), [send])
+    daemon.daemon.gateway.test_send_allowlist = {"+15550000"}
+    try:
+        assert not call(daemon, grant, "fake.msg", to="", contact="+15550000")["is_error"]
+        assert send.calls == 1
+    finally:
+        daemon.daemon.gateway.test_send_allowlist = None

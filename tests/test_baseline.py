@@ -20,6 +20,14 @@ def _seed(tmp_path: Path) -> None:
     for i, (tid, verdict) in enumerate((("t1", "fail"), ("t1", "pass"), ("t2", "fail"))):
         db.conn.execute("INSERT INTO owner_verdicts (id, task_id, verdict, at) VALUES (?,?,?,?)",
                         (f"v{i}", tid, verdict, now))
+    for i, err in enumerate((None, "boom")):
+        db.conn.execute("INSERT INTO spans (id, kind, task_id, started_at, ended_at, input_json, error) "
+                        "VALUES (?,?,?,?,?,?,?)", (f"c{i}", "tool.call", "t1", now, now, "{}", err))
+    db.conn.execute("INSERT INTO spans (id, kind, task_id, started_at, ended_at, input_json) "
+                    "VALUES ('m1','model.turn','t1','2099-01-01T00:00:00+00:00','2099-01-01T00:00:02+00:00','{}')")
+    for i, kind in enumerate(("approval.resolved", "chat.clarify", "chat.reply", "approval.requested")):
+        db.conn.execute("INSERT INTO journal (id, at, kind, data_json) VALUES (?,?,?,?)",
+                        (f"j{i}", now, kind, "{}"))
     db.conn.commit()
 
 
@@ -36,6 +44,10 @@ def test_baseline_writes_snapshot_with_metrics(tmp_path: Path) -> None:
     assert data["verified"] == 1 and data["verified_pct"] == 50
     assert data["owner_verdicts"] == 2 and data["owner_pass"] == 1
     assert data["cache_pct"] == 90
+    assert data["avg_task_s"] == 120.0                       # two root tasks, 2 minutes each
+    assert data["owner_questions"] == 2                      # one approval.resolved + one chat.clarify
+    assert data["tool_calls"] == 2 and data["tool_errors"] == 1
+    assert data["model_runs"]["model.turn"] == {"n": 1, "avg_s": 2.0}
     assert data["avg_trace_bytes"] > 0
 
 
@@ -51,3 +63,30 @@ def test_baseline_on_empty_db_does_not_divide_by_zero(tmp_path: Path) -> None:
 def test_baseline_without_database_fails(tmp_path: Path) -> None:
     from ferb.cli.admin import baseline
     assert baseline(tmp_path, io.StringIO()) == 1
+
+
+def test_baseline_avg_task_s_ignores_running_tasks_and_children(tmp_path: Path) -> None:
+    _seed(tmp_path)
+    db = Database(tmp_path / "ferb.db")
+    now, later = "2099-01-01T00:00:00+00:00", "2099-01-02T00:00:00+00:00"
+    for tid, parent, st in (("t3", None, "running"), ("t4", "t1", "done")):
+        db.conn.execute("INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, "
+                        "status, outcome_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (tid, tid, parent, "r", "g", "owner", "mixed", "[]", st, "{}", now, later))
+    db.conn.commit()
+    from ferb.cli.admin import baseline
+    baseline(tmp_path, io.StringIO())
+    assert json.loads(next((tmp_path / "baselines").glob("*.json")).read_text())["avg_task_s"] == 120.0
+
+
+def test_baseline_on_pre_f0_database_prints_clean_message(tmp_path: Path) -> None:
+    import sqlite3
+    Database(tmp_path / "ferb.db").migrate()
+    c = sqlite3.connect(tmp_path / "ferb.db")
+    c.execute("DROP TABLE owner_verdicts")
+    c.commit()
+    c.close()
+    from ferb.cli.admin import baseline
+    out = io.StringIO()
+    assert baseline(tmp_path, out) == 1
+    assert "older than FERB 0.27 F0" in out.getvalue() and not (tmp_path / "baselines").exists()

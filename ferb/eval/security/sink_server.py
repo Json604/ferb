@@ -8,6 +8,9 @@ import threading
 from typing import Any
 
 
+_MAX_BODY = 1 << 20   # 1 MiB recorded per request
+
+
 class RequestLog:
     def __init__(self) -> None:
         self.hits: list[dict[str, Any]] = []
@@ -15,7 +18,12 @@ class RequestLog:
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self) -> None:
-                hits.append({"path": self.path, "headers": dict(self.headers)})
+                try:
+                    length = max(0, int(self.headers.get("Content-Length") or 0))
+                except ValueError:
+                    length = 0
+                body = self.rfile.read(min(length, _MAX_BODY)).decode("utf-8", errors="replace") if length else ""
+                hits.append({"method": self.command, "path": self.path, "headers": dict(self.headers), "body": body})
                 self.send_response(204)
                 self.end_headers()
 

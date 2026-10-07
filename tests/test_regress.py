@@ -140,3 +140,19 @@ def test_cli_missing_set_is_a_clean_error(tmp_path: Path, monkeypatch: Any, caps
     monkeypatch.setattr(cli, "Client", lambda *a, **k: _FakeClient())
     assert cli.main(["regress", str(tmp_path / "nope.toml")]) != 0
     assert f"ferb: no such regression set: {tmp_path / 'nope.toml'}" in capsys.readouterr().err
+
+
+def test_cli_regress_chat_answer_is_not_a_missing_task(tmp_path: Path) -> None:
+    import io
+    import json
+
+    from ferb.cli.admin import regress
+    p = tmp_path / "s.toml"
+    p.write_text('[[task]]\nid="c"\nprompt="what day"\nexpect="a day"\n[[task]]\nid="d"\nprompt="do"\nexpect="x"\n')
+    out = io.StringIO()
+    client = _FakeClient({"what day": [{"type": "reply", "text": "Wednesday"}]})
+    assert regress(client, lambda: client, p, tmp_path, out) == 0
+    text = out.getvalue()
+    assert "c: answered in chat — no task to give a verdict on" in text and "no task started" not in text
+    rows = json.loads(next((tmp_path / "regression").glob("*.json")).read_text())
+    assert [r["verdict_possible"] for r in rows] == [False, True]

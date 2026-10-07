@@ -1,13 +1,13 @@
-# Smoke set: harmless prompts only. Nothing here sends, deletes, buys, logs in or changes anything.
+# Smoke set: harmless read-only prompts that start a task. Nothing here sends, deletes, buys, logs in or changes anything.
 
 [[task]]
-id = "smoke-weekday"
-prompt = "What day of the week is it today?"
+id = "smoke-running-apps"
+prompt = "List the apps currently running on my Mac."
 surface = "disposable"
-expect = "FERB answers with today's correct weekday."
+expect = "FERB lists the apps that are really running right now, without opening, closing or changing anything."
 
 [[task]]
-id = "smoke-reminders"
-prompt = "Which reminders does FERB currently have scheduled? Just list them; do not change anything."
+id = "smoke-disk-space"
+prompt = "How much free disk space does my Mac have?"
 surface = "disposable"
-expect = "FERB lists its own reminders (or says there are none) without creating, editing or deleting any."
+expect = "FERB reports the Mac's actual free disk space without deleting or changing anything."

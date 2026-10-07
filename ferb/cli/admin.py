@@ -468,13 +468,26 @@ def baseline(home: Any, out: TextIO) -> int:
             "FROM spans WHERE kind = 'model.usage'").fetchone()
         avg_bytes = c.execute("SELECT AVG(LENGTH(input_json) + LENGTH(COALESCE(output_json, ''))) "
                               "FROM spans").fetchone()[0]
+        avg_task = c.execute(
+            "SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400) FROM tasks WHERE parent_id IS NULL "
+            "AND status IN ('done', 'failed', 'needs_user', 'cancelled', 'interrupted', 'unknown', 'skipped')"
+        ).fetchone()[0]
+        questions = c.execute("SELECT COUNT(*) FROM journal WHERE kind IN ('approval.resolved', 'chat.clarify')"
+                              ).fetchone()[0]
+    except sqlite3.OperationalError as e:
+        if "no such table" not in str(e):
+            raise
+        print("ferb: this database is older than FERB 0.27 F0; start the daemon once to migrate it, then retry",
+              file=out)
+        return 1
     finally:
         c.close()
     captured = datetime.now(timezone.utc).isoformat(timespec="seconds")
     data = {"captured_at": captured, "days": "all", "requests": requests, "done": done,
             "done_pct": pct(done, requests), "verified": verified, "verified_pct": pct(verified, requests),
             "owner_verdicts": owner_verdicts, "owner_pass": owner_pass, "tool_calls": calls,
-            "tool_errors": errors, "model_runs": runs, "cache_pct": pct(cached, total_in),
+            "tool_errors": errors, "model_runs": runs, "avg_task_s": round(avg_task or 0, 1),
+            "owner_questions": questions, "cache_pct": pct(cached, total_in),
             "avg_trace_bytes": int(avg_bytes or 0)}
     target = root / "baselines" / f"{captured}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -531,8 +544,12 @@ def regress(client: Client, connect: Callable[[], Client], set_path: Any, home: 
     expect = {t.id: t.expect for t in tasks}
     print("\nYour verdicts (acceptance is your word):", file=out)
     for r in rows:
+        r["verdict_possible"] = bool(r["task_id"])
         if r["task_id"]:
             print(f"  ferb verdict {r['task_id']} pass|fail   # {r['id']}: {expect.get(r['id'], '')}", file=out)
+        elif r["status"] in ("reply", "clarify"):
+            print(f"  {r['id']}: answered in chat — no task to give a verdict on ({r['status']}): "
+                  f"{r['outcome_summary']}   # {expect.get(r['id'], '')}", file=out)
         else:
             print(f"  {r['id']}: no task started ({r['status']}): {r['outcome_summary']}   # {expect.get(r['id'], '')}", file=out)
     dest = home / "regression"

@@ -84,6 +84,7 @@ summary = "One access level, no modes: full access"
 [D17]
 milestone = "F5"
 tests = []
+note = "F5 must add a config/RPC switch so daemon-backed test runs (e.g. `ferb regress`) can enable the test-mode send allowlist; today it is settable only in-process (Gateway.test_send_allowlist)."
 summary = "Security designed now; tests built from real documented scenarios"
 
 [D18]

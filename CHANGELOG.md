@@ -12,8 +12,8 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0-dev — 2026-10-07 — F0 process and measurement
 
-Milestone F0 of `docs/0.27_PLAN.md`. Implementation, tests and documentation: `97ba205`..`fd1af93` plus the commit
-that adds this entry.
+Milestone F0 of `docs/0.27_PLAN.md`. Implementation, tests and documentation: `97ba205` through the F0 review fixes
+(every F0 commit after `97ba205`, including the final-review fix commits).
 The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 is in development.
 
 - `ferb verdict TASK pass|fail [--note TEXT]` records the owner's acceptance. Verdicts are appended to a new
@@ -21,12 +21,14 @@ The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 i
   tasks are refused with their root named. `ferb trace --json` shows the latest one as `owner_verdict`, replacing the
   old null placeholder. Code never infers a verdict.
 - `ferb baseline` writes a read-only snapshot to `~/.ferb/baselines/<timestamp>.json`: done and checker-verified
-  rates, owner verdicts, tool calls and errors, model-run times, cache rate and average trace size.
+  rates, owner verdicts, tool calls and errors, model-run times, average task time, questions put to the owner, cache rate and average trace size.
+  On a database older than F0 it prints a message to start the daemon once and exits non-zero.
 - `ferb regress [set-file]` runs a regression set in one fresh conversation (default: the packaged
   `ferb/eval/sets/smoke.toml`, two harmless prompts). It declines owner questions so the run never blocks, writes
-  one row per task to `~/.ferb/regression/`, and prints a `ferb verdict` line per started task for the owner.
+  one row per task to `~/.ferb/regression/`, and prints a `ferb verdict` line per started task for the owner (a chat-only answer is reported as having no
+  task to judge).
 - Security harness skeleton in `ferb/eval/security/`: per-run canary tokens, a localhost request logger, and an
-  offline `scan_trace` that flags canary egress (in the trace or in logger hits) and unexpected recipients.
+  offline `scan_trace` that flags canary egress (in the trace or in logger hits, including request bodies) and unexpected recipients or contacts.
 - Gateway `tool.call` spans now record the action `kind` and its non-empty `target`, so exported traces can be
   scanned. `Gateway.test_send_allowlist` refuses send-class actions to unlisted or unidentifiable recipients before
   the ledger; it is None, and changes nothing, outside tests. GUI typing into a messaging app is not covered.

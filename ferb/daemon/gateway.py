@@ -147,9 +147,7 @@ class Gateway:
                                content=spec.content, effect=effect, why=why)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                input={"tool": name, "args": arguments, "effect": effect, "kind": spec.kind,
-                                      "target": {k: list(v) if k == "recipients" else v
-                                                 for k, v in dataclasses.asdict(spec.target).items()
-                                                 if v not in (None, (), [])}}
+                                      "target": _target_dict(spec.target)}
                                | ({"why": why} if why else {}))
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
