@@ -9,6 +9,16 @@ The 0.26 branch is `astra/0.26-hardening`. The [audit](AUDIT_0_26.md) explains t
 [capability ledger](CAPABILITIES.md) separates live results from offline contracts. Earlier acceptance records and
 obsolete 0.24/0.25 checklists remain in Git. An old successful gesture does not accept a changed release.
 
+## 0.27 F0 live acceptance (2026-10-07)
+
+The owner installed the branch (`ferb setup --update`), captured the F0 baseline
+(`~/.ferb/baselines/2026-10-07T09:02:08+00:00.json`) and ran `ferb regress` on the packaged smoke set.
+
+| Task | FERB's result | Owner verdict |
+|---|---|---|
+| smoke-running-apps `20f38a26…` | Listed Brave Browser, Code, Finder, HeyClicky, Preview, WhatsApp, Google Chrome; one read-only `mac.apps` call; checker verified | **pass** (`ferb verdict`) |
+| smoke-disk-space `11f2c4fe…` | About 129 GiB available; one shell command; checker verified | **pass** (`ferb verdict`) |
+
 ## What has been observed in this pass
 
 | Disposable check | Evidence | Verdict and limits |

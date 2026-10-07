@@ -401,3 +401,8 @@ summary = "Boundary by effect: tools report the kind of action; consequential ki
 milestone = "F5"
 tests = []
 summary = "The final checker gets observation tools only; unverifiable becomes unknown, never a block"
+
+[D33]
+milestone = "F5"
+tests = []
+summary = "\"Already authorized\" decided by code from provenance; the orchestrator may only add a question; Jev in shadow"
