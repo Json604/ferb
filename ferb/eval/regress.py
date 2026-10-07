@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any, Callable, TextIO
 
 
+DEFAULT_SET = Path(__file__).parent / "sets" / "smoke.toml"   # shipped inside the package
+
+
 @dataclass(frozen=True)
 class RegressTask:
     id: str
@@ -29,7 +32,18 @@ def run_set(client: Any, tasks: list[RegressTask], out: TextIO | None,
     connection must not be read while its stream is open; without it `client` is used."""
     rows: list[dict[str, Any]] = []
     session_id = client.call("chat.attach", {"new": True})["session_id"]
+    broken = False
     for t in tasks:
+        if broken:
+            if connect is None:
+                rows.append({"id": t.id, "task_id": None, "status": "errored", "asked": [],
+                             "outcome_summary": "not run: the stream broke on an earlier task and cannot be reused"})
+                continue
+            try:
+                client.close()
+            except Exception:
+                pass
+            client, broken = connect(), False        # a fresh connection: never read a broken stream's leftovers
         row: dict[str, Any] = {"id": t.id, "task_id": None, "status": "errored", "outcome_summary": "", "asked": []}
         try:
             for ev in client.stream("chat.send", {"session_id": session_id, "text": t.prompt}):
@@ -39,7 +53,10 @@ def run_set(client: Any, tasks: list[RegressTask], out: TextIO | None,
                 if kind == "event" and ev.get("topic") == "approval.requested":
                     data = ev.get("data") or {}
                     row["asked"].append(data.get("reason") or str(data))
-                    _decline(client, connect, data.get("approval_id"))
+                    try:
+                        _decline(client, connect, data.get("approval_id"))
+                    except Exception as e:           # keep draining this stream to its final event
+                        row["asked"].append(f"decline failed: {type(e).__name__}: {e}")
                 elif kind == "outcome":
                     row["status"] = ev.get("status", "unknown")
                     row["outcome_summary"] = ev.get("summary", "")
@@ -49,6 +66,7 @@ def run_set(client: Any, tasks: list[RegressTask], out: TextIO | None,
                     row["status"], row["outcome_summary"] = "errored", ev.get("text", "")
         except Exception as e:
             row["status"], row["outcome_summary"] = "errored", f"{type(e).__name__}: {e}"
+            broken = True
         rows.append(row)
         if out is not None:
             print(f"  {t.id}: {row['status']} ({row['task_id']})", file=out, flush=True)
