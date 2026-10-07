@@ -8,14 +8,15 @@ import pytest
 import ferb.runtimes.codex_exec as cx
 from ferb.core.types import Identity, ModelRequest, Task
 
+# Save the original before the no_real_models fixture patches it (module code runs before fixtures)
+_original_codex_start = cx.CodexRuntime.start
 
-@pytest.mark.real
+
 def test_skill_dependency_install_is_disabled() -> None:
     assert "skill_mcp_dependency_install" in cx.DISABLED
 
 
 @pytest.mark.anyio
-@pytest.mark.real
 async def test_codex_process_gets_ferbs_own_home(tmp_path: Path, monkeypatch) -> None:
     seen: dict = {}
 
@@ -26,6 +27,8 @@ async def test_codex_process_gets_ferbs_own_home(tmp_path: Path, monkeypatch) ->
         return None
     monkeypatch.setattr(cx, "check_version", no_version)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+    # Restore the real start method before fixture patches it (test's monkeypatch takes precedence)
+    monkeypatch.setattr(cx.CodexRuntime, "start", _original_codex_start)
     rt = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path / "work", tmp_path)
     task = Task("t", None, "chat", "dev", Identity.OWNER, set(), "mixed", "r", [], None)
     with pytest.raises(RuntimeError):
