@@ -230,9 +230,9 @@ def test_ages_are_fresh_and_time_text_goes_last(daemon: RunningDaemon) -> None:
     daemon.call_soon(daemon.daemon.clock.advance, 2 * 3600)                       # a gap of 2 hours
     chat(daemon, "hello again")
     ctx = script.contexts[1][2]
-    assert ctx.index("Owner's new message") < ctx.index("[now ") < ctx.index("Ages of the items above")
+    assert ctx.index("[now ") < ctx.index("Ages of the items above") < ctx.index("Owner's new message")
     assert "[c1]" in ctx and "2 h ago" in ctx.split("Ages of the items above")[1]  # computed now, at the end
-    assert "h ago" not in ctx.split("Owner's new message")[0]                      # nothing relative stored earlier
+    assert "h ago" not in ctx.split("[now ")[0]                                    # nothing relative stored earlier
 
 
 def test_non_urgent_notifications_wait_while_the_owner_is_away(daemon: RunningDaemon) -> None:

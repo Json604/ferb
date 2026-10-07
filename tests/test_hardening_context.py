@@ -341,8 +341,8 @@ def test_every_runtime_role_accounts_for_complete_appended_evidence_once(daemon)
     for role in ('worker.question', 'worker.verify', 'worker.dispatch', 'worker.resources'):
         context = next(text for _, key, text, _ in script.contexts if key == role)
         assert context.count('Context budget: ') == 1
-        header, body = context.split('\n\n', 1)
-        accounting = json.loads(header.removeprefix('Context budget: '))
+        body, header = context.rsplit('\n\nContext budget: ', 1)
+        accounting = json.loads(header)
         assert accounting['content_tokens_estimate'] == count_tokens(body)
         assert accounting['over_budget'] is True and report in body
 

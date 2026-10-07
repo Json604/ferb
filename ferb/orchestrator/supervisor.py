@@ -368,8 +368,7 @@ class Supervisor(WorkerRuns):
         recent, ages = self.recent(request_id, session.id)
         mem_text, mem_ages = self.recall_items(remembered)
         env = self._env.get(request_id, {})
-        blocks = [ContextBlock("Owner's new message:\n" + message, "current request", protected=True),
-                  ContextBlock(recent, "chat.history", protected=True), ContextBlock(mem_text, "memory.read"),
+        blocks = [ContextBlock(recent, "chat.history", protected=True), ContextBlock(mem_text, "memory.read"),
                   ContextBlock(_env_text(env), "actions.search and current device facts"),
                   ContextBlock(self.relevant_context(message), "task.evidence query=context.source; memory.read; trail.query")]
         candidates = self.continuity.candidates(session.id)
@@ -385,6 +384,7 @@ class Supervisor(WorkerRuns):
                                      ages=ages | mem_ages, since_last_talk=since), "chat.history"))
         if env.get("live"):
             blocks.append(ContextBlock(env["live"], "current device facts"))
+        blocks.append(ContextBlock("Owner's new message:\n" + message, "current request", protected=True))
         self._env.setdefault(request_id, {})["planner_sources"] = json.dumps([
             {"reference": block.reference, "text": block.text} for block in blocks if not block.protected], ensure_ascii=False)
         blocks = [block if block.protected else ContextBlock(block.text, block.reference +

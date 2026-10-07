@@ -86,7 +86,7 @@ The budget is a context allocation, not a task/output/token-spend limit.
                   "content_tokens_estimate": count_tokens(body), "method": token_method(),
                   "over_budget": used > budget_tokens,
                   "omitted_blocks": len(active) - len(kept)}
-        return "Context budget: " + json.dumps(report) + "\n\n" + body
+        return body + "\n\nContext budget: " + json.dumps(report)
 
     for index, block in enumerate(active):
         if block.protected:
