@@ -54,6 +54,9 @@ Recall and caching (same session, later):
   `prompt_cache_key` (its session id) on every run, so calls are routed to caches that rarely hold the previous
   prefix. Carried to F2 (P20 note). The disk task `c9d4f481…`: **pass** (`ferb verdict`, "i pass ig").
 
+Owner sign-off: F1 accepted with these carry-overs (D34/D35 to F4, recall relevance to F8, the Codex cache key
+to F2): "lets move to f2" (2026-10-07).
+
 ## What has been observed in this pass
 
 | Disposable check | Evidence | Verdict and limits |
