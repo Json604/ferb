@@ -72,7 +72,8 @@ runtime context is recorded. Provider context/output capacity remains a provider
 truncated success. Brevity instructions apply to status reports, never requested artifacts.
 
 As built in F1: chat history (`HISTORY_TOKENS` 12000) and resumable attempts (`ATTEMPTS_TOKENS` 2000) keep their newest
-entries whole, oldest first, with an omission note (`ferb/orchestrator/supervisor.py`). Blocks are ordered stable
+entries whole (`ferb/orchestrator/supervisor.py`): history is listed oldest first with an omission note, attempts
+newest first with a note about the older ones. Blocks are ordered stable
 first, the owner's message last and the budget report at the end (P20). The Codex catalog lockdown sets
 `supports_search_tool` false so FERB's tools are directly visible; a worker or checker whose runtime shows no FERB
 tool loaded is re-run once, traced as `runtime.tools_not_loaded` (`ferb/orchestrator/worker.py`).
@@ -161,8 +162,9 @@ Owner-stated memory and observed proposals retain source provenance. Retrieval i
 to pick a file or recipient. Complete items are available through `memory.read`; proposal and narrative text are not
 silently clipped. Recall drops query terms that match most memories (`query_terms` in `ferb/memory/items.py`); the FTS
 index uses `unicode61 categories 'L* N* Co M*'` (migration 0014) so Devanagari words stay whole. Observed items
-accumulate evidence by kind/subject/key only while proposed; an active one matches identical content only. Daily summaries retain source handles; raw activity retention requires a persisted summary before
-purge. Privacy exclusions and redaction deliberately omit protected data and are separate from context budgeting.
+accumulate evidence by kind/subject/key only while proposed; an active one matches identical content only. Daily
+summaries retain source handles; raw activity retention requires a persisted summary before purge. Privacy exclusions
+and redaction deliberately omit protected data and are separate from context budgeting.
 
 Calendar arithmetic operates on model-supplied typed values. Missing local time or invalid timezone is reported;
 there is no hidden 09:00 default or one-year horizon. Schedule recipients remain as the model recorded them; code

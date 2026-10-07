@@ -16,8 +16,9 @@ Milestone F1 of `docs/0.27_PLAN.md`. Implementation, tests and documentation: `c
 documentation commit and the F1 review fixes (every F1 commit after `c7d8c43`).
 The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 is in development.
 
-- Chat history (`HISTORY_TOKENS`) and resumable attempts (`ATTEMPTS_TOKENS`) are capped to their newest entries, kept
-  whole and listed oldest first with an omission note, instead of being dropped whole when over budget.
+- Chat history (`HISTORY_TOKENS`) and resumable attempts (`ATTEMPTS_TOKENS`) are capped to their newest entries that
+  fit, kept whole, instead of being dropped whole when over budget. History is listed oldest first with an omission
+  note; resumable attempts are listed newest first with a note about the older ones.
 - Recall drops query terms that match most memories (more than half, with a floor of 2; data-driven) and tokenizes by
   Unicode category; migration 0014 rebuilds the memory index so Devanagari words index whole.
 - Observed patterns accumulate evidence by kind/subject/key while still proposed, and the distiller sees pending
