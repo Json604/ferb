@@ -36,3 +36,9 @@ def test_hindi_word_recalls_its_memory(daemon) -> None:
     _add(daemon, "bills", "The electricity bill (bijli ka bill) is due on the 5th")
     assert _recall(daemon, "दिल्ली कब") == ["travel"]
     assert "bills" in _recall(daemon, "bijli bill")
+
+
+def test_two_memories_on_one_topic_are_both_recalled(daemon) -> None:
+    _add(daemon, "editor-a", "The owner uses the VS Code editor")
+    _add(daemon, "editor-b", "The owner used a Zed editor before")
+    assert sorted(_recall(daemon, "which editor do I use")) == ["editor_a", "editor_b"]

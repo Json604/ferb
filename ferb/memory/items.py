@@ -161,8 +161,9 @@ class Memory:
                 f"SELECT COUNT(*) FROM memory_fts f JOIN memory_items m ON m.seq = f.rowid "
                 f"WHERE memory_fts MATCH ? AND {valid}", (f'"{term}"', when, when)).fetchone()[0])
 
-        # A term that matches most memories says nothing about any one of them (data-driven, no word list).
-        terms = [t for t in terms if total < 2 or matches(t) * 2 <= total]
+        # A term that matches most memories says nothing about any one of them (data-driven, no word list). The floor
+        # of 2 keeps a shared topic word useful when few memories exist: two memories about "editor" must both recall.
+        terms = [t for t in terms if total < 2 or matches(t) <= max(2, total / 2)]
         if not terms:
             return []
         match = " OR ".join(f'"{t}"' for t in terms)
