@@ -17,8 +17,13 @@ REQ = ModelRequest("FERB instructions", ("device facts", "history", "memory", "m
 IMAGE = {"content": {"shot": 1}, "footer": "", "is_error": False, "image": {"data": "aGVsbG8=", "mime": "image/png"}}
 
 
+def anthropic_content(name, args):
+    return [{"type": "thinking", "thinking": "", "signature": "sig-1"},
+            {"type": "tool_use", "id": "toolu_1", "name": name, "input": args}]
+
+
 def anthropic_tool(name, args):
-    return {"content": [{"type": "tool_use", "id": "toolu_1", "name": name, "input": args}], "stop_reason": "tool_use",
+    return {"content": anthropic_content(name, args), "stop_reason": "tool_use",
             "usage": {"input_tokens": 10, "output_tokens": 5}}
 
 
@@ -42,6 +47,7 @@ def check_anthropic_first(body: dict) -> None:
     assert [b["text"] for b in content] == ["device facts", "history", "memory", "message"]
     assert content[1]["cache_control"] == {"type": "ephemeral"} and "cache_control" not in content[2]
     assert body["output_config"]["format"] == {"type": "json_schema", "schema": SCHEMA}
+    assert json.dumps(body).count('"cache_control"') <= 4
     assert body["max_tokens"] > 0 and body["cache_control"] == {"type": "ephemeral"}
 
 
@@ -50,7 +56,7 @@ def check_anthropic_result(body: dict, image: bool) -> None:
     assert result["type"] == "tool_result" and result["tool_use_id"] == "toolu_1"
     kinds = [c["type"] for c in result["content"]]
     assert kinds == (["text", "image"] if image else ["text"])
-    assert body["messages"][-2]["role"] == "assistant"                      # the model's turn went back unchanged
+    assert body["messages"][-2] == {"role": "assistant", "content": anthropic_content("fs_list", {"path": "/tmp"})}
 
 
 CASES["anthropic"]["check_first"] = check_anthropic_first
@@ -130,3 +136,12 @@ async def test_provider_error_never_contains_the_key(case) -> None:
                        token="")
     assert events[-1].kind == "error" and "401" in events[-1].data["message"]
     assert "sk-secret" not in events[-1].data["message"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stop", ["pause_turn", "model_context_window_exceeded"])
+async def test_anthropic_early_stop_is_an_error(stop) -> None:
+    reply = {"content": [{"type": "text", "text": '{"ok": tr'}], "stop_reason": stop, "usage": {}}
+    events = await run(make(CASES["anthropic"], Scripted([(200, reply)]), mode="supervisor"), token="")
+    assert events[-1].kind == "error" and stop in events[-1].data["message"]
+    assert not any(e.kind == "final" for e in events)

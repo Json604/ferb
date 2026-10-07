@@ -8,7 +8,9 @@ Verified 2026-10-07 (https://platform.claude.com/docs/en/build-with-claude/promp
   return 400 on Opus 5.5, Sonnet 5.5 and Fable 5.1;
 - effort: output_config.effort (not supported by Haiku 4.5); thinking stays adaptive (disabling it returns 400) and the
   assistant's content, thinking blocks included, goes back unchanged;
-- max_tokens is required: MAX_TOKENS is a per-reply ceiling, and a reply cut off there is an error, never a partial answer."""
+- max_tokens is required: MAX_TOKENS is a per-reply ceiling, and a reply cut off there is an error, never a partial answer.
+- only end_turn, tool_use and stop_sequence are complete turns; refusal, pause_turn (FERB enables no server tools) and
+  model_context_window_exceeded are errors."""
 
 from typing import Any
 
@@ -65,6 +67,8 @@ class AnthropicProvider:
             raise ProviderError("anthropic: the reply was cut off at the output limit")
         if stop == "refusal":
             raise ProviderError("anthropic: the model refused to answer")
+        if stop not in ("end_turn", "tool_use", "stop_sequence"):
+            raise ProviderError(f"anthropic: the reply stopped early ({stop})")
         state["body"]["messages"].append({"role": "assistant", "content": content})
         calls = [ToolCall(b["id"], b["name"], b["input"] if isinstance(b.get("input"), dict) else {},
                           "" if isinstance(b.get("input"), dict) else "not a JSON object")
