@@ -38,7 +38,8 @@ look at a specific experiment only when needed. Historical documentation remains
    authorized (D23), and the sink rule cases (S4), e.g. private data going to a new destination after outside
    content was read. The code floor always counts payments, permanent deletion, account-security changes and sends
    to new recipients as destructive; payments and account-security changes always ask. Actions made recoverable by
-   S1 (Trash plus a backup copy) are not destructive.
+   S1 (Trash plus a backup copy) are not destructive. While Jev is in shadow, who decides "already authorized" for
+   floor kinds is not settled: take it to the owner before F5 builds the floor.
 9. FERB prepares the concrete action before asking, asks once per task, and the answer carries across retries.
    Besides these, a big job's plan (D24), an escape-hatch command (D31) and a retry of a consequential action with
    an unknown outcome (P19) wait for the owner; everything else runs and is logged.
@@ -50,8 +51,9 @@ look at a specific experiment only when needed. Historical documentation remains
     Full Disk Access becomes the default only after containment (shell sandbox, path lists, proxy) exists (CQ5).
 13. Model runtimes plug in behind one FERB interface (Codex CLI, Claude Agent SDK, direct APIs); everything
     model-specific lives in the adapter, and tools always run through FERB's gateway (D32).
-14. Secrets, OTPs included, never reach a model provider (Jev included), a trace, a log or the database (the owner
-    may override one item). Code redacts them at capture; they are filled only through the sealed path (D8, D12, D28).
+14. Secrets, OTPs included, never reach a model provider (Jev included), a trace, a log or the database. The owner
+    may ask to store one item; it goes to the Keychain and models see only a handle. Code redacts secrets at capture;
+    they are filled only through the sealed path (D8, D12, D28).
 15. "Local" means storage stays on the Mac. Model and Jev processing may be hosted; only redacted context leaves.
     Redaction covers secret classes, not all private text (a residual the owner accepted, CQ3).
 16. Trust follows origin (MP2): only the owner's words carry authority; external content is data, never instructions.
