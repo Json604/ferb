@@ -46,6 +46,8 @@ ownership boundary; do not add wrappers to preserve dead behavior.
 `Supervisor.send` preserves the current message, including pasted text marked as external data. The planner receives
 full request text, memory, retrievable chat/activity and installed environment facts. Its task specification has
 outcome conditions, worker type and chosen identity. Intake memory writes produce receipts before the worker starts.
+The planner-context snapshot attached to a task holds the non-protected blocks only; the capped chat history and
+resumable attempts (protected since F1) are not in it, and workers fetch history with `chat.history` (revisited in F6).
 
 `run_tree` records the full request and specification, starts the sentinel and worker, and retains artifacts and
 uncertain actions across recovery. Workers get the installed tool registry; `actions.search` supports complete paged
@@ -160,9 +162,9 @@ Managed extension reload is version/protocol transport maintenance, deferred whi
 
 Owner-stated memory and observed proposals retain source provenance. Retrieval is an explicit search, not authority
 to pick a file or recipient. Complete items are available through `memory.read`; proposal and narrative text are not
-silently clipped. Recall drops query terms that match most memories (`query_terms` in `ferb/memory/items.py`); the FTS
+silently clipped. `query_terms` (`ferb/memory/items.py`) tokenizes a query and `Memory.recall` drops terms that match most memories; the FTS
 index uses `unicode61 categories 'L* N* Co M*'` (migration 0014) so Devanagari words stay whole. Observed items
-accumulate evidence by kind/subject/key only while proposed; an active one matches identical content only. Daily
+credit identical content to its matching item first, and otherwise accumulate evidence by kind/subject/key only while proposed; an active one matches identical content only. Daily
 summaries retain source handles; raw activity retention requires a persisted summary before purge. Privacy exclusions
 and redaction deliberately omit protected data and are separate from context budgeting.
 

@@ -76,3 +76,23 @@ def test_non_observed_origin_with_other_wording_stays_a_separate_item(daemon: Ru
                 for wording, src in (("Codes in VS Code", rows[0]), ("Uses VS Code to code", rows[1]))]
     ids = daemon.run(go())
     assert len(set(ids)) == 2
+
+
+def test_observation_identical_to_the_active_item_is_not_credited_to_a_pending_reword(daemon: RunningDaemon) -> None:
+    mem = daemon.daemon.memory
+    rows = [trail_row(daemon, f"2099-05-{n:02d}") for n in range(1, 7)]
+
+    async def go() -> dict[str, Any]:
+        active = None
+        for src in rows[:3]:
+            active = mem.propose("preference", "owner", "editor", "Codes in VS Code", "observed", [("trail", src)])
+        assert active is not None and active.status == "active"
+        pending = mem.propose("preference", "owner", "editor", "Codes in Cursor", "observed", [("trail", rows[3])])
+        again = [mem.propose("preference", "owner", "editor", "Codes in VS Code", "observed", [("trail", src)]).id
+                 for src in rows[4:]]
+        return {"active": active, "pending": mem.get(pending.id), "again": again,
+                "active_items": [i.content for i in mem.items("active")]}
+    out = daemon.run(go())
+    assert out["again"] == [out["active"].id] * 2
+    assert out["pending"].status == "proposed"
+    assert out["active_items"] == ["Codes in VS Code"]

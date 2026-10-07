@@ -13,7 +13,8 @@ Write:
    handles (E1, F2, ...) in the narrative.
 2. "items": things worth remembering long term, each with the handles it rests on. Few and durable beats many:
    - origin "observed": a pattern in the owner's own activity (only E handles). It becomes active only after it shows up
-     on several separate days, so propose recurring patterns, not one-offs. When a pattern listed under "Patterns seen before" shows up again today, propose it with exactly the same kind, subject and key.
+     on several separate days, so propose recurring patterns, not one-offs. When a pattern listed under "Patterns seen
+     before" shows up again today, propose it with exactly the same kind, subject and key.
    - origin "inferred": a reasonable conclusion from the owner's activity or words (E / C handles); the owner confirms it.
    - origin "third_party": a fact about the world from pasted text (P handles); subject is never "owner" and kind is never
      "preference".

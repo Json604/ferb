@@ -22,7 +22,7 @@ The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 i
 - Recall drops query terms that match most memories (more than half, with a floor of 2; data-driven) and tokenizes by
   Unicode category; migration 0014 rebuilds the memory index so Devanagari words index whole.
 - Observed patterns accumulate evidence by kind/subject/key while still proposed, and the distiller sees pending
-  patterns, so they can activate after 3 days. An active observed item matches only identical content, so a changed
+  patterns, so they can activate after 3 days. Identical content always credits the matching item first. An active observed item matches only identical content, so a changed
   pattern becomes a new proposal that can supersede the old version.
 - FERB's MCP tools stay directly visible to Codex workers and checkers: the Codex catalog lockdown sets
   `supports_search_tool` to false, so Codex 0.157.1 lists them as `mcp__ferb.<tool>` instead of deferring them behind
