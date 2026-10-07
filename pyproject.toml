@@ -8,6 +8,7 @@ dependencies = [
     "cryptography==50.0.1",
     "httpx==0.28.1",
     "mcp==2.2.0",
+    "jsonschema==4.26.0",
     "prompt-toolkit>=3.0.47",
     "pydantic>=2,<3",
     "pyobjc-framework-applicationservices>=12.2.2",
@@ -23,7 +24,11 @@ dependencies = [
 ferb = "ferb.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "mypy>=1.10"]
+dev = [
+    "pytest>=8",
+    "mypy>=1.10",
+    "types-jsonschema>=4.26.0.20261006",
+]
 
 [build-system]
 requires = ["hatchling"]

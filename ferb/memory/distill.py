@@ -18,6 +18,7 @@ from typing import Any, Callable
 from ferb.core.interfaces import Clock
 from ferb.core.context import ContextBlock, assemble_parts, count_tokens
 from ferb.core.prompts import load_prompt
+from ferb.core.structured import check_final
 from ferb.core.types import Identity, ModelRequest, Task
 from ferb.memory import summary
 from ferb.memory.items import KINDS, Memory, MemoryRefused
@@ -164,6 +165,7 @@ class Distiller:
                     raise RuntimeError(str(e.data))
         finally:
             await rt.cancel(run)
+        final = check_final(final, DISTILL_SCHEMA)
         parsed = json.loads(final)
         if not isinstance(parsed, dict):
             raise ValueError("not an object")

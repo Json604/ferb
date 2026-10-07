@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from ferb.clock import context
 from ferb.core.context import ContextBlock, assemble_parts, count_tokens
 from ferb.core.prompts import load_prompt
+from ferb.core.structured import check_final
 from ferb.core.interfaces import AgentRuntime
 from ferb.core.types import ModelRequest, Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
@@ -210,7 +211,7 @@ class WorkerRuns:
             raise Stalled()
         if not final:
             raise ValueError("runtime finished without an answer")
-        return final
+        return check_final(final, output_schema)
 
     async def _watch(self, rt: AgentRuntime, run: RunHandle, worker_id: str, tree: "_Tree" | None) -> None:
         """Cancel a silent worker; owner waits suspend liveness timing."""
