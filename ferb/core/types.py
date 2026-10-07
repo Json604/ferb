@@ -138,6 +138,18 @@ class RuntimeFeatures:
     native_tools_contained: bool             # must be True to be registered
 
 
+@dataclass(frozen=True)
+class ModelRequest:
+    """What FERB sends any model runtime (D32): its instructions and the context in order, stable parts first (P20)."""
+    system: str
+    parts: tuple[str, ...]
+    cacheable: int = 0                       # parts[:cacheable] repeat across this role's calls; adapters cache them
+
+    @property
+    def context(self) -> str:
+        return "\n\n".join(self.parts)
+
+
 @dataclass
 class RunHandle:
     id: str

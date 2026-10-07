@@ -6,6 +6,7 @@ The orchestrator chooses runtimes, continuations and unresolved owner questions.
 Durable conversation, relevant memory/activity and uncertain-action evidence inform each attempt."""
 
 import asyncio
+import dataclasses
 import json
 import re
 from contextlib import suppress
@@ -368,8 +369,8 @@ class Supervisor(WorkerRuns):
         recent, ages = self.recent(request_id, session.id)
         mem_text, mem_ages = self.recall_items(remembered)
         env = self._env.get(request_id, {})
-        blocks = [ContextBlock(_env_text(env), "actions.search and current device facts"),   # same on every turn
-                  ContextBlock(recent, "chat.history", protected=True),                      # grows only at its end
+        blocks = [ContextBlock(_env_text(env), "actions.search and current device facts", cache=True),  # same on every turn
+                  ContextBlock(recent, "chat.history", protected=True, cache=True),                     # grows only at its end
                   ContextBlock(mem_text, "memory.read"),
                   ContextBlock(self.relevant_context(message), "task.evidence query=context.source; memory.read; trail.query")]
         candidates = self.continuity.candidates(session.id)
@@ -388,8 +389,9 @@ class Supervisor(WorkerRuns):
         blocks.append(ContextBlock("Owner's new message:\n" + message, "current request", protected=True))
         self._env.setdefault(request_id, {})["planner_sources"] = json.dumps([
             {"reference": block.reference, "text": block.text} for block in blocks if not block.protected], ensure_ascii=False)
-        blocks = [block if block.protected else ContextBlock(block.text, block.reference +
-                  "; original planner snapshot: task.evidence kind=context.source query=planner-context") for block in blocks]
+        blocks = [block if block.protected else dataclasses.replace(
+                      block, reference=block.reference + "; original planner snapshot: task.evidence kind=context.source "
+                                                         "query=planner-context") for block in blocks]
         ctx = blocks
         chat_task = Task(request_id, None, "chat turn", self.device_id, Identity.OWNER, set(), "mixed", request_id,
                          [], None)
@@ -763,8 +765,8 @@ class Supervisor(WorkerRuns):
         request = self.state.requests.get(tree.worker.request_id)
         words = request.words
         parts = [ContextBlock("Owner's complete original request (pasted sources remain marked as data):\n" +
-                              (request.payload or words), "task.evidence kind=task", protected=True),
-                 ContextBlock(f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification", protected=True),
+                              (request.payload or words), "task.evidence kind=task", protected=True, cache=True),
+                 ContextBlock(f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification", protected=True, cache=True),
                  self._source_block(tree, "relevant activity and actions", self.relevant_context(words)),
                  self._source_block(tree, "recalled memory", self.recall_items(self.recall(words))[0]),
                  ContextBlock(self.disturbance_context(tree.id), "task.evidence query=disturbance", protected=True)]

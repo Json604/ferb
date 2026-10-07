@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator, Literal, Protocol
 from pydantic import BaseModel
 
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ComputerAction, DriverFeatures, ElementRef, Identity,
-                             PageSnapshot, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, SecretRef, SecretSpec,
+                             ModelRequest, PageSnapshot, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, SecretRef, SecretSpec,
                              TabRef, Task, ToolContext, ToolResult, WaitCondition)
 
 
@@ -26,7 +26,7 @@ class IdSource(Protocol):
 class AgentRuntime(Protocol):
     name: str
     features: RuntimeFeatures                   # native_tools_contained must be True to be registered
-    async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle: ...
+    async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle: ...
     def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]: ...
     async def continue_(self, run: RunHandle, message: str) -> None: ...   # raises Unsupported if no continuation
     async def cancel(self, run: RunHandle) -> None: ...

@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from ferb.cli.chat import Chat
-from ferb.core.types import Task
+from ferb.core.types import ModelRequest, Task
 from ferb.orchestrator.worker import service_problem
 from ferb.runtimes.codex_exec import SUPERVISOR_SETTINGS, CodexRuntime, codex_home
 from ferb.runtimes.claude_sdk import ClaudeRuntime
@@ -39,7 +39,7 @@ async def test_codex_start_failure_removes_created_files(tmp_path, monkeypatch):
                       shim_cmd=['ferb', 'mcp'], output_schema={'type':'object'})
     t = Task('t', None, 'g', 'd', Identity.OWNER, set(), 'worker', 'r', [], None)
     with pytest.raises(OSError, match='cannot launch'):
-        await CODEX_START(rt, t, 'system', 'context', 'token')
+        await CODEX_START(rt, t, ModelRequest('system', ('context',)), 'token')
     assert created and not any(p.exists() for p in created)
 
 
@@ -59,7 +59,7 @@ async def test_claude_query_failure_disconnects_client(monkeypatch):
     monkeypatch.setattr(rt, '_options', lambda *args: None)
     t = Task('t', None, 'g', 'd', Identity.OWNER, set(), 'worker', 'r', [], None)
     with pytest.raises(RuntimeError, match='query transport'):
-        await CLAUDE_START(rt, t, 'system', 'context', 'token')
+        await CLAUDE_START(rt, t, ModelRequest('system', ('context',)), 'token')
     assert Client.closed
 
 

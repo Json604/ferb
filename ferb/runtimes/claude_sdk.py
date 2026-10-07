@@ -13,7 +13,7 @@ from contextlib import suppress
 from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
-from ferb.core.types import RunHandle, RuntimeEvent, RuntimeFeatures, Task
+from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Task
 from ferb.runtimes.proxy import ToolListProxy
 
 SDK_VERSION = "0.2.160"
@@ -53,13 +53,13 @@ class ClaudeRuntime:
             extra_args={"no-session-persistence": None},   # no transcript (tool results, screenshots) on disk
             output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)
 
-    async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle:
+    async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         from claude_agent_sdk import ClaudeSDKClient
         run_id = "run-" + secrets.token_hex(6)
         client = ClaudeSDKClient(options=self._options(run_id, run_token))
         try:
             await client.connect()
-            await client.query(f"{system}\n\n{context}")
+            await client.query(f"{request.system}\n\n{request.context}")
         except BaseException:
             with suppress(Exception):
                 await client.disconnect()

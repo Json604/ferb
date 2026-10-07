@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any, Callable
 from pydantic import ValidationError
 
 from ferb.clock import context
-from ferb.core.context import ContextBlock, assemble_context, count_tokens
+from ferb.core.context import ContextBlock, assemble_parts, count_tokens
 from ferb.core.prompts import load_prompt
 from ferb.core.interfaces import AgentRuntime
-from ferb.core.types import Outcome, RunHandle, Task
+from ferb.core.types import ModelRequest, Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
 
 if TYPE_CHECKING:
@@ -163,12 +163,13 @@ class WorkerRuns:
                    tree: "_Tree" | None, worker_id: str) -> str:
         tool_schemas = self.gateway.tools_for(self.tokens.validate(token)) if token else []
         output_schema = getattr(rt, "output_schema", None)
-        ctx_text = assemble_context(ctx, budget_tokens=self.context_budget_tokens,
-                                    reserved_tokens=count_tokens(system) + count_tokens(json.dumps(tool_schemas)) +
-                                                    count_tokens(json.dumps(output_schema)) + 1024)
-        self.spans.update_input(parent_span, {"context": ctx_text, "system_prompt": system,
+        parts, cacheable = assemble_parts(ctx, budget_tokens=self.context_budget_tokens,
+                                          reserved_tokens=count_tokens(system) + count_tokens(json.dumps(tool_schemas)) +
+                                                          count_tokens(json.dumps(output_schema)) + 1024)
+        request = ModelRequest(system, tuple(parts), cacheable)
+        self.spans.update_input(parent_span, {"context": request.context, "system_prompt": system,
                                              "context_budget_tokens": self.context_budget_tokens})
-        run = await rt.start(task, system, ctx_text, token)
+        run = await rt.start(task, request, token)
         self._active[run.id] = (rt, run)
         if worker_id:
             self._worker_runs[worker_id] = (rt, run)

@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from ferb.cli.client import Client
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
-from ferb.core.types import (ActionSpec, Identity, RiskLevel, RunHandle, RuntimeEvent, RuntimeFeatures, Target,
+from ferb.core.types import (ActionSpec, Identity, RiskLevel, ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Target,
                              Task, ToolContext, ToolResult)
 from ferb.daemon.main import Daemon
 from ferb.orchestrator.tree import TaskRecord
@@ -173,8 +173,8 @@ class FakeDistillRuntime:
     def __init__(self, answer: Any) -> None:
         self.answer, self.contexts = answer, []
 
-    async def start(self, task: Any, system: str, ctx: str, token: str) -> RunHandle:
-        self.contexts.append(ctx)
+    async def start(self, task: Any, request: ModelRequest, token: str) -> RunHandle:
+        self.contexts.append(request.context)
         return RunHandle("r", "fake", task.id, {})
 
     async def events(self, run: RunHandle) -> Any:
@@ -262,6 +262,7 @@ class Script:
     def __init__(self, supervisor: list[Any], workers: dict[str, Any]) -> None:
         self.sup, self.workers = supervisor, workers
         self.contexts: list[tuple[str, str, str, list[str]]] = []      # (mode, key, context, tool names)
+        self.requests: list[tuple[str, str, Any]] = []                  # (mode, key, ModelRequest)
         self.times: dict[str, tuple[float, float]] = {}
 
     def step(self, key: str) -> Any:
@@ -292,9 +293,10 @@ class FakeRuntime:
     def __init__(self, script: Script, mode: str, tools: list[str]) -> None:
         self.script, self.mode, self.tools = script, mode, tools
 
-    async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle:
+    async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         key = task.id.split(".", 1)[1] if "." in task.id else "supervisor"   # worker / worker.verify / …
-        self.script.contexts.append((self.mode, key, context, self.tools))
+        self.script.contexts.append((self.mode, key, request.context, self.tools))
+        self.script.requests.append((self.mode, key, request))
         return RunHandle(f"run-{task.id}", self.name, task.id, {"token": run_token, "key": key, "cancel": False})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
@@ -437,7 +439,7 @@ async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[
     rt = d.daemon._make_runtime("worker" if mode == "worker" else "orchestrator", mode=mode,
                                 tool_names=tool_names, schema=schema)
     task = task or Task("t-sup", None, "chat", "dev", Identity.OWNER, set(), "mixed", "r-sup", [], None)
-    run = await rt.start(task, "", prompt, token)
+    run = await rt.start(task, ModelRequest("", (prompt,), 0), token)
     out: dict = {"events": []}
     try:
         async for ev in rt.events(run):

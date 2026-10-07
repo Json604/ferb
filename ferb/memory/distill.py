@@ -16,9 +16,9 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from ferb.core.interfaces import Clock
-from ferb.core.context import ContextBlock, assemble_context, count_tokens
+from ferb.core.context import ContextBlock, assemble_parts, count_tokens
 from ferb.core.prompts import load_prompt
-from ferb.core.types import Identity, Task
+from ferb.core.types import Identity, ModelRequest, Task
 from ferb.memory import summary
 from ferb.memory.items import KINDS, Memory, MemoryRefused
 from ferb.store.db import Database
@@ -152,9 +152,9 @@ class Distiller:
         system = load_prompt("memory/distill.md")
         # Distillation has no read tools. Preserve its evidence in full and disclose an overage
         # rather than silently cut a source it cannot fetch back during the run.
-        ctx = assemble_context([ContextBlock(ctx, f"daily evidence {day}", protected=True)],
-                               reserved_tokens=count_tokens(system))
-        run = await rt.start(task, system, ctx, "")
+        parts, cacheable = assemble_parts([ContextBlock(ctx, f"daily evidence {day}", protected=True)],
+                                          reserved_tokens=count_tokens(system))
+        run = await rt.start(task, ModelRequest(system, tuple(parts), cacheable), "")
         final = ""
         try:
             async for e in rt.events(run):

@@ -63,11 +63,13 @@ class ContextBlock:
     text: str
     reference: str
     protected: bool = False
+    cache: bool = False      # repeats across this role's calls; the cacheable prefix ends after the last leading one (P20)
 
 
-def assemble_context(blocks: list[ContextBlock], *, budget_tokens: int = DEFAULT_BUDGET_TOKENS,
-                     reserved_tokens: int = 0) -> str:
-    """Reserve prompts/tools first; omit whole optional blocks, keeping retrieval references visible.
+def assemble_parts(blocks: list[ContextBlock], *, budget_tokens: int = DEFAULT_BUDGET_TOKENS,
+                   reserved_tokens: int = 0) -> tuple[list[str], int]:
+    """Reserve prompts/tools first; omit whole optional blocks, keeping retrieval references visible. Returns the context
+as ordered parts (the budget report last) and how many leading parts repeat across calls (adapters cache them).
 
 Protected source text can exceed the configured budget. Reporting that fact is preferable to changing it.
 The budget is a context allocation, not a task/output/token-spend limit.
@@ -77,25 +79,36 @@ The budget is a context allocation, not a task/output/token-spend limit.
     active = [block for block in blocks if block.text]
     kept = {index for index, block in enumerate(active) if block.protected}
 
-    def render() -> str:
+    def render() -> list[str]:
         parts = [block.text if index in kept else f"[Context omitted; fetch full text: {block.reference}]"
-                 for index, block in enumerate(active)]
+                 for index, block in enumerate(active)] or [""]
         body = "\n\n".join(parts)
         used = count_tokens(body) + reserved_tokens
         report = {"budget_tokens": budget_tokens, "reserved_tokens": reserved_tokens,
                   "content_tokens_estimate": count_tokens(body), "method": token_method(),
                   "over_budget": used > budget_tokens,
                   "omitted_blocks": len(active) - len(kept)}
-        return body + "\n\nContext budget: " + json.dumps(report)
+        return parts + ["Context budget: " + json.dumps(report)]
 
     for index, block in enumerate(active):
         if block.protected:
             continue
         kept.add(index)
-        if count_tokens(render()) + reserved_tokens > budget_tokens:
+        if count_tokens("\n\n".join(render())) + reserved_tokens > budget_tokens:
             kept.remove(index)
-    result = render()
+    parts = render()
     # Header/omission references also consume context. Report their unavoidable overhead truthfully.
-    if count_tokens(result) + reserved_tokens > budget_tokens and '"over_budget": false' in result:
-        result = result.replace('"over_budget": false', '"over_budget": true', 1)
-    return result
+    if count_tokens("\n\n".join(parts)) + reserved_tokens > budget_tokens and '"over_budget": false' in parts[-1]:
+        parts[-1] = parts[-1].replace('"over_budget": false', '"over_budget": true', 1)
+    cacheable = 0
+    for index, block in enumerate(active):
+        if not (block.cache and index in kept):
+            break
+        cacheable += 1
+    return parts, cacheable
+
+
+def assemble_context(blocks: list[ContextBlock], *, budget_tokens: int = DEFAULT_BUDGET_TOKENS,
+                     reserved_tokens: int = 0) -> str:
+    """The assembled context as one text (`assemble_parts` joined)."""
+    return "\n\n".join(assemble_parts(blocks, budget_tokens=budget_tokens, reserved_tokens=reserved_tokens)[0])

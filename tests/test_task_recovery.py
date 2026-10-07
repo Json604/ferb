@@ -83,8 +83,8 @@ def test_chat_stop_cancels_the_running_attempt_instead_of_just_saying_so(daemon,
     if phase == "starting":
         original_start = FakeRuntime.start
 
-        async def slow_start(runtime, task, system, context, token):
-            handle = await original_start(runtime, task, system, context, token)
+        async def slow_start(runtime, task, request, token):
+            handle = await original_start(runtime, task, request, token)
             if handle.state["key"] == "worker":
                 tree = daemon.daemon.supervisor._tree_of[task.id]
                 async with asyncio.timeout(5):

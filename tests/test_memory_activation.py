@@ -37,8 +37,8 @@ def test_distiller_sees_pending_observed_proposals(daemon: RunningDaemon) -> Non
     seen: dict[str, str] = {}
 
     class Capture:
-        async def start(self, task: Any, system: str, context: str, token: str) -> None:
-            seen["context"] = context
+        async def start(self, task: Any, request: Any, token: str) -> None:
+            seen["context"] = request.context
             raise RuntimeError("stop after capturing the context")
 
     distiller = daemon.daemon.distiller

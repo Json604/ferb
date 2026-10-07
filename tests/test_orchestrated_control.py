@@ -17,10 +17,10 @@ def test_interaction_contract_reaches_every_task_role_and_preserves_owner_direct
     from tests.conftest import FakeRuntime, tool
     systems = {}
     original = FakeRuntime.start
-    async def capture(runtime, task, system, context, token):
+    async def capture(runtime, task, request, token):
         key = task.id.split('.', 1)[1] if '.' in task.id else 'supervisor'
-        systems.setdefault(key, []).append(system)
-        return await original(runtime, task, system, context, token)
+        systems.setdefault(key, []).append(request.system)
+        return await original(runtime, task, request, token)
     monkeypatch.setattr(FakeRuntime, 'start', capture)
     def first(token):
         tool(daemon.sock, token, 'owner.ask', question='The extension is disconnected. Which fallback fits?', options=[])

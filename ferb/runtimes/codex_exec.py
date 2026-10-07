@@ -28,7 +28,7 @@ from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import Unsupported
-from ferb.core.types import RunHandle, RuntimeEvent, RuntimeFeatures, Task
+from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, RuntimeFeatures, Task
 from ferb.runtimes.tooltrace import tools_in
 
 CODEX_VERSION = "0.157.1"
@@ -145,7 +145,8 @@ class CodexRuntime:
             cmd += ["--output-schema", str(schema_file)]
         return cmd
 
-    async def start(self, task: Task, system: str, context: str, run_token: str) -> RunHandle:
+    async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
+        system, context = request.system, request.context
         await check_version(self.binary)
         self.workdir.mkdir(parents=True, exist_ok=True)
         paths: list[Path] = []
