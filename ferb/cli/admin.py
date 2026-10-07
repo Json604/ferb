@@ -519,3 +519,25 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
     finally:
         c.close()
     return 0
+
+
+def regress(client: Client, connect: Callable[[], Client], set_path: Any, home: Any, out: TextIO) -> int:
+    """Run a regression set; print the `ferb verdict` line per task. Never decides pass or fail."""
+    from datetime import datetime
+
+    from ferb.eval.regress import load_set, run_set
+    tasks = load_set(set_path)
+    rows = run_set(client, tasks, out, connect=connect)
+    expect = {t.id: t.expect for t in tasks}
+    print("\nYour verdicts (acceptance is your word):", file=out)
+    for r in rows:
+        if r["task_id"]:
+            print(f"  ferb verdict {r['task_id']} pass|fail   # {r['id']}: {expect.get(r['id'], '')}", file=out)
+        else:
+            print(f"  {r['id']}: no task started ({r['status']}): {r['outcome_summary']}   # {expect.get(r['id'], '')}", file=out)
+    dest = home / "regression"
+    dest.mkdir(parents=True, exist_ok=True)
+    path = dest / f"{datetime.now().strftime('%Y%m%dT%H%M%S')}.json"
+    path.write_text(json.dumps(rows, indent=2))
+    print(f"Results: {path}", file=out)
+    return 0

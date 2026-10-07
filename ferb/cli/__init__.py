@@ -124,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs (from the database)")
     stp.add_argument("--days", type=int, default=7)
     sub.add_parser("baseline", help="capture current metrics to ~/.ferb/baselines for milestone comparison")
+    rg = sub.add_parser("regress", help="run a regression task set through the daemon; you give the verdicts")
+    rg.add_argument("set_file", nargs="?", default=None, help="task set TOML (default: docs/regression/smoke.toml)")
     xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
     xp.add_argument("--purge", action="store_true")
 
@@ -213,6 +215,11 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.trace(client, args.task_id, sys.stdout, args.full, args.json)
             if args.cmd == "verdict":
                 return admin.verdict(client, args.task_id, args.verdict, args.note, sys.stdout)
+            if args.cmd == "regress":
+                from pathlib import Path
+                default = Path(__file__).resolve().parents[2] / "docs" / "regression" / "smoke.toml"
+                return admin.regress(client, lambda: Client(socket_path()),
+                                     Path(args.set_file) if args.set_file else default, ferb_home(), sys.stdout)
             if args.cmd == "stop":
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":

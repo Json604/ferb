@@ -1,0 +1,13 @@
+# Smoke set: harmless prompts only. Nothing here sends, deletes, buys, logs in or changes anything.
+
+[[task]]
+id = "smoke-weekday"
+prompt = "What day of the week is it today?"
+surface = "disposable"
+expect = "FERB answers with today's correct weekday."
+
+[[task]]
+id = "smoke-reminders"
+prompt = "Which reminders does FERB currently have scheduled? Just list them; do not change anything."
+surface = "disposable"
+expect = "FERB lists its own reminders (or says there are none) without creating, editing or deleting any."
