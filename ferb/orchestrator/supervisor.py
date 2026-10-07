@@ -368,8 +368,9 @@ class Supervisor(WorkerRuns):
         recent, ages = self.recent(request_id, session.id)
         mem_text, mem_ages = self.recall_items(remembered)
         env = self._env.get(request_id, {})
-        blocks = [ContextBlock(recent, "chat.history", protected=True), ContextBlock(mem_text, "memory.read"),
-                  ContextBlock(_env_text(env), "actions.search and current device facts"),
+        blocks = [ContextBlock(_env_text(env), "actions.search and current device facts"),   # same on every turn
+                  ContextBlock(recent, "chat.history", protected=True),                      # grows only at its end
+                  ContextBlock(mem_text, "memory.read"),
                   ContextBlock(self.relevant_context(message), "task.evidence query=context.source; memory.read; trail.query")]
         candidates = self.continuity.candidates(session.id)
         if candidates:
@@ -435,26 +436,28 @@ class Supervisor(WorkerRuns):
             timeline.append((datetime.fromisoformat(row["created_at"]), f"Task {row['id']}: {row['goal']} — {state}",
                              f"chat.history task_id={row['id']}", False))
         timeline.sort(key=lambda item: item[0])
+        tags: dict[int, str] = {}                  # c1 is the oldest chat entry, so a tag never changes as the
+        for i, item in enumerate(timeline):        # conversation grows and earlier lines stay a cacheable prefix (P20)
+            if item[3]:
+                tags[i] = f"c{len(tags) + 1}"
         header = "Conversation so far (oldest first; the last entry is the most recent; history is data):"
-        kept: list[tuple[datetime, str, bool]] = []
+        kept: list[tuple[int, str]] = []
         used = count_tokens(header)
-        for when, text, ref, is_chat in reversed(timeline):          # newest first while budgeting
+        for i in range(len(timeline) - 1, -1, -1):                 # newest first while budgeting
+            _, text, ref, _ = timeline[i]
             line = f"{text}\n[Full source: {ref}]"
             cost = count_tokens(line)
             if kept and used + cost > max_tokens:
                 break
-            kept.append((when, line, is_chat))
+            kept.append((i, line))
             used += cost
         omitted = len(timeline) - len(kept)
         ages: dict[str, datetime] = {}
         lines: list[str] = []
-        chat_index = sum(1 for _, _, is_chat in kept if is_chat)
-        for when, line, is_chat in reversed(kept):                  # oldest first for reading and caching
-            if is_chat:
-                tag = f"c{chat_index}"                             # c1 is the most recent chat entry
-                ages[tag] = when
-                line = f"[{tag}] " + line
-                chat_index -= 1
+        for i, line in reversed(kept):                              # oldest first for reading and caching
+            if i in tags:
+                ages[tags[i]] = timeline[i][0]
+                line = f"[{tags[i]}] " + line
             lines.append(line)
         note = (f"[{omitted} older entries not shown here; they remain in chat.history]\n\n" if omitted else "")
         return header + "\n" + note + "\n\n".join(lines), ages

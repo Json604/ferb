@@ -29,7 +29,9 @@ The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 i
   tool_search (verified live 2026-10-07). As a fallback (for example when Codex's models cache is missing and the
   lockdown cannot apply), a worker or checker whose runtime reported tools without any FERB tool is re-run once with
   that fact, traced as `runtime.tools_not_loaded`.
-- The context budget report closes the context and the owner's message is the last block (P20).
+- The context budget report closes the context and the owner's message is the last block (P20). After the owner's
+  live run: the device-facts block (installed apps, the same on every turn) comes first, and history chat tags count
+  from the oldest entry (`c1`), so a new message no longer renumbers every earlier line and breaks the cached prefix.
 
 ## 0.27.0-dev — 2026-10-07 — F0 process and measurement
 

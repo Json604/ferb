@@ -32,8 +32,22 @@ note down Kabeer's assignment messages on WhatsApp, read the linked Google Doc, 
 | `b2fb7b1e…` start the session | Typed the brief into VS Code's Copilot agent and reported "I started Code Astra"; Copilot created five session folders; FERB yielded twice when the owner used the keyboard or mouse | Copilot was used, not Codex astra; the owner had the five folders moved to the Trash (repo clean); **fail** (`ferb verdict`) |
 
 F1 evidence from these traces: workers and the checker listed FERB's tools directly (no `tool_search`, no
-`runtime.tools_not_loaded` re-run), and "yeah use it" continued the right task. Recall and caching were not checked
-in this run. Follow-up decisions: D34, D35, D36 in `docs/0.27_PLAN.md`.
+`runtime.tools_not_loaded` re-run), and "yeah use it" continued the right task. Follow-up decisions: D34, D35, D36
+in `docs/0.27_PLAN.md`.
+
+Recall and caching (same session, later):
+- `c9d4f481…` "what my disk storage going towards the most": the planner's memory block was empty, so no personal
+  memory went with a disk question (before F1 all 8 active memories went with every task). The earlier tasks still
+  received unrelated items ("body recomposition", "ignore non-AI guidelines") through short words such as "do" and
+  "not" that occur in only a few of the 8 active memories, so the data-driven filter keeps them; relevance
+  judgment is F8 (MP6, M8). The answer's folder sizes overlap (172 GiB temporary folders + 195 GiB home exceed the
+  306 GiB in use); not investigated further. Verdict pending.
+- Cache rate: `ferb baseline` covers all time, so a few new turns cannot move it (90% before and after). Measured per
+  role from the database instead: orchestrator turns after F1 14% (5 turns) vs 37% over the previous 7 days;
+  workers 92% in both. Three of the five turns came 7–39 minutes after the previous one, past the provider's
+  cache lifetime, and had nothing cached. Code inspection found two prefix breakers, fixed after the run: history
+  tags counted from the newest message (every new message renumbered earlier lines) and the stable device-facts
+  block sat after history. Needs a re-check with back-to-back turns after `ferb setup --update`.
 
 ## What has been observed in this pass
 
