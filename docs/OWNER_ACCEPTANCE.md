@@ -101,16 +101,17 @@ tools reach any path until the protected-path lists exist.
 - Owner decision (2026-10-08): keep the build order, F4 next, then F5. F5's shell sandbox and never-read lists are
   what block reads of browser data, the keychain and credential files. Until then, deny any macOS password prompt
   you didn't expect.
-- After the follow-ups were installed (`ferb setup --update`), the owner ran "FERB read a kartikey.xyz page".
-  - The read was correct.
-  - FERB's own browser profile had no window, so `ferb_browser.open` needed a new minimized window. Instead of asking
-    for that, the worker fetched the page with a shell command, labeled `external:web:shell`. So the outside label
-    held, but the host-specific browser label was not exercised.
-  - The checker's `task.evidence` labels also carried the earlier Kaggle task's origins, inherited through the
-    conversation history, as the F3 rulings intend.
-- `ferb logs --tools` showed live step lines (owner).
-- Content search was not run live.
-- **F3 signed off by the owner (2026-10-08): "we can move forward to f4".**
+- Live checks after `ferb setup --update`:
+  - The story and `--steps` work on real tasks.
+  - `ferb logs --tools` shows live step lines.
+  - kartikey.xyz was read through a shell fetch, because FERB's own browser had no window. The step is labeled
+    `external:web:shell`, which is outside content but without the site name; that name appears only for reads
+    through the browser.
+  - Noted for F5's sink rule: within one conversation, each task inherits the earlier tasks' origins through the
+    history the planner sees. FERB's evidence reads then carry those labels into `tool_origins`, so that field has
+    to count only the task's own reads of the world.
+
+Owner sign-off: F3 accepted (2026-10-08, "we can sign off. move to f4").
 
 ## 0.27 F2 — pending live checks
 
