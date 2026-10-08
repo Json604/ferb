@@ -112,7 +112,13 @@ def test_a_large_nested_tree_is_purged_completely(daemon: RunningDaemon) -> None
     for i in range(300):          # ids sort children before parents in one chunk and after in another
         _insert_span(daemon, f"z-t{i:03d}", "z-w", root + ".1", None, _old())
         _insert_span(daemon, f"a-c{i:03d}", f"z-t{i:03d}", root + ".1", None, _old())
-    _purge(daemon)
+    before = _q(daemon, "SELECT count(*) FROM spans")
+    assert before > 601
+    from ferb.store import retention
+    async def go():
+        return retention.purge_task_spans(daemon.daemon.db, root)
+    deleted = daemon.run(go())
+    assert deleted == before - _q(daemon, "SELECT count(*) FROM spans") > 601                                           # the true count, not -1
     assert _tree_spans(daemon, root) == 0
     assert _spans_with_prefix(daemon, "z-") == 0 and _spans_with_prefix(daemon, "a-c") == 0
 
@@ -123,6 +129,16 @@ def test_many_old_loose_spans_with_children_are_purged(daemon: RunningDaemon) ->
         _insert_span(daemon, f"a-k{i:03d}", f"z-p{i:03d}", None, None, _old())
     _purge(daemon)
     assert _spans_with_prefix(daemon, "z-p") == 0 and _spans_with_prefix(daemon, "a-k") == 0
+    assert _q(daemon, "SELECT json_extract(data_json, '$.spans') FROM journal WHERE kind = 'retention.purged'") == 600
+
+
+def test_purge_functions_return_true_counts(daemon: RunningDaemon) -> None:
+    from ferb.store import retention
+    _insert_span(daemon, "c-p", None, None, None, _old())
+    _insert_span(daemon, "c-k", "c-p", None, None, _old())
+    async def go():
+        return retention.purge_loose_spans(daemon.daemon.db, "2021-01-01T00:00:00+00:00")
+    assert daemon.run(go()) == 2
 
 
 def test_loose_span_rules(daemon: RunningDaemon) -> None:

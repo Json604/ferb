@@ -16,16 +16,17 @@ def _transaction(db: Any) -> Iterator[None]:
         yield
         db.conn.execute("COMMIT")
     except BaseException:
-        db.conn.execute("ROLLBACK")
+        if db.conn.in_transaction:                # SQLite may have rolled back already; keep the real error
+            db.conn.execute("ROLLBACK")
         raise
 
 
 def _delete_with_descendants(db: Any, seed_where: str, params: tuple[Any, ...]) -> int:
     """One statement, so a parent never goes before its child (spans.parent_id is a foreign key)."""
     return int(db.conn.execute(
-        f"WITH RECURSIVE sub(id) AS (SELECT id FROM spans WHERE {seed_where} "
-        "UNION SELECT s.id FROM spans s JOIN sub ON s.parent_id = sub.id) "
-        "DELETE FROM spans WHERE id IN (SELECT id FROM sub)", params).rowcount or 0)
+        # The CTE sits inside the subquery: a statement starting with WITH reports rowcount -1.
+        f"DELETE FROM spans WHERE id IN (WITH RECURSIVE sub(id) AS (SELECT id FROM spans WHERE {seed_where} "
+        "UNION SELECT s.id FROM spans s JOIN sub ON s.parent_id = sub.id) SELECT id FROM sub)", params).rowcount)
 
 
 def finished_roots_before(db: Any, cutoff: str) -> list[str]:

@@ -85,12 +85,12 @@ class TaskTree:
         return [dict(r) for r in self.db.conn.execute(
             "SELECT * FROM tasks WHERE parent_id IS NULL AND updated_at >= ? ORDER BY created_at", (since_iso,))]
 
-    def interrupt_running(self) -> list[str]:
+    def interrupt_running(self, now: datetime | None = None) -> list[str]:
         """After a restart: whatever was running or planned didn't finish."""
         if self.db is None:
             return []
         ids = [r["id"] for r in self.db.conn.execute(
             "SELECT id FROM tasks WHERE status IN ('running', 'planned')").fetchall()]
         self.db.conn.execute("UPDATE tasks SET status = 'interrupted', updated_at = ? "
-                             "WHERE status IN ('running', 'planned')", (datetime.now().astimezone().isoformat(),))
+                             "WHERE status IN ('running', 'planned')", ((now or datetime.now().astimezone()).isoformat(),))
         return ids

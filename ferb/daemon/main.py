@@ -185,7 +185,7 @@ class Daemon:
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.ledger = Ledger(self.db, self.clock, self.ids)
         self.tasks.attach(self.db)
-        interrupted = self.tasks.interrupt_running()          # a restart: what was running didn't finish
+        interrupted = self.tasks.interrupt_running(self.clock.now())          # a restart: what was running didn't finish
         if interrupted:
             self.journal.append("tasks.interrupted_after_restart", {"task_ids": interrupted})
             for tid in {t.split(".", 1)[0] for t in interrupted}:          # chat tells the owner next time
