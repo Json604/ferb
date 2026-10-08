@@ -113,8 +113,9 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordi
 
 def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
     """Search the owner's recorded activity."""
-    from ferb.sense.tools import TrailQuery
+    from ferb.sense.tools import TrailDays, TrailQuery
     r.add(TrailQuery(trail))
+    r.add(TrailDays(trail))
 
 
 def add_evidence(r: Registry, spans: Any, parent: Callable[[str], str | None],

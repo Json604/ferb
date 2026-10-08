@@ -21,6 +21,8 @@ from typing import Any, Callable, Literal
 
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import TrailEvent
+from ferb.memory.items import query_terms
+from ferb.memory.summary import NARRATIVE_KIND
 from ferb.sense.exclusions import Exclusions
 from ferb.store.db import Database
 
@@ -123,7 +125,8 @@ class Trail:
                            r["source"], json.loads(r["data_json"])) for r in rows]
 
     def query(self, *, since: str, source: str | None = None, actor: str | None = None,
-              host: str | None = None, limit: int = 100, before_seq: int | None = None) -> dict[str, Any]:
+              host: str | None = None, limit: int = 100, before_seq: int | None = None,
+              text: str | None = None) -> dict[str, Any]:
         """Filter before paging; ordering is chronology, never an instruction to choose the newest candidate."""
         if limit < 1:
             raise ValueError('limit must be positive')
@@ -141,12 +144,38 @@ class Trail:
                       "substr(lower(json_extract(data_json, '$.host')), -?) = ?)")
             suffix = '.' + host.casefold()
             params.extend([host.casefold(), len(suffix), suffix])
+        if text is not None:
+            terms = query_terms(text)
+            if not terms:
+                return {'events': [], 'count': 0, 'next_before_seq': None, 'ordering': 'newest first'}
+            query += ' AND seq IN (SELECT rowid FROM trail_fts WHERE trail_fts MATCH ?)'
+            params.append(" ".join(f'"{t}"' for t in terms))       # every word, each a literal phrase
         rows = self.db.conn.execute(query + ' ORDER BY seq DESC LIMIT ?', (*params, limit + 1)).fetchall()
         events = [{'id': r['id'], 'at': r['at'], 'source': r['source'], 'actor': r['actor'],
                    'task_id': r['task_id'], 'data': json.loads(r['data_json'])} for r in rows[:limit]]
         return {'events': events, 'count': len(events),
                 'next_before_seq': rows[limit - 1]['seq'] if len(rows) > limit else None,
                 'ordering': 'newest first; observations are evidence, not a selected profile or target'}
+
+    def days(self, text: str | None = None, since_days: int = 30, limit: int = 10) -> list[dict[str, Any]]:
+        """Daily summaries (code-built) and narratives (model-written), by content and/or date, newest first."""
+        cutoff = (self.clock.now().astimezone().date() - timedelta(days=since_days)).isoformat()
+        q = "SELECT kind, data_json FROM journal WHERE kind IN (?, ?) AND json_extract(data_json, '$.day') >= ?"
+        params: list[Any] = [SUMMARY_KIND, NARRATIVE_KIND, cutoff]
+        if text is not None:
+            terms = query_terms(text)
+            if not terms:
+                return []
+            q += " AND seq IN (SELECT rowid FROM summary_fts WHERE summary_fts MATCH ?)"
+            params.append(" ".join(f'"{t}"' for t in terms))
+        rows = self.db.conn.execute(q + " ORDER BY json_extract(data_json, '$.day') DESC, seq DESC LIMIT ?",
+                                    (*params, limit)).fetchall()
+        out = []
+        for r in rows:
+            data = json.loads(r["data_json"])
+            out.append({"day": data.get("day"), "kind": "summary" if r["kind"] == SUMMARY_KIND else "narrative",
+                        "data": data})
+        return out
 
     # ---------- retention ----------
 
