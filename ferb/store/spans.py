@@ -3,7 +3,7 @@
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from ferb.core import origin
 from ferb.core.interfaces import Clock, IdSource
@@ -11,6 +11,7 @@ from ferb.core.types import Span
 from ferb.store.db import Database
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
+OUTPUT_TEXT_CAP = 20000          # characters of each tool result matched for argument sources (S3)
 
 
 def tree_where(root_id: str) -> tuple[str, tuple[Any, ...]]:
@@ -95,15 +96,24 @@ class SpanStore:
         ep = self._db.conn.execute("SELECT origins FROM episodes WHERE task_id = ?", (root_id,)).fetchone()
         return found | (set(origin.split(ep["origins"])) if ep and ep["origins"] else set())
 
-    def tool_outputs(self, root_id: str) -> list[tuple[set[str], str]]:
-        """(origins, text) of this task tree's finished tool calls, in call order. The text is every string value of
-        the decoded output (numbers as strings) joined by newlines, capped at 20000 characters; past the cap stays
-        unsearched."""
+    def tool_outputs(self, root_id: str, after_rowid: int = 0) -> list[tuple[int, set[str], str]]:
+        """(rowid, origins, text) of this task tree's finished tool calls after `after_rowid`, in call order. The text
+        is every string value of the decoded output (numbers as strings) joined by newlines, capped at 20000
+        characters while it is joined; past the cap stays unsearched."""
         where, params = self._tree_where(root_id)
-        rows = self._db.conn.execute(f"SELECT origin, output_json FROM spans WHERE kind = 'tool.call' AND {where} "
-                                     "AND output_json IS NOT NULL ORDER BY rowid", params)
-        return [(origin.split(r["origin"]), "\n".join(_strings(json.loads(r["output_json"])))[:20000])
+        rows = self._db.conn.execute(f"SELECT rowid, origin, output_json FROM spans WHERE kind = 'tool.call' AND "
+                                     f"{where} AND rowid > ? AND output_json IS NOT NULL ORDER BY rowid",
+                                     (*params, after_rowid))
+        return [(r["rowid"], origin.split(r["origin"]), _joined(json.loads(r["output_json"]), OUTPUT_TEXT_CAP))
                 for r in rows]
+
+    def first_open_tool_call(self, root_id: str, after_rowid: int = 0) -> int | None:
+        """The rowid of this task tree's earliest tool call after `after_rowid` that hasn't finished (still running),
+        if any: its result arrives later than calls started after it."""
+        where, params = self._tree_where(root_id)
+        row = self._db.conn.execute(f"SELECT min(rowid) FROM spans WHERE kind = 'tool.call' AND {where} "
+                                    "AND rowid > ? AND ended_at IS NULL", (*params, after_rowid)).fetchone()
+        return row[0] if row else None
 
     def owner_answers(self, root_id: str) -> list[str]:
         """The owner's answers to owner.ask in this task tree: only spans whose input names that tool and whose
@@ -273,13 +283,28 @@ def _span_record(span: Span) -> dict[str, Any]:
             'origin': span.origin, 'summary': span.summary}
 
 
-def _strings(value: Any) -> list[str]:
-    """Every string (and number as a string) inside decoded JSON, in order."""
+def _strings(value: Any) -> Iterator[str]:
+    """Every string (and number as a string) inside decoded JSON, in order, as they are reached."""
     if isinstance(value, str):
-        return [value]
-    if isinstance(value, bool) or value is None:
-        return []
-    if isinstance(value, (int, float)):
-        return [str(value)]
-    items = value.values() if isinstance(value, dict) else value if isinstance(value, list) else []
-    return [s for v in items for s in _strings(v)]
+        yield value
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        yield str(value)
+    elif isinstance(value, (dict, list)):
+        for v in (value.values() if isinstance(value, dict) else value):
+            yield from _strings(v)
+
+
+def _joined(value: Any, cap: int) -> str:
+    """The strings of decoded JSON joined by newlines, cut at `cap` characters: stops walking once the cap is reached,
+    so a huge output is never joined whole."""
+    parts: list[str] = []
+    size = 0
+    for text in _strings(value):
+        if parts:
+            size += 1                                    # the newline before this string
+        part = text[:max(cap - size, 0)]
+        parts.append(part)
+        size += len(part)
+        if size >= cap:
+            break
+    return "\n".join(parts)[:cap]

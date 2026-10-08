@@ -447,11 +447,16 @@ def test_tool_outputs_contract(daemon: RunningDaemon) -> None:
         call("t-out.worker", None)                                           # no result: skipped
         call("t-out", {"text": "word " * 5000}, "private")
         call("t-other", {"text": "another tree"}, "ferb")
+        call("t-out", {"a": ["x" * 19999, 7, True, None, "past the cap"]}, "private")
     _on_loop(daemon, record)
     outputs = _on_loop(daemon, lambda: daemon.daemon.spans.tool_outputs("t-out"))
-    assert [o for o, _ in outputs] == [{"external:web:hindi.example"}, {"private"}]     # call order, this tree only
-    assert outputs[0][1] == "नमस्ते दुनिया"                                   # decoded string values, no escaping
-    assert len(outputs[1][1]) == 20000
+    assert [o for _, o, _ in outputs] == [{"external:web:hindi.example"}, {"private"}, {"private"}]   # this tree only
+    assert [r for r, _, _ in outputs] == sorted(r for r, _, _ in outputs)                          # in call order
+    assert outputs[0][2] == "नमस्ते दुनिया"                                   # decoded string values, no escaping
+    assert len(outputs[1][2]) == 20000
+    assert outputs[2][2] == "x" * 19999 + "\n"                               # cut at the cap while joining
+    later = _on_loop(daemon, lambda: daemon.daemon.spans.tool_outputs("t-out", after_rowid=outputs[0][0]))
+    assert [r for r, _, _ in later] == [r for r, _, _ in outputs[1:]]       # only the calls after that rowid
 
 
 # ---------- fix round 3: planner blocks and planner replies ----------

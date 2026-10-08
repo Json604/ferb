@@ -1,8 +1,10 @@
 # tests/test_arg_provenance.py
 """Each consequential argument is matched against the owner's words and the outside content read so far (S3).
 Facts only: F5's confirmations use them; nothing here blocks."""
+import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -116,19 +118,32 @@ def _span(daemon: RunningDaemon, tool: str, output: dict, origin: str) -> None:
     daemon.run(go())
 
 
-def test_an_answered_owner_ask_counts_as_the_owners_words(daemon: RunningDaemon) -> None:
+def test_an_answered_owner_ask_is_the_owners_answer_not_their_words(daemon: RunningDaemon) -> None:
+    """I4 (S3): a chosen option is model-written text the owner picked; owner_words stays the request's typed words."""
     send = FakeCap("probe.send", "send", {"probe"})
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send the report to my boss"), [send])
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send the report to my boss or me@home.com"), [send])
     owner = Answers(daemon, choice=2)
     try:
-        gateway_tool_call(daemon, grant, "owner.ask", question="Which?", options=["x@y.com", "boss@work.com"])
+        gateway_tool_call(daemon, grant, "owner.ask", question="Which?",
+                          options=["x@y.com", "boss@work.com or me@home.com"])
     finally:
         owner.stop()
     gateway_tool_call(daemon, grant, "probe.send", to="boss@work.com")
     gateway_tool_call(daemon, grant, "probe.send", to="x@y.com")
+    gateway_tool_call(daemon, grant, "probe.send", to="me@home.com")
     sends = _inputs(daemon, "probe.send")
-    assert sends[0]["arg_sources"] == {"recipient:0": ["owner_words"]}
+    assert sends[0]["arg_sources"] == {"recipient:0": ["owner_answer"]}
     assert sends[1]["arg_sources"] == {"recipient:0": ["unknown"]}           # an option, not the answer
+    assert sends[2]["arg_sources"] == {"recipient:0": ["owner_words", "owner_answer"]}   # in both: both
+
+
+def test_answers_are_matched_apart_from_the_request() -> None:
+    t = Target(recipients=("a@x.com", "b@x.com", "c@x.com"))
+    got = provenance.arg_sources(t, "email a@x.com and c@x.com", [("external:web:e.example", "c@x.com")],
+                                 answer_text="b@x.com or c@x.com")
+    assert got == {"recipient:0": ["owner_words"], "recipient:1": ["owner_answer"],
+                   "recipient:2": ["owner_words", "owner_answer", "external:web:e.example"]}
+    assert provenance.sources("b@x.com", "", [], kind="structured", answer_text="b@x.com") == ["owner_answer"]
 
 
 def test_other_outputs_labeled_owner_do_not_count(daemon: RunningDaemon) -> None:
@@ -179,6 +194,68 @@ def test_gateway_records_arg_sources_on_consequential_calls_only(daemon: Running
     assert sends[0]["arg_sources"] == {"recipient:0": ["external:web:evil.example"]}
     assert sends[1]["arg_sources"] == {"recipient:0": ["owner_words"]}
     assert "arg_sources" not in _inputs(daemon, "probe.page")[0]                          # reads aren't consequential
+
+
+def _page(name: str, host: str, text: str, gate: Any = None) -> FakeCap:
+    class Page(FakeCap):
+        async def run(self, args, ctx):  # type: ignore[no-untyped-def]
+            if gate is not None:
+                await gate.wait()
+            return await super().run(args, ctx)
+    return Page(name, "read", {"probe"}, reads=(("web", f"https://{host}/x"),), content={"text": text})
+
+
+def _counting_prepare(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    prepared: list[str] = []
+    real = provenance.prepare
+    monkeypatch.setattr(provenance, "prepare", lambda text: (prepared.append(text), real(text))[1])
+    return prepared
+
+
+def test_a_later_consequential_call_prepares_only_the_newer_outputs(daemon: RunningDaemon,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    """I2 (S3): the gateway keeps a task's outside texts prepared between consequential calls; each call reads and
+    prepares only results newer than the last it saw, and forgetting the task drops them."""
+    send = FakeCap("probe.send", "send", {"probe"})
+    caps = [_page("probe.one", "a.example", "first page a1@a.example"),
+            _page("probe.two", "b.example", "second page b2@b.example"), send]
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send the report"), caps)
+    prepared = _counting_prepare(monkeypatch)
+    gateway_tool_call(daemon, grant, "probe.one")
+    gateway_tool_call(daemon, grant, "probe.send", to="a1@a.example")
+    gateway_tool_call(daemon, grant, "probe.two")
+    gateway_tool_call(daemon, grant, "probe.send", to="b2@b.example")
+    gateway_tool_call(daemon, grant, "probe.send", to="a1@a.example")
+    assert [sum(page in t for t in prepared) for page in ("first page", "second page")] == [1, 1]
+    assert [i["arg_sources"] for i in _inputs(daemon, "probe.send")] == [
+        {"recipient:0": ["external:web:a.example"]}, {"recipient:0": ["external:web:b.example"]},
+        {"recipient:0": ["external:web:a.example"]}]
+    daemon.daemon.gateway.forget_tasks({"task-1"})
+    gateway_tool_call(daemon, grant, "probe.send", to="a1@a.example")
+    assert sum("first page" in t for t in prepared) == 2                     # rebuilt from the spans
+
+
+def test_a_read_still_running_at_a_consequential_call_is_matched_once_it_finishes(daemon: RunningDaemon) -> None:
+    send = FakeCap("probe.send", "send", {"probe"})
+    gate = asyncio.Event()
+    caps = [_page("probe.slow", "slow.example", "slow page s@slow.example", gate),
+            _page("probe.fast", "fast.example", "fast page f@fast.example"), send]
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send the report"), caps)
+    gateway = daemon.daemon.gateway
+
+    async def go() -> None:
+        slow = asyncio.create_task(gateway.call(grant, "probe.slow", {}))      # started first: the lower rowid
+        await asyncio.sleep(0.05)
+        await gateway.call(grant, "probe.fast", {})
+        await gateway.call(grant, "probe.send", {"to": "s@slow.example"})   # the slow read hasn't finished
+        gate.set()
+        await slow
+        await gateway.call(grant, "probe.send", {"to": "s@slow.example"})
+        await gateway.call(grant, "probe.send", {"to": "f@fast.example"})
+    daemon.run(go())
+    assert [i["arg_sources"] for i in _inputs(daemon, "probe.send")] == [
+        {"recipient:0": ["unknown"]}, {"recipient:0": ["external:web:slow.example"]},
+        {"recipient:0": ["external:web:fast.example"]}]
 
 
 QUESTION = "Send it to alex@work.example or alex@home.example?"

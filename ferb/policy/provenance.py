@@ -7,6 +7,9 @@ at least 6 digits), matched when its digits equal the digits of a phone-like run
 no whitespace, matched as a whole token; or a multi-word name, matched as a whole phrase with word boundaries by
 Unicode category so Hindi words stay whole. Amounts match a token that is wholly a number (one leading currency
 symbol allowed), by value.
+A value in the request's words (what the owner typed) is "owner_words"; one in the owner's owner.ask answers is
+"owner_answer" (a chosen option is model-written text the owner picked, so it never counts as their typed words); a
+value in both is both.
 The result is a fact the trace shows and F5's confirmations use; nothing here judges intent. Values under 3
 characters, and CJK names inside unspaced CJK text, come out "unknown", which errs toward asking. After a restart the
 request's words are gone (the owner's owner.ask answers and outside content are still matched), so a target only
@@ -71,8 +74,8 @@ def _digits(text: str) -> str:
 
 
 @dataclass(frozen=True)
-class _Text:
-    """One text, folded and tokenized once; every target is matched against it."""
+class Text:
+    """One text, folded and tokenized once (`prepare`); every target is matched against it."""
     folded: str
     tokens: frozenset[str]
     paths: frozenset[str]
@@ -81,9 +84,9 @@ class _Text:
     phones: frozenset[str]
 
 
-def _prepare(text: str) -> _Text:
+def prepare(text: str) -> Text:
     toks = _tokens(text)
-    return _Text(text.casefold(), frozenset(toks), frozenset(_norm_path(t) for t in toks),
+    return Text(text.casefold(), frozenset(toks), frozenset(_norm_path(t) for t in toks),
                  frozenset(h for t in toks if (h := _host(t))),
                  tuple(n for t in toks if (n := _token_amount(t)) is not None),
                  frozenset(_digits(m.group(0)) for m in _PHONE_RUN.finditer(text)))
@@ -107,7 +110,7 @@ def target_values(target: Target) -> dict[str, str]:
     return out
 
 
-def _matches(kind: str, value: str, aliases: tuple[str, ...], text: _Text) -> bool:
+def _matches(kind: str, value: str, aliases: tuple[str, ...], text: Text) -> bool:
     if kind == "amount":
         return any(abs(n - float(value)) < 1e-9 for n in text.amounts)
     if kind == "name" and _PHONE_VALUE.fullmatch(value) and len(_digits(value)) >= MIN_PHONE_DIGITS:
@@ -123,21 +126,32 @@ def _matches(kind: str, value: str, aliases: tuple[str, ...], text: _Text) -> bo
 
 
 def sources(value: str, owner_text: str, external_texts: list[tuple[str, str]], aliases: tuple[str, ...] = (),
-            kind: str = "name") -> list[str]:
-    """["owner_words"], the external origins that contain the value, both, or ["unknown"]. `kind` is "name"
-    (by shape: phone, token or phrase), "structured" (whole token, URL host, path forms) or "amount"."""
-    return _sources(kind, value, aliases, _prepare(owner_text), [(o, _prepare(t)) for o, t in external_texts])
+            kind: str = "name", answer_text: str = "") -> list[str]:
+    """Where the value appears: "owner_words" (the request's words), "owner_answer" (the owner's owner.ask answers),
+    the external origins that contain it, any of these together, or ["unknown"]. `kind` is "name" (by shape: phone,
+    token or phrase), "structured" (whole token, URL host, path forms) or "amount"."""
+    return _sources(kind, value, aliases, prepare(owner_text), prepare(answer_text),
+                    [(o, prepare(t)) for o, t in external_texts])
 
 
-def _sources(kind: str, value: str, aliases: tuple[str, ...], owner: _Text, external: list[tuple[str, _Text]]) -> list[str]:
+def _sources(kind: str, value: str, aliases: tuple[str, ...], owner: Text, answers: Text,
+             external: list[tuple[str, Text]]) -> list[str]:
     found = ["owner_words"] if _matches(kind, value, aliases, owner) else []
+    found += ["owner_answer"] if _matches(kind, value, aliases, answers) else []
     found += sorted({o for o, text in external if _matches(kind, value, aliases, text)})
     return found or ["unknown"]
 
 
-def arg_sources(target: Target, owner_text: str, external_texts: list[tuple[str, str]]) -> dict[str, list[str]]:
-    owner = _prepare(owner_text)
-    external = [(o, _prepare(t)) for o, t in external_texts]
+def arg_sources(target: Target, owner_text: str, external_texts: list[tuple[str, str]],
+                answer_text: str = "") -> dict[str, list[str]]:
+    return arg_sources_prepared(target, prepare(owner_text), [(o, prepare(t)) for o, t in external_texts],
+                                prepare(answer_text))
+
+
+def arg_sources_prepared(target: Target, owner: Text, external: list[tuple[str, Text]],
+                         answers: Text | None = None) -> dict[str, list[str]]:
+    """arg_sources over texts already prepared: the gateway keeps a task's outside texts prepared between calls."""
+    answers = answers if answers is not None else prepare("")
     out: dict[str, list[str]] = {}
     for key, value in target_values(target).items():
         aliases: tuple[str, ...] = ()
@@ -150,5 +164,5 @@ def arg_sources(target: Target, owner_text: str, external_texts: list[tuple[str,
                 aliases = ("~" + value[len(home):],)
         else:
             kind = "name"
-        out[key] = _sources(kind, value, aliases, owner, external)
+        out[key] = _sources(kind, value, aliases, owner, answers, external)
     return out

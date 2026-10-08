@@ -6,7 +6,7 @@ Optional effect/why annotations never gate execution; OS and transport failures 
 import asyncio
 import base64
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from pydantic import ValidationError
@@ -66,6 +66,15 @@ def origin_line(origins: set[str]) -> str:
 
 
 @dataclass
+class OutsideTexts:
+    """A task tree's outside content, prepared once for argument matching (S3). Each consequential call reads and
+    prepares only tool results it hasn't seen: those after `floor`, minus `seen`."""
+    floor: int = 0                   # every tool call at or below this rowid had finished when last read
+    seen: set[int] = field(default_factory=set)       # finished calls above the floor, already prepared
+    texts: list[tuple[str, provenance.Text]] = field(default_factory=list)   # (external origin, prepared text)
+
+
+@dataclass
 class FsRoots:
     workspace: str
     owner_roots: tuple[str, ...]
@@ -95,6 +104,7 @@ class Gateway:
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
         self.locks = ResourceLocks()
+        self._outside: dict[str, OutsideTexts] = {}       # by root task, until the task is forgotten
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._cancelled_tasks: set[str] = set()
         self.observer: Observer = Observer()
@@ -148,14 +158,33 @@ class Gateway:
 
     def forget_tasks(self, task_ids: set[str]) -> None:
         self._cancelled_tasks.difference_update(task_ids)
+        for task_id in task_ids:
+            self._outside.pop(task_id, None)
 
     def _arg_sources(self, spec: Any, rec: Any, grant: RunGrant) -> dict[str, list[str]]:
-        """The owner's words for this request plus the owner's answers in this task; outside content read so far."""
+        """The owner's typed words for this request, the owner's answers in this task (apart: a chosen option is
+        not typed words), and the outside content read so far."""
         root = rec.tree_id or grant.task_id
-        owner_texts = [self.state.requests.get(rec.task.request_id).words, *self.spans.owner_answers(root)]
-        external = [(o, text) for origins, text in self.spans.tool_outputs(root)
-                    for o in origins if origin.is_external(o)]
-        return provenance.arg_sources(spec.target, "\n".join(owner_texts), external)
+        return provenance.arg_sources_prepared(
+            spec.target, provenance.prepare(self.state.requests.get(rec.task.request_id).words),
+            self._outside_texts(root), provenance.prepare("\n".join(self.spans.owner_answers(root))))
+
+    def _outside_texts(self, root: str) -> list[tuple[str, provenance.Text]]:
+        """The tree's external tool results so far, prepared; only results not seen before are read and prepared.
+        A call still running holds the floor below it, so its result is picked up once it finishes."""
+        known = self._outside.setdefault(root, OutsideTexts())
+        running = self.spans.first_open_tool_call(root, known.floor)
+        for rowid, origins, text in self.spans.tool_outputs(root, known.floor):
+            if rowid in known.seen:
+                continue
+            known.seen.add(rowid)
+            external = sorted(o for o in origins if origin.is_external(o))
+            if external:
+                prepared = provenance.prepare(text)
+                known.texts += [(o, prepared) for o in external]
+        known.floor = running - 1 if running is not None else max(known.seen, default=known.floor)
+        known.seen = {r for r in known.seen if r > known.floor}
+        return known.texts
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         rec = self.tasks.get(grant.task_id)
