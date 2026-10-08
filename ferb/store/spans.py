@@ -1,7 +1,7 @@
 """Own redacted span persistence, evidence reads and task exports. Must not invent missing observations."""
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
@@ -108,13 +108,31 @@ class SpanStore:
         return [a["answer"] for a in answers if isinstance(a, dict) and isinstance(a.get("answer"), str)]
 
     def _task_rows(self, task_id: str) -> list[Any]:
-        """Include the intake planner by exact request ID; it ran before the task ID existed."""
+        """Include the intake planner by exact request ID; it ran before the task ID existed. Then every descendant
+        of a selected span (e.g. the planner's model.usage, which has no task ID), in start order."""
         root = self._db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
         request_id = root[0] if root else None
-        return self._db.conn.execute(
-            "SELECT * FROM spans WHERE task_id = ? OR substr(task_id, 1, ?) = ? "
-            "OR (task_id IS NULL AND json_extract(input_json, '$.request_id') = ?) ORDER BY started_at, rowid",
-            (task_id, len(task_id) + 1, task_id + '.', request_id)).fetchall()
+        where, params = self._tree_where(task_id)
+        rows = self._db.conn.execute(
+            f"SELECT rowid AS row_order, * FROM spans WHERE {where} "
+            "OR (task_id IS NULL AND json_extract(input_json, '$.request_id') = ?)", (*params, request_id)).fetchall()
+        seen = {r["id"] for r in rows}
+        frontier = list(seen)
+        while frontier:
+            found = []
+            for i in range(0, len(frontier), 500):
+                chunk = frontier[i:i + 500]
+                found += [r for r in self._db.conn.execute(
+                    f"SELECT rowid AS row_order, * FROM spans WHERE parent_id IN ({','.join('?' * len(chunk))})",
+                    chunk) if r["id"] not in seen]
+            seen |= {r["id"] for r in found}
+            rows += found
+            frontier = [r["id"] for r in found]
+        return sorted(rows, key=lambda r: (r["started_at"], r["row_order"]))
+
+    def tree_json(self, task_id: str) -> list[dict[str, Any]]:
+        """`tree` as plain dicts (times as ISO strings, children nested): what trace.get and episodes read."""
+        return [node_json(n) for n in self.tree(task_id)]
 
     def outcome(self, task_id: str) -> dict[str, Any]:
         """Export one redacted evidence object. Missing historical facts stay explicit, never reconstructed guesses."""
@@ -229,6 +247,14 @@ def _row_to_span(r: Any) -> Span:
                 input=json.loads(r["input_json"]),
                 output=json.loads(r["output_json"]) if r["output_json"] else None,
                 cost_usd=r["cost_usd"], error=r["error"], origin=r["origin"], summary=r["summary"])
+
+
+def node_json(node: SpanNode) -> dict[str, Any]:
+    s = asdict(node.span)
+    for k in ("started_at", "ended_at"):
+        s[k] = s[k].isoformat() if s[k] else None
+    s["children"] = [node_json(c) for c in node.children]
+    return s
 
 
 def _span_record(span: Span) -> dict[str, Any]:

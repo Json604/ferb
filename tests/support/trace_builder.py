@@ -1,0 +1,136 @@
+"""Build `trace.get`-shaped dicts ({task_id, spans, outcome}) for composer and renderer tests, with the span kinds,
+inputs and outputs FERB records (supervisor, worker, gateway, disturbance) and SpanStore.outcome()'s keys."""
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+T0 = datetime(2026, 10, 7, 11, 4, 37, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+
+class TraceBuilder:
+    def __init__(self, task_id: str = "f29fee46", request: str = "delete the hf cache completely",
+                 goal: str = "delete ~/.cache/huggingface", conditions: list[str] | None = None) -> None:
+        self.task_id, self.request, self.goal = task_id, request, goal
+        self.conditions = conditions or ["~/.cache/huggingface no longer exists", "nothing else was deleted"]
+        self.t, self.n = T0, 0
+        self.top: list[dict[str, Any]] = []                 # spans without a parent (the intake planner)
+        self.root = self._node("task", 0, {"request": request, "task_spec": self._spec()})
+        self.verification: list[dict[str, Any]] = []
+        self.verdict: dict[str, Any] | None = None
+
+    def _spec(self) -> dict[str, Any]:
+        return {"goal": self.goal, "success_conditions": [{"text": c, "check": {"kind": "none"}} for c in self.conditions]}
+
+    def _node(self, kind: str, seconds: float, inp: dict[str, Any], out: dict[str, Any] | None = None,
+              error: str | None = None, start: datetime | None = None, task_id: str | None = "") -> dict[str, Any]:
+        self.n += 1
+        begin = start or self.t
+        end = begin + timedelta(seconds=seconds)
+        if start is None:
+            self.t = end
+        return {"id": f"s{self.n}", "parent_id": None, "kind": kind,
+                "task_id": self.task_id if task_id == "" else task_id, "device_id": "dev",
+                "started_at": begin.isoformat(), "ended_at": end.isoformat(), "input": inp, "output": out,
+                "cost_usd": None, "error": error, "origin": None, "summary": None, "children": []}
+
+    def _child(self, parent: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+        node["parent_id"] = parent["id"]
+        parent["children"].append(node)
+        return node
+
+    def planner(self, seconds: float, decision: dict[str, Any]) -> dict[str, Any]:
+        node = self._node("model.turn", seconds, {"role": "supervisor", "request_id": "req-1"},
+                          {"text": json.dumps(decision)}, task_id=None)
+        self.top.append(node)
+        return node
+
+    def usage(self, parent: dict[str, Any], inp: int, cached: int, out: int, cost: float | None,
+              billing: str = "subscription", model: str = "gpt-5.5") -> None:
+        start = datetime.fromisoformat(parent["started_at"])
+        self._child(parent, self._node("model.usage", 0, {"runtime": "codex"}, {
+            "model": model, "input_tokens": inp, "cached_input_tokens": cached, "cache_write_tokens": 0,
+            "output_tokens": out, "reasoning_tokens": 0, "cost_usd": cost,
+            "cost_basis": "price_table" if cost is not None else "unknown", "billing": billing},
+            start=start, task_id=parent["task_id"]))
+
+    def worker(self, seconds: float, status: str, summary: str) -> dict[str, Any]:
+        report = {"status": status, "summary": summary, "artifacts": [], "evidence": []}
+        return self._child(self.root, self._node("worker", seconds, {"goal": self.goal, "role": "worker", "scopes": []},
+                                                 {"result": json.dumps(report), "status": status},
+                                                 task_id=f"{self.task_id}.worker"))
+
+    def checker(self, seconds: float, met: list[bool | None], evidence: list[str]) -> dict[str, Any]:
+        results = [{"index": i + 1, "met": m, "evidence": e} for i, (m, e) in enumerate(zip(met, evidence))]
+        self.verification = [{"index": r["index"], "condition": c, "met": r["met"], "path": None,
+                              "evidence": r["evidence"]} for r, c in zip(results, self.conditions)]
+        return self._child(self.root, self._node("worker", seconds,
+                                                 {"goal": "verify", "role": "verifier", "scopes": []},
+                                                 {"result": json.dumps({"results": results}), "status": None},
+                                                 task_id=f"{self.task_id}.worker.verify"))
+
+    def dispatch(self, seconds: float, action: str, instructions: str = "") -> dict[str, Any]:
+        decision = {"action": action, "worker_type": "default", "instructions": instructions, "question": ""}
+        return self._child(self.root, self._node("model.dispatch", seconds, {}, {"text": json.dumps(decision)}))
+
+    def tool(self, parent: dict[str, Any], offset: float, seconds: float, tool: str, args: dict[str, Any],
+             summary: str, origin: str = "private", why: str = "", error: str | None = None) -> None:
+        start = datetime.fromisoformat(parent["started_at"]) + timedelta(seconds=offset)
+        node = self._node("tool.call", seconds, {"tool": tool, "args": args, "effect": "", "kind": "run_shell",
+                                                 "target": {}} | ({"why": why} if why else {}),
+                          {"exit_code": 0}, error, start=start, task_id=parent["task_id"])
+        node["origin"], node["summary"] = origin, summary
+        self._child(parent, node)
+
+    def source(self, label: str, text: str, origin: str) -> None:
+        """A context block the task's models were shown, stored with where it came from (supervisor._source_block)."""
+        node = self._node("context.source", 0, {"label": label}, {"text": text})
+        node["origin"] = origin
+        self._child(self.root, node)
+
+    def desktop(self, changes: int, near: list[tuple[str, list[str]]] | tuple = ()) -> None:
+        for tool, changed in near:
+            self._child(self.root, self._node("disturbance.change", 0, {}, {
+                "changes": {k: {"before": None, "after": None} for k in changed},
+                "actions": [{"tool": tool, "span_id": "x"}], "owner_input": False}))
+        self._child(self.root, self._node("disturbance.summary", 0, {}, {"samples": 99, "changes": changes, "errors": 0}))
+
+    def finish(self, status: str = "done", verified: bool | None = True,
+               answer: str = "Deleted ~/.cache/huggingface.") -> dict[str, Any]:
+        self.root["ended_at"] = self.t.isoformat()
+        self.root["output"] = {"status": status, "summary": answer, "verified": verified, "resources": []}
+        message = {"id": "m1", "at": T0.isoformat(),
+                   "data": {"session_id": "s1", "request_id": "req-1", "text": self.request, "untrusted_parts": 0}}
+        return {"task_id": self.task_id, "spans": self.top + [self.root], "outcome": {
+            "schema_version": 1, "task_id": self.task_id,
+            "request": {"id": "req-1", "text": self.request, "authority_words": self.request, "messages": [message]},
+            "task_spec": self._spec(),
+            "tasks": [{"id": self.task_id, "tree_id": self.task_id, "parent_id": None, "goal": self.goal,
+                       "status": status}],
+            "result": self.root["output"],
+            "outcome_records": [
+                {"task_id": self.task_id, "request_id": "req-1", "status": status, "text": answer},
+                {"task_id": self.task_id, "status": status, "summary": answer, "verified": verified,
+                 "verification": self.verification, "subtasks": [], "resources": []}],
+            "owner_verdict": self.verdict}}
+
+
+def hf_cache_retry() -> dict[str, Any]:
+    """The f29fee46 case from the plan's mockup: a checker that verified nothing, a retry, then a verified finish."""
+    b = TraceBuilder()
+    p = b.planner(12, {"kind": "task", "text": "Deleting it.", "task": {"goal": b.goal}})
+    b.usage(p, 9000, 6000, 300, 0.02)
+    w = b.worker(46, "done", "Deleted ~/.cache/huggingface (22 GB); it no longer exists.")
+    b.tool(w, 1, 0.4, "shell.run", {"command": "du -sh ~/.cache/huggingface"}, "exit 0 · 1 line", why="check size first")
+    b.tool(w, 3, 2.1, "shell.run", {"command": "rm -rf ~/.cache/huggingface"}, "exit 0 · 0 lines",
+           why="delete the exact path")
+    b.usage(w, 300000, 250000, 3000, 0.40)
+    c = b.checker(8, [None, None], ["Tool discovery was not attempted", "Tool discovery was not attempted"])
+    b.usage(c, 40000, 30000, 400, 0.05)
+    d = b.dispatch(9, "retry", "verify only, delete nothing more")
+    b.usage(d, 24000, 21000, 200, 0.01)
+    w2 = b.worker(37, "done", "Re-verified: the folder is gone and nothing else was removed.")
+    b.usage(w2, 250000, 230000, 2500, 0.30)
+    c2 = b.checker(31, [True, True], ["fs.list shows no huggingface folder", "ledger shows one deletion only"])
+    b.usage(c2, 77000, 43000, 600, 0.06)
+    b.desktop(36)
+    return b.finish()

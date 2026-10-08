@@ -156,7 +156,9 @@ class WorkerRuns:
             self.activity.end(worker_id)
             self.tokens.revoke_worker(worker_id)
         self.spans.finish(wspan, output={"result": (result.summary if isinstance(result, Outcome)
-                                                    else json.dumps(result))}, error=failure)
+                                                    else json.dumps(result)),
+                                         "status": result.status if isinstance(result, Outcome)
+                                         else result.get("status")}, error=failure)
         self.publish("task.finished", {"task_id": task.id, "status": result.status if isinstance(result, Outcome)
                                        else str(result.get("status", "done"))})
         return result, worker_id

@@ -28,6 +28,7 @@ from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal
 from ferb.orchestrator.continuity import Continuity
+from ferb.orchestrator import episodes
 from ferb.orchestrator.availability import Availability, build as build_availability
 from ferb.orchestrator.evidence import memory_origin
 from ferb.orchestrator.guards import STALL_S, Activity
@@ -132,7 +133,7 @@ class Supervisor(WorkerRuns):
         self.worker_types: Callable[[], list[str]] = lambda: ['default', 'codex', 'claude']
         self.checks, self.roots = checks, roots or FsRoots(workspace, (), ())
         self.sessions: dict[str, ChatSession] = {}
-        self.continuity = Continuity(journal._db, gateway.redact, spans.task_origins)
+        self.continuity = Continuity(journal.db, gateway.redact, spans.task_origins)
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
@@ -690,6 +691,10 @@ class Supervisor(WorkerRuns):
                 self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"], "summary": final["summary"],
                                                      "verified": final["verified"], "verification": final["verification"],
                                                      "subtasks": final["subtasks"], "resources": tree.resources}, origin=made)
+                try:                                    # its permanent record, composed from the trace (L1)
+                    episodes.write(self.journal.db, episodes.build(self.spans, tree_id, self.clock.now().isoformat()))
+                except Exception as e:                  # the task still finishes; retention rebuilds it later
+                    self.journal.append("episode.failed", {"task_id": tree_id, "error": f"{type(e).__name__}: {e}"})
                 self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})
                 self.gateway.forget_tasks(self._tree_task_ids(tree))
                 self.state.forget_request(request_id)

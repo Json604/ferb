@@ -8,7 +8,6 @@ import signal
 import subprocess
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -47,6 +46,7 @@ from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
+from ferb.orchestrator import episodes
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
 from ferb.paths import ferb_home, socket_path
@@ -54,7 +54,7 @@ from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
 from ferb.sanitize.redact import Redactor
 from ferb.store.db import Database
-from ferb.store.spans import SpanNode, SpanStore
+from ferb.store.spans import SpanStore
 
 Redact = Callable[[Any], Any]
 
@@ -188,6 +188,10 @@ class Daemon:
                                      (tid, self.clock.now().isoformat(), goal,
                                       f"This was interrupted when FERB restarted: {goal}. Want me to pick it "
                                       "up again?"))
+                try:                                    # its permanent record, from what it recorded before (L1)
+                    episodes.write(self.db, episodes.build(self.spans, tid, self.clock.now().isoformat()))
+                except Exception as e:                  # startup goes on; retention rebuilds it later
+                    self.journal.append("episode.failed", {"task_id": tid, "error": f"{type(e).__name__}: {e}"})
         await self._build_browsers()
         self._build_mac_and_shell()
         self._build_agents()
@@ -1789,7 +1793,7 @@ class Daemon:
         if self.spans is None or self.db is None:
             raise FerbError("daemon not started")
         task_id = self._resolve_root_task(task_id, allow_last=True)
-        return {"task_id": task_id, "spans": [_node_json(n) for n in self.spans.tree(task_id)],
+        return {"task_id": task_id, "spans": self.spans.tree_json(task_id),
                 "outcome": self.spans.outcome(task_id)}
 
     async def _verdict_set(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -1918,14 +1922,6 @@ class Daemon:
 
 async def _no_notify(title: str, text: str) -> None:
     return None
-
-
-def _node_json(node: SpanNode) -> dict[str, Any]:
-    s = asdict(node.span)
-    for k in ("started_at", "ended_at"):
-        s[k] = s[k].isoformat() if s[k] else None
-    s["children"] = [_node_json(c) for c in node.children]
-    return s
 
 
 def main() -> None:

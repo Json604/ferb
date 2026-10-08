@@ -49,6 +49,11 @@ class Journal:
     def __init__(self, db: Database, clock: Clock, ids: IdSource, redact: Redact) -> None:
         self._db, self._clock, self._ids, self._redact = db, clock, ids, redact
 
+    @property
+    def db(self) -> Database:
+        """The database the journal writes to; records that live beside it (continuity, episodes) share it."""
+        return self._db
+
     def append(self, kind: str, data: dict[str, Any] | None = None,
                origin: str | None = None) -> JournalEntry:
         """Never dropped: if the write fails, the exception propagates to the caller."""
