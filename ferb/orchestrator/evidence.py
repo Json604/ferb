@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from ferb.core import origin
 from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolResult
+from ferb.policy.rules import recorded_origins
 from ferb.store.spans import SpanStore
 
 MEMORY_ORIGINS = {"owner_stated": origin.OWNER, "observed": origin.PRIVATE, "inferred": origin.INFERRED,
@@ -27,22 +28,24 @@ def inherits(record: dict[str, Any]) -> bool:
 
 
 def record_origins(record: dict[str, Any], task_origins: set[str]) -> set[str]:
-    """Origins of one recorded fact returned by task.evidence (MP2). A tool call holds its result (its recorded
-    origin; unlabeled when recorded before F3) and the worker-written input, which a model wrote from what the task
-    read: inferred plus the task's origins. The root task record holds the owner's request (input, with
+    """Origins of one recorded fact returned by task.evidence (MP2). Its recorded origin follows the one rule episodes
+    use (`recorded_origins`): a reading tool call or a context source with output but no recorded origin (from
+    before F3) is unlabeled. A tool call holds its result and the worker-written input, which a model wrote from what
+    the task read: inferred plus the task's origins. The root task record holds the owner's request (input, with
     external:paste where FERB's own wrapper marks pasted text) and a model-written summary (output). Any other record
-    keeps its recorded origin; a context source recorded before F3 is unlabeled; a worker's report inherits like a
-    tool call's input; FERB's other records are its own, plus external:paste where FERB marked pasted text."""
-    recorded = origin.split(record.get("origin"))
+    keeps its recorded origin; a worker's report inherits like a tool call's input; FERB's other records are its own,
+    plus external:paste where FERB marked pasted text."""
+    inp = record.get("input")
+    action = inp.get("kind") if isinstance(inp, dict) else record.get("action_kind")   # a listed record names it
+    has_output = record.get("output") is not None or bool(record.get("has_output"))
+    recorded = recorded_origins(record.get("kind"), action, has_output, record.get("origin"))
     marked = {origin.external("paste")} if WRAPPER in json.dumps(record, ensure_ascii=False) else set()
     if record.get("kind") == "tool.call":
-        return (recorded or {origin.external("unlabeled")}) | {origin.INFERRED} | task_origins
+        return recorded | {origin.INFERRED} | task_origins
     if record.get("kind") == "task":
         return recorded | {origin.OWNER} | marked | {origin.INFERRED} | task_origins
     if recorded:
         return recorded
-    if record.get("kind") == "context.source":
-        return {origin.external("unlabeled")}
     if record.get("kind") == "worker":
         return {origin.INFERRED} | task_origins
     return {origin.FERB} | marked

@@ -142,6 +142,31 @@ def test_a_task_whose_request_or_context_held_outside_content_is_marked(tmp_path
     assert got["verified"] is True and got["usage"] == c["usage"]
 
 
+def test_a_read_recorded_without_an_origin_counts_as_outside_content(tmp_path: Path) -> None:
+    """I1 (S3, MP2): every span from before F3 has no origin. A reading tool call or a context source that holds
+    output but no origin is unlabeled outside content, the same rule task.evidence labels it by; an action's
+    acknowledgement without one adds nothing."""
+    b = TraceBuilder()
+    w = b.worker(5, "done", "read the page")
+    b.tool(w, 1, 0.5, "browser.read", {"url": "https://x.example"}, "text", origin=None, kind="read")
+    c = compose.compose(b.finish())
+    assert c["origins"] == ["external:unlabeled"]
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    episodes.write(db, c | {"made_by": episodes.MADE_BY, "built_at": T0.isoformat()})
+    got = episodes.get(db, c["task_id"])
+    assert got is not None and got["external_read"] is True
+    b2 = TraceBuilder()
+    w2 = b2.worker(5, "done", "clicked")
+    b2.tool(w2, 1, 0.5, "browser.act", {"element": "e1"}, "clicked", origin=None, kind="click")
+    b2.source("recalled memory", "a note", None)
+    assert compose.compose(b2.finish())["origins"] == ["external:unlabeled"]      # the context source, not the click
+    b3 = TraceBuilder()
+    b3.tool(b3.worker(5, "done", "clicked"), 1, 0.5, "browser.act", {"element": "e1"}, "clicked", origin=None,
+            kind="click")
+    assert compose.compose(b3.finish())["origins"] == []
+
+
 def test_a_task_that_read_only_private_data_is_not_marked(tmp_path: Path) -> None:
     c = compose.compose(hf_cache_retry())
     c["usage"]["unpriced_models"] = ["modèle-ü"]

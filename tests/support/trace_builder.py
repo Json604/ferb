@@ -87,15 +87,17 @@ class TraceBuilder:
                                                  task_id=f"{self.task_id}.worker.resources"))
 
     def tool(self, parent: dict[str, Any], offset: float, seconds: float, tool: str, args: dict[str, Any],
-             summary: str, origin: str = "private", why: str = "", error: str | None = None) -> None:
+             summary: str, origin: str | None = "private", why: str = "", error: str | None = None,
+             kind: str = "run_shell") -> None:
+        """`origin` None: recorded before F3 labeled results; `kind` is the action kind the gateway records."""
         start = datetime.fromisoformat(parent["started_at"]) + timedelta(seconds=offset)
-        node = self._node("tool.call", seconds, {"tool": tool, "args": args, "effect": "", "kind": "run_shell",
+        node = self._node("tool.call", seconds, {"tool": tool, "args": args, "effect": "", "kind": kind,
                                                  "target": {}} | ({"why": why} if why else {}),
                           {"exit_code": 0}, error, start=start, task_id=parent["task_id"])
         node["origin"], node["summary"] = origin, summary
         self._child(parent, node)
 
-    def source(self, label: str, text: str, origin: str) -> None:
+    def source(self, label: str, text: str, origin: str | None) -> None:
         """A context block the task's models were shown, stored with where it came from (supervisor._source_block)."""
         node = self._node("context.source", 0, {"label": label}, {"text": text})
         node["origin"] = origin

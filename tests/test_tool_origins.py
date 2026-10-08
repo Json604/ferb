@@ -91,7 +91,13 @@ def test_readers_pass_stored_origins_through() -> None:
     assert memory_origin("something") == "external:unlabeled"
     assert record_origins({"kind": "tool.call", "origin": "external:web:a.com,private"}, set()) == \
         {"external:web:a.com", "private", "inferred"}                 # + the worker-written arguments
-    assert record_origins({"kind": "tool.call", "origin": None}, set()) == {"external:unlabeled", "inferred"}
+    unlabeled = {"kind": "tool.call", "origin": None, "input": {"tool": "browser.read", "kind": "read"},
+                 "output": {"text": "page"}}                          # a read recorded before F3 labeled results
+    assert record_origins(unlabeled, set()) == {"external:unlabeled", "inferred"}
+    listed = {"kind": "tool.call", "origin": None, "action_kind": "read", "has_output": True}   # as a listing shows it
+    assert record_origins(listed, set()) == {"external:unlabeled", "inferred"}
+    ack = {"kind": "tool.call", "origin": None, "input": {"tool": "probe.send", "kind": "send"}, "output": {"ok": 1}}
+    assert record_origins(ack, set()) == {"inferred"}                 # an action's acknowledgement adds nothing
     owner_ask = {"kind": "tool.call", "origin": "owner", "input": {"tool": "owner.ask", "args": {"question": "q"}}}
     assert record_origins(owner_ask, {"external:memory"}) == {"owner", "inferred", "external:memory"}  # not only owner
     assert record_origins({"kind": "worker"}, {"external:web:a.com"}) == {"inferred", "external:web:a.com"}
@@ -295,7 +301,8 @@ def test_chat_history_and_memory_read_pass_stored_origins_through() -> None:
 
 def test_a_recorded_origin_wins_on_any_record_kind() -> None:
     assert record_origins({"kind": "context.source", "origin": "external:memory"}, set()) == {"external:memory"}
-    assert record_origins({"kind": "context.source", "origin": None}, set()) == {"external:unlabeled"}   # pre-F3
+    assert record_origins({"kind": "context.source", "origin": None, "output": {"text": "x"}}, set()) == \
+        {"external:unlabeled"}                                        # pre-F3
     assert record_origins({"kind": "worker", "origin": "inferred"}, {"external:web:a.com"}) == {"inferred"}
 
 

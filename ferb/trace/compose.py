@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import Any, Iterator
 
-from ferb.core import origin
+from ferb.policy.rules import recorded_origins
 from ferb.trace.lines import clip, duration, plural
 
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
@@ -182,7 +182,8 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     origins: set[str] = set()
     for n in nodes:
         if n["kind"] in ORIGIN_KINDS:              # the request, context sources and tool results (S3)
-            origins |= origin.split(n.get("origin"))
+            origins |= recorded_origins(n["kind"], (n.get("input") or {}).get("kind"), n.get("output") is not None,
+                                        n.get("origin"))
         if n["kind"] == "tool.call":
             t = tools_used.setdefault(str((n.get("input") or {}).get("tool", "?")), {"calls": 0, "errors": 0})
             t["calls"] += 1

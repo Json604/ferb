@@ -23,7 +23,7 @@ from ferb.orchestrator.tree import TaskTree
 from ferb.policy import provenance
 from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
-from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
+from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.redact import Redactor
 from ferb.store.spans import SpanStore
 from ferb.trace import lines
@@ -33,7 +33,6 @@ Redact = Callable[[Any], Any]
 
 OWNER_ASK = "owner.ask"
 _SEND_KINDS = {Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.PAY}
-READING_KINDS = {Kind.READ, Kind.SEARCH, Kind.NAVIGATE, Kind.MAILBOX_READ}
 
 
 def result_origins(read_sources: tuple[tuple[str, str], ...], declared: str | None, kind: str) -> set[str]:

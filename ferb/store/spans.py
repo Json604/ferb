@@ -240,7 +240,7 @@ class SpanStore:
         rows = self._db.conn.execute("SELECT rowid AS cursor, * FROM spans WHERE " + where +
                                      " AND rowid > ? ORDER BY rowid LIMIT ?", (*params, after, limit + 1)).fetchall()
         records = [{"id": row["id"], "kind": row["kind"], "task_id": row["task_id"],
-                    "tool": json.loads(row["input_json"]).get('tool'),
+                    "tool": (inp := json.loads(row["input_json"])).get('tool'), "action_kind": inp.get('kind'),
                     "started_at": row["started_at"], "ended_at": row["ended_at"], "error": row["error"],
                     "input_preview": row["input_json"][:500], "input_truncated": len(row["input_json"]) > 500,
                     "read_full": {"tool": "task.evidence", "span_id": row["id"]},
