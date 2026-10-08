@@ -2,7 +2,8 @@
 are refused (default: password managers; the owner may edit or empty it); a password field the Accessibility tree
 shows, before or after capture, drops the frame; when the tree can't tell, the capture goes ahead. Clicks map image
 pixels to the window, refuse a stale shot / moved window / something on top (checked before each event), and yield
-to the owner. The image reaches the model and nothing else: not spans, journal, logs or any file.
+to the owner. The image reaches the model and FERB's evidence store (V1, ~/.ferb/evidence, 7 days) and nothing else:
+not spans, journal, logs or any other file.
 """
 
 import asyncio
@@ -178,7 +179,8 @@ def test_clicks_yield_to_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------- through the gateway ----------
 
 
-def test_the_image_reaches_the_model_and_nothing_else(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_image_reaches_the_model_and_the_evidence_store_only(daemon: RunningDaemon,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     shots, posted = _fake_mac(daemon, monkeypatch)
     ferb = task(daemon, "f", Identity.FERB, {"fs:read"}, None)
     assert not [t for t in daemon.daemon.gateway.tools_for(ferb) if t["name"] in ("mac.screenshot", "mac.click")]
@@ -190,8 +192,10 @@ def test_the_image_reaches_the_model_and_nothing_else(daemon: RunningDaemon, mon
     assert not r["is_error"] and posted[-1] == "click 300.0,200.0 to pid", r
     b64 = base64.b64encode(shots.jpeg)
     daemon.run(_checkpoint(daemon))
-    for p in daemon.daemon.home.rglob("*"):                             # database, WAL, logs, anything
-        if p.is_file() and not p.is_socket():
+    kept = _evidence_files(daemon)
+    assert [p.read_bytes() for p in kept] == [shots.jpeg]               # one capture, kept as evidence (V1)
+    for p in daemon.daemon.home.rglob("*"):                             # database, WAL, logs, anything else
+        if p.is_file() and not p.is_socket() and p not in kept:
             data = p.read_bytes()
             assert shots.jpeg[3:] not in data and b64 not in data, p
 
@@ -207,6 +211,10 @@ def test_screenshots_of_browsers_and_messages_expose_the_worker(daemon: RunningD
 
 async def _checkpoint(d: RunningDaemon) -> None:
     d.daemon.db.conn.execute("PRAGMA wal_checkpoint(FULL)")
+
+
+def _evidence_files(d: RunningDaemon) -> list[Path]:
+    return sorted(p for p in (d.daemon.home / "evidence").rglob("*") if p.is_file())
 
 
 def test_native_browser_controls_do_not_need_a_fallback_permission(daemon, monkeypatch):
@@ -252,9 +260,11 @@ def test_a_snapshot_with_the_screen_scope_carries_a_marked_image(daemon: Running
                            zip(ids, [(120.0, 70.0, 60.0, 20.0), (200.0, 100.0, 30.0, 30.0)])]
     assert r["content"]["shot"] == "shot1" and r["content"]["image"].startswith("attached")
     daemon.run(_checkpoint(daemon))
-    for p in daemon.daemon.home.rglob("*"):                                    # in memory only, as before
-        if p.is_file() and not p.is_socket():
-            assert base64.b64encode(shots.jpeg) not in p.read_bytes(), p
+    kept = _evidence_files(daemon)
+    assert [p.read_bytes() for p in kept] == [shots.jpeg]                      # the evidence store holds it (V1)
+    for p in daemon.daemon.home.rglob("*"):                                    # nowhere else
+        if p.is_file() and not p.is_socket() and p not in kept:
+            assert base64.b64encode(shots.jpeg) not in p.read_bytes() and shots.jpeg[3:] not in p.read_bytes(), p
 
 
 def test_no_image_without_the_screen_scope_for_browsers_or_when_switched_off(daemon: RunningDaemon,
@@ -275,8 +285,9 @@ def test_a_password_field_still_means_no_image_but_the_tree_comes_back(daemon: R
     shots, _ = _fake_mac(daemon, monkeypatch)
     ax = daemon.daemon.mac.ax                                                   # type: ignore[union-attr]
     _tree_with_controls(ax)
-    ax.secure = [True]
+    ax.secure = [True, True]                    # the field is still there when FERB looks for its evidence (D26)
     g = task(daemon, "s", Identity.OWNER, {"mac:read", "screen"}, {"use_app"})
     r = call(daemon, g, "mac.snapshot", app="Notes")
     assert not r["is_error"] and "image" not in r and "password" in r["content"]["image"]
     assert len(r["content"]["elements"]) == 2 and shots.captured == []
+    assert _evidence_files(daemon) == []

@@ -194,7 +194,7 @@ class ToolResult:
     content: dict[str, Any]
     is_error: bool = False
     read_sources: tuple[tuple[str, str], ...] = ()   # (source kind, id) annotations for the data read by this call
-    image: bytes | None = None                        # JPEG for the model only: never redacted text, logged or stored
+    image: bytes | None = None                        # JPEG for the model and the evidence store (V1); never logged
     evidence: dict[str, Any] | None = None            # source observations used by result inspection
 
 

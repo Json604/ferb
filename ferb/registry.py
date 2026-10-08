@@ -119,9 +119,9 @@ def add_trail(r: Registry, trail: Callable[[], Any]) -> None:
 
 
 def add_evidence(r: Registry, spans: Any, parent: Callable[[str], str | None],
-                 root: Callable[[str], str | None] = lambda task_id: None) -> None:
+                 root: Callable[[str], str | None] = lambda task_id: None, store: Any = None) -> None:
     from ferb.orchestrator.evidence import TaskEvidence
-    r.add(TaskEvidence(spans, parent, root))
+    r.add(TaskEvidence(spans, parent, root, store))
 
 
 def add_context_readers(r: Registry, continuity: Any, root: Callable[[str], str | None],

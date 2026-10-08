@@ -23,6 +23,7 @@ from ferb.core.types import Identity
 from ferb.act.browser import profiles as browser_profiles
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+from ferb.act.evidence.store import EvidenceStore
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
 from ferb.act.gui_lock import GuiLock
@@ -86,6 +87,7 @@ class _PurgePlan(NamedTuple):
     now: datetime
     trace_days: int
     decision_days: int
+    evidence_days: int
     roots: list[str]
     left: int
 
@@ -112,6 +114,7 @@ class Daemon:
         self.journal: Journal | None = None
         self.spans: SpanStore | None = None
         self.ledger: Ledger | None = None
+        self.evidence: EvidenceStore | None = None           # captured state the checker re-inspects (V1), 7 days
         self._macos_task: asyncio.Task[None] | None = None
         self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
         self.identity_browser: IdentityDriver | None = None    # the extension in Chrome's FERB profile
@@ -192,6 +195,7 @@ class Daemon:
         self.db.migrate()
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
+        self.evidence = EvidenceStore(self.home / "evidence", self.clock, self.ids, self.redact, self.db)
         self.ledger = Ledger(self.db, self.clock, self.ids)
         self.tasks.attach(self.db)
         interrupted = self.tasks.interrupt_running(self.clock.now())          # a restart: what was running didn't finish
@@ -440,6 +444,8 @@ class Daemon:
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.disturbance = self.disturbance
+        self.gateway.evidence = self.evidence
+        self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
@@ -546,7 +552,7 @@ class Daemon:
         add_shell(self.registry, self.shells)
         add_trail(self.registry, lambda: self.trail)
         add_evidence(self.registry, self.spans, self._inspection_parent,
-                     lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None))
+                     lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None), self.evidence)
         add_time(self.registry, lambda: self.timers, self.clock.now, lambda: self._sleep_until,
                  lambda task_id: (rec.task.deadline if (rec := self.tasks.get(task_id)) else None))
 
@@ -720,8 +726,9 @@ class Daemon:
 
     def _purge_records(self) -> dict[str, int]:
         """D21: spans of tasks that ended more than trace_days ago (once their episode exists) and loose spans;
-        Jev decisions older than decision_days. Never the task list, episodes, journal or memory. One synchronous
-        pass (tests, call sites); the hourly loop runs the same steps in `_purge_pass`."""
+        Jev decisions older than decision_days; evidence (screenshots, snapshots, recordings) older than
+        evidence_days (V1, D20: 7). Never the task list, episodes, journal or memory. One synchronous pass (tests,
+        call sites); the hourly loop runs the same steps in `_purge_pass`."""
         plan = self._purge_plan()
         return self._purge_rest(plan, sum(self._purge_root(root, plan.now) for root in plan.roots))
 
@@ -739,16 +746,17 @@ class Daemon:
             finished = True
         finally:
             if not finished and spans:
-                self._journal_purged(plan, spans, 0, plan.left + len(plan.roots) - done, stopped=True)
+                self._journal_purged(plan, spans, 0, 0, plan.left + len(plan.roots) - done, stopped=True)
         return self._purge_rest(plan, spans)
 
     def _purge_plan(self) -> _PurgePlan:
         now = self.clock.now()
         trace_days = int(self.config.get("retention", "trace_days", 30))
         decision_days = int(self.config.get("retention", "decision_days", 30))
+        evidence_days = int(self.config.get("retention", "evidence_days", 7))
         roots = retention.finished_roots_before(self.db, (now - timedelta(days=trace_days)).isoformat())
-        return _PurgePlan(now, trace_days, decision_days, roots[:ROOTS_PER_PURGE],   # oldest first; the rest wait
-                          max(0, len(roots) - ROOTS_PER_PURGE))
+        return _PurgePlan(now, trace_days, decision_days, evidence_days,
+                          roots[:ROOTS_PER_PURGE], max(0, len(roots) - ROOTS_PER_PURGE))   # oldest first; the rest wait
 
     def _purge_root(self, root: str, now: datetime) -> int:
         """One root: its spans go only once its episode exists (built now if missing). Isolated: a failure is
@@ -764,17 +772,21 @@ class Daemon:
             return 0
 
     def _purge_rest(self, plan: _PurgePlan, spans: int) -> dict[str, int]:
-        """Loose spans and old Jev decisions; `retention.purged` is journaled only when the pass purged something
-        or left roots for the next one."""
+        """Loose spans, old Jev decisions and old evidence; `retention.purged` is journaled only when the pass purged
+        something or left roots for the next one."""
         spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
         decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
-        if spans or decisions or plan.left:
-            self._journal_purged(plan, spans, decisions, plan.left)
-        return {"spans": spans, "decisions": decisions}
+        evidence = self.evidence.purge_before((plan.now - timedelta(days=plan.evidence_days)).isoformat()) \
+            if self.evidence is not None else 0
+        if spans or decisions or evidence or plan.left:
+            self._journal_purged(plan, spans, decisions, evidence, plan.left)
+        return {"spans": spans, "decisions": decisions, "evidence": evidence}
 
-    def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, left: int, stopped: bool = False) -> None:
+    def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, left: int,
+                        stopped: bool = False) -> None:
         self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
                                                     "decision_days": plan.decision_days, "decisions": decisions,
+                                                    "evidence_days": plan.evidence_days, "evidence": evidence,
                                                     "roots_left": left} | ({"stopped": True} if stopped else {}))
 
     async def _retention_loop(self) -> None:
@@ -1343,6 +1355,14 @@ class Daemon:
                 parent.task.request_id, parent.task.identity, parent.task.device_id, parent.tree_id):
             return None
         return parent.task.id
+
+    async def _app_window(self, app: str, scopes: frozenset[str]) -> Any:
+        """The gateway's first look at a Mac app a worker started on (D26, D29): one background picture of its
+        window, or None (no Mac driver, or nothing to take under mac.snapshot's image rules)."""
+        if self.mac is None:
+            return None
+        from ferb.act.mac.tools import app_window
+        return await app_window(self.mac, app, scopes)
 
     def _browser_context(self, task_id: str) -> str:
         parent = self._inspection_parent(task_id)

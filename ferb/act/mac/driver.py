@@ -241,7 +241,29 @@ class MacComputerDriver:
                          ) -> tuple[Any, Shot, bytes]:
         """The app's front window only, in memory. A password field the Accessibility tree shows (or, for a browser,
         the extension reports in the tab on screen), before or after the capture, drops the frame; when neither can
-        tell, the capture goes ahead."""
+        tell, the capture goes ahead. The capture becomes the app's latest shot (mac.click / pointer / record)."""
+        a, w, jpeg, size = await self._capture(name_or_bundle, marks, window, native_resolution)
+        st = self._state.setdefault(a.bundle_id, _AppState())
+        st.shots += 1
+        st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, size, pid=a.pid,
+                       signature=st.tree.signature() if st.tree else None)
+        return a, st.shot, jpeg
+
+    async def window_image(self, name_or_bundle: str) -> tuple[Any, Shot, bytes]:
+        """FERB's own picture of the app's front window for the evidence store (D26, D29): the same capture and
+        password-field rule as `screenshot`, but it never becomes the app's latest shot, so a worker's pending
+        mac.click / pointer / record keeps its own."""
+        a, w, jpeg, size = await self._capture(name_or_bundle, None, None, False)
+        return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid), jpeg
+
+    def secret_fields(self, bundle_id: str) -> list[tuple[float, float, float, float]]:
+        """Screen-point boxes of the password fields in the latest walk of this app (after a capture: of the captured
+        window), for masking a stored picture."""
+        st = self._state.get(bundle_id)
+        return [n.rect for n in st.tree.nodes if n.secret] if st is not None and st.tree is not None else []
+
+    async def _capture(self, name_or_bundle: str, marks: list[tuple[str, tuple[float, float, float, float]]] | None,
+                       window: str | None, native_resolution: bool) -> tuple[Any, Any, bytes, tuple[int, int]]:
         a = self.app(name_or_bundle)
         browser = BROWSER_BUNDLES.get(a.bundle_id)
 
@@ -278,11 +300,7 @@ class MacComputerDriver:
         await check(w, fresh=False)
         jpeg, width, height = await asyncio.to_thread(grab, w)
         await check(w, fresh=True)                            # appeared while capturing: the frame is dropped
-        st = self._state.setdefault(a.bundle_id, _AppState())
-        st.shots += 1
-        st.shot = Shot(f"shot{st.shots}", w.id, w.bounds, (width, height), pid=a.pid,
-                       signature=st.tree.signature() if st.tree else None)
-        return a, st.shot, jpeg
+        return a, w, jpeg, (width, height)
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
         """Pin the window the worker actually saw; repeated captures never replace its action references."""

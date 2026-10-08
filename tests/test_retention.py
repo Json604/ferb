@@ -1,5 +1,5 @@
-"""Traces and Jev decisions age out after 30 days (D21); a task's spans go only once its permanent episode exists;
-the task list, episodes, journal and memory are kept."""
+"""Traces and Jev decisions age out after 30 days (D21), evidence after 7 (V1, D20); a task's spans go only once its
+permanent episode exists; the task list, episodes, journal and memory are kept."""
 import asyncio
 import json
 from datetime import timedelta
@@ -66,7 +66,8 @@ def test_recent_tasks_keep_their_spans(daemon: RunningDaemon) -> None:
 
 
 def _scenario(daemon: RunningDaemon) -> list[str]:
-    """Two finished roots past the cut, one recent; an old and a new Jev decision; old loose spans."""
+    """Two finished roots past the cut, one recent; an old and a new Jev decision; old loose spans; an old and a new
+    piece of evidence."""
     roots = [_say_hi(daemon) for _ in range(3)]
     for root in roots[:2]:
         _age(daemon, root, 31)
@@ -78,6 +79,11 @@ def _scenario(daemon: RunningDaemon) -> list[str]:
             f"d{i}", at.isoformat())
     for i in range(3):
         _insert_span(daemon, f"z-p{i}", None, None, None, _old())
+    for i, at in enumerate((now - timedelta(days=8), now)):
+        async def put() -> None:
+            eid = daemon.daemon.evidence.put(roots[0], None, "snapshot", data={"n": i}, origin="ferb")
+            daemon.daemon.db.conn.execute("UPDATE evidence SET captured_at = ? WHERE id = ?", (at.isoformat(), eid))
+        daemon.run(put())
     return roots
 
 
@@ -86,8 +92,10 @@ def _purged(daemon: RunningDaemon, roots: list[str], before: int, result: dict[s
     after = _q(daemon, "SELECT count(*) FROM spans")
     row = json.loads(_q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'"))
     return {"true_count": result["spans"] == before - after > 3, "decisions": result["decisions"],
+            "evidence": result["evidence"], "evidence_left": _q(daemon, "SELECT count(*) FROM evidence"),
             "journal": row == {"trace_days": 30, "spans": result["spans"], "decision_days": 30,
-                               "decisions": result["decisions"], "roots_left": 0},
+                               "decisions": result["decisions"], "evidence_days": 7, "evidence": result["evidence"],
+                               "roots_left": 0},
             "roots_emptied": [_tree_spans(daemon, r) == 0 for r in roots],
             "loose_left": _spans_with_prefix(daemon, "z-p"),
             "decisions_left": _q(daemon, "SELECT count(*) FROM decisions"),
@@ -129,8 +137,8 @@ def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots
         finally:
             d.stop()
     assert seen["async"] == seen["sync"] == {
-        "true_count": True, "decisions": 1, "journal": True, "roots_emptied": [True, True, False], "loose_left": 0,
-        "decisions_left": 1, "episodes": [1, 1, 1]}
+        "true_count": True, "decisions": 1, "evidence": 1, "evidence_left": 1, "journal": True,
+        "roots_emptied": [True, True, False], "loose_left": 0, "decisions_left": 1, "episodes": [1, 1, 1]}
     first, second = [i for i, what in enumerate(order) if what == "root"]
     assert "tick" in order[first + 1:second]                     # the loop ran between the two roots
 

@@ -1,13 +1,15 @@
 """Own tool validation, execution locks and recording. Must not infer intent, targets or authorization.
 
 Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
-Optional effect/why annotations never gate execution; OS and transport failures remain factual results."""
+Optional effect/why annotations never gate execution; OS and transport failures remain factual results.
+A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
+worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29)."""
 
 import asyncio
 import base64
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from pydantic import ValidationError
 
@@ -33,6 +35,33 @@ Redact = Callable[[Any], Any]
 
 OWNER_ASK = "owner.ask"
 _SEND_KINDS = {Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.PAY}
+APP_WINDOW_TIMEOUT_S = 10.0              # a first look that takes longer is dropped (logged); the call goes on
+SECRET_WITHHELD = "secret field without a maskable rect"
+IMAGE_FACTS = ("app", "bundle_id", "window", "title", "url", "tab", "shot", "width", "height", "window_id", "path",
+               "duration_s", "sample_times_s")
+
+
+def evidence_kind(tool: str) -> str:
+    """What a tool's image is, for the evidence store: a snapshot's image, a recording's frames, else a screenshot."""
+    if tool.endswith(".snapshot"):
+        return "snapshot"
+    return "recording" if tool.startswith("recording.") else "screenshot"
+
+
+def image_facts(tool: str, content: dict[str, Any]) -> dict[str, Any]:
+    """The small facts kept beside a tool's image (already redacted content): where it came from, its size, and how
+    many controls the result listed."""
+    facts: dict[str, Any] = {"tool": tool} | {k: content[k] for k in IMAGE_FACTS if content.get(k) not in (None, "")}
+    if isinstance(content.get("elements"), list):
+        facts["elements"] = len(content["elements"])
+    return facts
+
+
+def shows_secret_field(content: dict[str, Any]) -> bool:
+    """A result that lists a password / code field (mac and browser snapshots mark it `sensitive`)."""
+    elements = content.get("elements")
+    return isinstance(elements, list) and any(isinstance(e, dict) and (e.get("sensitive") or e.get("secret"))
+                                              for e in elements)
 
 
 def result_origins(read_sources: tuple[tuple[str, str], ...], declared: str | None, kind: str) -> set[str]:
@@ -112,6 +141,10 @@ class Gateway:
         self.route_question: Any = None
         self.disturbance: Any = None
         self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
+        self.evidence: Any = None                          # the evidence store (ferb/act/evidence/store.py)
+        # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
+        self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = None
+        self._looked: dict[tuple[str, str], set[str]] = {}  # (task, worker) -> apps whose window it has as evidence
 
     @staticmethod
     def _acts(cap: Any) -> bool:
@@ -160,6 +193,8 @@ class Gateway:
         self._cancelled_tasks.difference_update(task_ids)
         for task_id in task_ids:
             self._outside.pop(task_id, None)
+        for key in [k for k in self._looked if k[0] in task_ids]:
+            del self._looked[key]
 
     def _arg_sources(self, spec: Any, rec: Any, grant: RunGrant) -> dict[str, list[str]]:
         """The owner's typed words for this request, the owner's answers in this task (apart: a chosen option is
@@ -298,13 +333,74 @@ class Gateway:
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
         content = self.redact(result.content)
-        self._finish_call(span, name, content, result.is_error, output=content,
+        output = content
+        if result.image is not None and not result.is_error and self.evidence is not None:
+            output = content | self._keep_image(name, spec, grant, span.id, content, result.image, origins)
+        self._finish_call(span, name, content, result.is_error, output=output,
                           error=content.get("error") if result.is_error else None, origins=origins)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
         out = reply(content, result.is_error, origins)
-        if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
+        if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
+        if not result.is_error:
+            await self._first_look(name, spec, grant, rec, span.id)
         return out
+
+    def _looked_at(self, grant: RunGrant) -> set[str]:
+        return self._looked.setdefault((grant.task_id, grant.worker_id), set())
+
+    def _keep_image(self, name: str, spec: Any, grant: RunGrant, span_id: str, content: dict[str, Any],
+                    image: bytes, origins: set[str]) -> dict[str, str]:
+        """V1: the image a tool produced is kept as evidence the checker can re-inspect (on the owner's Mac for
+        retention.evidence_days, 7); the span's output names it. The capture floor already drops a frame showing an accessibility-known password
+        field. A result that still lists one has no image-pixel box to mask it with, and a site on the owner's
+        exclusion list is never recorded: those keep facts only. Never fatal: the result reaches the worker anyway."""
+        facts = image_facts(name, content)
+        kept: bytes | None = image
+        if origin.external("web", "excluded") in origins:
+            kept, facts = None, {"tool": name, "image_withheld": "a site on the owner's exclusion list"}
+        elif shows_secret_field(content):
+            kept, facts["image_withheld"] = None, SECRET_WITHHELD
+        try:
+            eid = self.evidence.put(grant.task_id, span_id, evidence_kind(name), image=kept, data=facts,
+                                    origin=origin.join(origins))
+        except Exception as e:
+            return {"evidence_error": f"{type(e).__name__}: {e}"}
+        if kept is not None and name.startswith("mac.") and spec.target.site:
+            self._looked_at(grant).add(spec.target.site.lower())    # the worker's first look at that app: this image
+        return {"evidence": eid}
+
+    async def _first_look(self, name: str, spec: Any, grant: RunGrant, rec: Any, after: str) -> None:
+        """D26, D29: when a worker starts on a Mac app (its first mac.* call there that worked), FERB keeps one picture
+        of that app's window as evidence, unless the call itself returned one. Background only: one window, never the
+        desktop, never brought forward, never the worker's shot. Best effort: a failure is recorded on its own span and
+        never fails the call. Nothing to take (no screen scope, images off, a browser) records nothing."""
+        app = spec.target.site
+        if self.app_window is None or self.evidence is None or not name.startswith("mac.") or not app:
+            return
+        looked = self._looked_at(grant)
+        if app.lower() in looked:
+            return
+        looked.add(app.lower())
+        shot, eid, error = None, None, None
+        try:
+            shot = await asyncio.wait_for(self.app_window(app, grant.scopes), APP_WINDOW_TIMEOUT_S)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"
+        if shot is None and error is None:
+            return
+        span = self.spans.start("evidence.app_window", task_id=grant.task_id, parent_id=rec.span_id,
+                                device_id=self.device_id, input={"app": app, "after": name, "after_span": after})
+        if shot is not None:
+            origins = without_excluded_hosts(result_origins(shot.read_sources, None, Kind.READ), self.excluded_host)
+            try:
+                eid = self.evidence.put(grant.task_id, span.id, "app_window", image=shot.image, data=shot.facts,
+                                        rects=shot.rects, origin=origin.join(origins))
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+        self.spans.finish(span, output={"evidence": eid} if eid else None, error=error)
 
     def _finish_call(self, span: Any, name: str, content: dict[str, Any], is_error: bool, *,
                      output: dict[str, Any] | None = None, error: str | None = None,

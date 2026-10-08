@@ -4,7 +4,8 @@ word, a small blue window floating over its corner):
 - a click through the real driver (marked real input, the owner-input tap watching) lands where the model would
   aim, and a click at a point the blue window covers is refused before any event;
 - for Codex and Claude: a worker reads the probe's word back from `mac_screenshot` alone (images reach the model
-  through `ferb mcp`), and the frame is on no disk: FERB's home, Claude's and Codex's session folders.
+  through `ferb mcp`), and the frame is on no disk but FERB's evidence store (V1, ~/.ferb/evidence): not elsewhere
+  in FERB's home, nor Claude's or Codex's session folders.
 """
 
 import asyncio
@@ -158,7 +159,7 @@ def rt_daemon(request: pytest.FixtureRequest) -> Iterator[tuple[str, RunningDaem
     shutil.rmtree(base, ignore_errors=True)
 
 
-def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
+def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_only_in_the_evidence_store(
         rt_daemon: tuple[str, RunningDaemon, Path], probe: Probe) -> None:
     runtime, d, base = rt_daemon
     mac = d.daemon.mac
@@ -192,10 +193,12 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_on_no_disk(
     assert probe.word in summary.upper().replace(" ", ""), summary
     marker = base64.b64encode(frames[0][200:260]).decode()[4:40]           # a slice of the frame's base64
     raw = frames[0][200:260]
+    kept = [p for p in (d.daemon.home / "evidence").rglob("*") if p.is_file()]
+    assert any(raw in p.read_bytes() for p in kept), "the frame wasn't kept as evidence"
     for root in (d.daemon.home, Path.home() / ".claude" / "projects", Path.home() / ".codex" / "sessions"):
         for p in root.rglob("*") if root.exists() else []:
             try:
-                if not p.is_file() or p.stat().st_mtime < started:
+                if not p.is_file() or p.stat().st_mtime < started or p in kept:
                     continue
                 data = p.read_bytes()
             except OSError:
