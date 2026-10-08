@@ -3,11 +3,13 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import Any
 from ferb.core.types import Identity, Target
 
 
 # Agent-declared annotations; these do not grant authority or infer meaning from control labels.
 EFFECTS = ("navigate", "edit", "send", "pay", "destroy")
+ANNOTATIONS = ("why", "effect")         # the agent's notes on a call; never part of what the call is
 
 class Kind:
     READ, NAVIGATE, SEARCH, OPEN_TAB, DRAFT = "read", "navigate", "search", "open_tab", "draft"
@@ -43,11 +45,14 @@ class ActionRequest:
     why: str = ""                            # the worker's one-sentence reason, recorded in the trace
 
 
-def payload_hash(a: ActionRequest) -> str:
-    """Binds ledger rows to the exact action: any change to target/content/amount changes it. The agent's `effect` and
-    `why` notes are left out: they never gate an action, so changing them can't make a repeat a new action (P19)."""
+def payload_hash(a: ActionRequest, args: dict[str, Any] | None = None) -> str:
+    """Binds ledger rows to the exact call: any change to target/content/amount, or to the call's validated arguments
+    (`args`, e.g. a click point, a menu path, an element), changes it. The agent's notes (`ANNOTATIONS`) are left out:
+    they never gate an action, so changing them can't make a repeat a new action (P19)."""
+    call_args = {k: v for k, v in (args or {}).items() if k not in ANNOTATIONS}
     canon = json.dumps({"capability": a.capability, "kind": a.kind, "identity": a.identity.value,
                         "account": a.target.account, "site": a.target.site,
                         "recipients": sorted(a.target.recipients), "path": a.target.path,
-                        "amount": a.target.amount, "content": a.content}, sort_keys=True, separators=(",", ":"))
+                        "amount": a.target.amount, "content": a.content, "args": call_args},
+                       sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canon.encode()).hexdigest()

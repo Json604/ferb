@@ -72,7 +72,8 @@ def test_restart_marks_in_flight_actions_unknown(tmp_path: Path) -> None:
     d2 = Database(tmp_path / "ferb.db")
     led2 = Ledger(d2, FakeClock(), SequentialIds("b"))
     assert sorted(led2.mark_unknown_after_restart()) == sorted([a.id, b.id])
-    assert {r.intent.id for r in led2.unknown()} == {a.id, b.id}
+    assert {r["id"] for r in led2.unresolved("t1")} == {a.id, b.id}
+    assert {r["state"] for r in led2.unresolved("t1")} == {"unknown"}
     assert led2.get(c.id).intent.state == "done"
 
 

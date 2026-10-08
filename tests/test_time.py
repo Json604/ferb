@@ -233,7 +233,8 @@ def test_an_unconfirmed_send_is_unknown_and_never_retried_blindly(daemon: Runnin
         return await asyncio.wait_for(job, 5)
     r = daemon.run(send())
     assert r["is_error"] and "outcome unknown" in r["content"]["error"]
-    states = run(daemon, lambda: [x.intent.state for x in daemon.daemon.ledger.for_task("m3")])
+    states = run(daemon, lambda: [r[0] for r in daemon.daemon.db.conn.execute(
+        "SELECT state FROM action_ledger WHERE task_id = ?", ("m3",))])
     assert states == ["unknown"]
 
 

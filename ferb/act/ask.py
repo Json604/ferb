@@ -21,7 +21,7 @@ class OwnerAsk:
         retry_action: str = Field(default="", description=(
             "Only after FERB refused to repeat an action whose earlier outcome is unknown: the retry_action value from "
             "that refusal. Put what you found in question; FERB adds the exact action and Yes/No options, and only the "
-            "owner's Yes lets that action run again (returns retry_approved)."))
+            "owner's Yes lets that action run once more (returns retry_approved)."))
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ)

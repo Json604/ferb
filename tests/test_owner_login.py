@@ -62,6 +62,7 @@ def test_cancelling_a_task_clears_its_pending_secret_prompt(bd, monkeypatch) -> 
         assert not d.daemon.gateway.in_flight({grant.task_id})
         denied = await d.daemon.gateway.call(grant, "browser.open", {"url": SHOP})
         assert denied["is_error"] and "stopped" in denied["content"]["error"]
-        assert all(r.intent.state == "unknown" for r in d.daemon.ledger.for_task(grant.task_id))
+        assert all(r[0] == "unknown" for r in d.daemon.db.conn.execute(
+            "SELECT state FROM action_ledger WHERE task_id = ?", (grant.task_id,)))
     d.run(run())
     assert ext.fills == []

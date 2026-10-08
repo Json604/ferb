@@ -199,7 +199,7 @@ def test_driver_exception_details_reach_recovery_and_the_record(daemon):
     result = call(daemon, grant, cap.name)
     assert result['is_error'] and 'scaler transport disconnected' in result['content']['error']
     async def recorded():
-        return daemon.daemon.ledger.for_task(grant.task_id)[0].evidence
+        return daemon.daemon.ledger.unresolved(grant.task_id)[0]["evidence"]
     evidence = daemon.run(recorded())
     assert any('scaler transport disconnected' in e for e in evidence)
 

@@ -23,8 +23,8 @@ APPROVED = "owner approved retry after inspection"
 def _rows(d: RunningDaemon, capability: str) -> list[dict[str, Any]]:
     async def go() -> list[dict[str, Any]]:
         return [dict(r) for r in d.daemon.db.conn.execute(
-            "SELECT id, task_id, state, reconciled, evidence_json FROM action_ledger WHERE capability = ? "
-            "ORDER BY created_at, rowid", (capability,)).fetchall()]
+            "SELECT id, task_id, state, reconciled, evidence_json, retry_approved, retried_by FROM action_ledger "
+            "WHERE capability = ? ORDER BY created_at, rowid", (capability,)).fetchall()]
     return d.run(go())
 
 
@@ -82,6 +82,7 @@ def test_an_unknown_consequential_action_is_not_retried_without_the_owner(daemon
     assert second["footer"].endswith("\nOrigin: ferb")
     for internal in ("ledger", "reconcile", "payload", "duplicateunresolved", "intent"):   # P27: owner-safe words
         assert internal not in e
+    assert "it was not repeated" in e and "owner_ask" not in e    # a fact for the owner; the agent's steps are in next
     assert "owner_ask" in second["content"]["next"]               # the agent is told the way past
     assert [r["state"] for r in _rows(daemon, "probe.pay")] == ["unknown"]   # no row for the refused call
     spans = _spans(daemon, "probe.pay")                           # the refusal is recorded
@@ -151,6 +152,81 @@ def test_an_identical_action_still_running_in_the_tree_is_refused(daemon: Runnin
     assert pay.calls == 1
 
 
+# ---------- what counts as the same call: the validated arguments too ----------
+
+def _mac_tools(d: RunningDaemon) -> tuple[Any, list[dict[str, Any]]]:
+    """The real mac.click / mac.menu / mac.act schemas and describe(), with a run that loses the acknowledgement on
+    each call's first attempt at a given set of arguments."""
+    from types import SimpleNamespace
+    from ferb.act.mac.tools import MacAct, MacClick, MacMenu
+    driver = SimpleNamespace(apps=SimpleNamespace(find=lambda name: SimpleNamespace(bundle_id="com.example.chat")))
+    ran: list[dict[str, Any]] = []
+    tools = [MacClick(driver), MacMenu(driver), MacAct(driver)]
+    for tool in tools:
+        async def lost(args: Any, ctx: Any, name: str = tool.name) -> Any:
+            ran.append({"tool": name, **args.model_dump()})
+            raise ConnectionError("lost the acknowledgement")
+        tool._run = lost                                          # type: ignore[method-assign]
+    grant, _ = gateway_setup(d, {"mac:read", "mac:act"}, gateway_request("in Chat"), tools)
+    return grant, ran
+
+
+@pytest.mark.parametrize("tool,first,other", [
+    ("mac.click", dict(shot="s1", x=10, y=20), dict(shot="s1", x=300, y=20)),
+    ("mac.menu", dict(path="File > Search"), dict(path="File > New Chat")),
+    ("mac.act", dict(action="press", element="e12"), dict(action="press", element="e31")),
+    ("mac.act", dict(action="scroll", element="e5", direction="down", amount=5),
+     dict(action="scroll", element="e5", direction="up", amount=5)),
+])
+def test_another_point_item_or_element_is_another_action(daemon: RunningDaemon, tool: str, first: dict[str, Any],
+                                                         other: dict[str, Any]) -> None:
+    """One unknown click, menu press or control action in an app must not refuse every later one there: they all
+    share the app as their target, so the call's own arguments tell them apart."""
+    grant, ran = _mac_tools(daemon)
+    assert "outcome unknown" in gateway_tool_call(daemon, grant, tool, app="Chat", **first)["content"]["error"]
+    different = gateway_tool_call(daemon, grant, tool, app="Chat", **other)
+    assert "outcome unknown" in different["content"]["error"] and len(ran) == 2     # it ran: not refused
+    same = gateway_tool_call(daemon, grant, tool, app="Chat", **first, why="trying again")
+    assert same["content"].get("retry_action") and len(ran) == 2                   # the identical call is refused
+
+
+def test_the_hash_binds_the_arguments_but_not_the_agents_notes() -> None:
+    from ferb.policy.rules import ActionRequest, Kind, payload_hash
+    from ferb.core.types import Target
+    a = ActionRequest("mac.click", Kind.MAC_INPUT, Identity.OWNER, frozenset({"mac:act"}), "t", "w", "r", frozenset(),
+                      Target(site="com.example.chat"))
+    click = dict(app="Chat", shot="s1", x=10.0, y=20.0)
+    assert payload_hash(a, click) != payload_hash(a, click | {"x": 300.0})
+    assert payload_hash(a, dict(app="Chat", path="File > Search")) != payload_hash(a, dict(app="Chat", path="File > New"))
+    noted = ActionRequest("mac.click", Kind.MAC_INPUT, Identity.OWNER, frozenset({"mac:act"}), "t", "w", "r",
+                          frozenset(), Target(site="com.example.chat"), effect="send", why="again")
+    assert payload_hash(a, click) == payload_hash(noted, click | {"why": "again", "effect": "send"})
+
+
+def test_a_call_that_could_not_start_is_failed_not_unknown(daemon: RunningDaemon) -> None:
+    """Nothing ran, so its row must not sit in flight (or unknown) and refuse the next attempt."""
+    from ferb.core.types import ActionSpec, Target
+
+    class Write(FakeCap):
+        def describe(self, args: Any) -> ActionSpec:
+            return ActionSpec("write_file", Target(path="notes.txt"), content=args.text or None)
+    write = Write("probe.write", "write_file", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("save notes"), [write])
+    gateway = daemon.daemon.gateway
+    hook = gateway.on_path
+
+    def broken(path: str, task_id: str) -> None:
+        raise RuntimeError("trail hook failed")
+    gateway.on_path = broken
+    try:
+        r = gateway_tool_call(daemon, grant, "probe.write", text="hi")
+    finally:
+        gateway.on_path = hook
+    assert r["is_error"] and "could not start" in r["content"]["error"] and write.calls == 0
+    assert [row["state"] for row in _rows(daemon, "probe.write")] == ["failed"]
+    assert not gateway_tool_call(daemon, grant, "probe.write", text="hi")["is_error"] and write.calls == 1
+
+
 # ---------- the ledger's duplicate check ----------
 
 def test_the_duplicate_check_covers_the_whole_tree_and_running_rows(tmp_path: Path) -> None:
@@ -179,6 +255,26 @@ def test_the_duplicate_check_covers_the_whole_tree_and_running_rows(tmp_path: Pa
     assert pending.value.state == "intended"
 
 
+def test_an_approval_keeps_the_row_unknown_and_allows_one_new_attempt(tmp_path: Path) -> None:
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    ledger = Ledger(db, FakeClock(), SequentialIds("a"))
+    a = ledger.intend("t1.worker", "x.send", {}, "h1")
+    ledger.mark(a.id, "executing")
+    ledger.mark(a.id, "unknown")
+    ledger.approve_retry(a.id, "span-ask")
+    row = ledger.get(a.id)
+    assert (row.intent.state, row.reconciled, row.retry_approved, row.retried_by) == ("unknown", False, "span-ask", None)
+    b = ledger.intend("t1.worker", "x.send", {}, "h1")                # the one attempt the approval allows
+    assert ledger.get(a.id).retried_by == b.id
+    ledger.mark(b.id, "executing")
+    ledger.mark(b.id, "done")
+    with pytest.raises(DuplicateUnresolved) as used:                   # used up, even though b is done
+        ledger.intend("t1.worker", "x.send", {}, "h1")
+    assert used.value.intent_id == a.id
+    assert [r["retry_approved"] for r in ledger.unresolved("t1")] == ["span-ask"]
+
+
 # ---------- the owner's approval ----------
 
 def test_the_owners_yes_lets_it_run_again(daemon: RunningDaemon) -> None:
@@ -191,18 +287,58 @@ def test_the_owners_yes_lets_it_run_again(daemon: RunningDaemon) -> None:
     assert answer["footer"].endswith("\nOrigin: owner")
     shown = owner.asked[0]
     assert shown.options == ("Yes", "No")                          # FERB's options, not the worker's
-    assert shown.reason.startswith("I checked the order page")    # the worker's findings, then FERB's concrete line
-    assert "probe.pay to x@y.com" in shown.reason and "twice" in shown.reason
+    worker_text, ferb_text = shown.reason.split("\n\n")           # the worker's findings, then FERB's labeled line
+    assert worker_text.startswith("I checked the order page") and ferb_text.startswith("FERB: ")
+    assert "probe.pay to x@y.com" in ferb_text and "twice" in ferb_text
+    assert "probe.pay to=x@y.com text=pay $5 → ConnectionError: lost the acknowledgement" in ferb_text  # the last call
+    # Approved, not settled: nobody observed the outcome, so the row stays unknown and says who approved what.
+    ask_span = _spans(daemon, "owner.ask")[0]
+    row = _rows(daemon, "probe.pay")[0]
+    assert (row["state"], row["reconciled"], row["retry_approved"], row["retried_by"]) == \
+        ("unknown", 0, ask_span["id"], None)
+    assert ask_span["origin"] == "owner" and "retry_approved" in ask_span["output_json"]
+    assert APPROVED in row["evidence_json"] and ask_span["id"] in row["evidence_json"]
     third = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     assert "outcome unknown" in third["content"]["error"] and boom.calls == 2      # it ran again
-    rows = _rows(daemon, "probe.pay")
-    assert [(r["state"], r["reconciled"]) for r in rows] == [("failed", 1), ("unknown", 0)]
-    ask_span = _spans(daemon, "owner.ask")[0]
-    assert ask_span["origin"] == "owner" and APPROVED in rows[0]["evidence_json"]
-    assert ask_span["id"] in rows[0]["evidence_json"] and "retry_approved" in ask_span["output_json"]
-    # the new attempt's outcome is unknown too: it needs the owner again
-    assert gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")["content"].get("retry_action")
-    assert boom.calls == 2
+    first, retried = _rows(daemon, "probe.pay")
+    assert (first["state"], first["retry_approved"], first["retried_by"]) == ("unknown", ask_span["id"], retried["id"])
+
+    async def unresolved() -> list[dict[str, Any]]:
+        return daemon.daemon.ledger.unresolved("task-1")
+    listed = {r["id"]: r for r in daemon.run(unresolved())}           # recovery still lists what may have happened
+    assert listed[first["id"]]["retry_approved"] == ask_span["id"] and listed[retried["id"]]["retry_approved"] is None
+    # the new attempt's outcome is unknown too: one approval allowed one retry, and the owner is needed again
+    fourth = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
+    assert fourth["content"].get("retry_action") == retried["id"] and boom.calls == 2
+
+
+def test_one_approval_allows_one_retry(daemon: RunningDaemon) -> None:
+    """Even when the approved retry ends known (here it failed), a further repeat needs the owner again: the earlier
+    attempt is still unknown and its approval is used up."""
+    class Flaky(FakeCap):
+        async def run(self, args: Any, ctx: Any) -> Any:
+            self.calls += 1
+            if self.calls == 1:
+                raise ConnectionError("lost the acknowledgement")
+            from ferb.core.types import ToolResult
+            return ToolResult({"error": "card declined"}, is_error=True)
+    pay = Flaky("probe.pay", "pay", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [pay])
+    call = dict(to="x@y.com", text="pay $5")
+    gateway_tool_call(daemon, grant, "probe.pay", **call)
+    ref = gateway_tool_call(daemon, grant, "probe.pay", **call)["content"]["retry_action"]
+    assert _ask(daemon, grant, Answers(daemon, choice=1), question="Pay again?", retry_action=ref)["content"] == \
+        {"answer": "Yes", "retry_approved": True}
+    # the owner asked twice before it ran: still one approval, nothing to ask
+    again = gateway_tool_call(daemon, grant, "owner.ask", question="Pay again?", retry_action=ref)
+    assert again["is_error"] and "already approved" in again["content"]["error"]
+    assert gateway_tool_call(daemon, grant, "probe.pay", **call)["content"]["error"] == "card declined"   # it ran
+    replay = gateway_tool_call(daemon, grant, "probe.pay", **call)
+    assert replay["content"].get("retry_action") == ref and pay.calls == 2          # the approval is not replayed
+    assert _ask(daemon, grant, Answers(daemon, choice=1), question="Try once more?", retry_action=ref)["content"] == \
+        {"answer": "Yes", "retry_approved": True}                                     # a new approval: one more
+    gateway_tool_call(daemon, grant, "probe.pay", **call)
+    assert pay.calls == 3
 
 
 def test_a_worker_cannot_approve_its_own_retry(daemon: RunningDaemon) -> None:
@@ -258,7 +394,8 @@ def test_a_worker_cannot_approve_its_own_retry(daemon: RunningDaemon) -> None:
     finally:
         owner.stop()
     assert owner.asked == []
-    assert [r["state"] for r in _rows(daemon, "probe.pay")] == ["unknown", "unknown"]   # nothing settled
+    rows = _rows(daemon, "probe.pay")
+    assert [(r["state"], r["retry_approved"]) for r in rows] == [("unknown", None), ("unknown", None)]  # none approved
     still_refused()
 
 
@@ -282,7 +419,7 @@ def test_an_attempt_settled_while_the_owner_was_asked_is_reported(daemon: Runnin
     row = _rows(daemon, "probe.pay")[0]
     assert row["state"] == "done" and APPROVED not in row["evidence_json"]
     again = gateway_tool_call(daemon, grant, "owner.ask", question="Pay again?", retry_action=ref)
-    assert again["is_error"] and "no longer unknown" in again["content"]["error"]
+    assert again["is_error"] and "no longer unknown: it was confirmed done" in again["content"]["error"]
     assert boom.calls == 1
 
 
@@ -298,11 +435,13 @@ def test_uncertain_prior_actions_cover_the_whole_tree_and_running_rows(daemon: R
         ledger = daemon.daemon.ledger
         for task_id, site, state in (("tr-1.worker", "a.example", "unknown"), ("tr-1.worker.sub", "b.example", "executing"),
                                      ("prior-1.worker", "c.example", "unknown"), ("tr-10.worker", "d.example", "unknown"),
-                                     ("tr-1.worker", "e.example", "done")):
+                                     ("tr-1.worker", "e.example", "done"), ("tr-1.worker", "f.example", "approved")):
             i = ledger.intend(task_id, "probe.send", {"site": site}, site)
             ledger.mark(i.id, "executing")
             if state != "executing":
-                ledger.mark(i.id, state)
+                ledger.mark(i.id, "unknown" if state == "approved" else state)
+            if state == "approved":
+                ledger.approve_retry(i.id, "span-ask")
         daemon.daemon.state.requests.record(Request("req-ctx", "send it", Targets.of()))
         worker = Task("tr-1.worker", "tr-1", "send it", "dev", Identity.OWNER, set(), "worker", "req-ctx", [], None)
         tree = _Tree("tr-1", TaskSpec(goal="send it", identity="owner"), worker, prior_task="prior-1")
@@ -311,4 +450,5 @@ def test_uncertain_prior_actions_cover_the_whole_tree_and_running_rows(daemon: R
     assert "inspect before deciding whether to retry" in block                    # the wording is kept
     listed = json.loads(block.split("\n")[1])
     assert {(r["target"]["site"], r["status"]) for r in listed} == {
-        ("a.example", "unknown"), ("b.example", "executing"), ("c.example", "unknown")}
+        ("a.example", "unknown"), ("b.example", "executing"), ("c.example", "unknown"),
+        ("f.example", "outcome unknown; the owner approved a retry")}
