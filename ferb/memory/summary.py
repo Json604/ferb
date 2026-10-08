@@ -32,13 +32,14 @@ Source = tuple[str, str]
 
 def digest_origins(kind: str, data: dict[str, Any]) -> set[str]:
     """Every origin a day summary or narrative holds (MP2), decided by what it contains: window titles and site hosts
-    are outside text; app and folder data is the owner's own; FERB's task summaries are model-written; a narrative is
-    model-written from that evidence. An empty digest is the owner's own (code-built)."""
+    (`sites`, and `hours`, which lists each hour's apps and site hosts) are outside text; app and folder data is the
+    owner's own; FERB's task summaries are model-written; a narrative is model-written from that evidence. An empty
+    digest is the owner's own (code-built)."""
     web = origins_.external("web", "trail")
     if kind == NARRATIVE_KIND:
         return {origins_.INFERRED, web}
     out: set[str] = set()
-    if data.get("windows") or data.get("sites"):
+    if data.get("windows") or data.get("sites") or data.get("hours"):
         out.add(web)
     if data.get("apps_min") or data.get("folders"):
         out.add(origins_.PRIVATE)

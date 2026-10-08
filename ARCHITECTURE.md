@@ -286,8 +286,10 @@ a currency symbol is stripped). It is a fact: F3 asks nothing and blocks nothing
 
 **Step summaries.** Every `tool.call` span stores a one-line `spans.summary` (migration 0017), composed by code from the
 result ([`trace/lines.py`](ferb/trace/lines.py) `summarize`) after redaction and before clipping. The gateway publishes
-`tool.finished` (tool, args, why, summary, seconds, error) and `ferb logs --tools` shows it as a step line while the task
-runs.
+`tool.finished` (tool, the arguments a step line shows (`lines.ARG_KEYS`, each clipped to 100 characters after
+redaction; the span keeps them all), why, summary, seconds, error) and `ferb logs --tools` shows it as a step line while
+the task runs. An `owner.ask` the orchestrator answers itself leaves no `tool.call` span (only its `model.question`
+decision), so it shows as a Planner step and not as a tool step.
 
 **Episodes (L1, MP1).** One permanent row per root task in `episodes` (migration 0018): request text, goal, status,
 verified, times, answer, success conditions with evidence, steps, problems, per-tool call/error counts, origins,

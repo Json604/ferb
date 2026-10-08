@@ -310,7 +310,8 @@ class Gateway:
                      output: dict[str, Any] | None = None, error: str | None = None,
                      origins: set[str] | None = None) -> None:
         """Finish a tool.call span with its one-line summary and publish tool.finished (P26). `content` feeds the
-        summary only; `output` is what the span records (None on error paths). No origins: none is recorded."""
+        summary only; `output` is what the span records (None on error paths). No origins: none is recorded. The event
+        carries only the arguments a step line shows (`lines.ARG_KEYS`), redacted then clipped; the span keeps all."""
         args, why = span.input.get("args") or {}, str(span.input.get("why") or "")
         summary = lines.summarize(name, args, self.redact(content), is_error)   # redact before clip cuts a secret
         self.spans.finish(span, output=output, error=error, origin=origin.join(origins) if origins is not None else None,
@@ -319,7 +320,7 @@ class Gateway:
                                        "seconds": round((span.ended_at - span.started_at).total_seconds(), 1)
                                        if span.ended_at else None,
                                        "error": self.redact({"e": error})["e"] if error else None,
-                                       "args": self.redact(args), "why": self.redact({"w": why})["w"]})
+                                       "args": _shown_args(self.redact(args)), "why": self.redact({"w": why})["w"]})
 
     def _observed(self, name: str, spec: Any, action: ActionRequest, grant: RunGrant, status: str) -> None:
         self.publish("action.observed", {"what": name, "where": _target_dict(spec.target), "actor": "ferb",
@@ -411,6 +412,11 @@ class Gateway:
 
 EFFECT_HELP = "Optional description of this action's effect for the activity log; it does not grant permission."
 WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
+
+
+def _shown_args(args: dict[str, Any]) -> dict[str, str]:
+    """The arguments a step line shows, each clipped to 100 characters (already redacted)."""
+    return {k: lines.clip(args[k], 100) for k in lines.ARG_KEYS if args.get(k) not in (None, "")}
 
 
 def _target_dict(t: Any) -> dict[str, Any]:

@@ -94,3 +94,21 @@ def test_a_secret_straddling_the_summary_cut_never_leaks(daemon: RunningDaemon) 
     event = next(e for e in seen if e["topic"] == "tool.finished")
     for text in (summary, json.dumps(event)):
         assert "sk-ant" not in text and "ABCDEFGH" not in text
+
+
+def test_tool_finished_publishes_only_the_shown_args_clipped(daemon: RunningDaemon) -> None:
+    """Minor 1 (P26): the live event carries only the step line's argument keys, each clipped to 100 characters after
+    redaction; the span keeps the full arguments."""
+    cap = FakeCap("probe.read", "read", {"probe"}, reads=(("file", "/x"),))
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [cap])
+    seen: list[dict] = []
+    real = daemon.daemon.gateway.publish
+    daemon.daemon.gateway.publish = lambda topic, data: (seen.append({"topic": topic, **data}), real(topic, data))[1]
+    gateway_tool_call(daemon, grant, "probe.read", text="y" * 500, to="someone@x.com", site="a.com")
+    event = next(e for e in seen if e["topic"] == "tool.finished")
+    assert event["args"] == {"text": "y" * 99 + "…"}
+
+    async def go():
+        return json.loads(daemon.daemon.db.conn.execute(
+            "SELECT input_json FROM spans WHERE kind = 'tool.call'").fetchone()[0])["args"]
+    assert daemon.run(go()) == {"text": "y" * 500, "to": "someone@x.com", "site": "a.com"}

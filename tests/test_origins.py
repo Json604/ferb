@@ -88,6 +88,14 @@ def test_derived_rows_say_how_they_were_made(daemon: RunningDaemon) -> None:
     assert made.startswith("model:") and "|prompt:memory/distill.md@" in made and len(made.rsplit("@", 1)[1]) == 8
 
 
+def test_per_hour_sites_in_a_day_summary_are_outside_text() -> None:
+    """Minor 7 (MP2): `hours` lists the hour's apps and site hosts, so a digest holding it is web:trail too."""
+    only_hours = {"day": "2026-10-06", "hours": {"09": ["github.com"]}, "windows": [], "sites": {}}
+    assert summary.digest_origins(summary.SUMMARY_KIND, only_hours) == {"external:web:trail"}
+    assert journal_origin(summary.SUMMARY_KIND, only_hours) == "external:web:trail"
+    assert summary.digest_origins(summary.SUMMARY_KIND, {"day": "2026-10-06", "hours": {}}) == {"private"}
+
+
 def _journal(daemon: RunningDaemon, kind: str) -> list[str]:
     async def go():
         return [r["origin"] for r in daemon.daemon.db.conn.execute(
