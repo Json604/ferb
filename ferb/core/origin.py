@@ -43,6 +43,14 @@ def split(text: str | None) -> set[str]:
     return {o for o in (text or "").split(",") if o}
 
 
+def recorded(text: str | None, has_output: bool) -> set[str]:
+    """A tool result's or context source's recorded origins: one rule for every reader (episodes, task.evidence,
+    task_origins). Content with no recorded origin (every span from before F3) is unlabeled outside content, whatever
+    its kind; a span that holds no output adds nothing. Fail-closed: an unknown label counts as outside."""
+    found = split(text)
+    return found or ({external("unlabeled")} if has_output else set())
+
+
 def from_read_source(kind: str, ident: str) -> str:
     """One `ToolResult.read_sources` entry → its origin."""
     if kind in ("file", "app", "owner_account"):

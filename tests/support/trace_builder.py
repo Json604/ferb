@@ -88,12 +88,14 @@ class TraceBuilder:
 
     def tool(self, parent: dict[str, Any], offset: float, seconds: float, tool: str, args: dict[str, Any],
              summary: str, origin: str | None = "private", why: str = "", error: str | None = None,
-             kind: str = "run_shell") -> None:
-        """`origin` None: recorded before F3 labeled results; `kind` is the action kind the gateway records."""
+             kind: str | None = "run_shell", output: dict[str, Any] | None = None) -> None:
+        """`origin` None: recorded before F3 labeled results; `kind` is the action kind the gateway records (None:
+        recorded before F0 kept it); `output` defaults to a shell result, and an error path records none."""
         start = datetime.fromisoformat(parent["started_at"]) + timedelta(seconds=offset)
-        node = self._node("tool.call", seconds, {"tool": tool, "args": args, "effect": "", "kind": kind,
-                                                 "target": {}} | ({"why": why} if why else {}),
-                          {"exit_code": 0}, error, start=start, task_id=parent["task_id"])
+        inp = {"tool": tool, "args": args, "effect": ""} | ({"kind": kind} if kind else {}) | {"target": {}}
+        node = self._node("tool.call", seconds, inp | ({"why": why} if why else {}),
+                          None if error else (output or {"exit_code": 0}), error, start=start,
+                          task_id=parent["task_id"])
         node["origin"], node["summary"] = origin, summary
         self._child(parent, node)
 

@@ -44,8 +44,9 @@ documentation commit. The version in `pyproject.toml` and `ferb/__init__.py` sta
   `fs` tools reach any path until protected-path lists exist.
 - Fix wave after the whole-branch review (`620d090`, `3af0dca`, `b403b8b`, `c4b5074`, `cdf6cc6`, `07ed8db`, `6fccaf5`
   and this entry; S3, MP2, D21, P26, D9): FERB's clarify question is never recorded as the owner's words (older
-  continuity rows have it removed when read); spans without an origin follow one rule in episodes and `task.evidence`
-  (a reading call or context source with output is `external:unlabeled`); `owner.ask` answers match as `owner_answer`,
+  continuity rows have it removed when read); spans without an origin follow one fail-closed rule in episodes,
+  `task.evidence` and `task_origins` (a tool call or context source with output is `external:unlabeled`, whatever its
+  kind); `owner.ask` answers match as `owner_answer`,
   apart from typed `owner_words`; the gateway prepares each task's outside texts once; retention yields to the daemon
   loop between roots and journals `retention.purged` only when it purged; the story shows the whole clarified request;
   stopped workers read "stopped: …"; episodes keep `tool_origins`; `tool.finished` carries only the shown arguments;

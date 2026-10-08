@@ -3,9 +3,6 @@
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
-
-from ferb.core import origin
 from ferb.core.types import Identity, Target
 
 
@@ -28,17 +25,6 @@ class Kind:
 REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER}
 # Kinds whose result is content the tool read (S3): a result that names no source is outside content, unlabeled.
 READING_KINDS = frozenset({Kind.READ, Kind.SEARCH, Kind.NAVIGATE, Kind.MAILBOX_READ})
-
-
-def recorded_origins(span_kind: Any, action_kind: Any, has_output: bool, recorded: str | None) -> set[str]:
-    """A span's origins as recorded (MP2, S3): one rule for every reader (episodes, task.evidence). A reading tool
-    call, or a context source, that holds output but no recorded origin (every span from before F3) is unlabeled
-    outside content; any other span without one adds nothing. A label, never a gate."""
-    found = origin.split(recorded)
-    if not found and has_output and (span_kind == "context.source" or
-                                     (span_kind == "tool.call" and action_kind in READING_KINDS)):
-        return {origin.external("unlabeled")}
-    return found
 
 @dataclass(frozen=True)
 class ActionRequest:

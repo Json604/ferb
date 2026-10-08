@@ -91,13 +91,15 @@ def test_readers_pass_stored_origins_through() -> None:
     assert memory_origin("something") == "external:unlabeled"
     assert record_origins({"kind": "tool.call", "origin": "external:web:a.com,private"}, set()) == \
         {"external:web:a.com", "private", "inferred"}                 # + the worker-written arguments
-    unlabeled = {"kind": "tool.call", "origin": None, "input": {"tool": "browser.read", "kind": "read"},
-                 "output": {"text": "page"}}                          # a read recorded before F3 labeled results
+    unlabeled = {"kind": "tool.call", "origin": None, "input": {"tool": "browser.snapshot", "args": {}},
+                 "output": {"tree": "page"}}                          # before F3 labels and F0 action kinds
     assert record_origins(unlabeled, set()) == {"external:unlabeled", "inferred"}
-    listed = {"kind": "tool.call", "origin": None, "action_kind": "read", "has_output": True}   # as a listing shows it
+    listed = {"kind": "tool.call", "origin": None, "has_output": True}   # as a listing shows it
     assert record_origins(listed, set()) == {"external:unlabeled", "inferred"}
     ack = {"kind": "tool.call", "origin": None, "input": {"tool": "probe.send", "kind": "send"}, "output": {"ok": 1}}
-    assert record_origins(ack, set()) == {"inferred"}                 # an action's acknowledgement adds nothing
+    assert record_origins(ack, set()) == {"external:unlabeled", "inferred"}      # whatever its kind
+    failed = {"kind": "tool.call", "origin": None, "input": {"tool": "probe.send"}, "output": None, "error": "lost"}
+    assert record_origins(failed, set()) == {"inferred"}              # no output: nothing came back
     owner_ask = {"kind": "tool.call", "origin": "owner", "input": {"tool": "owner.ask", "args": {"question": "q"}}}
     assert record_origins(owner_ask, {"external:memory"}) == {"owner", "inferred", "external:memory"}  # not only owner
     assert record_origins({"kind": "worker"}, {"external:web:a.com"}) == {"inferred", "external:web:a.com"}
@@ -436,6 +438,23 @@ def test_the_gateway_never_runs_without_an_exclusion_check() -> None:
                    FsRoots("/tmp", (), ()), "dev").excluded_host("www.bank.example")
 
 
+def test_task_origins_count_unlabeled_results_from_before_f3(daemon: RunningDaemon) -> None:
+    """Residual 1 (S3, MP2): a pre-F3 tree's tool results and context sources with output but no origin are
+    external:unlabeled in task_origins; a root task span without one, or a span without output, adds nothing."""
+    def record() -> None:
+        conn = daemon.daemon.db.conn
+        rows = [("r0", None, "old", "task", None), ("r1", "r0", "old.worker", "tool.call", '{"tree": "page"}'),
+                ("r2", "r0", "old.worker", "tool.call", None), ("r3", "r0", "old", "context.source", '{"text": "x"}'),
+                ("q0", None, "quiet", "task", '{"status": "done"}'), ("q1", "q0", "quiet.worker", "tool.call", None)]
+        for sid, parent, task_id, kind, output in rows:
+            conn.execute("INSERT INTO spans (id, parent_id, task_id, kind, started_at, input_json, output_json) "
+                         "VALUES (?, ?, ?, ?, '2026-09-01T00:00:00+00:00', '{\"tool\": \"browser.snapshot\"}', ?)",
+                         (sid, parent, task_id, kind, output))
+    _on_loop(daemon, record)
+    assert _on_loop(daemon, lambda: daemon.daemon.spans.task_origins("old")) == {"external:unlabeled"}
+    assert _on_loop(daemon, lambda: daemon.daemon.spans.task_origins("quiet")) == set()
+
+
 def test_tool_outputs_contract(daemon: RunningDaemon) -> None:
     def record() -> None:
         spans = daemon.daemon.spans
@@ -596,7 +615,7 @@ def test_a_retry_of_a_task_recorded_before_f3_takes_the_origins_of_its_request_r
     _on_loop(daemon, lambda: daemon.daemon.db.conn.execute(          # its tree predates F3: no span has an origin
         "UPDATE spans SET origin = NULL WHERE task_id = ? OR task_id LIKE ?", (first, first + ".%")))
     _on_loop(daemon, lambda: daemon.daemon.db.conn.execute("DELETE FROM episodes WHERE task_id = ?", (first,)))
-    assert _task_origins(daemon, first) == set()
+    assert _task_origins(daemon, first) == {"external:unlabeled"}    # its stored context: unlabeled, never the paste
     seen = _trim_history(daemon)
     second = _retry(daemon, first)                    # the chat.message row still says what the request held
     assert "external:paste" in _task_origins(daemon, second)

@@ -201,29 +201,31 @@ def test_a_task_whose_request_or_context_held_outside_content_is_marked(tmp_path
     assert got["verified"] is True and got["usage"] == c["usage"]
 
 
-def test_a_read_recorded_without_an_origin_counts_as_outside_content(tmp_path: Path) -> None:
-    """I1 (S3, MP2): every span from before F3 has no origin. A reading tool call or a context source that holds
-    output but no origin is unlabeled outside content, the same rule task.evidence labels it by; an action's
-    acknowledgement without one adds nothing."""
+def test_a_span_recorded_without_an_origin_counts_as_outside_content(tmp_path: Path) -> None:
+    """Residual 1 (S3, MP2): every span from before F3 has no origin, and those from before F0 not even an action
+    kind. A tool call or context source that holds output but no origin is unlabeled outside content, whatever its
+    kind, by the one rule task.evidence and task_origins use; a span with no output adds nothing."""
     b = TraceBuilder()
-    w = b.worker(5, "done", "read the page")
-    b.tool(w, 1, 0.5, "browser.read", {"url": "https://x.example"}, "text", origin=None, kind="read")
+    w = b.worker(5, "done", "looked")
+    b.tool(w, 1, 0.5, "browser.snapshot", {"tab": "t1"}, "", origin=None, kind=None, output={"tree": "page text"})
+    b.tool(w, 2, 0.5, "shell.read", {"id": "p1"}, "", origin=None, kind=None, output={"output": "file text"})
     c = compose.compose(b.finish())
-    assert c["origins"] == ["external:unlabeled"]
+    assert c["origins"] == c["tool_origins"] == ["external:unlabeled"]
     db = Database(tmp_path / "ferb.db")
     db.migrate()
     episodes.write(db, c | {"made_by": episodes.MADE_BY, "built_at": T0.isoformat()})
     got = episodes.get(db, c["task_id"])
     assert got is not None and got["external_read"] is True
     b2 = TraceBuilder()
-    w2 = b2.worker(5, "done", "clicked")
-    b2.tool(w2, 1, 0.5, "browser.act", {"element": "e1"}, "clicked", origin=None, kind="click")
-    b2.source("recalled memory", "a note", None)
-    assert compose.compose(b2.finish())["origins"] == ["external:unlabeled"]      # the context source, not the click
+    b2.tool(b2.worker(5, "done", "clicked"), 1, 0.5, "browser.act", {"element": "e1"}, "", origin=None, kind="click",
+            output={"ok": True})
+    assert compose.compose(b2.finish())["origins"] == ["external:unlabeled"]       # whatever its kind
     b3 = TraceBuilder()
-    b3.tool(b3.worker(5, "done", "clicked"), 1, 0.5, "browser.act", {"element": "e1"}, "clicked", origin=None,
-            kind="click")
-    assert compose.compose(b3.finish())["origins"] == []
+    b3.source("recalled memory", "a note", None)
+    b3.tool(b3.worker(5, "failed", "lost"), 1, 0.5, "probe.send", {"text": "x"}, "", origin=None, kind="send",
+            error="ConnectionError: lost the acknowledgement")                   # an error path: no output
+    c3 = compose.compose(b3.finish())
+    assert c3["origins"] == ["external:unlabeled"] and c3["tool_origins"] == []   # the context source only
 
 
 def test_a_task_that_read_only_private_data_is_not_marked(tmp_path: Path) -> None:

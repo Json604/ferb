@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 from typing import Any, Iterator
 
-from ferb.policy.rules import recorded_origins
+from ferb.core import origin
 from ferb.sanitize.untrusted import without_ferb_question
 from ferb.trace.lines import clip, duration, plural
 
@@ -191,8 +191,8 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     tool_origins: set[str] = set()                 # the task's own tool results, apart from inherited context
     for n in nodes:
         if n["kind"] in ORIGIN_KINDS:              # the request, context sources and tool results (S3)
-            held = recorded_origins(n["kind"], (n.get("input") or {}).get("kind"), n.get("output") is not None,
-                                    n.get("origin"))
+            held = (origin.split(n.get("origin")) if n["kind"] == "task"     # the request's origin is set explicitly
+                    else origin.recorded(n.get("origin"), n.get("output") is not None))
             origins |= held
             tool_origins |= held if n["kind"] == "tool.call" else set()
         if n["kind"] == "tool.call":

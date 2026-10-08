@@ -12,6 +12,8 @@ from ferb.store.db import Database
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
 OUTPUT_TEXT_CAP = 20000          # characters of each tool result matched for argument sources (S3)
+# origin.recorded in SQL: a non-root span's output with no recorded origin is unlabeled (the one parameter).
+_RECORDED = "CASE WHEN kind != 'task' AND origin IS NULL AND output_json IS NOT NULL THEN ? ELSE origin END"
 
 
 def tree_where(root_id: str) -> tuple[str, tuple[Any, ...]]:
@@ -79,18 +81,22 @@ class SpanStore:
         return tree_where(root_id)
 
     def tool_origins(self, root_id: str) -> set[str]:
-        """Every origin recorded on this task tree's tool results."""
+        """Every origin recorded on this task tree's tool results (`origin.recorded`: a result with no recorded origin
+        is unlabeled)."""
         where, params = self._tree_where(root_id)
-        rows = self._db.conn.execute(f"SELECT origin FROM spans WHERE kind = 'tool.call' AND {where}", params)
+        rows = self._db.conn.execute(f"SELECT {_RECORDED} AS origin FROM spans WHERE kind = 'tool.call' AND {where}",
+                                     (origin.external("unlabeled"), *params))
         return {o for r in rows for o in origin.split(r["origin"])}
 
     def task_origins(self, root_id: str) -> set[str]:
         """Every origin recorded on this task tree's request (its root task span), tool results and context
         sources: what its models were shown. Labels derived from the task's work (worker reports, answers) inherit
-        these (MP2)."""
+        these (MP2). A tool result or context source with output but no recorded origin (from before F3) is
+        unlabeled (`origin.recorded`); the root's origin is set explicitly, so without one it adds nothing."""
         where, params = self._tree_where(root_id)
         rows = self._db.conn.execute(
-            f"SELECT origin FROM spans WHERE kind IN ('task', 'tool.call', 'context.source') AND {where}", params)
+            f"SELECT {_RECORDED} AS origin FROM spans WHERE kind IN ('task', 'tool.call', 'context.source') "
+            f"AND {where}", (origin.external("unlabeled"), *params))
         found = {o for r in rows for o in origin.split(r["origin"])}
         # Retention deletes the spans, never the episode: its origins keep the labels fail-closed (MP2).
         ep = self._db.conn.execute("SELECT origins FROM episodes WHERE task_id = ?", (root_id,)).fetchone()
@@ -250,7 +256,7 @@ class SpanStore:
         rows = self._db.conn.execute("SELECT rowid AS cursor, * FROM spans WHERE " + where +
                                      " AND rowid > ? ORDER BY rowid LIMIT ?", (*params, after, limit + 1)).fetchall()
         records = [{"id": row["id"], "kind": row["kind"], "task_id": row["task_id"],
-                    "tool": (inp := json.loads(row["input_json"])).get('tool'), "action_kind": inp.get('kind'),
+                    "tool": json.loads(row["input_json"]).get('tool'),
                     "started_at": row["started_at"], "ended_at": row["ended_at"], "error": row["error"],
                     "input_preview": row["input_json"][:500], "input_truncated": len(row["input_json"]) > 500,
                     "read_full": {"tool": "task.evidence", "span_id": row["id"]},
