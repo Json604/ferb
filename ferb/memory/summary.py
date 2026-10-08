@@ -21,12 +21,31 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ferb.core import origin as origins_
 from ferb.store.db import Database
 
 SUMMARY_KIND, NARRATIVE_KIND = "trail.day_summary", "trail.day_narrative"
 SUMMARY_MADE_BY = "code:summary/1"                # MP1: derived rows say how they were made
 UNTRUSTED = re.compile(r'<untrusted-data id="([0-9a-f]+)">\n(.*?)\n</untrusted-data id="\1">', re.S)
 Source = tuple[str, str]
+
+
+def digest_origins(kind: str, data: dict[str, Any]) -> set[str]:
+    """Every origin a day summary or narrative holds (MP2), decided by what it contains: window titles and site hosts
+    are outside text; app and folder data is the owner's own; FERB's task summaries are model-written; a narrative is
+    model-written from that evidence. An empty digest is the owner's own (code-built)."""
+    web = origins_.external("web", "trail")
+    if kind == NARRATIVE_KIND:
+        return {origins_.INFERRED, web}
+    out: set[str] = set()
+    if data.get("windows") or data.get("sites"):
+        out.add(web)
+    if data.get("apps_min") or data.get("folders"):
+        out.add(origins_.PRIVATE)
+    ferb = data.get("ferb")
+    if isinstance(ferb, dict) and ferb.get("tasks"):
+        out.add(origins_.INFERRED)
+    return out or {origins_.PRIVATE}
 
 
 @dataclass

@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from ferb.core import origin as origins_
 from ferb.core.interfaces import Clock, IdSource
+from ferb.memory.summary import NARRATIVE_KIND, SUMMARY_KIND, digest_origins
 from ferb.store.db import Database
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
@@ -24,8 +25,6 @@ class JournalEntry:
 
 
 OWNER_KINDS = {"owner.verdict", "memory.added", "memory.edited", "approval.resolved"}   # the owner's own words/answers
-PRIVATE_KINDS = {"trail.day_summary"}             # built by code from the owner's own activity
-INFERRED_KINDS = {"trail.day_narrative"}          # written by a model
 
 
 def journal_origin(kind: str, data: dict[str, Any]) -> str:
@@ -38,10 +37,8 @@ def journal_origin(kind: str, data: dict[str, Any]) -> str:
         return origins_.join({origins_.OWNER} | extra)
     if kind in OWNER_KINDS:
         return origins_.OWNER
-    if kind in PRIVATE_KINDS:
-        return origins_.PRIVATE
-    if kind in INFERRED_KINDS:
-        return origins_.INFERRED
+    if kind in (SUMMARY_KIND, NARRATIVE_KIND):         # by what the day's digest or narrative holds
+        return origins_.join(digest_origins(kind, data))
     return origins_.FERB
 
 

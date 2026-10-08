@@ -43,11 +43,11 @@ class MemoryRefused(FerbError):
 
 
 def query_terms(text: str) -> list[str]:
-    """Casefolded word runs by Unicode category (letters, numbers, marks, private use), matching the FTS tokenizer
-    (migration 0014). Python's \\w drops combining marks and would split Devanagari words."""
+    """Lowercased word runs by Unicode category (letters, numbers, marks, private use), matching the FTS tokenizer
+    (migration 0014; it lowercases, it does not casefold: "straße" stays whole). Python's \\w drops combining marks and would split Devanagari words."""
     terms: list[str] = []
     current = ""
-    for ch in text.casefold():
+    for ch in text.lower():
         cat = unicodedata.category(ch)
         if cat[0] in "LNM" or cat == "Co":
             current += ch

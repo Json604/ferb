@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
+from ferb.memory.summary import NARRATIVE_KIND, SUMMARY_KIND, digest_origins
 from ferb.sense.trail import Trail
 
 SOURCES = ("app_focus", "window", "browser_tab", "file", "idle", "app_install")
@@ -37,7 +38,7 @@ class TrailQuery:
         actor: Literal["owner", "ferb", "unknown"] | None = None
         limit: int = Field(100, ge=1, le=300)
         before_seq: int | None = Field(None, ge=1, description="next_before_seq from a prior page")
-        text: str | None = Field(None, description="only events whose recorded text contains all these words")
+        text: str | None = Field(None, description="plain words; every word must appear in the event's recorded text")
 
     def __init__(self, trail: Callable[[], Trail | None]) -> None:
         self.trail = trail
@@ -67,7 +68,7 @@ class TrailDays:
     origin = "ferb"                                    # an empty result holds nothing from outside
 
     class Input(BaseModel):
-        text: str | None = Field(None, description="only days whose summary or narrative contains all these words")
+        text: str | None = Field(None, description="plain words; every word must appear in the day's summary or narrative")
         since_days: int = Field(30, ge=1, le=3650)
         limit: int = Field(10, ge=1, le=60)
 
@@ -87,16 +88,8 @@ class TrailDays:
 
 
 def _day_sources(days: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:
-    """A summary digest holds window titles and site hosts (outside text, like TrailQuery's rows) and FERB's task
-    summaries (model-written); a narrative is model-written from that evidence, so it is inferred and keeps the
-    summary's label."""
-    out: list[tuple[str, str]] = []
+    """The origins each returned day holds (one rule, summary.digest_origins; the same as its stored journal origin)."""
+    found: set[str] = set()
     for d in days:
-        data = d["data"]
-        if d["kind"] == "narrative" or data.get("windows") or data.get("sites"):
-            out.append(("web", "trail"))
-        elif not (data.get("ferb") or {}).get("tasks"):
-            out.append(("app", "trail"))
-        if d["kind"] == "narrative" or (data.get("ferb") or {}).get("tasks"):
-            out.append(("origin", "inferred"))
-    return tuple(dict.fromkeys(out))
+        found |= digest_origins(NARRATIVE_KIND if d["kind"] == "narrative" else SUMMARY_KIND, d["data"])
+    return tuple(("origin", o) for o in sorted(found))

@@ -22,13 +22,13 @@ from typing import Any, Callable, Literal
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import TrailEvent
 from ferb.memory.items import query_terms
-from ferb.memory.summary import NARRATIVE_KIND
+from ferb.memory.summary import NARRATIVE_KIND, SUMMARY_KIND
 from ferb.sense.exclusions import Exclusions
 from ferb.store.db import Database
 
 Actor = Literal["owner", "ferb", "unknown"]
 ACTORS = ("owner", "ferb", "unknown")
-SUMMARY_KIND = "trail.day_summary"          # journal entry {"day": "YYYY-MM-DD", ...}: permanent
+ORDERING = 'newest first; observations are evidence, not a selected profile or target'
 FERB_ACTIVATION_S = 3.0                     # a focus change this soon after FERB switched apps is FERB's
 FERB_FILE_S = 10.0                          # a file event this soon after a FERB file tool touched the path is FERB's
 
@@ -147,7 +147,7 @@ class Trail:
         if text is not None:
             terms = query_terms(text)
             if not terms:
-                return {'events': [], 'count': 0, 'next_before_seq': None, 'ordering': 'newest first'}
+                return {'events': [], 'count': 0, 'next_before_seq': None, 'ordering': ORDERING}
             query += ' AND seq IN (SELECT rowid FROM trail_fts WHERE trail_fts MATCH ?)'
             params.append(" ".join(f'"{t}"' for t in terms))       # every word, each a literal phrase
         rows = self.db.conn.execute(query + ' ORDER BY seq DESC LIMIT ?', (*params, limit + 1)).fetchall()
@@ -155,7 +155,7 @@ class Trail:
                    'task_id': r['task_id'], 'data': json.loads(r['data_json'])} for r in rows[:limit]]
         return {'events': events, 'count': len(events),
                 'next_before_seq': rows[limit - 1]['seq'] if len(rows) > limit else None,
-                'ordering': 'newest first; observations are evidence, not a selected profile or target'}
+                'ordering': ORDERING}
 
     def days(self, text: str | None = None, since_days: int = 30, limit: int = 10) -> list[dict[str, Any]]:
         """Daily summaries (code-built) and narratives (model-written), by content and/or date, newest first."""

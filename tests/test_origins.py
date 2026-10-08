@@ -40,8 +40,13 @@ def test_journal_origins_by_kind() -> None:
     assert journal_origin("chat.message", {}) == "external:unlabeled,owner"    # recorded before parts were counted
     assert journal_origin("owner.verdict", {}) == origin.OWNER
     assert journal_origin("approval.resolved", {}) == origin.OWNER
-    assert journal_origin("trail.day_summary", {}) == origin.PRIVATE
-    assert journal_origin("trail.day_narrative", {}) == origin.INFERRED
+    assert journal_origin("trail.day_summary", {}) == origin.PRIVATE               # an empty digest: the owner's own
+    assert journal_origin("trail.day_summary", {"sites": {"a.com": 1}}) == "external:web:trail"
+    assert journal_origin("trail.day_summary", {"windows": ["x"], "folders": {"/a": {"created": 1}}}) == \
+        "external:web:trail,private"                                                # all that apply are kept
+    assert journal_origin("trail.day_summary", {"apps_min": {"Notes": 1}, "ferb": {"tasks": [{"summary": "s"}]}}) == \
+        "inferred,private"
+    assert journal_origin("trail.day_narrative", {}) == "external:web:trail,inferred"
     assert journal_origin("task.answer", {}) == origin.FERB
     assert journal_origin("some.new.kind", {}) == origin.FERB                 # FERB's own events by default
 
@@ -77,6 +82,8 @@ def test_derived_rows_say_how_they_were_made(daemon: RunningDaemon) -> None:
             "SELECT kind, data_json FROM journal WHERE kind IN (?, ?)", (summary.SUMMARY_KIND, summary.NARRATIVE_KIND))}
     got = daemon.run(rows())
     assert got[summary.SUMMARY_KIND]["made_by"] == "code:summary/1"
+    assert _journal(daemon, summary.SUMMARY_KIND) == ["external:web:trail"]       # the digest holds a site host
+    assert _journal(daemon, summary.NARRATIVE_KIND) == ["external:web:trail,inferred"]
     made = got[summary.NARRATIVE_KIND]["made_by"]
     assert made.startswith("model:") and "|prompt:memory/distill.md@" in made and len(made.rsplit("@", 1)[1]) == 8
 
