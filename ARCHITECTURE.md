@@ -342,6 +342,8 @@ are lowercased the way the tokenizer folds them (`query_terms`, [`memory/items.p
   downloaded and then reads with `cat` is not marked as outside content. F5's path lists and proxy facts narrow this.
 - FERB's own `fs` tools reach any path until the never-read / never-write lists exist (F5).
 - Origins and `arg_sources` are facts only; no confirmation or block uses them until F5.
+- `arg_sources` tells `owner_words` (typed in the request) apart from `owner_answer` (an option the owner chose), and
+  episodes keep `tool_origins` apart from inherited origins; F5's confirmations and sink rule decide what each means.
 
 ## 11. Documentation and diagrams
 

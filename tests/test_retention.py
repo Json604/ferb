@@ -1,6 +1,7 @@
 """Traces and Jev decisions age out after 30 days (D21); a task's spans go only once its permanent episode exists;
 the task list, episodes, journal and memory are kept."""
 import asyncio
+import json
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -80,16 +81,23 @@ def _scenario(daemon: RunningDaemon) -> list[str]:
     return roots
 
 
-def _purged(daemon: RunningDaemon, roots: list[str], result: dict[str, int]) -> tuple[Any, ...]:
-    row = _q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'")
-    return (result, row, [_tree_spans(daemon, r) for r in roots], _q(daemon, "SELECT count(*) FROM spans"),
-            _q(daemon, "SELECT count(*) FROM decisions"))
+def _purged(daemon: RunningDaemon, roots: list[str], before: int, result: dict[str, int]) -> dict[str, Any]:
+    """What a pass did, in terms that don't depend on how many spans each task happened to record."""
+    after = _q(daemon, "SELECT count(*) FROM spans")
+    row = json.loads(_q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'"))
+    return {"true_count": result["spans"] == before - after > 3, "decisions": result["decisions"],
+            "journal": row == {"trace_days": 30, "spans": result["spans"], "decision_days": 30,
+                               "decisions": result["decisions"], "roots_left": 0},
+            "roots_emptied": [_tree_spans(daemon, r) == 0 for r in roots],
+            "loose_left": _spans_with_prefix(daemon, "z-p"),
+            "decisions_left": _q(daemon, "SELECT count(*) FROM decisions"),
+            "episodes": [_q(daemon, "SELECT count(*) FROM episodes WHERE task_id = ?", r) for r in roots]}
 
 
 def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots(home: Path) -> None:
     """I3 (D21): the hourly pass runs on the daemon loop one root at a time, yielding between roots; it purges and
     journals exactly what the synchronous pass does."""
-    seen: dict[str, tuple[Any, ...]] = {}
+    seen: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for mode in ("sync", "async"):
         d = RunningDaemon(home.parent / mode, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
@@ -98,6 +106,7 @@ def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots
             assert sup_ is not None
             sup_.availability = sup_._default_availability
             roots = _scenario(d)
+            before = _q(d, "SELECT count(*) FROM spans")
             if mode == "sync":
                 result: dict[str, int] = {}
                 d.call_soon(lambda: result.update(d.daemon._purge_records()))
@@ -116,13 +125,12 @@ def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots
                     finally:
                         ticker.cancel()
                 result = d.run(ticking())
-            seen[mode] = _purged(d, roots, result)
+            seen[mode] = _purged(d, roots, before, result)
         finally:
             d.stop()
-    assert seen["async"] == seen["sync"]
-    result, row, spans_left, _, decisions = seen["sync"]
-    assert result["spans"] > 3 and result["decisions"] == 1 and decisions == 1
-    assert spans_left[0] == spans_left[1] == 0 and spans_left[2] > 0 and row is not None
+    assert seen["async"] == seen["sync"] == {
+        "true_count": True, "decisions": 1, "journal": True, "roots_emptied": [True, True, False], "loose_left": 0,
+        "decisions_left": 1, "episodes": [1, 1, 1]}
     first, second = [i for i, what in enumerate(order) if what == "root"]
     assert "tick" in order[first + 1:second]                     # the loop ran between the two roots
 
