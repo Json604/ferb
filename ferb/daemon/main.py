@@ -1260,14 +1260,21 @@ class Daemon:
         return ("\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen "
                 "the page or guess tab ids): " + json.dumps(tabs)) if tabs else ""
 
-    def _relevant_context(self, words: str) -> str:
+    def _relevant_context(self, words: str) -> tuple[str, str]:
+        """Installed actions and worker types (FERB's own) and today's matching activity, with its origin (S3):
+        recorded trail rows carry the trail labels; FERB's own observed actions are FERB's."""
         from ferb.act.catalog import search_actions
+        from ferb.core import origin
         from ferb.sanitize.untrusted import wrap_untrusted
+        from ferb.sense.tools import trail_sources
         actions = search_actions(self.registry.capabilities, words)
         activity = self.daily_activity.search(words)
+        trail = {str(row['source']) for row in activity if row.get('source')}
+        labels = {origin.from_read_source(k, i) for k, i in trail_sources(trail)} if trail else set()
         return ('\nRelevant installed actions: ' + json.dumps(actions) +
                 '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) +
-                '\nWorker types: ' + json.dumps(['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]) + '\n')
+                '\nWorker types: ' + json.dumps(['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]) + '\n',
+                origin.join({origin.FERB} | labels))
 
     def _profile_state(self, p: Any) -> str:
         """connected / paired (FERB opens it) / installed, not paired / no extension."""

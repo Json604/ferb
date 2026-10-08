@@ -71,6 +71,11 @@ class Redactor:
         """For exception messages and any free text."""
         return self._str(s)
 
+    def excluded_host(self, host: str) -> bool:
+        """A host on the owner's exclusion list (a domain covers its subdomains)."""
+        host = host.lower()
+        return any(host == d or host.endswith("." + d) for d in self.exclude_domains)
+
     def stream(self) -> "RedactionStream":
         """A separate decoder/buffer for each process; raw partial secrets never leave it."""
         return RedactionStream(self)
@@ -118,8 +123,7 @@ class Redactor:
             parts = urlsplit(url)
         except ValueError:
             return url
-        host = (parts.hostname or "").lower()
-        if any(host == d or host.endswith("." + d) for d in self.exclude_domains):
+        if self.excluded_host(parts.hostname or ""):
             return EXCLUDED
         netloc = parts.netloc
         if parts.password is not None:

@@ -22,11 +22,15 @@ def memory_origin(item_origin: str) -> str:
 
 
 def record_origins(record: dict[str, Any], task_origins: set[str]) -> set[str]:
-    """Origins of one recorded fact returned by task.evidence. A tool result keeps its recorded origin; a worker's
+    """Origins of one recorded fact returned by task.evidence. A record keeps its recorded origin (tool results,
+    context sources); a tool result or context source recorded without one (before F3) is unlabeled; a worker's
     report is model-written from what the task read, so it inherits those origins (MP2); FERB's other records are its
     own, plus external:paste where FERB itself marked pasted or outside text inside them."""
-    if record.get("kind") == "tool.call":
-        return origin.split(record.get("origin")) or {origin.external("unlabeled")}
+    recorded = origin.split(record.get("origin"))
+    if recorded:
+        return recorded
+    if record.get("kind") in ("tool.call", "context.source"):
+        return {origin.external("unlabeled")}
     if record.get("kind") == "worker":
         return {origin.INFERRED} | task_origins
     marked = WRAPPER in json.dumps(record, ensure_ascii=False)

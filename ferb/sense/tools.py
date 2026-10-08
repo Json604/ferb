@@ -15,6 +15,12 @@ SOURCES = ("app_focus", "window", "browser_tab", "file", "idle", "app_install")
 UNTRUSTED_SOURCES = {"browser_tab", "window"}
 
 
+def trail_sources(sources: set[str]) -> tuple[tuple[str, str], ...]:
+    """The read source of recorded activity (S3): window titles and browser pages are outside text; app focus, files,
+    idle time and installs are the owner's own."""
+    return (("web", "trail"),) if sources & UNTRUSTED_SOURCES else (("app", "trail"),)
+
+
 class TrailQuery:
     name = "trail.query"
     description = ("Read the owner's recent activity recorded by FERB (apps in front, window titles, browser pages, "
@@ -46,6 +52,4 @@ class TrailQuery:
         since = (trail.clock.now() - timedelta(hours=a.since_hours)).isoformat()
         page = trail.query(since=since, source=a.source, actor=a.actor, host=a.host, limit=a.limit,
                            before_seq=a.before_seq)
-        seen = {r['source'] for r in page['events']}
-        sources = (("web", "trail"),) if seen & UNTRUSTED_SOURCES else (("app", "trail"),)
-        return ToolResult(page, read_sources=sources)
+        return ToolResult(page, read_sources=trail_sources({r['source'] for r in page['events']}))

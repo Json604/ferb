@@ -50,6 +50,13 @@ def ask_origins(answer: dict[str, Any]) -> set[str]:
     return {origin.INFERRED} if answer.get("answered_by") == "orchestrator" else {origin.OWNER}
 
 
+def without_excluded_hosts(origins: set[str], excluded: Callable[[str], bool]) -> set[str]:
+    """A host on the owner's exclusion list is never recorded or shown, origin labels included."""
+    web = origin.external("web") + ":"
+    return {origin.external("web", "excluded") if o.startswith(web) and excluded(o[len(web):]) else o
+            for o in origins}
+
+
 def origin_line(origins: set[str]) -> str:
     """The origin label a model sees under a tool result (S3)."""
     text = "Origin: " + origin.join(origins)
@@ -239,7 +246,8 @@ class Gateway:
             return reply({"error": f"{name} failed: {detail}; outcome unknown"}, True)
         if intent_id:
             self.ledger.mark(intent_id, "failed" if result.is_error else "done", [span.id])
-        origins = result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind)
+        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
+                                         getattr(self.redact, "excluded_host", lambda host: False))
         content = self.redact(result.content)
         self.spans.finish(span, output=content, error=content.get("error") if result.is_error else None,
                           origin=origin.join(origins))

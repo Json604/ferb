@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from ferb.act.fs.files import normalize_path
 from ferb.clock import context, when
+from ferb.core import origin as origins_
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import ContextBlock, DEFAULT_BUDGET_TOKENS, count_tokens
 from ferb.core.prompts import load_prompt
@@ -27,6 +28,7 @@ from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal
 from ferb.orchestrator.continuity import Continuity
 from ferb.orchestrator.availability import Availability, build as build_availability
+from ferb.orchestrator.evidence import memory_origin
 from ferb.orchestrator.guards import STALL_S, Activity
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA, WORKER_SCHEMA,
                                        Condition, DispatchOutcome, QuestionOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome,
@@ -69,6 +71,13 @@ class ChatSession:
     pending: str = ""          # the owner's words of a request FERB asked a question about (an answer continues it)
     asked: str = ""            # that question, as the owner saw it
     payload: str = ""          # complete prior request, including marked source data
+
+
+def _labeled(value: Any) -> tuple[str, str]:
+    """A context hook's (text, origin). A hook that returns bare text didn't say where it came from: unlabeled."""
+    if isinstance(value, tuple):
+        return str(value[0]), str(value[1])
+    return str(value or ""), origins_.external("unlabeled")
 
 
 @dataclass
@@ -118,7 +127,7 @@ class Supervisor(WorkerRuns):
         self.on_task_finish: Callable[[str], Awaitable[Any]] | None = None
         self.disturbance_context: Callable[[str], str] = lambda task_id: ""
         self.browser_context: Callable[[str], str] = lambda task_id: ""
-        self.relevant_context: Callable[[str], str] = lambda words: ""
+        self.relevant_context: Callable[[str], Any] = lambda words: ""   # text, or (text, origin)
         self.worker_types: Callable[[], list[str]] = lambda: ['default', 'codex', 'claude']
         self.checks, self.roots = checks, roots or FsRoots(workspace, (), ())
         self.sessions: dict[str, ChatSession] = {}
@@ -372,7 +381,8 @@ class Supervisor(WorkerRuns):
         blocks = [ContextBlock(_env_text(env), "actions.search and current device facts", cache=True),  # same on every turn
                   ContextBlock(recent, "chat.history", protected=True, cache=True),                     # grows only at its end
                   ContextBlock(mem_text, "memory.read"),
-                  ContextBlock(self.relevant_context(message), "task.evidence query=context.source; memory.read; trail.query")]
+                  ContextBlock(_labeled(self.relevant_context(message))[0],
+                               "task.evidence query=context.source; memory.read; trail.query")]
         candidates = self.continuity.candidates(session.id)
         if candidates:
             blocks.append(ContextBlock(self._attempts_text(candidates), "chat.history include_tasks=true",
@@ -483,8 +493,15 @@ class Supervisor(WorkerRuns):
 
     def recall_items(self, remembered: Any) -> tuple[str, dict[str, datetime]]:
         if isinstance(remembered, tuple):
-            return remembered
+            return remembered[0], remembered[1]
         return (str(remembered or ""), {})
+
+    @staticmethod
+    def recall_origin(remembered: Any) -> str:
+        """The least-trusted origin of the recalled items (S3); a recall that didn't say what it holds is unlabeled."""
+        if isinstance(remembered, tuple) and len(remembered) > 2:
+            return origins_.least_trusted(memory_origin(o) for o in remembered[2])
+        return origins_.external("unlabeled")
 
     async def since_last_talk(self, current_request: str) -> list[str]:
         """Report recorded task and reminder events after the owner's previous message."""
@@ -531,8 +548,8 @@ class Supervisor(WorkerRuns):
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         planner_sources = self._env.get(request_id, {}).get("planner_sources")
-        if planner_sources:
-            self._source_block(tree, "planner-context", planner_sources)
+        if planner_sources:          # device facts, recalled memory and activity mixed in one snapshot: unlabeled
+            self._source_block(tree, "planner-context", planner_sources, origins_.external("unlabeled"))
         if conversation_id is not None:
             self.continuity.save(tree_id, conversation_id, spec, request.words, prior_task, request.payload)
         if tree.intake_receipts:
@@ -764,18 +781,22 @@ class Supervisor(WorkerRuns):
         spec = tree.spec
         request = self.state.requests.get(tree.worker.request_id)
         words = request.words
+        activity, recalled = _labeled(self.relevant_context(words)), self.recall(words)
         parts = [ContextBlock("Owner's complete original request (pasted sources remain marked as data):\n" +
                               (request.payload or words), "task.evidence kind=task", protected=True, cache=True),
                  ContextBlock(f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification", protected=True, cache=True),
-                 self._source_block(tree, "relevant activity and actions", self.relevant_context(words)),
-                 self._source_block(tree, "recalled memory", self.recall_items(self.recall(words))[0]),
+                 self._source_block(tree, "relevant activity and actions", *activity),
+                 self._source_block(tree, "recalled memory", self.recall_items(recalled)[0],
+                                    self.recall_origin(recalled)),
                  ContextBlock(self.disturbance_context(tree.id), "task.evidence query=disturbance", protected=True)]
         if tree.intake_receipts:
             parts.append(ContextBlock("Completed intake operations (chat-layer receipts, not worker actions):\n" +
                                        wrap_untrusted(json.dumps(tree.intake_receipts)), "task.evidence kind=task.intake",
                                        protected=True))
-        if tree.reports:
-            parts.append(self._source_block(tree, "Previous attempts (data)", wrap_untrusted(json.dumps(tree.reports))))
+        if tree.reports:             # model-written from what the attempts read (MP2), as task.evidence labels them
+            reports_origin = origins_.join({origins_.INFERRED} | self.spans.tool_origins(tree.id))
+            parts.append(self._source_block(tree, "Previous attempts (data)", wrap_untrusted(json.dumps(tree.reports)),
+                                            reports_origin))
         ledger_tasks = [tree.worker.id]
         if tree.prior_task:
             ledger_tasks.append(tree.prior_task + ".worker")
@@ -797,15 +818,16 @@ class Supervisor(WorkerRuns):
         parts.append(ContextBlock(f"FERB's workspace (relative paths resolve here): {self.workspace}", "workspace", True))
         return parts
 
-    def _source_block(self, tree: _Tree, label: str, text: str) -> ContextBlock:
-        """Store full auxiliary evidence before budgeting so an omitted block always has a concrete reader."""
+    def _source_block(self, tree: _Tree, label: str, text: str, origin: str) -> ContextBlock:
+        """Store full auxiliary evidence before budgeting so an omitted block always has a concrete reader. `origin`
+        is where the text came from (S3); task.evidence returns it with the stored text."""
         import hashlib
         key = hashlib.sha256((label + "\n" + text).encode()).hexdigest()
         if key not in tree.context_sources and text:
             parent = self.tasks.get(tree.id)
             span = self.spans.start("context.source", task_id=tree.id, parent_id=parent.span_id if parent else None,
                                     input={"label": label})
-            self.spans.finish(span, output={"text": text})
+            self.spans.finish(span, output={"text": text}, origin=origin)
             tree.context_sources[key] = span.id
         reference = "task.evidence span_id=" + tree.context_sources.get(key, "")
         return ContextBlock(label + ":\n" + text if text else "", reference)

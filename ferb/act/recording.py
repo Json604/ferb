@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from ferb.act.fs.files import resolve, _source
+from ferb.act.fs.files import resolve
 from ferb.core.errors import Refused
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 
@@ -259,6 +259,15 @@ class RecordingStop:
         return ToolResult(result, is_error=not result['capture_complete'])
 
 
+def recording_id(video: Path) -> str:
+    """The FERB recording a video came from (named in its receipt), else the video itself."""
+    try:
+        rid = json.loads(video.with_suffix(video.suffix + '.json').read_text()).get('id')
+    except (OSError, ValueError, AttributeError):
+        rid = None
+    return str(rid) if rid else str(video)
+
+
 class RecordingInspect:
     name = 'recording.inspect'
     description = 'Decode a saved video into a labelled contact sheet (default: beginning/middle/end). Supply times_s around important actions. Check actual target/content visually, not just file metadata. Does not change any app/window.'
@@ -272,4 +281,5 @@ class RecordingInspect:
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         path = resolve(args.path,ctx,must_exist=True)
         info,image = await inspect_video(path,args.times_s)
-        return ToolResult(info,image=image,read_sources=(_source(path,ctx),))
+        # recorded screen content can show outside pages and messages: label it as a recording, not a local file
+        return ToolResult(info,image=image,read_sources=(('recording',recording_id(path)),))
