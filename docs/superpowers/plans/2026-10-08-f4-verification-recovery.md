@@ -33,7 +33,7 @@ Registry: `docs/0.27_DECISIONS.toml` gives D6, D20, D26, D29, P16, P19, S1, D34,
 ## Global Constraints
 
 - Python 3.12. Before every commit, run the focused tests, then `uv run pytest -q`, `uv run mypy ferb/core` and `git diff --check`.
-- New schema goes only in new migration files. The current head is `0019`. The migration runner (`ferb/store/db.py:22-30`) tracks a single `MAX(version)` high-water mark and applies only files whose number is greater than it, so **migrations must be numbered in task-execution order** — a lower number added in a later task is skipped forever. The numbers are: `0020_evidence` (Task 1, runs first), `0021_task_status_unverified` (Task 4), `0022_recovery` (Task 8), `0023_download` (Task 10). Never edit an existing migration.
+- New schema goes only in new migration files. The current head is `0019`. The migration runner (`ferb/store/db.py:22-30`) tracks a single `MAX(version)` high-water mark and applies only files whose number is greater than it, so **migrations must be numbered in task-execution order** — a lower number added in a later task is skipped forever. The numbers are: `0020_evidence` (Task 1, runs first), `0021_task_status_unverified` (Task 4), `0022_ledger_retry_approved` (Task 7, added during execution), `0023_recovery` (Task 8), `0024_download` (Task 10). Never edit an existing migration.
 - **Code enforces boundaries, never a model (CLAUDE.md rule 5).** V3 (read-only checker) and P19 (no silent retry of an unknown action) are code boundaries. A prompt that merely asks the model to behave is not enough; a test must show the gateway refusing.
 - **Code never judges intent (rule 6).** The read-only gate keys on a capability's declared action kind (W2), never on a keyword or content list. P19 keys on the ledger's recorded outcome, never on what the action "looks like".
 - **Secrets never reach a trace, log, the database or a new store (rule 14).** Stored evidence passes through the existing redactor for text; an app-window screenshot has its accessibility-known secret fields masked before it is written. Full screenshot redaction (OTP digits, notification-matched codes, CSS-masked fields) is F5; F4's masking is the interim floor and is documented as such. Evidence files live only on the owner's Mac and are never sent anywhere the live model-send didn't already go.
@@ -856,7 +856,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `ferb/act/fs/recovery.py` (clone a file before FERB changes it; a durable record; restore)
-- Create: `ferb/store/migrations/0022_recovery.sql`
+- Create: `ferb/store/migrations/0023_recovery.sql`
 - Modify: `ferb/act/fs/files.py` (`fs.write` overwrite `:167-188`, `fs.edit` `:191-214`, `fs.trash` `:217-237`)
 - Modify: `ferb/cli/__init__.py` and `ferb/cli/admin.py` (a `ferb restore` command: list and restore)
 - Modify: `ferb/store/retention.py` / `_purge_pass` (purge recovery copies older than `retention.recovery_days`)
@@ -874,7 +874,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Migration**
 
-`ferb/store/migrations/0022_recovery.sql`:
+`ferb/store/migrations/0023_recovery.sql`:
 
 ```sql
 -- F4 (S1): FERB's own file changes are recoverable for 7 days. Before FERB overwrites, edits or trashes a file it
@@ -1084,7 +1084,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add ferb/act/fs/recovery.py ferb/store/migrations/0022_recovery.sql ferb/act/fs/files.py ferb/cli/__init__.py ferb/cli/admin.py ferb/store/retention.py ferb/daemon/main.py ferb/config.py tests/test_recovery.py
+git add ferb/act/fs/recovery.py ferb/store/migrations/0023_recovery.sql ferb/act/fs/files.py ferb/cli/__init__.py ferb/cli/admin.py ferb/store/retention.py ferb/daemon/main.py ferb/config.py tests/test_recovery.py
 git commit -m "F4 (S1): clone a file before FERB changes it, keep the Trash path durably, restore; snapshot before bulk work
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
@@ -1173,7 +1173,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Modify: `extensions/chromium/manifest.json` (version → `0.14.0`; add `downloads` permission if the chosen mechanism needs it), `extensions/chromium/background.js`, `extensions/chromium/protocol.js` (`FERB_PROTOCOL` → 10; allow `Browser.setDownloadBehavior` / `Page.setDownloadBehavior` if using CDP)
 - Modify: `ferb/act/browser/ext_protocol.py` (`PROTOCOL_VERSION` → 10, `MIN_EXTENSION_VERSION` → `0.14.0`), `ferb/act/browser/ext_bridge.py` (receive a `download` event; take the file into the workspace with facts)
 - Modify: `ferb/act/browser/tools.py` (a download appears to the worker as facts: path, size, sha256, source URL, origin; never a dialog)
-- Create: `ferb/store/migrations/0023_download.sql` (optional: a downloads record; or reuse evidence/recovery — decide)
+- Create: `ferb/store/migrations/0024_download.sql` (optional: a downloads record; or reuse evidence/recovery — decide)
 - Test: `tests/test_downloads.py` (offline, with a fake extension bridge), and extend the extension's own tests if present
 - Modify: `README.md` / setup notes (the extension must be re-published; the owner runs `ferb setup --update`)
 
@@ -1244,7 +1244,7 @@ Expected: PASS. If there is a JS test harness for the extension, extend it; othe
 - [ ] **Step 6: Commit**
 
 ```bash
-git add extensions/chromium ferb/act/browser/ext_protocol.py ferb/act/browser/ext_bridge.py ferb/act/browser/tools.py ferb/store/migrations/0023_download.sql README.md tests/test_downloads.py
+git add extensions/chromium ferb/act/browser/ext_protocol.py ferb/act/browser/ext_bridge.py ferb/act/browser/tools.py ferb/store/migrations/0024_download.sql README.md tests/test_downloads.py
 git commit -m "F4 (D35): a browser download becomes workspace facts (path, size, hash, source, origin), never a dialog; protocol 10
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
