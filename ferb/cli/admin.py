@@ -465,9 +465,11 @@ def baseline(home: Any, out: TextIO) -> int:
 
     c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
-        requests, done, verified = c.execute(
-            "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0), "
-            "COALESCE(SUM(json_extract(outcome_json, '$.verified') = 1), 0) "
+        # V4: done (every condition verified), done but unverified (a check ran and couldn't confirm) and failed are
+        # counted apart; done % counts only done.
+        requests, done, unverified, failed, verified = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0), COALESCE(SUM(status = 'done_unverified'), 0), "
+            "COALESCE(SUM(status = 'failed'), 0), COALESCE(SUM(json_extract(outcome_json, '$.verified') = 1), 0) "
             "FROM tasks WHERE parent_id IS NULL").fetchone()
         owner_verdicts, owner_pass = c.execute(
             "SELECT COUNT(*), COALESCE(SUM(verdict = 'pass'), 0) FROM ("
@@ -486,7 +488,8 @@ def baseline(home: Any, out: TextIO) -> int:
                               "FROM spans").fetchone()[0]
         avg_task = c.execute(
             "SELECT AVG((julianday(updated_at) - julianday(created_at)) * 86400) FROM tasks WHERE parent_id IS NULL "
-            "AND status IN ('done', 'failed', 'needs_user', 'cancelled', 'interrupted', 'unknown', 'skipped')"
+            "AND status IN ('done', 'done_unverified', 'failed', 'needs_user', 'cancelled', 'interrupted', 'unknown', "
+            "'skipped')"
         ).fetchone()[0]
         questions = c.execute("SELECT COUNT(*) FROM journal WHERE kind IN ('approval.resolved', 'chat.clarify')"
                               ).fetchone()[0]
@@ -500,7 +503,9 @@ def baseline(home: Any, out: TextIO) -> int:
         c.close()
     captured = datetime.now(timezone.utc).isoformat(timespec="seconds")
     data = {"captured_at": captured, "days": "all", "requests": requests, "done": done,
-            "done_pct": pct(done, requests), "verified": verified, "verified_pct": pct(verified, requests),
+            "done_pct": pct(done, requests), "unverified": unverified, "unverified_pct": pct(unverified, requests),
+            "failed": failed, "failed_pct": pct(failed, requests),
+            "verified": verified, "verified_pct": pct(verified, requests),
             "owner_verdicts": owner_verdicts, "owner_pass": owner_pass, "tool_calls": calls,
             "tool_errors": errors, "model_runs": runs, "avg_task_s": round(avg_task or 0, 1),
             "owner_questions": questions, "cache_pct": pct(cached, total_in),
@@ -528,11 +533,13 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
         outcomes = c.execute("SELECT status, COUNT(*) FROM tasks WHERE parent_id IS NULL AND created_at >= ? "
                              "GROUP BY status ORDER BY 2 DESC", (since,)).fetchall()
         total = sum(n for _, n in outcomes)
-        done = next((n for s_, n in outcomes if s_ == "done"), 0)
-        print(f"Requests in the last {days} day(s): {total}" + (f" — done {done} ({100 * done // total}%)" if total else ""),
-              file=out)
+        count = dict(outcomes)
+        # V4: done means every condition verified; unverified means a check ran and couldn't confirm; failed, not done.
+        shares = ", ".join(f"{label} {count.get(st, 0)} ({100 * count.get(st, 0) // total}%)"
+                           for label, st in (("done", "done"), ("unverified", "done_unverified"), ("failed", "failed")))
+        print(f"Requests in the last {days} day(s): {total}" + (f" — {shares}" if total else ""), file=out)
         for status, n in outcomes:
-            print(f"  {status:<12}{n}", file=out)
+            print(f"  {status:<16}{n}", file=out)
         calls, errors = c.execute("SELECT COUNT(*), SUM(error IS NOT NULL) FROM spans WHERE kind = 'tool.call' "
                                   "AND started_at >= ?", (since,)).fetchone()
         print(f"Tool calls: {calls or 0}, errored: {errors or 0}", file=out)

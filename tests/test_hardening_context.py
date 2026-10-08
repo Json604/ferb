@@ -79,7 +79,8 @@ def test_unresolved_conditions_precede_facts_without_success_claim(daemon, met):
     install(daemon, [sup("task", "Preparing", task(conds=(cond(condition),)))],
             {"worker": done(unchecked_claim), "worker.verify": verdict, "worker.dispatch": finish})
     result = outcome(chat(daemon, "Write complete beginner study material"))
-    assert result["status"] == "failed" and not result["verified"]
+    # V4: a check that found the condition false is a failure; one that couldn't tell leaves it done but unverified.
+    assert result["status"] == ("failed" if met is False else "done_unverified") and not result["verified"]
     assert condition in result["answer"] and evidence in result["answer"]
     assert unchecked_claim not in result["answer"]
 
@@ -214,7 +215,7 @@ def test_true_file_predicate_cannot_approve_inadequate_learning_material(daemon)
     assert 'full explanations and worked examples' in context
 
 
-def test_cleanup_success_without_any_inspection_remains_unverified(daemon):
+def test_cleanup_success_without_any_inspection_is_not_reported_done(daemon):
     condition = 'The requested source and destination identity are established.'
     async def cleanup(task_id):
         return [{'tab': 'temporary', 'closed': True}]
@@ -224,7 +225,8 @@ def test_cleanup_success_without_any_inspection_remains_unverified(daemon):
         'worker.resources': done('Everything is complete.')})
     result = outcome(chat(daemon, 'Upload the requested source to the intended destination.'))
     assert result['status'] == 'failed' and not result['verified']
-    assert condition in result['answer'] and 'unverified' in result['answer']
+    # V5: no check ran on the blocked work, so the condition is still to do, never "unverified".
+    assert condition in result['answer'] and 'unverified' not in result['answer']
     assert 'Everything is complete.' not in result['answer']
 
 
@@ -358,8 +360,9 @@ def test_direct_task_without_conditions_never_reports_unchecked_success(daemon):
         events = [event async for event in supervisor.run_tree(
             TaskSpec.model_validate(task(conds=())), 'Working', 'direct-request', 'Inspect the result')]
         result = outcome(events)
-        assert result['status'] == 'failed' and not result['verified']
-        assert 'unverified' in result['answer'] and 'no success conditions' in result['answer']
+        # V4: the work finished but nothing could be checked: done but unverified, saying why, never done.
+        assert result['status'] == 'done_unverified' and not result['verified']
+        assert 'unverified' in result['answer'] and 'no checkable conditions' in result['answer']
         assert 'Everything is complete.' not in result['answer']
     daemon.run(check())
 

@@ -86,6 +86,10 @@ def wrap_pastes(text: str, pastes: list[str]) -> str:
     return "".join(out) + rest
 
 
+# V4: a task's three outcomes read differently. "done" is set only when every condition was verified.
+OUTCOME = {"done": "done ✓", "done_unverified": "done — unverified", "failed": "failed ✗"}
+
+
 def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
     t = ev.get("type")
     if t in ("reply", "clarify"):
@@ -115,8 +119,7 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
         if not verbose:
             return f"ferb> {answer}"
         arts = f"\n      files: {', '.join(ev['artifacts'])}" if ev.get("artifacts") else ""
-        check = "verified" if ev.get("verified") else "NOT verified"
-        return f"ferb: {ev['status']} ({check}) — {ev['summary']}{arts}\nferb> {answer}"
+        return f"ferb: {OUTCOME.get(ev['status'], ev['status'])} — {ev['summary']}{arts}\nferb> {answer}"
     if t == "error":
         return f"ferb> {ev['text']}"
     if t == "event":

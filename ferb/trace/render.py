@@ -7,8 +7,11 @@ from typing import Any
 from ferb.trace import lines
 from ferb.trace.compose import walk
 
-STATUS = {"done": "done (unverified)", "failed": "failed ✗", "needs_user": "waiting for you", "cancelled": "stopped",
-          "interrupted": "interrupted by a restart", "running": "running", "unknown": "outcome unknown"}
+# V4: "done" is recorded only when every condition was verified, "done_unverified" when a check ran and couldn't
+# confirm. A "done" without the verified flag is an older record that never said it was checked: shown as recorded.
+STATUS = {"done": "done", "done_unverified": "done (unverified)", "failed": "failed ✗", "needs_user": "waiting for you",
+          "cancelled": "stopped", "interrupted": "interrupted by a restart", "running": "running",
+          "unknown": "outcome unknown"}
 
 
 def _hms(at: str | None) -> str:

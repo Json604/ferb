@@ -366,5 +366,5 @@ def test_8b_declining_a_workers_question_is_told_plainly(daemon: RunningDaemon) 
     finally:
         nobody.stop()
     assert got["r"]["content"] == {"declined": True} and out["status"] == "needs_user"
-    assert "sign in — unverified" in out["answer"]
+    assert "- sign in" in out["answer"] and "unverified" not in out["answer"]   # no check ran (V5)
     assert "Question: Tell me which account to use and I'll continue." in out["answer"]

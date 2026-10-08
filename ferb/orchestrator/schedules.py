@@ -138,8 +138,12 @@ class Schedules:
     def set_state(self, sid: str, state: str) -> None:
         self.db.conn.execute("UPDATE schedules SET state = ? WHERE id = ?", (state, sid))
 
-    def ran(self, sid: str, ok: bool) -> int:
-        """Record a run; returns the failures in a row."""
+    def ran(self, sid: str, ok: bool | None) -> int:
+        """Record a run; returns the failures in a row. ok=None is a run that finished but a check couldn't confirm
+        (done_unverified, V4): neither a confirmed success that clears the count nor a failure that adds to it."""
+        if ok is None:
+            self.db.conn.execute("UPDATE schedules SET last_run = ? WHERE id = ?", (self.clock.now().isoformat(), sid))
+            return int(self.db.conn.execute("SELECT failures FROM schedules WHERE id = ?", (sid,)).fetchone()[0])
         if ok:
             self.db.conn.execute("UPDATE schedules SET failures = 0, last_run = ? WHERE id = ?",
                                  (self.clock.now().isoformat(), sid))

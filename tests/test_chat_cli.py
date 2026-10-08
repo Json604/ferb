@@ -41,7 +41,7 @@ def test_default_output_is_ferbs_words_without_internals() -> None:
 def test_verbose_shows_the_internals() -> None:
     out = render({"type": "outcome", "status": "done", "summary": "wrote it", "answer": "Done.", "artifacts": ["a.md"],
                   "verified": True}, verbose=True)
-    assert "done (verified) — wrote it" in out and "a.md" in out and "ferb> Done." in out
+    assert "done ✓ — wrote it" in out and "a.md" in out and "ferb> Done." in out
     ver = render({"type": "verification", "results": [
         {"condition": "a.md exists", "met": True, "path": "code", "evidence": "exists"}]}, verbose=True)
     assert "✓ a.md exists  [code: exists]" in ver

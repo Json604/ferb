@@ -28,7 +28,7 @@ def test_unknown_coverage_returns_to_planner_and_can_be_completed(daemon):
     assert missing in recovery and '"met": null' in recovery
 
 
-@pytest.mark.parametrize("action,status", [("ask", "needs_user"), ("finish", "failed")])
+@pytest.mark.parametrize("action,status", [("ask", "needs_user"), ("finish", "done_unverified")])   # V4
 def test_unknown_coverage_is_not_done_when_planner_cannot_complete_it(daemon, action, status):
     install(daemon, [sup("task", "Checking", task(conds=(cond("Review official groups"),)))],
             {"worker": done("A few chats checked."),
@@ -168,5 +168,7 @@ def test_success_sounding_finish_cannot_hide_unknown_condition(daemon):
             {"worker": done("Recent messages found."), "worker.verify": verdict(None, "Only one day read."),
              "worker.dispatch": dispatch("finish", "I checked your messages.")})
     result = outcome(chat(daemon, "Check five days"))
-    assert result["status"] == "failed" and not result["verified"]
-    assert "All five days covered" in result["answer"]
+    # V4: the check couldn't confirm the condition, so the result is done but unverified, never done.
+    assert result["status"] == "done_unverified" and not result["verified"]
+    assert "All five days covered — unverified: Only one day read." in result["answer"]
+    assert "I checked your messages." not in result["answer"] and "Recent messages found." not in result["answer"]

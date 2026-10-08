@@ -1153,8 +1153,10 @@ class Daemon:
             self._journal().append("schedule.failed", {"schedule_id": sid, "why": f"{type(e).__name__}: {e}"})
             final = {"task_id": f"{sid}:{now:%Y%m%d%H%M}", "status": "failed",
                      "answer": f"“{s.request}” didn't work this time; I'll try again at the next run."}
-        ok = final.get("status") == "done"
-        self.schedules.ran(sid, ok)
+        # Only a verified run counts as success. A done-but-unverified run (V4) doesn't clear earlier failures, and
+        # isn't counted as one either: the next run's consecutive_failures stays a count of real failures.
+        status = final.get("status")
+        self.schedules.ran(sid, True if status == "done" else None if status == "done_unverified" else False)
         answer = str(final.get("answer") or final.get("summary") or "")
         if overdue_s > 60:
             answer = f"(ran late) {answer}"
