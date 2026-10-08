@@ -243,6 +243,69 @@ def test_task_origins_outlive_the_spans(daemon: RunningDaemon) -> None:
     assert "external:web:x.com" in daemon.run(go())
 
 
+def test_a_pass_cancelled_between_roots_journals_what_it_purged(daemon: RunningDaemon) -> None:
+    """Residual 3 (D21): shutdown can cancel the hourly pass between roots; what it already purged is journaled."""
+    first, second = _say_hi(daemon), _say_hi(daemon)
+    for root in (first, second):
+        _age(daemon, root, 31)
+    _do(daemon, "UPDATE tasks SET updated_at = ? WHERE tree_id = ?", "2020-01-01T00:00:00+00:00", first)
+
+    async def cancel_after_the_first_root() -> None:
+        pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
+        real = daemon.daemon._purge_root
+
+        def purge_one(root: str, now: Any) -> int:
+            pass_.cancel()                               # shutdown arrives while this root is purged
+            return real(root, now)
+        daemon.daemon._purge_root = purge_one  # type: ignore[method-assign]
+        try:
+            await pass_
+        except asyncio.CancelledError:
+            pass
+        finally:
+            del daemon.daemon._purge_root
+    daemon.run(cancel_after_the_first_root())
+    assert _tree_spans(daemon, first) == 0 and _tree_spans(daemon, second) > 0
+    row = json.loads(_q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'"))
+    assert row["spans"] > 0 and row["decisions"] == 0 and row["roots_left"] == 1 and row["stopped"] is True
+
+
+def test_a_pass_cancelled_after_its_last_root_still_journals_it(daemon: RunningDaemon) -> None:
+    root = _say_hi(daemon)
+    _age(daemon, root, 31)
+
+    async def cancel_during_the_last_root() -> None:
+        pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
+        real = daemon.daemon._purge_root
+        daemon.daemon._purge_root = lambda r, now: (pass_.cancel(), real(r, now))[1]  # type: ignore[method-assign]
+        try:
+            await pass_
+        except asyncio.CancelledError:
+            pass
+        finally:
+            del daemon.daemon._purge_root
+    daemon.run(cancel_during_the_last_root())
+    row = json.loads(_q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'"))
+    assert _tree_spans(daemon, root) == 0 and row["spans"] > 0 and row["roots_left"] == 0 and row["stopped"] is True
+
+
+def test_a_pass_cancelled_before_anything_was_purged_journals_nothing(daemon: RunningDaemon) -> None:
+    root = _say_hi(daemon)
+    _age(daemon, root, 31)
+
+    async def cancel_at_once() -> None:
+        pass_ = asyncio.ensure_future(daemon.daemon._purge_pass())
+        daemon.daemon._purge_root = lambda root, now: (pass_.cancel(), 0)[1]  # type: ignore[method-assign]
+        try:
+            await pass_
+        except asyncio.CancelledError:
+            pass
+        finally:
+            del daemon.daemon._purge_root
+    daemon.run(cancel_at_once())
+    assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.purged'") == 0
+
+
 def test_a_root_interrupted_by_a_restart_is_aged_from_then(daemon: RunningDaemon) -> None:
     root = _say_hi(daemon)
     _age(daemon, root, 31)

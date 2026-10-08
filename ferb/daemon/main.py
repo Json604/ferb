@@ -726,12 +726,20 @@ class Daemon:
         return self._purge_rest(plan, sum(self._purge_root(root, plan.now) for root in plan.roots))
 
     async def _purge_pass(self) -> dict[str, int]:
-        """The retention pass on the daemon loop: the same steps as `_purge_records`, yielding between roots."""
+        """The retention pass on the daemon loop: the same steps as `_purge_records`, yielding between roots. If
+        shutdown cancels it between roots, what it already purged is still journaled (`stopped`)."""
         plan = self._purge_plan()
-        spans = 0
-        for root in plan.roots:
-            spans += self._purge_root(root, plan.now)
-            await asyncio.sleep(0)
+        spans = done = 0
+        finished = False
+        try:
+            for root in plan.roots:
+                spans += self._purge_root(root, plan.now)
+                done += 1
+                await asyncio.sleep(0)
+            finished = True
+        finally:
+            if not finished and spans:
+                self._journal_purged(plan, spans, 0, plan.left + len(plan.roots) - done, stopped=True)
         return self._purge_rest(plan, spans)
 
     def _purge_plan(self) -> _PurgePlan:
@@ -761,10 +769,13 @@ class Daemon:
         spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
         decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
         if spans or decisions or plan.left:
-            self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
-                                                        "decision_days": plan.decision_days, "decisions": decisions,
-                                                        "roots_left": plan.left})
+            self._journal_purged(plan, spans, decisions, plan.left)
         return {"spans": spans, "decisions": decisions}
+
+    def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, left: int, stopped: bool = False) -> None:
+        self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
+                                                    "decision_days": plan.decision_days, "decisions": decisions,
+                                                    "roots_left": left} | ({"stopped": True} if stopped else {}))
 
     async def _retention_loop(self) -> None:
         """Hourly, starting a minute after start-up so start-up stays quick."""
