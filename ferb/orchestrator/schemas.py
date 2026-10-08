@@ -13,7 +13,7 @@ from pydantic import BaseModel, model_validator
 from ferb.clock.when import WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
 
-CHECK_KINDS = ["none", "file_exists", "file_contains", "ledger_done", "tab_url", "account"]
+CHECK_KINDS = ["none", "file_exists", "file_contains", "ledger_done", "tab_url", "account", "after_change", "after_value"]
 
 
 def _strings(enum: list[str] | None = None) -> dict[str, Any]:
@@ -112,7 +112,8 @@ class TargetsSpec(BaseModel):
 
 
 class Check(BaseModel):
-    kind: Literal["none", "file_exists", "file_contains", "ledger_done", "tab_url", "account"]
+    kind: Literal["none", "file_exists", "file_contains", "ledger_done", "tab_url", "account",
+                  "after_change", "after_value"]
     path: str | None
     text: str | None
     url_contains: str | None

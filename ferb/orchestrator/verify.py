@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from ferb.act import aftercheck
 from ferb.act.fs.files import PathRefused, resolve
 from ferb.core.types import ToolContext
 from ferb.orchestrator.ledger import Ledger
@@ -32,8 +33,9 @@ class ConditionResult:
 class Checks:
     """The deterministic checks. `urls_of` reports every current URL from the task's browser tabs."""
 
-    def __init__(self, ledger: Ledger, urls_of: Callable[[str], list[str]]) -> None:
-        self.ledger, self.urls_of = ledger, urls_of
+    def __init__(self, ledger: Ledger, urls_of: Callable[[str], list[str]],
+                 afters: aftercheck.AfterLog | None = None) -> None:
+        self.ledger, self.urls_of, self.afters = ledger, urls_of, afters
 
     def code_checkable(self, c: Condition, task_id: str | None = None) -> bool:
         """`ledger_done` is about actions FERB took: when the task took none (it only read — "WhatsApp is
@@ -41,6 +43,8 @@ class Checks:
         k = c.check
         if k.kind == "ledger_done":
             return task_id is None or bool(self.ledger.for_task(task_id))
+        if k.kind in ("after_change", "after_value"):     # V2: the task's last acting call read something back
+            return self.afters is not None and task_id is not None and self.afters.last(task_id) is not None
         return (k.kind == "file_exists" and bool(k.path)) or (k.kind == "file_contains" and bool(k.path and k.text)) \
             or (k.kind == "tab_url" and bool(k.url_contains))
 
@@ -70,6 +74,14 @@ class Checks:
                                        f"{k.path}: literal {k.kind} observation unavailable: {type(e).__name__}: {e}")
             return ConditionResult(i, c.text, found, "code", f"{p} {'contains' if found else 'does not contain'} "
                                                            f"the expected text")
+        if k.kind in ("after_change", "after_value"):
+            after = self.afters.last(task_id) if self.afters is not None else None
+            if after is None:
+                return ConditionResult(i, c.text, None, "code", "no acting call has read anything back yet")
+            expect = ({"value_contains": k.text or ""} if k.kind == "after_value"
+                      else {"changed": (k.expected or "true").strip().lower() != "false"})
+            got = aftercheck.compare(expect, after)
+            return ConditionResult(i, c.text, got["met"], "code", got["evidence"])
         if k.kind == "ledger_done":
             rows = self.ledger.for_task(task_id)
             states = sorted({r.intent.state for r in rows})

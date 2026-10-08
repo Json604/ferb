@@ -451,7 +451,7 @@ class Daemon:
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
                                      workspace=str(workspace), on_violation=self._runtime_violation,
                                      on_task_end=self._task_end, facts=self._facts,
-                                     checks=Checks(self.ledger, self._urls_of), roots=roots)
+                                     checks=Checks(self.ledger, self._urls_of, self.gateway.afters), roots=roots)
         self.supervisor.browser_context = self._browser_context
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self.disturbance.finish
