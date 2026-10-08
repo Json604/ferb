@@ -71,6 +71,7 @@ def _err(msg: str) -> ToolResult:
 
 class _Base:
     identities = {Identity.OWNER, Identity.FERB}
+    target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
 
     def describe_path(self, args: BaseModel) -> str:
         return str(Path(str(getattr(args, "path"))).expanduser())

@@ -8,8 +8,9 @@ The final checker's token is observe-only: it is offered, and may run, only capa
 P19: a consequential action identical to one in the same task tree whose outcome is unknown (or that is still running)
 is refused by code, never retried on its own. The only way past is the owner's Yes to the question FERB attaches to
 that exact action (owner.ask with retry_action). That answer allows one more attempt and nothing else does; the
-earlier attempt stays unknown, since nobody observed its outcome. "The same action" is the same call: its target,
-content and validated arguments, without the agent's effect/why notes."""
+earlier attempt stays unknown, since nobody observed its outcome. "The same action" is the same call: its normalized
+target, content and validated arguments, without the agent's notes (why, effect, purpose, contact) or the kind
+derived from them (ferb/policy/rules.py payload_hash, hashed_args)."""
 
 import asyncio
 import base64
@@ -145,19 +146,38 @@ def ask_origins(answer: dict[str, Any]) -> set[str]:
     return {origin.INFERRED} if answer.get("answered_by") == "orchestrator" else {origin.OWNER}
 
 
-def retry_line(capability: str, target: dict[str, Any], attempts: int, call: str) -> str:
-    """FERB's own words under a retry question (P19), labeled so the owner can tell them from the worker's: the
-    exact action from its recorded target, how many attempts may have happened, and what the latest call was."""
+def retry_line(latest: LedgerRow, attempts: list[LedgerRow], call: str) -> str:
+    """FERB's own words in a retry question (P19), first and labeled so a worker's text can't pass for them: the exact
+    action from its recorded target, how many attempts may have happened (and how many were reported done), what
+    became of the retry the owner approved last time, and the call whose outcome is unknown."""
+    target = latest.intent.target
     parts = [f"to {', '.join(target['recipients'])}" if target.get("recipients") else "",
              f"to {target['contact']}" if target.get("contact") else "",
              f"on {target['site']}" if target.get("site") else "", str(target.get("path") or ""),
              f"amount {target['amount']}" if target.get("amount") else "",
              f"as {target['account']}" if target.get("account") else ""]
-    action = " ".join([capability, *(p for p in parts if p)])
-    earlier = (f"{attempts} earlier attempts at {action} may already have happened (their outcomes are unknown)"
-               if attempts > 1 else f"an earlier attempt at {action} may already have happened (its outcome is unknown)")
-    return (f"FERB: {earlier}, so trying again could do it twice." + (f" The last call: {call}." if call else "") +
-            " Try it again?")
+    action = " ".join([latest.intent.capability, *(p for p in parts if p)])
+    unknown = sum(a.intent.state == "unknown" for a in attempts)
+    done = sum(a.intent.state == "done" for a in attempts)
+    text = (f"{unknown} earlier attempts at {action} may already have happened (outcomes unknown)" if unknown > 1
+            else f"an earlier attempt at {action} may already have happened (outcome unknown)")
+    used = next((a for a in attempts if a.intent.id == latest.retried_by), None)
+    if used is not None:
+        text += f"; the retry you approved after it {_ENDED.get(used.intent.state, used.intent.state)}"
+    elif done:
+        text += f"; {done} {'was' if done == 1 else 'were'} reported done"
+    times = unknown + done + 1
+    return (f"FERB: {text}, so trying again could make it happen {'twice' if times == 2 else f'{times} times'}." +
+            (f" The call with the unknown outcome: {call}." if call else "") + " Try it again?")
+
+
+def hashed_args(cap: Any, args: Any) -> dict[str, Any]:
+    """The call's validated arguments as P19's hash binds them, so another click point, menu item or element is
+    another action. Left out: the arguments a capability turns into Target.path (its `target_args`, e.g. fs `path`,
+    shell `cwd`), which the hash binds normalized, so "notes.txt", "./notes.txt" and the absolute path are one file.
+    A key named path elsewhere (mac.menu's menu item) stays."""
+    dropped = set(getattr(cap, "target_args", ()))
+    return {k: v for k, v in args.model_dump(mode="json").items() if k not in dropped}
 
 
 def call_excerpt(span: dict[str, Any]) -> str:
@@ -400,10 +420,8 @@ class Gateway:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:                                         # P19: refused while the same action in the tree is unresolved
-                # The exact call: its validated arguments too, so another click point or menu item is another action
                 intent_id = self.ledger.intend(grant.task_id, name, _target_dict(spec.target),
-                                               payload_hash(action, args.model_dump(mode="json")),
-                                               reconcile_first=True).id
+                                               payload_hash(action, hashed_args(cap, args)), reconcile_first=True).id
                 self.ledger.mark(intent_id, "executing", [span.id])
             except DuplicateUnresolved as e:             # never retried by code; the owner decides (owner.ask)
                 running = e.state != "unknown"           # intended / executing: in flight for another worker
@@ -586,9 +604,8 @@ class Gateway:
                 return {"error": found}
             row, attempts = found
             retry = row.intent.id                    # the latest unknown attempt: the one the approval goes on
-            question = (question.rstrip() + "\n\n" +
-                        self.redact({"q": retry_line(row.intent.capability, row.intent.target, attempts,
-                                                     self._earlier_call(row))})["q"])
+            ferb_line = self.redact({"q": retry_line(row, attempts, self._earlier_call(row))})["q"]
+            question = f"{ferb_line}\n\nWhat the worker found: {question.strip()}"
             options = [RETRY_YES, RETRY_NO]
         elif self.route_question is not None:
             self.observer.waiting(grant.worker_id, True)
@@ -634,9 +651,10 @@ class Gateway:
         self._finish_call(span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
         return given
 
-    def _retry_row(self, grant: RunGrant, rec: Any, ref: str) -> tuple[LedgerRow, int] | str:
+    def _retry_row(self, grant: RunGrant, rec: Any, ref: str) -> tuple[LedgerRow, list[LedgerRow]] | str:
         """What a retry question is about: the latest unknown attempt at the action `ref` names, in this task tree, and
-        how many unknown attempts there are. Else why not (str)."""
+        every attempt at that action. Else why not (str): nothing to ask while an attempt is still running, since its
+        outcome isn't known yet (and a second approval then would allow a further attempt)."""
         try:
             row: LedgerRow | None = self.ledger.get(ref)
         except KeyError:
@@ -644,15 +662,16 @@ class Gateway:
         tree = (rec.tree_id or grant.task_id).split(".", 1)[0]
         if row is None or not (row.intent.task_id == tree or row.intent.task_id.startswith(tree + ".")):
             return "retry_action doesn't name an earlier attempt in this task; use the value FERB's refusal returned"
-        if row.intent.state in ("intended", "executing"):
+        attempts = self.ledger.attempts(ref)
+        if any(a.intent.state in ("intended", "executing") for a in attempts):
             return "that action is still running; wait for its result before asking about a retry"
-        attempts = self.ledger.unknown_attempts(ref)
-        if not attempts:
-            return f"that earlier attempt is no longer unknown: it {_SETTLED[row.intent.state]}; there is nothing to approve"
-        latest = attempts[-1]
+        unknown = [a for a in attempts if a.intent.state == "unknown"]
+        if not unknown:
+            return f"that earlier attempt is no longer unknown: it {_ENDED[row.intent.state]}; there is nothing to approve"
+        latest = unknown[-1]
         if latest.retry_approved and not latest.retried_by:
             return "the owner already approved one more attempt at this action; it can run now"
-        return latest, len(attempts)
+        return latest, attempts
 
     def _earlier_call(self, row: LedgerRow) -> str:
         """What the attempt's call did, from its tool.call span (the ledger keeps the span id as evidence)."""
@@ -670,6 +689,8 @@ class Gateway:
             self.ledger.approve_retry(ref, ask_span)
         except BadTransition:
             state = self.ledger.get(ref).intent.state
+            if state == "unknown":                   # another attempt at it started while the owner was asked
+                return {"retry_approved": False, "earlier_attempt": "another attempt at it is running now"}
             return {"retry_approved": state == "failed", "earlier_attempt": state}
         return {"retry_approved": True}
 
@@ -695,7 +716,7 @@ EFFECT_HELP = "Optional description of this action's effect for the activity log
 WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
 
 
-_SETTLED = {"done": "was confirmed done", "failed": "was confirmed failed"}
+_ENDED = {"done": "was reported done", "failed": "failed"}
 
 
 def _shown_args(args: dict[str, Any]) -> dict[str, str]:

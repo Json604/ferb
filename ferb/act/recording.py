@@ -274,6 +274,7 @@ class RecordingInspect:
     identities = {Identity.OWNER, Identity.FERB}
     scopes, risk, reversible = {'fs:read'}, RiskLevel.LOW, True
     observation = True                                 # only reads: the final checker may use it (V3, W4)
+    target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
     class Input(BaseModel):
         path: str
         times_s: list[float] | None = Field(None, min_length=1, max_length=6)

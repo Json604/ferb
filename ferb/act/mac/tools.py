@@ -296,6 +296,7 @@ class MacRecord(_Base):
                    'captures the whole display. Silent sampled video, default 2 fps. Prefer browser_record for '
                    'individual tabs. Stop with recording_stop and inspect decoded frames with recording_inspect.')
     scopes = {'screen', 'fs:write'}
+    target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
     class Input(_App):
         shot: str
         path: str = Field(description='New .mp4 output path')
@@ -384,7 +385,7 @@ class MacPointer(MacClick):
     def describe(self, args: BaseModel) -> ActionSpec:
         spec = super().describe(args)
         kind = Kind.READ if getattr(args, "action") == "hover" else spec.kind
-        return ActionSpec(kind, spec.target, content=str(args.model_dump(exclude={"contact"})))
+        return ActionSpec(kind, spec.target, content=str(args.model_dump(exclude={"contact", "purpose"})))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app = str(getattr(args, "app"))

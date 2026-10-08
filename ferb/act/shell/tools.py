@@ -52,6 +52,7 @@ class ShellStart(_Base):
                    "directly, without nohup or trailing &: the id tracks this command, not detached children. "
                    "background=true keeps it alive after task completion (servers); it is not needed to work "
                    "asynchronously during a task. Starting a process does not prove it is ready or successful.")
+    target_args = ("cwd",)                             # Target.path, normalized by the gateway (P19 hash)
 
     class Input(BaseModel):
         command: str

@@ -9,7 +9,9 @@ from ferb.core.types import Identity, Target
 
 # Agent-declared annotations; these do not grant authority or infer meaning from control labels.
 EFFECTS = ("navigate", "edit", "send", "pay", "destroy")
-ANNOTATIONS = ("why", "effect")         # the agent's notes on a call; never part of what the call is
+# The agent's own notes on a call (why, an effect, a declared purpose, who it says a call/send is for): recorded,
+# never part of what the call is, so changing them can't make a repeat a new action (P19).
+ANNOTATIONS = ("why", "effect", "purpose", "contact")
 
 class Kind:
     READ, NAVIGATE, SEARCH, OPEN_TAB, DRAFT = "read", "navigate", "search", "open_tab", "draft"
@@ -47,11 +49,12 @@ class ActionRequest:
 
 def payload_hash(a: ActionRequest, args: dict[str, Any] | None = None) -> str:
     """Binds ledger rows to the exact call: any change to target/content/amount, or to the call's validated arguments
-    (`args`, e.g. a click point, a menu path, an element), changes it. The agent's notes (`ANNOTATIONS`) are left out:
-    they never gate an action, so changing them can't make a repeat a new action (P19)."""
+    (`args`, e.g. a click point, a menu path, an element), changes it. Left out: the agent's notes (`ANNOTATIONS`), and
+    the kind, which describe() derives from the capability and arguments already bound here (a declared purpose
+    would otherwise vary it). The caller leaves out arguments the target already binds in normalized form (a path)."""
     call_args = {k: v for k, v in (args or {}).items() if k not in ANNOTATIONS}
-    canon = json.dumps({"capability": a.capability, "kind": a.kind, "identity": a.identity.value,
-                        "account": a.target.account, "site": a.target.site,
+    canon = json.dumps({"capability": a.capability, "identity": a.identity.value,
+                        "account": a.target.account, "site": a.target.site, "contact": a.target.contact,
                         "recipients": sorted(a.target.recipients), "path": a.target.path,
                         "amount": a.target.amount, "content": a.content, "args": call_args},
                        sort_keys=True, separators=(",", ":"), default=str)

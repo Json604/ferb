@@ -50,7 +50,8 @@ Publish = Callable[[str, dict[str, Any]], None]
 
 STOPPED_BY_YOU = "stopped by you"
 # P19: an attempt whose outcome is still unknown after the owner approved trying it once more (it may have happened)
-RETRY_APPROVED_STATUS = "outcome unknown; the owner approved a retry"
+RETRY_APPROVED_STATUS = "outcome unknown; the owner approved one retry, not tried yet"
+RETRY_USED_STATUS = "outcome unknown; the owner approved one retry, which has been tried"
 WORKER = "worker"                                # the one worker's step id (task id "<tree>.worker")
 
 
@@ -913,7 +914,8 @@ class Supervisor(WorkerRuns):
                                             reports_origin))
         # Every worker of this tree (and of the task it continues): actions that may or may not have happened (P19, V7)
         uncertain = [dict(id=row["id"], capability=row["capability"], target=row["target"],
-                          status=RETRY_APPROVED_STATUS if row["retry_approved"] else row["state"],
+                          status=(RETRY_USED_STATUS if row["retried_by"] else RETRY_APPROVED_STATUS)
+                          if row["retry_approved"] else row["state"],
                           evidence=row["evidence"])
                      for root in [tree.id] + ([tree.prior_task] if tree.prior_task else [])
                      for row in self.gateway.ledger.unresolved(root)]

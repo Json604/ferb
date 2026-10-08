@@ -86,33 +86,38 @@ class Ledger:
             f"SELECT id, state, retry_approved, retried_by FROM action_ledger WHERE {where} AND capability = ? AND "
             "payload_hash = ? AND state IN ('unknown', 'intended', 'executing') ORDER BY rowid",
             (*params, capability, payload_hash)).fetchall()
-        unknown = [r for r in rows if r["state"] == "unknown"]
         running = [r for r in rows if r["state"] != "unknown"]
-        latest = unknown[-1] if unknown else None
-        approved = latest is not None and latest["retry_approved"] is not None and latest["retried_by"] is None
-        if latest is not None and not approved:
-            raise DuplicateUnresolved(f"an identical {capability} is unknown; reconcile before retrying",
-                                      latest["id"], "unknown")
         if running:
             raise DuplicateUnresolved(f"an identical {capability} is {running[0]['state']}", running[0]["id"],
                                       running[0]["state"])
-        return latest["id"] if latest is not None else None
+        unknown = [r for r in rows if r["state"] == "unknown"]
+        if not unknown:
+            return None
+        latest = unknown[-1]
+        if latest["retry_approved"] is None or latest["retried_by"] is not None:
+            raise DuplicateUnresolved(f"an identical {capability} is unknown; reconcile before retrying",
+                                      latest["id"], "unknown")
+        return str(latest["id"])
 
-    def unknown_attempts(self, intent_id: str) -> list[LedgerRow]:
-        """The unknown attempts at the same action as `intent_id` (same task tree, capability, payload hash), oldest
-        first: what a retry question is about."""
+    def attempts(self, intent_id: str) -> list[LedgerRow]:
+        """Every attempt at the same action as `intent_id` (same task tree, capability, payload hash), oldest first:
+        what a retry question is about."""
         row = self.get(intent_id)
         where, params = tree_where(row.intent.task_id.split(".", 1)[0])
         return [self._row(r) for r in self._db.conn.execute(
-            f"SELECT * FROM action_ledger WHERE {where} AND capability = ? AND payload_hash = ? AND state = 'unknown' "
-            "ORDER BY rowid", (*params, row.intent.capability, row.intent.payload_hash)).fetchall()]
+            f"SELECT * FROM action_ledger WHERE {where} AND capability = ? AND payload_hash = ? ORDER BY rowid",
+            (*params, row.intent.capability, row.intent.payload_hash)).fetchall()]
 
     def approve_retry(self, intent_id: str, ask_span: str) -> None:
         """The owner chose to try this unknown action once more (P19), answering owner.ask span `ask_span`. The row
-        stays unknown: nobody observed the outcome. The approval allows one new identical attempt (see intend)."""
+        stays unknown: nobody observed the outcome. The approval allows one new identical attempt (see intend). Refused
+        while any attempt at the action is in flight (e.g. the retry an earlier approval allowed): a second approval
+        then would allow a further attempt before the first one's outcome is known."""
         row = self.get(intent_id)
         if row.intent.state != "unknown":
             raise BadTransition("only an unknown action's retry is approved")
+        if any(a.intent.state in ("intended", "executing") for a in self.attempts(intent_id)):
+            raise BadTransition("an attempt at this action is still running")
         self._db.conn.execute(
             "UPDATE action_ledger SET retry_approved = ?, retried_by = NULL, updated_at = ?, evidence_json = ? "
             "WHERE id = ?", (ask_span, self._clock.now().isoformat(),
