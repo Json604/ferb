@@ -39,6 +39,8 @@ documentation commit. The version in `pyproject.toml` and `ferb/__init__.py` sta
 - Content search (`080019b`, `a580108`; D9, MP2): FTS over activity and daily summaries with secure-delete (migration
   0019), `trail.query text=` and `trail.days`, Hindi words whole, query terms lowercased like the tokenizer; day
   summaries labeled by content.
+- After the owner's live run (P26, RQ2): the disconnected-profile error states that `browser.open` loads the profile
+  and needs one minimized window with the owner's permission; the story's Desktop line skips FERB's own reads.
 - Registry, architecture section "Records and traces (F3)", README trace and retention notes, and the live-check list
   (D9, D14, D21, MP1, MP2, P26, S3). Residuals for F5: shell reads of downloaded files are not tracked, and FERB's own
   `fs` tools reach any path until protected-path lists exist.

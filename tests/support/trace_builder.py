@@ -89,7 +89,7 @@ class TraceBuilder:
 
     def tool(self, parent: dict[str, Any], offset: float, seconds: float, tool: str, args: dict[str, Any],
              summary: str, origin: str | None = "private", why: str = "", error: str | None = None,
-             kind: str | None = "run_shell", output: dict[str, Any] | None = None) -> None:
+             kind: str | None = "run_shell", output: dict[str, Any] | None = None) -> str:
         """`origin` None: recorded before F3 labeled results; `kind` is the action kind the gateway records (None:
         recorded before F0 kept it); `output` defaults to a shell result, and an error path records none."""
         start = datetime.fromisoformat(parent["started_at"]) + timedelta(seconds=offset)
@@ -99,6 +99,7 @@ class TraceBuilder:
                           task_id=parent["task_id"])
         node["origin"], node["summary"] = origin, summary
         self._child(parent, node)
+        return str(node["id"])
 
     def source(self, label: str, text: str, origin: str | None) -> None:
         """A context block the task's models were shown, stored with where it came from (supervisor._source_block)."""
@@ -106,11 +107,12 @@ class TraceBuilder:
         node["origin"] = origin
         self._child(self.root, node)
 
-    def desktop(self, changes: int, near: list[tuple[str, list[str]]] | tuple = ()) -> None:
-        for tool, changed in near:
+    def desktop(self, changes: int, near: list[tuple[Any, ...]] | tuple = ()) -> None:
+        """`near`: (tool, changed keys[, the tool.call span id the sampler saw in flight])."""
+        for tool, changed, *span in near:
             self._child(self.root, self._node("disturbance.change", 0, {}, {
                 "changes": {k: {"before": None, "after": None} for k in changed},
-                "actions": [{"tool": tool, "span_id": "x"}], "owner_input": False}))
+                "actions": [{"tool": tool, "span_id": span[0] if span else "x"}], "owner_input": False}))
         self._child(self.root, self._node("disturbance.summary", 0, {}, {"samples": 99, "changes": changes, "errors": 0}))
 
     def finish(self, status: str = "done", verified: bool | None = True,

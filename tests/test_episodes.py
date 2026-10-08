@@ -44,6 +44,18 @@ def test_desktop_details_only_near_screen_actions() -> None:
     assert d["changes"] == 4 and [n["tools"] for n in d["near_ferb"]] == [["mac.act"]]
 
 
+def test_desktop_details_skip_ferbs_own_reads() -> None:
+    """Owner live run 4530ea34: cursor changes were listed 'near trail.query' / 'near task.evidence'. A recorded read
+    (FERB's readers, snapshots) never moves windows, focus or the cursor; an action kind that can is still listed."""
+    b = TraceBuilder()
+    w = b.worker(5, "done", "read and clicked")
+    reader = b.tool(w, 1, 0.1, "trail.query", {}, "count, events", kind="read")
+    clicker = b.tool(w, 2, 0.1, "mac.act", {}, "ok", kind="mac_input")
+    b.desktop(3, near=[("trail.query", ["cursor"], reader), ("mac.act", ["frontmost_app"], clicker)])
+    d = compose.compose(b.finish())["desktop"]
+    assert [n["tools"] for n in d["near_ferb"]] == [["mac.act"]]
+
+
 def test_pasted_parts_show_as_a_marker_in_the_request() -> None:
     b = TraceBuilder(request='summarize <untrusted-data id="ab12">\nsecret plan\n</untrusted-data id="ab12">')
     assert compose.compose(b.finish())["request_text"] == "summarize [pasted text]"

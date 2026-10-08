@@ -576,3 +576,8 @@ def test_tab_listing_reports_disconnected_pairing_instead_of_empty_tabs(bd):
     assert result['is_error']
     assert 'paired but not connected' in result['content']['error']
     assert 'reload' in result['content']['error']
+    # Owner live run 4530ea34: the worker read this as "needs the foreground" and scraped browser data first. The
+    # fact it needs: browser.open loads the profile itself; with no window there, one minimized window needs the
+    # owner's permission once per task.
+    error = result['content']['error']
+    assert 'browser.open' in error and 'minimized' in error and "owner's permission once per task" in error

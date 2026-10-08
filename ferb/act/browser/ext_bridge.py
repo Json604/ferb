@@ -919,8 +919,11 @@ class Router(_TabDriver):
                                "paired but not connected; reload the FERB extension in that profile, then retry")
                                for br in missing)
             raise Refused(details + ". No tab inventory is available for these profiles; this is a connection "
-                          "problem, not an empty tab list. Preserve the requested profile. Native background controls "
-                          "may be an alternative if the exact requested window can be identified.")
+                          "problem, not an empty tab list. Preserve the requested profile. browser.open with this "
+                          "profile loads it without a window; when the profile has no window, opening a tab creates "
+                          "one minimized, unfocused window, which may switch Spaces and so needs the owner's "
+                          "permission once per task (allow_foreground). Native background controls may be an "
+                          "alternative if the exact requested window can be identified.")
         for br in self._owner_bridges(profile):
             v = await br.call("list_tabs", {}, timeout=10)
             for t in v.get("tabs", []):

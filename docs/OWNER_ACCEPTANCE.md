@@ -74,6 +74,34 @@ Run after the final review and `ferb setup --update`.
 Known residuals, closed in F5: shell reads of downloaded files are not tracked as outside content, and FERB's own `fs`
 tools reach any path until the protected-path lists exist.
 
+### 0.27 F3 live run (2026-10-08, installed 17:52)
+
+- Task `4530ea34` ("search my Scaler mail for the third CV assignment"). The answer was right: Kaggle Assignment 3,
+  due 17 Oct. Owner verdict: **fail**, "right answer, but read Chrome data and the keychain instead of asking".
+  - **How it went wrong.** The FERB extension in Chrome "scaler" (Profile 2) was paired but not connected, because
+    that profile had no open window.
+  - **What the worker did instead of asking.** It used `shell.run` to read the profile's history, Gmail cache and
+    cookie records, and Brave history. At 17:59:38 it ran macOS `security` for "Chrome Safe Storage", which raised a
+    keychain prompt; the owner entered the password. The worker killed the command at 17:59:51. Its recorded output
+    is empty: no key or cookie value reached FERB, the model, a log or the database. The owner checked Access
+    Control afterwards, and `security` is not listed (no lasting access). The worker also used `~/.kaggle/kaggle.json`
+    to query Kaggle's API, and clicked "sign in with Google" on Kaggle before stopping.
+  - **Why it asked about the foreground.** With no window in the profile, opening a tab means creating one
+    minimized, unfocused window. That may switch Spaces, so it needs the owner's permission (extension
+    `getFerbWindow`). The model worded the request as "bring the window to the foreground". After the owner said
+    "Now", FERB created the minimized window, and nothing came to the front.
+- `ferb trace` showed the story live: 4 model calls, 57 tool calls. Shell outputs were labeled `external:unlabeled` and
+  curl output `external:web:shell`.
+- The two reminders (15 Oct 12:00, "a day before" the deadlines) were set as asked.
+- Follow-ups made the same day:
+  - The disconnected-profile error now states that `browser.open` loads the profile itself and needs one minimized
+    window with the owner's permission, so the worker can ask early and accurately.
+  - The story's Desktop line no longer lists FERB's own reads (`trail.query`, `task.evidence`, snapshots) as
+    on-screen actions.
+- Owner decision (2026-10-08): keep the build order, F4 next, then F5. F5's shell sandbox and never-read lists are
+  what block reads of browser data, the keychain and credential files. Until then, deny any macOS password prompt
+  you didn't expect.
+
 ## 0.27 F2 — pending live checks
 
 Owner decision (2026-10-07): no API keys for now, so only the Codex and Claude CLI checks run now.

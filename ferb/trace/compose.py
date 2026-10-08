@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Iterator
 
 from ferb.core import origin
+from ferb.policy.rules import Kind
 from ferb.sanitize.untrusted import WRAPPED, holds_pasted, without_ferb_question
 from ferb.trace.lines import clip, duration, plural
 
@@ -15,6 +16,7 @@ MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resource
 PLANNER_KINDS = ("model.turn", "model.dispatch", "model.question", "model.resources")   # the orchestrator's turns
 OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never finished: no claim, no check, no time
 NO_SCREEN = ("shell.", "fs.")              # tool families that never touch windows, focus or the cursor (RQ2)
+OBSERVE_KINDS = {Kind.READ, Kind.SEARCH, Kind.MAILBOX_READ}   # recorded reads (FERB's readers, snapshots): same
 ORIGIN_KINDS = {"task", "tool.call", "context.source"}   # what the task's models were shown (S3; task_origins)
 PASTED = "[pasted text]"
 
@@ -182,10 +184,12 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     summary = next((n.get("output") or {} for n in reversed(nodes) if n["kind"] == "disturbance.summary"), {})
     raw = summary.get("changes")
     near: list[dict[str, Any]] = []
+    kinds = {n["id"]: (n.get("input") or {}).get("kind") for n in nodes if n["kind"] == "tool.call"}
     for n in nodes:
         out = n.get("output") or {}
         tools = sorted({str(a.get("tool", "?")) for a in out.get("actions") or []
-                        if not str(a.get("tool", "")).startswith(NO_SCREEN)})
+                        if not str(a.get("tool", "")).startswith(NO_SCREEN)
+                        and kinds.get(a.get("span_id")) not in OBSERVE_KINDS})
         if n["kind"] == "disturbance.change" and tools:
             near.append({"at": n["started_at"], "changed": sorted(out.get("changes") or {}), "tools": tools})
 
