@@ -98,6 +98,8 @@ def test_reading_untrusted_content_preserves_shell_tools(daemon: RunningDaemon) 
 
 
 def test_exception_is_unknown_and_gateway_records_each_agent_selected_attempt(daemon: RunningDaemon) -> None:
+    """P19: the identical repeat is refused, not run again (the owner decides; tests/test_unknown_retry.py), and the
+    refused attempt is recorded too."""
     boom = FakeCap("fake.send2", "post", {"browser:act"}, boom=True)
     grant, _ = setup(daemon, {"browser:act"}, request("post it to alice@x.com"), [boom])
     daemon.call_soon(daemon.daemon.clock.advance, 0)
@@ -105,8 +107,10 @@ def test_exception_is_unknown_and_gateway_records_each_agent_selected_attempt(da
     assert r["is_error"] and "outcome unknown" in r["content"]["error"], r
     assert daemon.run(_ledger(daemon, "fake.send2")) == ["unknown"]
     r2 = call(daemon, grant, "fake.send2", why="posting")
-    assert r2["is_error"] and "unknown" in r2["content"]["error"] and boom.calls == 2
-    assert daemon.run(_ledger(daemon, "fake.send2")) == ["unknown", "unknown"]
+    assert r2["is_error"] and "unknown" in r2["content"]["error"] and boom.calls == 1
+    assert daemon.run(_ledger(daemon, "fake.send2")) == ["unknown"]
+    attempts = [n.span for n in daemon.run(_tree(daemon)) if n.span.input.get("tool") == "fake.send2"]
+    assert len(attempts) == 2 and all(s.error for s in attempts)
 
 
 def test_revoked_token_cannot_call_tools_through_the_real_shim(daemon: RunningDaemon) -> None:

@@ -4,9 +4,10 @@ Action ledger: intended -> executing -> done | failed | unknown.
 
 - The row is written before a consequential action runs; if that write fails, the action must not run.
 - After a crash/restart, anything still intended/executing becomes unknown.
-- `unknown` is reconciled from a fresh read, never blindly retried: while an identical action (same task,
-  capability, payload hash) is unknown, a new intent for it is refused — so a lost ack after Send can't
-  become a second send."""
+- `unknown` is reconciled from a fresh read or the owner's decision, never blindly retried: while an identical
+  action (same task tree, capability, payload hash) is unknown or still in flight, a new intent for it is refused,
+  so a lost ack after Send can't become a second send (P19). Rows keep the worker task id they were written under;
+  the tree is the part before the first "."."""
 
 import json
 from dataclasses import dataclass
@@ -28,7 +29,11 @@ TRANSITIONS: dict[str, set[str]] = {
 
 
 class DuplicateUnresolved(FerbError):
-    """An identical action is still unknown; reconcile it first."""
+    """An identical action in the same task tree is unknown (reconcile it first) or still in flight (`state`)."""
+
+    def __init__(self, message: str, intent_id: str, state: str) -> None:
+        super().__init__(message)
+        self.intent_id, self.state = intent_id, state
 
 
 class BadTransition(FerbError):
@@ -50,9 +55,15 @@ class Ledger:
         c = self._db.conn
         c.execute("BEGIN IMMEDIATE")
         try:
-            if reconcile_first and c.execute("SELECT 1 FROM action_ledger WHERE task_id = ? AND capability = ? AND payload_hash = ? "
-                         "AND state = 'unknown'", (task_id, capability, payload_hash)).fetchone():
-                raise DuplicateUnresolved(f"an identical {capability} is unknown; reconcile before retrying")
+            if reconcile_first:
+                where, params = tree_where(task_id.split(".", 1)[0])
+                same = c.execute(
+                    f"SELECT id, state FROM action_ledger WHERE {where} AND capability = ? AND payload_hash = ? AND state "
+                    "IN ('unknown', 'intended', 'executing') ORDER BY state <> 'unknown', created_at, rowid",
+                    (*params, capability, payload_hash)).fetchone()
+                if same is not None:
+                    raise DuplicateUnresolved(f"an identical {capability} is {same['state']}; reconcile before retrying",
+                                              same["id"], same["state"])
             now = self._clock.now().isoformat()
             intent = ActionIntent(self._ids.new_id(), task_id, capability, target, payload_hash, "intended")
             c.execute("INSERT INTO action_ledger (id, task_id, capability, target_json, payload_hash, state, "

@@ -909,13 +909,11 @@ class Supervisor(WorkerRuns):
             reports_origin = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id))
             parts.append(self._source_block(tree, "Previous attempts (data)", wrap_untrusted(json.dumps(tree.reports)),
                                             reports_origin))
-        ledger_tasks = [tree.worker.id]
-        if tree.prior_task:
-            ledger_tasks.append(tree.prior_task + ".worker")
-        uncertain = [dict(id=row.intent.id, capability=row.intent.capability, target=row.intent.target,
-                          status=row.intent.state, evidence=row.evidence)
-                     for tid in ledger_tasks for row in self.gateway.ledger.for_task(tid)
-                     if row.intent.state == "unknown"]
+        # Every worker of this tree (and of the task it continues): actions that may or may not have happened (P19, V7)
+        uncertain = [dict(id=row["id"], capability=row["capability"], target=row["target"], status=row["state"],
+                          evidence=row["evidence"])
+                     for root in [tree.id] + ([tree.prior_task] if tree.prior_task else [])
+                     for row in self.gateway.ledger.unresolved(root)]
         if uncertain:
             parts.append(ContextBlock("Uncertain prior actions; inspect before deciding whether to retry (data): " +
                          wrap_untrusted(json.dumps(uncertain)), "task.evidence", protected=True))

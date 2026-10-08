@@ -44,8 +44,9 @@ class ActionRequest:
 
 
 def payload_hash(a: ActionRequest) -> str:
-    """Binds ledger rows to the exact action: any change to target/content/amount changes it."""
-    canon = json.dumps({"capability": a.capability, "kind": a.kind, "effect": a.effect, "identity": a.identity.value,
+    """Binds ledger rows to the exact action: any change to target/content/amount changes it. The agent's `effect` and
+    `why` notes are left out: they never gate an action, so changing them can't make a repeat a new action (P19)."""
+    canon = json.dumps({"capability": a.capability, "kind": a.kind, "identity": a.identity.value,
                         "account": a.target.account, "site": a.target.site,
                         "recipients": sorted(a.target.recipients), "path": a.target.path,
                         "amount": a.target.amount, "content": a.content}, sort_keys=True, separators=(",", ":"))

@@ -4,7 +4,10 @@ Agents decide intent and authorization. Worker questions go through the orchestr
 Optional effect/why annotations never gate execution; OS and transport failures remain factual results.
 A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
 worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29).
-The final checker's token is observe-only: it is offered, and may run, only capabilities marked `observation` (V3, W4)."""
+The final checker's token is observe-only: it is offered, and may run, only capabilities marked `observation` (V3, W4).
+P19: a consequential action identical to one in the same task tree whose outcome is unknown (or that is still running)
+is refused by code, never retried on its own. The only way past is the owner's Yes to the question FERB attaches to
+that exact action (owner.ask with retry_action); that answer settles the earlier attempt, and nothing else does."""
 
 import asyncio
 import base64
@@ -26,7 +29,7 @@ from ferb.core.errors import NoTarget, Refused
 from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
-from ferb.orchestrator.ledger import DuplicateUnresolved, Ledger
+from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskTree
 from ferb.policy import provenance
 from ferb.policy.rules import EFFECTS
@@ -52,6 +55,17 @@ IMAGE_FACTS = ("app", "bundle_id", "window", "title", "url", "tab", "shot", "wid
                "duration_s", "sample_times_s")
 CHECKER_READ_ONLY = ("the final check is read-only: this tool acts and is not available to a checker; report what you "
                      "could not confirm as unknown")
+# P19. The error is owner-safe (step lines show it); `next` and `retry_action` are for the agent.
+UNKNOWN_NOT_REPEATED = ("An earlier attempt at this exact action may already have happened (its outcome is unknown), so "
+                        "FERB won't repeat it on its own: it could happen twice. Check what happened first; only the "
+                        "owner can decide to try it again.")
+RETRY_NEXT = ("Look for evidence that it happened (a confirmation, the Sent folder, the order page, a notification). If "
+              "it did, don't repeat it. If it still needs doing, call owner_ask with retry_action set to this "
+              "retry_action and say what you found; only the owner's Yes lets it run again.")
+SAME_ACTION_RUNNING = ("The same action is already running in this task; wait for its result instead of starting it "
+                       "again.")
+RETRY_YES, RETRY_NO = "Yes", "No"
+RETRY_APPROVED = "owner approved retry after inspection"
 
 
 def observes(cap: Any) -> bool:
@@ -129,6 +143,18 @@ def ask_origins(answer: dict[str, Any]) -> set[str]:
     if answer.get("declined") or answer.get("error"):
         return {origin.FERB}
     return {origin.INFERRED} if answer.get("answered_by") == "orchestrator" else {origin.OWNER}
+
+
+def retry_line(capability: str, target: dict[str, Any]) -> str:
+    """FERB's own words under a retry question (P19): the exact earlier action, from its recorded target."""
+    parts = [f"to {', '.join(target['recipients'])}" if target.get("recipients") else "",
+             f"to {target['contact']}" if target.get("contact") else "",
+             f"on {target['site']}" if target.get("site") else "", str(target.get("path") or ""),
+             f"amount {target['amount']}" if target.get("amount") else "",
+             f"as {target['account']}" if target.get("account") else ""]
+    action = " ".join([capability, *(p for p in parts if p)])
+    return (f"An earlier attempt at {action} may already have happened (its outcome is unknown), so trying again "
+            f"could do it twice. Try it again?")
 
 
 def without_excluded_hosts(origins: set[str], excluded: Callable[[str], bool]) -> set[str]:
@@ -360,12 +386,16 @@ class Gateway:
                 return reply({"error": error, "recipients": unlisted}, True)
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
-            try:
-                intent_id = self.ledger.intend(grant.task_id, name, _target_dict(spec.target), payload_hash(action), reconcile_first=False).id
+            try:                                         # P19: refused while the same action in the tree is unresolved
+                intent_id = self.ledger.intend(grant.task_id, name, _target_dict(spec.target), payload_hash(action),
+                                               reconcile_first=True).id
                 self.ledger.mark(intent_id, "executing")
-            except DuplicateUnresolved as e:
-                self._finish_call(span, name, {"error": str(e)}, True, error=str(e))
-                return reply({"error": str(e)}, True)
+            except DuplicateUnresolved as e:             # never retried by code; the owner decides (owner.ask)
+                running = e.state != "unknown"           # intended / executing: in flight for another worker
+                error = SAME_ACTION_RUNNING if running else UNKNOWN_NOT_REPEATED
+                self._finish_call(span, name, {"error": error}, True, output={"unresolved": e.intent_id}, error=error)
+                return reply({"error": error} | ({} if running else {"retry_action": e.intent_id, "next": RETRY_NEXT}),
+                             True, {origin.FERB})
 
         ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                           identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
@@ -527,7 +557,14 @@ class Gateway:
         for the answer. A scheduled run (nobody at chat) is declined at once."""
         question = str(getattr(args, "question"))
         options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
-        if self.route_question is not None:
+        retry = str(getattr(args, "retry_action", "") or "").strip()
+        if retry:                                    # P19: only the owner decides; the orchestrator is not asked
+            row = self._retry_row(grant, rec, retry)
+            if isinstance(row, str):
+                return {"error": row}
+            question = question.rstrip() + "\n\n" + retry_line(row.intent.capability, row.intent.target)
+            options = [RETRY_YES, RETRY_NO]
+        elif self.route_question is not None:
             self.observer.waiting(grant.worker_id, True)
             try:
                 decision = await self.route_question(grant.task_id, question, options)
@@ -541,7 +578,8 @@ class Gateway:
                 return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
             question = decision['question'] or question
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                                input={"tool": OWNER_ASK, "args": {"question": question, "options": options}})
+                                input={"tool": OWNER_ASK, "args": {"question": question, "options": options}
+                                       | ({"retry_action": retry} if retry else {})})
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
@@ -564,9 +602,36 @@ class Gateway:
             self._finish_call(span, OWNER_ASK, refused, False, output=refused, origins=ask_origins(refused))
             return {"declined": True}
         text = ap.choice or ap.answer or ""
-        given = {"answer": text}
+        given: dict[str, Any] = {"answer": text}
+        if retry:                                    # the owner's own pick of FERB's Yes, never the worker's word
+            given |= self._settle_retry(retry, span.id) if ap.choice == RETRY_YES else {"retry_approved": False}
         self._finish_call(span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
-        return {"answer": text}
+        return given
+
+    def _retry_row(self, grant: RunGrant, rec: Any, ref: str) -> Any:
+        """The earlier attempt a retry question is about: an unknown action of this task tree. Else why not (str)."""
+        try:
+            row = self.ledger.get(ref)
+        except KeyError:
+            row = None
+        tree = (rec.tree_id or grant.task_id).split(".", 1)[0]
+        if row is None or not (row.intent.task_id == tree or row.intent.task_id.startswith(tree + ".")):
+            return "retry_action doesn't name an earlier attempt in this task; use the value FERB's refusal returned"
+        if row.intent.state in ("intended", "executing"):
+            return "that action is still running; wait for its result before asking about a retry"
+        if row.intent.state != "unknown":
+            return f"that earlier attempt is no longer unknown (it {row.intent.state}); there is nothing to approve"
+        return row
+
+    def _settle_retry(self, ref: str, ask_span: str) -> dict[str, Any]:
+        """The owner chose Yes: the earlier attempt is settled, so the same action may run once more (P19). If it was
+        settled meanwhile (an extension reported it after reconnecting), say how."""
+        try:
+            self.ledger.reconcile(ref, "failed", [RETRY_APPROVED, f"owner.ask span {ask_span}"])
+        except BadTransition:
+            state = self.ledger.get(ref).intent.state
+            return {"retry_approved": state == "failed", "earlier_attempt": state}
+        return {"retry_approved": True}
 
 
     async def _wait_answer(self, grant: RunGrant, approval_id: str) -> str:

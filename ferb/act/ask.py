@@ -18,6 +18,10 @@ class OwnerAsk:
         question: str = Field(min_length=1)
         options: list[str] = Field(default_factory=list,
                                    description="Candidate choices with distinguishing evidence; numbered or free-text answer")
+        retry_action: str = Field(default="", description=(
+            "Only after FERB refused to repeat an action whose earlier outcome is unknown: the retry_action value from "
+            "that refusal. Put what you found in question; FERB adds the exact action and Yes/No options, and only the "
+            "owner's Yes lets that action run again (returns retry_approved)."))
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ)
