@@ -36,7 +36,7 @@ from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUPERVI
                                        Condition, DispatchOutcome, QuestionOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome,
                                        WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
-from ferb.orchestrator.verify import Checks, ConditionResult
+from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.targets import Request, Targets
@@ -100,6 +100,7 @@ class _Tree:
     owner_question: str = ""
     stop_reason: str = ""
     finish_chosen: bool = False          # the orchestrator ended the work (its instructions are not owner text)
+    stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
 
 
 class _Watch(Observer):
@@ -748,7 +749,7 @@ class Supervisor(WorkerRuns):
                     self.journal.append("task.execution_failed", {"task_id": worker.id,
                                          "error": f"{type(exc).__name__}: {exc}"})
                     previous = tree.reports[-1] if tree.reports else {}
-                    out = Outcome(worker.id, "failed", f"I couldn't continue this task ({type(exc).__name__}).",
+                    out = Outcome(worker.id, "failed", "I couldn't continue this task (a problem on my side).",
                                   previous.get("artifacts", []), previous.get("evidence", []))
             if tree.stop and out.status != "cancelled":
                 out = Outcome(worker.id, "cancelled" if tree.stop == STOPPED_BY_YOU else "failed",
@@ -784,6 +785,7 @@ class Supervisor(WorkerRuns):
             # Prior attempts remain in report/cleanup spans. Only the current attempt determines final state.
             tree.resources = []
             tree.cleanup_errors = []
+            tree.verification = []           # a crashed attempt must never look checked by an earlier attempt's check
             self.tasks.set_status(task.id, "running")
             raw, _ = await self.run_worker(tree, task, "worker.md", self._context(tree) + [ContextBlock(instructions, "current continuation", protected=True)],
                                            WORKER_SCHEMA, span)
@@ -795,8 +797,7 @@ class Supervisor(WorkerRuns):
             artifacts = list(dict.fromkeys(artifacts + out.artifacts))
             evidence = list(dict.fromkeys(evidence + out.evidence))
             out = Outcome(task.id, out.status, out.summary, artifacts, evidence)
-            tree.verification = []
-            finished: Outcome | None = None      # this attempt's done report when its check confirmed some but none false
+            finished: Outcome | None = None      # this attempt's done report when its check found nothing false
             if out.status == "done" and tree.spec.success_conditions and not tree.stop:
                 tree.outcome = out
                 try:
@@ -804,15 +805,15 @@ class Supervisor(WorkerRuns):
                 except Exception as exc:
                     self.journal.append("task.inspection_failed", {"task_id": task.id,
                                          "error": f"{type(exc).__name__}: {exc}"})
-                    tree.verification = [ConditionResult(i, c.text, None, "verifier",
+                    tree.verification = [ConditionResult(i, c.text, None, UNCHECKED,      # no check gave a verdict
                                                          f"The check couldn't run: {type(exc).__name__}: {exc}")
                                          for i, c in enumerate(tree.spec.success_conditions)]
                 unresolved = [f"{r.text}: {r.evidence}" for r in tree.verification if r.met is not True]
                 if unresolved:
                     # Unknown coverage is also work for the planner. It decides retry/ask/finish; no retry cap
                     # or code inference about the requested app, account or missing content belongs here.
-                    # If no further attempt is made, a finished attempt whose check found nothing false stands as
-                    # done; _final reports it as done but unverified (V4), never as a failure.
+                    # A finished attempt whose check found nothing false may stand as done but unconfirmed (V4),
+                    # only if the orchestrator judges so when it finishes (or can't choose another attempt).
                     if not any(r.met is False for r in tree.verification):
                         finished = out
                     out = Outcome(task.id, "blocked", out.summary + " Result not complete: " + "; ".join(unresolved),
@@ -833,21 +834,34 @@ class Supervisor(WorkerRuns):
             try:
                 choice = await self._dispatch(tree, out, span)
             except Exception as exc:
-                detail = service_problem(str(exc), exc.runtime) if isinstance(exc, ServiceError) else f"{type(exc).__name__}: {exc}"
+                self.journal.append("task.dispatch_failed", {"task_id": task.id,
+                                     "error": f"{type(exc).__name__}: {exc}"})
+                # The owner reads the problem in plain words; the details stay in the records (P27).
+                problem = (": " + service_problem(str(exc), exc.runtime) if isinstance(exc, ServiceError)
+                           else " (a problem on my side)")
                 if finished is not None and not tree.stop:     # the work stands; only choosing a retry failed
-                    tree.stop_reason = ("I couldn't plan another attempt to confirm it: " + detail
-                                        if isinstance(exc, ServiceError) else
-                                        "I couldn't plan another attempt to confirm it (a problem on my side).")
+                    tree.stop_reason = f"I couldn't plan another attempt to confirm it{problem}."
+                    tree.stands_unconfirmed = True
                     return finished
                 return Outcome(task.id, "cancelled" if tree.stop else "failed",
-                               tree.stop or f"{out.summary} I couldn't plan the next attempt: {detail}.",
+                               tree.stop or f"{out.summary} I couldn't plan the next attempt{problem}.",
                                artifacts, evidence)
             if choice.action == "ask":
                 tree.owner_question = choice.question
                 return Outcome(task.id, "needs_user", choice.question, artifacts, evidence)
             if choice.action == "finish":
-                tree.stop_reason, tree.finish_chosen = choice.stop_reason, True
-                return finished or Outcome(task.id, "failed", choice.instructions or out.summary, artifacts, evidence)
+                # The real reason is shown with the conditions (V5). Without one from the orchestrator, the attempt's
+                # own report of not finishing is the reason; never a report rebuilt from an unconfirmed success claim.
+                own, rebuilt = tree.reports[-1], any(r.met is not True for r in tree.verification)
+                tree.stop_reason = choice.stop_reason or ("" if rebuilt or own["status"] == "done"
+                                                          else str(own["summary"]))
+                tree.finish_chosen = True
+                # Rule 6: the orchestrator judges an unconfirmed finish; code maps only "unconfirmed" on finished
+                # work with nothing found false to done but unconfirmed. Anything else is a failure.
+                if finished is not None and choice.result == "unconfirmed":
+                    tree.stands_unconfirmed = True
+                    return finished
+                return Outcome(task.id, "failed", choice.instructions or out.summary, artifacts, evidence)
             tree.spec.worker_type = choice.worker_type
             instructions = "\nOrchestrator continuation: " + choice.instructions
         return Outcome(task.id, "cancelled", tree.stop or STOPPED_BY_YOU, artifacts, evidence)
@@ -1020,7 +1034,7 @@ class Supervisor(WorkerRuns):
             if isinstance(raw, Outcome):
                 self.tasks.set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
                                       {"summary": raw.summary})
-                return [ConditionResult(i, c.text, None, "verifier", f"The check couldn't finish: {raw.summary}")
+                return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {raw.summary}")
                         for i, c in judged]
             verdict = VerifierOutcome.model_validate(raw)
         except BaseException as exc:
@@ -1036,16 +1050,18 @@ class Supervisor(WorkerRuns):
     def _final(self, tree: _Tree) -> dict[str, Any]:
         """The checker's verdict decides the status and the first line (V4, R5Q2):
         - `done` only when the work finished and every condition was verified true;
-        - `done_unverified` when the work finished and a check ran but couldn't confirm a condition (none found false);
-        - `failed` when the work didn't finish, a check found a condition false, or the task was interrupted;
+        - `done_unverified` when the work finished, nothing was found false and it stands unconfirmed (the
+          orchestrator judged it so, or couldn't choose another attempt), or there was nothing to check;
+        - `failed` when the work didn't finish, a check found a condition false, the orchestrator judged it failed,
+          or the task was interrupted;
         - `needs_user` and `cancelled` (your stop) as before.
-        "Unverified" is said only for a condition a check actually ran on (V5). Unresolved facts come before confirmed
-        ones, and a worker's success claim is never shown for a condition no check confirmed."""
+        "Unverified" is said only for a condition a check actually gave a verdict on (V5). Unresolved facts come
+        before confirmed ones, and a worker's success claim is never stated as fact without a check confirming it."""
         out = tree.outcome or Outcome(tree.worker.id, "failed", "No report was received.", [], [])
         conditions = tree.spec.success_conditions
-        checked = bool(tree.verification)          # set only for the last attempt, and only when it finished
+        attempted = bool(tree.verification)        # the last attempt finished and its conditions went to the check
         by_index = {result.index: result for result in tree.verification}
-        results = [by_index.get(index) or ConditionResult(index, condition.text, None, "verifier", NOT_CHECKED)
+        results = [by_index.get(index) or ConditionResult(index, condition.text, None, UNCHECKED, NOT_CHECKED)
                    for index, condition in enumerate(conditions)]
         verified = not tree.stop and out.status == "done" and bool(conditions) and all(r.met is True for r in results)
         refuted = any(r.met is False for r in results)
@@ -1059,16 +1075,16 @@ class Supervisor(WorkerRuns):
         elif out.status == "done" and not conditions:
             # Nothing could be checked, so completion is honestly unconfirmed rather than failed or done.
             status = "done_unverified"
-            summary = answer = "Completion is unverified (no checkable conditions)."
-        elif out.status == "done" and checked and not refuted:
+            summary = answer = NOTHING_TO_CHECK
+        elif tree.stands_unconfirmed and out.status == "done" and not refuted:
             status = "done_unverified"
-            summary = answer = _report(tree, results, out, "I did it, but couldn't confirm everything:", "")
-        elif checked and any(r.met is not True for r in results):
+            summary = answer = _report(tree, results, out, "Done, but not confirmed:", "")
+        elif attempted and any(r.met is not True for r in results):
             # Condition facts are validated structure. Freeform worker/recovery prose may contradict them;
             # code cannot safely repair its meaning, so do not reuse it as the owner-facing summary.
             status = "needs_user" if out.status == "needs_user" else "failed"
             summary = answer = _report(tree, results, out, "I couldn't confirm the task was complete:", "")
-        elif not checked and (conditions or out.status != "done"):
+        elif not attempted and (conditions or out.status != "done"):
             # No check ran: the work stopped first. The reason is the orchestrator's stop reason, or a code-written
             # or failure report; never the orchestrator's instructions or an unchecked claim of success.
             status = "needs_user" if out.status == "needs_user" else "failed"
@@ -1088,25 +1104,28 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+NOTHING_TO_CHECK = "Done, but there was nothing to check it against."
 
 
 def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: str, reason: str) -> str:
-    """The owner's lines for an outcome that isn't simply done: each condition a check ran on and couldn't confirm
-    ("failed" when it found it false, "unverified" when it couldn't tell), or, when no check ran, what is still to do;
-    then why work stopped, what was confirmed, the files, and any question."""
-    checked = bool(tree.verification)
+    """The owner's lines for an outcome that isn't simply done: each condition a check gave a verdict on and that
+    isn't confirmed ("failed" when found false, "unverified" when it couldn't tell); why work stopped; what was
+    confirmed; the conditions no check gave a verdict on (still to check when the checker failed, still to do when
+    the work stopped first, never "unverified" and never the failure's internals); the files; and any question."""
     lines = [header]
-    if checked:
-        lines.extend(f"- {r.text} — {'failed' if r.met is False else 'unverified'}: {r.evidence}"
-                     for r in results if r.met is not True)
+    lines.extend(f"- {r.text} — {'failed' if r.met is False else 'unverified'}: {r.evidence}"
+                 for r in results if r.met is not True and r.path != UNCHECKED)
     why = tree.stop_reason or reason
     if why:
         lines += ["", "Why work stopped: " + why]
     met = [r for r in results if r.met is True]
     if met:
         lines += ["", "Confirmed:"] + [f"- {r.text}" for r in met]
-    if not checked and results:
-        lines += ["", "Still to do:"] + [f"- {r.text}" for r in results]
+    unchecked = [r for r in results if r.path == UNCHECKED]
+    if unchecked:
+        heading = ("Still to check (the check couldn't run, a problem on my side):" if tree.verification
+                   else "Still to do:")
+        lines += ["", heading] + [f"- {r.text}" for r in unchecked]
     if out.artifacts:
         lines += ["", "Artifact paths (these do not establish completeness):"] + [f"- {path}" for path in out.artifacts]
     if out.status == "needs_user" and tree.owner_question:

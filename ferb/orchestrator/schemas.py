@@ -88,6 +88,8 @@ DISPATCH_SCHEMA = _obj({
     "instructions": {"type": "string"},
     "question": {"type": "string"},
     "stop_reason": {"type": "string"},
+    # finish only (null otherwise): the orchestrator's judgment of finished work a check couldn't confirm (V4)
+    "result": {"anyOf": [{"type": "null"}, {"type": "string", "enum": ["unconfirmed", "failed"]}]},
 })
 
 QUESTION_SCHEMA = _obj({
@@ -213,6 +215,9 @@ class WorkerOutcome(BaseModel):
 class DispatchOutcome(BaseModel):
     stop_reason: str = ""
     action: Literal["retry", "ask", "finish"]
+    # finish only. "unconfirmed": the work looks done and only confirmation is missing; code reports done but not
+    # confirmed when the worker reported done and the check found nothing false. Anything else, or absent, is failed.
+    result: Literal["unconfirmed", "failed"] | None = None
     worker_type: str
     instructions: str
     question: str

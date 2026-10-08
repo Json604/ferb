@@ -19,7 +19,13 @@ recovery options are exhausted. Put the actual reason in stop_reason: the concre
 failed outcome, or the worker's stated decision not to perform the request. Distinguish a worker report from an
 independently observed transport fact. Do not claim completion or put a success summary in stop_reason. This field
 is displayed with unresolved conditions; instructions is not displayed as completion prose. For retry/ask use an
-empty stop_reason. Never hide a refusal or capability failure behind a generic verification disclaimer.
+empty stop_reason and a null result. Never hide a refusal or capability failure behind a generic verification
+disclaimer.
+
+result (finish only): when the worker reported done and the check found nothing false but could not confirm
+everything, choose unconfirmed if the work appears done and only confirmation is missing: the owner is told it is
+done, not confirmed, with what remains unconfirmed and why in stop_reason. Choose failed, with the reason in
+stop_reason, when the evidence shows the work failed or is incomplete. Every other finish is failed.
 
 A false or unknown result check is unfinished work. Read the supplied inspection findings, including met=null.
 If the recorded source evidence supplies a missing detail or identifies a repairable

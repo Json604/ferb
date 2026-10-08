@@ -79,8 +79,8 @@ def test_unresolved_conditions_precede_facts_without_success_claim(daemon, met):
     install(daemon, [sup("task", "Preparing", task(conds=(cond(condition),)))],
             {"worker": done(unchecked_claim), "worker.verify": verdict, "worker.dispatch": finish})
     result = outcome(chat(daemon, "Write complete beginner study material"))
-    # V4: a check that found the condition false is a failure; one that couldn't tell leaves it done but unverified.
-    assert result["status"] == ("failed" if met is False else "done_unverified") and not result["verified"]
+    # V4, rule 6: a finish without the orchestrator's "unconfirmed" judgment is a failure, whatever the check said.
+    assert result["status"] == "failed" and not result["verified"]
     assert condition in result["answer"] and evidence in result["answer"]
     assert unchecked_claim not in result["answer"]
 
@@ -360,9 +360,10 @@ def test_direct_task_without_conditions_never_reports_unchecked_success(daemon):
         events = [event async for event in supervisor.run_tree(
             TaskSpec.model_validate(task(conds=())), 'Working', 'direct-request', 'Inspect the result')]
         result = outcome(events)
-        # V4: the work finished but nothing could be checked: done but unverified, saying why, never done.
+        # V4: the work finished but nothing could be checked: done but unverified, saying why, never done. No
+        # check ran, so the owner's text doesn't say "unverified" (V5).
         assert result['status'] == 'done_unverified' and not result['verified']
-        assert 'unverified' in result['answer'] and 'no checkable conditions' in result['answer']
+        assert 'unverified' not in result['answer'] and 'nothing to check' in result['answer']
         assert 'Everything is complete.' not in result['answer']
     daemon.run(check())
 

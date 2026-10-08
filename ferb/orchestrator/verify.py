@@ -18,12 +18,15 @@ from ferb.orchestrator.schemas import Condition
 from ferb.store.spans import SpanStore
 
 
+UNCHECKED = "unchecked"            # no check gave a verdict: the work stopped first, or the checker itself failed (V5)
+
+
 @dataclass
 class ConditionResult:
     index: int
     text: str
     met: bool | None               # None: couldn't be decided
-    path: str                      # "code" | "verifier"
+    path: str                      # "code" | "verifier" | UNCHECKED
     evidence: str
 
     def as_dict(self) -> dict[str, Any]:

@@ -672,7 +672,7 @@ def _root_origin(daemon: RunningDaemon) -> set[str]:
 def test_a_scheduled_run_takes_the_origin_of_the_request_that_made_it(daemon: RunningDaemon) -> None:
     from datetime import timedelta
     from ferb.policy.targets import Targets
-    from tests.test_schedules import fire, make_schedule, schedule_reply
+    from tests.support.schedules import fire, make_schedule, schedule_reply
     now = daemon.daemon.clock.now()
     run = sup("task", "x", task("write report.md", paths=("report.md",)))
     install(daemon, [schedule_reply(daemon, "write report.md", "write report.md", now + timedelta(minutes=1)), run],
@@ -691,7 +691,7 @@ def test_a_scheduled_run_takes_the_origin_of_the_request_that_made_it(daemon: Ru
 def _scheduled_after_paste(daemon: RunningDaemon, *turns: str) -> set[str]:
     """`turns` answer the pasted text; then "in a minute write report.md" makes a schedule, which fires."""
     from datetime import timedelta
-    from tests.test_schedules import fire, schedule_reply
+    from tests.support.schedules import fire, schedule_reply
     run = sup("task", "x", task("write report.md", paths=("report.md",)))
     install(daemon, [*turns, schedule_reply(daemon, "write report.md", "write report.md",
                                             daemon.daemon.clock.now() + timedelta(minutes=1)), run],
@@ -715,7 +715,7 @@ def test_a_schedule_made_while_answering_a_question_carries_the_pasted_text(daem
 def test_a_schedule_row_recorded_without_its_turns_origins_stays_unlabeled(daemon: RunningDaemon) -> None:
     from datetime import timedelta
     from ferb.policy.targets import Targets
-    from tests.test_schedules import fire, make_schedule
+    from tests.support.schedules import fire, make_schedule
     install(daemon, [sup("reply", "Hello.")])
     chat(daemon, PASTED)
     request_id = _on_loop(daemon, lambda: daemon.daemon.db.conn.execute(

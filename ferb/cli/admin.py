@@ -534,9 +534,10 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                              "GROUP BY status ORDER BY 2 DESC", (since,)).fetchall()
         total = sum(n for _, n in outcomes)
         count = dict(outcomes)
-        # V4: done means every condition verified; unverified means a check ran and couldn't confirm; failed, not done.
+        # V4: done means every condition verified; unverified means done but not confirmed; failed, not done.
         shares = ", ".join(f"{label} {count.get(st, 0)} ({100 * count.get(st, 0) // total}%)"
-                           for label, st in (("done", "done"), ("unverified", "done_unverified"), ("failed", "failed")))
+                           for label, st in (("done", "done"), ("unverified", "done_unverified"), ("failed", "failed"))
+                           ) if total else ""
         print(f"Requests in the last {days} day(s): {total}" + (f" — {shares}" if total else ""), file=out)
         for status, n in outcomes:
             print(f"  {status:<16}{n}", file=out)

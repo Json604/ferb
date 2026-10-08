@@ -16,14 +16,9 @@ from ferb.orchestrator.schedules import Rule, ScheduleError
 from ferb.policy.targets import Request, Targets
 from tests.conftest import Answers, RunningDaemon
 from tests.conftest import chat, install, sup, task, writes
+from tests.support.schedules import fire, make_schedule, results, run, schedule_reply
 
 NY = ZoneInfo("America/New_York")
-
-
-def run(d: RunningDaemon, fn: Any) -> Any:
-    async def go() -> Any:
-        return fn()
-    return d.run(go())
 
 
 # ---------- rules ----------
@@ -48,22 +43,6 @@ def test_recurrence_keeps_local_time_across_daylight_saving() -> None:
 
 
 # ---------- schedules from chat ----------
-
-def mins(delta: timedelta) -> dict[str, Any]:
-    """A `when` of "in N minutes" (the model's output; FERB computes the time)."""
-    return {"in_minutes": delta.total_seconds() / 60, "in_days": None, "day": None, "date": None, "time": None}
-
-
-def schedule_reply(d: RunningDaemon, request: str, quote: str, first: datetime, repeat: str = "none",
-                   recipients: tuple[str, ...] = (), paths: tuple[str, ...] = ("report.md",),
-                   every: int | None = None) -> str:
-    return json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": [], "timers": [],
-                       "schedule": {"request": request, "when": mins(first - d.daemon.clock.now()), "repeat": repeat,
-                                    "weekday": None, "every_minutes": every, "quote": quote,
-                                    "targets": {"apps": [], "sites": [], "paths": list(paths),
-                                                "recipients": list(recipients)}},
-                       "schedule_changes": []})
-
 
 def test_a_schedule_needs_the_owners_words_and_a_future_first_run(daemon: RunningDaemon) -> None:
     now = daemon.daemon.clock.now()
@@ -99,33 +78,6 @@ def test_remembered_address_does_not_rewrite_schedule_recipient(daemon: RunningD
 
 
 # ---------- runs ----------
-
-def make_schedule(d: RunningDaemon, request: str, own: str, targets: Targets, first: datetime,
-                  repeat: str = "daily") -> Any:
-    def go() -> Any:
-        s = d.daemon.schedules.add(request, own, targets.to_json(), Rule.build(repeat, first), first)
-        t = d.daemon.timers.add("schedule", first, s.id)
-        d.daemon.schedules.set_timer(s.id, t.id, first)
-        return s
-    return run(d, go)
-
-
-def results(d: RunningDaemon) -> list[dict[str, Any]]:
-    c = Client(d.sock)
-    try:
-        return c.call("chat.status")["results"]                                            # type: ignore[no-any-return]
-    finally:
-        c.close()
-
-
-def fire(d: RunningDaemon, seconds: float) -> None:
-    d.call_soon(d.daemon.clock.advance, seconds)
-    d.run(d.daemon.timers.tick())
-    for _ in range(100):
-        if not d.daemon._runs or all(t.done() for t in d.daemon._runs):
-            break
-        time.sleep(0.05)
-
 
 def test_scheduled_run_receives_original_request_and_its_answer_waits(daemon: RunningDaemon) -> None:
     notes: list[tuple[str, str]] = []
