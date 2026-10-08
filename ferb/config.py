@@ -83,6 +83,7 @@ class Config:
                                     ("privacy", "exclude_domains", []),
                                     ("privacy", "exclude_paths", list(DEFAULT_EXCLUDE_PATHS)),
                                     ("sense", "window_titles", True), ("sense", "watch_folders", []),
-                                    ("sense", "idle_after_s", 120), ("sense", "trail_retention_days", 30)):
+                                    ("sense", "idle_after_s", 120), ("sense", "trail_retention_days", 30),
+                                    ("retention", "trace_days", 30), ("retention", "decision_days", 30)):
             if self.get(section, key) is None:
                 self.set(section, key, value)

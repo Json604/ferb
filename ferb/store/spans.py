@@ -13,6 +13,12 @@ from ferb.store.db import Database
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
 
 
+def tree_where(root_id: str) -> tuple[str, tuple[Any, ...]]:
+    """SQL and parameters selecting a task tree's spans. A range, not substr(): it can use the task_id index.
+    "/" is the character right after "."."""
+    return "(task_id = ? OR (task_id >= ? AND task_id < ?))", (root_id, root_id + ".", root_id + "/")
+
+
 @dataclass
 class SpanNode:
     span: Span
@@ -69,8 +75,7 @@ class SpanStore:
         return roots
 
     def _tree_where(self, root_id: str) -> tuple[str, tuple[Any, ...]]:
-        # A range, not substr(): it can use the task_id index. "/" is the character right after ".".
-        return "(task_id = ? OR (task_id >= ? AND task_id < ?))", (root_id, root_id + ".", root_id + "/")
+        return tree_where(root_id)
 
     def tool_origins(self, root_id: str) -> set[str]:
         """Every origin recorded on this task tree's tool results."""

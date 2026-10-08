@@ -54,6 +54,7 @@ from ferb.paths import ferb_home, socket_path
 from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
 from ferb.sanitize.redact import Redactor
+from ferb.store import retention
 from ferb.store.db import Database
 from ferb.store.spans import SpanStore
 
@@ -81,7 +82,7 @@ class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
-                 notifications: bool = True) -> None:
+                 notifications: bool = True, retention: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -146,6 +147,8 @@ class Daemon:
         self.memory: Any = None
         self.distiller: Any = None
         self._distill_task: asyncio.Task[None] | None = None
+        self.run_retention = retention
+        self._retention_task: asyncio.Task[None] | None = None
         # Jev in shadow mode: None until a key is in the Keychain
         self.jev: Any = None
         self.jev_post: Any = None                        # tests: a fake Jev endpoint
@@ -252,7 +255,8 @@ class Daemon:
 
         # Stop task producers before taking the task snapshot. Task finalizers still need the
         # gateway resources, disturbance observer and database until cancellation has completed.
-        await drain({job for job in (self._macos_task, self._distill_task, self._timer_task, self._held_task)
+        await drain({job for job in (self._macos_task, self._distill_task, self._retention_task, self._timer_task,
+                                self._held_task)
                      if job is not None}, "producers")
         if self.supervisor:
             self.supervisor.cancel_all()
@@ -699,6 +703,38 @@ class Daemon:
             self.supervisor.remember = self._remember
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
+        if self.run_retention:
+            self._retention_task = asyncio.get_running_loop().create_task(self._retention_loop())
+
+    def _purge_records(self) -> dict[str, int]:
+        """D21: spans of tasks that ended more than trace_days ago (once their episode exists) and loose spans;
+        Jev decisions older than decision_days. Never the task list, episodes, journal or memory."""
+        now = self.clock.now()
+        trace_days = int(self.config.get("retention", "trace_days", 30))
+        decision_days = int(self.config.get("retention", "decision_days", 30))
+        cut = (now - timedelta(days=trace_days)).isoformat()
+        spans = 0
+        for root in retention.finished_roots_before(self.db, cut):
+            if episodes.get(self.db, root) is None:          # build it while the spans still exist
+                episodes.record(self.spans, self._journal(), root, now.isoformat())
+            if episodes.get(self.db, root) is None:
+                continue                                     # no episode: keep the spans
+            spans += retention.purge_task_spans(self.db, root)
+        spans += retention.purge_loose_spans(self.db, cut)
+        decisions = retention.purge_decisions(self.db, (now - timedelta(days=decision_days)).isoformat())
+        self._journal().append("retention.purged", {"trace_days": trace_days, "spans": spans,
+                                                    "decision_days": decision_days, "decisions": decisions})
+        return {"spans": spans, "decisions": decisions}
+
+    async def _retention_loop(self) -> None:
+        """Hourly, starting a minute after start-up so start-up stays quick."""
+        await asyncio.sleep(60)
+        while True:
+            try:
+                self._purge_records()
+            except Exception as e:
+                self._journal().append("retention.failed", {"error": f"{type(e).__name__}: {e}"})
+            await asyncio.sleep(3600)
 
     def _record_distill_usage(self, runtime: str, data: dict[str, Any]) -> None:
         span = self.spans.start("model.usage", task_id=None, parent_id=None, input={"runtime": runtime, "role": "distill"})

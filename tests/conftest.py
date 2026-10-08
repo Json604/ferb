@@ -46,6 +46,7 @@ class RunningDaemon:
     async def _make(home: Path, kwargs: dict[str, Any]) -> Daemon:
         kwargs.setdefault("watchers", False)            # the owner's real activity stays out of test trails
         kwargs.setdefault("distill", False)             # the daily distillation calls a model
+        kwargs.setdefault("retention", False)           # tests purge explicitly, never on a timer
         kwargs.setdefault("notifications", False)       # no macOS notifications from tests
         return Daemon(home=home, **kwargs)
 
