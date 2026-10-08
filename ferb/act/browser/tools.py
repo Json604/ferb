@@ -157,7 +157,7 @@ class BrowserOpen(_Base):
         out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)}
         if self.family.identity is Identity.OWNER:
             out["profile"] = f"{tab.browser}/{tab.profile}"
-        return ToolResult(out)
+        return ToolResult(out, read_sources=self._page(tab.tab_id))       # the site controls where it redirects
 
 
 class BrowserScroll(_Base):
@@ -281,7 +281,7 @@ class BrowserUseTab(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         tab = await self.driver.attach(str(getattr(args, "tab_ref")), ctx.task_id)   # type: ignore[attr-defined]
         return ToolResult({"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id),
-                           "next": "take a snapshot; this is the owner's own tab"})
+                           "next": "take a snapshot; this is the owner's own tab"}, read_sources=self._page(tab.tab_id))
 
 
 class BrowserNavigate(_Base):

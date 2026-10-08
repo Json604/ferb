@@ -53,7 +53,7 @@ def test_chat_message_with_pasted_text_carries_both_origins(daemon: RunningDaemo
     rows = _journal(daemon, "chat.message")
     assert origin.split(rows[0]) == {"owner"}
     assert origin.split(rows[1]) == {"owner", "external:paste"}
-    assert set(_journal(daemon, "task.answer")) == {"ferb"}
+    assert all("inferred" in origin.split(o) for o in _journal(daemon, "task.answer"))   # model-written (MP2)
 
 
 def test_an_explicit_origin_wins(daemon: RunningDaemon) -> None:

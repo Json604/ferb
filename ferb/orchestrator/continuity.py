@@ -15,8 +15,9 @@ from ferb.store.db import Database
 
 
 class Continuity:
-    def __init__(self, db: Database, redact: Callable[..., Any]) -> None:
+    def __init__(self, db: Database, redact: Callable[..., Any], task_origins: Callable[[str], set[str]]) -> None:
         self.db, self.redact = db, redact
+        self.task_origins = task_origins           # SpanStore.task_origins: what a task's models were shown (S3)
 
     def ensure(self, conversation: str) -> None:
         if not re.fullmatch(r"[\w:.-]{1,128}", conversation):
@@ -102,7 +103,8 @@ class Continuity:
                                 "origin": row["origin"] or journal_origin(row["kind"], data)})
         if include_tasks:
             for row in self.candidates(conversation):
-                records.append({"id": row["task_id"], "kind": "task", "data": row, "origin": origin.FERB})
+                made = origin.join({origin.INFERRED} | self.task_origins(row["task_id"]))   # model-written (MP2)
+                records.append({"id": row["task_id"], "kind": "task", "data": row, "origin": made})
         return records
 
     def _import_legacy(self, conversation: str) -> None:

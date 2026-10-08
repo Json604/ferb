@@ -67,6 +67,14 @@ class SpanStore:
         rows = self._db.conn.execute(f"SELECT origin FROM spans WHERE kind = 'tool.call' AND {where}", params)
         return {o for r in rows for o in origin.split(r["origin"])}
 
+    def task_origins(self, root_id: str) -> set[str]:
+        """Every origin recorded on this task tree's tool results and context sources: what its models were shown.
+        Labels derived from the task's work (worker reports, answers) inherit these (MP2)."""
+        where, params = self._tree_where(root_id)
+        rows = self._db.conn.execute(
+            f"SELECT origin FROM spans WHERE kind IN ('tool.call', 'context.source') AND {where}", params)
+        return {o for r in rows for o in origin.split(r["origin"])}
+
     def tool_outputs(self, root_id: str) -> list[tuple[set[str], str]]:
         """(origins, output text) of this task tree's finished tool calls, in call order."""
         where, params = self._tree_where(root_id)

@@ -131,7 +131,7 @@ class Supervisor(WorkerRuns):
         self.worker_types: Callable[[], list[str]] = lambda: ['default', 'codex', 'claude']
         self.checks, self.roots = checks, roots or FsRoots(workspace, (), ())
         self.sessions: dict[str, ChatSession] = {}
-        self.continuity = Continuity(journal._db, gateway.redact)
+        self.continuity = Continuity(journal._db, gateway.redact, spans.task_origins)
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
         self._stalled: set[str] = set()                                 # worker ids the watchdog cancelled
@@ -600,13 +600,14 @@ class Supervisor(WorkerRuns):
             finally:
                 final = self._final(tree)
                 final["goal"] = spec.goal
+                made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
                 self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id, "status": final["status"],
-                                                    "text": final["answer"]})
+                                                    "text": final["answer"]}, origin=made)
                 self.spans.finish(root_span, output={k: final[k] for k in ("status", "summary", "verified", "resources")})
                 self.tasks.set_status(tree_id, final["status"], {k: final[k] for k in ("summary", "verified")})
                 self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"], "summary": final["summary"],
                                                      "verified": final["verified"], "verification": final["verification"],
-                                                     "subtasks": final["subtasks"], "resources": tree.resources})
+                                                     "subtasks": final["subtasks"], "resources": tree.resources}, origin=made)
                 self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})
                 self.gateway.forget_tasks(self._tree_task_ids(tree))
                 self.state.forget_request(request_id)
@@ -794,7 +795,7 @@ class Supervisor(WorkerRuns):
                                        wrap_untrusted(json.dumps(tree.intake_receipts)), "task.evidence kind=task.intake",
                                        protected=True))
         if tree.reports:             # model-written from what the attempts read (MP2), as task.evidence labels them
-            reports_origin = origins_.join({origins_.INFERRED} | self.spans.tool_origins(tree.id))
+            reports_origin = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree.id))
             parts.append(self._source_block(tree, "Previous attempts (data)", wrap_untrusted(json.dumps(tree.reports)),
                                             reports_origin))
         ledger_tasks = [tree.worker.id]

@@ -11,10 +11,11 @@ from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext
 from ferb.policy.rules import Kind
 
 TAIL = 8000
-# Command output read without network is the owner's local data (S3); a command that fetched over the network reports
-# its source instead (_untrusted). Residual: a shell read of a downloaded file (e.g. `cat ~/Downloads/page.html`) is
-# not tracked as outside content; F5's path lists close it.
-OUTPUT_ORIGIN = "private"
+# What a command read can't be known by code: fetches_network misses `gh`, `npm view` and scripts, and a local read
+# may be a downloaded file. So command output is unlabeled outside content (S3); detected network use reports
+# external:web:shell instead (_untrusted). F5's proxy (real network use) and sandbox path lists (real file reads) will
+# provide facts that can narrow this label.
+OUTPUT_ORIGIN = "external:unlabeled"
 
 
 def _untrusted(network: bool, command: str) -> tuple[tuple[str, str], ...]:

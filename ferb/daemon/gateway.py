@@ -23,6 +23,7 @@ from ferb.orchestrator.tree import TaskTree
 from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
+from ferb.sanitize.redact import Redactor
 from ferb.store.spans import SpanStore
 
 Publish = Callable[[str, dict[str, Any]], None]
@@ -83,7 +84,12 @@ class Observer:
 class Gateway:
     def __init__(self, capabilities: dict[str, Capability], state: ExecutionState, ledger: Ledger, spans: SpanStore,
                  tasks: TaskTree, clock: Clock, redact: Redact, publish: Publish, roots: FsRoots,
-                 device_id: str, hold_poll_s: float = 0.2) -> None:
+                 device_id: str, hold_poll_s: float = 0.2, excluded_host: Callable[[str], bool] | None = None) -> None:
+        if excluded_host is None:                # the owner's exclusion list never silently stops applying
+            if not isinstance(redact, Redactor):
+                raise ValueError("the gateway needs the owner's exclusion check (excluded_host)")
+            excluded_host = redact.excluded_host
+        self.excluded_host = excluded_host
         self.caps, self.state, self.ledger, self.spans = capabilities, state, ledger, spans
         self.tasks, self.clock, self.redact, self.publish = tasks, clock, redact, publish
         self.roots, self.device_id, self.hold_poll_s = roots, device_id, hold_poll_s
@@ -247,7 +253,7 @@ class Gateway:
         if intent_id:
             self.ledger.mark(intent_id, "failed" if result.is_error else "done", [span.id])
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
-                                         getattr(self.redact, "excluded_host", lambda host: False))
+                                         self.excluded_host)
         content = self.redact(result.content)
         self.spans.finish(span, output=content, error=content.get("error") if result.is_error else None,
                           origin=origin.join(origins))

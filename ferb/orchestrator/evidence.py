@@ -21,15 +21,23 @@ def memory_origin(item_origin: str) -> str:
     return MEMORY_ORIGINS.get(item_origin, origin.external("unlabeled"))
 
 
+def inherits(record: dict[str, Any]) -> bool:
+    """Whether this record's label includes the task's origins (record_origins), so they must be read for it."""
+    return record.get("kind") == "tool.call" or (record.get("kind") == "worker" and not record.get("origin"))
+
+
 def record_origins(record: dict[str, Any], task_origins: set[str]) -> set[str]:
-    """Origins of one recorded fact returned by task.evidence. A record keeps its recorded origin (tool results,
-    context sources); a tool result or context source recorded without one (before F3) is unlabeled; a worker's
-    report is model-written from what the task read, so it inherits those origins (MP2); FERB's other records are its
-    own, plus external:paste where FERB itself marked pasted or outside text inside them."""
+    """Origins of one recorded fact returned by task.evidence (MP2). A tool call holds its result (its recorded
+    origin; unlabeled when recorded before F3) and the worker-written input, which a model wrote from what the task
+    read: inferred plus the task's origins. Any other record keeps its recorded origin; a context source recorded
+    before F3 is unlabeled; a worker's report inherits like a tool call's input; FERB's other records are its own,
+    plus external:paste where FERB itself marked pasted or outside text inside them."""
     recorded = origin.split(record.get("origin"))
+    if record.get("kind") == "tool.call":
+        return (recorded or {origin.external("unlabeled")}) | {origin.INFERRED} | task_origins
     if recorded:
         return recorded
-    if record.get("kind") in ("tool.call", "context.source"):
+    if record.get("kind") == "context.source":
         return {origin.external("unlabeled")}
     if record.get("kind") == "worker":
         return {origin.INFERRED} | task_origins
@@ -72,7 +80,9 @@ class TaskEvidence:
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         source = self.parent(ctx.task_id) or ctx.task_id
         root = self.root(ctx.task_id)
-        task_origins = self.spans.tool_origins(root or source)
+
+        def task_origins(records: list[dict[str, Any]]) -> set[str]:     # read only when a returned record inherits
+            return self.spans.task_origins(root or source) if any(inherits(r) for r in records) else set()
         if args.span_id:
             row = self.spans.tool_call(source, args.span_id, root_id=root)
             if row is None:
@@ -81,10 +91,11 @@ class TaskEvidence:
             end = min(args.offset + args.max_chars, len(payload))
             return ToolResult({"source_task": source, "text": payload[args.offset:end], "offset": args.offset,
                                "next_offset": end if end < len(payload) else None, "total_chars": len(payload)},
-                              read_sources=_passed(record_origins(row, task_origins)))
+                              read_sources=_passed(record_origins(row, task_origins([row]))))
         page = self.spans.tool_calls(source, query=args.query, after=args.after, limit=args.limit,
                                     root_id=root, kind=args.kind)
-        origins = {o for record in page["records"] for o in record_origins(record, task_origins)}
+        inherited = task_origins(page["records"])
+        origins = {o for record in page["records"] for o in record_origins(record, inherited)}
         return ToolResult({"source_task": source, **page}, read_sources=_passed(origins))
 
     def describe(self, args: BaseModel) -> ActionSpec:
@@ -140,8 +151,9 @@ class ChatHistory(_PagedFacts):
             if found is None:
                 return ToolResult({"error": "entry is not in this task's conversation"}, is_error=True)
             return self.page(found, args.offset, args.max_chars, origin.split(found.get("origin")))
-        if args.query:
-            records = [row for row in records if args.query.casefold() in json.dumps(row, ensure_ascii=False).casefold()]
+        if args.query:                   # the literal search covers what each record holds, not its origin label
+            records = [row for row in records if args.query.casefold() in
+                       json.dumps({k: v for k, v in row.items() if k != "origin"}, ensure_ascii=False).casefold()]
         end = args.after + args.limit
         shown = records[args.after:end]
         selected = [{"id": row["id"], "kind": row["kind"], "at": row.get("at"),
