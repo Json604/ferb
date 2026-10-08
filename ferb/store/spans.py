@@ -90,7 +90,10 @@ class SpanStore:
         where, params = self._tree_where(root_id)
         rows = self._db.conn.execute(
             f"SELECT origin FROM spans WHERE kind IN ('task', 'tool.call', 'context.source') AND {where}", params)
-        return {o for r in rows for o in origin.split(r["origin"])}
+        found = {o for r in rows for o in origin.split(r["origin"])}
+        # Retention deletes the spans, never the episode: its origins keep the labels fail-closed (MP2).
+        ep = self._db.conn.execute("SELECT origins FROM episodes WHERE task_id = ?", (root_id,)).fetchone()
+        return found | (set(origin.split(ep["origins"])) if ep and ep["origins"] else set())
 
     def tool_outputs(self, root_id: str) -> list[tuple[set[str], str]]:
         """(origins, text) of this task tree's finished tool calls, in call order. The text is every string value of

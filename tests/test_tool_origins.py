@@ -583,6 +583,7 @@ def test_a_retry_of_a_task_recorded_before_f3_takes_the_origins_of_its_request_r
     first = _pasted_task(daemon)
     _on_loop(daemon, lambda: daemon.daemon.db.conn.execute(          # its tree predates F3: no span has an origin
         "UPDATE spans SET origin = NULL WHERE task_id = ? OR task_id LIKE ?", (first, first + ".%")))
+    _on_loop(daemon, lambda: daemon.daemon.db.conn.execute("DELETE FROM episodes WHERE task_id = ?", (first,)))
     assert _task_origins(daemon, first) == set()
     seen = _trim_history(daemon)
     second = _retry(daemon, first)                    # the chat.message row still says what the request held

@@ -78,6 +78,9 @@ def _provider(name: str, model: str) -> Any:
     return GoogleProvider(model)
 
 
+ROOTS_PER_PURGE = 200
+
+
 class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None,
@@ -714,16 +717,21 @@ class Daemon:
         decision_days = int(self.config.get("retention", "decision_days", 30))
         cut = (now - timedelta(days=trace_days)).isoformat()
         spans = 0
-        for root in retention.finished_roots_before(self.db, cut):
-            if episodes.get(self.db, root) is None:          # build it while the spans still exist
-                episodes.record(self.spans, self._journal(), root, now.isoformat())
-            if episodes.get(self.db, root) is None:
-                continue                                     # no episode: keep the spans
-            spans += retention.purge_task_spans(self.db, root)
+        roots = retention.finished_roots_before(self.db, cut)
+        for root in roots[:ROOTS_PER_PURGE]:                 # oldest first; the rest wait for the next pass
+            try:
+                if episodes.get(self.db, root) is None:      # build it while the spans still exist
+                    episodes.record(self.spans, self._journal(), root, now.isoformat())
+                if episodes.get(self.db, root) is None:
+                    continue                                 # no episode: keep the spans
+                spans += retention.purge_task_spans(self.db, root)
+            except Exception as e:
+                self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
         spans += retention.purge_loose_spans(self.db, cut)
         decisions = retention.purge_decisions(self.db, (now - timedelta(days=decision_days)).isoformat())
         self._journal().append("retention.purged", {"trace_days": trace_days, "spans": spans,
-                                                    "decision_days": decision_days, "decisions": decisions})
+                                                    "decision_days": decision_days, "decisions": decisions,
+                                                    "roots_left": max(0, len(roots) - ROOTS_PER_PURGE)})
         return {"spans": spans, "decisions": decisions}
 
     async def _retention_loop(self) -> None:

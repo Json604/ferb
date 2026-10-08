@@ -88,3 +88,114 @@ def test_jev_decisions_age_out(daemon: RunningDaemon) -> None:
             f"d{i}", at.isoformat())
     _purge(daemon)
     assert _q(daemon, "SELECT count(*) FROM decisions") == 1
+
+
+def _old() -> str:
+    return "2020-01-01T00:00:00+00:00"
+
+
+def _insert_span(daemon: RunningDaemon, sid: str, parent: str | None, task_id: str | None, request_id: str | None,
+                 at: str) -> None:
+    payload = '{"request_id": "%s"}' % request_id if request_id else "{}"
+    _do(daemon, "INSERT INTO spans (id, parent_id, task_id, kind, started_at, input_json) VALUES (?,?,?,?,?,?)",
+        sid, parent, task_id, "tool.call", at, payload)
+
+
+def _spans_with_prefix(daemon: RunningDaemon, prefix: str) -> int:
+    return _q(daemon, "SELECT count(*) FROM spans WHERE id LIKE ?", prefix + "%")
+
+
+def test_a_large_nested_tree_is_purged_completely(daemon: RunningDaemon) -> None:
+    root = _say_hi(daemon)
+    _age(daemon, root, 31)
+    _insert_span(daemon, "z-w", None, root + ".1", None, _old())
+    for i in range(300):          # ids sort children before parents in one chunk and after in another
+        _insert_span(daemon, f"z-t{i:03d}", "z-w", root + ".1", None, _old())
+        _insert_span(daemon, f"a-c{i:03d}", f"z-t{i:03d}", root + ".1", None, _old())
+    _purge(daemon)
+    assert _tree_spans(daemon, root) == 0
+    assert _spans_with_prefix(daemon, "z-") == 0 and _spans_with_prefix(daemon, "a-c") == 0
+
+
+def test_many_old_loose_spans_with_children_are_purged(daemon: RunningDaemon) -> None:
+    for i in range(300):
+        _insert_span(daemon, f"z-p{i:03d}", None, None, None, _old())
+        _insert_span(daemon, f"a-k{i:03d}", f"z-p{i:03d}", None, None, _old())
+    _purge(daemon)
+    assert _spans_with_prefix(daemon, "z-p") == 0 and _spans_with_prefix(daemon, "a-k") == 0
+
+
+def test_loose_span_rules(daemon: RunningDaemon) -> None:
+    root = _say_hi(daemon)
+    request_id = _q(daemon, "SELECT request_id FROM tasks WHERE id = ?", root)
+    recent = daemon.daemon.clock.now().isoformat()
+    _insert_span(daemon, "l-recent", None, None, None, recent)
+    _insert_span(daemon, "l-task", None, None, request_id, _old())
+    _insert_span(daemon, "l-nomatch", None, None, "no-such-request", _old())
+    _insert_span(daemon, "l-norequest", None, None, None, _old())
+    _purge(daemon)
+    assert _spans_with_prefix(daemon, "l-recent") == 1
+    assert _spans_with_prefix(daemon, "l-task") == 1
+    assert _spans_with_prefix(daemon, "l-nomatch") == 0
+    assert _spans_with_prefix(daemon, "l-norequest") == 0
+
+
+def test_task_origins_outlive_the_spans(daemon: RunningDaemon) -> None:
+    root = _say_hi(daemon)
+    _do(daemon, "UPDATE episodes SET origins = 'external:web:x.com' WHERE task_id = ?", root)
+    _age(daemon, root, 31)
+    _purge(daemon)
+    assert _tree_spans(daemon, root) == 0
+    async def go():
+        return daemon.daemon.spans.task_origins(root)
+    assert "external:web:x.com" in daemon.run(go())
+
+
+def test_a_root_interrupted_by_a_restart_is_aged_from_then(daemon: RunningDaemon) -> None:
+    root = _say_hi(daemon)
+    _age(daemon, root, 31)
+    _do(daemon, "UPDATE tasks SET status = 'running' WHERE id = ?", root)
+    _do(daemon, "DELETE FROM episodes WHERE task_id = ?", root)
+    async def go():
+        return daemon.daemon.tasks.interrupt_running()
+    assert root in daemon.run(go())
+    _purge(daemon)
+    assert _tree_spans(daemon, root) > 0
+
+
+def test_one_bad_root_does_not_stop_the_others(daemon: RunningDaemon) -> None:
+    bad = _say_hi(daemon)
+    good = _say_hi(daemon)
+    _age(daemon, bad, 31)
+    _age(daemon, good, 31)
+    from ferb.orchestrator import episodes
+    real = episodes.get
+    def flaky(db: Any, task_id: str) -> Any:
+        if task_id == bad:
+            raise RuntimeError("unreadable")
+        return real(db, task_id)
+    episodes.get = flaky  # type: ignore
+    try:
+        _purge(daemon)
+    finally:
+        episodes.get = real  # type: ignore
+    assert _tree_spans(daemon, bad) > 0
+    assert _tree_spans(daemon, good) == 0
+    assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.failed'") == 1
+    assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.purged'") == 1
+
+
+def test_a_pass_handles_at_most_200_roots_oldest_first(daemon: RunningDaemon, monkeypatch: Any) -> None:
+    from ferb.daemon import main
+    monkeypatch.setattr(main, "ROOTS_PER_PURGE", 1)
+    first = _say_hi(daemon)
+    second = _say_hi(daemon)
+    _age(daemon, first, 40)
+    _age(daemon, second, 31)
+    _do(daemon, "UPDATE tasks SET updated_at = ? WHERE tree_id = ?", "2020-01-01T00:00:00+00:00", first)
+    _purge(daemon)
+    assert _tree_spans(daemon, first) == 0 and _tree_spans(daemon, second) > 0
+    assert _q(daemon, "SELECT json_extract(data_json, '$.roots_left') FROM journal "
+                      "WHERE kind = 'retention.purged'") == 1
+    _purge(daemon)
+    assert _tree_spans(daemon, second) == 0
