@@ -11,6 +11,10 @@ from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext
 from ferb.policy.rules import Kind
 
 TAIL = 8000
+# Command output read without network is the owner's local data (S3); a command that fetched over the network reports
+# its source instead (_untrusted). Residual: a shell read of a downloaded file (e.g. `cat ~/Downloads/page.html`) is
+# not tracked as outside content; F5's path lists close it.
+OUTPUT_ORIGIN = "private"
 
 
 def _untrusted(network: bool, command: str) -> tuple[tuple[str, str], ...]:
@@ -85,6 +89,7 @@ class ShellRun(ShellStart):
     description = ("Run a shell command (/bin/sh), waiting up to timeout_s. A live process returns its id; use "
                    "shell.wait to await its exit or shell.read for output. For immediate asynchronous start use "
                    "shell.start, without nohup or trailing &. background=true survives task completion (servers).")
+    origin = OUTPUT_ORIGIN
 
     class Input(ShellStart.Input):
         timeout_s: float = Field(default=30, ge=1, le=120)
@@ -110,6 +115,7 @@ class ShellWait(_Base):
                          "A timeout leaves it running; inspect output or wait again. Returns exit_code and output "
                          "from since, so failures are visible without sleeping blindly. Does not launch a retry.")
     risk, reversible = RiskLevel.LOW, True
+    origin = OUTPUT_ORIGIN
 
     class Input(BaseModel):
         id: str
@@ -129,6 +135,7 @@ class ShellRead(_Base):
     name, description = ("shell.read", "Read a command's output from a byte offset, a page at a time: start at "
                          "since=0 and continue from the returned offset while more is true.")
     risk, reversible = RiskLevel.LOW, True
+    origin = OUTPUT_ORIGIN
 
     class Input(BaseModel):
         id: str
@@ -175,6 +182,7 @@ class ShellKill(_Base):
 class ShellList(_Base):
     name, description = "shell.list", "This task's commands: id, command, running, exit code."
     risk, reversible = RiskLevel.LOW, True
+    origin = "ferb"                                    # FERB's own process records
 
     class Input(BaseModel):
         pass

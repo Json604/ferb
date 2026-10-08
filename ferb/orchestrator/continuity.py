@@ -6,6 +6,8 @@ import re
 import secrets
 from typing import Any, Callable
 
+from ferb.core import origin
+from ferb.memory.journal import journal_origin
 from ferb.orchestrator.schemas import TaskSpec
 from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import mark
@@ -96,10 +98,11 @@ class Continuity:
             data = json.loads(row["data_json"])
             belongs = data.get("task_id") in tasks if row["kind"] == "task.answer" else data.get("session_id", "owner") == conversation
             if belongs and row["kind"] in ("chat.message", "chat.reply", "chat.clarify", "task.answer"):
-                records.append({"id": row["id"], "at": row["at"], "kind": row["kind"], "data": data})
+                records.append({"id": row["id"], "at": row["at"], "kind": row["kind"], "data": data,
+                                "origin": row["origin"] or journal_origin(row["kind"], data)})
         if include_tasks:
             for row in self.candidates(conversation):
-                records.append({"id": row["task_id"], "kind": "task", "data": row})
+                records.append({"id": row["task_id"], "kind": "task", "data": row, "origin": origin.FERB})
         return records
 
     def _import_legacy(self, conversation: str) -> None:

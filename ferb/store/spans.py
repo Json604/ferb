@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+from ferb.core import origin
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import Span
 from ferb.store.db import Database
@@ -34,15 +35,16 @@ class SpanStore:
         return span
 
     def finish(self, span: Span, *, output: dict[str, Any] | None = None, error: str | None = None,
-               cost_usd: float | None = None) -> Span:
+               cost_usd: float | None = None, origin: str | None = None) -> Span:
         span.ended_at = self._clock.now()
         span.output = None if output is None else self._redact(output)
         span.error = None if error is None else self._redact({"error": error})["error"]
         span.cost_usd = cost_usd
+        span.origin = None if origin is None else self._redact({"origin": origin})["origin"]
         self._db.conn.execute(
-            "UPDATE spans SET ended_at = ?, output_json = ?, error = ?, cost_usd = ? WHERE id = ?",
+            "UPDATE spans SET ended_at = ?, output_json = ?, error = ?, cost_usd = ?, origin = ? WHERE id = ?",
             (span.ended_at.isoformat(), None if span.output is None else json.dumps(span.output), span.error,
-             cost_usd, span.id))
+             cost_usd, span.origin, span.id))
         return span
 
     def tree(self, task_id: str) -> list[SpanNode]:
@@ -55,6 +57,23 @@ class SpanStore:
             parent = nodes.get(node.span.parent_id or "")
             (parent.children if parent else roots).append(node)
         return roots
+
+    def _tree_where(self, root_id: str) -> tuple[str, tuple[Any, ...]]:
+        return "(task_id = ? OR substr(task_id, 1, ?) = ?)", (root_id, len(root_id) + 1, root_id + ".")
+
+    def tool_origins(self, root_id: str) -> set[str]:
+        """Every origin recorded on this task tree's tool results."""
+        where, params = self._tree_where(root_id)
+        rows = self._db.conn.execute(f"SELECT origin FROM spans WHERE kind = 'tool.call' AND {where}", params)
+        return {o for r in rows for o in origin.split(r["origin"])}
+
+    def tool_outputs(self, root_id: str) -> list[tuple[set[str], str]]:
+        """(origins, output text) of this task tree's finished tool calls, in call order."""
+        where, params = self._tree_where(root_id)
+        rows = self._db.conn.execute(f"SELECT origin, output_json FROM spans WHERE kind = 'tool.call' AND {where} "
+                                     "AND output_json IS NOT NULL ORDER BY rowid", params)
+        return [(origin.split(r["origin"]), json.dumps(json.loads(r["output_json"]), ensure_ascii=False)[:20000])
+                for r in rows]
 
     def _task_rows(self, task_id: str) -> list[Any]:
         """Include the intake planner by exact request ID; it ran before the task ID existed."""
@@ -145,7 +164,8 @@ class SpanStore:
         return {"id": row["id"], "kind": row["kind"], "task_id": row["task_id"],
                 "started_at": row["started_at"], "ended_at": row["ended_at"],
                 "input": json.loads(row["input_json"]),
-                "output": json.loads(row["output_json"]) if row["output_json"] else None, "error": row["error"]}
+                "output": json.loads(row["output_json"]) if row["output_json"] else None, "error": row["error"],
+                "origin": row["origin"]}
 
     def tool_calls(self, task_id: str, query: str = '', after: int = 0, limit: int = 20,
                    root_id: str | None = None, kind: str = '') -> dict[str, Any]:
@@ -166,7 +186,7 @@ class SpanStore:
                     "started_at": row["started_at"], "ended_at": row["ended_at"], "error": row["error"],
                     "input_preview": row["input_json"][:500], "input_truncated": len(row["input_json"]) > 500,
                     "read_full": {"tool": "task.evidence", "span_id": row["id"]},
-                    "has_output": row["output_json"] is not None} for row in rows[:limit]]
+                    "has_output": row["output_json"] is not None, "origin": row["origin"]} for row in rows[:limit]]
         return {"records": records, "next_after": rows[limit - 1]["cursor"] if len(rows) > limit else None}
 
 
@@ -176,11 +196,12 @@ def _row_to_span(r: Any) -> Span:
                 ended_at=datetime.fromisoformat(r["ended_at"]) if r["ended_at"] else None,
                 input=json.loads(r["input_json"]),
                 output=json.loads(r["output_json"]) if r["output_json"] else None,
-                cost_usd=r["cost_usd"], error=r["error"])
+                cost_usd=r["cost_usd"], error=r["error"], origin=r["origin"])
 
 
 def _span_record(span: Span) -> dict[str, Any]:
     return {'id': span.id, 'parent_id': span.parent_id, 'task_id': span.task_id, 'kind': span.kind,
             'started_at': span.started_at.isoformat(),
             'ended_at': span.ended_at.isoformat() if span.ended_at else None,
-            'input': span.input, 'output': span.output, 'error': span.error, 'cost_usd': span.cost_usd}
+            'input': span.input, 'output': span.output, 'error': span.error, 'cost_usd': span.cost_usd,
+            'origin': span.origin}

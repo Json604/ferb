@@ -26,6 +26,7 @@ class ActionsSearch:
     identities = {Identity.OWNER, Identity.FERB}
     scopes: set[str] = set()
     risk, reversible = RiskLevel.LOW, True
+    origin = 'ferb'                                    # FERB's own action registry
 
     class Input(BaseModel):
         query: str = ''

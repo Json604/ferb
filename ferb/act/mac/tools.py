@@ -61,6 +61,7 @@ class MacApps(_Base):
     name, description = ("mac.apps", "List the apps running on the owner's Mac (name, bundle id; frontmost = where the "
                          "owner is — FERB works in apps without bringing them forward).")
     scopes = {"mac:read"}
+    origin = "private"                                 # the owner's running apps: local state, no outside text
 
     class Input(BaseModel):
         pass
@@ -125,8 +126,8 @@ class MacMenu(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         items = self._items(args)
         app = str(getattr(args, "app"))
-        if not items:
-            return ToolResult({"menus": await self.driver.menus(app)})
+        if not items:                    # menus can list window and page titles: the app's own sources
+            return ToolResult({"menus": await self.driver.menus(app)}, read_sources=_sources(self._bundle(args)))
         if "mac:act" not in ctx.scopes:
             return _err(f"pressing “{items[-1]}” is acting, which needs mac:act")
         ok = await self.driver.press_menu(app, items)
@@ -224,8 +225,9 @@ class MacAct(_Base):
                                                  allow_foreground=bool(getattr(args, "allow_foreground", False)),
                                                  mechanism=getattr(args, "mechanism", None)),
                                   holder=ctx.worker_id, task=ctx.task_id)
+        # facts are read back from the app (observed values, menu candidates): label them with its sources
         return ToolResult({"ok": r.ok, "detail": r.detail, "facts": r.facts, "next": "take a new snapshot to see the result"},
-                          is_error=not r.ok)
+                          is_error=not r.ok, read_sources=_sources(self._bundle(args)))
 
 
 class MacScreenshot(_Base):
@@ -284,6 +286,7 @@ class MacClick(_Base):
                    "Inspect a fresh snapshot after delivery; no app is restored afterwards.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
+    origin = "ferb"                                    # delivery facts written by FERB; no app text comes back
 
     class Input(_App):
         shot: str = Field(description="shot id from the latest mac_screenshot of this app")

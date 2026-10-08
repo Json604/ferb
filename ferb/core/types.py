@@ -77,6 +77,7 @@ class Span:
     output: dict[str, Any] | None
     cost_usd: float | None
     error: str | None
+    origin: str | None = None  # a tool call's result origins, comma-joined (ferb/core/origin.py)
 
 
 @dataclass

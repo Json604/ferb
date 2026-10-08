@@ -8,8 +8,34 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field
 
+from ferb.core import origin
 from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolResult
 from ferb.store.spans import SpanStore
+
+MEMORY_ORIGINS = {"owner_stated": origin.OWNER, "observed": origin.PRIVATE, "inferred": origin.INFERRED,
+                  "third_party": origin.external("memory")}
+WRAPPER = "<untrusted-data"             # FERB's own marker around pasted/outside text (sanitize/untrusted.py)
+
+
+def memory_origin(item_origin: str) -> str:
+    return MEMORY_ORIGINS.get(item_origin, origin.external("unlabeled"))
+
+
+def record_origins(record: dict[str, Any], task_origins: set[str]) -> set[str]:
+    """Origins of one recorded fact returned by task.evidence. A tool result keeps its recorded origin; a worker's
+    report is model-written from what the task read, so it inherits those origins (MP2); FERB's other records are its
+    own, plus external:paste where FERB itself marked pasted or outside text inside them."""
+    if record.get("kind") == "tool.call":
+        return origin.split(record.get("origin")) or {origin.external("unlabeled")}
+    if record.get("kind") == "worker":
+        return {origin.INFERRED} | task_origins
+    marked = WRAPPER in json.dumps(record, ensure_ascii=False)
+    return {origin.FERB} | ({origin.external("paste")} if marked else set())
+
+
+def _passed(origins: set[str]) -> tuple[tuple[str, str], ...]:
+    """Stored origins handed to the gateway unchanged (from_read_source's "origin" kind)."""
+    return tuple(("origin", o) for o in sorted(origins))
 
 
 class TaskEvidence:
@@ -24,6 +50,7 @@ class TaskEvidence:
     identities = {Identity.OWNER, Identity.FERB}
     scopes = {"task:read"}
     risk, reversible = RiskLevel.LOW, True
+    origin = "ferb"                      # an empty page: "nothing found" is FERB's own answer
 
     class Input(BaseModel):
         query: str = ""
@@ -41,6 +68,7 @@ class TaskEvidence:
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         source = self.parent(ctx.task_id) or ctx.task_id
         root = self.root(ctx.task_id)
+        task_origins = self.spans.tool_origins(root or source)
         if args.span_id:
             row = self.spans.tool_call(source, args.span_id, root_id=root)
             if row is None:
@@ -48,10 +76,12 @@ class TaskEvidence:
             payload = json.dumps(row, ensure_ascii=False)
             end = min(args.offset + args.max_chars, len(payload))
             return ToolResult({"source_task": source, "text": payload[args.offset:end], "offset": args.offset,
-                               "next_offset": end if end < len(payload) else None, "total_chars": len(payload)})
+                               "next_offset": end if end < len(payload) else None, "total_chars": len(payload)},
+                              read_sources=_passed(record_origins(row, task_origins)))
         page = self.spans.tool_calls(source, query=args.query, after=args.after, limit=args.limit,
                                     root_id=root, kind=args.kind)
-        return ToolResult({"source_task": source, **page})
+        origins = {o for record in page["records"] for o in record_origins(record, task_origins)}
+        return ToolResult({"source_task": source, **page}, read_sources=_passed(origins))
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec("read")
@@ -62,13 +92,15 @@ class _PagedFacts:
     identities = {Identity.OWNER, Identity.FERB}
     scopes = {"task:read"}
     risk, reversible = RiskLevel.LOW, True
+    origin = "ferb"                      # an empty page: "nothing found" is FERB's own answer
 
     @staticmethod
-    def page(value: Any, offset: int, size: int) -> ToolResult:
+    def page(value: Any, offset: int, size: int, origins: set[str]) -> ToolResult:
         text = json.dumps(value, ensure_ascii=False, default=str)
         end = min(offset + size, len(text))
         return ToolResult({"text": text[offset:end], "offset": offset,
-                           "next_offset": end if end < len(text) else None, "total_chars": len(text)})
+                           "next_offset": end if end < len(text) else None, "total_chars": len(text)},
+                          read_sources=_passed(origins))
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec("read")
@@ -103,16 +135,18 @@ class ChatHistory(_PagedFacts):
             found = next((row for row in records if row["id"] == requested), None)
             if found is None:
                 return ToolResult({"error": "entry is not in this task's conversation"}, is_error=True)
-            return self.page(found, args.offset, args.max_chars)
+            return self.page(found, args.offset, args.max_chars, origin.split(found.get("origin")))
         if args.query:
             records = [row for row in records if args.query.casefold() in json.dumps(row, ensure_ascii=False).casefold()]
         end = args.after + args.limit
+        shown = records[args.after:end]
         selected = [{"id": row["id"], "kind": row["kind"], "at": row.get("at"),
                      "preview": json.dumps(row["data"], ensure_ascii=False)[:500],
                      "preview_truncated": len(json.dumps(row["data"], ensure_ascii=False)) > 500,
-                     "read_full": {"tool": self.name, "entry_id": row["id"]}} for row in records[args.after:end]]
+                     "read_full": {"tool": self.name, "entry_id": row["id"]}} for row in shown]
         return ToolResult({"records": selected, "next_after": end if end < len(records) else None,
-                           "total_records": len(records)})
+                           "total_records": len(records)},
+                          read_sources=_passed({o for row in shown for o in origin.split(row.get("origin"))}))
 
 
 class MemoryRead(_PagedFacts):
@@ -140,13 +174,16 @@ class MemoryRead(_PagedFacts):
             item = memory.get(args.item_id)
             if item is None:
                 return ToolResult({"error": "no memory item with that id"}, is_error=True)
-            return self.page(asdict(item), args.offset, args.max_chars)
+            return self.page(asdict(item), args.offset, args.max_chars, {memory_origin(item.origin)})
         items = [asdict(item) for item in memory.items(status=None, valid_now=False)]
         if args.query:
             items = [item for item in items if args.query.casefold() in json.dumps(item, default=str).casefold()]
         end = args.after + args.limit
+        shown = items[args.after:end]
         selected = [{"id": item["id"], "kind": item["kind"], "subject": item["subject"],
                      "key": item["key"], "origin": item["origin"], "status": item["status"],
                      "preview": item["content"][:500], "preview_truncated": len(item["content"]) > 500,
-                     "read_full": {"tool": self.name, "item_id": item["id"]}} for item in items[args.after:end]]
-        return ToolResult({"items": selected, "next_after": end if end < len(items) else None, "total_items": len(items)})
+                     "read_full": {"tool": self.name, "item_id": item["id"]}} for item in shown]
+        return ToolResult({"items": selected, "next_after": end if end < len(items) else None,
+                           "total_items": len(items)},
+                          read_sources=_passed({memory_origin(item["origin"]) for item in shown}))

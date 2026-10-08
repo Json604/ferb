@@ -74,6 +74,7 @@ class TimeSleepUntil(_Base):
     name = "time.sleep_until"
     description = ("Pause this task until a time, e.g. to wait for something to be ready. Within the task's time "
                    "limit; waiting doesn't count as being stuck. " + WHEN_HELP)
+    origin = "ferb"                                    # FERB's own clock: when the sleep ended
 
     class Input(When):
         pass

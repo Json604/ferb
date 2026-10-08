@@ -111,6 +111,10 @@ class _Base:
     def _site(self, args: BaseModel) -> str | None:
         return _host(self.driver.tab_url(str(getattr(args, "tab", ""))))
 
+    def _page(self, tab_id: str) -> tuple[tuple[str, str], ...]:
+        """The read source for what a tab's page reported (S3)."""
+        return (("web", self.driver.tab_url(tab_id) or ""),)
+
     def _element(self, args: BaseModel) -> PageElement | None:
         return self.driver.element_info(str(getattr(args, "tab", "")), str(getattr(args, "element", "")))
 
@@ -174,7 +178,8 @@ class BrowserScroll(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         return ToolResult(await self.driver.scroll(ref, str(getattr(args, "direction")),   # type: ignore[attr-defined]
-                                                   getattr(args, "container", None)))
+                                                   getattr(args, "container", None)),
+                          read_sources=self._page(ref.tab_id))
 
 
 class BrowserFind(_Base):
@@ -217,6 +222,7 @@ class BrowserRead(_Base):
 class BrowserProfiles(_Base):
     verb = "profiles"
     blurb = "List all discovered owner browser profiles with exact browser/folder, display name, account and connection evidence. You choose the profile; ambiguous identity requires owner clarification."
+    origin = "private"                                 # the owner's own profiles: local state, no outside text
     class Input(BaseModel):
         pass
     def describe(self, args: BaseModel) -> ActionSpec:
@@ -237,7 +243,8 @@ class BrowserDialog(_Base):
         return self._spec(Kind.CLICK if getattr(args, "decision") else Kind.READ, args)
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(args.tab, ctx.task_id)
-        return ToolResult(await self.driver.dialog(ref, args.decision, args.text))  # type: ignore[attr-defined]
+        return ToolResult(await self.driver.dialog(ref, args.decision, args.text),  # type: ignore[attr-defined]
+                          read_sources=self._page(ref.tab_id))         # the dialog's message is the page's text
 
 
 class BrowserTabs(_Base):
@@ -247,6 +254,7 @@ class BrowserTabs(_Base):
     blurb = ("List the tabs the owner has open in their connected browser profiles: a tab_ref, the site, and whether "
              "it's the active tab. Use it when the owner refers to a tab they already have open (\"my current "
              "YouTube tab\"), then {p}_use_tab.")
+    origin = "private"                                 # no tabs listed: the owner's browser state
 
     class Input(BaseModel):
         profile: str | None = Field(default=None, description="a profile the owner named (optional)")
@@ -255,8 +263,8 @@ class BrowserTabs(_Base):
         return ActionSpec(Kind.READ, Target())
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
-        return ToolResult({"tabs": await self.driver.open_tabs(getattr(args, "profile"),    # type: ignore[attr-defined]
-                                                               ctx.task_id)})
+        tabs = await self.driver.open_tabs(getattr(args, "profile"), ctx.task_id)   # type: ignore[attr-defined]
+        return ToolResult({"tabs": tabs}, read_sources=tuple(("web", str(t.get("url") or "")) for t in tabs))
 
 
 class BrowserUseTab(_Base):
@@ -289,7 +297,8 @@ class BrowserNavigate(_Base):
         check_url(str(getattr(args, "url")))
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         await self.driver.navigate(ref, str(getattr(args, "url")))
-        return ToolResult({"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)})
+        return ToolResult({"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)},
+                          read_sources=self._page(ref.tab_id))
 
 
 class BrowserSnapshot(_Base):
@@ -429,8 +438,9 @@ class BrowserAct(_Base):
                                                     files=tuple(getattr(args, "files", None) or ()),
                                                     end_element=getattr(args, "end_element", None)),
                                   ctx.intent_id or "")
+        # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         return ToolResult({"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"},
-                          is_error=not r.ok)
+                          is_error=not r.ok, read_sources=self._page(ref.tab_id))
 
 
 class BrowserLoginCode(_Base):
@@ -481,7 +491,7 @@ class BrowserWait(_Base):
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
         ok = await self.driver.wait(ref, WaitCondition(getattr(args, "until"), getattr(args, "value")),
                                     float(getattr(args, "timeout_s")))
-        return ToolResult({"met": ok})
+        return ToolResult({"met": ok}, read_sources=self._page(ref.tab_id))
 
 
 class BrowserClose(_Base):
@@ -576,7 +586,9 @@ class BrowserOtpCandidates(BrowserFillOtp):
         return ActionSpec(Kind.READ, Target(site=self._site(args), account=_account(self.driver,args)))
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
         tab=self.driver.owned_by(args.tab,ctx.task_id)
-        return ToolResult(await self.driver.otp_candidates(self.driver.element_ref(tab,args.element),SecretRef(args.secret)))  # type: ignore[attr-defined]
+        found = await self.driver.otp_candidates(self.driver.element_ref(tab,args.element),SecretRef(args.secret))  # type: ignore[attr-defined]
+        senders = tuple(("email", str(c.get("sender") or "")) for c in found.get("candidates", []))
+        return ToolResult(found, read_sources=senders or (("email", "inbox"),))   # FERB's inbox: other people's mail
 
 
 def _accounts(driver: IdentityDriver) -> str:
