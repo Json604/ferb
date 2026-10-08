@@ -16,7 +16,7 @@ from ferb.act.mac.window_input import load_route
 from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, click_steps, key_steps,
                                 normalize, pointer_steps, type_steps, valid_combo, wheel_steps)
 from ferb.act.mac.profile import Profiles
-from ferb.core.errors import Refused, StaleRef
+from ferb.core.errors import NoTarget, Refused, StaleRef
 from ferb.core.types import ActionResult, ComputerAction
 
 UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "net.whatsapp.WhatsApp": "message",
@@ -278,7 +278,7 @@ class MacComputerDriver:
                     raise Refused("no unique reachable window matches that exact title; choose a window id")
                 w = self.shots.front_window(a.pid, self.ax.frame(axwin))
             if w is None:
-                raise Refused(f"{a.name} has no unique capture target; choose an exact window id from mac.snapshot")
+                raise NoTarget(f"{a.name} has no unique capture target; choose an exact window id from mac.snapshot")
             return w
 
         async def check(w: Any, fresh: bool) -> None:
@@ -294,7 +294,9 @@ class MacComputerDriver:
                 if marks:
                     return self.shots.capture(w, marks=marks)     # type: ignore[no-any-return]
                 return self.shots.capture(w)                  # type: ignore[no-any-return]
-            except (LookupError, RuntimeError, TimeoutError) as e:
+            except LookupError as e:                          # the window went away: nothing was captured
+                raise NoTarget(f"couldn't capture {a.name}'s window: {e}") from None
+            except (RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
         w = await asyncio.to_thread(find)
         await check(w, fresh=False)

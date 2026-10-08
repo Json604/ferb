@@ -183,8 +183,8 @@ class MacSnapshot(_Base):
 @dataclass(frozen=True)
 class AppWindow:
     """FERB's own picture of the window of an app a worker started on (D26), for the evidence store."""
-    image: bytes
-    rects: list[Box]                                   # the secret fields its tree shows, image pixels: masked when stored
+    image: bytes | None                                # None: facts only (a messaging or mail app, until F5)
+    rects: list[Box]                         # the secret fields its tree shows, image pixels: masked when stored
     facts: dict[str, Any]
     read_sources: tuple[tuple[str, str], ...]
 
@@ -193,12 +193,16 @@ async def app_window(driver: MacComputerDriver, app: str, scopes: Collection[str
     """One background picture of the app's front window (never the desktop, never brought forward, never the app's
     latest shot), under mac.snapshot's image rules: the screen scope and the owner's `[mac] snapshot_image` on, not a
     browser (its window shows the owner's current tab, not the task's: browser.screenshot captures that), and no frame
-    while a password field shows (Refused). None: nothing to take under those rules."""
+    while a password field shows (Refused). No window yet: NoTarget. None: nothing to take under those rules."""
     if "screen" not in scopes or not driver.snapshot_images():
         return None
     a = driver.app(app)
     if is_browser(a.bundle_id):
         return None
+    if a.bundle_id in UNTRUSTED_APPS:      # rule 14 until F5's code redaction: a one-time code can be in a message
+        return AppWindow(None, [], {"app": a.name, "bundle_id": a.bundle_id, "image_withheld": "a messaging or mail "
+                                    "app, where one-time codes arrive: facts only until F5's screenshot redaction"},
+                         _sources(a.bundle_id))           # nothing is captured
     a, shot, jpeg = await driver.window_image(f"pid:{a.pid}")
     return AppWindow(jpeg, to_image_boxes(driver.secret_fields(a.bundle_id), shot.bounds, shot.size),
                      {"app": a.name, "bundle_id": a.bundle_id, "window_id": shot.window, "width": shot.size[0],

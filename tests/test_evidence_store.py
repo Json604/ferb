@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from ferb.act.evidence import mask
 from ferb.act.evidence.store import EvidenceStore
 from ferb.act.mac.accessibility import AxNode, AxTree
+from ferb.act.mac.apps import RunningApp
 from ferb.config import Config
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, Task, ToolResult
 from ferb.orchestrator.tree import TaskRecord
@@ -23,7 +24,8 @@ from tests.mackit import _fake_mac, gateway_call, grant_task
 
 def test_put_and_read_round_trip(daemon: RunningDaemon) -> None:
     store = daemon.daemon.evidence
-    eid = daemon.run(_put(store, "t1", "s1", "snapshot", data={"title": "Inbox"}, origin="external:web:mail.google.com"))
+    eid = daemon.run(_put(store, "t1", "s1", "snapshot", data={"title": "Inbox"},
+                          origin="external:web:mail.google.com"))
     rows = daemon.run(_list(store, "t1"))
     assert len(rows) == 1 and rows[0]["kind"] == "snapshot" and rows[0]["origin"] == "external:web:mail.google.com"
     assert rows[0]["has_image"] is False and rows[0]["path"] is None and rows[0]["span_id"] == "s1"
@@ -129,7 +131,8 @@ def test_secret_text_in_evidence_data_is_redacted(daemon: RunningDaemon) -> None
 
 def test_a_tool_image_is_kept_as_evidence_and_the_trace_points_at_it(daemon: RunningDaemon) -> None:
     img = _solid_jpeg(16, 12)
-    shot = _ImageTool("probe.screenshot", img, {"shot": "bs-1", "width": 16, "height": 12, "url": "https://x.example/a"},
+    shot = _ImageTool("probe.screenshot", img,
+                      {"shot": "bs-1", "width": 16, "height": 12, "url": "https://x.example/a"},
                       reads=(("web", "https://x.example/a"),))
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look at the page"), [shot])
     r = gateway_tool_call(daemon, grant, "probe.screenshot")
@@ -254,6 +257,127 @@ def test_a_failed_app_window_capture_is_logged_and_never_fails_the_call(daemon: 
     assert daemon.run(_q(daemon, "SELECT count(*) FROM spans WHERE kind = 'evidence.app_window'")) == 1   # once
 
 
+# ---------- fix round 1: what never gets pixels on disk, and store hardening ----------
+
+def test_a_browser_window_a_hostless_page_or_a_recording_contact_sheet_keeps_facts_only(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    # D29: a browser's window shows the owner's own tab (an excluded or private page included); a contact sheet
+    # duplicates the recording file, which is the evidence itself.
+    _fake_mac(daemon, monkeypatch)
+    assert isinstance(daemon.daemon.redact, Redactor)
+    daemon.daemon.redact.configure({"bank.example"}, set())
+    g = grant_task(daemon, "b", Identity.OWNER, {"screen"}, {"use_app"})
+    r = gateway_call(daemon, g, "mac.screenshot", app="Brave")
+    assert not r["is_error"] and "image" in r                         # the worker still sees it
+    img = _solid_jpeg(16, 12)
+    sheet = _ImageTool("recording.inspect", img, {"path": "/tmp/r.mp4", "duration_s": 3.0},
+                       reads=(("recording", "rec-1"),))
+    hostless = _ImageTool("probe.screenshot", img, {"shot": "bs-3"}, reads=(("web", ""),))
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [sheet, hostless])
+    gateway_tool_call(daemon, grant, "recording.inspect")
+    gateway_tool_call(daemon, grant, "probe.screenshot")
+    rows = daemon.run(_list(daemon.daemon.evidence, "b")) + daemon.run(_list(daemon.daemon.evidence, "task-1"))
+    assert [(r["kind"], r["has_image"]) for r in rows] == [("screenshot", False), ("recording", False),
+                                                          ("screenshot", False)]
+    assert all(r["data"]["image_withheld"] for r in rows) and rows[1]["data"]["path"] == "/tmp/r.mp4"
+    assert not [p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]
+
+
+def test_messaging_and_mail_apps_keep_facts_only_until_f5(daemon: RunningDaemon,
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    # Rule 14: one-time codes arrive in messages and mail, which accessibility masking can't see.
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    _menus(daemon)
+    daemon.daemon.mac.apps.apps.append(RunningApp("com.apple.mail", "Mail", 15, False))   # type: ignore[union-attr]
+    shooter = grant_task(daemon, "s", Identity.OWNER, {"screen"}, {"use_app"})
+    r = gateway_call(daemon, shooter, "mac.screenshot", app="Mail")
+    assert not r["is_error"] and "image" in r
+    looker = grant_task(daemon, "l", Identity.OWNER, {"mac:read", "screen"}, "look at my mail")
+    gateway_call(daemon, looker, "mac.menu", app="Mail")
+    assert shots.captured == [150]                                  # the worker's own screenshot only: no first look
+    rows = daemon.run(_list(daemon.daemon.evidence, "s")) + daemon.run(_list(daemon.daemon.evidence, "l"))
+    assert [(r["kind"], r["has_image"]) for r in rows] == [("screenshot", False), ("app_window", False)]
+    assert all("F5" in r["data"]["image_withheld"] for r in rows)
+    assert {r["origin"] for r in rows} == {"external:email:com.apple.mail,private"}
+    assert not [p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]
+
+
+def test_a_first_look_waits_for_the_window_but_a_password_refusal_counts(daemon: RunningDaemon,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    _menus(daemon)
+    shots.front_window = lambda pid, like=None: None                # type: ignore[method-assign]   # no window yet
+    g = grant_task(daemon, "w", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
+    gateway_call(daemon, g, "mac.menu", app="Notes")
+    assert daemon.run(_q(daemon, "SELECT count(*) FROM spans WHERE kind = 'evidence.app_window'")) == 0
+    del shots.front_window                                          # the window appeared
+    gateway_call(daemon, g, "mac.menu", app="Notes")
+    assert [r["kind"] for r in daemon.run(_list(daemon.daemon.evidence, "w"))] == ["app_window"]
+    daemon.daemon.mac.ax.secure = [True]                            # type: ignore[union-attr]
+    p = grant_task(daemon, "p", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
+    gateway_call(daemon, p, "mac.menu", app="Notes")
+    gateway_call(daemon, p, "mac.menu", app="Notes")
+    errors = daemon.run(_all(daemon, "SELECT error FROM spans WHERE kind = 'evidence.app_window' AND task_id = 'p'"))
+    assert len(errors) == 1 and "password" in errors[0]             # refused once, and that was its first look
+
+
+def test_masking_for_a_first_look_runs_off_the_event_loop(daemon: RunningDaemon,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    _menus(daemon)
+    shots.jpeg = _solid_jpeg(1600, 1200)
+    field = AxNode(None, "textbox", "Password", "filled", (150.0, 100.0, 100.0, 50.0), True, True)
+    daemon.daemon.mac.ax.tree = AxTree(nodes=[field])               # type: ignore[union-attr]
+    threads: list[int] = []
+    real = mask.mask_secret_fields
+
+    def recorded(image: bytes, rects: Any) -> bytes:
+        threads.append(threading.get_ident())
+        return real(image, rects)
+    monkeypatch.setattr(mask, "mask_secret_fields", recorded)
+    gateway_call(daemon, grant_task(daemon, "t", Identity.OWNER, {"mac:read", "screen"}, "notes"), "mac.menu",
+                 app="Notes")
+    assert threads and daemon.thread.ident not in threads
+
+
+def test_a_store_error_in_the_trace_names_its_type_not_a_path(daemon: RunningDaemon,
+                                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    def full(*a: Any, **k: Any) -> str:
+        raise PermissionError(13, "Permission denied", "/Users/someone/.ferb/evidence/2026-01-01/x.jpg")
+    monkeypatch.setattr(daemon.daemon.evidence, "put", full)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"),
+                             [_ImageTool("probe.screenshot", _solid_jpeg(8, 8), {"shot": "bs-1"})])
+    assert not gateway_tool_call(daemon, grant, "probe.screenshot")["is_error"]
+    out = json.loads(daemon.run(_q(daemon, "SELECT output_json FROM spans WHERE kind = 'tool.call'")))
+    assert out["evidence_error"] == "PermissionError (errno 13)"
+
+
+def test_the_store_needs_an_origin_writes_no_orphan_file_and_never_deletes_outside_itself(
+        daemon: RunningDaemon) -> None:
+    store = daemon.daemon.evidence
+    with pytest.raises(TypeError):
+        store.put("t1", "s1", "snapshot", data={"a": 1})            # type: ignore[call-arg]   # origin is required
+
+    def boom(obj: Any) -> Any:
+        raise RuntimeError("redactor broke")
+    broken = EvidenceStore(store.root, store.clock, store.ids, boom, store.db)
+    with pytest.raises(RuntimeError):
+        daemon.run(_put(broken, "t1", "s1", "screenshot", image=_solid_jpeg(8, 8), data={"a": 1}, origin="ferb"))
+    assert not [p for p in store.root.rglob("*") if p.is_file()]   # no file without its row
+    outside = store.root.parent / "keep-me.txt"
+    outside.write_text("not FERB's evidence")
+
+    async def planted() -> None:
+        daemon.daemon.db.conn.execute(
+            "INSERT INTO evidence (id, task_id, kind, mime, path, origin, captured_at) VALUES "
+            "('bad', 't1', 'screenshot', 'image/jpeg', '../keep-me.txt', 'ferb', '2000-01-01T00:00:00+00:00')")
+    daemon.run(planted())
+    assert daemon.run(_read(store, "bad"))[1] is None
+    assert daemon.run(_purge(store, daemon.daemon.clock.now().isoformat())) == 1
+    assert outside.read_text() == "not FERB's evidence" and daemon.run(_list(store, "t1")) == []
+
+
 # ---------- helpers ----------
 
 class _ImageTool:
@@ -307,7 +431,7 @@ def _white(px: tuple[int, int, int]) -> bool:
 
 async def _put(store: EvidenceStore, task_id: str, span_id: str, kind: str, *, image: bytes | None = None,
                data: dict[str, Any] | None = None, rects: list[tuple[int, int, int, int]] | None = None,
-               origin: str = "ferb") -> str:
+               origin: str) -> str:
     return store.put(task_id, span_id, kind, image=image, data=data, rects=rects, origin=origin)
 
 
@@ -332,6 +456,10 @@ async def _age(daemon: RunningDaemon, at: str, eid: str | None = None) -> None:
 
 async def _q(daemon: RunningDaemon, sql: str) -> Any:
     return daemon.daemon.db.conn.execute(sql).fetchone()[0]
+
+
+async def _all(daemon: RunningDaemon, sql: str) -> list[Any]:
+    return [r[0] for r in daemon.daemon.db.conn.execute(sql).fetchall()]
 
 
 async def _raw(daemon: RunningDaemon, eid: str) -> dict[str, Any]:

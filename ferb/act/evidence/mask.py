@@ -21,8 +21,8 @@ def mask_secret_fields(image: bytes, rects: list[Box]) -> bytes:
     Quartz.CGContextSetRGBFillColor(ctx, 0.0, 0.0, 0.0, 1.0)
     for x, y, w, h in rects:
         left, top, right, bottom = max(0, x), max(0, y), min(iw, x + w), min(ih, y + h)
-        if right > left and bottom > top:
-            Quartz.CGContextFillRect(ctx, Quartz.CGRectMake(left, ih - bottom, right - left, bottom - top))  # bottom-left origin
+        if right > left and bottom > top:                    # CoreGraphics' origin is bottom-left
+            Quartz.CGContextFillRect(ctx, Quartz.CGRectMake(left, ih - bottom, right - left, bottom - top))
     from ferb.act.mac.screenshot import _jpeg                  # the screenshot path's own encoder and quality
     return _jpeg(Quartz.CGBitmapContextCreateImage(ctx))
 

@@ -10,13 +10,17 @@ import base64
 import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
 from ferb.act.fs.files import normalize_path
 from ferb.act.locks import ResourceLocks
+from ferb.act.mac.ax_browser import BROWSER_BUNDLES
+from ferb.act.mac.driver import UNTRUSTED_APPS
 from ferb.clock import context
 from ferb.core import origin
+from ferb.core.errors import NoTarget, Refused
 from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
@@ -37,6 +41,11 @@ OWNER_ASK = "owner.ask"
 _SEND_KINDS = {Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.PAY}
 APP_WINDOW_TIMEOUT_S = 10.0              # a first look that takes longer is dropped (logged); the call goes on
 SECRET_WITHHELD = "secret field without a maskable rect"
+RECORDING_WITHHELD = "a recording's frames: the recording file itself is the evidence"
+BROWSER_WITHHELD = "a browser window or a page with no known host: it may show the owner's own tabs"
+MESSAGES_WITHHELD = "a messaging or mail app, where one-time codes arrive: facts only until F5's screenshot redaction"
+_BROWSERS = {b.lower() for b in BROWSER_BUNDLES}
+_MESSAGE_APPS = {b.lower() for b in UNTRUSTED_APPS}
 IMAGE_FACTS = ("app", "bundle_id", "window", "title", "url", "tab", "shot", "width", "height", "window_id", "path",
                "duration_s", "sample_times_s")
 
@@ -55,6 +64,37 @@ def image_facts(tool: str, content: dict[str, Any]) -> dict[str, Any]:
     if isinstance(content.get("elements"), list):
         facts["elements"] = len(content["elements"])
     return facts
+
+
+def pixels_withheld(tool: str, app: str | None, read_sources: tuple[tuple[str, str], ...]) -> str | None:
+    """Why an image keeps facts only, with no pixels on disk; None keeps it. `app`: a mac.* tool's target bundle id.
+    - A recording's contact sheet: the recording file is the evidence, and its frames can show excluded pages.
+    - D29: a browser app's window, or a web source with no host: it can show the owner's own tab, excluded or private
+      (the host the exclusion list needs is unknown).
+    - Rule 14, until F5: a messaging or mail app (UNTRUSTED_APPS), where one-time codes arrive. Accessibility masking
+      can't see a code in a message body, and the checker reads those apps through accessibility snapshots.
+      F5 lifts this rule once code redaction of screenshots exists."""
+    bundle = (app or "").lower() if tool.startswith("mac.") else ""
+    if tool.startswith("recording."):
+        return RECORDING_WITHHELD
+    if bundle in _BROWSERS or any(kind == "web" and not _host(ident) for kind, ident in read_sources):
+        return BROWSER_WITHHELD
+    if bundle in _MESSAGE_APPS or any(kind in ("email", "message") for kind, _ in read_sources):
+        return MESSAGES_WITHHELD
+    return None
+
+
+def _host(url: str) -> str | None:
+    try:
+        return urlsplit(url).hostname if "://" in url else None
+    except ValueError:                                 # a malformed URL from outside content has no known host
+        return None
+
+
+def error_name(e: BaseException) -> str:
+    """An error for the trace by type (and errno) only: its text can hold an absolute path."""
+    errno = getattr(e, "errno", None) if isinstance(e, OSError) else None
+    return type(e).__name__ + (f" (errno {errno})" if errno is not None else "")
 
 
 def shows_secret_field(content: dict[str, Any]) -> bool:
@@ -335,7 +375,7 @@ class Gateway:
         content = self.redact(result.content)
         output = content
         if result.image is not None and not result.is_error and self.evidence is not None:
-            output = content | self._keep_image(name, spec, grant, span.id, content, result.image, origins)
+            output = content | self._keep_image(name, spec, grant, span.id, content, result, origins)
         self._finish_call(span, name, content, result.is_error, output=output,
                           error=content.get("error") if result.is_error else None, origins=origins)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
@@ -350,31 +390,36 @@ class Gateway:
         return self._looked.setdefault((grant.task_id, grant.worker_id), set())
 
     def _keep_image(self, name: str, spec: Any, grant: RunGrant, span_id: str, content: dict[str, Any],
-                    image: bytes, origins: set[str]) -> dict[str, str]:
+                    result: Any, origins: set[str]) -> dict[str, str]:
         """V1: the image a tool produced is kept as evidence the checker can re-inspect (on the owner's Mac for
-        retention.evidence_days, 7); the span's output names it. The capture floor already drops a frame showing an accessibility-known password
-        field. A result that still lists one has no image-pixel box to mask it with, and a site on the owner's
-        exclusion list is never recorded: those keep facts only. Never fatal: the result reaches the worker anyway."""
+        retention.evidence_days, 7); the span's output names it. The capture floor already drops a frame showing an
+        accessibility-known password field. Facts only, no pixels: a site on the owner's exclusion list (never
+        recorded), what `pixels_withheld` names, and a result that still lists a secret field (no image-pixel box to
+        mask it with). Never fatal: the result reaches the worker anyway."""
         facts = image_facts(name, content)
-        kept: bytes | None = image
+        kept: bytes | None = result.image
+        withheld = pixels_withheld(name, spec.target.site, result.read_sources)
         if origin.external("web", "excluded") in origins:
             kept, facts = None, {"tool": name, "image_withheld": "a site on the owner's exclusion list"}
+        elif withheld:
+            kept, facts["image_withheld"] = None, withheld
         elif shows_secret_field(content):
             kept, facts["image_withheld"] = None, SECRET_WITHHELD
         try:
             eid = self.evidence.put(grant.task_id, span_id, evidence_kind(name), image=kept, data=facts,
                                     origin=origin.join(origins))
         except Exception as e:
-            return {"evidence_error": f"{type(e).__name__}: {e}"}
-        if kept is not None and name.startswith("mac.") and spec.target.site:
-            self._looked_at(grant).add(spec.target.site.lower())    # the worker's first look at that app: this image
+            return {"evidence_error": error_name(e)}
+        if name.startswith("mac.") and spec.target.site:            # this image (kept or facts only) was the
+            self._looked_at(grant).add(spec.target.site.lower())    # worker's first look at that app
         return {"evidence": eid}
 
     async def _first_look(self, name: str, spec: Any, grant: RunGrant, rec: Any, after: str) -> None:
         """D26, D29: when a worker starts on a Mac app (its first mac.* call there that worked), FERB keeps one picture
         of that app's window as evidence, unless the call itself returned one. Background only: one window, never the
         desktop, never brought forward, never the worker's shot. Best effort: a failure is recorded on its own span and
-        never fails the call. Nothing to take (no screen scope, images off, a browser) records nothing."""
+        never fails the call. Nothing to take (no screen scope, images off, a browser) records nothing; no window yet
+        (NoTarget) records nothing and leaves the first look to a later call. A refusal (a password field) counts."""
         app = spec.target.site
         if self.app_window is None or self.evidence is None or not name.startswith("mac.") or not app:
             return
@@ -387,19 +432,27 @@ class Gateway:
             shot = await asyncio.wait_for(self.app_window(app, grant.scopes), APP_WINDOW_TIMEOUT_S)
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            error = f"{type(e).__name__}: {e}"
+        except NoTarget:
+            looked.discard(app.lower())
+            return
+        except Exception as e:                                      # a refusal's text is FERB's own and safe to show
+            error = f"{type(e).__name__}: {e}" if isinstance(e, Refused) else error_name(e)
         if shot is None and error is None:
             return
         span = self.spans.start("evidence.app_window", task_id=grant.task_id, parent_id=rec.span_id,
                                 device_id=self.device_id, input={"app": app, "after": name, "after_span": after})
         if shot is not None:
             origins = without_excluded_hosts(result_origins(shot.read_sources, None, Kind.READ), self.excluded_host)
+            facts, image = dict(shot.facts), shot.image
+            withheld = pixels_withheld(name, app, shot.read_sources)
+            if withheld:                                            # second layer: the capture helper drops these too
+                facts["image_withheld"], image = withheld, None
             try:
-                eid = self.evidence.put(grant.task_id, span.id, "app_window", image=shot.image, data=shot.facts,
-                                        rects=shot.rects, origin=origin.join(origins))
+                eid = await self.evidence.put_async(grant.task_id, span.id, "app_window", image=image, data=facts,
+                                                    rects=shot.rects if image is not None else None,
+                                                    origin=origin.join(origins))
             except Exception as e:
-                error = f"{type(e).__name__}: {e}"
+                error = error_name(e)
         self.spans.finish(span, output={"evidence": eid} if eid else None, error=error)
 
     def _finish_call(self, span: Any, name: str, content: dict[str, Any], is_error: bool, *,

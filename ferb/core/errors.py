@@ -34,6 +34,10 @@ class StaleRef(Refused):
     """A tab or element reference from an older snapshot, navigation or connection generation."""
 
 
+class NoTarget(Refused):
+    """What was asked for isn't there right now (e.g. an app with no window yet); nothing was attempted."""
+
+
 class DriverError(FerbError):
     """A driver failed or needs an explicit route; optional facts contain observations, not command arguments."""
 

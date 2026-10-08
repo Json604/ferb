@@ -3,6 +3,7 @@ secret value: text passes through the redactor, screenshots have their accessibi
 they are written (ferb/act/evidence/mask.py), and an image whose fields can't be masked is never written. Files live
 under ~/.ferb/evidence, never sent anywhere; this is the owner's own Mac."""
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -21,9 +22,11 @@ class EvidenceStore:
 
     def put(self, task_id: str, span_id: str | None, kind: str, *, image: bytes | None = None,
             data: dict[str, Any] | None = None, rects: list[mask.Box] | None = None,
-            mime: str = "image/jpeg", origin: str = "ferb") -> str:
+            mime: str = "image/jpeg", origin: str) -> str:
         """One capture: the image (masked first when `rects` name secret fields) under root/<day>/<id>.<ext>, and its
-        row. An image that can't be masked is dropped and the row says so (data only)."""
+        row. An image that can't be masked is dropped and the row says so (data only). Every row says where its
+        content came from (`origin`, ferb/core/origin.py: MP2), so it has no default. On the event loop with `rects`,
+        use `put_async`: masking decodes and re-encodes the image."""
         eid = str(self.ids.new_id())
         at = self.clock.now()
         if image is not None and rects:
@@ -31,6 +34,8 @@ class EvidenceStore:
                 image = mask.mask_secret_fields(image, rects)       # opaque over AX-known secret fields
             except ValueError:
                 image, data = None, {**(data or {}), "image_withheld": UNMASKABLE}
+        # Everything that can fail before the row is written runs before the file is: no file without its row.
+        payload = json.dumps(self.redact(data), ensure_ascii=False, default=str) if data is not None else None
         rel = None
         if image is not None:
             day = at.astimezone().date().isoformat()
@@ -39,7 +44,6 @@ class EvidenceStore:
             fd = os.open(self.root / rel, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as f:
                 f.write(image)
-        payload = json.dumps(self.redact(data), ensure_ascii=False, default=str) if data is not None else None
         try:
             self.db.conn.execute(
                 "INSERT INTO evidence (id, task_id, span_id, kind, mime, path, data_json, origin, captured_at) "
@@ -51,6 +55,18 @@ class EvidenceStore:
             raise
         return eid
 
+    async def put_async(self, task_id: str, span_id: str | None, kind: str, *, image: bytes | None = None,
+                        data: dict[str, Any] | None = None, rects: list[mask.Box] | None = None,
+                        mime: str = "image/jpeg", origin: str) -> str:
+        """`put` for the daemon's event loop: the masking (decode, fill, encode) runs in a worker thread; the row and
+        the file are written on the loop, which owns the database connection."""
+        if image is not None and rects:
+            try:
+                image = await asyncio.to_thread(mask.mask_secret_fields, image, rects)
+            except ValueError:
+                image, data = None, {**(data or {}), "image_withheld": UNMASKABLE}
+        return self.put(task_id, span_id, kind, image=image, data=data, mime=mime, origin=origin)
+
     def list(self, task_id: str) -> list[dict[str, Any]]:
         rows = self.db.conn.execute(
             "SELECT * FROM evidence WHERE task_id = ? ORDER BY captured_at, rowid", (task_id,))
@@ -60,7 +76,8 @@ class EvidenceStore:
         r = self.db.conn.execute("SELECT * FROM evidence WHERE id = ?", (evidence_id,)).fetchone()
         if r is None:
             raise KeyError(evidence_id)
-        return _meta(r), (self.root / r["path"]).read_bytes() if r["path"] else None
+        path = self._inside(r["path"])
+        return _meta(r), path.read_bytes() if path is not None else None
 
     def purge_before(self, cutoff_iso: str) -> int:
         """Delete captures older than the cutoff, file first: a file that can't be deleted keeps its row for the next
@@ -68,9 +85,10 @@ class EvidenceStore:
         rows = self.db.conn.execute("SELECT id, path FROM evidence WHERE captured_at < ?", (cutoff_iso,)).fetchall()
         gone: list[str] = []
         for r in rows:
-            if r["path"]:
+            path = self._inside(r["path"])
+            if path is not None:                                    # a path outside the store is never deleted
                 try:
-                    (self.root / r["path"]).unlink(missing_ok=True)
+                    path.unlink(missing_ok=True)
                 except OSError:
                     continue
             gone.append(r["id"])
@@ -84,6 +102,13 @@ class EvidenceStore:
         except OSError:
             pass
         return len(gone)
+
+    def _inside(self, rel: str | None) -> Path | None:
+        """The row's file, only when it resolves inside the store (symlinks followed); else None."""
+        if not rel:
+            return None
+        path = (self.root / rel).resolve()
+        return path if path.is_relative_to(self.root.resolve()) else None
 
 
 def _meta(r: Any) -> dict[str, Any]:
