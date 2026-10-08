@@ -23,26 +23,29 @@ def memory_origin(item_origin: str) -> str:
 
 def inherits(record: dict[str, Any]) -> bool:
     """Whether this record's label includes the task's origins (record_origins), so they must be read for it."""
-    return record.get("kind") == "tool.call" or (record.get("kind") == "worker" and not record.get("origin"))
+    return record.get("kind") in ("tool.call", "task") or (record.get("kind") == "worker" and not record.get("origin"))
 
 
 def record_origins(record: dict[str, Any], task_origins: set[str]) -> set[str]:
     """Origins of one recorded fact returned by task.evidence (MP2). A tool call holds its result (its recorded
     origin; unlabeled when recorded before F3) and the worker-written input, which a model wrote from what the task
-    read: inferred plus the task's origins. Any other record keeps its recorded origin; a context source recorded
-    before F3 is unlabeled; a worker's report inherits like a tool call's input; FERB's other records are its own,
-    plus external:paste where FERB itself marked pasted or outside text inside them."""
+    read: inferred plus the task's origins. The root task record holds the owner's request (input, with
+    external:paste where FERB's own wrapper marks pasted text) and a model-written summary (output). Any other record
+    keeps its recorded origin; a context source recorded before F3 is unlabeled; a worker's report inherits like a
+    tool call's input; FERB's other records are its own, plus external:paste where FERB marked pasted text."""
     recorded = origin.split(record.get("origin"))
+    marked = {origin.external("paste")} if WRAPPER in json.dumps(record, ensure_ascii=False) else set()
     if record.get("kind") == "tool.call":
         return (recorded or {origin.external("unlabeled")}) | {origin.INFERRED} | task_origins
+    if record.get("kind") == "task":
+        return recorded | {origin.OWNER} | marked | {origin.INFERRED} | task_origins
     if recorded:
         return recorded
     if record.get("kind") == "context.source":
         return {origin.external("unlabeled")}
     if record.get("kind") == "worker":
         return {origin.INFERRED} | task_origins
-    marked = WRAPPER in json.dumps(record, ensure_ascii=False)
-    return {origin.FERB} | ({origin.external("paste")} if marked else set())
+    return {origin.FERB} | marked
 
 
 def _passed(origins: set[str]) -> tuple[tuple[str, str], ...]:
