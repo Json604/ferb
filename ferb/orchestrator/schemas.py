@@ -124,6 +124,15 @@ class Check(BaseModel):
     expected: str | None
     tool: str | None = None        # after_change / after_value: the tool whose latest call is read (default: any acting call)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_ledger_done(cls, data: Any) -> Any:
+        """A spec saved before V6 may carry kind ledger_done; it is an unchecked condition now (the checker reads the
+        text), so a saved task still continues. The planner's schema no longer offers it."""
+        if isinstance(data, dict) and data.get("kind") == "ledger_done":
+            return {**data, "kind": "none"}
+        return data
+
 
 class Condition(BaseModel):
     text: str

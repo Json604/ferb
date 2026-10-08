@@ -40,3 +40,39 @@ def test_an_unconfirmed_condition_shows_how_to_check_it() -> None:
     text = _report(tree, results, Outcome("t", "done", "s", [], []), "Done, but not confirmed:", "")  # type: ignore[arg-type]
     assert "- the email was sent — unverified: Sent wasn't readable\n  To check: Open Gmail and look in Sent." in text
     assert text.count("To check:") == 1
+
+
+def _old_spec_json() -> str:
+    from ferb.orchestrator.schemas import TaskSpec
+    spec = TaskSpec.model_validate({
+        "goal": "like it", "identity": "owner", "targets": {"apps": [], "sites": [], "paths": [], "recipients": []},
+        "success_conditions": [{"text": "liked", "check": {"kind": "none", "path": None, "text": None,
+                                "url_contains": None, "site": None, "expected": "Spotify like"}}]})
+    d = spec.model_dump()
+    d["success_conditions"][0]["check"]["kind"] = "ledger_done"      # a spec saved before V6
+    import json
+    return json.dumps(d)
+
+
+def test_a_saved_spec_with_ledger_done_still_loads_as_an_unchecked_condition() -> None:
+    from ferb.orchestrator.schemas import TaskSpec
+    spec = TaskSpec.model_validate_json(_old_spec_json())
+    check = spec.success_conditions[0].check
+    assert check.kind == "none" and check.expected == "Spotify like"
+    assert "ledger_done" not in CHECK_KINDS
+
+
+def test_continuity_load_of_a_task_saved_with_ledger_done_does_not_raise(tmp_path) -> None:
+    from ferb.orchestrator.continuity import Continuity
+    from ferb.store.db import Database
+    db = Database(tmp_path / "t.db")
+    db.migrate()
+    cont = Continuity(db, lambda x: x, lambda t: set())
+    conversation = cont.attach(new=True)
+    db.conn.execute("INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, "
+                    "outcome_json, created_at, updated_at) VALUES ('t1','t1','r1','g','owner','root','[]','done',"
+                    "'{\"summary\": \"ok\"}','x','x')")
+    db.conn.execute("INSERT INTO task_context (task_id, conversation_id, spec_json, owner_words, prior_task, "
+                    "request_payload) VALUES ('t1', ?, ?, 'like it', NULL, '')", (conversation, _old_spec_json()))
+    loaded = cont.load("t1", conversation)
+    assert loaded is not None and loaded[0].success_conditions[0].check.kind == "none"
