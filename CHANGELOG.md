@@ -10,6 +10,39 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0-dev — 2026-10-08 — F3 data foundations
+
+Milestone F3 of `docs/0.27_PLAN.md` (D9, D14, D21, MP1, MP2, P26, S3). Commits `b3ef759` (the F3 plan) through this
+documentation commit. The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 is in development.
+
+- One origin vocabulary and origins on journal rows (`4ccbba8`, `dde1923`; MP1, MP2): `ferb/core/origin.py`; migration
+  0015 adds `journal.origin`; derived rows record `made_by`.
+- Every tool result labeled by origin (`dad0f19`, `ffab3a4`, `834d5c2`; S3, MP2): from `read_sources`, a declared
+  capability origin, or `external:unlabeled` for a read that said nothing; shell output outside content; excluded hosts
+  `external:web:excluded`; recordings `external:recording:<id>`; readers pass stored origins through; the model sees an
+  `Origin:` line.
+- Planner blocks and root task records labeled per origin (`083cec0`, `fd36326`, `43d2ed2`; S3, MP2): context sources
+  record their origins, the root task span carries the request's, `SpanStore.task_origins` unions them, and derived
+  records (answers, outcomes, chat replies, schedules) inherit them at capture.
+- Argument sources on consequential calls (`404d700`, `d0f5240`, `999ab50`; S3): `owner_words`, `external:…` or `unknown`
+  per target, matched by value kind; the owner's text is the request plus `owner.ask` answers. Facts only; F5 enforces.
+- Step summaries (`6e3fe88`, `b925027`; P26): `spans.summary`, `tool.finished`, and `ferb logs --tools` step lines;
+  results are redacted before the summary is clipped.
+- Episodes (`81d8fea`, `213901b`; D21, MP1, P26): one permanent `episodes` row per task, composed by code
+  (`code:episode/1`) at task end, on stop, after a restart interruption and before a purge; failed and unfinished steps
+  shown as such.
+- `ferb trace` levels (`aab36a3`, `d0f9f51`; P26, D21): the story by default with a cost line, `--steps`, `--full` and
+  `--json`; the story outlives the spans; golden tests.
+- Retention (`9b39b19`, `35c279b`, `73e719e`; D14, D21): `retention.trace_days` and `retention.decision_days` (30); a
+  task's spans go only after its episode exists, one transaction per tree, at most 200 roots per hourly pass;
+  `retention.purged` and `retention.failed` in the journal; interrupted tasks age from the restart.
+- Content search (`080019b`, `a580108`; D9, MP2): FTS over activity and daily summaries with secure-delete (migration
+  0019), `trail.query text=` and `trail.days`, Hindi words whole, query terms lowercased like the tokenizer; day
+  summaries labeled by content.
+- Registry, architecture section "Records and traces (F3)", README trace and retention notes, and the live-check list
+  (D9, D14, D21, MP1, MP2, P26, S3). Residuals for F5: shell reads of downloaded files are not tracked, and FERB's own
+  `fs` tools reach any path until protected-path lists exist.
+
 ## 0.27.0-dev — 2026-10-07 — F2 model runtime layer
 
 Milestone F2 of `docs/0.27_PLAN.md` (D32, P20). Implementation, tests and documentation: `d3ca7d3` (the F2 plan) through

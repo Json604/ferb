@@ -49,9 +49,11 @@ Optional: `ferb setup --voice` builds the background microphone app. Hold Right 
 ferb chat                         # resumes the last conversation
 ferb chat --new                    # separate conversation
 ferb chat --resume ID
-ferb trace                        # latest task
+ferb trace                        # latest task: the story, about 10-20 lines
+ferb trace TASK --steps            # one line per tool call
 ferb trace TASK --full             # complete recorded inputs, results and decisions
 ferb trace TASK --json             # machine-readable trace
+ferb logs --tools                  # one live step line per tool call while a task runs
 ferb stats
 ferb doctor
 ```
@@ -106,6 +108,11 @@ screenshots. Exclusions and pause apply before storage. Task tools can explicitl
 Secrets are redacted; OTPs use a sealed input path. Full trace output remains private data: share deliberately.
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
 An oversized unfinished record may be replaced by an explicit redaction marker.
+
+Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,
+and `decision_days` (default 30) how long Jev decisions are kept. A task's story (`ferb trace TASK`), the task list,
+chat, daily summaries and memory are kept; the story is written when the task ends, and a purge never removes a
+task's steps before its story exists. After `trace_days`, `--steps`, `--full` and `--json` have no steps to show.
 
 Start with `ferb doctor` and `ferb trace TASK --full` when something fails. Doctor compares the installed code,
 runtime prompts and extension resources with the checkout. Connection errors, provider errors, watcher failures,

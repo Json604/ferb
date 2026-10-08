@@ -43,7 +43,7 @@ summary = "Secrets are redacted by code at capture for a defined set of secret c
 
 [D9]
 milestone = "F3"
-tests = []
+tests = ["tests/test_content_search.py"]
 summary = "Raw events kept N days; daily summaries kept forever, structured and idempotent"
 
 [D10]
@@ -68,7 +68,7 @@ summary = "Screenshot redaction by code: on-device text recognition plus passwor
 
 [D14]
 milestone = "F3"
-tests = []
+tests = ["tests/test_retention.py"]
 summary = "Retention: raw events 30 days; typed text and clipboard 7 days; daily summaries forever"
 
 [D15]
@@ -104,7 +104,7 @@ summary = "Verification: separate done-but-unverified status; media evidence kep
 
 [D21]
 milestone = "F3"
-tests = []
+tests = ["tests/test_retention.py", "tests/test_trace_levels.py", "tests/test_episodes.py"]
 summary = "Trace retention: full traces and Jev decisions 30 days; task records kept"
 
 [D22]
@@ -165,12 +165,12 @@ summary = "Universal model runtimes: one model interface defined by FERB"
 
 [MP1]
 milestone = "F3"
-tests = []
+tests = ["tests/test_origins.py", "tests/test_episodes.py"]
 summary = "Raw evidence is append-only, redacted at capture, and the source of truth"
 
 [MP2]
 milestone = "F3"
-tests = []
+tests = ["tests/test_origins.py", "tests/test_tool_origins.py"]
 summary = "Trust follows origin, permanently"
 
 [MP3]
@@ -311,7 +311,7 @@ summary = "Neutral acknowledgment list, picked at random without repeats"
 
 [P26]
 milestone = "F3"
-tests = []
+tests = ["tests/test_trace_render.py", "tests/test_trace_levels.py", "tests/test_step_lines.py"]
 summary = "Three trace levels built by code: story, steps, full/json, with token and cost line"
 
 [P27]
@@ -351,7 +351,7 @@ summary = "Shell sandbox with never-read/never-write lists and network only thro
 
 [S3]
 milestone = "F3"
-tests = []
+tests = ["tests/test_tool_origins.py", "tests/test_arg_provenance.py"]
 summary = "Origin labels on every record; consequential arguments matched against the owner's words"
 
 [S4]

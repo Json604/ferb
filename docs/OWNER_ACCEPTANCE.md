@@ -57,6 +57,23 @@ Recall and caching (same session, later):
 Owner sign-off: F1 accepted with these carry-overs (D34/D35 to F4, recall relevance to F8, the Codex cache key
 to F2): "lets move to f2" (2026-10-07).
 
+## 0.27 F3 — pending live checks
+
+Run after the final review and `ferb setup --update`.
+1. Story: run one or two real tasks (a storage question, or a disposable-file task). `ferb trace` tells the story in
+   about 10-20 lines and every line matches `--steps` / `--full`. The cost line shows tokens, the cache rate and the
+   approximate dollar estimate.
+2. Live steps: `ferb logs --tools` shows one step line per tool call while a task runs.
+3. Origins: a task that reads a kartikey.xyz page shows `external:web:kartikey.xyz` in `ferb trace --json`; the model saw
+   the `Origin:` line, visible in `--full`.
+4. Content search: asking about something from recent activity by a word in it finds it.
+5. Retention: confirmed offline. Live, the first purge runs 30 days after F3's install and must keep every story;
+   spot-check whenever convenient.
+6. Verdicts: record them with `ferb verdict TASK pass|fail`.
+
+Known residuals, closed in F5: shell reads of downloaded files are not tracked as outside content, and FERB's own `fs`
+tools reach any path until the protected-path lists exist.
+
 ## 0.27 F2 — pending live checks
 
 Owner decision (2026-10-07): no API keys for now, so only the Codex and Claude CLI checks run now.
