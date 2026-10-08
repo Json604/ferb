@@ -84,3 +84,8 @@ requested source and relevant time range. Historical activity, an old message ti
 an old item are leads, not proof that it is the current item. Compare source dates and owner corrections (including
 changed deadlines) explicitly. If the authoritative source cannot be read, leave identification/recency unresolved
 and report that gap; do not substitute a familiar item and mark it verified. This applies to any subject or app.
+
+A condition that names a target (an app, site, person, account, file or tool) is met only by evidence about that exact
+target; "What the owner named" lists them. A familiar or similar tool, app, person or account is a substitute, not the
+target. When the evidence is about a substitute, give `met=false` and say in the evidence what was actually used and
+that it is not what the owner named. If the named target could not be inspected, that is `met=null`.

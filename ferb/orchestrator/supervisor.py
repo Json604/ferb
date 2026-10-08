@@ -929,7 +929,8 @@ class Supervisor(WorkerRuns):
         named = [f"{k}: {', '.join(v)}" for k, v in (("apps", t.apps), ("sites", t.sites), ("folders / files", t.paths),
                                                     ("people", t.recipients)) if v]
         if named:
-            parts.append(ContextBlock("What the owner named — " + "; ".join(named) + ".", "task targets", protected=True))
+            parts.append(ContextBlock("What the owner named — " + "; ".join(named) + ". The owner named these; evidence must be about them, "
+                                      "not a substitute.", "task targets", protected=True))
         parts.append(ContextBlock(f"FERB's workspace (relative paths resolve here): {self.workspace}", "workspace", True))
         return parts
 
