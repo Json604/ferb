@@ -20,6 +20,7 @@ from ferb.core.types import ToolContext
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskTree
+from ferb.policy import provenance
 from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
@@ -148,6 +149,17 @@ class Gateway:
     def forget_tasks(self, task_ids: set[str]) -> None:
         self._cancelled_tasks.difference_update(task_ids)
 
+    def _arg_sources(self, spec: Any, raw_path: str | None, rec: Any, grant: RunGrant) -> dict[str, Any]:
+        """The owner's words for this request plus the owner's answers in this task; outside content read so far."""
+        root = grant.task_id.split(".", 1)[0]
+        owner_texts = [self.state.requests.get(rec.task.request_id).words]
+        external: list[tuple[str, str]] = []
+        for origins, text in self.spans.tool_outputs(root):
+            if origins == {origin.OWNER}:
+                owner_texts.append(text)
+            external += [(o, text) for o in origins if origin.is_external(o)]
+        return provenance.arg_sources(spec.target, "\n".join(owner_texts), external, raw_path=raw_path)
+
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         rec = self.tasks.get(grant.task_id)
         started = rec.started_at if rec else None
@@ -178,6 +190,7 @@ class Gateway:
             answer = await self._ask_owner(grant, rec, args)
             return reply(answer, bool(answer.get("error")), ask_origins(answer))
         spec = cap.describe(args)
+        raw_path = spec.target.path
         if spec.target.path is not None:
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
@@ -185,10 +198,13 @@ class Gateway:
                                scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
                                request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
                                content=spec.content, effect=effect, why=why)
+        extra: dict[str, Any] = {}
+        if spec.kind not in REVERSIBLE:                  # consequential: where each target came from (S3), a fact
+            extra["arg_sources"] = self._arg_sources(spec, raw_path, rec, grant)
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                input={"tool": name, "args": arguments, "effect": effect, "kind": spec.kind,
                                       "target": _target_dict(spec.target)}
-                               | ({"why": why} if why else {}))
+                               | ({"why": why} if why else {}) | extra)
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
