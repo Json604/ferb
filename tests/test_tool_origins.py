@@ -443,7 +443,7 @@ def test_tool_outputs_contract(daemon: RunningDaemon) -> None:
     _on_loop(daemon, record)
     outputs = _on_loop(daemon, lambda: daemon.daemon.spans.tool_outputs("t-out"))
     assert [o for o, _ in outputs] == [{"external:web:hindi.example"}, {"private"}]     # call order, this tree only
-    assert outputs[0][1] == '{"text": "नमस्ते दुनिया"}'                       # ensure_ascii=False
+    assert outputs[0][1] == "नमस्ते दुनिया"                                   # decoded string values, no escaping
     assert len(outputs[1][1]) == 20000
 
 

@@ -66,7 +66,8 @@ class SpanStore:
         return roots
 
     def _tree_where(self, root_id: str) -> tuple[str, tuple[Any, ...]]:
-        return "(task_id = ? OR substr(task_id, 1, ?) = ?)", (root_id, len(root_id) + 1, root_id + ".")
+        # A range, not substr(): it can use the task_id index. "/" is the character right after ".".
+        return "(task_id = ? OR (task_id >= ? AND task_id < ?))", (root_id, root_id + ".", root_id + "/")
 
     def tool_origins(self, root_id: str) -> set[str]:
         """Every origin recorded on this task tree's tool results."""
@@ -84,12 +85,24 @@ class SpanStore:
         return {o for r in rows for o in origin.split(r["origin"])}
 
     def tool_outputs(self, root_id: str) -> list[tuple[set[str], str]]:
-        """(origins, output text) of this task tree's finished tool calls, in call order."""
+        """(origins, text) of this task tree's finished tool calls, in call order. The text is every string value of
+        the decoded output (numbers as strings) joined by newlines, capped at 20000 characters; past the cap stays
+        unsearched."""
         where, params = self._tree_where(root_id)
         rows = self._db.conn.execute(f"SELECT origin, output_json FROM spans WHERE kind = 'tool.call' AND {where} "
                                      "AND output_json IS NOT NULL ORDER BY rowid", params)
-        return [(origin.split(r["origin"]), json.dumps(json.loads(r["output_json"]), ensure_ascii=False)[:20000])
+        return [(origin.split(r["origin"]), "\n".join(_strings(json.loads(r["output_json"])))[:20000])
                 for r in rows]
+
+    def owner_answers(self, root_id: str) -> list[str]:
+        """The owner's answers to owner.ask in this task tree: only spans whose input names that tool and whose
+        origin is exactly the owner. Nothing else the owner's name is on (memory, history) counts."""
+        where, params = self._tree_where(root_id)
+        rows = self._db.conn.execute(
+            f"SELECT output_json FROM spans WHERE kind = 'tool.call' AND origin = ? AND output_json IS NOT NULL "
+            f"AND json_extract(input_json, '$.tool') = 'owner.ask' AND {where} ORDER BY rowid", (origin.OWNER, *params))
+        answers = [json.loads(r["output_json"]) for r in rows]
+        return [a["answer"] for a in answers if isinstance(a, dict) and isinstance(a.get("answer"), str)]
 
     def _task_rows(self, task_id: str) -> list[Any]:
         """Include the intake planner by exact request ID; it ran before the task ID existed."""
@@ -221,3 +234,15 @@ def _span_record(span: Span) -> dict[str, Any]:
             'ended_at': span.ended_at.isoformat() if span.ended_at else None,
             'input': span.input, 'output': span.output, 'error': span.error, 'cost_usd': span.cost_usd,
             'origin': span.origin}
+
+
+def _strings(value: Any) -> list[str]:
+    """Every string (and number as a string) inside decoded JSON, in order."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, bool) or value is None:
+        return []
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    items = value.values() if isinstance(value, dict) else value if isinstance(value, list) else []
+    return [s for v in items for s in _strings(v)]
