@@ -24,6 +24,7 @@ from typing import Any
 from ferb.store.db import Database
 
 SUMMARY_KIND, NARRATIVE_KIND = "trail.day_summary", "trail.day_narrative"
+SUMMARY_MADE_BY = "code:summary/1"                # MP1: derived rows say how they were made
 UNTRUSTED = re.compile(r'<untrusted-data id="([0-9a-f]+)">\n(.*?)\n</untrusted-data id="\1">', re.S)
 Source = tuple[str, str]
 
@@ -159,5 +160,5 @@ def rebuild(db: Database, journal: Any, day: str) -> bool:
         return False
     db.conn.execute("DELETE FROM journal WHERE kind IN (?, ?) AND json_extract(data_json, '$.day') = ?",
                     (SUMMARY_KIND, NARRATIVE_KIND, day))
-    journal.append(SUMMARY_KIND, build(db, day).digest | {"rebuilt": True})
+    journal.append(SUMMARY_KIND, build(db, day).digest | {"rebuilt": True, "made_by": SUMMARY_MADE_BY})
     return True

@@ -11,6 +11,7 @@ item cites only the owner's own trail (E); nothing about the owner or their pref
 (F) or on pasted third-party text (P); a third-party item must cite pasted text. A model failure leaves the summary in
 place and is retried on later hourly runs or an explicit retry."""
 
+import hashlib
 import json
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
@@ -81,7 +82,7 @@ class Distiller:
     def write_summary(self, day: str) -> summary.DayEvidence:
         ev = summary.build(self.db, day)
         if not summary.summarized(self.db, day):
-            self.journal.append(summary.SUMMARY_KIND, ev.digest)
+            self.journal.append(summary.SUMMARY_KIND, ev.digest | {"made_by": summary.SUMMARY_MADE_BY})
         self._run(day, "summarized", None, bump=False)
         return ev
 
@@ -98,7 +99,8 @@ class Distiller:
         except Exception as e:                                        # summary stays; retried on a later run
             self._run(day, "failed", f"{type(e).__name__}: {e}")
             return {"day": day, "status": "failed"}
-        self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", ""))})
+        self.journal.append(summary.NARRATIVE_KIND, {"day": day, "text": str(out.get("narrative", "")),
+                                                    "made_by": str(out.get("made_by", ""))})
         proposed, refused = 0, []
         items = out.get("items", [])
         drop: set[int] = set()
@@ -173,6 +175,8 @@ class Distiller:
         parsed = json.loads(final)
         if not isinstance(parsed, dict):
             raise ValueError("not an object")
+        parsed["made_by"] = (f"model:{getattr(rt, 'name', 'unknown')}:{getattr(rt, 'model', None) or 'default'}"
+                             f"|prompt:memory/distill.md@{hashlib.sha256(system.encode()).hexdigest()[:8]}")
         return parsed
 
 
