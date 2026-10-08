@@ -2,7 +2,8 @@
 task's spans go only after its permanent episode exists; the task list, episodes, the journal (chat, day summaries,
 verdicts) and memory are never aged out here. Raw activity (trail) has its own purge (ferb/sense/trail.py); evidence
 media (V1, D20: `retention.evidence_days`, 7) is purged in the same pass by its store, which owns the files
-(ferb/act/evidence/store.py `purge_before`)."""
+(ferb/act/evidence/store.py `purge_before`), and so are FERB's recovery copies and records (S1:
+`retention.recovery_days`, 7; ferb/act/fs/recovery.py `purge_before`)."""
 
 from contextlib import contextmanager
 from typing import Any, Iterator

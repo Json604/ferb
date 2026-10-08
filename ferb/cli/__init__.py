@@ -1,6 +1,6 @@
 """Register CLI commands and common connection helpers. Must not implement task orchestration.
 
-`ferb` command line: logs, trace, daemon run, stop, resume-tasks, setup, doctor,
+`ferb` command line: logs, trace, daemon run, stop, resume-tasks, restore, setup, doctor,
 uninstall."""
 
 import argparse
@@ -87,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
 
     dvp = sub.add_parser("device", help="this Mac's device profile (apps, scriptable apps, browsers); scan rescans")
     dvp.add_argument("action", nargs="?", choices=["show", "scan"], default="show")
+    rsp = sub.add_parser("restore", help="files FERB changed or moved to the Trash lately; restore <id> puts one back")
+    rsp.add_argument("id", nargs="?", help="the record to put back (its first characters are enough)")
     tl = sub.add_parser("timeline", help="the journal: chats, task outcomes, daily summaries")
     tl.add_argument("--since", help="YYYY-MM-DD")
     sub.add_parser("pause", help="stop every watcher: nothing is recorded until `ferb resume`")
@@ -255,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.decide(client, args, input, sys.stdout)
             if args.cmd == "timeline":
                 return admin.timeline(client, args.since, sys.stdout)
+            if args.cmd == "restore":
+                return admin.restore(client, args.id, sys.stdout)
             if args.cmd == "pause":
                 return admin.pause(client, sys.stdout)
             if args.cmd == "resume":

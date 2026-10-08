@@ -448,6 +448,48 @@ def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
     return 0
 
 
+# ---------- restore (S1) ----------
+
+REASONS = {"overwrite": "overwrote", "edit": "edited", "trash": "moved to Trash"}
+
+
+def _shown(path: str) -> str:
+    """A file name as plain text: no terminal codes (a name is whatever its creator chose)."""
+    return "".join(ch if ch.isprintable() else "?" for ch in ANSI.sub("", str(path)))
+
+
+def restore(client: Client, rid: str | None, out: TextIO) -> int:
+    """`ferb restore`: the files FERB changed or moved to the Trash lately; `ferb restore <id>` puts one back. Never
+    over a change made since: then the earlier version goes beside the file (P27: the owner's names, short paths)."""
+    if rid:
+        r = client.call("recovery.restore", {"id": rid})
+        was, now = _shown(r["original"]), _shown(r["restored_to"])
+        if r["kind"] == "trash":
+            text = (f"Put {was} back from the Trash." if r["in_place"] else
+                    f"Something is at {was} now, so the file from the Trash was put back beside it as {now}.")
+        else:
+            text = (f"Restored {was} to what it was before FERB changed it." if r["in_place"] else
+                    f"{was} has changed since FERB changed it, so it was left as it is. The version from before "
+                    f"FERB's change is now at {now}.")
+        print(text, file=out)
+        return 0
+    r = client.call("recovery.list")
+    rows, days = r["records"], r["days"]
+    if not rows:
+        print(f"FERB hasn't changed or deleted any files in the last {days} days.", file=out)
+        return 0
+    print(f"Files FERB changed in the last {days} days (newest first):", file=out)
+    for row in rows:
+        at = datetime.fromisoformat(row["at"]).astimezone().strftime("%a %d %b %H:%M")
+        shown_id = row["id"][:8] if len(row["id"]) > 12 else row["id"]
+        what = REASONS.get(row["reason"] or "", row["reason"] or row["kind"])
+        gone = "" if row["available"] else ("  (not found in the Trash)" if row["kind"] == "trash" else
+                                            "  (its copy is gone)")
+        print(f"  {shown_id}  {at}  {what:<14}  {_shown(row['original'])}{gone}", file=out)
+    print("Put one back: ferb restore <id>", file=out)
+    return 0
+
+
 def baseline(home: Any, out: TextIO) -> int:
     """Capture the numbers every milestone is compared against into ~/.ferb/baselines/<ISO8601>.json. Read-only
     against the database, so it works whether or not the daemon runs."""

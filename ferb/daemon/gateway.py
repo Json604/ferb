@@ -10,7 +10,10 @@ is refused by code, never retried on its own. The only way past is the owner's Y
 that exact action (owner.ask with retry_action). That answer allows one more attempt and nothing else does; the
 earlier attempt stays unknown, since nobody observed its outcome. "The same action" is the same call: its normalized
 target, content and validated arguments, without the agent's notes (why, effect, purpose, contact) or the kind
-derived from them (ferb/policy/rules.py payload_hash, hashed_args)."""
+derived from them (ferb/policy/rules.py payload_hash, hashed_args).
+S1: before a call changes an existing file, a copy of it and a record (ferb/act/fs/recovery.py); no copy, no change. A
+trash keeps where the item came from and went. Once per task tree, before its first shell command or deletion, one
+local APFS snapshot, best effort."""
 
 import asyncio
 import base64
@@ -23,6 +26,7 @@ from urllib.parse import urlsplit
 from pydantic import ValidationError
 
 from ferb.act import aftercheck
+from ferb.act.fs import recovery
 from ferb.act.fs.files import normalize_path
 from ferb.act.locks import ResourceLocks
 from ferb.act.mac.ax_browser import BROWSER_BUNDLES
@@ -68,6 +72,9 @@ RETRY_NEXT = ("Look for evidence that it happened (a confirmation, the Sent fold
 SAME_ACTION_RUNNING = "The same action is already running in this task; it was not started again."
 RUNNING_NEXT = "Wait for its result, then check what happened before deciding anything else."
 RETRY_YES, RETRY_NO = "Yes", "No"
+# S1: kinds that can remove or rewrite many files without a per-file copy; a write is copied file by file instead.
+SNAPSHOT_BEFORE = frozenset({Kind.RUN_SHELL, Kind.TRASH, Kind.DELETE_PERMANENT})
+NO_COPY = "{name} did not run: FERB couldn't keep a recovery copy of the file ({why}), so it left the file unchanged"
 RETRY_STALE = ("the action was tried again while the owner was being asked, so this answer is out of date; check what "
                "happened, then ask again with the newest retry_action")
 
@@ -274,6 +281,9 @@ class Gateway:
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
         self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = None
         self._looked: dict[tuple[str, str], set[str]] = {}  # (task, worker) -> apps whose window it has as evidence
+        self.recovery: recovery.Recovery | None = None      # S1: copies before a change, the Trash record
+        self.snapshot: Callable[[], str | None] | None = None  # S1: recovery.local_snapshot (None: not taken)
+        self._snapshots: dict[str, asyncio.Future[None]] = {}  # by root task: its one snapshot, taken or failed
 
     @staticmethod
     def _acts(cap: Any) -> bool:
@@ -325,6 +335,8 @@ class Gateway:
             self._outside.pop(task_id, None)
         for key in [k for k in self._looked if k[0] in task_ids]:
             del self._looked[key]
+        for task_id in task_ids:
+            self._snapshots.pop(task_id, None)
 
     def _arg_sources(self, spec: Any, rec: Any, grant: RunGrant) -> dict[str, list[str]]:
         """The owner's typed words for this request, the owner's answers in this task (apart: a chosen option is
@@ -465,13 +477,29 @@ class Gateway:
                 self.ledger.mark(intent_id, "failed", [error])
             self._finish_call(span, name, {"error": error}, True, error=error)
             return reply({"error": error}, True, {origin.FERB})
+        try:                                             # S1: the snapshot and the file's copy come first
+            if spec.kind in SNAPSHOT_BEFORE:
+                await self._snapshot_once(name, grant, rec, span.id)
+            kept = self._keep_copy(cap, name, args, spec, grant)
+        except asyncio.CancelledError:                   # nothing ran yet: failed, so a retry isn't blocked
+            if intent_id:
+                self.ledger.mark(intent_id, "failed", ["cancelled before it ran"])
+            self._finish_call(span, name, {"error": "cancelled before it ran"}, True, error="cancelled before it ran")
+            raise
+        except Exception as e:                           # no copy, no change: the original is never put at risk
+            error = NO_COPY.format(name=name, why=error_name(e))
+            if intent_id:
+                self.ledger.mark(intent_id, "failed", [error])
+            self._finish_call(span, name, {"error": error}, True, error=error)
+            return reply({"error": error}, True, {origin.FERB})
+        kept_out = {"recoverable": kept} if kept else None   # an unknown outcome keeps the copy
         try:
             result = await cap.run(args, ctx)
         except asyncio.CancelledError:
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])
             self._observed(name, spec, action, grant, "unknown")
-            self._finish_call(span, name, {"error": "cancelled; outcome unknown"}, True,
+            self._finish_call(span, name, {"error": "cancelled; outcome unknown"}, True, output=kept_out,
                               error="cancelled; outcome unknown")
             raise
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly
@@ -479,9 +507,9 @@ class Gateway:
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", [detail])
             self._observed(name, spec, action, grant, "unknown")
-            self._finish_call(span, name, {"error": f"{type(e).__name__}: {e}"}, True,
+            self._finish_call(span, name, {"error": f"{type(e).__name__}: {e}"}, True, output=kept_out,
                               error=f"{type(e).__name__}: {e}")
-            return reply({"error": f"{name} failed: {detail}; outcome unknown"}, True)
+            return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {}), True)
         if intent_id:                                    # the span id is already its evidence (marked executing)
             self.ledger.mark(intent_id, "failed" if result.is_error else "done")
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
@@ -489,6 +517,7 @@ class Gateway:
         raw = result.content
         if spec.kind not in REVERSIBLE:                  # V2: what the action read back (a failure's too), never a guess
             raw = {**raw, "after": aftercheck.after_of(aftercheck.facts_of(raw))}
+        raw = {**raw, **self._after_change(spec, grant, result, kept)}
         content = self.redact(raw)
         output = content
         if result.image is not None and not result.is_error and self.evidence is not None:
@@ -502,6 +531,77 @@ class Gateway:
         if not result.is_error:
             await self._first_look(name, spec, grant, rec, span.id)
         return out
+
+    def _keep_copy(self, cap: Any, name: str, args: Any, spec: Any, grant: RunGrant) -> str | None:
+        """S1: before a call changes an existing file, a copy of it (an APFS clone, else a byte copy) and a record, kept
+        retention.recovery_days (7); returns the record id. Only for a write-file call that will change the file: the
+        capability's `recovery_reason(args)` says why ("overwrite", "edit"), or None when the call can't change an
+        existing file (fs.write without overwrite refuses one); a capability that doesn't say is copied anyway. A new
+        file, or a folder, keeps nothing. Raises when no copy could be made: the call must not run then."""
+        if self.recovery is None or spec.kind != Kind.WRITE_FILE or not spec.target.path:
+            return None
+        why = getattr(cap, "recovery_reason", None)
+        reason = why(args) if why is not None else name
+        if not reason:
+            return None
+        r = self.recovery
+        return recovery.preserve(Path(spec.target.path), reason=reason, task_id=grant.task_id, db=r.db, clock=r.clock,
+                                 ids=r.ids, root=r.root)
+
+    def _after_change(self, spec: Any, grant: RunGrant, result: Any, kept: str | None) -> dict[str, Any]:
+        """S1, after the call: a refused call changed nothing, so its copy goes; a change records the file as FERB left
+        it (so a restore never overwrites a later change); a trash records where the item came from and went. What a
+        worker and the trace see: `recoverable` (the record id), or `recovery_error`. Never fails the call: the change
+        already happened."""
+        r = self.recovery
+        if r is None:
+            return {}
+        try:
+            if kept and result.is_error:
+                recovery.discard(kept, r.db, r.root)
+                return {}
+            if kept:
+                recovery.mark_written(kept, Path(spec.target.path), r.db)
+                return {"recoverable": kept}
+            if spec.kind == Kind.TRASH and not result.is_error and spec.target.path:
+                trashed_to = result.content.get("trashed_to")
+                return {"recoverable": recovery.record_trash(
+                    Path(spec.target.path), str(trashed_to) if trashed_to else None, task_id=grant.task_id, db=r.db,
+                    clock=r.clock, ids=r.ids)}
+        except Exception as e:
+            return ({"recoverable": kept} if kept and not result.is_error else {}) | {"recovery_error": error_name(e)}
+        return {}
+
+    async def _snapshot_once(self, name: str, grant: RunGrant, rec: Any, before: str) -> None:
+        """S1: one local APFS snapshot per task tree, before its first shell command or deletion (SNAPSHOT_BEFORE:
+        kinds that can remove or rewrite many files with no per-file copy). Code can't tell bulk work from a quick
+        `ls`, so the kind decides, never the command's words (rule 6). Best effort: taking one needs no admin rights
+        (measured), a failure is recorded on its own span and never stops the call; concurrent workers in the tree wait
+        for the same one."""
+        if self.snapshot is None:
+            return
+        root = (rec.tree_id or grant.task_id).split(".", 1)[0]
+        pending = self._snapshots.get(root)
+        if pending is None:
+            pending = self._snapshots[root] = asyncio.ensure_future(self._take_snapshot(name, grant, rec, before))
+        await asyncio.shield(pending)
+
+    async def _take_snapshot(self, name: str, grant: RunGrant, rec: Any, before: str) -> None:
+        snapshot = self.snapshot
+        assert snapshot is not None
+        span = self.spans.start("recovery.snapshot", task_id=grant.task_id, parent_id=rec.span_id,
+                                device_id=self.device_id, input={"before": name, "before_span": before})
+        taken, error = None, None
+        try:
+            taken = await asyncio.wait_for(asyncio.to_thread(snapshot), recovery.SNAPSHOT_TIMEOUT_S + 5)
+        except asyncio.CancelledError:
+            self.spans.finish(span, error="cancelled")
+            raise
+        except Exception as e:
+            error = error_name(e)
+        if taken is None and error is None:
+            error = "no snapshot was taken (tmutil refused or is unavailable)"
+        self.spans.finish(span, output={"snapshot": taken} if taken else None, error=error)
 
     def _looked_at(self, grant: RunGrant) -> set[str]:
         return self._looked.setdefault((grant.task_id, grant.worker_id), set())

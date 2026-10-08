@@ -179,6 +179,10 @@ class FsWrite(_Base):
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec("write_file", Target(path=self.describe_path(args)), content=str(getattr(args, "content")))
 
+    def recovery_reason(self, args: BaseModel) -> str | None:
+        """S1: why the gateway copies an existing file first; None when this call can't change one (no overwrite)."""
+        return "overwrite" if getattr(args, "overwrite") else None
+
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
             p = resolve(str(getattr(args, "path")), ctx, must_exist=False)
@@ -202,6 +206,10 @@ class FsEdit(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec("write_file", Target(path=self.describe_path(args)), content=str(getattr(args, "new_text")))
+
+    def recovery_reason(self, args: BaseModel) -> str | None:
+        """S1: the gateway copies the file before an edit (an edit that refuses drops the copy)."""
+        return "edit"
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
@@ -232,12 +240,26 @@ class FsTrash(_Base):
             p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         except PathRefused as e:
             return _err(str(e))
-        from Foundation import NSURL, NSFileManager
-        ok, result_url, err = NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
-            NSURL.fileURLWithPath_(str(p)), None, None)
-        if not ok:
-            return _err(f"couldn't move to Trash: {err}")
-        return ToolResult({"path": str(p), "trashed_to": str(result_url.path()) if result_url else None})
+        try:
+            trashed_to = move_to_trash(p)
+        except TrashRefused as e:
+            return _err(f"couldn't move to Trash: {e}")
+        return ToolResult({"path": str(p), "trashed_to": trashed_to})
+
+
+class TrashRefused(Exception):
+    pass
+
+
+def move_to_trash(p: Path) -> str | None:
+    """The Mac's Trash (NSFileManager): where the item went, None if macOS didn't say. The gateway records both paths
+    durably (S1: ferb/act/fs/recovery.py), so getting it back never depends on Finder's Put Back."""
+    from Foundation import NSURL, NSFileManager
+    ok, result_url, err = NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
+        NSURL.fileURLWithPath_(str(p)), None, None)
+    if not ok:
+        raise TrashRefused(str(err))
+    return str(result_url.path()) if result_url else None
 
 
 CAPABILITIES = [FsList(), FsRead(), FsWrite(), FsEdit(), FsTrash()]

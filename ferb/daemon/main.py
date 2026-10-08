@@ -24,6 +24,7 @@ from ferb.act.browser import profiles as browser_profiles
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.evidence.store import EvidenceStore
+from ferb.act.fs import recovery
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
 from ferb.act.gui_lock import GuiLock
@@ -88,6 +89,7 @@ class _PurgePlan(NamedTuple):
     trace_days: int
     decision_days: int
     evidence_days: int
+    recovery_days: int
     roots: list[str]
     left: int
 
@@ -96,7 +98,7 @@ class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
-                 notifications: bool = True, retention: bool = True) -> None:
+                 notifications: bool = True, retention: bool = True, snapshots: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -164,6 +166,7 @@ class Daemon:
         self._distill_task: asyncio.Task[None] | None = None
         self.run_retention = retention
         self._retention_task: asyncio.Task[None] | None = None
+        self.take_snapshots = snapshots                  # S1 local APFS snapshots; tests never take a real one
         # Jev in shadow mode: None until a key is in the Keychain
         self.jev: Any = None
         self.jev_post: Any = None                        # tests: a fake Jev endpoint
@@ -230,6 +233,7 @@ class Daemon:
                          ("memory.forget", self._memory_forget), ("memory.distill", self._memory_distill),
                          ("jev.stats", self._jev_stats), ("jev.enable", self._jev_enable), ("jev.reload", self._jev_reload), ("runtimes.check", self._runtimes_check),
                          ("timeline.get", self._timeline),
+                         ("recovery.list", self._recovery_list), ("recovery.restore", self._recovery_restore),
                          ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("verdict.set", self._verdict_set), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift),
                          ("doctor.check", self._doctor_check),
@@ -445,6 +449,8 @@ class Daemon:
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.disturbance = self.disturbance
         self.gateway.evidence = self.evidence
+        self.gateway.recovery = self._recovery()
+        self.gateway.snapshot = recovery.local_snapshot if self.take_snapshots else None
         self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
@@ -727,8 +733,9 @@ class Daemon:
     def _purge_records(self) -> dict[str, int]:
         """D21: spans of tasks that ended more than trace_days ago (once their episode exists) and loose spans;
         Jev decisions older than decision_days; evidence (screenshots, snapshots, recordings) older than
-        evidence_days (V1, D20: 7). Never the task list, episodes, journal or memory. One synchronous pass (tests,
-        call sites); the hourly loop runs the same steps in `_purge_pass`."""
+        evidence_days (V1, D20: 7); recovery copies and records older than recovery_days (S1: 7). Never the task list,
+        episodes, journal or memory. One synchronous pass (tests, call sites); the hourly loop runs the same steps in
+        `_purge_pass`."""
         plan = self._purge_plan()
         return self._purge_rest(plan, sum(self._purge_root(root, plan.now) for root in plan.roots))
 
@@ -746,7 +753,7 @@ class Daemon:
             finished = True
         finally:
             if not finished and spans:
-                self._journal_purged(plan, spans, 0, 0, plan.left + len(plan.roots) - done, stopped=True)
+                self._journal_purged(plan, spans, 0, 0, 0, plan.left + len(plan.roots) - done, stopped=True)
         return self._purge_rest(plan, spans)
 
     def _purge_plan(self) -> _PurgePlan:
@@ -754,8 +761,9 @@ class Daemon:
         trace_days = int(self.config.get("retention", "trace_days", 30))
         decision_days = int(self.config.get("retention", "decision_days", 30))
         evidence_days = int(self.config.get("retention", "evidence_days", 7))
+        recovery_days = int(self.config.get("retention", "recovery_days", 7))
         roots = retention.finished_roots_before(self.db, (now - timedelta(days=trace_days)).isoformat())
-        return _PurgePlan(now, trace_days, decision_days, evidence_days,
+        return _PurgePlan(now, trace_days, decision_days, evidence_days, recovery_days,
                           roots[:ROOTS_PER_PURGE], max(0, len(roots) - ROOTS_PER_PURGE))   # oldest first; the rest wait
 
     def _purge_root(self, root: str, now: datetime) -> int:
@@ -772,22 +780,31 @@ class Daemon:
             return 0
 
     def _purge_rest(self, plan: _PurgePlan, spans: int) -> dict[str, int]:
-        """Loose spans, old Jev decisions and old evidence; `retention.purged` is journaled only when the pass purged
-        something or left roots for the next one."""
+        """Loose spans, old Jev decisions, old evidence and old recovery copies; `retention.purged` is journaled only
+        when the pass purged something or left roots for the next one."""
         spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
         decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
         evidence = self.evidence.purge_before((plan.now - timedelta(days=plan.evidence_days)).isoformat()) \
             if self.evidence is not None else 0
-        if spans or decisions or evidence or plan.left:
-            self._journal_purged(plan, spans, decisions, evidence, plan.left)
-        return {"spans": spans, "decisions": decisions, "evidence": evidence}
+        kept = self._recovery()
+        copies = recovery.purge_before((plan.now - timedelta(days=plan.recovery_days)).isoformat(), kept.db, kept.root)
+        if spans or decisions or evidence or copies or plan.left:
+            self._journal_purged(plan, spans, decisions, evidence, copies, plan.left)
+        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies}
 
-    def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, left: int,
+    def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, copies: int, left: int,
                         stopped: bool = False) -> None:
         self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
                                                     "decision_days": plan.decision_days, "decisions": decisions,
                                                     "evidence_days": plan.evidence_days, "evidence": evidence,
+                                                    "recovery_days": plan.recovery_days, "recovery": copies,
                                                     "roots_left": left} | ({"stopped": True} if stopped else {}))
+
+    def _recovery(self) -> recovery.Recovery:
+        """S1: where FERB keeps copies of files before it changes them (~/.ferb/recovery) and their records."""
+        if self.db is None:
+            raise FerbError("daemon not started")
+        return recovery.Recovery(self.home / "recovery", self.db, self.clock, self.ids)
 
     async def _retention_loop(self) -> None:
         """Hourly, starting a minute after start-up so start-up stays quick."""
@@ -1908,6 +1925,28 @@ class Daemon:
         if episode is None and spans:                    # running, or written before F3: compose it live
             episode = compose.compose({"task_id": task_id, "spans": spans, "outcome": outcome})
         return {"task_id": task_id, "spans": spans, "outcome": outcome, "episode": episode}
+
+    async def _recovery_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`ferb restore`: the files FERB changed or trashed within retention.recovery_days, newest first (S1)."""
+        kept = self._recovery()
+        rows = recovery.recent(kept.db, kept.root)
+        return {"days": int(self.config.get("retention", "recovery_days", 7)),
+                "records": [r | {"original": recovery.short(r["original"])} for r in rows]}
+
+    async def _recovery_restore(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`ferb restore <id>`: put a file back (recovery.restore never overwrites a change made since); journaled."""
+        kept = self._recovery()
+        try:
+            row = recovery.find(kept.db, str(params.get("id") or ""))
+            back = recovery.restore(row["id"], kept.db, kept.root)
+        except recovery.NotRestorable as e:
+            raise FerbError(str(e)) from None
+        original = Path(row["original"])
+        in_place = back == original.resolve()
+        self._journal().append("recovery.restored", {"id": row["id"], "kind": row["kind"], "original": str(original),
+                                                     "restored_to": str(back), "in_place": in_place})
+        return {"id": row["id"], "kind": row["kind"], "original": recovery.short(original),
+                "restored_to": recovery.short(back), "in_place": in_place}
 
     async def _verdict_set(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """`ferb verdict`: the owner's pass/fail on a task. Acceptance is their word; code never infers it."""

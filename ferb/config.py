@@ -85,6 +85,6 @@ class Config:
                                     ("sense", "window_titles", True), ("sense", "watch_folders", []),
                                     ("sense", "idle_after_s", 120), ("sense", "trail_retention_days", 30),
                                     ("retention", "trace_days", 30), ("retention", "decision_days", 30),
-                                    ("retention", "evidence_days", 7)):
+                                    ("retention", "evidence_days", 7), ("retention", "recovery_days", 7)):
             if self.get(section, key) is None:
                 self.set(section, key, value)

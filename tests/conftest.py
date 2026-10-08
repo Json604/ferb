@@ -48,6 +48,7 @@ class RunningDaemon:
         kwargs.setdefault("distill", False)             # the daily distillation calls a model
         kwargs.setdefault("retention", False)           # tests purge explicitly, never on a timer
         kwargs.setdefault("notifications", False)       # no macOS notifications from tests
+        kwargs.setdefault("snapshots", False)           # never a real APFS snapshot (tmutil) from tests
         return Daemon(home=home, **kwargs)
 
     def run(self, coro: Any, timeout: float = 10) -> Any:
