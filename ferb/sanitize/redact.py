@@ -31,6 +31,16 @@ SECRET_PATTERNS = [
 URL = re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s\"'<>]+")
 SECRET_QUERY = {"token", "code", "key", "sig", "signature", "auth", "session", "access_token", "id_token",
                 "refresh_token", "password", "secret", "otp", "apikey", "api_key", "client_secret", "sessionid"}
+# Signed / pre-authorized URL credentials (S3 X-Amz-*, GCS X-Goog-*, Azure SAS `sig`, CDN `token`/`hmac` params): a
+# parameter whose name holds one of these words is a secret class (rule 14), whatever the service prefixes it with.
+SECRET_QUERY_WORDS = ("signature", "token", "credential", "secret", "password", "apikey", "api_key", "hmac")
+
+
+def secret_param(name: str) -> bool:
+    k = name.lower()
+    flat = "".join(ch for ch in k if ch.isalnum())
+    return (k in SECRET_QUERY or any(w in k or w.replace("_", "") in flat for w in SECRET_QUERY_WORDS)
+            or flat.endswith("sig") or flat in {"xamzcredential", "xgoogcredential"})
 INPUT_TEXT_FIELDS = {"text", "unmodifiedText", "key", "code"}
 
 
@@ -131,13 +141,13 @@ class Redactor:
         query = parts.query
         if query:
             pairs = parse_qsl(query, keep_blank_values=True)
-            if any(k.lower() in SECRET_QUERY for k, _ in pairs):
-                query = urlencode([(k, REDACTED if k.lower() in SECRET_QUERY else v) for k, v in pairs], safe="[]")
+            if any(secret_param(k) for k, _ in pairs):
+                query = urlencode([(k, REDACTED if secret_param(k) else v) for k, v in pairs], safe="[]")
         fragment = parts.fragment
         if fragment and "=" in fragment:
             pairs = parse_qsl(fragment, keep_blank_values=True)
-            if any(k.lower() in SECRET_QUERY for k, _ in pairs):
-                fragment = urlencode([(k, REDACTED if k.lower() in SECRET_QUERY else v) for k, v in pairs], safe="[]")
+            if any(secret_param(k) for k, _ in pairs):
+                fragment = urlencode([(k, REDACTED if secret_param(k) else v) for k, v in pairs], safe="[]")
         return urlunsplit((parts.scheme, netloc, parts.path, query, fragment))
 
 

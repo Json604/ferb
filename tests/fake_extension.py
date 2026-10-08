@@ -115,7 +115,13 @@ class FakeExtension:
         # downloads (D35): the extension holds a captured download until the daemon pulls it with download_part
         self.held_downloads: dict[str, bytes] = {}         # transfer id -> the bytes the browser's response carried
         self.download_parts: list[dict[str, Any]] = []    # every download_part the daemon sent, as sent
-        self.download_aborts: list[str] = []               # transfers the daemon cancelled
+        self.download_aborts: list[str] = []               # transfers the daemon cancelled (failed in the browser)
+        self.download_releases: list[str] = []             # transfers handed back to the browser untouched
+        self.download_part_delay = 0.0                     # seconds per part (a slow transfer)
+        self.armed: set[int] = set()                       # tabs the extension holds downloads for (hello reports them)
+        self.disarmed: list[int] = []                      # disarm commands received
+        self.fail_release = False                          # release_tab fails (e.g. the transport broke)
+        self.nav_refuse: set[str] = set()                  # navigating here: the tab couldn't be armed (D35)
         self.download_fail_at: int | None = None          # a part at/after this offset fails (the stream broke)
         self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
         self._window()  # Pre-provisioned fixture window; cold creation is tested explicitly.
@@ -174,7 +180,7 @@ class FakeExtension:
     def hello(self) -> None:
         self.send("hello", {"version": self.version, "protocol": self.protocol, "browser": self.browser,
                             "paired": bool(self.key), "owned": self.owned,
-                            "seen": [{"id": k, "status": v} for k, v in self.seen.items()]})
+                            "seen": [{"id": k, "status": v} for k, v in self.seen.items()], "armed": sorted(self.armed)})
 
     def pair(self, token: str) -> None:
         self.send("pair", {"token": token})
@@ -288,6 +294,9 @@ class FakeExtension:
         return {"tab_id": self._n, "url": a["url"], "title": page(a["url"])["title"], "window_id": w}
 
     def op_navigate(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        if a["url"] in self.nav_refuse:
+            return {"navigated": False, "reason": "download_capture_unavailable", "tab_id": a["tab_id"],
+                    "url": self.tabs[a["tab_id"]], "detail": "FERB couldn't prepare this tab to hold downloads"}
         if a["url"] in self.download_urls:                # the response is a download: the extension holds it, the
             name, data = self.download_urls[a["url"]]     # navigation never commits, and it ends once FERB took it
             did = self.start_download(a["tab_id"], name, data, a["url"])
@@ -310,20 +319,45 @@ class FakeExtension:
                             "size": len(data) if size == "len" else size, "source_url": source_url, "source": source})
         return did
 
-    def uncaptured_download(self, tab_id: int, name: str, source_url: str) -> None:
+    def uncaptured_download(self, tab_id: int, name: str, source_url: str, detail: str = "started") -> None:
         """The browser started a download in this tab that the extension couldn't intercept (Page.downloadWillBegin)."""
         self.send("event", {"event": "download", "tab_id": tab_id, "uncaptured": True, "name": name,
-                            "source_url": source_url})
+                            "source_url": source_url, "detail": detail})
+
+    def link_to_new_tab(self, tab_id: int, url: str) -> None:
+        """content.js caught a link in this armed tab that opens a new tab; FERB's daemon opens it itself."""
+        self.send("event", {"event": "open", "tab_id": tab_id, "url": url, "window_id": self.tab_windows.get(tab_id)})
+
+    def popup(self, opener: int, url: str) -> int:
+        """The page in this tab opened a new tab (window.open); the extension armed it and reports it."""
+        self._n += 1
+        self.tabs[self._n] = url
+        self.tab_windows[self._n] = self.tab_windows.get(opener) or 0
+        self.armed.add(self._n)
+        self.send("event", {"event": "popup", "tab_id": self._n, "opener_tab_id": opener, "url": url})
+        return self._n
+
+    def op_disarm(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        self.disarmed.append(a["tab_id"])
+        self.armed.discard(a["tab_id"])
+        self.attached.discard(a["tab_id"])
+        return {"disarmed": True, "tab_id": a["tab_id"]}
 
     def op_download_part(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.download_parts.append(dict(a))
         did = a["download_id"]
         if did not in self.held_downloads:
             raise RuntimeError("download transfer unavailable")
+        if a.get("release"):
+            self.held_downloads.pop(did)
+            self.download_releases.append(did)
+            return {"released": True, "handed_back": True}
         if a.get("abort"):
             self.held_downloads.pop(did)
             self.download_aborts.append(did)
             return {"aborted": True}
+        if self.download_part_delay:
+            time.sleep(self.download_part_delay)
         data, offset = self.held_downloads[did], int(a["offset"])
         if self.download_fail_at is not None and offset >= self.download_fail_at:
             self.held_downloads.pop(did)
@@ -344,6 +378,8 @@ class FakeExtension:
 
     def op_release_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         tab = a['tab_id']
+        if self.fail_release:
+            raise RuntimeError('transport failed')
         if tab not in self.tabs:
             raise ValueError('tab no longer open')
         if a.get('keep_open'):

@@ -817,7 +817,23 @@ class Daemon:
             trash_backstop_iso=(plan.now - timedelta(days=recovery.TRASH_RECORD_MAX_DAYS)).isoformat())
         if spans or decisions or evidence or copies or plan.left:
             self._journal_purged(plan, spans, decisions, evidence, copies, plan.left)
-        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies}
+        trashed = self._purge_downloads()
+        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed}
+
+    def _purge_downloads(self) -> int:
+        """D35: FERB's downloaded working copies older than retention.download_days, or past browser.download_total_mb
+        (oldest first), go to the Trash; their records stay. Journaled when any moved."""
+        if self.downloads is None:
+            return 0
+        try:
+            trashed = self.downloads.purge()
+        except Exception as e:
+            self._journal().append("retention.failed", {"downloads": True, "error": f"{type(e).__name__}: {e}"})
+            return 0
+        if trashed:
+            self._journal().append("retention.downloads", {"trashed": trashed,
+                                                           "download_days": self.downloads.limits().keep_days})
+        return trashed
 
     def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, copies: int, left: int,
                         stopped: bool = False) -> None:
@@ -1547,9 +1563,9 @@ class Daemon:
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
         # D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog.
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
-                                             lambda: self.config.get("browser", "download_max_mb",
-                                                                     downloads.DEFAULT_MAX_MB),
-                                             lambda url: str(self.redact({"u": url})["u"]), self._publish)
+                                             self.config.get, lambda text: str(self.redact({"u": text})["u"]),
+                                             self._publish)
+        self.downloads.sweep()                           # partial files of transfers a restart cut off
         self.hub.on_download = self.downloads.receive
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.add_secret_value = self._add_secret_value
@@ -1562,8 +1578,8 @@ class Daemon:
         for drv in (self.router, self.ferb_identity):
             drv.inspection_parent = self._inspection_parent
             drv.downloads = self.downloads
-        router, identity = self.router, self.ferb_identity
-        self.downloads.task_tab = lambda br, chrome_id: router.task_tab(br, chrome_id) or identity.task_tab(br, chrome_id)
+            drv.task_running = lambda task_id: self.tasks.get(task_id) is not None   # removed when its tree ends
+        self.downloads.task_tab = self.hub.task_tab      # only a live task's tab holds downloads (D35)
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve

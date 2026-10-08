@@ -1,43 +1,68 @@
 """Owns taking a browser download into FERB's workspace as facts (D35); must not judge the file or pick a source.
 
 The extension catches a download only in a tab FERB drives for a task and holds it there; nothing reaches the browser's
-own download flow, so no Save dialog. This side pulls the bytes in parts (`download_part`), hashes what it received,
-enforces `browser.download_max_mb`, writes `~/.ferb/workspace/downloads/<id>-<safe name>` (never elsewhere) and keeps a
-record of facts, never content. The file is outside content (MP2): `external:download`, and the folder is always an
-untrusted fs root. A download the extension couldn't intercept, or one it could not take, is a fact for the worker."""
+own download flow, so no Save dialog. This side takes it only while that tab is a live task tab: otherwise the response
+goes back to the browser untouched (the owner's own download, never cancelled or read). It pulls the bytes in parts
+(`download_part`), one transfer per tab, within a per-file, per-task and time budget; hashes what it received; writes
+`~/.ferb/workspace/downloads/<id>-<safe name>` (never elsewhere) and records facts, never content. The file is FERB's
+working copy, outside content (MP2: `external:download`, the folder is always an untrusted fs root), moved to the Trash
+after `retention.download_days` or when the folder passes `browser.download_total_mb`. A download the extension couldn't
+intercept, or one it could not take, is a fact for the worker."""
 
 import asyncio
 import base64
-import binascii
 import hashlib
 import os
 import secrets
 import stat
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, NamedTuple
 
 from ferb.core import origin
-from ferb.core.errors import DriverError
 
 ORIGIN = origin.external("download")
 FOLDER = "downloads"                    # under FERB's workspace
-NAME_MAX_BYTES = 150                    # the safe name; the id prefix adds 15 (APFS allows 255 bytes)
-DEFAULT_MAX_MB = 100                    # browser.download_max_mb
+NAME_MAX_BYTES = 150                    # the safe name; the id prefix adds 16 (APFS allows 255 bytes)
 PART_TIMEOUT_S = 30.0
+TRANSFER_DEADLINE_S = 600.0             # a slow drip under the per-part timeout still ends
+TAB_WAIT_S = 20.0                       # a second download in a tab waits this long for the first (the extension's
+                                        # hold lasts 30 s), then is refused
 SETTLE_S = 60.0                         # a navigation/open waits this long for a download its tab started
+DEFAULTS = {"download_max_mb": 100, "download_task_max_files": 20, "download_task_max_mb": 500,
+            "download_total_mb": 2048}  # [browser]; retention.download_days: 30
+DEFAULT_KEEP_DAYS = 30
 _DROP = {"Cc", "Cf", "Cs", "Zl", "Zp"}  # controls, format (bidi overrides, zero-width), surrogates, line separators
+_MB = 1024 * 1024
 
 Publish = Callable[[str, dict[str, Any]], None]
+Setting = Callable[[str, str, Any], Any]
 
 
 @dataclass(frozen=True)
 class TaskTab:
-    """Whose tab a download came from: the task that drives it, its alias, and the profile's identity."""
+    """Whose tab a download came from: the live task that drives it, its alias, and the profile's identity."""
     task: str
     tab: str
     identity: str                       # owner | ferb
+
+
+class Limits(NamedTuple):
+    file_bytes: int
+    task_files: int
+    task_bytes: int
+    total_bytes: int
+    keep_days: int
+
+
+class _Refused(Exception):
+    """A budget refused the download: it is failed in the browser (a task tab: no dialog) and recorded as refused."""
+
+    def __init__(self, reason: str, size: int | None) -> None:
+        super().__init__(reason)
+        self.reason, self.size = reason, size
 
 
 def safe_name(raw: str) -> str:
@@ -67,34 +92,42 @@ def untrusted_roots(configured: Iterable[str], workspace: Path) -> tuple[str, ..
 
 
 def _mb(n: int) -> str:
-    return f"{n / (1024 * 1024):g} MB"
+    return f"{n / _MB:g} MB"
+
+
+def _number(value: Any, default: float) -> float:
+    try:
+        return max(float(value), 0.0)
+    except (TypeError, ValueError):
+        return default
 
 
 class Downloads:
     """One per daemon, shared by the owner's and FERB's browser drivers."""
 
-    def __init__(self, root: Path, db: Any, now: Callable[[], Any], max_mb: Callable[[], Any],
-                 redact_url: Callable[[str], str], publish: Publish) -> None:
-        self.root, self.db, self.now, self.max_mb, self.redact_url, self.publish = (
-            root, db, now, max_mb, redact_url, publish)
-        self.task_tab: Callable[[Any, int], TaskTab | None] = lambda br, chrome_id: None   # the drivers answer
+    def __init__(self, root: Path, db: Any, now: Callable[[], datetime], setting: Setting,
+                 redact_text: Callable[[str], str], publish: Publish) -> None:
+        self.root, self.db, self.now, self.setting, self.redact_text, self.publish = (
+            root, db, now, setting, redact_text, publish)
+        self.task_tab: Callable[[Any, int], TaskTab | None] = lambda br, chrome_id: None   # live task tabs only
         self._active: dict[tuple[str, int], set[asyncio.Task[None]]] = {}
+        self._locks: dict[tuple[str, int], asyncio.Lock] = {}
+        self._inflight: dict[str, int] = {}                 # task -> bytes received by transfers still running
         self._unreported: dict[tuple[str, int], list[dict[str, Any]]] = {}
 
-    def max_bytes(self) -> int:
-        try:
-            mb = float(self.max_mb())
-        except (TypeError, ValueError):
-            mb = DEFAULT_MAX_MB
-        return int(max(mb, 0) * 1024 * 1024)
+    def limits(self) -> Limits:
+        b = {k: _number(self.setting("browser", k, v), v) for k, v in DEFAULTS.items()}
+        return Limits(int(b["download_max_mb"] * _MB), int(b["download_task_max_files"]),
+                      int(b["download_task_max_mb"] * _MB), int(b["download_total_mb"] * _MB),
+                      int(_number(self.setting("retention", "download_days", DEFAULT_KEEP_DAYS), DEFAULT_KEEP_DAYS)))
 
     # ---------- the extension's download event ----------
 
     def receive(self, br: Any, ev: Any) -> None:
         """A download the extension caught (held) or saw the browser start itself. Runs as its own task: its parts
-        come back over the same connection the event arrived on."""
+        come back over the same connection the event arrived on. It never raises out of the task."""
         key = (br.name, int(ev.tab_id))
-        job = asyncio.get_running_loop().create_task(self._receive(br, ev))
+        job = asyncio.get_running_loop().create_task(self._guarded(br, ev))
         self._active.setdefault(key, set()).add(job)
 
         def done(t: asyncio.Task[None]) -> None:
@@ -105,57 +138,92 @@ class Downloads:
                     self._active.pop(key, None)
         job.add_done_callback(done)
 
+    async def _guarded(self, br: Any, ev: Any) -> None:
+        try:
+            await self._receive(br, ev)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:                          # never an unretrieved task exception; the event says why
+            self.publish("browser.download", {"profile": br.name, "tab_id": ev.tab_id, "state": "error",
+                                               "reason": self.redact_text(f"{type(e).__name__}: {e}")})
+
     async def _receive(self, br: Any, ev: Any) -> None:
         owner = self.task_tab(br, int(ev.tab_id))
-        if owner is None:                               # not a tab FERB drives for a task: let it go, keep nothing
+        if owner is None:                               # not a live task tab: back to the browser, untouched
             if not ev.uncaptured and ev.download_id:
-                await _abort(br, ev.download_id)
-            self.publish("browser.download", {"profile": br.name, "tab_id": ev.tab_id, "state": "ignored",
-                                               "reason": "not a task tab"})
+                await _send(br, ev.download_id, release=True)
+            self.publish("browser.download", {"profile": br.name, "tab_id": ev.tab_id, "state": "released",
+                                               "reason": "not a live task tab: left to the browser"})
             return
         if ev.uncaptured:
-            self._record(br, owner, ev, "not_taken", reason=(
-                "the browser started this download itself (a link FERB couldn't intercept, e.g. a script-made blob "
-                "or data link); FERB couldn't take or stop it, so the browser may have shown its own Save dialog "
-                "and saved it where it saves downloads"))
+            self._insert(br, owner, ev, "not_taken", reason=_not_taken(ev.detail), final=True)
             return
         if not ev.download_id:
             return
-        limit, size = self.max_bytes(), ev.size
-        if size is not None and size > limit:
-            await _abort(br, ev.download_id)
-            self._record(br, owner, ev, "refused", size=size, reason=(
-                f"larger than the {_mb(limit)} limit (browser.download_max_mb): {size} bytes; not taken"))
+        key = (br.name, int(ev.tab_id))
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        try:
+            await asyncio.wait_for(lock.acquire(), TAB_WAIT_S)
+        except asyncio.TimeoutError:
+            await _send(br, ev.download_id, abort=True)
+            self._insert(br, owner, ev, "refused", size=ev.size, final=True, reason=(
+                "another download from this tab was still being taken (one at a time per tab); not taken"))
             return
-        await self._take(br, owner, ev, limit)
+        try:
+            await self._admit_and_take(br, owner, ev)
+        finally:
+            lock.release()
 
-    async def _take(self, br: Any, owner: TaskTab, ev: Any, limit: int) -> None:
-        fid = "dl-" + secrets.token_hex(6)
-        name = safe_name(ev.name or "")
+    async def _admit_and_take(self, br: Any, owner: TaskTab, ev: Any) -> None:
+        lim = self.limits()
+        files, used = self._task_usage(owner.task)
+        size = ev.size
+        try:
+            if files >= lim.task_files:
+                raise _Refused(f"this task already took {files} downloads, its limit "
+                               "(browser.download_task_max_files); not taken", size)
+            if size is not None and size > lim.file_bytes:
+                raise _Refused(f"larger than the {_mb(lim.file_bytes)} limit (browser.download_max_mb): {size} bytes; "
+                               "not taken", size)
+            if size is not None and used + size > lim.task_bytes:
+                raise _Refused(f"would pass this task's {_mb(lim.task_bytes)} download budget "
+                               f"(browser.download_task_max_mb; {used} bytes taken): {size} bytes; not taken", size)
+        except _Refused as r:
+            await _send(br, ev.download_id, abort=True)
+            self._insert(br, owner, ev, "refused", size=r.size, reason=r.reason, final=True)
+            return
+        await self._take(br, owner, ev, lim, used)
+
+    async def _take(self, br: Any, owner: TaskTab, ev: Any, lim: Limits, used: int) -> None:
+        fid = self._insert(br, owner, ev, "in_progress")
+        name = safe_name(self.redact_text(ev.name or ""))
         final, temp = f"{fid}-{name}", f".{fid}.part"
+        loop = asyncio.get_running_loop()
+        started, received, digest = loop.time(), 0, hashlib.sha256()
+        folder = fd = -1
+        moved = False
+        self._inflight[owner.task] = self._inflight.get(owner.task, 0)
         try:
             folder = self._open_folder()
-        except OSError as e:
-            await _abort(br, ev.download_id)
-            self._record(br, owner, ev, "failed", fid=fid, reason=f"FERB's downloads folder is unusable ({e})")
-            return
-        received, digest, moved = 0, hashlib.sha256(), False
-        fd = -1
-        try:
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
             while True:
+                left = TRANSFER_DEADLINE_S - (loop.time() - started)
+                if left <= 0:
+                    raise _Refused(f"still arriving after {TRANSFER_DEADLINE_S / 60:g} minutes ({received} bytes); "
+                                   "not taken", received)
                 part = await br.call("download_part", {"download_id": ev.download_id, "offset": received},
-                                     timeout=PART_TIMEOUT_S)
+                                     timeout=min(PART_TIMEOUT_S, max(left, 1.0)))
                 if not isinstance(part, dict) or part.get("offset") != received:
                     raise ValueError("the browser sent download parts out of order")
                 data = base64.b64decode(str(part.get("data") or ""), validate=True)
                 received += len(data)
-                if received > limit:
-                    await _abort(br, ev.download_id)
-                    self._record(br, owner, ev, "refused", fid=fid, size=received, reason=(
-                        f"larger than the {_mb(limit)} limit (browser.download_max_mb): stopped after {received} "
-                        "bytes; not taken"))
-                    return
+                self._inflight[owner.task] += len(data)
+                if received > lim.file_bytes:
+                    raise _Refused(f"larger than the {_mb(lim.file_bytes)} limit (browser.download_max_mb): stopped "
+                                   f"after {received} bytes; not taken", received)
+                if used + self._inflight[owner.task] > lim.task_bytes:
+                    raise _Refused(f"passed this task's {_mb(lim.task_bytes)} download budget "
+                                   f"(browser.download_task_max_mb) after {received} bytes; not taken", received)
                 view = memoryview(data)
                 while view:
                     view = view[os.write(fd, view):]
@@ -171,21 +239,37 @@ class Downloads:
                 pass
             os.rename(temp, final, src_dir_fd=folder, dst_dir_fd=folder)
             moved = True
-            self._record(br, owner, ev, "taken", fid=fid, name=name, path=str(self.root / final), size=received,
-                         sha256=digest.hexdigest())
-        except (DriverError, ValueError, binascii.Error, OSError) as e:
-            await _abort(br, ev.download_id)
-            self._record(br, owner, ev, "failed", fid=fid, size=received or None,
-                         reason=f"the transfer didn't finish ({e}); nothing was kept")
+            try:
+                self._finish(br, ev, fid, "taken", path=str(self.root / final), name=name, size=received,
+                             sha256=digest.hexdigest())
+            except Exception:                           # no record: no file (never a file FERB can't account for)
+                os.unlink(final, dir_fd=folder)
+                raise
+            self._evict()                               # the folder's total budget, oldest first, to the Trash
+        except _Refused as r:
+            await _send(br, ev.download_id, abort=True)
+            self._finish_quietly(br, ev, fid, "refused", size=r.size, reason=r.reason)
+        except asyncio.CancelledError:
+            self._finish_quietly(br, ev, fid, "failed", size=received or None,
+                                 reason="FERB stopped before the transfer finished; nothing was kept")
+            raise
+        except Exception as e:
+            await _send(br, ev.download_id, abort=True)
+            self._finish_quietly(br, ev, fid, "failed", size=received or None, reason=self.redact_text(
+                f"the transfer didn't finish ({e}); nothing was kept"))
         finally:
+            self._inflight[owner.task] = max(self._inflight.get(owner.task, 0) - received, 0)
+            if not self._inflight[owner.task]:
+                self._inflight.pop(owner.task, None)
             if fd >= 0:
                 os.close(fd)
-            if not moved:
-                try:
-                    os.unlink(temp, dir_fd=folder)
-                except FileNotFoundError:
-                    pass
-            os.close(folder)
+            if folder >= 0:
+                if not moved:
+                    try:
+                        os.unlink(temp, dir_fd=folder)
+                    except FileNotFoundError:
+                        pass
+                os.close(folder)
 
     def _open_folder(self) -> int:
         """The downloads folder, opened without following a symlink: a link planted there (FERB's shell can write the
@@ -199,22 +283,47 @@ class Downloads:
 
     # ---------- records ----------
 
-    def _record(self, br: Any, owner: TaskTab, ev: Any, state: str, *, fid: str | None = None, name: str | None = None,
-                path: str | None = None, size: int | None = None, sha256: str | None = None,
-                reason: str | None = None) -> None:
-        row = {"id": fid or "dl-" + secrets.token_hex(6), "task_id": owner.task, "profile": br.name,
-               "identity": owner.identity, "tab": owner.tab, "state": state, "path": path,
-               "name": name if name is not None else (safe_name(ev.name) if ev.name else None), "bytes": size,
-               "sha256": sha256, "mime": (ev.mime or None), "source_url": self.redact_url(ev.source_url or "") or None,
-               "reason": reason, "origin": ORIGIN, "at": self.now().isoformat()}
+    def _task_usage(self, task: str) -> tuple[int, int]:
+        """Downloads this task took or is taking, and the bytes it took (running transfers count separately)."""
+        r = self.db.conn.execute("SELECT count(*) AS n, COALESCE(sum(CASE WHEN state = 'taken' THEN bytes END), 0) AS b "
+                                 "FROM downloads WHERE task_id = ? AND state IN ('taken', 'in_progress')",
+                                 (task,)).fetchone()
+        return int(r["n"]), int(r["b"])
+
+    def _insert(self, br: Any, owner: TaskTab, ev: Any, state: str, *, size: int | None = None,
+                reason: str | None = None, final: bool = False) -> str:
+        fid = "dl-" + secrets.token_hex(6)
+        row = {"id": fid, "task_id": owner.task, "profile": br.name, "identity": owner.identity, "tab": owner.tab,
+               "state": state, "path": None, "name": safe_name(self.redact_text(ev.name)) if ev.name else None,
+               "bytes": size, "sha256": None, "mime": (ev.mime or None),
+               "source_url": self.redact_text(ev.source_url or "") or None, "reason": reason, "origin": ORIGIN,
+               "at": self.now().isoformat()}
         self.db.conn.execute(f"INSERT INTO downloads ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
                              tuple(row.values()))
+        if final:
+            self._report(br, ev, row)
+        return fid
+
+    def _finish(self, br: Any, ev: Any, fid: str, state: str, *, path: str | None = None, name: str | None = None,
+                size: int | None = None, sha256: str | None = None, reason: str | None = None) -> None:
+        self.db.conn.execute("UPDATE downloads SET state = ?, path = ?, name = COALESCE(?, name), bytes = ?, "
+                             "sha256 = ?, reason = ? WHERE id = ?", (state, path, name, size, sha256, reason, fid))
+        row = self.db.conn.execute("SELECT * FROM downloads WHERE id = ?", (fid,)).fetchone()
+        self._report(br, ev, dict(row))
+
+    def _finish_quietly(self, br: Any, ev: Any, fid: str, state: str, **fields: Any) -> None:
+        try:
+            self._finish(br, ev, fid, state, **fields)
+        except Exception:
+            pass                                        # the in_progress row stays: nothing was kept either way
+
+    def _report(self, br: Any, ev: Any, row: dict[str, Any]) -> None:
         fact = _fact(row)
         self._unreported.setdefault((br.name, int(ev.tab_id)), []).append(fact)
-        self.publish("browser.download", {"profile": br.name, "task_id": owner.task, **fact})
+        self.publish("browser.download", {"profile": br.name, "task_id": row["task_id"], **fact})
 
     def unreported(self, br: Any, chrome_id: int) -> list[dict[str, Any]]:
-        """Downloads from this tab the worker hasn't seen in a result yet (each is reported once per tab)."""
+        """Downloads from this tab the worker hasn't seen in a result yet (each final state once per tab)."""
         return self._unreported.pop((br.name, int(chrome_id)), [])
 
     async def settle(self, br: Any, chrome_id: int, timeout: float = SETTLE_S) -> None:
@@ -234,22 +343,86 @@ class Downloads:
             params.append(identity)
         return [_fact(dict(r)) for r in self.db.conn.execute(sql + " ORDER BY at, rowid", params)]
 
+    # ---------- retention: FERB's working copies go to the Trash, never unlinked ----------
+
+    def purge(self) -> int:
+        """Files older than retention.download_days, then the oldest while the folder is over browser.download_total_mb,
+        move to the Trash; their rows stay, with the path cleared and where the Trash put them."""
+        lim = self.limits()
+        cutoff = (self.now() - timedelta(days=lim.keep_days)).isoformat()
+        rows = [dict(r) for r in self.db.conn.execute(
+            "SELECT id, path, bytes, at FROM downloads WHERE path IS NOT NULL ORDER BY at, rowid")]
+        total, moved = sum(int(r["bytes"] or 0) for r in rows), 0
+        for r in rows:
+            if r["at"] >= cutoff and total <= lim.total_bytes:
+                break
+            if self._trash(r):
+                moved += 1
+                total -= int(r["bytes"] or 0)
+        return moved
+
+    def _evict(self) -> None:
+        try:
+            self.purge()
+        except Exception:
+            pass                                        # the next retention pass tries again
+
+    def _trash(self, row: dict[str, Any]) -> bool:
+        from ferb.act.fs import files                   # Task 8's seam (tests replace move_to_trash)
+        p = Path(str(row["path"]))
+        where: str | None = None
+        if p.parent == self.root and p.is_file() and not p.is_symlink():
+            try:
+                where = files.move_to_trash(p)
+            except Exception:
+                return False                            # left where it is; the next pass tries again
+        self.db.conn.execute("UPDATE downloads SET path = NULL, trashed_to = ? WHERE id = ?", (where, row["id"]))
+        return True
+
+    def sweep(self) -> int:
+        """At startup: partial files of transfers that never finished (FERB's own `.dl-*.part`) are removed."""
+        if not self.root.is_dir() or self.root.is_symlink():
+            return 0
+        gone = 0
+        for p in self.root.iterdir():
+            if p.name.startswith(".dl-") and p.name.endswith(".part") and stat.S_ISREG(os.lstat(p).st_mode):
+                p.unlink()
+                gone += 1
+        return gone
+
+
+def _not_taken(detail: str | None) -> str:
+    if detail == "canceled":
+        return ("the browser started this download itself and it ended canceled: a Save dialog may have been shown and "
+                "dismissed; FERB couldn't intercept it")
+    if detail == "new_tab":
+        return ("a new tab this tab opened started a download before FERB could attach to it; the browser handled it "
+                "(it may have shown its own Save dialog)")
+    return ("the browser started this download itself (a link FERB couldn't intercept, e.g. a script-made blob or data "
+            "link); FERB couldn't take or stop it, so the browser may have shown its own Save dialog and saved it where "
+            "it saves downloads")
+
 
 def _fact(row: dict[str, Any]) -> dict[str, Any]:
     """What the worker sees: facts about the file, labeled outside content."""
     keys = {"id": "download", "state": "state", "tab": "tab", "path": "path", "name": "name", "sha256": "sha256",
-            "mime": "mime", "source_url": "source_url", "reason": "reason", "origin": "origin"}
+            "mime": "mime", "source_url": "source_url", "reason": "reason", "trashed_to": "trashed_to",
+            "origin": "origin"}
     out = {k: row[src] for src, k in keys.items() if row.get(src) not in (None, "")}
     if row.get("bytes") is not None:
         out["bytes" if row["state"] == "taken" else "size"] = row["bytes"]
+    if row["state"] == "taken" and not row.get("path"):
+        out["kept"] = "moved to the Trash (retention)"
     return out
 
 
-async def _abort(br: Any, download_id: str | None) -> None:
-    """Let the extension fail the held response; best effort (a dropped connection already ended it)."""
+async def _send(br: Any, download_id: str | None, **flags: Any) -> None:
+    """Tell the extension what becomes of a held download: abort (failed in the browser: no dialog, for a refused
+    download in a task tab) or release (back to the browser untouched). Best effort: a dropped connection or a
+    transfer the extension already let go of ends it anyway."""
     if not download_id:
         return
     try:
-        await br.call("download_part", {"download_id": download_id, "abort": True}, timeout=10)
-    except DriverError:
+        await br.call("download_part", {"download_id": download_id, **flags}, timeout=10)
+    except Exception:
         pass

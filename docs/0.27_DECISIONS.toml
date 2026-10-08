@@ -416,7 +416,7 @@ summary = "A named target FERB can't find becomes a what/which question, answere
 
 [D35]
 milestone = "F4"
-tests = ["tests/test_downloads.py"]
+tests = ["tests/test_downloads.py", "tests/test_downloads_extension.py"]
 summary = "Browser downloads never open a dialog on the owner's screen; FERB takes the file into its workspace as facts"
 
 [D36]

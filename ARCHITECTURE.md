@@ -154,23 +154,42 @@ path, size, modified time and SHA-256 receipts tie the chosen local bytes to the
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs
 model inspection and final observed content evidence.
 
-Downloads (D35) never reach the browser's own download flow in a tab FERB drives (opened, or borrowed while the task
-holds it). The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the task's,
-then navigates): its debugger session pauses document responses at the response stage (`Fetch`, child-frame sessions
-too) and [`downloads.js`](extensions/chromium/downloads.js) classifies each as the browser would: `Content-Disposition:
+Downloads (D35) never reach the browser's own download flow in a live task's tab (opened, adopted, or borrowed while
+the task holds it). The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the
+task's, then navigates; a tab the debugger can't attach to, such as a new-tab or `chrome://` page, steps through
+`about:blank` first, and only then is the URL refused as a structured `download_capture_unavailable` fact). Its
+debugger session pauses document responses at the response stage (`Fetch`, child-frame sessions too) and
+[`downloads.js`](extensions/chromium/downloads.js) classifies each as the browser would: `Content-Disposition:
 attachment`, a renderer-started download (`<a download>`, whose request alone lacks `Upgrade-Insecure-Requests`, plus
-its redirect targets), or a type a page can't show. A download is held, announced as a `download` event, read with
-`Fetch.takeResponseBodyAsStream` + `IO.read` in 72000-byte `download_part`s the daemon pulls, then failed
-(`ERR_ABORTED`: the page stays). `content.js` cancels and holds a connected blob/data `download` link instead. An idle
-hold (30 s), a cancel or letting go of the tab fails the response. Nothing is profile-wide:
-`Browser/Page.setDownloadBehavior` are refused to extensions and would capture the owner's own downloads.
-[`downloads.py`](ferb/act/browser/downloads.py) writes `~/.ferb/workspace/downloads/<id>-<safe name>` through a
-no-follow folder descriptor, hashes the received bytes, enforces `browser.download_max_mb`, removes partial files and
-records facts in `downloads` (migration 0025; redacted source URL, never content). The worker sees them in the
-navigation/open result (it waits for the transfer), the next snapshot or act, and `browser.downloads` (an observation
-tool). The folder is always an untrusted fs root, so reads are `external:download`. A download the browser starts
-itself (a detached script-made blob link, a misread type) arrives as `Page.downloadWillBegin` and is recorded as
-`not_taken`; nothing tab-scoped can stop it (measured), so it can still show a Save dialog.
+its redirect targets), or a type a page can't show. A download is held, announced as a `download` event and read with
+`Fetch.takeResponseBodyAsStream` + `IO.read` in 72000-byte `download_part`s the daemon pulls (never in the command
+journal), then failed (`ERR_ABORTED`: the page stays). `content.js` (bubble phase, after the page's own handlers)
+holds a connected blob/data `download` link, and routes a link to a new tab (`target=_blank`, a modifier or middle
+click) through FERB's own open as the same task's tab; a tab the page opens itself is adopted from
+`chrome.tabs.onCreated` (`openerTabId`). Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
+takes a download only while `Hub.task_tab` finds a running task's tab, else it is released back to the browser
+untouched (`download_part {release}` → `Fetch.continueRequest`); the hello lists armed tabs and the daemon disarms any it
+doesn't hold (a failed release, a restart); an unpulled hold goes back to the browser after 30 s (in FERB's own profile it
+is failed); closing FERB's own tab fails what it holds, letting go of a borrowed one hands it back. A refused download
+(over `browser.download_max_mb` 100, the task's `download_task_max_files` 20 / `download_task_max_mb` 500, a second
+transfer in a tab waiting over 20 s, or a 10-minute transfer) is failed in the browser, so no dialog. The daemon writes
+`~/.ferb/workspace/downloads/<id>-<safe name>` through a no-follow folder descriptor, hashes the received bytes,
+removes partial files (and sweeps orphan `.dl-*.part` at startup), and records facts in `downloads` (migration 0025:
+`in_progress` → `taken|refused|failed|not_taken`; source URL and URL-derived names through the redactor, which covers
+signed-URL credentials; never content). The worker sees them in the open/navigate result (it waits for the transfer),
+the next snapshot or act (with `opened_tabs`), and `browser.downloads` (an observation tool). The folder is always an
+untrusted fs root (`external:download`). Files are FERB's working copies: after `retention.download_days` (30) or past
+`browser.download_total_mb` (2048, oldest first) they move to the Trash (`move_to_trash`); rows stay with `trashed_to`.
+
+Residuals (measured in the headless lab; nothing tab-scoped closes them): a download the browser starts itself (a
+FileSaver-style blob link never added to the page, an `<area download>` link, a link in a frame content.js wasn't
+injected into, a misread type) is recorded `not_taken` from `Page.downloadWillBegin`/`downloadProgress` (a later
+`canceled` is reported too, e.g. a dismissed Save dialog) and may show a Save dialog; a popup's (`window.open`) first
+response beats the adoption (lost 6/6; a download-only popup closes itself, so nothing is reported); an OOPIF's first
+document can load before its session's `Fetch.enable`; a held response whose debugger detaches (the owner's Cancel on the
+debugging bar, a worker crash) continues into the browser's download flow, while one whose body FERB already took does
+not. `Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to extensions, and the tab session's
+`Target.setAutoAttach` doesn't attach popups.
 
 Dialogs are explicit pending observations and explicit accept/dismiss choices. Email uses observed browser primitives,
 not a fixed Gmail compose/send recipe. OTP inbox candidates have opaque task/account/origin-bound IDs and masked

@@ -86,6 +86,8 @@ class Config:
                                     ("sense", "idle_after_s", 120), ("sense", "trail_retention_days", 30),
                                     ("retention", "trace_days", 30), ("retention", "decision_days", 30),
                                     ("retention", "evidence_days", 7), ("retention", "recovery_days", 7),
-                                    ("browser", "download_max_mb", 100)):
+                                    ("retention", "download_days", 30),
+                                    ("browser", "download_max_mb", 100), ("browser", "download_task_max_files", 20),
+                                    ("browser", "download_task_max_mb", 500), ("browser", "download_total_mb", 2048)):
             if self.get(section, key) is None:
                 self.set(section, key, value)

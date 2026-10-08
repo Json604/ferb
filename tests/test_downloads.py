@@ -44,11 +44,12 @@ def _records(d: RunningDaemon) -> list[dict[str, Any]]:
     return d.run(go())                                            # type: ignore[no-any-return]
 
 
-def _wait_record(d: RunningDaemon, count: int = 1) -> dict[str, Any]:
+def _wait_record(d: RunningDaemon, count: int = 1, settled: bool = True) -> dict[str, Any]:
+    """The count-th download record, once it has its final state (in_progress is a running transfer)."""
     end = time.monotonic() + 10
     while time.monotonic() < end:
         rows = _records(d)
-        if len(rows) >= count:
+        if len(rows) >= count and (not settled or rows[count - 1]["state"] != "in_progress"):
             return rows[count - 1]
         time.sleep(0.02)
     raise AssertionError("no download record")
@@ -234,13 +235,14 @@ def test_a_download_caught_after_a_click_shows_in_the_next_snapshot(bd: Any) -> 
     assert "external:download" in snap["footer"]
 
 
-def test_a_download_outside_a_task_tab_is_cancelled_and_never_written(bd: Any) -> None:
+def test_a_download_outside_a_task_tab_goes_back_to_the_browser_untouched(bd: Any) -> None:
+    """Ruling 2 / rule 17: the owner's own download is never taken, cancelled or read."""
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
     did = ext.start_download(9999, "owner.pdf", b"owner's own", "https://x.example/o.pdf")
-    ext.wait_for(lambda: did in ext.download_aborts)
-    assert _kept(d) == []
-    assert _records(d) == []
+    ext.wait_for(lambda: did in ext.download_releases)
+    assert did not in ext.download_aborts and not [p for p in ext.download_parts if "offset" in p]   # nothing read
+    assert _kept(d) == [] and _records(d) == []
 
 
 def test_a_download_the_extension_could_not_intercept_is_a_fact_for_the_worker(bd: Any) -> None:
@@ -291,212 +293,256 @@ def test_protocol_and_extension_versions_move_together() -> None:
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
 
-# ---------- the extension's own side, under node ----------
+# ---------- only a live task tab's downloads (ruling 2: never the owner's) ----------
 
-def test_the_extension_holds_a_download_only_in_a_tab_ferb_drives_and_lets_it_go_after_the_last_part() -> None:
-    out = worker('''(async () => {
-      const sent = [], cmds = []; let reads = 0;
-      send = async (type, body) => { sent.push([type, body]); };
-      cdp = async (tab, method, params, sid) => { cmds.push([method, params, sid || null]);
-        if (method === 'Fetch.takeResponseBodyAsStream') return {stream: 'stream-1'};
-        if (method === 'IO.read') { reads++; return reads === 1 ? {data: btoa('hello '), base64Encoded: true, eof: false}
-                                                                : {data: 'w\u00f6rld', base64Encoded: false, eof: true}; }
-        return {}; };
-      const paused = (id) => ({requestId: id, request: {url: 'https://docs.example/x?token=abc', headers: {'Upgrade-Insecure-Requests': '1'}},
-        responseStatusCode: 200, responseHeaders: [{name: 'Content-Disposition', value: 'attachment; filename="r\u00e9sum\u00e9.txt"'},
-                                                   {name: 'Content-Type', value: 'text/plain'}, {name: 'Content-Length', value: '12'}]});
-      await onPaused({tabId: 5}, paused('owner-tab'));               // a tab FERB doesn't drive: untouched
-      tabState(5).armed = true;
-      await onPaused({tabId: 5, sessionId: 'frame-s'}, paused('task-tab'));
-      const ev = sent.map(s => s[1]).find(b => b.event === 'download');
-      const p1 = await commands.download_part({download_id: ev.download_id, offset: 0});
-      const p2 = await commands.download_part({download_id: ev.download_id, offset: p1.next_offset});
-      let again = null;
-      try { await commands.download_part({download_id: ev.download_id, offset: 0}); } catch (e) { again = e.message; }
-      return {cmds, ev, p1, p2, again, left: downloads.size};
-    })()''')
-    cmds = out["cmds"]
-    assert cmds[0] == ["Fetch.continueRequest", {"requestId": "owner-tab"}, None]
-    assert out["ev"]["tab_id"] == 5 and out["ev"]["name"] == "résumé.txt" and out["ev"]["size"] == 12
-    assert out["ev"]["source"] == "attachment" and "abc" not in out["ev"]["source_url"]
-    assert base64.b64decode(out["p1"]["data"]) == b"hello " and out["p1"]["eof"] is False
-    assert base64.b64decode(out["p2"]["data"]) == "wörld".encode() and out["p2"]["eof"] is True
-    assert out["p2"]["offset"] == 6 and out["p2"]["next_offset"] is None
-    after = [c[0] for c in cmds[1:]]
-    assert after == ["Fetch.takeResponseBodyAsStream", "IO.read", "IO.read", "IO.close", "Fetch.failRequest"]
-    assert all(c[2] == "frame-s" for c in cmds[1:])                      # in the session the request belongs to
-    assert cmds[-1][1] == {"requestId": "task-tab", "errorReason": "Aborted"}   # no browser download ever starts
-    assert "unavailable" in out["again"] and out["left"] == 0
+def _borrowed(d: RunningDaemon, ext: FakeExtension, g: Any, chrome_id: int = 200) -> str:
+    ext.tabs[chrome_id], ext.tab_windows[chrome_id] = f"{SITE}/owner", 5          # the owner's own tab
+    got = call(d, g, "browser.use_tab", tab_ref=f"chrome:Profile 1:{chrome_id}")
+    assert not got["is_error"], got
+    return str(got["content"]["tab"])
 
 
-def test_a_cancelled_or_unclaimed_download_is_failed_in_the_browser_never_left_to_it() -> None:
-    out = worker('''(async () => {
-      const cmds = []; const sent = [];
-      send = async (type, body) => { sent.push(body); };
-      cdp = async (tab, method, params) => { cmds.push(method); return method === 'Fetch.takeResponseBodyAsStream' ? {stream: 's'} : {}; };
-      tabState(3).armed = true;
-      const paused = (id) => ({requestId: id, request: {url: 'https://x/a.zip', headers: {}}, responseStatusCode: 200,
-                               responseHeaders: [{name: 'content-type', value: 'application/zip'}]});
-      await onPaused({tabId: 3}, paused('r1'));
-      const first = sent.find(b => b.event === 'download').download_id;
-      const aborted = await commands.download_part({download_id: first, abort: true});
-      const afterAbort = cmds.slice();
-      DOWNLOAD_IDLE_MS = 30;                                     // nobody pulls: the extension cancels it itself
-      await onPaused({tabId: 3}, paused('r2'));
-      await sleep(80);
-      return {aborted, afterAbort, cmds, left: downloads.size};
-    })()''')
-    assert out["aborted"] == {"aborted": True}
-    assert out["afterAbort"] == ["Fetch.failRequest"]               # no body was taken: nothing to close
-    assert out["cmds"] == ["Fetch.failRequest", "Fetch.failRequest"] and out["left"] == 0
+def test_after_a_failed_release_the_owners_download_goes_back_to_the_browser_and_the_tab_is_disarmed_on_reconnect(
+        bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    _borrowed(d, ext, g)
+    ext.armed.add(200)                                                 # FERB drove it: the extension armed it
+    ext.fail_release = True
+    with pytest.raises(Exception):
+        d.run(d.daemon.router.release(g.task_id))                     # the task ended; letting go of the tab failed
+    did = ext.start_download(200, "mine.pdf", b"the owner's", "https://x.example/mine.pdf")
+    ext.wait_for(lambda: did in ext.download_releases)                # continued to the browser, never taken
+    assert did not in ext.download_aborts and _records(d) == [] and _kept(d) == []
+    ext.fail_release = False
+    ext.kill()
+    ext.connect()                                                     # the hello lists it armed: the daemon lets go
+    ext.wait_for(lambda: 200 in ext.disarmed)
+    assert chrome_id not in ext.disarmed                              # the live task tab stays FERB's
 
 
-def test_download_classification_follows_what_the_browser_would_do() -> None:
-    out = worker('''(async () => {
-      const h = (o) => Object.entries(o).map(([name, value]) => ({name, value}));
-      const nav = {'Upgrade-Insecure-Requests': '1', Accept: 'text/html'};
-      const p = (status, headers, req = nav, url = 'https://s.example/f') =>
-        ({requestId: 'r', request: {url, headers: req}, responseStatusCode: status, responseHeaders: h(headers)});
-      const expected = new Map();
-      const kinds = [
-        classify(p(200, {'Content-Disposition': 'attachment; filename=a.txt', 'Content-Type': 'text/plain'}), expected),
-        classify(p(200, {'Content-Type': 'text/html; charset=utf-8'}), expected),
-        classify(p(200, {'Content-Type': 'application/pdf'}), expected),
-        classify(p(200, {'Content-Type': 'text/csv'}), expected),
-        classify(p(200, {'Content-Type': 'application/zip'}), expected),
-        classify(p(200, {'Content-Type': 'image/png'}), expected),
-        classify(p(200, {'Content-Type': 'application/ld+json'}), expected),
-        classify(p(404, {'Content-Disposition': 'attachment'}), expected),
-        classify(p(200, {'Content-Type': 'text/html'}, {Referer: 'https://s.example/'}), expected),   // <a download>
-      ];
-      const redirect = classify(p(302, {Location: '/real.txt'}, {Referer: 'x'}, 'https://s.example/dl'), expected);
-      const followed = classify(p(200, {'Content-Type': 'text/plain'}, nav, 'https://s.example/real.txt'), expected);
-      const unrelated = classify(p(200, {'Content-Type': 'text/plain'}, nav, 'https://s.example/real.txt'), expected);
-      return {kinds, redirect, followed, unrelated};
-    })()''')
-    assert out["kinds"] == ["attachment", None, None, "type", "type", None, None, None, "link"]
-    assert out["redirect"] is None and out["followed"] == "link" and out["unrelated"] is None
+def test_after_a_daemon_restart_every_armed_tab_it_doesnt_hold_is_disarmed(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.armed |= {555, 556, chrome_id}                                # 555/556: tabs a previous daemon drove
+    ext.kill()
+    ext.connect()
+    ext.wait_for(lambda: {555, 556} <= set(ext.disarmed))
+    assert chrome_id not in ext.disarmed
 
 
-def test_download_names_come_from_the_response_or_the_url() -> None:
-    out = worker('''(async () => [
-      downloadName([{name: 'Content-Disposition', value: "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf; filename=x.pdf"}], 'https://a/b'),
-      downloadName([{name: 'content-disposition', value: 'attachment; filename="a b.txt"'}], 'https://a/b'),
-      downloadName([], 'https://a/files/report.csv?x=1'),
-      downloadName([], 'https://a/'),
-    ])()''')
-    assert out == ["résumé.pdf", "a b.txt", "report.csv", "download"]
+def test_a_download_in_a_tab_whose_task_ended_goes_back_to_the_browser(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+
+    async def end() -> None:
+        d.daemon.tasks.remove(g.task_id)
+    d.run(end())
+    did = ext.start_download(chrome_id, "late.pdf", b"late", "https://x.example/late.pdf")
+    ext.wait_for(lambda: did in ext.download_releases)
+    assert _records(d) == []
 
 
-def test_the_extension_allows_only_the_download_mechanics_it_uses() -> None:
-    proto = EXT / "protocol.js"
-    script = f"""
-const p = require({json.dumps(str(proto))});
-const cases = [
-  ["Fetch.enable", {{patterns: p.DOWNLOAD_PATTERNS}}],
-  ["Fetch.enable", {{patterns: [{{urlPattern: "*", requestStage: "Request"}}]}}],
-  ["Fetch.enable", {{}}],
-  ["Fetch.continueRequest", {{requestId: "r"}}],
-  ["Fetch.continueRequest", {{requestId: "r", url: "https://evil.example/"}}],
-  ["Fetch.failRequest", {{requestId: "r", errorReason: "Aborted"}}],
-  ["Fetch.failRequest", {{requestId: "r", errorReason: "Failed"}}],
-  ["Fetch.takeResponseBodyAsStream", {{requestId: "r"}}],
-  ["Fetch.fulfillRequest", {{requestId: "r", responseCode: 200}}],
-  ["Fetch.getResponseBody", {{requestId: "r"}}],
-  ["IO.read", {{handle: "s", size: p.DOWNLOAD_PART}}],
-  ["IO.read", {{handle: "s"}}],
-  ["IO.read", {{handle: "s", size: 1, offset: 0}}],
-  ["IO.close", {{handle: "s"}}],
-  ["IO.resolveBlob", {{objectId: "o"}}],
-  ["Browser.setDownloadBehavior", {{behavior: "deny"}}],
-  ["Page.setDownloadBehavior", {{behavior: "deny"}}],
-];
-console.log(JSON.stringify(cases.map(([m, a]) => p.cdpAllowed(m, a))));
-console.log(JSON.stringify([p.cdpFilter("IO.read", {{data: "x", base64Encoded: true, eof: false, extra: 1}}),
-                            p.cdpFilter("Fetch.takeResponseBodyAsStream", {{stream: "s", other: 2}})]));
-"""
-    out = subprocess.run([_node(), "-e", script], capture_output=True, text=True, timeout=20).stdout.splitlines()
-    assert json.loads(out[0]) == [True, False, False, True, False, True, False, True, False, False, True, False, False,
-                                  True, False, False, False]
-    assert json.loads(out[1]) == [{"data": "x", "base64Encoded": True, "eof": False}, {"stream": "s"}]
+# ---------- bounds a page can't push past ----------
+
+def test_one_transfer_per_tab_the_next_waits_its_turn(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.download_part_delay = 0.05
+    ext.start_download(chrome_id, "one.bin", os.urandom(3 * DOWNLOAD_PART), "https://x.example/1")
+    ext.start_download(chrome_id, "two.bin", os.urandom(DOWNLOAD_PART), "https://x.example/2")
+    first, second = _wait_record(d, 1), _wait_record(d, 2)
+    assert first["state"] == second["state"] == "taken"
+    reads = [p["download_id"] for p in ext.download_parts if "offset" in p]
+    assert len(reads) == 4 and len(set(reads[:3])) == 1 and reads[3] != reads[0]   # one after the other, never interleaved
 
 
-def test_a_browser_download_the_extension_could_not_intercept_is_reported_once_and_never_its_own_cancel() -> None:
-    out = worker('''(async () => {
-      const sent = [];
-      send = async (type, body) => { sent.push(body); };
-      tabState(4).armed = true;
-      const fire = (m, p) => chrome.debugger.onEvent.fire({tabId: 4}, m, p);
-      fire('Page.downloadWillBegin', {guid: 'g1', url: 'blob:https://s.example/u?token=zz', suggestedFilename: 'e.csv'});
-      fire('Page.downloadProgress', {guid: 'g1', state: 'inProgress'});
-      fire('Page.downloadProgress', {guid: 'g1', state: 'completed'});
-      fire('Page.downloadWillBegin', {guid: 'g2', url: 'https://s.example/x', suggestedFilename: 'x.txt'});
-      fire('Page.downloadProgress', {guid: 'g2', state: 'canceled'});    // the browser's entry for FERB's own cancel
-      await sleep(20);
-      return sent.filter(b => b.event === 'download');
-    })()''')
-    assert len(out) == 1
-    [ev] = out
-    assert ev["uncaptured"] is True and ev["tab_id"] == 4 and ev["name"] == "e.csv" and "zz" not in ev["source_url"]
+def test_a_download_that_waits_too_long_behind_another_in_its_tab_is_refused(bd: Any, monkeypatch: Any) -> None:
+    import ferb.act.browser.downloads as downloads
+    monkeypatch.setattr(downloads, "TAB_WAIT_S", 0.2)
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.download_part_delay = 0.3
+    ext.start_download(chrome_id, "slow.bin", os.urandom(3 * DOWNLOAD_PART), "https://x.example/slow")
+    did = ext.start_download(chrome_id, "next.bin", b"next", "https://x.example/next")
+    ext.wait_for(lambda: did in ext.download_aborts)                  # failed in the browser: no dialog
+    rows = {r["name"]: r for r in (_wait_record(d, 1), _wait_record(d, 2))}
+    assert rows["next.bin"]["state"] == "refused" and "one at a time" in rows["next.bin"]["reason"]
+    assert rows["slow.bin"]["state"] == "taken"
 
 
-def test_letting_go_of_a_tab_cancels_its_held_downloads() -> None:
-    out = worker('''(async () => {
-      const cmds = [];
-      send = async () => {};
-      chrome.debugger = new Proxy({sendCommand: async (t, m) => { cmds.push(m); return m === 'Fetch.takeResponseBodyAsStream' ? {stream: 's'} : {}; },
-                                   detach: async () => { cmds.push('detach'); },
-                                   onEvent: chrome.debugger.onEvent, onDetach: chrome.debugger.onDetach}, {get: (o, k) => o[k]});
-      chrome.tabs.get = async id => ({id, windowId: 9, url: 'https://s.example/'});
-      const t = tabState(8); t.attached = true; t.armed = true;
-      await onPaused({tabId: 8}, {requestId: 'r', request: {url: 'https://s.example/a', headers: {}}, responseStatusCode: 200,
-                                  responseHeaders: [{name: 'Content-Type', value: 'application/zip'}]});
-      await commands.release_tab({tab_id: 8});
-      return {cmds, left: downloads.size};
-    })()''')
-    assert out["left"] == 0
-    assert out["cmds"].index("Fetch.failRequest") < out["cmds"].index("detach")
+def test_a_task_can_take_only_so_many_downloads(bd: Any) -> None:
+    d, launched = bd
+    d.daemon.config.set("browser", "download_task_max_files", 2)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    facts = [_deliver(d, ext, chrome_id, name=f"f{i}.txt", data=b"x", source_url="https://x.example/f") for i in range(3)]
+    assert [f["state"] for f in facts] == ["taken", "taken", "refused"]
+    assert "browser.download_task_max_files" in facts[2]["reason"] and len(_kept(d)) == 2
 
 
-CONTENT_HARNESS = r"""
-const vm = require('vm'), fs = require('fs');
-const listeners = {}, messages = [];
-class HTMLAnchorElement { constructor(href, download) { this.href = href; this._d = download; this.isConnected = true; }
-  hasAttribute(n) { return n === 'download' && this._d !== null; } getAttribute(n) { return n === 'download' ? this._d : null; } }
-const blob = {size: 9, type: 'text/csv', slice: (a, b) => ({arrayBuffer: async () => new TextEncoder().encode('a,b\n1,2\n!').slice(a, b).buffer})};
-const ctx = vm.createContext({document: {readyState: 'complete'}, window: {}, crypto: globalThis.crypto, WeakRef, TextEncoder,
-  btoa, atob, innerWidth: 800, innerHeight: 600, location: {origin: 'https://s.example', href: 'https://s.example/'},
-  addEventListener: (t, fn, c) => { (listeners[t] = listeners[t] || []).push(fn); },
-  MutationObserver: class { observe() {} }, ShadowRoot: class {}, HTMLAnchorElement, URL,
-  fetch: async (u) => ({blob: async () => blob}),
-  chrome: {runtime: {sendMessage: (m, cb) => { messages.push(m); if (m.ferbArmed && cb) cb(process.argv[2] === 'armed'); }}}});
-vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
-(async () => {
-  const clicks = [];
-  for (const [href, d] of [['blob:https://s.example/1', 'r.csv'], ['https://s.example/plain', null], ['data:text/csv;base64,YQ==', 'd.csv']]) {
-    const a = new HTMLAnchorElement(href, d);
-    const ev = {prevented: false, composedPath: () => [a], preventDefault() { this.prevented = true; }};
-    for (const fn of listeners.click || []) fn(ev);
-    clicks.push(ev.prevented);
-  }
-  await new Promise(r => setTimeout(r, 20));
-  const caught = messages.filter(m => m.ferbDownload).map(m => m.ferbDownload);
-  const part = caught.length ? await ctx.window.__ferb.downloadPart(caught[0].id, 0, 4) : null;
-  console.log(JSON.stringify({clicks, caught, part}));
-})();
-"""
+def test_a_task_has_a_byte_budget_checked_before_and_while_bytes_arrive(bd: Any) -> None:
+    d, launched = bd
+    d.daemon.config.set("browser", "download_task_max_mb", 1)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    first = _deliver(d, ext, chrome_id, name="a.bin", data=os.urandom(700_000), source_url="https://x.example/a")
+    declared = _deliver(d, ext, chrome_id, name="b.bin", data=os.urandom(400_000), source_url="https://x.example/b")
+    streamed = _deliver(d, ext, chrome_id, name="c.bin", data=os.urandom(400_000), source_url="https://x.example/c",
+                        size=None)
+    assert first["state"] == "taken" and declared["state"] == streamed["state"] == "refused"
+    assert all("browser.download_task_max_mb" in f["reason"] for f in (declared, streamed))
+    assert len(_kept(d)) == 1                                         # the partial one is gone
 
 
-@pytest.mark.parametrize("armed", [True, False])
-def test_the_page_listener_takes_blob_and_data_links_only_while_ferb_drives_the_tab(armed: bool) -> None:
-    r = subprocess.run([_node(), "-e", CONTENT_HARNESS, str(EXT / "content.js"), "armed" if armed else "no"],
-                       capture_output=True, text=True, timeout=20)
-    assert r.returncode == 0, r.stderr
-    out = json.loads(r.stdout)
-    if not armed:
-        assert out["clicks"] == [False, False, False] and out["caught"] == []
-        return
-    assert out["clicks"] == [True, False, True]                    # http(s) links go to the browser's own path
-    assert [c["name"] for c in out["caught"]] == ["r.csv", "d.csv"] and out["caught"][0]["size"] == 9
-    assert out["caught"][1]["source_url"] == "data:text/csv"       # never the data itself as a "URL"
-    assert base64.b64decode(out["part"]["data"]) == b"a,b\n" and out["part"]["eof"] is False
+def test_a_transfer_that_drips_past_its_deadline_ends(bd: Any, monkeypatch: Any) -> None:
+    import ferb.act.browser.downloads as downloads
+    monkeypatch.setattr(downloads, "TRANSFER_DEADLINE_S", 0.3)
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.download_part_delay = 0.2
+    rec = _deliver(d, ext, chrome_id, name="drip.bin", data=os.urandom(5 * DOWNLOAD_PART), source_url="https://x/d")
+    assert rec["state"] == "refused" and "minutes" in rec["reason"] and _kept(d) == []
+
+
+def test_a_running_transfer_shows_as_in_progress(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.download_part_delay = 0.2
+    ext.start_download(chrome_id, "big.bin", os.urandom(4 * DOWNLOAD_PART), "https://x.example/big")
+    _wait_record(d, 1, settled=False)
+    states = [f["state"] for f in call(d, g, "browser.downloads")["content"]["downloads"]]
+    assert states == ["in_progress"]
+    assert _wait_record(d, 1)["state"] == "taken"
+
+
+def test_a_record_that_cant_be_written_leaves_no_file(bd: Any, monkeypatch: Any) -> None:
+    import sqlite3
+    from ferb.act.browser.downloads import Downloads
+    real = Downloads._finish
+
+    def broken(self: Any, br: Any, ev: Any, fid: str, state: str, **kw: Any) -> None:
+        if state == "taken":
+            raise sqlite3.OperationalError("disk I/O error")
+        real(self, br, ev, fid, state, **kw)
+    monkeypatch.setattr(Downloads, "_finish", broken)
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    rec = _deliver(d, ext, chrome_id, name="x.bin", data=b"bytes", source_url="https://x.example/x")
+    assert rec["state"] == "failed" and _kept(d) == []
+
+
+# ---------- what the worker learns ----------
+
+def test_signed_url_credentials_and_tokens_in_a_url_named_file_are_redacted_by_the_daemon(bd: Any) -> None:
+    """Rule 14: the daemon never relies on the extension's masking."""
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    url = ("https://bucket.s3.amazonaws.com/f.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDEXAMPLE%2F2026"
+           "&X-Amz-Security-Token=SESSIONTOKEN123&X-Amz-Signature=SIG0123456789&X-Goog-Signature=GSIG987")
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXZhbHVl"
+    rec = _deliver(d, ext, chrome_id, name=jwt, data=b"pdf", source_url=url)
+    dumped = json.dumps(rec) + json.dumps(_records(d))
+    for secret in ("AKIDEXAMPLE", "SESSIONTOKEN123", "SIG0123456789", "GSIG987", jwt):
+        assert secret not in dumped
+    assert "X-Amz-Algorithm=AWS4-HMAC-SHA256" in rec["source_url"] and jwt not in Path(rec["path"]).name
+
+
+def test_a_navigation_the_tab_cant_be_prepared_for_is_a_fact_and_a_failed_open_leaves_no_blank_tab(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    refused = "https://docs.example/export?format=txt"
+    ext.nav_refuse.add(refused)
+    nav = call(d, g, "browser.navigate", tab=tab, url=refused)
+    assert nav["is_error"] and nav["content"]["reason"] == "download_capture_unavailable"
+    before = set(ext.tabs)
+    opened = call(d, g, "browser.open", url=refused)
+    assert opened["is_error"] and opened["content"]["reason"] == "download_capture_unavailable"
+    assert set(ext.tabs) == before                                     # the blank tab was closed
+    assert d.daemon.router.tabs_of(g.task_id) == [tab]                 # and is no task's tab
+
+
+def test_a_link_to_a_new_tab_is_opened_by_ferb_as_the_same_tasks_tab(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.link_to_new_tab(chrome_id, f"{SITE}/next")
+    ext.wait_for(lambda: f"{SITE}/next" in ext.tabs.values())
+    snap = call(d, g, "browser.snapshot", tab=tab)
+    [new] = snap["content"]["opened_tabs"]
+    assert new["via"] == "link" and new["url"] == f"{SITE}/next"
+    assert new["tab"] in d.daemon.router.tabs_of(g.task_id)
+    assert ext.tab_active[max(t for t, u in ext.tabs.items() if u == f"{SITE}/next")] is False   # in the background
+
+
+def test_a_tab_the_page_opens_becomes_the_same_tasks_tab_and_one_from_elsewhere_is_disarmed(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    pop = ext.popup(chrome_id, f"{SITE}/popup")
+    ext.wait_for(lambda: len(d.daemon.router.tabs_of(g.task_id)) == 2)
+    rec = _deliver(d, ext, pop, name="in-popup.csv", data=b"a,b", source_url=f"{SITE}/x.csv")
+    assert rec["state"] == "taken"
+    assert call(d, g, "browser.snapshot", tab=tab)["content"]["opened_tabs"][0]["via"] == "the page opened it"
+    stray = ext.popup(9999, f"{SITE}/elsewhere")                      # opened by a tab no task drives
+    ext.wait_for(lambda: stray in ext.disarmed)
+
+
+def test_a_dismissed_browser_download_is_reported_as_canceled(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.uncaptured_download(chrome_id, "e.csv", "blob:https://shop.example/9", detail="canceled")
+    row = _wait_record(d)
+    assert row["state"] == "not_taken" and "dismissed" in row["reason"]
+
+
+# ---------- retention: working copies go to the Trash ----------
+
+def _fake_trash(monkeypatch: Any, home: Path) -> Path:
+    from ferb.act.fs import files
+    bin_ = home / "Trash"
+    bin_.mkdir(parents=True, exist_ok=True)
+
+    def move(p: Path) -> str:
+        where = bin_ / p.name
+        os.rename(p, where)
+        return str(where)
+    monkeypatch.setattr(files, "move_to_trash", move)
+    return bin_
+
+
+def test_old_downloads_go_to_the_trash_and_their_records_stay(bd: Any, monkeypatch: Any) -> None:
+    d, launched = bd
+    trash = _fake_trash(monkeypatch, d.daemon.home)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    rec = _deliver(d, ext, chrome_id, name="old.pdf", data=b"%PDF old", source_url="https://x.example/old")
+    d.call_soon(d.daemon.clock.advance, 31 * 86400)
+    out: dict[str, Any] = {}
+    d.call_soon(lambda: out.update(d.daemon._purge_records()))
+    assert out["downloads"] == 1 and _kept(d) == [] and (trash / Path(rec["path"]).name).read_bytes() == b"%PDF old"
+    [row] = _records(d)
+    assert row["path"] is None and row["trashed_to"] == str(trash / Path(rec["path"]).name) and row["state"] == "taken"
+    [fact] = call(d, g, "browser.downloads")["content"]["downloads"]
+    assert "path" not in fact and fact["kept"].startswith("moved to the Trash")
+
+
+def test_the_folder_keeps_to_its_total_budget_oldest_first(bd: Any, monkeypatch: Any) -> None:
+    d, launched = bd
+    _fake_trash(monkeypatch, d.daemon.home)
+    d.daemon.config.set("browser", "download_total_mb", 1)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    names = []
+    for i in range(3):
+        names.append(_deliver(d, ext, chrome_id, name=f"{i}.bin", data=os.urandom(400_000),
+                              source_url="https://x.example/f")["name"])
+        d.call_soon(d.daemon.clock.advance, 1)
+    assert sorted(p.split("-", 2)[-1] for p in _kept(d)) == ["1.bin", "2.bin"]       # 0.bin, the oldest, went
+    assert len([r for r in _records(d) if r["trashed_to"]]) == 1
+
+
+def test_partial_files_a_restart_cut_off_are_swept(bd: Any) -> None:
+    d, launched = bd
+    root = _root(d)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / ".dl-0123456789ab.part").write_bytes(b"half")
+    (root / "dl-0123456789ab-kept.txt").write_bytes(b"kept")
+
+    async def sweep() -> int:
+        return d.daemon.downloads.sweep()
+    assert d.run(sweep()) == 1 and _kept(d) == ["dl-0123456789ab-kept.txt"]

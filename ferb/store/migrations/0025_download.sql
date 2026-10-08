@@ -2,8 +2,10 @@
 -- drives for a task; the daemon takes the bytes into ~/.ferb/workspace/downloads/<id>-<name> and keeps this record of
 -- facts: where it came from, what it is (size, SHA-256 of the bytes FERB received) and where it is. Never the file's
 -- content; source_url is stored redacted (rule 14). The file is outside content (origin external:download, MP2).
--- state: taken | refused (over browser.download_max_mb) | failed (the transfer broke) | not_taken (the browser
--- started it itself and the extension couldn't intercept it).
+-- state: in_progress | taken | refused (a budget: file size, per task, one transfer per tab, time) | failed (the
+-- transfer broke) | not_taken (the browser started it itself and the extension couldn't intercept it).
+-- The file is FERB's working copy: after retention.download_days, or when the folder passes browser.download_total_mb,
+-- it moves to the Trash (never unlinked); the row stays with path NULL and trashed_to set.
 CREATE TABLE downloads (
     id         TEXT PRIMARY KEY,
     task_id    TEXT,
@@ -19,6 +21,7 @@ CREATE TABLE downloads (
     source_url TEXT,                  -- redacted
     reason     TEXT,
     origin     TEXT NOT NULL,
-    at         TEXT NOT NULL
+    at         TEXT NOT NULL,
+    trashed_to TEXT                   -- where the Trash put the file (retention), NULL while kept
 );
 CREATE INDEX downloads_task ON downloads(task_id);

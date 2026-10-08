@@ -3,7 +3,8 @@
 Extension messages carry install_id, type, body_json, monotonic seq and HMAC. Commands bind id and generation.
 Protocol 8 adds multipart full evidence/action transport, explicit dialogs and exact-frame local upload receipts.
 Protocol 10 adds downloads (D35): a `download` event for a download caught in a tab FERB drives, its bytes pulled in
-parts with `download_part`. Chromium native-message size is a per-frame transport bound; content travels in chunks
+parts with `download_part` (or it is aborted, or released back to the browser); `open`/`popup` events for new tabs a
+task tab starts; the hello lists armed tabs and `disarm` lets go of one the daemon doesn't hold. Chromium native-message size is a per-frame transport bound; content travels in chunks
 without clipping."""
 
 import base64
@@ -23,7 +24,7 @@ ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part"]
+             "download_part", "disarm"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -59,6 +60,7 @@ class Hello(BaseModel):
     paired: bool = False
     owned: list[dict[str, Any]] = []           # resources it created, each tagged with its command id
     seen: list[dict[str, Any]] = []            # recent command ids with started / done / failed / unknown (reconciliation)
+    armed: list[int] = []                      # tabs holding downloads for FERB (D35): the daemon disarms any it doesn't hold
 
 
 class Result(BaseModel):
@@ -82,7 +84,7 @@ class TabEvent(BaseModel):
 class Event(BaseModel):
     """Observed tab dialog, intercepted file chooser, debugger detachment, or a download caught in a tab FERB drives
     (held by the extension until `download_part` takes or cancels it); no implied user decision."""
-    event: Literal["dialog", "detached", "file_chooser", "download"]
+    event: Literal["dialog", "detached", "file_chooser", "download", "open", "popup"]
     tab_id: int
     type: str | None = None                    # dialog: alert | confirm | prompt | beforeunload
     message: str | None = None
@@ -103,6 +105,9 @@ class Event(BaseModel):
     source_url: str | None = Field(default=None, max_length=8192)  # download: masked by the extension, redacted here
     source: str | None = None                  # download: attachment | type | link | page
     uncaptured: bool | None = None             # download: the browser started it itself; nothing is held
+    url: str | None = Field(default=None, max_length=8192)         # open: the link a task tab asked for; popup: masked
+    opener_tab_id: int | None = None           # popup: the task tab that opened it
+    window_id: int | None = None               # open: the window of the task tab (its new tab opens there, inactive)
 
 
 def mac_text(install_id: str, seq: int, mtype: str, body_json: str) -> bytes:

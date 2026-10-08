@@ -34,6 +34,8 @@ PAGE = b"""<!doctype html><title>Downloads lab</title>
 <a id=attr download href="/plain.txt?attr">Save plain</a>
 <button onclick="exportAttached()">Export</button>
 <button onclick="exportDetached()">Export detached</button>
+<a target=_blank href="/attach.bin?name=newtab.bin">New tab file</a>
+<button onclick="window.open('/attach.bin?name=popup.bin')">Popup file</button>
 <script>
 function exportAttached() {          // a page-made file through a connected link, revoked at once
   const u = URL.createObjectURL(new Blob(['a,b\\n1,2\\n'], {type: 'text/csv'}));
@@ -52,11 +54,12 @@ function exportDetached() {          // FileSaver.js style: a link never in the 
 def site() -> Iterator[str]:
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
-            p = self.path.split("?")[0]
+            p, _, query = self.path.partition("?")
             head, body = {"content-type": "text/html"}, PAGE
             if p == "/attach.bin":
+                name = dict(q.split("=", 1) for q in query.split("&") if "=" in q).get("name", "report.bin")
                 head, body = {"content-type": "application/octet-stream",
-                              "content-disposition": 'attachment; filename="report.bin"'}, BLOB
+                              "content-disposition": f'attachment; filename="{name}"'}, BLOB
             elif p == "/data.csv":
                 head, body = {"content-type": "text/csv; charset=utf-8"}, "é,😀\n".encode() * 50_000
             elif p == "/plain.txt":
@@ -83,6 +86,17 @@ def _browser_files(folder: Path) -> list[str]:
     return sorted(p.name for p in folder.iterdir() if not p.name.startswith("downloads.html"))
 
 
+async def _live_task(d: Any, task_id: str) -> None:
+    """A running task (only a live task's tab holds downloads)."""
+    from datetime import timedelta
+    from ferb.core.types import Identity, Task
+    from ferb.orchestrator.tree import TaskRecord
+    t = Task(task_id, None, "lab", "dev", Identity.OWNER, {"browser:read", "browser:act"}, "worker", f"req-{task_id}",
+             [], d.daemon.clock.now() + timedelta(minutes=30))
+    root = d.daemon.spans.start("task", task_id=task_id, input={})
+    d.daemon.tasks.add(TaskRecord(t, d.daemon.clock.now(), root.id))
+
+
 def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_download(site: str) -> None:
     folder = Path(tempfile.mkdtemp(prefix="ferb-lab-dl-"))
     prefs = {"download": {"default_directory": str(folder), "prompt_for_download": False, "directory_upgrade": True}}
@@ -90,6 +104,21 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
         window = int(chrome.evaluate(chrome.sw, "ferbWindow(true)"))
         driver = d.daemon.router
         root = d.daemon.home / "workspace" / "downloads"
+        newtab_owner = chrome.owner_tab("chrome://newtab/")             # the owner's new-tab page (no debugger)
+        d.run(_live_task(d, "lab-task"))
+
+        async def click(tab: Any, label: str) -> None:
+            snap = await driver.snapshot(tab)
+            el = next(e for e in snap.elements if e.label == label)
+            assert (await driver.act(driver.element_ref(tab, el.id), BrowserAction("click"), "")).ok
+            await asyncio.sleep(2.5)
+
+        async def opened(tab: Any, seconds: float = 10) -> list[dict[str, Any]]:
+            for _ in range(int(seconds * 10)):
+                if found := [o for o in driver.opened_for(tab) if o.get("tab")]:
+                    return found
+                await asyncio.sleep(0.1)
+            return []
 
         async def run() -> dict[str, Any]:
             out: dict[str, Any] = {}
@@ -99,32 +128,42 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
             await driver.navigate(tab, f"{site}/data.csv")
             out["navigated"] = await driver.downloads_for(tab, 30)
             await driver.navigate(tab, f"{site}/")
-            snap = await driver.snapshot(tab)
             for label in ("Save plain", "Export"):
-                el = next(e for e in snap.elements if e.label == label)
-                assert (await driver.act(driver.element_ref(tab, el.id), BrowserAction("click"), "")).ok
-                await asyncio.sleep(2)
+                await click(tab, label)
                 out[label] = await driver.downloads_for(tab, 30)
-                snap = await driver.snapshot(tab)
             d.daemon.config.set("browser", "download_max_mb", 1)
             await driver.navigate(tab, f"{site}/big")
             out["big"] = await driver.downloads_for(tab, 30)
             d.daemon.config.set("browser", "download_max_mb", 100)
-            el = next(e for e in snap.elements if e.label == "Export detached")
-            assert (await driver.act(driver.element_ref(tab, el.id), BrowserAction("click"), "")).ok
-            await asyncio.sleep(2)
+            await driver.navigate(tab, f"{site}/")
+            await click(tab, "Export detached")
             out["detached"] = await driver.downloads_for(tab, 30)
-            await driver.close(tab)
+            await click(tab, "New tab file")                            # target=_blank: FERB opens it itself
+            out["new_tabs"] = await opened(tab)
+            new = driver.owned_by(out["new_tabs"][0]["tab"], "lab-task")
+            out["in_new_tab"] = await driver.downloads_for(new, 30)
+            await click(tab, "Popup file")                              # window.open: the measured race
+            out["popups"] = await opened(tab, 5)
+            pop = driver.owned_by(out["popups"][0]["tab"], "lab-task") if out["popups"] else None
+            out["in_popup"] = await driver.downloads_for(pop, 30) if pop else []
+            borrowed = await driver.attach(f"chrome:Default:{newtab_owner}", "lab-task")
+            await driver.navigate(borrowed, f"{site}/attach.bin?name=fromnewtab.bin")   # through a blank page
+            out["from_new_tab_page"] = await driver.downloads_for(borrowed, 30)
+            await driver.release("lab-task")
             return out
 
-        out = d.run(run(), timeout=180)
-        before_owner = _browser_files(folder)
-        owner = chrome.owner_tab("about:blank")                        # a tab FERB doesn't drive
-        chrome.evaluate(chrome.sw, f"chrome.tabs.update({owner}, {{url: '{site}/attach.bin?owner'}}).then(() => true)")
+        out = d.run(run(), timeout=240)
+        mid = _browser_files(folder)
+        # after the task let go of the borrowed tab: its downloads are the owner's again
+        chrome.evaluate(chrome.sw, f"chrome.tabs.update({newtab_owner}, {{url: '{site}/attach.bin?name=after.bin'}})"
+                                   ".then(() => true)")
+        owner = chrome.owner_tab("about:blank")                        # a tab FERB never drove
+        chrome.evaluate(chrome.sw, f"chrome.tabs.update({owner}, {{url: '{site}/attach.bin?name=owner.bin'}}).then(() => true)")
         time.sleep(4)
-        after_owner = _browser_files(folder)
-        print("\nD35 lab:", {k: [(f["state"], f.get("name"), f.get("bytes") or f.get("size")) for f in v]
-                             for k, v in out.items() if isinstance(v, list)}, before_owner, after_owner)
+        end = _browser_files(folder)
+        print("\nD35 lab:", {k: [(f.get("state"), f.get("name"), f.get("bytes") or f.get("size")) for f in v]
+                             if isinstance(v, list) and v and "state" in v[0] else v
+                             for k, v in out.items()}, mid, end)
 
         [opened] = out["opened"]                                       # files checked while the lab home exists
         assert opened["state"] == "taken" and opened["name"] == "report.bin" and opened["bytes"] == len(BLOB)
@@ -139,10 +178,15 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
         assert Path(blob["path"]).read_bytes() == b"a,b\n1,2\n"
         [big] = out["big"]
         assert big["state"] == "refused" and "path" not in big
-        assert sorted(Path(f["path"]).name for f in (opened, csv, plain, blob)) == sorted(p.name for p in root.iterdir())
         [detached] = out["detached"]
         assert detached["state"] == "not_taken" and detached["name"] == "detached.txt"   # the measured residual
-    # None of FERB's downloads reached the browser's own download flow; only the residual and the owner's tab did.
+        [newtab] = out["in_new_tab"]
+        assert newtab["state"] == "taken" and newtab["name"] == "newtab.bin"
+        [fromnewtab] = out["from_new_tab_page"]
+        assert fromnewtab["state"] == "taken" and fromnewtab["name"] == "fromnewtab.bin"
+        popup_taken = [f for f in out["in_popup"] if f["state"] == "taken"]
     assert out["opened_url"] in ("about:blank", "")                    # the page never became the download
-    assert before_owner == ["detached.txt"], before_owner
-    assert after_owner == ["detached.txt", "report.bin"], after_owner                # the owner's tab: untouched
+    # Only the residuals reached the browser's own flow: the detached blob, and the popup when it won its race.
+    assert set(mid) - {"popup.bin"} == {"detached.txt"}, mid
+    assert ("popup.bin" in mid) != bool(popup_taken)                   # taken by FERB, or the browser's: never both
+    assert set(end) - set(mid) == {"after.bin", "owner.bin"}           # the owner's own downloads: untouched

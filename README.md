@@ -43,9 +43,13 @@ or “my current Brave tab.” Set up FERB's own account with `ferb setup --iden
 
 A download in a tab FERB is driving for a task never opens a Save dialog: FERB takes the file into
 `~/.ferb/workspace/downloads/<id>-<name>` and the task gets facts (path, size, SHA-256, source URL), labeled outside
-content. Files over `browser.download_max_mb` (default 100) are refused. Your own downloads in other tabs are untouched.
-One kind can't be intercepted: a page script that saves a file through a link it never adds to the page (FileSaver
-style); the browser handles that one itself (it may ask where to save) and the task is told it wasn't taken.
+content. Limits: `browser.download_max_mb` (100) per file, `browser.download_task_max_files` (20) and
+`browser.download_task_max_mb` (500) per task; refused ones are reported, still without a dialog. The files are FERB's
+working copies: after `retention.download_days` (30), or when the folder passes `browser.download_total_mb` (2048), they
+move to the Trash. Your own downloads, in other tabs or in a tab once its task is over, are never touched. What can't be
+intercepted: a page script that saves a file through a link it never adds to the page (FileSaver style), a popup that
+downloads the moment it opens, and a download already held when you press Cancel on the "started debugging" bar; the
+browser handles those itself (it may ask where to save) and the task is told when FERB saw it.
 
 Optional: `ferb setup --voice` builds the background microphone app. Hold Right Option to talk; release to send.
 `ferb chat --speak` speaks terminal replies. Pending questions accept free text, including corrections.

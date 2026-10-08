@@ -486,39 +486,77 @@
     addEventListener("mousemove", (e) => { if (e.isTrusted) probeSeen = true; }, { once: true, capture: true });
   }
 
-  // Downloads (D35): while FERB drives this tab, a blob: or data: link with a download attribute (no network request, so
-  // the tab's debugger can't hold it) is taken here: its default action is cancelled before the browser starts a
-  // download (no Save dialog) and the bytes wait in this frame until the service worker pulls them. http(s) links take
-  // the browser's own path, which the debugger holds. Never armed in a tab FERB isn't driving.
+  // Downloads and new tabs (D35), while FERB drives this tab. A blob: or data: link with a download attribute (no
+  // network request, so the tab's debugger can't hold it) is taken here: its default action is cancelled before the
+  // browser starts a download (no Save dialog) and the bytes wait in this frame for the service worker. A link that opens
+  // a new tab (target=_blank and the like, a modifier or middle click) is opened by FERB itself instead: blank and armed
+  // before it loads, inactive, the same task's tab. http(s) download links take the browser's own path, which the
+  // debugger holds. Decided after the page's own handlers (bubble phase): a click the page cancelled is left alone. If
+  // the service worker says this tab isn't armed (a stale listener), the click goes back to the browser at once.
   let downloadsArmed = false;
-  const heldDownloads = new Map();                 // id -> Blob
+  const heldDownloads = new Map();                 // id -> {blob, name, href}
   try { chrome.runtime.sendMessage({ ferbArmed: true }, (on) => { downloadsArmed = on === true; }); } catch (_) { /* no worker */ }
-  addEventListener("click", (e) => {
-    if (!downloadsArmed) return;
-    const a = (e.composedPath ? e.composedPath() : []).find((n) => n instanceof HTMLAnchorElement);
+  const linkOf = (e) => (e.composedPath ? e.composedPath() : []).find((n) => n instanceof HTMLAnchorElement);
+  function opensNewTab(a, e) {
+    if (e.type === "auxclick") return e.button === 1;
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return true;
+    const target = String(a.getAttribute("target") || "").trim().toLowerCase();
+    if (!target || ["_self", "_parent", "_top"].includes(target)) return false;
+    try { return !(target !== "_blank" && document.querySelector(`iframe[name="${CSS.escape(target)}"]`)); }
+    catch (_) { return true; }
+  }
+  function passOn(href, target, name) {            // a detached link the browser follows itself; no listener sees it
+    const a = document.createElement("a");
+    a.href = href;
+    if (target) a.target = target;
+    if (name !== undefined) a.download = name;
+    a.click();
+  }
+  function onLink(e) {
+    if (!downloadsArmed || e.defaultPrevented) return;
+    const a = linkOf(e);
     const href = a ? String(a.href || "") : "";
-    if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href)) return;
+    if (!a || !href) return;
+    if (a.hasAttribute("download") && /^(blob|data):/i.test(href)) {
+      e.preventDefault();
+      const id = crypto.randomUUID(), name = a.getAttribute("download") || "";
+      fetch(href).then((r) => r.blob()).then((blob) => {   // started now: a page may revoke the blob right after the click
+        heldDownloads.set(id, { blob, name, href });
+        chrome.runtime.sendMessage({ ferbDownload: { id, name, mime: blob.type || null, size: blob.size,
+          source_url: /^data:/i.test(href) ? "data:" + (href.slice(5).split(/[;,]/)[0] || "") : href.slice(0, 4096) } },
+          (kept) => { if (kept !== true) releaseDownload(id); });
+      }).catch(() => { /* nothing to take; the browser never started a download either */ });
+      return;
+    }
+    if (a.hasAttribute("download") || !/^https?:/i.test(href) || !opensNewTab(a, e)) return;
     e.preventDefault();
-    const id = crypto.randomUUID(), name = a.getAttribute("download") || "";
-    fetch(href).then((r) => r.blob()).then((blob) => {   // started now: a page may revoke the blob right after the click
-      heldDownloads.set(id, blob);
-      chrome.runtime.sendMessage({ ferbDownload: { id, name, mime: blob.type || null, size: blob.size,
-        source_url: /^data:/i.test(href) ? "data:" + (href.slice(5).split(/[;,]/)[0] || "") : href.slice(0, 4096) } });
-    }).catch(() => { /* nothing to take; the browser never started a download either */ });
-  }, true);
+    const target = a.getAttribute("target") || "_blank";
+    chrome.runtime.sendMessage({ ferbOpen: { url: href } }, (opened) => { if (opened !== true) passOn(href, target); });
+  }
+  addEventListener("click", onLink, false);
+  addEventListener("auxclick", onLink, false);
   async function downloadPart(id, offset, n) {
-    const blob = heldDownloads.get(id);
-    if (!blob) return { error: "gone" };
-    const bytes = new Uint8Array(await blob.slice(offset, offset + n).arrayBuffer());
-    const eof = offset + bytes.length >= blob.size;
+    const held = heldDownloads.get(id);
+    if (!held) return { error: "gone" };
+    const bytes = new Uint8Array(await held.blob.slice(offset, offset + n).arrayBuffer());
+    const eof = offset + bytes.length >= held.blob.size;
     if (eof) heldDownloads.delete(id);
     let text = "";
     for (let i = 0; i < bytes.length; i += 32768) text += String.fromCharCode(...bytes.subarray(i, i + 32768));
     return { data: btoa(text), eof };
   }
+  function releaseDownload(id) {                   // not FERB's after all: the browser downloads it as it would have
+    const held = heldDownloads.get(id);
+    if (!held) return false;
+    heldDownloads.delete(id);
+    const url = /^data:/i.test(held.href) ? held.href : URL.createObjectURL(held.blob);
+    passOn(url, "", held.name);
+    if (url !== held.href) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return true;
+  }
   function armDownloads(on) {
     downloadsArmed = on === true;
-    if (!downloadsArmed) heldDownloads.clear();
+    if (!downloadsArmed) for (const id of [...heldDownloads.keys()]) releaseDownload(id);
   }
 
   // Sealed fill: the value arrives already opened by the service worker, for this element only. Re-check this
@@ -538,6 +576,6 @@
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
                     scrolled, probeArm, probeSeen: () => probeSeen,
                     text: () => (document.body ? document.body.innerText : ""), url: () => location.href,
-                    ready: () => document.readyState, downloadPart, armDownloads,
+                    ready: () => document.readyState, downloadPart, armDownloads, releaseDownload,
                     dropDownload: (id) => { heldDownloads.delete(id); } };
 })();

@@ -20,7 +20,10 @@ const resultTransfers = new Map();
 const commandTransfers = new Map();
 const outbox = [];                   // retain all queued results/events until reconnect; never discard evidence
 const downloads = new Map();         // transfer id -> a download held for the daemon (D35)
-let DOWNLOAD_IDLE_MS = 30000;        // a held download nobody pulls is failed in the browser, never left to it
+let DOWNLOAD_IDLE_MS = 30000;        // a held download nobody takes goes back to the browser (FERB's profile: failed)
+let profileIdentity = "owner";       // from the daemon's welcome: in FERB's own profile every download is FERB's
+const TRANSPORT_OPS = new Set(["download_part"]);   // reads of held data: never in the 500-entry command journal
+const armedTabs = () => [...TABS].filter(([, t]) => t.armed).map(([id]) => id);
 const VIEWPORT = { width: 1280, height: 900 };   // Emulation.setDeviceMetricsOverride for FERB's own tabs
 
 // ---------- state ----------
@@ -151,7 +154,8 @@ async function announceHello() {
   const st = await install(), s = await session();
   await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
                         browser: navigator.brave ? "brave" : "chrome", paired: !!st.key,
-                        owned: await ownedTabs(), seen: s.order.slice(-200).map((id) => ({ id, status: s.seen[id] })) });
+                        owned: await ownedTabs(), seen: s.order.slice(-200).map((id) => ({ id, status: s.seen[id] })),
+                        armed: armedTabs() });
 }
 
 async function ensurePort() {
@@ -186,6 +190,7 @@ async function ensurePort() {
 async function onDaemon(m) {
   if (m.type === "welcome") {
     clearTimeout(handshakeTimer); refused = null; requiredRelease = null; gen = m.gen; retryMs = 1000;
+    profileIdentity = m.identity === "ferb" ? "ferb" : "owner";
     await connectionStatus('connected'); return;
   }
   if (m.type === "pairing_required") {
@@ -203,7 +208,8 @@ async function onDaemon(m) {
     });
     gen = m.gen;
     await send("hello", { version: chrome.runtime.getManifest().version, protocol: FERB_PROTOCOL,
-                          browser: navigator.brave ? "brave" : "chrome", paired: true, owned: [], seen: [] });
+                          browser: navigator.brave ? "brave" : "chrome", paired: true, owned: [], seen: [],
+                          armed: armedTabs() });
     return;
   }
   if (m.type === "refused") {
@@ -228,7 +234,9 @@ chrome.alarms.onAlarm.addListener(async () => {
 chrome.runtime.onMessage.addListener((m, sender, reply) => {
   if (m && m.pairToken) send("pair", { token: m.pairToken });
   else if (m && m.ferbArmed && sender && sender.tab) reply(!!(TABS.get(sender.tab.id) || {}).armed);   // content.js
-  else if (m && m.ferbDownload && sender && sender.tab) pageDownload(sender.tab.id, sender.frameId || 0, m.ferbDownload);
+  // content.js asks before it keeps what it caught; "not armed" makes it hand the click back to the browser at once.
+  else if (m && m.ferbDownload && sender && sender.tab) reply(pageDownload(sender.tab.id, sender.frameId || 0, m.ferbDownload));
+  else if (m && m.ferbOpen && sender && sender.tab) reply(pageOpen(sender.tab.id, m.ferbOpen));
 });
 
 // ---------- commands ----------
@@ -240,7 +248,7 @@ async function onCommand(m) {
 }
 
 async function executeCommand(m) {
-  const claimed = await mutateSession(s => {
+  const claimed = TRANSPORT_OPS.has(m.op) ? (m.gen !== gen ? 'stale' : 'claimed') : await mutateSession(s => {
     if (m.gen !== gen) return 'stale';
     if (Object.hasOwn(s.seen, m.id)) return 'duplicate';
     s.seen[m.id] = 'started'; s.order.push(m.id);
@@ -382,7 +390,8 @@ const TABS = new Map();          // tabId -> { attached, armed, ready, detached,
 function tabState(tabId) {
   let t = TABS.get(tabId);
   if (!t) { t = { attached: false, armed: false, ready: false, detached: null, dialogs: [], fileChoosers: [], inputErrors: [], expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null,
-                  redirects: new Map(), native: new Map() }; TABS.set(tabId, t); }
+                  redirects: new Map(), native: new Map(), held: new Map(), popup: false };
+            TABS.set(tabId, t); }
   return t;
 }
 
@@ -417,7 +426,7 @@ async function attach(tabId) {
     t.ready = true;
     return t;
   } catch (e) {
-    dropDownloads(tabId);
+    await dropDownloads(tabId);
     t.attached = false; t.armed = false;
     try { await chrome.debugger.detach({tabId}); } catch (_) {}
     throw e;
@@ -548,8 +557,18 @@ async function onPaused(src, params) {
   const tabId = src.tabId, t = TABS.get(tabId), sid = src.sessionId;
   let kind = null;
   try { kind = t && t.armed ? classify(params, t.redirects) : null; } catch (_) { kind = null; }
+  if (t && (kind || (params.responseStatusCode >= 300 && params.responseStatusCode < 400 &&
+                     t.redirects.size && !hasHeader(params.request.headers, "upgrade-insecure-requests"))))
+    t.held.set(params.request.url, Date.now() + 120000);    // the browser's own "canceled" entry for it is not news
+  if (kind && !port) {                                       // no daemon to take it: never held for nobody
+    if (profileIdentity === "ferb") kind = "fail"; else kind = null;
+  }
   if (!kind) {
     try { await cdp(tabId, "Fetch.continueRequest", { requestId: params.requestId }, sid); } catch (_) { /* gone */ }
+    return;
+  }
+  if (kind === "fail") {
+    try { await cdp(tabId, "Fetch.failRequest", { requestId: params.requestId, errorReason: "Aborted" }, sid); } catch (_) { /* gone */ }
     return;
   }
   const h = headerMap(params.responseHeaders), size = Number(h["content-length"]);
@@ -563,23 +582,68 @@ async function onPaused(src, params) {
     source_url: downloadSource(params.request.url, maskUrl), source: kind });
 }
 
-// content.js caught a blob/data download link in a tab FERB drives; the bytes wait in that frame.
+// content.js caught a blob/data download link; it keeps the bytes only if this tab is armed (true), else hands the click
+// back to the browser itself (false: a stale listener in a tab FERB no longer drives never eats the owner's click).
 function pageDownload(tabId, frameId, d) {
   const t = TABS.get(tabId);
-  if (!d || typeof d.id !== "string") return;
+  if (!d || typeof d.id !== "string" || !t || !t.armed || !port) return false;
   const tr = { id: "d-" + crypto.randomUUID().replace(/-/g, "").slice(0, 16), tabId, sessionId: null, requestId: null,
                stream: null, page: { frameId, ref: d.id }, offset: 0, timer: null };
-  if (!t || !t.armed) { releaseTransfer(tr); return; }
   downloads.set(tr.id, tr);
   idle(tr);
   send("event", { event: "download", tab_id: tabId, download_id: tr.id, name: String(d.name || "").slice(0, 1024),
     mime: String(d.mime || "") || null, size: Number.isSafeInteger(d.size) && d.size >= 0 ? d.size : null,
     source_url: downloadSource(d.source_url, maskUrl), source: "page" });
+  return true;
 }
+
+// A task tab's link to a new tab (target=_blank, a modifier or middle click): FERB's daemon opens it itself, blank and
+// armed before it loads, inactive, as the same task's tab. Not armed: content.js lets the browser open it.
+function pageOpen(tabId, o) {
+  const t = TABS.get(tabId);
+  if (!o || typeof o.url !== "string" || !/^https?:/i.test(o.url) || !t || !t.armed || !port) return false;
+  chrome.tabs.get(tabId).then((tab) => send("event", { event: "open", tab_id: tabId, url: o.url.slice(0, 8192),
+                                                      window_id: tab.windowId }))
+    .catch(() => {});
+  return true;
+}
+
+// A tab a task tab's page opened itself (window.open, a link content.js didn't see): armed at once and reported, so it
+// becomes the same task's tab. Measured: its first response usually wins this race, so a download it starts at once
+// reaches the browser; its own Page events report that as not taken.
+async function adoptPopup(tab) {
+  const opener = tab.openerTabId != null ? TABS.get(tab.openerTabId) : null;
+  if (!opener || !opener.armed || !port) return;
+  try {
+    await arm(tab.id);
+    tabState(tab.id).popup = true;
+    await send("event", { event: "popup", tab_id: tab.id, opener_tab_id: tab.openerTabId,
+                          url: maskUrl(tab.pendingUrl || tab.url || "") });
+  } catch (e) { console.warn("FERB popup:", String(e.message || e)); }
+}
+chrome.tabs.onCreated.addListener(adoptPopup);
 
 function idle(tr) {
   clearTimeout(tr.timer);
-  tr.timer = setTimeout(() => { if (downloads.get(tr.id) === tr) releaseTransfer(tr); }, DOWNLOAD_IDLE_MS);
+  tr.timer = setTimeout(() => {
+    if (downloads.get(tr.id) !== tr) return;
+    if (profileIdentity === "ferb") releaseTransfer(tr); else handBack(tr);
+  }, DOWNLOAD_IDLE_MS);
+}
+
+// Not FERB's to take (no live task tab, nobody pulled it, FERB let go of the tab): the response continues to the
+// browser untouched, or content.js re-clicks its link. Once FERB took the body it can only be failed.
+async function handBack(tr) {
+  if (tr.stream) return releaseTransfer(tr);
+  downloads.delete(tr.id);
+  clearTimeout(tr.timer);
+  if (tr.page) {
+    try { await inFrame(tr.tabId, tr.page.frameId, (ref) => window.__ferb.releaseDownload(ref), [tr.page.ref]); }
+    catch (_) { /* the document is gone, and its link with it */ }
+    return;
+  }
+  try { await cdp(tr.tabId, "Fetch.continueRequest", { requestId: tr.requestId }, tr.sessionId || undefined); }
+  catch (_) { /* the request already ended */ }
 }
 
 // Done, cancelled or abandoned: the same end. Nothing of it is left to the browser.
@@ -597,8 +661,10 @@ async function releaseTransfer(tr) {
   catch (_) { /* the request already ended */ }
 }
 
-async function dropDownloads(tabId) {                // letting go of a tab: fail what it still holds
-  for (const tr of [...downloads.values()]) if (tr.tabId === tabId) await releaseTransfer(tr);
+// Letting go of a tab the owner keeps (release, disarm, a failed setup): what it holds goes back to the browser.
+// Closing FERB's own tab (`fail`): what it holds is failed, so nothing outlives the tab as a browser download.
+async function dropDownloads(tabId, fail = false) {
+  for (const tr of [...downloads.values()]) if (tr.tabId === tabId) await (fail ? releaseTransfer(tr) : handBack(tr));
 }
 
 function forgetDownloads(tabId) {                    // the tab or its session is gone, and its held requests with it
@@ -611,16 +677,29 @@ function forgetDownloads(tabId) {                    // the tab or its session i
 function browserDownload(tabId, method, params) {
   const t = TABS.get(tabId);
   if (!t || !t.armed) return;
+  const now = Date.now();
+  for (const [g, n] of t.native) if (n.at < now - 600000) t.native.delete(g);       // pruned: ten minutes
+  for (const [u, until] of t.held) if (until < now) t.held.delete(u);
   if (method === "Page.downloadWillBegin") {
-    t.native.set(params.guid, { url: params.url || "", name: params.suggestedFilename || "" });
+    if (t.native.size < 50) t.native.set(params.guid, { url: params.url || "", name: params.suggestedFilename || "", at: now });
     return;
   }
-  const seen = t.native.get(params.guid);
-  if (!seen) return;
-  t.native.delete(params.guid);
-  if (params.state === "canceled") return;
-  send("event", { event: "download", tab_id: tabId, uncaptured: true, name: String(seen.name).slice(0, 1024),
-                  source_url: downloadSource(seen.url, maskUrl) });
+  const known = t.native.get(params.guid);
+  if (known && !known.reported) {
+    if (params.state === "canceled" && known.url && t.held.has(known.url)) { t.native.delete(params.guid); return; }
+  }
+  const n = known || { url: "", name: "", at: now, unseen: true };   // began before FERB could attach (a new tab)
+  const say = (detail) => send("event", { event: "download", tab_id: tabId, uncaptured: true,
+    name: String(n.name).slice(0, 1024), source_url: downloadSource(n.url, maskUrl), detail });
+  if (!n.reported) {
+    n.reported = params.state === "canceled" ? "canceled" : "started";
+    if (t.native.size < 50 || known) t.native.set(params.guid, n);
+    say(n.reported === "canceled" ? "canceled" : (n.unseen && t.popup ? "new_tab" : "started"));
+  } else if (n.reported === "started" && params.state === "canceled") {
+    n.reported = "canceled";                  // e.g. the owner dismissed the browser's Save dialog for it
+    say("canceled");
+  }
+  if (params.state === "completed" || params.state === "canceled") t.native.delete(params.guid);
 }
 
 // Trusted input needs a readiness probe right after attaching: the tab drops presses until a probe move lands.
@@ -780,10 +859,11 @@ async function settled(tabId, frameId, cid) {
 const SHOT_PART = 600000;        // base64 chars per message: well under the 1 MB native-messaging line
 
 const commands = {
-  async download_part({ download_id, offset, abort }) {
+  async download_part({ download_id, offset, abort, release }) {
     const tr = downloads.get(download_id);
     if (!tr) throw Error("download transfer unavailable: it was already taken, cancelled or let go");
-    if (abort === true) { await releaseTransfer(tr); return { aborted: true }; }
+    if (release === true) { await handBack(tr); return { released: true, handed_back: !tr.stream }; }   // not FERB's
+    if (abort === true) { await releaseTransfer(tr); return { aborted: true }; }      // refused in a task tab: no dialog
     if (!Number.isSafeInteger(offset) || offset !== tr.offset) throw Error("download parts are missing or out of order");
     idle(tr);
     let data, eof;
@@ -808,6 +888,14 @@ const commands = {
     tr.offset += b64Bytes(data);
     if (eof) await releaseTransfer(tr);
     return { data, offset, next_offset: eof ? null : tr.offset, eof };
+  },
+  // The daemon holds no live task tab here (a failed release, a restart): stop holding its downloads, never close it.
+  async disarm({ tab_id }) {
+    const t = TABS.get(tab_id);
+    await dropDownloads(tab_id);
+    if (!t || !t.attached) { if (t) TABS.delete(tab_id); await armPage(tab_id, false); return { disarmed: true, tab_id }; }
+    await detach(tab_id);
+    return { disarmed: true, tab_id };
   },
   async command_part({id,offset,text,total_chars}) {
     if (typeof id !== "string" || typeof text !== "string" || !Number.isSafeInteger(offset) || offset<0 ||
@@ -861,7 +949,8 @@ const commands = {
     catch (e) {
       try { await chrome.tabs.remove(tab.id); } catch (_) { /* already gone */ }
       await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab.id);});
-      throw Error(`download_capture_unavailable: FERB couldn't prepare the tab, so it loaded nothing (${e.message || e})`);
+      return { opened: false, reason: "download_capture_unavailable",
+               detail: `FERB couldn't prepare a new tab to hold downloads, so it opened nothing (${e.message || e})` };
     }
     if (url !== "about:blank") await load(tab.id, url);   // FERB's daemon opens blank and navigates once the tab is its
     const t = await chrome.tabs.get(tab.id);
@@ -869,8 +958,22 @@ const commands = {
   },
   async navigate({ tab_id, url }) {
     const st = tabState(tab_id);
-    try { await arm(tab_id); }                         // a URL that is a download is held, never the browser's (D35)
-    catch (e) { throw Error(`download_capture_unavailable: FERB couldn't prepare the tab, so it didn't navigate (${e.message || e})`); }
+    // A URL that is a download is held, never the browser's (D35). A page the debugger can't attach to (a new-tab page,
+    // chrome:// or brave://, the Web Store, another extension) is left for a blank page first; only if that fails too
+    // does the URL not load, as a fact the agent can act on (e.g. open a FERB tab instead).
+    try { await arm(tab_id); }
+    catch (first) {
+      try {
+        st.leaving = true;
+        await load(tab_id, "about:blank");
+        await arm(tab_id);
+      } catch (e) {
+        const now = await chrome.tabs.get(tab_id).catch(() => ({}));
+        return { navigated: false, reason: "download_capture_unavailable", tab_id, url: maskUrl(now.url || ""),
+                 detail: `FERB couldn't prepare this tab to hold downloads (${first.message || first}; after a blank ` +
+                         `page: ${e.message || e}), so it didn't load the URL. A tab FERB opens itself can.` };
+      } finally { st.leaving = false; }
+    }
     st.leaving = true; st.frames = {};
     try { await load(tab_id, url); }
     finally { st.leaving = false; }
@@ -884,7 +987,7 @@ const commands = {
     }
     const st = TABS.get(tab_id);
     if (st) st.leaving = true;
-    await dropDownloads(tab_id);
+    await dropDownloads(tab_id, true);
     try { await chrome.tabs.remove(tab_id); }
     catch (e) { if (!/No tab with id/i.test(String(e && e.message))) throw e; }
     TABS.delete(tab_id); // Closing the tab destroys its debugger target; onRemoved may arrive later.
