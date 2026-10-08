@@ -370,6 +370,7 @@ class BrowserScreenshot(_Base):
 class BrowserRecord(_Base):
     verb = 'record'
     target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
+    creates_new_only = True                            # S1: RecordingManager.start refuses an existing path
     blurb = ('Start a sampled video of this exact task tab in {whose}, including while inactive/minimized. '
              'No tab selection or desktop focus change. Silent video, default 2 fps; one output per target. '
              'Use recording_stop to finalize, then recording_inspect to check saved content. Requires ffmpeg/ffprobe.')

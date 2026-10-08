@@ -1,4 +1,5 @@
-"""Own ordered resource locks for tabs, accounts, files and apps. Must not choose resources or authorize actions.
+"""Own ordered resource locks for tabs, accounts, files, apps and recordings. Must not choose resources or authorize
+actions.
 
 A capability says which resources one call touches (`locks(args)`); the gateway takes them after policy allowed the
 call and releases them when the call returns — held across observe -> act -> verify inside one call, never across
@@ -10,7 +11,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-KIND_ORDER = {"account": 0, "app": 1, "file": 2, "tab": 3}
+KIND_ORDER = {"account": 0, "app": 1, "file": 2, "tab": 3, "recording": 4}   # recording: recording.stop's id
 
 
 def ordered(keys: list[str]) -> list[str]:

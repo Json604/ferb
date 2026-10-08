@@ -307,6 +307,7 @@ class MacRecord(_Base):
                    'individual tabs. Stop with recording_stop and inspect decoded frames with recording_inspect.')
     scopes = {'screen', 'fs:write'}
     target_args = ("app", "path")                      # Target.site / Target.path, normalized (P19 hash)
+    creates_new_only = True                            # S1: RecordingManager.start refuses an existing path
     class Input(_App):
         shot: str
         path: str = Field(description='New .mp4 output path')

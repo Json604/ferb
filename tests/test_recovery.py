@@ -963,3 +963,53 @@ def test_a_snapshot_with_a_raw_name_is_recorded_listed_and_rate_limited(daemon: 
         assert "snapshot made" in out.getvalue()
     finally:
         c.close()
+
+
+# ---------- fix round 3 ----------
+
+class _FakeRecordings:
+    def __init__(self) -> None:
+        self.stopped: list[str] = []
+
+    async def stop(self, rid: str, owner: str, reason: str | None = None) -> dict[str, Any]:
+        self.stopped.append(rid)
+        return {"id": rid, "path": "/tmp/task.mp4", "capture_complete": True}
+
+
+def test_recording_stop_runs_it_only_creates_its_own_new_file(daemon: RunningDaemon) -> None:
+    from ferb.act.recording import RecordingStop
+    manager = _FakeRecordings()
+    stop: Any = RecordingStop(manager)                                   # type: ignore[arg-type]
+    assert stop.describe(stop.Input(id="r1")).kind == Kind.WRITE_FILE and stop.creates_new_only is True
+    grant, _ = gateway_setup(daemon, {"fs:write"}, gateway_request("record it"), [stop])
+    out = gateway_tool_call(daemon, grant, "recording.stop", id="r1")
+    assert not out["is_error"] and manager.stopped == ["r1"] and _recovery_rows(daemon) == []
+
+
+def test_only_a_declared_new_file_writer_without_a_target_runs(daemon: RunningDaemon) -> None:
+    class _NewOnly(_PlainWrite):
+        creates_new_only = True                                          # declared: it never touches existing files
+
+        def describe(self, args: Any) -> Any:
+            return ActionSpec(Kind.WRITE_FILE)
+    f = _ws(daemon) / "fresh.out"
+    declared: Any = _NewOnly("fs.new_only", None)
+    blind: Any = _PlainWrite("fs.no_target", None)
+    blind.describe = lambda args: ActionSpec(Kind.WRITE_FILE)
+    grant, _ = gateway_setup(daemon, {"fs:write"}, gateway_request("make it"), [declared, blind])
+    assert not gateway_tool_call(daemon, grant, "fs.new_only", where=str(f), text="new")["is_error"]
+    refused = gateway_tool_call(daemon, grant, "fs.no_target", where=str(f), text="over")
+    assert declared.runs == 1 and blind.runs == 0 and f.read_text() == "new"
+    assert refused["is_error"] and "can't tell which file this tool writes" in refused["content"]["error"]
+
+
+def test_snapshot_words_are_redacted_before_they_are_cut(daemon: RunningDaemon) -> None:
+    secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
+    service = _snaps(daemon, _Snapshots())
+    service.take = lambda: f"snapshot made {secret}"
+
+    async def go() -> dict[str, Any]:
+        return await service.request("task-1", "y" * 185 + " " + secret)   # the cut at 200 falls inside it
+    out = daemon.run(go())
+    [row] = _snapshot_rows(daemon)
+    assert "sk-ant" not in row["reason"] and "sk-ant" not in row["saved_to"] and "sk-ant" not in out["snapshot"]

@@ -534,7 +534,7 @@ def local_snapshot(timeout_s: float = SNAPSHOT_TIMEOUT_S) -> str | None:
     if strict:
         return f"com.apple.TimeMachine.{strict.group(1)}.local"
     lines = [line.strip() for line in text.splitlines() if line.strip()]  # tmutil said it made one: keep its words
-    return (loose.group(1) if loose else lines[-1] if lines else "a snapshot tmutil reported without a name")[:200]
+    return loose.group(1) if loose else lines[-1] if lines else "a snapshot tmutil reported without a name"
 
 
 async def _tmutil(*args: str, timeout_s: float) -> tuple[int, str] | None:
@@ -627,10 +627,12 @@ class Snapshots:
             return self._fail("tmutil refused or is unavailable")
         self._failed = None
         eid = str(self.ids.new_id())
-        before = str(self.redact({"before": reason[:200]})["before"])
-        self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, name[:200], before,
+        # Redacted first, then cut: a secret straddling the cut is still whole when the redactor sees it.
+        stored = str(self.redact({"name": name})["name"])[:200]
+        before = str(self.redact({"before": reason})["before"])[:200]
+        self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, stored, before,
                                        self.clock.now().isoformat(), None, None))
-        return {"snapshot": name, "record": eid}
+        return {"snapshot": stored, "record": eid}
 
     def _fail(self, why: str) -> dict[str, Any]:
         """A failed attempt counts toward the rate limit too: at most one attempt per window."""

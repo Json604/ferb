@@ -249,6 +249,8 @@ class RecordingStop:
     description = 'Stop and finalize a task-owned target video. Reports capture gaps/errors; inspect the saved pixels before claiming the requested process was recorded.'
     identities = {Identity.OWNER, Identity.FERB}
     scopes, risk, reversible = {'fs:write'}, RiskLevel.LOW, True
+    # S1: it only publishes into the new path mac.record/browser.record reserved (start refuses an existing one)
+    creates_new_only = True
     class Input(BaseModel):
         id: str
     def __init__(self, manager: RecordingManager) -> None: self.manager = manager

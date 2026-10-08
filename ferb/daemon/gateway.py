@@ -558,9 +558,11 @@ class Gateway:
         copy, in a worker thread) and a record, kept retention.recovery_days (7); returns the record id. Only for a
         write-file call that will change the file: the capability's `recovery_reason(args)` says why ("overwrite",
         "edit"), or None when the call can't change an existing file (fs.write without overwrite refuses one); a
-        capability that doesn't say is copied anyway. A new file, or a folder, keeps nothing. Raises when no copy
-        could be made: the call must not run then."""
-        if self.recovery is None or spec.kind != Kind.WRITE_FILE:
+        capability that doesn't say is copied anyway. A new file, or a folder, keeps nothing. A capability that only
+        ever creates a new file of its own declares `creates_new_only = True` (the recording tools: an existing path
+        is refused) and keeps nothing. Raises when no copy could be made: the call must not run then; refusal is the
+        default for a write tool whose file can't be told and that declares nothing."""
+        if self.recovery is None or spec.kind != Kind.WRITE_FILE or getattr(cap, "creates_new_only", False) is True:
             return None
         why = getattr(cap, "recovery_reason", None)
         reason = why(args) if why is not None else name
