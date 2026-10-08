@@ -27,7 +27,7 @@ from pydantic import ValidationError
 
 from ferb.act import aftercheck
 from ferb.act.fs import recovery
-from ferb.act.fs.files import normalize_path, owner_path
+from ferb.act.fs.files import normalize_path, real_path as file_real_path
 from ferb.act.locks import ResourceLocks
 from ferb.act.mac.ax_browser import BROWSER_BUNDLES
 from ferb.act.mac.driver import UNTRUSTED_APPS
@@ -484,7 +484,7 @@ class Gateway:
             self._finish_call(span, name, {"error": "cancelled before it ran"}, True, error="cancelled before it ran")
             raise
         except Exception as e:                           # no copy, no change: the original is never put at risk
-            error = NO_COPY.format(name=name, why=error_name(e))
+            error = NO_COPY.format(name=name, why=str(e) if isinstance(e, recovery.NoFileTarget) else error_name(e))
             if intent_id:
                 self.ledger.mark(intent_id, "failed", [error])
             self._finish_call(span, name, {"error": error}, True, error=error)
@@ -536,15 +536,21 @@ class Gateway:
         return out
 
     def _real_path(self, cap: Any, args: Any, spec: Any) -> Path | None:
-        """The file a call really acts on (files.real_path: symlinks followed, then `..`), for the fs lock and S1; the
-        textual normalized path can name another file. None without a path target."""
+        """The file a call really acts on (files.real_path: symlinks followed first, then `..`), for the fs lock and
+        S1: the capability's `real_path` hook, else its path argument (`target_args`: the one named path, else the
+        first). Never the textual normalized path, which can name another file. None when it can't be told (no path
+        target, no hook or path argument, a symlink loop): a write-file call is then refused (`_keep_copy`)."""
         if not spec.target.path:
             return None
         hook = getattr(cap, "real_path", None)
+        names = tuple(getattr(cap, "target_args", ()) or ())
         try:
-            return hook(args, self.roots.workspace) if hook is not None else Path(spec.target.path).resolve()
-        except (OSError, RuntimeError, ValueError):       # a symlink loop, a NUL: the spelling as given
-            return owner_path(spec.target.path, self.roots.workspace)
+            if hook is not None:
+                return Path(hook(args, self.roots.workspace))
+            given = getattr(args, "path" if "path" in names else names[0], None) if names else None
+            return file_real_path(given, self.roots.workspace) if isinstance(given, str) else None
+        except (OSError, RuntimeError, ValueError):
+            return None
 
     async def _keep_copy(self, cap: Any, name: str, args: Any, spec: Any, grant: RunGrant,
                          real: Path | None) -> str | None:
@@ -554,12 +560,14 @@ class Gateway:
         "edit"), or None when the call can't change an existing file (fs.write without overwrite refuses one); a
         capability that doesn't say is copied anyway. A new file, or a folder, keeps nothing. Raises when no copy
         could be made: the call must not run then."""
-        if self.recovery is None or spec.kind != Kind.WRITE_FILE or real is None:
+        if self.recovery is None or spec.kind != Kind.WRITE_FILE:
             return None
         why = getattr(cap, "recovery_reason", None)
         reason = why(args) if why is not None else name
         if not reason:
             return None
+        if real is None:                                 # S1 is never skipped silently: no file known, no change
+            raise recovery.NoFileTarget("FERB can't tell which file this tool writes")
         r = self.recovery
         return await recovery.preserve_async(real, reason=reason, task_id=grant.task_id, db=r.db, clock=r.clock,
                                              ids=r.ids, root=r.root)
@@ -580,11 +588,14 @@ class Gateway:
             if kept and real is not None:
                 await recovery.mark_written_async(kept, real, r.db)
                 return {"recoverable": kept}
-            if spec.kind == Kind.TRASH and not result.is_error and real is not None:
+            if spec.kind == Kind.TRASH and not result.is_error:
                 where, trashed_to = result.content.get("path"), result.content.get("trashed_to")
+                original = Path(str(where)) if where else real
+                if original is None:                     # never skipped silently
+                    return {"recovery_error": "FERB couldn't tell which item it moved to the Trash"}
                 return {"recoverable": recovery.record_trash(
-                    Path(str(where)) if where else real, str(trashed_to) if trashed_to else None,
-                    task_id=grant.task_id, db=r.db, clock=r.clock, ids=r.ids)}
+                    original, str(trashed_to) if trashed_to else None, task_id=grant.task_id, db=r.db,
+                    clock=r.clock, ids=r.ids)}
         except asyncio.CancelledError:
             raise
         except Exception as e:

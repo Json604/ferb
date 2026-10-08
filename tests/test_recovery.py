@@ -17,11 +17,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from ferb.act.fs import files, recovery
 from ferb.cli import admin
 from ferb.cli.client import Client, RpcError
-from ferb.core.types import ToolContext, ToolResult
+from ferb.core.types import ActionSpec, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
 from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
 
@@ -495,19 +496,23 @@ def test_a_permanent_delete_takes_a_snapshot_first(daemon: RunningDaemon) -> Non
     assert len(_snapshot_rows(daemon)) == 1
 
 
-def test_a_failed_snapshot_never_refuses_a_call_and_is_not_remembered(daemon: RunningDaemon) -> None:
+def test_a_failed_snapshot_never_refuses_a_call_and_counts_toward_the_rate_limit(daemon: RunningDaemon) -> None:
     for fail in ("boom", "none"):
         fake = _Snapshots(fail=fail)
         _snaps(daemon, fake)
         gone = _Ordered(f"fs.fake_delete_{fail}", Kind.DELETE_PERMANENT, fake.order)
         grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("delete"), [gone])
-        for text in ("a", "b"):                                          # the second call tries again, then runs
+        for text in ("a", "b"):                                          # one attempt in 15 minutes; both calls run
             assert not gateway_tool_call(daemon, grant, gone.name, text=text)["is_error"]
-        assert fake.order == ["snapshot", gone.name, "snapshot", gone.name]
+        assert fake.order == ["snapshot", gone.name, gone.name]
         asked = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk")
-        assert asked["is_error"] and "no snapshot was taken" in asked["content"]["error"]
+        assert asked["is_error"] and "under 15 minutes ago" in asked["content"]["error"]
+        daemon.call_soon(daemon.daemon.clock.advance, 16 * 60)           # the window passed: it tries again
+        assert not gateway_tool_call(daemon, grant, gone.name, text="c")["is_error"]
+        assert fake.order == ["snapshot", gone.name, gone.name, "snapshot", gone.name]
+        daemon.call_soon(daemon.daemon.clock.advance, 16 * 60)
     spans = _spans(daemon, "recovery.snapshot")
-    assert len(spans) == 4 and all(s["error"] for s in spans) and _snapshot_rows(daemon) == []
+    assert len(spans) == 6 and all(s["error"] for s in spans) and _snapshot_rows(daemon) == []
 
 
 def test_a_cancelled_wait_still_records_the_snapshot_for_the_next_request(daemon: RunningDaemon) -> None:
@@ -553,15 +558,24 @@ def test_old_snapshots_are_deleted_then_their_records_go(daemon: RunningDaemon) 
     _snaps(daemon, _Snapshots())
     grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
     gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")
+    _sql(daemon, "INSERT INTO recovery (id, task_id, kind, original, saved_to, reason, at) "
+                 "VALUES ('odd', 't', 'snapshot', '/', 'tmutil said: done', 'x', ?)",
+         (daemon.daemon.clock.now().isoformat(),))
     _sql(daemon, "UPDATE recovery SET at = ? WHERE kind = 'snapshot'",
          ((daemon.daemon.clock.now() - timedelta(days=8)).isoformat(),))
     cutoff = (daemon.daemon.clock.now() - timedelta(days=7)).isoformat()
     deleted: list[str] = []
+    gone: list[tuple[str, bool]] = []
 
     async def purge(ok: bool) -> int:
-        return await recovery.purge_snapshots(cutoff, daemon.daemon.db, lambda n: deleted.append(n) or ok)
-    assert daemon.run(purge(False)) == 0 and len(_snapshot_rows(daemon)) == 1   # not deleted: the record stays
-    assert daemon.run(purge(True)) == 1 and _snapshot_rows(daemon) == [] and len(deleted) == 2
+        async def delete(name: str) -> bool:
+            deleted.append(name)
+            return ok
+        return await recovery.purge_snapshots(cutoff, daemon.daemon.db, delete, lambda n, d: gone.append((n, d)))
+    assert daemon.run(purge(False)) == 1                                  # the odd name: record only, never deleted
+    assert gone == [("tmutil said: done", False)] and len(_snapshot_rows(daemon)) == 1
+    assert daemon.run(purge(True)) == 1 and _snapshot_rows(daemon) == []
+    assert deleted == ["com.apple.TimeMachine.2026-10-09-000001.local"] * 2 and gone[-1][1] is True
 
 
 def test_local_snapshot_asks_tmutil_without_a_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -578,41 +592,72 @@ def test_local_snapshot_asks_tmutil_without_a_prompt(monkeypatch: pytest.MonkeyP
     assert seen["kw"]["stdin"] is subprocess.DEVNULL and seen["kw"]["timeout"]   # never waits on a prompt
 
 
-@pytest.mark.parametrize("outcome", ["refused", "missing", "timeout", "garbled"])
+@pytest.mark.parametrize("outcome", ["refused", "missing", "timeout"])
 def test_local_snapshot_is_none_when_tmutil_cannot(monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
     def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
         if outcome == "missing":
             raise FileNotFoundError(cmd[0])
         if outcome == "timeout":
             raise subprocess.TimeoutExpired(cmd, kw["timeout"])
-        if outcome == "refused":
-            return subprocess.CompletedProcess(cmd, 77, "", "Operation not permitted\n")
-        return subprocess.CompletedProcess(cmd, 0, "something else\n", "")
+        return subprocess.CompletedProcess(cmd, 77, "", "Operation not permitted\n")
     monkeypatch.setattr(recovery.subprocess, "run", fake_run)
     assert recovery.local_snapshot() is None
 
 
+def test_a_snapshot_tmutil_reports_in_other_words_keeps_its_raw_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    for out, name in (("Created local snapshot with date: 2026-10-09T00:19:38\n", "2026-10-09T00:19:38"),
+                      ("NOTE: purgeable\nsnapshot made\n", "snapshot made")):
+        monkeypatch.setattr(recovery.subprocess, "run",
+                            lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, out, ""))
+        assert recovery.local_snapshot() == name
+
+
 def test_delete_local_snapshot_deletes_only_ferbs_named_snapshot_without_a_prompt(
         monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
+    calls: list[tuple[str, ...]] = []
     listed = {"out": "Snapshots for disk /:\ncom.apple.TimeMachine.2026-10-09-001938.local\n"}
 
-    def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
-        calls.append(cmd)
-        assert kw["stdin"] is subprocess.DEVNULL and kw["timeout"]
-        return subprocess.CompletedProcess(cmd, 0, listed["out"] if "listlocalsnapshots" in cmd else "", "")
-    monkeypatch.setattr(recovery.subprocess, "run", fake_run)
-    assert recovery.delete_local_snapshot("com.apple.TimeMachine.2026-10-09-001938.local")
-    assert calls[-1] == ["/usr/bin/tmutil", "deletelocalsnapshots", "2026-10-09-001938"]
+    async def fake(*args: str, timeout_s: float) -> tuple[int, str]:
+        calls.append(args)
+        assert timeout_s > 0
+        return 0, listed["out"] if args[0] == "listlocalsnapshots" else ""
+    monkeypatch.setattr(recovery, "_tmutil", fake)
+    name = "com.apple.TimeMachine.2026-10-09-001938.local"
+    assert asyncio.run(recovery.delete_local_snapshot(name))
+    assert calls[-1] == ("deletelocalsnapshots", "2026-10-09-001938")
     calls.clear()
-    listed["out"] = "Snapshots for disk /:\n"                              # macOS thinned it already
-    assert recovery.delete_local_snapshot("com.apple.TimeMachine.2026-10-09-001938.local")
-    assert all("deletelocalsnapshots" not in c for c in calls)
+    listed["out"] = "Snapshots for disk /:\n"                             # macOS thinned it already
+    assert asyncio.run(recovery.delete_local_snapshot(name)) and calls == [("listlocalsnapshots", "/")]
     calls.clear()
-    assert not recovery.delete_local_snapshot("2026-10-09-001938; rm -rf ~") and calls == []
+    assert not asyncio.run(recovery.delete_local_snapshot("2026-10-09-001938; rm -rf ~")) and calls == []
 
 
-# ---------- the file FERB really writes (fix round 1) ----------
+def test_tmutil_runs_without_a_terminal_and_never_holds_up_its_caller(tmp_path: Path) -> None:
+    """The real helper with a stand-in program: stdin closed, own session; a run past its timeout is left alone."""
+    async def go() -> tuple[Any, Any]:
+        import ferb.act.fs.recovery as rec_mod
+        real = rec_mod.asyncio.create_subprocess_exec
+        seen: dict[str, Any] = {}
+
+        async def spy(program: str, *args: str, **kw: Any) -> Any:
+            seen.update(kw)
+            seen["proc"] = await real("/bin/sleep", "5", **kw)
+            return seen["proc"]
+        rec_mod.asyncio.create_subprocess_exec = spy                     # type: ignore[assignment]
+        try:
+            started = asyncio.get_running_loop().time()
+            out = await rec_mod._tmutil("deletelocalsnapshots", "x", timeout_s=0.2)
+            took = asyncio.get_running_loop().time() - started
+            assert seen["proc"].returncode is None                       # left running, not waited for
+            seen["proc"].kill()                                          # the test closes what it started
+            await seen["proc"].wait()
+            return (out, took), seen
+        finally:
+            rec_mod.asyncio.create_subprocess_exec = real                # type: ignore[assignment]
+    (out, took), seen = asyncio.run(go())
+    assert out is None and took < 2
+    assert seen["stdin"] is subprocess.DEVNULL and seen["start_new_session"] is True
+
 
 def test_an_overwrite_through_a_symlinked_folder_and_dotdot_copies_the_real_file(daemon: RunningDaemon) -> None:
     """`link/../notes.txt` is, for the OS, the notes.txt beside the link's target; textually it names a decoy."""
@@ -792,3 +837,129 @@ def test_ferb_restore_says_how_many_it_does_not_show(daemon: RunningDaemon) -> N
         c.close()
     text = out.getvalue()
     assert "Showing the newest 100 of 105." in text and text.count("(its copy is gone)") == 100
+
+
+# ---------- fix round 2 ----------
+
+class _PlainWrite:
+    """A write-file tool with no real_path hook: the gateway finds its file from `target_args` (or can't)."""
+    description, scopes, identities = "plain write", {"fs:write"}, files.FsWrite.identities
+    risk, reversible = files.FsWrite.risk, False
+
+    class Input(BaseModel):
+        where: str
+        text: str = "new"
+
+    def __init__(self, name: str, target_args: tuple[str, ...] | None) -> None:
+        self.name, self.runs = name, 0
+        if target_args is not None:
+            self.target_args = target_args
+
+    def describe(self, args: Any) -> Any:
+        return ActionSpec(Kind.WRITE_FILE, Target(path=args.where), content=args.text)
+
+    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        self.runs += 1
+        Path(args.where).write_text(args.text)                          # the OS: symlinks first, then `..`
+        return ToolResult({"path": args.where})
+
+
+def test_a_write_tool_without_the_hook_is_copied_from_its_path_argument_symlinks_first(daemon: RunningDaemon) -> None:
+    ws = _ws(daemon)
+    (ws / "elsewhere" / "inner").mkdir(parents=True)
+    (ws / "link").symlink_to(ws / "elsewhere" / "inner")
+    real, decoy = ws / "elsewhere" / "notes.txt", ws / "notes.txt"
+    real.write_text("the real original")
+    decoy.write_text("decoy")
+    tool: Any = _PlainWrite("fs.plain", ("where",))
+    grant, _ = gateway_setup(daemon, {"fs:write"}, gateway_request("save"), [tool])
+    out = gateway_tool_call(daemon, grant, "fs.plain", where=str(ws / "link" / ".." / "notes.txt"), text="new")
+    assert not out["is_error"] and real.read_text() == "new" and decoy.read_text() == "decoy"
+    [rec] = _recovery_rows(daemon)
+    assert rec["original"] == str(real.resolve())
+    assert _restore(daemon, rec["id"]).resolve() == real.resolve() and real.read_text() == "the real original"
+
+
+def test_a_write_tool_whose_file_cannot_be_told_is_refused(daemon: RunningDaemon) -> None:
+    f = _ws(daemon) / "unknown.txt"
+    f.write_text("keep me")
+    tool: Any = _PlainWrite("fs.blind", None)
+    grant, _ = gateway_setup(daemon, {"fs:write"}, gateway_request("save"), [tool])
+    out = gateway_tool_call(daemon, grant, "fs.blind", where=str(f), text="replaced")
+    assert out["is_error"] and "can't tell which file this tool writes" in out["content"]["error"]
+    assert tool.runs == 0 and f.read_text() == "keep me" and _recovery_rows(daemon) == []
+
+    async def ledger() -> list[str]:
+        return [r["state"] for r in daemon.daemon.db.conn.execute(
+            "SELECT state FROM action_ledger WHERE capability = 'fs.blind'")]
+    assert daemon.run(ledger()) == ["failed"]
+
+
+def test_a_shutdown_during_a_slow_snapshot_delete_keeps_the_retention_record(daemon: RunningDaemon) -> None:
+    f = _ws(daemon) / "r.txt"
+    f.write_text("a")
+    _write(daemon, _fs_grant(daemon), f, "b")
+    _snaps(daemon, _Snapshots())
+    grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")
+    _sql(daemon, "UPDATE recovery SET at = ?", ((daemon.daemon.clock.now() - timedelta(days=8)).isoformat(),))
+    started = threading.Event()
+
+    async def slow_delete(name: str) -> bool:
+        started.set()
+        await asyncio.sleep(3600)                                        # a tmutil delete that takes forever
+        return True
+
+    async def go() -> tuple[bool, float]:
+        daemon.daemon.snapshot_deleter = slow_delete
+        job = asyncio.ensure_future(daemon.daemon._purge_pass())
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        t0 = asyncio.get_running_loop().time()
+        job.cancel()
+        try:
+            await job
+        except asyncio.CancelledError:
+            pass
+        return job.cancelled(), asyncio.get_running_loop().time() - t0
+    cancelled, took = daemon.run(go())
+    assert cancelled and took < 1
+
+    async def journal() -> list[dict[str, Any]]:
+        return [json.loads(r["data_json"]) for r in daemon.daemon.db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind = 'retention.purged'")]
+    [row] = daemon.run(journal())
+    assert row["recovery"] == 1                                          # journaled before the snapshot step
+    assert len(_snapshot_rows(daemon)) == 1                              # not deleted: its record stays
+
+
+def test_the_agents_before_words_are_stored_redacted(daemon: RunningDaemon) -> None:
+    _snaps(daemon, _Snapshots())
+    grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
+    assert not gateway_tool_call(daemon, grant, "recovery.snapshot", before=f"bulk delete with {secret}")["is_error"]
+    [row] = _snapshot_rows(daemon)
+    assert secret not in row["reason"] and row["reason"].startswith("bulk delete with")
+
+
+def test_a_snapshot_with_a_raw_name_is_recorded_listed_and_rate_limited(daemon: RunningDaemon) -> None:
+    calls: list[str] = []
+
+    def raw() -> str:
+        calls.append("x")
+        return "snapshot made"
+    service = _snaps(daemon, _Snapshots())
+    service.take = raw
+    grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    first = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk")["content"]
+    again = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk")["content"]
+    assert first["snapshot"] == "snapshot made" and again["reused"] is True and calls == ["x"]
+    c = Client(daemon.sock)
+    try:
+        out = io.StringIO()
+        admin.restore(c, None, out)
+        assert "snapshot made" in out.getvalue()
+    finally:
+        c.close()

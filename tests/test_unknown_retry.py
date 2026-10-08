@@ -213,6 +213,9 @@ def test_a_call_that_could_not_start_is_failed_not_unknown(daemon: RunningDaemon
     class Write(FakeCap):
         def describe(self, args: Any) -> ActionSpec:
             return ActionSpec("write_file", Target(path="notes.txt"), content=args.text or None)
+
+        def real_path(self, args: Any, workspace: str) -> Path:        # S1: the file it writes (else refused)
+            return Path(workspace) / "notes.txt"
     write = Write("probe.write", "write_file", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("save notes"), [write])
     gateway = daemon.daemon.gateway

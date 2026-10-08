@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +41,7 @@ STARTUP_DISK = "/"
 SNAPSHOT_HOW = ("a recovery point of the whole disk. FERB can't open it (that needs admin rights); you can, from macOS "
                 "Recovery or Time Machine")
 _SNAPSHOT_DATE = re.compile(r"Created local snapshot with date: (\d{4}-\d{2}-\d{2}-\d{6})")
+_SNAPSHOT_LOOSE = re.compile(r"Created local snapshot with date: (\S+)")
 _SNAPSHOT_NAME = re.compile(r"com\.apple\.TimeMachine\.(\d{4}-\d{2}-\d{2}-\d{6})\.local")
 _SUFFIX = re.compile(r"\.[A-Za-z0-9]{1,16}")
 _DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -61,6 +62,11 @@ except (OSError, AttributeError):        # not macOS: no clonefile / renamex_np;
 
 class NotRestorable(Exception):
     """Why a record can't be restored, in words the owner reads (short paths)."""
+
+
+class NoFileTarget(Exception):
+    """A write-file tool whose file FERB can't tell (no real_path hook, no path argument): S1 is never skipped
+    silently, so the call doesn't run."""
 
 
 @dataclass(frozen=True)
@@ -477,29 +483,41 @@ def _sweep(cutoff_iso: str, db: Any, root: Path) -> None:
         pass
 
 
-async def purge_snapshots(cutoff_iso: str, db: Any, delete: Callable[[str], bool] | None) -> int:
-    """FERB's own snapshots older than the cutoff: deleted (`delete`, in a worker thread: one takes seconds), then
-    their records. A snapshot that couldn't be deleted keeps its record for the next pass. With no `delete`, macOS's
-    own thinning removes them and only the records go."""
+async def purge_snapshots(cutoff_iso: str, db: Any, delete: Callable[[str], Awaitable[bool]] | None,
+                          on_gone: Callable[[str, bool], None] | None = None) -> int:
+    """FERB's own snapshots older than the cutoff: deleted (`delete`), then their records. Only a name of the strict
+    Time Machine form is ever deleted; one that couldn't be deleted keeps its record for the next pass. Any other name
+    (tmutil reported something unexpected), or no `delete`: macOS's own thinning removes the snapshot and only the
+    record goes. `on_gone(name, deleted)` runs right after each record goes, so a pass cancelled midway (shutdown;
+    a delete takes seconds) has journaled what it did."""
     rows = db.conn.execute("SELECT id, saved_to FROM recovery WHERE kind = 'snapshot' AND at < ?",
                            (cutoff_iso,)).fetchall()
     done = 0
     for r in rows:
-        if delete is not None and r["saved_to"]:
+        name = str(r["saved_to"] or "")
+        deleted = False
+        if delete is not None and _SNAPSHOT_NAME.fullmatch(name):
             try:
-                if not await asyncio.to_thread(delete, str(r["saved_to"])):
+                if not await delete(name):
                     continue
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 continue
+            deleted = True
         db.conn.execute("DELETE FROM recovery WHERE id = ?", (r["id"],))
         done += 1
+        if on_gone is not None:
+            on_gone(name, deleted)
     return done
 
 
 # ---------- snapshots before bulk or destructive work ----------
 
 def local_snapshot(timeout_s: float = SNAPSHOT_TIMEOUT_S) -> str | None:
-    """A local APFS snapshot of the startup disk (`tmutil localsnapshot`); its name, or None when none was taken.
+    """A local APFS snapshot of the startup disk (`tmutil localsnapshot`); its name (com.apple.TimeMachine.<date>.local;
+    if tmutil reports success in other words, those words, so it is still recorded and rate-limited), or None when
+    none was taken.
     Measured 2026-10-09 (macOS 26.6.2, uid 501, no Time Machine destination): taking one needs no admin rights and no
     prompt (0.4 s); reading one back (mount_apfs -s) is refused without admin rights, so it is a recovery point for
     the owner (Recovery, Time Machine, or sudo), while FERB itself restores from per-file copies and the Trash.
@@ -509,40 +527,61 @@ def local_snapshot(timeout_s: float = SNAPSHOT_TIMEOUT_S) -> str | None:
                               text=True, timeout=timeout_s)
     except (OSError, subprocess.SubprocessError):
         return None
-    found = _SNAPSHOT_DATE.search(f"{done.stdout}\n{done.stderr}")
-    return f"com.apple.TimeMachine.{found.group(1)}.local" if done.returncode == 0 and found else None
+    if done.returncode != 0:
+        return None
+    text = f"{done.stdout}\n{done.stderr}"
+    strict, loose = _SNAPSHOT_DATE.search(text), _SNAPSHOT_LOOSE.search(text)
+    if strict:
+        return f"com.apple.TimeMachine.{strict.group(1)}.local"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]  # tmutil said it made one: keep its words
+    return (loose.group(1) if loose else lines[-1] if lines else "a snapshot tmutil reported without a name")[:200]
 
 
-def delete_local_snapshot(name: str, timeout_s: float = SNAPSHOT_DELETE_TIMEOUT_S) -> bool:
+async def _tmutil(*args: str, timeout_s: float) -> tuple[int, str] | None:
+    """tmutil with no terminal (stdin closed: it never waits on a prompt), in its own session: (exit code, output), or
+    None when it couldn't start or took longer than timeout_s. A run that times out, or whose caller is cancelled
+    (daemon shutdown), is left to finish on its own; shutdown never waits for it."""
+    try:
+        proc = await asyncio.create_subprocess_exec("/usr/bin/tmutil", *args, stdin=subprocess.DEVNULL,
+                                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                                    start_new_session=True)
+    except OSError:
+        return None
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout_s)
+    except TimeoutError:
+        return None
+    return int(proc.returncode or 0), out.decode(errors="replace")
+
+
+async def delete_local_snapshot(name: str, timeout_s: float = SNAPSHOT_DELETE_TIMEOUT_S) -> bool:
     """Delete one of FERB's own snapshots by the name `local_snapshot` returned; True when it is gone (deleted now, or
     already thinned by macOS). Measured 2026-10-09: `tmutil deletelocalsnapshots <date>` needs no admin rights and no
-    prompt, and took 15.5 s. Never waits on input; a name that isn't a Time Machine local snapshot is refused."""
+    prompt, and took 15.5 s. Only the strict com.apple.TimeMachine.<date>.local form is accepted."""
     found = _SNAPSHOT_NAME.fullmatch(name)
     if found is None:
         return False
-    try:
-        listed = subprocess.run(["/usr/bin/tmutil", "listlocalsnapshots", STARTUP_DISK], stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=SNAPSHOT_TIMEOUT_S)
-        if listed.returncode == 0 and name not in listed.stdout.split():
-            return True
-        done = subprocess.run(["/usr/bin/tmutil", "deletelocalsnapshots", found.group(1)], stdin=subprocess.DEVNULL,
-                              capture_output=True, text=True, timeout=timeout_s)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return done.returncode == 0
+    listed = await _tmutil("listlocalsnapshots", STARTUP_DISK, timeout_s=SNAPSHOT_TIMEOUT_S)
+    if listed is not None and listed[0] == 0 and name not in listed[1].split():
+        return True
+    done = await _tmutil("deletelocalsnapshots", found.group(1), timeout_s=timeout_s)
+    return done is not None and done[0] == 0
 
 
 class Snapshots:
     """S1 snapshots, before bulk or destructive work: when an agent asks (`recovery.snapshot`; agents judge what is
-    bulk, rule 6) and before a permanent delete. At most one every SNAPSHOT_EVERY_S across all tasks: a request inside
-    that window reuses the last one and says so. Each is a `recovery` row (kind snapshot) that `ferb restore` lists
-    with how to use it. Best effort: `request` returns a failure as a result and never raises one (only its own
-    caller's cancellation); a failure is never remembered, so the next request tries again. `take` None: off (tests)."""
+    bulk, rule 6) and before a permanent delete. At most one attempt every SNAPSHOT_EVERY_S across all tasks, taken or
+    failed: a request inside that window reuses the last snapshot and says so, or reports the recent failure. Each
+    snapshot is a `recovery` row (kind snapshot) that `ferb restore` lists with how to use it. Best effort: `request`
+    returns a failure as a result and never raises one (only its own caller's cancellation), so a snapshot never
+    refuses a call; a finished attempt's future is never reused. `take` None: off (tests)."""
 
     def __init__(self, take: Callable[[], str | None] | None, db: Any, clock: Any, ids: Any,
-                 every_s: float = SNAPSHOT_EVERY_S) -> None:
+                 redact: Callable[[Any], Any], every_s: float = SNAPSHOT_EVERY_S) -> None:
         self.take, self.db, self.clock, self.ids, self.every_s = take, db, clock, ids, every_s
+        self.redact = redact                                  # the agent's `before` words are stored redacted
         self._running: asyncio.Future[dict[str, Any]] | None = None
+        self._failed: tuple[datetime, str] | None = None     # the last failed attempt: when, and why
 
     async def request(self, task_id: str | None, reason: str) -> dict[str, Any]:
         last = self._recent()
@@ -550,6 +589,10 @@ class Snapshots:
             return last | {"reused": True}
         if self.take is None:
             return {"error": "snapshots are turned off for this FERB"}
+        failed = self._failed
+        if failed is not None and self.clock.now() - failed[0] < timedelta(seconds=self.every_s):
+            return {"error": f"no snapshot was taken: the last attempt, under 15 minutes ago, failed ({failed[1]}); "
+                             "FERB tries again after that"}
         running = self._running
         mine = running is None or running.done()     # a finished one (taken, failed or cancelled) is never reused
         if running is None or mine:
@@ -579,13 +622,20 @@ class Snapshots:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            return {"error": f"no snapshot was taken ({type(e).__name__})"}
+            return self._fail(type(e).__name__)
         if not name:
-            return {"error": "no snapshot was taken (tmutil refused or is unavailable)"}
+            return self._fail("tmutil refused or is unavailable")
+        self._failed = None
         eid = str(self.ids.new_id())
-        self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, name, reason[:200],
+        before = str(self.redact({"before": reason[:200]})["before"])
+        self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, name[:200], before,
                                        self.clock.now().isoformat(), None, None))
         return {"snapshot": name, "record": eid}
+
+    def _fail(self, why: str) -> dict[str, Any]:
+        """A failed attempt counts toward the rate limit too: at most one attempt per window."""
+        self._failed = (self.clock.now(), why)
+        return {"error": f"no snapshot was taken ({why})"}
 
 
 class RecoverySnapshot:

@@ -169,6 +169,9 @@ class Daemon:
         self._retention_task: asyncio.Task[None] | None = None
         self.take_snapshots = snapshots                  # S1 local APFS snapshots; tests never take a real one
         self.snapshots: recovery.Snapshots | None = None
+        # Deletes FERB's own old snapshots in the async retention pass (None: macOS thinning only; tests)
+        self.snapshot_deleter: Callable[[str], Awaitable[bool]] | None = (
+            recovery.delete_local_snapshot if snapshots else None)
         # Jev in shadow mode: None until a key is in the Keychain
         self.jev: Any = None
         self.jev_post: Any = None                        # tests: a fake Jev endpoint
@@ -202,7 +205,7 @@ class Daemon:
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.evidence = EvidenceStore(self.home / "evidence", self.clock, self.ids, self.redact, self.db)
         self.snapshots = recovery.Snapshots(recovery.local_snapshot if self.take_snapshots else None, self.db,
-                                            self.clock, self.ids)
+                                            self.clock, self.ids, self.redact)
         add_recovery(self.registry, self.snapshots)
         self.ledger = Ledger(self.db, self.clock, self.ids)
         self.tasks.attach(self.db)
@@ -759,11 +762,21 @@ class Daemon:
         finally:
             if not finished and spans:
                 self._journal_purged(plan, spans, 0, 0, 0, plan.left + len(plan.roots) - done, stopped=True)
-        kept = self._recovery()                              # deleting a snapshot takes seconds: a worker thread
-        snapshots = await recovery.purge_snapshots((plan.now - timedelta(days=plan.recovery_days)).isoformat(),
-                                                   kept.db, recovery.delete_local_snapshot if self.take_snapshots
-                                                   else None)
-        return self._purge_rest(plan, spans, snapshots)
+        result = self._purge_rest(plan, spans)               # journaled before the slow snapshot step
+        result["snapshots"] = await self._purge_snapshots(plan)
+        return result
+
+    async def _purge_snapshots(self, plan: _PurgePlan) -> int:
+        """FERB's own snapshots older than recovery_days (S1): each deletion takes seconds (measured 15.5 s) and is
+        journaled as it happens, so shutdown can cancel the pass at any point without losing the record; a tmutil
+        run already started is left to finish on its own."""
+        kept = self._recovery()
+
+        def gone(name: str, deleted: bool) -> None:
+            self._journal().append("retention.snapshot_purged", {"snapshot": name, "deleted": deleted,
+                                                                 "recovery_days": plan.recovery_days})
+        return await recovery.purge_snapshots((plan.now - timedelta(days=plan.recovery_days)).isoformat(), kept.db,
+                                              self.snapshot_deleter, gone)
 
     def _purge_plan(self) -> _PurgePlan:
         now = self.clock.now()
@@ -788,11 +801,10 @@ class Daemon:
             self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
             return 0
 
-    def _purge_rest(self, plan: _PurgePlan, spans: int, snapshots: int = 0) -> dict[str, int]:
+    def _purge_rest(self, plan: _PurgePlan, spans: int) -> dict[str, int]:
         """Loose spans, old Jev decisions, old evidence and old recovery copies and records (a trash record stays while
-        its item is in the Trash, TRASH_RECORD_MAX_DAYS at most); `snapshots`: FERB's own snapshots the async pass
-        deleted. `retention.purged` is journaled only when the pass purged something or left roots for the next
-        one."""
+        its item is in the Trash, TRASH_RECORD_MAX_DAYS at most); snapshots are the async pass's last step.
+        `retention.purged` is journaled only when the pass purged something or left roots for the next one."""
         spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
         decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
         evidence = self.evidence.purge_before((plan.now - timedelta(days=plan.evidence_days)).isoformat()) \
@@ -801,18 +813,16 @@ class Daemon:
         copies = recovery.purge_before(
             (plan.now - timedelta(days=plan.recovery_days)).isoformat(), kept.db, kept.root,
             trash_backstop_iso=(plan.now - timedelta(days=recovery.TRASH_RECORD_MAX_DAYS)).isoformat())
-        if spans or decisions or evidence or copies or snapshots or plan.left:
-            self._journal_purged(plan, spans, decisions, evidence, copies, plan.left, snapshots=snapshots)
-        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies,
-                "snapshots": snapshots}
+        if spans or decisions or evidence or copies or plan.left:
+            self._journal_purged(plan, spans, decisions, evidence, copies, plan.left)
+        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies}
 
     def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, copies: int, left: int,
-                        stopped: bool = False, snapshots: int = 0) -> None:
+                        stopped: bool = False) -> None:
         self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
                                                     "decision_days": plan.decision_days, "decisions": decisions,
                                                     "evidence_days": plan.evidence_days, "evidence": evidence,
                                                     "recovery_days": plan.recovery_days, "recovery": copies,
-                                                    "snapshots": snapshots,
                                                     "roots_left": left} | ({"stopped": True} if stopped else {}))
 
     def _gateway(self) -> Gateway:
