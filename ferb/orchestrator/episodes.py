@@ -33,12 +33,13 @@ def record(spans: Any, journal: Any, task_id: str, now: str) -> None:
 def write(db: Any, ep: dict[str, Any]) -> None:
     db.conn.execute(
         "INSERT OR REPLACE INTO episodes (task_id, request_id, request_text, goal, status, verified, started_at, "
-        "ended_at, seconds, answer, conditions_json, steps_json, problems_json, tools_json, origins, external_read, "
-        "usage_json, desktop_json, made_by, built_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "ended_at, seconds, answer, conditions_json, steps_json, problems_json, tools_json, origins, tool_origins, "
+        "external_read, usage_json, desktop_json, made_by, built_at) VALUES (" + ",".join("?" * 21) + ")",
         (ep["task_id"], ep["request_id"], ep["request_text"], ep["goal"], ep["status"],
          None if ep["verified"] is None else int(bool(ep["verified"])), ep["started_at"], ep["ended_at"],
          ep["seconds"], ep["answer"], *(json.dumps(ep[k], ensure_ascii=False) for k in JSON_FIELDS[:4]),
-         origin.join(ep["origins"]), int(any(origin.is_external(o) for o in ep["origins"])),
+         origin.join(ep["origins"]), origin.join(ep.get("tool_origins") or ()),
+         int(any(origin.is_external(o) for o in ep["origins"])),
          *(json.dumps(ep[k], ensure_ascii=False) for k in JSON_FIELDS[4:]), ep["made_by"], ep["built_at"]))
 
 
@@ -50,6 +51,7 @@ def get(db: Any, task_id: str) -> dict[str, Any] | None:
     for key in JSON_FIELDS:
         ep[key] = json.loads(ep.pop(key + "_json"))
     ep["origins"] = sorted(origin.split(ep["origins"]))
+    ep["tool_origins"] = sorted(origin.split(ep["tool_origins"]))
     ep["external_read"] = bool(ep["external_read"])
     ep["verified"] = None if ep["verified"] is None else bool(ep["verified"])
     return ep

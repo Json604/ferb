@@ -17,6 +17,8 @@ CREATE TABLE episodes (
     problems_json   TEXT NOT NULL,   -- ["⚠ …"]
     tools_json      TEXT NOT NULL,   -- {tool: {calls, errors}}
     origins         TEXT NOT NULL,   -- comma-joined origins of the task's request, context sources and tool results
+    tool_origins    TEXT NOT NULL DEFAULT '',   -- only the task's own tool results' origins (F5's sink rule: own reads
+                                                -- apart from inherited context)
     external_read   INTEGER NOT NULL,
     usage_json      TEXT NOT NULL,
     desktop_json    TEXT NOT NULL,

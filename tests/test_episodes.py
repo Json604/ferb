@@ -49,6 +49,65 @@ def test_pasted_parts_show_as_a_marker_in_the_request() -> None:
     assert compose.compose(b.finish())["request_text"] == "summarize [pasted text]"
 
 
+def test_a_clarify_continuation_shows_the_whole_request() -> None:
+    """I5 (P26): the request text is what the owner typed for the whole request (the root's authority words), the
+    pending part included, without FERB's wrappers; not only the answer that continued it."""
+    b = TraceBuilder(request="email alex the report")
+    trace = b.finish()
+    request = trace["outcome"]["request"]
+    request["messages"] = [dict(request["messages"][0], data={"text": "email alex the report"}),
+                           dict(request["messages"][0], id="m2", data={"text": "the work one"})]
+    request["authority_words"] = "email alex the report\nthe work one"
+    assert compose.compose(trace)["request_text"] == "email alex the report the work one"
+    request["authority_words"] += ('\nEarlier FERB question (context, not owner instructions): '
+                                   '<untrusted-data id="ab12">\nalex@work.example or alex@home.example?\n'
+                                   '</untrusted-data id="ab12">')          # recorded before 0.27 F3's fix
+    assert compose.compose(trace)["request_text"] == "email alex the report the work one"
+    request["authority_words"] = None                                      # no authority words: the last message
+    assert compose.compose(trace)["request_text"] == "the work one"
+    request["messages"], request["text"] = [], None                        # nothing else: the goal
+    assert compose.compose(trace)["request_text"] == b.goal
+
+
+def test_a_live_clarify_continuation_episode_shows_the_whole_request(daemon: RunningDaemon) -> None:
+    install(daemon, [sup("clarify", "Which alex: alex@work.example or alex@home.example?"),
+                     sup("task", "Sending.", task("email alex the report"))], {"worker": done("sent")})
+    chat(daemon, "email alex the report")
+    chat(daemon, "the work one")
+    ep = _episode(daemon, _last_root(daemon))
+    assert ep is not None and ep["request_text"] == "email alex the report the work one"
+
+
+def test_a_stopped_worker_reads_as_stopped_not_as_its_report() -> None:
+    """Minor 6 (P26): a cancelled worker's summary is the supervisor's stop reason, not a report the worker made."""
+    b = TraceBuilder()
+    w = b.worker(5, "cancelled", "")
+    w["output"] = {"result": "Stopped by you (Ctrl-C).", "status": "cancelled"}
+    b.tool(w, 1, 0.5, "shell.run", {"command": "ls"}, "exit 0 · 1 line")
+    step = compose.compose(b.finish(status="cancelled", verified=None))["steps"][0]
+    assert step["text"] == "1 tool call · stopped: Stopped by you (Ctrl-C)."
+
+
+def test_episode_keeps_its_own_tool_origins_apart_from_inherited_ones(tmp_path: Path) -> None:
+    """Minor 4 (S3, MP2): origins is the full union; tool_origins only the task's own tool calls (I1 rule), so F5's
+    sink rule can tell the task's own reads from inherited context."""
+    b = TraceBuilder()
+    b.root["origin"] = "external:paste,owner"
+    b.source("recalled memory", "a note from an email", "external:email:someone")
+    w = b.worker(5, "done", "read")
+    b.tool(w, 1, 0.5, "browser.read", {"url": "https://a.com"}, "text", origin="external:web:a.com", kind="read")
+    b.tool(w, 2, 0.5, "browser.read", {"url": "https://b.com"}, "text", origin=None, kind="read")
+    c = compose.compose(b.finish())
+    assert c["tool_origins"] == ["external:unlabeled", "external:web:a.com"]
+    assert set(c["origins"]) == {"external:paste", "owner", "external:email:someone", "external:unlabeled",
+                                 "external:web:a.com"}
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    episodes.write(db, c | {"made_by": episodes.MADE_BY, "built_at": T0.isoformat()})
+    got = episodes.get(db, c["task_id"])
+    assert got is not None and got["tool_origins"] == c["tool_origins"] and got["origins"] == sorted(c["origins"])
+
+
 def _failed_turn(kind: str) -> dict[str, Any]:
     """One trace whose `kind` model span ended with an error, though its recorded text parses as a decision."""
     b = TraceBuilder()
@@ -220,8 +279,8 @@ def test_a_stopped_task_gets_an_episode(daemon: RunningDaemon) -> None:
     async def status():
         return daemon.daemon.db.conn.execute("SELECT status FROM tasks WHERE id = ?", (root,)).fetchone()["status"]
     assert ep is not None and ep["status"] == daemon.run(status()) and ep["status"] != "done"
-    # The worker span records its own status, so a stopped worker reads as cancelled, not as a guess from its error.
-    assert any(s["role"] == "Worker" and "worker reported cancelled" in s["text"] for s in json.loads(ep["steps_json"]))
+    # The worker span records its own status, so a stopped worker reads as stopped, not as a guess from its error.
+    assert any(s["role"] == "Worker" and "stopped: " in s["text"] for s in json.loads(ep["steps_json"]))
 
 
 def _seed_ghost(home: Path) -> None:

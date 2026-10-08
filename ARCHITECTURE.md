@@ -291,10 +291,15 @@ runs.
 
 **Episodes (L1, MP1).** One permanent row per root task in `episodes` (migration 0018): request text, goal, status,
 verified, times, answer, success conditions with evidence, steps, problems, per-tool call/error counts, origins,
-`external_read` (any external origin among the tool-call, context-source and request origins), usage and desktop
-changes. [`trace/compose.py`](ferb/trace/compose.py) composes it by code from the trace (no model); a worker's words stay
-a claim ("worker reported done: …"). A failed step shows `✗ failed: …`, a step that never finished shows
-`⏹ did not finish (interrupted)` with no claim or check, and the final-state review shows as an "after cleanup" step.
+`tool_origins`, `external_read` (any external origin among the tool-call, context-source and request origins), usage
+and desktop changes. `origins` is the full union; `tool_origins` holds only the task's own tool results, so F5's sink
+rule can tell what the task itself read apart from inherited context (the request, memory, planner blocks). The request
+text is what the owner typed for the whole request (the root's `authority_words`, so the part a clarify answer
+continued is included), pasted parts shown as a marker. [`trace/compose.py`](ferb/trace/compose.py) composes it by code
+from the trace (no model); a worker's words stay a claim ("worker reported done: …"), and a stopped worker reads
+"stopped: …" because the supervisor wrote that summary. A failed step shows `✗ failed: …`, a step that never finished
+shows `⏹ did not finish (interrupted)` with no claim or check, and the final-state review shows as an "after cleanup"
+step.
 `made_by` is `code:episode/1` (`episodes.MADE_BY`, [`orchestrator/episodes.py`](ferb/orchestrator/episodes.py)).
 An episode is written at task end (the last thing in the supervisor's cleanup, so it cannot skip cleanup), for a task
 stopped by the owner, for tasks interrupted by a restart (at start-up), and by retention before any purge. A failed

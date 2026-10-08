@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Iterator
 
 from ferb.policy.rules import recorded_origins
+from ferb.sanitize.untrusted import without_ferb_question
 from ferb.trace.lines import clip, duration, plural
 
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
@@ -85,16 +86,24 @@ def _worker(n: dict[str, Any]) -> tuple[str, str]:
     summary = str(report.get("summary") or "") if report else str(out.get("result") or "")
     calls = sum(1 for c in walk(n.get("children") or []) if c["kind"] == "tool.call")
     head = f"{plural(calls, 'tool call', 'tool calls')} · " if calls else ""
-    claim = f"worker reported {status}: " if status else "worker reported: "
+    if status == "cancelled":                    # the summary is the supervisor's stop reason, not a report
+        claim = "stopped: "
+    else:
+        claim = f"worker reported {status}: " if status else "worker reported: "
     mark = "✗" if status in ("failed", "blocked", "cancelled") or n.get("error") else ""
     return mark, head + claim + clip(summary, 160)
 
 
 def _request_text(outcome: dict[str, Any]) -> str:
+    """What the owner asked: the words they typed for the whole request (the root's authority words, so an earlier
+    part a clarify answer continued is included; FERB's question, which records from before 0.27 F3 held, removed);
+    else the last chat message, the recorded request, the goal. Pasted parts show as a marker."""
     request = outcome.get("request") or {}
     messages = request.get("messages") or []
-    text = (messages[-1].get("data") or {}).get("text") if messages else None
-    text = text or request.get("text") or (outcome.get("task_spec") or {}).get("goal") or ""
+    text = without_ferb_question(str(request.get("authority_words") or "")).strip()
+    if not text:
+        text = (messages[-1].get("data") or {}).get("text") if messages else None
+        text = text or request.get("text") or (outcome.get("task_spec") or {}).get("goal") or ""
     return " ".join(_WRAPPED.sub("[pasted text]", str(text)).split())
 
 
@@ -180,10 +189,13 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
 
     tools_used: dict[str, dict[str, int]] = {}
     origins: set[str] = set()
+    tool_origins: set[str] = set()                 # the task's own tool results, apart from inherited context
     for n in nodes:
         if n["kind"] in ORIGIN_KINDS:              # the request, context sources and tool results (S3)
-            origins |= recorded_origins(n["kind"], (n.get("input") or {}).get("kind"), n.get("output") is not None,
-                                        n.get("origin"))
+            held = recorded_origins(n["kind"], (n.get("input") or {}).get("kind"), n.get("output") is not None,
+                                    n.get("origin"))
+            origins |= held
+            tool_origins |= held if n["kind"] == "tool.call" else set()
         if n["kind"] == "tool.call":
             t = tools_used.setdefault(str((n.get("input") or {}).get("tool", "?")), {"calls": 0, "errors": 0})
             t["calls"] += 1
@@ -201,5 +213,5 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             "status": str(result.get("status") or row.get("status") or "unknown"), "verified": result.get("verified"),
             "started_at": started, "ended_at": ended, "seconds": _secs(started, ended), "answer": answer,
             "conditions": conditions, "steps": steps, "problems": problems, "tools": tools_used,
-            "origins": sorted(origins), "usage": usage,
+            "origins": sorted(origins), "tool_origins": sorted(tool_origins), "usage": usage,
             "desktop": {"changes": len(raw) if isinstance(raw, (list, dict)) else int(raw or 0), "near_ferb": near}}
