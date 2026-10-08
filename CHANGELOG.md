@@ -42,15 +42,19 @@ documentation commit. The version in `pyproject.toml` and `ferb/__init__.py` sta
 - Registry, architecture section "Records and traces (F3)", README trace and retention notes, and the live-check list
   (D9, D14, D21, MP1, MP2, P26, S3). Residuals for F5: shell reads of downloaded files are not tracked, and FERB's own
   `fs` tools reach any path until protected-path lists exist.
-- Fix wave after the whole-branch review (`620d090`, `3af0dca`, `b403b8b`, `c4b5074`, `cdf6cc6`, `07ed8db`, `6fccaf5`
-  and this entry; S3, MP2, D21, P26, D9): FERB's clarify question is never recorded as the owner's words (older
-  continuity rows have it removed when read); spans without an origin follow one fail-closed rule in episodes,
-  `task.evidence` and `task_origins` (a tool call or context source with output is `external:unlabeled`, whatever its
-  kind); `owner.ask` answers match as `owner_answer`,
-  apart from typed `owner_words`; the gateway prepares each task's outside texts once; retention yields to the daemon
-  loop between roots and journals `retention.purged` only when it purged; the story shows the whole clarified request;
-  stopped workers read "stopped: …"; episodes keep `tool_origins`; `tool.finished` carries only the shown arguments;
-  chat-turn origin lookups use the `journal_kind` index; per-hour sites label a day summary `external:web:trail`.
+- Fix wave after the whole-branch review (`620d090`, `3af0dca`, `b403b8b`, `c4b5074`, `cdf6cc6`, `07ed8db`, `6fccaf5`,
+  `85a8169`; S3, MP2, D21, P26, D9): FERB's clarify question is never recorded as the owner's words (labeled in older
+  continuity rows, it is removed when read); `owner.ask` answers match as `owner_answer`, apart from typed
+  `owner_words`; the gateway prepares each task's outside texts once; retention yields to the daemon loop between roots
+  and journals `retention.purged` only when it purged; the story shows the whole clarified request; stopped workers
+  read "stopped: …"; episodes keep `tool_origins`; `tool.finished` carries only the shown arguments; chat-turn origin
+  lookups use the `journal_kind` index; per-hour sites label a day summary `external:web:trail`.
+- Residuals after the re-review (`d225ed3`, `240c960`, `e74ce6c` and this entry; S3, MP2, P26, D21): spans without an
+  origin follow one fail-closed rule in episodes, `task.evidence` and `task_origins` (a tool call or context source
+  with output is `external:unlabeled`, whatever its kind, since spans from before F0 have no action kind); the story
+  keeps the `[pasted text]` marker the typed words leave out; a retention pass cancelled between roots journals what it
+  purged; continuity rows written before 2026-10-03 lose FERB's older unlabeled "endorsed" question when read, only
+  where FERB's own recorded question matches exactly.
 
 ## 0.27.0-dev — 2026-10-07 — F2 model runtime layer
 

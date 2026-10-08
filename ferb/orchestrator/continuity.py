@@ -73,8 +73,22 @@ class Continuity:
         spec = TaskSpec.model_validate_json(row["spec_json"])
         result = json.loads(row["outcome_json"])
         state = f"{row['status']}: {result.get('summary', '')}"
-        return spec, Request(row["request_id"], without_ferb_question(row["owner_words"]), spec.targets.targets(),
+        words = without_ferb_question(row["owner_words"])
+        if not row["request_payload"]:          # written before the full request was recorded (0012): maybe older
+            words = self._without_endorsed_question(words)
+        return spec, Request(row["request_id"], words, spec.targets.targets(),
                              payload=row["request_payload"] or row["owner_words"]), state
+
+    def _without_endorsed_question(self, words: str) -> str:
+        """Before 4e0976a (2026-10-03), a plain yes to FERB's question appended that question, unlabeled and with
+        "your" read as "my", to the words recorded as the owner's. Removed only in exactly that form: FERB's own
+        recorded question (a chat.clarify row), transformed as that code did, on the lines right after a line that
+        code read as a yes, ending the text or a line. Anything else stays: nothing is stripped by a guess."""
+        rows = self.db.conn.execute("SELECT data_json FROM journal WHERE kind = 'chat.clarify'")
+        questions = {str(json.loads(r[0]).get("text") or "") for r in rows}
+        for question in sorted(filter(None, questions), key=len, reverse=True):
+            words = _strip_endorsed(words, "\n" + re.sub(r"\byour\b", "my", question, flags=re.I))
+        return words
 
     def candidates(self, conversation: str) -> list[dict[str, Any]]:
         rows = self.db.conn.execute(
@@ -133,3 +147,22 @@ class Continuity:
             text = re.sub(r'<untrusted-data id="([^"]+)">.*?</untrusted-data id="\1">', " ", text, flags=re.S)
             words = mark(text).own_words
             self.save(row["id"], conversation, spec, words, payload=str(json.loads(message[0]).get("text", "")))
+
+
+# The old code's plain-yes check, verbatim (supervisor._affirmative before 4e0976a), to recognise what it wrote.
+_OLD_YES = re.compile(r"\s*(yes|y|yeah|yep|yup|sure|ok|okay|go ahead|do it|please do|correct|right)[.! ]*\s*")
+
+
+def _strip_endorsed(words: str, needle: str) -> str:
+    """`words` without each `needle` (newline + endorsed question) that follows a plain-yes line and ends the text or
+    a line."""
+    at = words.find(needle)
+    while at != -1:
+        line = words[words.rfind("\n", 0, at) + 1:at]
+        end = at + len(needle)
+        if _OLD_YES.fullmatch(line.lower()) and (end == len(words) or words[end] == "\n"):
+            words = words[:at] + words[end:]
+            at = words.find(needle, at)
+        else:
+            at = words.find(needle, at + 1)
+    return words

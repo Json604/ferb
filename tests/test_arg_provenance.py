@@ -333,6 +333,70 @@ def test_a_retry_never_carries_ferbs_question_as_the_owners_words(daemon: Runnin
     _assert_only_typed([r.words for r in requests] + _owner_records(daemon)[1:])
 
 
+OLD_QUESTION = "Should I send it to your work address, alex@work.example?"
+OLD_ENDORSED = "Should I send it to my work address, alex@work.example?"     # the old code read "your" as "my"
+
+
+def _old_row(daemon: RunningDaemon, words: str, clarified: str | None = OLD_QUESTION, payload: str = "") -> str:
+    """A task, then its continuity row rewritten as code before 4e0976a (2026-10-03) stored it: no payload, the
+    words as recorded; and FERB's question as that code journaled it (chat.clarify)."""
+    install(daemon, [sup("task", "Sending.", task("email alex the report"))],
+            {"worker": json.dumps({"status": "needs_user", "summary": "Which alex?", "artifacts": [], "evidence": []})})
+    chat(daemon, "email alex the report")
+
+    async def rewrite() -> str:
+        conn = daemon.daemon.db.conn
+        conn.execute("UPDATE task_context SET owner_words = ?, request_payload = ?", (words, payload))
+        if clarified:
+            daemon.daemon.journal.append("chat.clarify", {"session_id": "s1", "request_id": "old", "text": clarified},
+                                         origin="inferred")
+        return conn.execute("SELECT task_id FROM task_context").fetchone()[0]
+    return daemon.run(rewrite())
+
+
+def _loaded_words(daemon: RunningDaemon, task_id: str) -> str:
+    async def go() -> str:
+        loaded = daemon.daemon.supervisor.continuity.load(task_id, "s1")
+        assert loaded is not None
+        return loaded[1].words
+    return daemon.run(go())
+
+
+def test_a_retry_never_carries_ferbs_older_unlabeled_question(daemon: RunningDaemon,
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Residual 4 (S3, MP2): before 4e0976a a plain yes appended FERB's question, unlabeled and with "your" read as
+    "my", to the words recorded as the owner's. It is removed only where FERB's own recorded question, transformed
+    exactly that way, follows a line the old code read as a yes."""
+    daemon.daemon.registry.capabilities["probe.send"] = FakeCap("probe.send", "send", {"probe"})
+    first = _old_row(daemon, "email alex the report\nyes\n" + OLD_ENDORSED)
+    requests = _recorded_requests(daemon, monkeypatch)
+    retry = json.loads(sup("task", "Retrying.", task("email alex the report")))
+    retry["control"] = {"task_id": first, "action": "retry"}
+    install(daemon, [json.dumps(retry)], {"worker": _sends_to(daemon, "alex@work.example")})
+    chat(daemon, "try again")
+    assert _inputs(daemon, "probe.send")[0]["arg_sources"] == {"recipient:0": ["unknown"]}
+    assert [r.words for r in requests] == ["email alex the report\nyes\ntry again"]
+
+
+@pytest.mark.parametrize("words, clarified, payload, expected", [
+    # a retry of an endorsed request compounded it: the question sits between the owner's lines
+    ("email alex\nyes\n" + OLD_ENDORSED + "\ntry again", OLD_QUESTION, "", "email alex\nyes\ntry again"),
+    ("email alex\nOK.\n" + OLD_ENDORSED, OLD_QUESTION, "", "email alex\nOK."),
+    # the owner's own words after a yes, not FERB's recorded question: kept
+    ("email alex\nyes\nalso cc bob@x.example", OLD_QUESTION, "", "email alex\nyes\nalso cc bob@x.example"),
+    # FERB's wording, but not after a line the old code read as a yes: the owner typed it, kept
+    ("email alex\nthe work one\n" + OLD_ENDORSED, OLD_QUESTION, "", "email alex\nthe work one\n" + OLD_ENDORSED),
+    # no recorded question to match: kept (nothing is stripped by a guess)
+    ("email alex\nyes\n" + OLD_ENDORSED, None, "", "email alex\nyes\n" + OLD_ENDORSED),
+    # a row with its payload recorded was written after that code: never read as the old form
+    ("email alex\nyes\n" + OLD_ENDORSED, OLD_QUESTION, "email alex", "email alex\nyes\n" + OLD_ENDORSED),
+])
+def test_the_older_question_is_removed_only_in_its_exact_form(daemon: RunningDaemon, words: str,
+                                                              clarified: str | None, payload: str,
+                                                              expected: str) -> None:
+    assert _loaded_words(daemon, _old_row(daemon, words, clarified, payload)) == expected
+
+
 def _inputs(daemon: RunningDaemon, tool: str) -> list[dict]:
     async def go():
         rows = daemon.daemon.db.conn.execute("SELECT input_json FROM spans WHERE kind = 'tool.call' ORDER BY rowid")

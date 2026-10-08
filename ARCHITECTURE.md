@@ -279,7 +279,9 @@ value is in the request's words; `owner_answer` means it is in one of the owner'
 The request's words (`Request.words`, continuity `owner_words`, the root span's `authority_words`) hold only what the
 owner typed: an answer to FERB's clarify question adds the owner's earlier words, never FERB's question, which the
 planner still sees as data in the payload; a continuity row from before 0.27 F3 has that question removed when read
-(`without_ferb_question`). The outside text is the decoded string values of the task's earlier tool results
+(`without_ferb_question`), and a row from before 2026-10-03 (no recorded payload) loses the older unlabeled form, in
+which a plain yes appended FERB's question with "your" read as "my", only where FERB's own recorded `chat.clarify`
+question, transformed that way, follows the yes line. The outside text is the decoded string values of the task's earlier tool results
 (`SpanStore.tool_outputs`, first 20,000 characters each, cut while joining). The gateway keeps a task's outside texts
 prepared (`OutsideTexts`, by root task, dropped by `forget_tasks`) and each consequential call reads and prepares only
 results newer than the last it saw; a call still running holds that point below it, so its result is matched once it
