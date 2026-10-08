@@ -284,8 +284,8 @@ class Gateway:
         """Finish a tool.call span with its one-line summary and publish tool.finished (P26). `content` feeds the
         summary only; `output` is what the span records (None on error paths). No origins: none is recorded."""
         args, why = span.input.get("args") or {}, str(span.input.get("why") or "")
-        summary = lines.summarize(name, args, content, is_error)
-        self.spans.finish(span, output=output, error=error, origin=origin.join(origins) if origins else None,
+        summary = lines.summarize(name, args, self.redact(content), is_error)   # redact before clip cuts a secret
+        self.spans.finish(span, output=output, error=error, origin=origin.join(origins) if origins is not None else None,
                           summary=summary)
         self.publish("tool.finished", {"tool": name, "task_id": span.task_id, "summary": self.redact({"s": summary})["s"],
                                        "seconds": round((span.ended_at - span.started_at).total_seconds(), 1)

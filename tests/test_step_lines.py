@@ -61,7 +61,6 @@ def test_error_paths_get_a_summary_and_still_record_no_origin(daemon: RunningDae
     cap = FakeCap("probe.send", "send", {"probe"}, boom=True)
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [cap])
     seen: list[dict] = []
-    daemon.daemon.bus.subscribe  # the bus is real; capture through publish
     real = daemon.daemon.gateway.publish
     daemon.daemon.gateway.publish = lambda topic, data: (seen.append({"topic": topic, **data}), real(topic, data))[1]
     out = gateway_tool_call(daemon, grant, "probe.send", text="my token sk-ant-api03-abcdefghijklmnopqrstuvwx")
@@ -75,3 +74,23 @@ def test_error_paths_get_a_summary_and_still_record_no_origin(daemon: RunningDae
     done = [e for e in seen if e["topic"] == "tool.finished"]
     assert len(done) == 1 and done[0]["tool"] == "probe.send" and done[0]["error"].startswith("ConnectionError")
     assert "abcdefghijklmnopqrstuvwx" not in json.dumps(done[0])
+
+
+def test_a_secret_straddling_the_summary_cut_never_leaks(daemon: RunningDaemon) -> None:
+    secret = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWX"
+
+    class Leaky(FakeCap):
+        async def run(self, args, ctx):
+            raise ConnectionError("x" * 124 + " " + secret)    # "error: ConnectionError: " + 125 chars: it starts near 149
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [Leaky("probe.send", "send", {"probe"})])
+    seen: list[dict] = []
+    real = daemon.daemon.gateway.publish
+    daemon.daemon.gateway.publish = lambda topic, data: (seen.append({"topic": topic, **data}), real(topic, data))[1]
+    gateway_tool_call(daemon, grant, "probe.send")
+
+    async def go():
+        return daemon.daemon.db.conn.execute("SELECT summary FROM spans WHERE kind = 'tool.call'").fetchone()[0]
+    summary = daemon.run(go())
+    event = next(e for e in seen if e["topic"] == "tool.finished")
+    for text in (summary, json.dumps(event)):
+        assert "sk-ant" not in text and "ABCDEFGH" not in text
