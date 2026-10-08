@@ -12,6 +12,7 @@ import re
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from pydantic import ValidationError
@@ -234,6 +235,7 @@ class Supervisor(WorkerRuns):
             "rule": sched.rule.describe(), "late": late, "overdue_s": overdue_s,
             "consecutive_failures": sched.failures})
         session = ChatSession("schedule:" + sched.id)
+        self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         try:
             out = await self._decide(session, sched.request + note, request_id)
         except (RuntimeViolation, ValidationError, ValueError):
@@ -245,7 +247,8 @@ class Supervisor(WorkerRuns):
         self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
         self.state.approvals.unattended.add(request_id)
         final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
-        async for ev in self.run_tree(out.task, out.text, request_id, sched.request):
+        async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
+                                      origins=self._env.get(request_id, {}).get("turn_origins")):
             if ev.get("type") == "outcome":
                 final = ev
         return final
@@ -283,6 +286,7 @@ class Supervisor(WorkerRuns):
         words = owner_words
         payload = (session.payload + "\n\n" if session.payload else "") + m.for_model
         asked = {origins_.INFERRED} if session.asked else set()        # FERB's earlier (model-written) question
+        carried = self._carried_origins(session_id, "") if session.payload else set()   # earlier text in the payload
         if session.asked:
             words += "\nEarlier FERB question (context, not owner instructions): " + wrap_untrusted(session.asked)
             payload += "\nEarlier FERB question (data): " + wrap_untrusted(session.asked)
@@ -294,7 +298,7 @@ class Supervisor(WorkerRuns):
         recalled = self.recall(words)
         env = self.environment(words)
         self._env[request_id] = {**env, "words": words, "payload": payload,
-                                 "message_origin": origins_.split(entry.origin) | asked}
+                                 "message_origin": origins_.split(entry.origin) | asked | carried}
         try:
             out = await self._decide(session, payload, request_id, recalled)
         except RuntimeViolation as e:
@@ -331,6 +335,8 @@ class Supervisor(WorkerRuns):
                 self._env.pop(request_id, None)
                 return
             prior_spec, prior_request, prior_state = prior
+            turn_origins = turn_origins | self.spans.task_origins(control.task_id) | \
+                self._request_origins(prior_request.request_id)   # the retry carries the earlier request and result
             if out.task is not None:
                 out.task.goal += f"\nOriginal request context: {prior_spec.goal}\nLast recorded result (verify afresh): {prior_state}\nOwner's follow-up: {m.for_model}"
                 words = prior_request.words + "\n" + words
@@ -370,7 +376,8 @@ class Supervisor(WorkerRuns):
             self.state.requests.record(Request(request_id, words, self._targets(out.task), payload=payload))
         try:
             async for ev in self.run_tree(out.task, out.text, authority_id, payload, conversation_id=session.id,
-                                          prior_task=out.control.task_id if out.control else None):
+                                          prior_task=out.control.task_id if out.control else None,
+                                          origins=turn_origins):
                 yield ev
         finally:
             self._env.pop(request_id, None)
@@ -394,8 +401,9 @@ class Supervisor(WorkerRuns):
              origins_.split(activity_origin))]
         candidates = self.continuity.candidates(session.id)
         if candidates:
-            sourced.append((ContextBlock(self._attempts_text(candidates), "chat.history include_tasks=true",
-                                         protected=True), {origins_.INFERRED}))
+            attempts, shown = self._attempts(candidates)
+            sourced.append((ContextBlock(attempts, "chat.history include_tasks=true", protected=True),
+                            {o for t in shown for o in self._task_line_origins(t)} | {origins_.INFERRED}))
         if repair:
             sourced.append((ContextBlock(load_prompt(self._approach() + "/repair.md") + "\n" +
                                          json.dumps(repair), "plan validation", protected=True), {origins_.FERB}))
@@ -441,7 +449,8 @@ class Supervisor(WorkerRuns):
                 max_tokens: int = HISTORY_TOKENS) -> tuple[str, dict[str, datetime], set[str]]:
         """recent(), plus the origins of the entries it shows (S3)."""
         task_ids = self.continuity.task_ids(conversation) if conversation is not None else None
-        timeline: list[tuple[datetime, str, str, bool, str]] = []      # (when, text, reference, is_chat, origin)
+        # (when, text, reference, is_chat, origins): origins are read only for the entries shown
+        timeline: list[tuple[datetime, str, str, bool, Callable[[], set[str]]]] = []
         for entry in self.journal.entries():
             data = entry.data
             if data.get("request_id") == current_request:
@@ -458,7 +467,7 @@ class Supervisor(WorkerRuns):
             if entry.kind == "task.answer":
                 who += " (task result, " + str(data.get("status")) + ")"
             timeline.append((entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + str(data.get("text", "")),
-                             f"chat.history entry_id={entry.id}", True, entry.origin))
+                             f"chat.history entry_id={entry.id}", True, partial(origins_.split, entry.origin)))
         for row in self.tasks.recent_roots(""):
             if task_ids is not None and row["id"] not in task_ids:
                 continue
@@ -466,7 +475,7 @@ class Supervisor(WorkerRuns):
             if row["status"] == "cancelled" and "stopped by you" in str(row.get("outcome_json", "")):
                 state = "stopped by the owner (Ctrl-C)"
             timeline.append((datetime.fromisoformat(row["created_at"]), f"Task {row['id']}: {row['goal']} — {state}",
-                             f"chat.history task_id={row['id']}", False, origins_.INFERRED))   # a planner-written goal
+                             f"chat.history task_id={row['id']}", False, partial(self._task_line_origins, row["id"])))
         timeline.sort(key=lambda item: item[0])
         tags: dict[int, str] = {}                  # c1 is the oldest chat entry, so a tag never changes as the
         for i, item in enumerate(timeline):        # conversation grows and earlier lines stay a cacheable prefix (P20)
@@ -492,13 +501,18 @@ class Supervisor(WorkerRuns):
                 line = f"[{tags[i]}] " + line
             lines.append(line)
         note = (f"[{omitted} older entries not shown here; they remain in chat.history]\n\n" if omitted else "")
-        shown = {o for i, _ in kept for o in origins_.split(timeline[i][4])}
+        shown = {o for i, _ in kept for o in timeline[i][4]()}
         return header + "\n" + note + "\n\n".join(lines), ages, shown
 
     def _attempts_text(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> str:
         """Resumable attempts, newest first (as candidates() returns them), keeping those that fit max_tokens."""
+        return self._attempts(candidates, max_tokens)[0]
+
+    def _attempts(self, candidates: list[dict[str, Any]], max_tokens: int = ATTEMPTS_TOKENS) -> tuple[str, list[str]]:
+        """_attempts_text, plus the task ids it shows."""
         header = "Resumable attempts in this conversation (exact task_id; data):"
         lines: list[str] = []
+        shown: list[str] = []
         used = count_tokens(header)
         for r in candidates:
             line = (f"task_id={r['task_id']} prior={r['prior_task']} status={r['status']} "
@@ -507,10 +521,44 @@ class Supervisor(WorkerRuns):
             if lines and used + cost > max_tokens:
                 break
             lines.append(line)
+            shown.append(r["task_id"])
             used += cost
         omitted = len(candidates) - len(lines)
         note = f"\n[{omitted} older resumable attempts not shown; ask chat.history include_tasks=true]" if omitted else ""
-        return header + "\n" + "\n".join(lines) + note
+        return header + "\n" + "\n".join(lines) + note, shown
+
+    def _task_line_origins(self, task_id: str) -> set[str]:
+        """A task's planner-written goal and recorded state, with what that task was given (S3, MP2)."""
+        inherited: set[str] = self.spans.task_origins(task_id)
+        return {origins_.INFERRED} | inherited
+
+    def _request_origins(self, request_id: str) -> set[str]:
+        """The stored origins of the owner's chat message for a request."""
+        return {o for e in self.journal.entries() if e.kind == "chat.message" and e.data.get("request_id") == request_id
+                for o in origins_.split(e.origin)}
+
+    def _carried_origins(self, session_id: str, current_request: str) -> set[str]:
+        """The origins of the earlier messages a clarify continuation carries in its payload: the session's latest
+        messages, back to the first one FERB didn't answer with a question."""
+        entries = self.journal.entries()
+        clarified = {e.data.get("request_id") for e in entries if e.kind == "chat.clarify"}
+        carried: set[str] = set()
+        for e in reversed(entries):
+            if e.kind != "chat.message" or e.data.get("session_id", "owner") != session_id \
+                    or e.data.get("request_id") == current_request:
+                continue
+            if e.data.get("request_id") not in clarified:
+                break
+            carried |= origins_.split(e.origin)
+        return carried
+
+    def _schedule_origins(self, schedule_id: str) -> set[str]:
+        """A scheduled run's request: the chat request that made the schedule (its stored origins, plus the planner
+        that wrote the scheduled request), or unlabeled when that request isn't reachable."""
+        made = next((e.data.get("request_id") for e in self.journal.entries()
+                     if e.kind == "schedule.created" and e.data.get("schedule_id") == schedule_id), None)
+        held = self._request_origins(made) if made else set()
+        return (held | {origins_.INFERRED}) if held else {origins_.external("unlabeled")}
 
     def recall_items(self, remembered: Any) -> tuple[str, dict[str, datetime]]:
         if isinstance(remembered, tuple):
@@ -551,7 +599,9 @@ class Supervisor(WorkerRuns):
     # ---------- the task: one worker ----------
 
     async def run_tree(self, spec: TaskSpec, text: str, request_id: str, message: str = "", *,
-                       conversation_id: str | None = None, prior_task: str | None = None) -> AsyncIterator[dict[str, Any]]:
+                       conversation_id: str | None = None, prior_task: str | None = None,
+                       origins: set[str] | None = None) -> AsyncIterator[dict[str, Any]]:
+        """`origins`: what the request's planning turn was given (S3); unknown means unlabeled outside content."""
         tree_id = self.ids.new_id()
         now = self.clock.now()
         limit = None  # the owner may give a task of any length; explicit stop still cancels all input
@@ -571,6 +621,8 @@ class Supervisor(WorkerRuns):
                                             "targets": spec.targets.model_dump(), "request_id": request_id,
                                             "request": request.payload, "authority_words": request.words,
                                             "task_spec": spec.model_dump(), "intake_receipts": tree.intake_receipts})
+        # The worker sees the whole request payload in a protected block: derived labels inherit its origins (MP2).
+        self.spans.set_origin(root_span.id, origins_.join(origins or {origins_.external("unlabeled")}))
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))
         self.tasks.add(TaskRecord(worker, now, root_span.id, tree_id), status="planned")
         planner_sources = self._env.get(request_id, {}).get("planner_sources")

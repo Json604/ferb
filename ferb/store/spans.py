@@ -40,12 +40,19 @@ class SpanStore:
         span.output = None if output is None else self._redact(output)
         span.error = None if error is None else self._redact({"error": error})["error"]
         span.cost_usd = cost_usd
-        span.origin = None if origin is None else self._redact({"origin": origin})["origin"]
+        if origin is not None:                       # no origin given: keep one recorded earlier (set_origin)
+            span.origin = self._redact({"origin": origin})["origin"]
         self._db.conn.execute(
-            "UPDATE spans SET ended_at = ?, output_json = ?, error = ?, cost_usd = ?, origin = ? WHERE id = ?",
+            "UPDATE spans SET ended_at = ?, output_json = ?, error = ?, cost_usd = ?, origin = COALESCE(?, origin) "
+            "WHERE id = ?",
             (span.ended_at.isoformat(), None if span.output is None else json.dumps(span.output), span.error,
-             cost_usd, span.origin, span.id))
+             cost_usd, None if origin is None else span.origin, span.id))
         return span
+
+    def set_origin(self, span_id: str, origin: str) -> None:
+        """Record where a span's content came from before it finishes (e.g. a task's request); redacted like finish."""
+        self._db.conn.execute("UPDATE spans SET origin = ? WHERE id = ?",
+                              (self._redact({"origin": origin})["origin"], span_id))
 
     def tree(self, task_id: str) -> list[SpanNode]:
         """All spans of a task and its steps (<id>.<step>…) as a forest (roots = spans whose parent isn't among
@@ -68,11 +75,12 @@ class SpanStore:
         return {o for r in rows for o in origin.split(r["origin"])}
 
     def task_origins(self, root_id: str) -> set[str]:
-        """Every origin recorded on this task tree's tool results and context sources: what its models were shown.
-        Labels derived from the task's work (worker reports, answers) inherit these (MP2)."""
+        """Every origin recorded on this task tree's request (its root task span), tool results and context
+        sources: what its models were shown. Labels derived from the task's work (worker reports, answers) inherit
+        these (MP2)."""
         where, params = self._tree_where(root_id)
         rows = self._db.conn.execute(
-            f"SELECT origin FROM spans WHERE kind IN ('tool.call', 'context.source') AND {where}", params)
+            f"SELECT origin FROM spans WHERE kind IN ('task', 'tool.call', 'context.source') AND {where}", params)
         return {o for r in rows for o in origin.split(r["origin"])}
 
     def tool_outputs(self, root_id: str) -> list[tuple[set[str], str]]:

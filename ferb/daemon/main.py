@@ -983,7 +983,8 @@ class Daemon:
             return f"I couldn't schedule that: {e}."
         t = self.timers.add("schedule", first, s.id)
         self.schedules.set_timer(s.id, t.id, first)
-        self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe()})
+        self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
+                                                    "request_id": request_id})   # its runs take this request's origins
         return f"🗓 scheduled ({s.id}): {s.request} — {rule.describe()}, first on {first.astimezone():%a %d %b %H:%M}"
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
