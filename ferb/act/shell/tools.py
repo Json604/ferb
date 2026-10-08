@@ -116,6 +116,7 @@ class ShellWait(_Base):
                          "A timeout leaves it running; inspect output or wait again. Returns exit_code and output "
                          "from since, so failures are visible without sleeping blindly. Does not launch a retry.")
     risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
     origin = OUTPUT_ORIGIN
 
     class Input(BaseModel):
@@ -136,6 +137,7 @@ class ShellRead(_Base):
     name, description = ("shell.read", "Read a command's output from a byte offset, a page at a time: start at "
                          "since=0 and continue from the returned offset while more is true.")
     risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
     origin = OUTPUT_ORIGIN
 
     class Input(BaseModel):
@@ -183,6 +185,7 @@ class ShellKill(_Base):
 class ShellList(_Base):
     name, description = "shell.list", "This task's commands: id, command, running, exit code."
     risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
     origin = "ferb"                                    # FERB's own process records
 
     class Input(BaseModel):

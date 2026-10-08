@@ -114,7 +114,9 @@ class WorkerRuns:
             self.tasks.set_status(task.id, "running", {})
         self.tasks.set_span(task.id, wspan.id)
         ttl = (task.deadline - started).total_seconds() if task.deadline else float("inf")
-        token = self.tokens.issue(task.id, worker_id, task.scopes, task.identity, ttl_s=max(ttl, 60.0))
+        # The final checker's token is observe-only: the gateway offers and runs observation tools only (V3, W4).
+        token = self.tokens.issue(task.id, worker_id, task.scopes, task.identity, ttl_s=max(ttl, 60.0),
+                                  observe_only=task.role == "verifier")
         tools = [t["name"] for t in self.gateway.tools_for(self.tokens.validate(token))]
         self._tools_offered[worker_id] = bool(tools)
         names = ", ".join(n.replace(".", "_") for n in tools) or "none"

@@ -27,6 +27,7 @@ class ActionsSearch:
     scopes: set[str] = set()
     risk, reversible = RiskLevel.LOW, True
     origin = 'ferb'                                    # FERB's own action registry
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
 
     class Input(BaseModel):
         query: str = ''

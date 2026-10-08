@@ -30,6 +30,7 @@ class TrailQuery:
     scopes = {"trail:read"}
     identities = {Identity.OWNER}
     risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
 
     class Input(BaseModel):
         source: Literal["app_focus", "window", "browser_tab", "file", "idle", "app_install"] | None = None
@@ -65,6 +66,7 @@ class TrailDays:
     scopes = {"trail:read"}
     identities = {Identity.OWNER}
     risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
     origin = "ferb"                                    # an empty result holds nothing from outside
 
     class Input(BaseModel):

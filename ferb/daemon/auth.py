@@ -1,7 +1,8 @@
 """Own connection roles and scoped run tokens. Must not infer task authorization or choose accounts.
 
 - cli: proven by socket ownership — the peer's uid must be the owner's.
-- mcp_shim: proven by a run token (scoped to one worker, expiring, revocable; only its hash is kept).
+- mcp_shim: proven by a run token (scoped to one worker, expiring, revocable; only its hash is kept). The final
+  checker's token is observe-only: the gateway offers and runs only observation tools for it (V3, W4).
 - native_host: the relay a browser launches for the FERB extension. The socket peer must be the owner's uid and
   the caller origin one of FERB's extension ids; after that the connection is a message channel whose every
   message is authenticated by pairing (install_id + HMAC + seq), not by method lists."""
@@ -60,6 +61,7 @@ class RunGrant:
     scopes: frozenset[str]
     identity: Identity
     expires_at: float                  # Clock.monotonic() deadline
+    observe_only: bool = False         # the final checker (V3, W4): the gateway allows observation tools only
 
 
 class RunTokens:
@@ -73,10 +75,11 @@ class RunTokens:
     def _digest(token: str) -> str:
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def issue(self, task_id: str, worker_id: str, scopes: set[str], identity: Identity, ttl_s: float) -> str:
+    def issue(self, task_id: str, worker_id: str, scopes: set[str], identity: Identity, ttl_s: float,
+              observe_only: bool = False) -> str:
         token = secrets.token_urlsafe(32)
         self._grants[self._digest(token)] = RunGrant(task_id, worker_id, frozenset(scopes), identity,
-                                                     self._clock.monotonic() + ttl_s)
+                                                     self._clock.monotonic() + ttl_s, observe_only)
         return token
 
     def validate(self, token: str) -> RunGrant:

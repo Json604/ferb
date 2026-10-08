@@ -71,6 +71,7 @@ class TaskEvidence:
     identities = {Identity.OWNER, Identity.FERB}
     scopes = {"task:read"}
     risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
     origin = "ferb"                      # an empty page: "nothing found" is FERB's own answer
 
     class Input(BaseModel):
@@ -137,6 +138,7 @@ class _PagedFacts:
     identities = {Identity.OWNER, Identity.FERB}
     scopes = {"task:read"}
     risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
     origin = "ferb"                      # an empty page: "nothing found" is FERB's own answer
 
     @staticmethod

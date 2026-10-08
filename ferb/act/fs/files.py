@@ -83,6 +83,7 @@ class _Base:
 class FsList(_Base):
     name, description = "fs.list", "List every folder candidate through offset pages, including full path, source, size, owner and modification time."
     scopes, risk, reversible = {"fs:read"}, RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
 
     class Input(BaseModel):
         path: str = Field(description="Folder path (absolute, ~, or relative to FERB's workspace)")
@@ -117,6 +118,7 @@ class FsList(_Base):
 class FsRead(_Base):
     name, description = "fs.read", "Read a text file (UTF-8), optionally a byte range."
     scopes, risk, reversible = {"fs:read"}, RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
 
     class Input(BaseModel):
         path: str

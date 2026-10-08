@@ -58,22 +58,34 @@ def test_account_condition_is_judged_from_evidence_instead_of_alias_equality(dae
     assert not calls  # an arbitrary first-tab account is not identity evidence
 
 
-def test_checker_can_navigate_native_views_using_the_installed_tools(daemon):
+def test_a_check_needing_a_click_is_unknown_and_a_worker_gathers_it(daemon):
+    """W4: the checker can't navigate native views by clicking (code refuses it, V3); it reports the condition
+    unknown with what it would need, and the follow-up worker opens the view and gathers the evidence."""
     navigate = FakeCap("mac.act", "navigate", {"mac:act"}, content={"view": "Official announcements"})
     daemon.daemon.registry.capabilities[navigate.name] = navigate
+    need = "Opening the next group needs a click, which the checker can't make; the worker should open and read it."
 
     def checker(token):
         result = tool(daemon.sock, token, "mac.act", text="Open the next group for inspection")
+        assert result["is_error"] and "read-only" in result["content"]["error"], result
+        return verdict(None, need)
+
+    def worker(token):
+        result = tool(daemon.sock, token, "mac.act", text="Open the next group")
         assert not result["is_error"], result
         assert result["content"]["view"] == "Official announcements"
-        return verdict(True)
+        return done("Opened and read the next group.")
 
     script = install(daemon, [sup("task", "Checking", task(conds=(cond("Read the group"),)))],
-                     {"worker": done("Read the group."), "worker.verify": checker})
+                     {"worker": [done("Read the group."), worker], "worker.verify": [checker, verdict(True)],
+                      "worker.dispatch": dispatch("retry", "Open the next group and read it.")})
     result = outcome(chat(daemon, "Read official announcements"))
-    assert result["verified"] and navigate.calls == 1
-    available = next(t for _, key, _, t in script.contexts if key == "worker.verify")
-    assert {"mac.act", "mac.pointer", "browser.act", "task.evidence"} <= set(available)
+    assert result["verified"] and navigate.calls == 1                 # only the worker clicked
+    recovery = next(c for _, key, c, _ in script.contexts if key == "worker.dispatch")
+    assert need in recovery and '"met": null' in recovery
+    offered = [set(t) for _, key, _, t in script.contexts if key == "worker.verify"]
+    assert len(offered) == 2 and all("task.evidence" in t for t in offered)
+    assert not any({"mac.act", "mac.pointer", "browser.act"} & t for t in offered)
 
 
 def test_checker_can_search_and_page_actual_worker_results_after_view_is_gone(daemon):

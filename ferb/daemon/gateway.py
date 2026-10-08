@@ -3,7 +3,8 @@
 Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
 Optional effect/why annotations never gate execution; OS and transport failures remain factual results.
 A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
-worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29)."""
+worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29).
+The final checker's token is observe-only: it is offered, and may run, only capabilities marked `observation` (V3, W4)."""
 
 import asyncio
 import base64
@@ -48,6 +49,14 @@ _BROWSERS = {b.lower() for b in BROWSER_BUNDLES}
 _MESSAGE_APPS = {b.lower() for b in UNTRUSTED_APPS}
 IMAGE_FACTS = ("app", "bundle_id", "window", "title", "url", "tab", "shot", "width", "height", "window_id", "path",
                "duration_s", "sample_times_s")
+CHECKER_READ_ONLY = ("the final check is read-only: this tool acts and is not available to a checker; report what you "
+                     "could not confirm as unknown")
+
+
+def observes(cap: Any) -> bool:
+    """A capability that only observes (reads, snapshots, screenshots, scrolling, opening a URL in FERB's own
+    browser) declares `observation = True`; unmarked means it acts, and a checker can't use it (V3, W4)."""
+    return bool(getattr(cap, "observation", False))
 
 
 def evidence_kind(tool: str) -> str:
@@ -192,10 +201,11 @@ class Gateway:
         return not getattr(cap, "reversible", True)
 
     def tools_for(self, grant: RunGrant) -> list[dict[str, Any]]:
-        """Installed tools covered by the run token; identity and read provenance do not withdraw them."""
+        """Installed tools covered by the run token; identity and read provenance do not withdraw them. An
+        observe-only token (the final checker) gets observation tools only (V3, W4)."""
         out = []
         for cap in self.caps.values():
-            if not cap.scopes <= grant.scopes:
+            if not cap.scopes <= grant.scopes or (grant.observe_only and not observes(cap)):
                 continue
             schema = cap.Input.model_json_schema()
             props = schema.setdefault("properties", {})
@@ -280,6 +290,8 @@ class Gateway:
         if cap is None or not cap.scopes <= grant.scopes:
             return reply({"error": f"tool {name} is not available to this worker",
                           "next": "Inspect actions.search and report the capability gap to the orchestrator."}, True)
+        if grant.observe_only and not observes(cap):   # V3: before it runs, whatever the checker was told to do
+            return reply({"error": CHECKER_READ_ONLY}, True, {origin.FERB})
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
         effect = str(arguments.pop("effect", "") or "")  # agent annotation, never an authorization gate

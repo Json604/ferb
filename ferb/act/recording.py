@@ -273,6 +273,7 @@ class RecordingInspect:
     description = 'Decode a saved video into a labelled contact sheet (default: beginning/middle/end). Supply times_s around important actions. Check actual target/content visually, not just file metadata. Does not change any app/window.'
     identities = {Identity.OWNER, Identity.FERB}
     scopes, risk, reversible = {'fs:read'}, RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
     class Input(BaseModel):
         path: str
         times_s: list[float] | None = Field(None, min_length=1, max_length=6)

@@ -92,7 +92,7 @@ def test_no_task_duration_or_deliverable_budget_is_imposed() -> None:
     assert request in assemble_context([ContextBlock(request, "request", protected=True)], budget_tokens=1)
 
 
-def test_judgment_conditions_go_to_a_checker_with_the_task_tools(daemon: RunningDaemon) -> None:
+def test_judgment_conditions_go_to_a_checker_with_observation_tools(daemon: RunningDaemon) -> None:
     t = task("write a friendly todo.md", paths=("todo.md",),
              conds=(cond("todo.md exists", "file_exists", path="todo.md"), cond("the note sounds friendly")))
     verdict = json.dumps({"results": [{"index": 0, "met": True, "evidence": "observed todo.md exists"},
@@ -107,8 +107,9 @@ def test_judgment_conditions_go_to_a_checker_with_the_task_tools(daemon: Running
     assert out["status"] == "failed" and out["verified"] is False and "the note sounds friendly" in out["summary"]
     assert "the note sounds friendly — failed: it reads as curt" in out["answer"]
     assert "wrote todo.md" not in out["answer"]  # unchecked success prose cannot contradict the failure
-    vtools = next(t for m, k, c, t in script.contexts if k == "worker.verify")
-    assert {"fs.read", "fs.write", "mac.act", "task.evidence"} <= set(vtools)      # inspection intent is in its prompt
+    vtools = set(next(t for m, k, c, t in script.contexts if k == "worker.verify"))
+    assert {"fs.read", "task.evidence"} <= vtools                   # V3, W4: it inspects with observation tools only
+    assert not {"fs.write", "mac.act", "shell.run", "browser.act"} & vtools     # enforced by code, not its prompt
 
 
 class Ticker:
