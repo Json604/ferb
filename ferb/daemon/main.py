@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable, NamedTuple
 
 from ferb.bus import DROPPED, Bus, Overflow
 from ferb.clock.clock import SystemClock
@@ -79,6 +79,15 @@ def _provider(name: str, model: str) -> Any:
 
 
 ROOTS_PER_PURGE = 200
+
+
+class _PurgePlan(NamedTuple):
+    """One retention pass: its clock, its windows, the roots it handles and how many wait for the next pass."""
+    now: datetime
+    trace_days: int
+    decision_days: int
+    roots: list[str]
+    left: int
 
 
 class Daemon:
@@ -711,27 +720,50 @@ class Daemon:
 
     def _purge_records(self) -> dict[str, int]:
         """D21: spans of tasks that ended more than trace_days ago (once their episode exists) and loose spans;
-        Jev decisions older than decision_days. Never the task list, episodes, journal or memory."""
+        Jev decisions older than decision_days. Never the task list, episodes, journal or memory. One synchronous
+        pass (tests, call sites); the hourly loop runs the same steps in `_purge_pass`."""
+        plan = self._purge_plan()
+        return self._purge_rest(plan, sum(self._purge_root(root, plan.now) for root in plan.roots))
+
+    async def _purge_pass(self) -> dict[str, int]:
+        """The retention pass on the daemon loop: the same steps as `_purge_records`, yielding between roots."""
+        plan = self._purge_plan()
+        spans = 0
+        for root in plan.roots:
+            spans += self._purge_root(root, plan.now)
+            await asyncio.sleep(0)
+        return self._purge_rest(plan, spans)
+
+    def _purge_plan(self) -> _PurgePlan:
         now = self.clock.now()
         trace_days = int(self.config.get("retention", "trace_days", 30))
         decision_days = int(self.config.get("retention", "decision_days", 30))
-        cut = (now - timedelta(days=trace_days)).isoformat()
-        spans = 0
-        roots = retention.finished_roots_before(self.db, cut)
-        for root in roots[:ROOTS_PER_PURGE]:                 # oldest first; the rest wait for the next pass
-            try:
-                if episodes.get(self.db, root) is None:      # build it while the spans still exist
-                    episodes.record(self.spans, self._journal(), root, now.isoformat())
-                if episodes.get(self.db, root) is None:
-                    continue                                 # no episode: keep the spans
-                spans += retention.purge_task_spans(self.db, root)
-            except Exception as e:
-                self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
-        spans += retention.purge_loose_spans(self.db, cut)
-        decisions = retention.purge_decisions(self.db, (now - timedelta(days=decision_days)).isoformat())
-        self._journal().append("retention.purged", {"trace_days": trace_days, "spans": spans,
-                                                    "decision_days": decision_days, "decisions": decisions,
-                                                    "roots_left": max(0, len(roots) - ROOTS_PER_PURGE)})
+        roots = retention.finished_roots_before(self.db, (now - timedelta(days=trace_days)).isoformat())
+        return _PurgePlan(now, trace_days, decision_days, roots[:ROOTS_PER_PURGE],   # oldest first; the rest wait
+                          max(0, len(roots) - ROOTS_PER_PURGE))
+
+    def _purge_root(self, root: str, now: datetime) -> int:
+        """One root: its spans go only once its episode exists (built now if missing). Isolated: a failure is
+        journaled and the pass goes on."""
+        try:
+            if episodes.get(self.db, root) is None:          # build it while the spans still exist
+                episodes.record(self.spans, self._journal(), root, now.isoformat())
+            if episodes.get(self.db, root) is None:
+                return 0                                     # no episode: keep the spans
+            return retention.purge_task_spans(self.db, root)
+        except Exception as e:
+            self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
+            return 0
+
+    def _purge_rest(self, plan: _PurgePlan, spans: int) -> dict[str, int]:
+        """Loose spans and old Jev decisions; `retention.purged` is journaled only when the pass purged something
+        or left roots for the next one."""
+        spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
+        decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
+        if spans or decisions or plan.left:
+            self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
+                                                        "decision_days": plan.decision_days, "decisions": decisions,
+                                                        "roots_left": plan.left})
         return {"spans": spans, "decisions": decisions}
 
     async def _retention_loop(self) -> None:
@@ -739,7 +771,7 @@ class Daemon:
         await asyncio.sleep(60)
         while True:
             try:
-                self._purge_records()
+                await self._purge_pass()
             except Exception as e:
                 self._journal().append("retention.failed", {"error": f"{type(e).__name__}: {e}"})
             await asyncio.sleep(3600)

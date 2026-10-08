@@ -100,10 +100,9 @@ def _request_text(outcome: dict[str, Any]) -> str:
     else the last chat message, the recorded request, the goal. Pasted parts show as a marker."""
     request = outcome.get("request") or {}
     messages = request.get("messages") or []
-    text = without_ferb_question(str(request.get("authority_words") or "")).strip()
-    if not text:
-        text = (messages[-1].get("data") or {}).get("text") if messages else None
-        text = text or request.get("text") or (outcome.get("task_spec") or {}).get("goal") or ""
+    typed = without_ferb_question(str(request.get("authority_words") or "")).strip()
+    last = (messages[-1].get("data") or {}).get("text") if messages else None
+    text = typed or last or request.get("text") or (outcome.get("task_spec") or {}).get("goal") or ""
     return " ".join(_WRAPPED.sub("[pasted text]", str(text)).split())
 
 

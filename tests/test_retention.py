@@ -1,8 +1,12 @@
 """Traces and Jev decisions age out after 30 days (D21); a task's spans go only once its permanent episode exists;
 the task list, episodes, journal and memory are kept."""
+import asyncio
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
+from ferb.clock.clock import FakeClock
+from ferb.core.ids import SequentialIds
 from tests.conftest import RunningDaemon, chat, done, install, sup, task
 
 
@@ -57,6 +61,70 @@ def test_recent_tasks_keep_their_spans(daemon: RunningDaemon) -> None:
     _age(daemon, root, 29)
     _purge(daemon)
     assert _tree_spans(daemon, root) > 0
+    assert _q(daemon, "SELECT count(*) FROM journal WHERE kind = 'retention.purged'") == 0   # nothing purged: no row
+
+
+def _scenario(daemon: RunningDaemon) -> list[str]:
+    """Two finished roots past the cut, one recent; an old and a new Jev decision; old loose spans."""
+    roots = [_say_hi(daemon) for _ in range(3)]
+    for root in roots[:2]:
+        _age(daemon, root, 31)
+    _do(daemon, "UPDATE spans SET started_at = ?, ended_at = ? WHERE task_id = ? OR task_id LIKE ?",
+        daemon.daemon.clock.now().isoformat(), daemon.daemon.clock.now().isoformat(), roots[2], roots[2] + ".%")
+    now = daemon.daemon.clock.now()
+    for i, at in enumerate((now - timedelta(days=31), now)):
+        _do(daemon, "INSERT INTO decisions (id, at, question, baseline, mode) VALUES (?, ?, 'q', 'b', 'shadow')",
+            f"d{i}", at.isoformat())
+    for i in range(3):
+        _insert_span(daemon, f"z-p{i}", None, None, None, _old())
+    return roots
+
+
+def _purged(daemon: RunningDaemon, roots: list[str], result: dict[str, int]) -> tuple[Any, ...]:
+    row = _q(daemon, "SELECT data_json FROM journal WHERE kind = 'retention.purged'")
+    return (result, row, [_tree_spans(daemon, r) for r in roots], _q(daemon, "SELECT count(*) FROM spans"),
+            _q(daemon, "SELECT count(*) FROM decisions"))
+
+
+def test_the_async_pass_purges_the_same_as_the_sync_one_and_yields_between_roots(home: Path) -> None:
+    """I3 (D21): the hourly pass runs on the daemon loop one root at a time, yielding between roots; it purges and
+    journals exactly what the synchronous pass does."""
+    seen: dict[str, tuple[Any, ...]] = {}
+    order: list[str] = []
+    for mode in ("sync", "async"):
+        d = RunningDaemon(home.parent / mode, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
+        try:
+            sup_ = d.daemon.supervisor
+            assert sup_ is not None
+            sup_.availability = sup_._default_availability
+            roots = _scenario(d)
+            if mode == "sync":
+                result: dict[str, int] = {}
+                d.call_soon(lambda: result.update(d.daemon._purge_records()))
+            else:
+                real = d.daemon._purge_root
+                d.daemon._purge_root = lambda root, now: (order.append("root"), real(root, now))[1]  # type: ignore
+
+                async def ticking() -> dict[str, int]:
+                    async def tick() -> None:
+                        while True:
+                            order.append("tick")
+                            await asyncio.sleep(0)
+                    ticker = asyncio.ensure_future(tick())
+                    try:
+                        return await d.daemon._purge_pass()
+                    finally:
+                        ticker.cancel()
+                result = d.run(ticking())
+            seen[mode] = _purged(d, roots, result)
+        finally:
+            d.stop()
+    assert seen["async"] == seen["sync"]
+    result, row, spans_left, _, decisions = seen["sync"]
+    assert result["spans"] > 3 and result["decisions"] == 1 and decisions == 1
+    assert spans_left[0] == spans_left[1] == 0 and spans_left[2] > 0 and row is not None
+    first, second = [i for i, what in enumerate(order) if what == "root"]
+    assert "tick" in order[first + 1:second]                     # the loop ran between the two roots
 
 
 def test_spans_without_an_episode_are_kept_until_one_is_built(daemon: RunningDaemon) -> None:

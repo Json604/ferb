@@ -321,8 +321,9 @@ list, episodes, the journal (chat, day summaries, verdicts) and memory. Raw acti
 (`sense.trail_retention_days`), which keeps days without a summary. A tree is deleted by one recursive statement inside a
 transaction, so a parent never goes before its child and a failure leaves nothing half-deleted. Each root is isolated
 (`retention.failed` journals its error and the pass continues); at most 200 roots per pass (`ROOTS_PER_PURGE`), oldest
-first. The loop runs hourly, starting a minute after start-up, and journals `retention.purged` with the counts and
-`roots_left`. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
+first. The loop runs hourly, starting a minute after start-up, on the daemon loop (`_purge_pass` yields between roots;
+`_purge_records` runs the same steps synchronously), and journals `retention.purged` with the counts and `roots_left`
+only when it purged something or left roots for the next pass. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
 before it. Typed text and clipboard (7 days) arrive with F7 and media (7 days) with F4.
 
 **Content search (D9).** Migration 0019 adds `trail_fts` and `summary_fts` (same tokenizer as memory, so Devanagari words
