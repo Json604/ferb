@@ -29,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     tp = sub.add_parser("trace", help="what a task did, step by step (default: the latest task)")
     tp.add_argument("task_id", nargs="?", help="a task id or its first characters (default: the latest task)")
     trace_format = tp.add_mutually_exclusive_group()
+    trace_format.add_argument("--steps", action="store_true", help="one line per tool call")
     trace_format.add_argument("--full", action="store_true", help="show all recorded span fields")
     trace_format.add_argument("--json", action="store_true", help="export the complete recorded trace as JSON")
 
@@ -228,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.cmd == "voice":
                 return logs.voice(client, sys.stdout)
             if args.cmd == "trace":
-                return admin.trace(client, args.task_id, sys.stdout, args.full, args.json)
+                return admin.trace(client, args.task_id, sys.stdout, args.full, args.json, args.steps)
             if args.cmd == "verdict":
                 return admin.verdict(client, args.task_id, args.verdict, args.note, sys.stdout)
             if args.cmd == "regress":

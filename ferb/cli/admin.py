@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Callable, TextIO
 
 from ferb.cli.client import Client
+from ferb.trace import render
 
 
 ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\x1b[78=>]|[\x00-\x08\x0e-\x1f]")
@@ -106,13 +107,28 @@ def verdict(client: Client, task_id: str, verdict_: str, note: str, out: TextIO)
     return 0
 
 
-def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, raw: bool = False) -> int:
+def trace(client: Client, task_id: str | None, out: TextIO, full: bool = False, raw: bool = False,
+          steps: bool = False) -> int:
+    """`ferb trace`: the story (default), --steps (one line per tool call), --full / --json (raw, for debugging)."""
     result = client.call("trace.get", {"task_id": task_id or "last"})
     if raw:
         print(json.dumps(result, ensure_ascii=False, indent=2), file=out)
         return 0
-    for line in render_trace(result, full):
-        print(line, file=out)
+    if full:
+        for line in render_trace(result, True):
+            print(line, file=out)
+        return 0
+    if steps and result.get("spans"):
+        print("\n".join(render.steps(result)) or "(no tool calls)", file=out)
+        return 0
+    if steps:
+        print("This task's steps aren't kept any more (traces age out after 30 days); its story:", file=out)
+    episode = result.get("episode")
+    if episode is None:                                  # nothing composed: show what the raw trace has
+        for line in render_trace(result, False):
+            print(line, file=out)
+        return 0
+    print("\n".join(render.story(episode, (result.get("outcome") or {}).get("owner_verdict"))), file=out)
     return 0
 
 

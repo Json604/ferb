@@ -49,6 +49,7 @@ from ferb.memory.journal import Journal
 from ferb.orchestrator import episodes
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
+from ferb.trace import compose
 from ferb.paths import ferb_home, socket_path
 from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
@@ -1792,8 +1793,12 @@ class Daemon:
         if self.spans is None or self.db is None:
             raise FerbError("daemon not started")
         task_id = self._resolve_root_task(task_id, allow_last=True)
-        return {"task_id": task_id, "spans": self.spans.tree_json(task_id),
-                "outcome": self.spans.outcome(task_id)}
+        spans = self.spans.tree_json(task_id)
+        outcome = self.spans.outcome(task_id)
+        episode = episodes.get(self.db, task_id)
+        if episode is None and spans:                    # running, or written before F3: compose it live
+            episode = compose.compose({"task_id": task_id, "spans": spans, "outcome": outcome})
+        return {"task_id": task_id, "spans": spans, "outcome": outcome, "episode": episode}
 
     async def _verdict_set(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """`ferb verdict`: the owner's pass/fail on a task. Acceptance is their word; code never infers it."""
