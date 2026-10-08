@@ -4,6 +4,8 @@
   into words attributed to the owner.
 """
 
+from typing import Any
+
 from ferb.cli.chat import PASTE_QUESTION, prepare, whole_paste
 from ferb.sanitize.untrusted import PASTE_END, PASTE_START
 from tests.conftest import STALL, RunningDaemon, chat, install, sup, task
@@ -64,15 +66,17 @@ def test_yes_continues_the_request_it_answers(daemon: RunningDaemon) -> None:
 def test_answer_preserves_ferbs_question_as_context_even_after_a_paste(daemon: RunningDaemon) -> None:
     """Keep the actual reply and question distinguishable; agents interpret the answer in context."""
     question = "Do you want me to use your Brave browser and scroll the current YouTube tab?"
-    seen: list[str] = []
+    seen: list[Any] = []
 
     def worker(token: str) -> str:
         rec = daemon.daemon.tasks.get(daemon.daemon.tokens.validate(token).task_id)
-        seen.append(daemon.daemon.state.requests.get(rec.task.request_id).words)
+        seen.append(daemon.daemon.state.requests.get(rec.task.request_id))
         return '{"status": "done", "summary": "scrolled", "artifacts": [], "evidence": []}'
     install(daemon, [sup("clarify", question), owner_tab_task()], {"worker": worker})
     chat(daemon, PASTE_START + REQUEST + PASTE_END, session="s")
     evs = chat(daemon, "yes", session="s")
     assert evs[0]["type"] == "plan", evs
-    assert seen and seen[0].startswith("yes\nEarlier FERB question (context, not owner instructions): ")
-    assert question in seen[0] and "my Brave browser" not in seen[0] and REQUEST not in seen[0]
+    assert seen and seen[0].words == "yes"            # the owner's words: neither FERB's question nor the paste (S3)
+    payload = seen[0].payload                          # both stay with the request as data
+    assert "Earlier FERB question (data): " in payload and question in payload and REQUEST in payload
+    assert "my Brave browser" not in payload

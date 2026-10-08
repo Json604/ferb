@@ -40,7 +40,7 @@ from ferb.orchestrator.verify import Checks, ConditionResult
 from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.targets import Request, Targets
-from ferb.sanitize.untrusted import mark, wrap_untrusted
+from ferb.sanitize.untrusted import EARLIER_QUESTION, mark, wrap_untrusted
 from ferb.store.spans import SpanStore
 
 HEARTBEAT_POLL_S = 5.0
@@ -285,12 +285,13 @@ class Supervisor(WorkerRuns):
         # Preserve the question as FERB's context for any answer; the agent interprets the reply.
         owner_words = f"{session.pending}\n{m.own_words}" if session.pending else m.own_words
         typed = owner_words  # provenance checks use only words the owner actually supplied
-        words = owner_words
+        authority = typed    # what the request records as the owner's words (S3): never FERB's text
+        words = owner_words  # what recall and the environment search: may add FERB's earlier question
         payload = (session.payload + "\n\n" if session.payload else "") + m.for_model
         asked = {origins_.INFERRED} if session.asked else set()        # FERB's earlier (model-written) question
         carried = self._carried_origins(session_id, "") if session.payload else set()   # earlier text in the payload
         if session.asked:
-            words += "\nEarlier FERB question (context, not owner instructions): " + wrap_untrusted(session.asked)
+            words += "\n" + EARLIER_QUESTION + wrap_untrusted(session.asked)
             payload += "\nEarlier FERB question (data): " + wrap_untrusted(session.asked)
         session.pending = session.asked = ""
         self.continuity.save_pending(session_id, "", "")
@@ -342,6 +343,7 @@ class Supervisor(WorkerRuns):
             if out.task is not None:
                 out.task.goal += f"\nOriginal request context: {prior_spec.goal}\nLast recorded result (verify afresh): {prior_state}\nOwner's follow-up: {m.for_model}"
                 words = prior_request.words + "\n" + words
+                authority = prior_request.words + "\n" + authority
                 payload = prior_request.payload + "\n\nOwner follow-up:\n" + payload
                 self._env[request_id] = {**self.environment(words), "words": words, "payload": payload}
                 # A new attempt gets fresh scoped authority; durable context never restores approval grants.
@@ -376,7 +378,7 @@ class Supervisor(WorkerRuns):
             yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": out.text}
             return
         if authority_id == request_id:
-            self.state.requests.record(Request(request_id, words, self._targets(out.task), payload=payload))
+            self.state.requests.record(Request(request_id, authority, self._targets(out.task), payload=payload))
         try:
             async for ev in self.run_tree(out.task, out.text, authority_id, payload, conversation_id=session.id,
                                           prior_task=out.control.task_id if out.control else None,

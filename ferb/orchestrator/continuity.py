@@ -10,7 +10,7 @@ from ferb.core import origin
 from ferb.memory.journal import journal_origin
 from ferb.orchestrator.schemas import TaskSpec
 from ferb.policy.targets import Request
-from ferb.sanitize.untrusted import mark
+from ferb.sanitize.untrusted import mark, without_ferb_question
 from ferb.store.db import Database
 
 
@@ -73,7 +73,7 @@ class Continuity:
         spec = TaskSpec.model_validate_json(row["spec_json"])
         result = json.loads(row["outcome_json"])
         state = f"{row['status']}: {result.get('summary', '')}"
-        return spec, Request(row["request_id"], row["owner_words"], spec.targets.targets(),
+        return spec, Request(row["request_id"], without_ferb_question(row["owner_words"]), spec.targets.targets(),
                              payload=row["request_payload"] or row["owner_words"]), state
 
     def candidates(self, conversation: str) -> list[dict[str, Any]]:

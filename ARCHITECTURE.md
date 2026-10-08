@@ -268,11 +268,14 @@ trusted one (`least_trusted`). Origins are facts about where content came from; 
 `input.arg_sources` on the `tool.call` span: for each target (account, site, path, recipients, amount, name), a list of
 `owner_words`, the `external:…` origins that contain the value, both, or `["unknown"]`
 ([`policy/provenance.py`](ferb/policy/provenance.py), `arg_sources`). The owner's text is the request's words plus the
-owner's `owner.ask` answers (`SpanStore.owner_answers`); the outside text is the decoded string values of the task's
-earlier tool results (`SpanStore.tool_outputs`, first 20,000 characters each). Matching is by value kind: whole tokens for
-emails, sites, paths and accounts; exact digits for phone-like values; a whole token for a single-word name and a phrase
-for a multi-word name; whole-number tokens for amounts (only a currency symbol is stripped). It is a fact: F3 asks nothing
-and blocks nothing; F5 decides confirmations from it.
+owner's `owner.ask` answers (`SpanStore.owner_answers`). The request's words (`Request.words`, continuity `owner_words`,
+the root span's `authority_words`) hold only what the owner typed: an answer to FERB's clarify question adds the owner's
+earlier words, never FERB's question, which the planner still sees as data in the payload; a continuity row from before
+0.27 F3 has that question removed when read (`without_ferb_question`). The outside text is the decoded string values
+of the task's earlier tool results (`SpanStore.tool_outputs`, first 20,000 characters each). Matching is by value kind:
+whole tokens for emails, sites, paths and accounts; exact digits for phone-like values; a whole token for a single-word
+name and a phrase for a multi-word name; whole-number tokens for amounts (only a currency symbol is stripped). It is a
+fact: F3 asks nothing and blocks nothing; F5 decides confirmations from it.
 
 **Step summaries.** Every `tool.call` span stores a one-line `spans.summary` (migration 0017), composed by code from the
 result ([`trace/lines.py`](ferb/trace/lines.py) `summarize`) after redaction and before clipping. The gateway publishes

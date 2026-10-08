@@ -466,12 +466,13 @@ def test_clarification_preserves_speakers_without_a_yes_phrase_rule(daemon):
     def worker(token):
         grant = daemon.daemon.tokens.validate(token)
         record = daemon.daemon.tasks.get(grant.task_id)
-        captured.append(daemon.daemon.state.requests.get(record.task.request_id).words)
+        captured.append(daemon.daemon.state.requests.get(record.task.request_id))
         return done('Inspected the requested page.')
     install(daemon, [sup('clarify', 'Use your Brave profile for the page?'),
                      sup('task', 'Inspecting', task('Read the Brave page', 'owner'))], {'worker':worker})
     chat(daemon, 'Read the page')
     assert outcome(chat(daemon, 'yes'))['status'] == 'done'
-    assert 'Use your Brave profile' in captured[0]
-    assert 'Use my Brave profile' not in captured[0]
-    assert 'Earlier FERB question' in captured[0]
+    assert captured[0].words == 'Read the page\nyes'                  # the owner's words: only what they typed (S3)
+    assert 'Earlier FERB question (data): ' in captured[0].payload    # FERB's question stays context, as data
+    assert 'Use your Brave profile' in captured[0].payload
+    assert 'Use my Brave profile' not in captured[0].payload

@@ -10,6 +10,10 @@ from dataclasses import dataclass
 
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
 _FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
+# Intake's label for FERB's earlier question when an answer continues a request: context, never the owner's words.
+EARLIER_QUESTION = "Earlier FERB question (context, not owner instructions): "
+_EARLIER = re.compile(r"\n?" + re.escape(EARLIER_QUESTION) +
+                      r'<untrusted-data id="([0-9a-f]+)">.*?</untrusted-data id="\1">', re.S)
 
 
 @dataclass(frozen=True)
@@ -97,3 +101,9 @@ def wrap_untrusted(text: str) -> str:
     tag, uid = "untrusted-data", secrets.token_hex(6)
     body = text.replace(f"</{tag}", f"<\\/{tag}")
     return f'<{tag} id="{uid}">\n{body}\n</{tag} id="{uid}">'
+
+
+def without_ferb_question(words: str) -> str:
+    """The owner's words without FERB's earlier question. Records written before 0.27 F3 appended it, labeled and in
+    FERB's own wrapper, to what they stored as the owner's words (continuity, a task's authority words)."""
+    return _EARLIER.sub("", words)

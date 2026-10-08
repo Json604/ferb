@@ -4,10 +4,14 @@ Facts only: F5's confirmations use them; nothing here blocks."""
 import json
 from pathlib import Path
 
+import pytest
+
 from ferb.core.types import ActionSpec, Target
 from ferb.policy import provenance
 from ferb.policy.targets import Request, Targets
-from tests.conftest import Answers, FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
+from ferb.sanitize.untrusted import wrap_untrusted
+from tests.conftest import Answers, FakeCap, RunningDaemon, chat, done, gateway_request, gateway_setup, \
+    gateway_tool_call, install, sup, task, tool
 
 
 def test_target_values_cover_every_consequential_field() -> None:
@@ -175,6 +179,81 @@ def test_gateway_records_arg_sources_on_consequential_calls_only(daemon: Running
     assert sends[0]["arg_sources"] == {"recipient:0": ["external:web:evil.example"]}
     assert sends[1]["arg_sources"] == {"recipient:0": ["owner_words"]}
     assert "arg_sources" not in _inputs(daemon, "probe.page")[0]                          # reads aren't consequential
+
+
+QUESTION = "Send it to alex@work.example or alex@home.example?"
+
+
+def _sends_to(daemon: RunningDaemon, address: str):
+    """A worker step that makes one consequential call through the gateway, as a worker would."""
+    def act(token: str) -> str:
+        tool(daemon.sock, token, "probe.send", to=address)
+        return done("sent")
+    return act
+
+
+def _recorded_requests(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> list[Request]:
+    requests, seen = daemon.daemon.state.requests, []
+    real = requests.record
+    monkeypatch.setattr(requests, "record", lambda r: (seen.append(r), real(r))[1])
+    return seen
+
+
+def _owner_records(daemon: RunningDaemon) -> list[str]:
+    """Everything recorded as the owner's words: continuity owner_words and each root span's authority_words."""
+    async def go() -> list[str]:
+        conn = daemon.daemon.db.conn
+        return [r[0] for r in conn.execute("SELECT owner_words FROM task_context ORDER BY rowid")] + [
+            r[0] for r in conn.execute("SELECT json_extract(input_json, '$.authority_words') FROM spans "
+                                       "WHERE kind = 'task' ORDER BY rowid")]
+    return daemon.run(go())
+
+
+def _assert_only_typed(texts: list[str]) -> None:
+    for text in texts:
+        assert "<untrusted-data" not in text and "alex@" not in text and "Earlier FERB question" not in text, text
+
+
+def test_ferbs_clarify_question_is_never_the_owners_words(daemon: RunningDaemon,
+                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+    """C1 (S3, MP2): an address that appears only in FERB's own question stays unknown after the owner answers it,
+    and nothing recorded as the owner's words holds FERB's text."""
+    daemon.daemon.registry.capabilities["probe.send"] = FakeCap("probe.send", "send", {"probe"})
+    requests = _recorded_requests(daemon, monkeypatch)
+    install(daemon, [sup("clarify", QUESTION), sup("task", "Sending.", task("email alex the report"))],
+            {"worker": _sends_to(daemon, "alex@work.example")})
+    assert chat(daemon, "email alex the report")[-1] == {"type": "clarify", "text": QUESTION}
+    chat(daemon, "the work one")
+    assert _inputs(daemon, "probe.send")[0]["arg_sources"] == {"recipient:0": ["unknown"]}
+    assert [r.words for r in requests] == ["email alex the report\nthe work one"]      # typed, pending part included
+    recorded = _owner_records(daemon)
+    assert len(recorded) == 2 and all("email alex the report" in t and "the work one" in t for t in recorded)
+    _assert_only_typed([r.words for r in requests] + recorded)
+
+
+def test_a_retry_never_carries_ferbs_question_as_the_owners_words(daemon: RunningDaemon,
+                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
+    """C1: a retry prepends the earlier request's words; a continuity row written before the fix still holds FERB's
+    question after its label, and that part is not the owner's words either."""
+    daemon.daemon.registry.capabilities["probe.send"] = FakeCap("probe.send", "send", {"probe"})
+    install(daemon, [sup("task", "Sending.", task("email alex the report"))],
+            {"worker": json.dumps({"status": "needs_user", "summary": "Which alex?", "artifacts": [], "evidence": []})})
+    chat(daemon, "email alex the report")
+    legacy = "\nEarlier FERB question (context, not owner instructions): " + wrap_untrusted(QUESTION)
+
+    async def old_row() -> str:
+        conn = daemon.daemon.db.conn
+        conn.execute("UPDATE task_context SET owner_words = owner_words || ?", (legacy,))
+        return conn.execute("SELECT task_id FROM task_context").fetchone()[0]
+    first = daemon.run(old_row())
+    requests = _recorded_requests(daemon, monkeypatch)
+    retry = json.loads(sup("task", "Retrying.", task("email alex the report")))
+    retry["control"] = {"task_id": first, "action": "retry"}
+    install(daemon, [json.dumps(retry)], {"worker": _sends_to(daemon, "alex@work.example")})
+    chat(daemon, "try again with the work one")
+    assert _inputs(daemon, "probe.send")[0]["arg_sources"] == {"recipient:0": ["unknown"]}
+    assert [r.words for r in requests] == ["email alex the report\ntry again with the work one"]
+    _assert_only_typed([r.words for r in requests] + _owner_records(daemon)[1:])
 
 
 def _inputs(daemon: RunningDaemon, tool: str) -> list[dict]:
