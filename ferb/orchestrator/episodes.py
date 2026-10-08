@@ -2,6 +2,8 @@
 rebuildable from spans while they exist (MP1). Must not call a model or rewrite what the records say."""
 
 import json
+import sqlite3
+from contextlib import suppress
 from typing import Any
 
 from ferb.core import origin
@@ -16,6 +18,18 @@ def build(spans: Any, task_id: str, now: str) -> dict[str, Any]:
     return compose.compose(trace) | {"made_by": MADE_BY, "built_at": now}
 
 
+def record(spans: Any, journal: Any, task_id: str, now: str) -> None:
+    """Build and write a task's episode when it ends or is found interrupted. Never fails the caller: the task or
+    start-up goes on without it, and retention rebuilds a missing episode from the spans."""
+    try:
+        write(journal.db, build(spans, task_id, now))
+    except Exception as e:
+        # The note shares the database that may have just failed. If that write fails too, the missing episode is
+        # itself the record; only a database error is expected here, anything else is a bug and propagates.
+        with suppress(sqlite3.Error):
+            journal.append("episode.failed", {"task_id": task_id, "error": f"{type(e).__name__}: {e}"})
+
+
 def write(db: Any, ep: dict[str, Any]) -> None:
     db.conn.execute(
         "INSERT OR REPLACE INTO episodes (task_id, request_id, request_text, goal, status, verified, started_at, "
@@ -25,7 +39,7 @@ def write(db: Any, ep: dict[str, Any]) -> None:
          None if ep["verified"] is None else int(bool(ep["verified"])), ep["started_at"], ep["ended_at"],
          ep["seconds"], ep["answer"], *(json.dumps(ep[k], ensure_ascii=False) for k in JSON_FIELDS[:4]),
          origin.join(ep["origins"]), int(any(origin.is_external(o) for o in ep["origins"])),
-         json.dumps(ep["usage"]), json.dumps(ep["desktop"], ensure_ascii=False), ep["made_by"], ep["built_at"]))
+         *(json.dumps(ep[k], ensure_ascii=False) for k in JSON_FIELDS[4:]), ep["made_by"], ep["built_at"]))
 
 
 def get(db: Any, task_id: str) -> dict[str, Any] | None:

@@ -1,11 +1,13 @@
 """One permanent record per task, composed by code from its trace (L1, D21, MP1)."""
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from ferb.cli.client import Client
+from ferb.memory.journal import Journal
 from ferb.orchestrator import episodes
 from ferb.store.db import Database
 from ferb.trace import compose
@@ -47,6 +49,78 @@ def test_pasted_parts_show_as_a_marker_in_the_request() -> None:
     assert compose.compose(b.finish())["request_text"] == "summarize [pasted text]"
 
 
+def _failed_turn(kind: str) -> dict[str, Any]:
+    """One trace whose `kind` model span ended with an error, though its recorded text parses as a decision."""
+    b = TraceBuilder()
+    if kind == "model.turn":
+        n = b.planner(3, {"kind": "task", "text": "Deleting it.", "task": {"goal": b.goal}})
+    elif kind == "model.dispatch":
+        b.worker(5, "failed", "could not delete")
+        n = b.dispatch(2, "retry", "try again")
+    elif kind == "model.question":
+        b.worker(5, "done", "deleted")
+        n = b.question(2, {"ask_owner": False, "answer": "the hf one", "question": ""})
+    else:
+        b.worker(5, "done", "deleted")
+        n = b.reconcile(2, "done", "All resources released.")
+    n["error"] = "ValidationError: 1 validation error for the decision"
+    return b.finish()
+
+
+@pytest.mark.parametrize("kind", ["model.turn", "model.dispatch", "model.question", "model.resources"])
+def test_a_failed_model_turn_reads_as_a_failure_not_a_decision(kind: str) -> None:
+    c = compose.compose(_failed_turn(kind))
+    step = next(s for s in c["steps"] if s["role"] == "Planner")
+    assert step["mark"] == "✗" and step["text"] == "failed: ValidationError: 1 validation error for the decision"
+    failed = 2 if kind == "model.dispatch" else 1               # the dispatch case's worker also reported failed
+    assert c["problems"] == [f"✗ {failed} step{'s' if failed > 1 else ''} failed"]   # a failed retry is no retry
+
+
+def test_the_reconciler_is_a_planner_step_naming_what_it_decided() -> None:
+    b = TraceBuilder()
+    b.worker(5, "done", "Opened the page and saved it.")
+    b.checker(3, [True, True], ["saved file exists", "nothing else changed"])
+    b.reconcile(4, "failed", "The tab closed during cleanup, so the page is no longer open.")
+    c = compose.compose(b.finish(status="failed", verified=False))
+    assert [s["role"] for s in c["steps"]] == ["Worker", "Checker", "Planner"]
+    assert c["steps"][2] == {"at": c["steps"][2]["at"], "role": "Planner", "seconds": 4.0, "mark": "",
+                             "text": "after cleanup: failed — The tab closed during cleanup, so the page is no "
+                                     "longer open."}
+    assert c["usage"]["model_calls"] == 3
+
+
+def test_spans_still_open_read_as_not_finished() -> None:
+    b = TraceBuilder()
+    p = b.planner(3, {"kind": "task", "text": "Deleting it.", "task": {"goal": b.goal}})
+    w = b.worker(5, "done", "deleted")
+    c_ = b.checker(3, [True, True], ["gone", "only one deletion"])
+    trace = b.finish()
+    for n in (p, w):
+        n["ended_at"], n["output"] = None, None
+    b.root["ended_at"] = None
+    c = compose.compose(trace)
+    assert [(s["role"], s["mark"], s["text"], s["seconds"]) for s in c["steps"][:2]] == [
+        ("Planner", "⏹", "did not finish (interrupted)", None),
+        ("Worker", "⏹", "did not finish (interrupted)", None)]
+    assert c["steps"][2]["mark"] == "✓" and c_["ended_at"]           # an open worker is not "verified in step 3"
+    assert c["problems"] == ["⏹ 2 steps did not finish"]
+    assert c["ended_at"] is None and c["seconds"] is None            # the last timestamp is a lower bound, not the end
+
+
+def test_unpriced_usage_is_named_and_never_counted_as_free() -> None:
+    b = TraceBuilder()
+    w = b.worker(5, "done", "deleted")
+    b.usage(w, 1000, 0, 10, None, model="new-model-x")
+    u = compose.compose(b.finish())["usage"]
+    assert u["unpriced_models"] == ["new-model-x"] and u["cost_usd"] is None
+    b2 = TraceBuilder()
+    w2 = b2.worker(5, "done", "deleted")
+    b2.usage(w2, 1000, 0, 10, 0.25)
+    b2.usage(w2, 1000, 0, 10, None, model="new-model-x")
+    u2 = compose.compose(b2.finish())["usage"]
+    assert u2["cost_usd"] == 0.25 and u2["unpriced_models"] == ["new-model-x"] and u2["usage_records"] == 2
+
+
 def test_a_task_whose_request_or_context_held_outside_content_is_marked(tmp_path: Path) -> None:
     """S3: the request's origins (root task span) and what the context held (context.source) count, not only tool
     results."""
@@ -70,11 +144,14 @@ def test_a_task_whose_request_or_context_held_outside_content_is_marked(tmp_path
 
 def test_a_task_that_read_only_private_data_is_not_marked(tmp_path: Path) -> None:
     c = compose.compose(hf_cache_retry())
+    c["usage"]["unpriced_models"] = ["modèle-ü"]
     db = Database(tmp_path / "ferb.db")
     db.migrate()
     episodes.write(db, c | {"made_by": episodes.MADE_BY, "built_at": T0.isoformat()})
     got = episodes.get(db, c["task_id"])
     assert got is not None and got["external_read"] is False and got["origins"] == ["private"]
+    raw = db.conn.execute("SELECT usage_json FROM episodes WHERE task_id = ?", (c["task_id"],)).fetchone()[0]
+    assert "modèle-ü" in raw                                # stored as written, like the other JSON columns
 
 
 def test_episode_is_written_when_a_task_finishes(daemon: RunningDaemon) -> None:
@@ -122,7 +199,8 @@ def test_a_stopped_task_gets_an_episode(daemon: RunningDaemon) -> None:
     assert any(s["role"] == "Worker" and "worker reported cancelled" in s["text"] for s in json.loads(ep["steps_json"]))
 
 
-def test_a_task_interrupted_by_a_restart_gets_an_episode(home: Path) -> None:
+def _seed_ghost(home: Path) -> None:
+    """A daemon that stops while task 'ghost' runs: its root, worker and checker spans are still open."""
     d = RunningDaemon(home)
     try:
         async def seed():
@@ -131,24 +209,57 @@ def test_a_task_interrupted_by_a_restart_gets_an_episode(home: Path) -> None:
                 "INSERT INTO tasks (id, tree_id, request_id, goal, identity, role, scopes_json, status, created_at, "
                 "updated_at) VALUES ('ghost', 'ghost', 'r', 'tidy the desktop', 'owner', 'worker', '[]', 'running', ?, ?)",
                 (now, now))
-            d.daemon.spans.start("task", task_id="ghost", input={"request": "tidy the desktop"})
+            root = d.daemon.spans.start("task", task_id="ghost", input={"request": "tidy the desktop"})
+            d.daemon.spans.start("worker", task_id="ghost.worker", parent_id=root.id,
+                                 input={"goal": "tidy the desktop", "role": "worker", "scopes": []})
+            d.daemon.spans.start("worker", task_id="ghost.worker.verify", parent_id=root.id,
+                                 input={"goal": "verify", "role": "verifier", "scopes": []})
             d.daemon.db.conn.commit()
         d.run(seed())
     finally:
         d.stop()
+
+
+def test_a_task_interrupted_by_a_restart_gets_an_episode(home: Path) -> None:
+    _seed_ghost(home)
     d2 = RunningDaemon(home)
     try:
         ep = _episode(d2, "ghost")
         assert ep is not None and ep["status"] == "interrupted" and ep["request_text"] == "tidy the desktop"
+        steps = json.loads(ep["steps_json"])
+        assert [(s["role"], s["mark"], s["text"], s["seconds"]) for s in steps] == [
+            ("Worker", "⏹", "did not finish (interrupted)", None),
+            ("Checker", "⏹", "did not finish (interrupted)", None)]
+        assert json.loads(ep["problems_json"]) == ["⏹ 2 steps did not finish"]
+        assert ep["ended_at"] is None and ep["seconds"] is None
     finally:
         d2.stop()
 
 
+def test_a_failing_episode_fallback_never_stops_start_up(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _seed_ghost(home)
+    real_append = Journal.append
+
+    def append(self: Journal, kind: str, data: Any = None, origin: Any = None) -> Any:
+        if kind == "episode.failed":
+            raise sqlite3.OperationalError("disk I/O error")
+        return real_append(self, kind, data, origin)
+    monkeypatch.setattr(episodes, "build", _broken)
+    monkeypatch.setattr(Journal, "append", append)
+    d2 = RunningDaemon(home)                                # start-up goes on: no exception here
+    try:
+        assert _episode(d2, "ghost") is None and Client(d2.sock).call("ping", {}) is not None
+    finally:
+        d2.stop()
+
+
+def _broken(*a: Any, **k: Any) -> dict[str, Any]:
+    raise RuntimeError("composer broke")
+
+
 def test_an_episode_that_cannot_be_built_never_fails_the_task(daemon: RunningDaemon,
                                                               monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(*a: Any, **k: Any) -> dict[str, Any]:
-        raise RuntimeError("composer broke")
-    monkeypatch.setattr(episodes, "build", broken)
+    monkeypatch.setattr(episodes, "build", _broken)
     install(daemon, [sup("task", "Doing it.", task("say hi"))], {"worker": done("said hi")})
     evs = chat(daemon, "say hi")
     assert [e for e in evs if e["type"] == "outcome"][-1]["status"] == "done"
@@ -159,6 +270,29 @@ def test_an_episode_that_cannot_be_built_never_fails_the_task(daemon: RunningDae
         return [json.loads(r["data_json"]) for r in rows]
     assert daemon.run(failed()) == [{"task_id": root, "error": "RuntimeError: composer broke"}]
     assert _episode(daemon, root) is None
+
+
+def test_a_failing_episode_fallback_never_skips_the_tasks_cleanup(daemon: RunningDaemon,
+                                                                  monkeypatch: pytest.MonkeyPatch) -> None:
+    journal = daemon.daemon.supervisor.journal
+    real_append = journal.append
+
+    def append(kind: str, data: Any = None, origin: Any = None) -> Any:
+        if kind == "episode.failed":
+            raise sqlite3.OperationalError("disk I/O error")
+        return real_append(kind, data, origin)
+    monkeypatch.setattr(episodes, "build", _broken)
+    monkeypatch.setattr(journal, "append", append)
+    install(daemon, [sup("task", "Doing it.", task("say hi"))], {"worker": done("said hi")})
+    finished: list[dict[str, Any]] = []
+    publish = daemon.daemon.supervisor.publish
+    monkeypatch.setattr(daemon.daemon.supervisor, "publish",
+                        lambda kind, data: (finished.append(data) if kind == "task.finished" else None,
+                                            publish(kind, data)))
+    evs = chat(daemon, "say hi")
+    root = _last_root(daemon)
+    assert [e for e in evs if e["type"] == "outcome"][-1]["status"] == "done"
+    assert {"task_id": root, "status": "done"} in finished and daemon.daemon.supervisor._tree_of == {}
 
 
 def _last_root(daemon: RunningDaemon) -> str:

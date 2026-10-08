@@ -12,6 +12,8 @@ from ferb.core import origin
 from ferb.trace.lines import clip, duration, plural
 
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
+PLANNER_KINDS = ("model.turn", "model.dispatch", "model.question", "model.resources")   # the orchestrator's turns
+OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never finished: no claim, no check, no time
 NO_SCREEN = ("shell.", "fs.")              # tool families that never touch windows, focus or the cursor (RQ2)
 ORIGIN_KINDS = {"task", "tool.call", "context.source"}   # what the task's models were shown (S3; task_origins)
 _WRAPPED = re.compile(r'<untrusted-data id="([0-9a-f]+)">.*?</untrusted-data id="\1">', re.S)
@@ -50,6 +52,11 @@ def _planner(n: dict[str, Any]) -> str:
         d = _json(out.get("text"))
         detail = d.get("instructions") or d.get("question") or d.get("stop_reason") or ""
         return f"{d.get('action') or 'decided'} — {clip(detail, 160)}".rstrip(" —")
+    if n["kind"] == "model.resources":           # the final-state review after cleanup: it sets the task's status
+        d = _json(out.get("text"))
+        if not d.get("status"):
+            return f"after cleanup: {clip(out['text'], 160)}" if out.get("text") else "after cleanup"
+        return f"after cleanup: {d['status']}" + (f" — {clip(d['summary'], 160)}" if d.get("summary") else "")
     d = _json(out.get("decision"))
     if d.get("ask_owner"):
         return "asks you: " + clip(d.get("question", ""), 160)
@@ -106,29 +113,35 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     retry_starts: list[str] = []
     for n in nodes:
         kind, inp = n["kind"], n.get("input") or {}
-        if kind in ("model.turn", "model.dispatch", "model.question") and \
-                (kind != "model.turn" or inp.get("role") == "supervisor"):
+        if kind in PLANNER_KINDS and (kind != "model.turn" or inp.get("role") == "supervisor"):
+            role = "Planner"
+        elif kind == "worker":
+            role = "Checker" if inp.get("role") == "verifier" else "Worker"
+        else:
+            continue
+        if not n.get("ended_at"):                   # still open when the record was built (restart, cancellation)
+            mark, text = OPEN, OPEN_TEXT
+        elif role == "Planner" and n.get("error"):  # a turn that failed decided nothing, whatever text it left
+            mark, text = "✗", "failed: " + clip(n["error"], 120)
+        elif role == "Planner":
             mark, text = "", _planner(n)
             if kind == "model.dispatch" and _json((n.get("output") or {}).get("text")).get("action") == "retry":
                 retry_starts.append(n["started_at"])
-            role = "Planner"
-        elif kind == "worker" and inp.get("role") == "verifier":
-            (mark, text), role = _checker(n, len(conditions_text)), "Checker"
-        elif kind == "worker":
-            (mark, text), role = _worker(n), "Worker"
+        elif role == "Checker":
+            mark, text = _checker(n, len(conditions_text))
         else:
-            continue
+            mark, text = _worker(n)
         steps.append({"at": n["started_at"], "role": role, "seconds": _secs(n["started_at"], n.get("ended_at")),
                       "text": text, "mark": mark})
     for i, s in enumerate(steps):                   # a worker's claim notes the check that verified it
-        if s["role"] == "Worker":
+        if s["role"] == "Worker" and s["mark"] != OPEN:
             nxt = next((j for j in range(i + 1, len(steps)) if steps[j]["role"] in ("Worker", "Checker")), None)
             if nxt is not None and steps[nxt]["role"] == "Checker" and steps[nxt]["mark"] == "✓":
                 s["text"] += f" — verified in step {nxt + 1}"
 
     times = [t for n in nodes for t in (n["started_at"], n.get("ended_at")) if t]
     started = min(times) if times else None
-    ended = root.get("ended_at") or (max(times) if times else None)
+    ended = root.get("ended_at")                    # an open root has no end: the last timestamp is only a lower bound
     problems: list[str] = []
     if retry_starts:
         spent = duration(_secs(retry_starts[0], ended))
@@ -140,6 +153,9 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     failed = sum(1 for s in steps if s["mark"] == "✗")
     if failed:
         problems.append(f"✗ {plural(failed, 'step', 'steps')} failed")
+    unfinished = sum(1 for s in steps if s["mark"] == OPEN)
+    if unfinished:
+        problems.append(f"{OPEN} {plural(unfinished, 'step', 'steps')} did not finish")
 
     usage_out = [n.get("output") or {} for n in nodes if n["kind"] == "model.usage"]
     priced = [u["cost_usd"] for u in usage_out if u.get("cost_usd") is not None]

@@ -188,10 +188,9 @@ class Daemon:
                                      (tid, self.clock.now().isoformat(), goal,
                                       f"This was interrupted when FERB restarted: {goal}. Want me to pick it "
                                       "up again?"))
-                try:                                    # its permanent record, from what it recorded before (L1)
-                    episodes.write(self.db, episodes.build(self.spans, tid, self.clock.now().isoformat()))
-                except Exception as e:                  # startup goes on; retention rebuilds it later
-                    self.journal.append("episode.failed", {"task_id": tid, "error": f"{type(e).__name__}: {e}"})
+                # Its permanent record (L1), from what it recorded before the restart. A failure never stops
+                # start-up: episodes.record notes it, or leaves it to retention when even the note fails.
+                episodes.record(self.spans, self.journal, tid, self.clock.now().isoformat())
         await self._build_browsers()
         self._build_mac_and_shell()
         self._build_agents()

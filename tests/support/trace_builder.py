@@ -72,6 +72,20 @@ class TraceBuilder:
         decision = {"action": action, "worker_type": "default", "instructions": instructions, "question": ""}
         return self._child(self.root, self._node("model.dispatch", seconds, {}, {"text": json.dumps(decision)}))
 
+    def question(self, seconds: float, decision: dict[str, Any]) -> dict[str, Any]:
+        """The orchestrator resolving a worker's question: recorded without a parent (supervisor.route_question)."""
+        node = self._node("model.question", seconds, {"question": "which folder?"}, {"decision": json.dumps(decision)},
+                          task_id=f"{self.task_id}.worker")
+        self.top.append(node)
+        return node
+
+    def reconcile(self, seconds: float, status: str, summary: str) -> dict[str, Any]:
+        """The orchestrator's final-state review after resource cleanup (supervisor._reconcile_resources)."""
+        report = {"status": status, "summary": summary, "artifacts": [], "evidence": []}
+        observed = {"report": {}, "resources_after_cleanup": []}
+        return self._child(self.root, self._node("model.resources", seconds, observed, {"text": json.dumps(report)},
+                                                 task_id=f"{self.task_id}.worker.resources"))
+
     def tool(self, parent: dict[str, Any], offset: float, seconds: float, tool: str, args: dict[str, Any],
              summary: str, origin: str = "private", why: str = "", error: str | None = None) -> None:
         start = datetime.fromisoformat(parent["started_at"]) + timedelta(seconds=offset)

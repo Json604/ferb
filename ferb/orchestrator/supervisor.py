@@ -691,10 +691,6 @@ class Supervisor(WorkerRuns):
                 self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"], "summary": final["summary"],
                                                      "verified": final["verified"], "verification": final["verification"],
                                                      "subtasks": final["subtasks"], "resources": tree.resources}, origin=made)
-                try:                                    # its permanent record, composed from the trace (L1)
-                    episodes.write(self.journal.db, episodes.build(self.spans, tree_id, self.clock.now().isoformat()))
-                except Exception as e:                  # the task still finishes; retention rebuilds it later
-                    self.journal.append("episode.failed", {"task_id": tree_id, "error": f"{type(e).__name__}: {e}"})
                 self.publish("task.finished", {"task_id": tree_id, "status": final["status"]})
                 self.gateway.forget_tasks(self._tree_task_ids(tree))
                 self.state.forget_request(request_id)
@@ -705,6 +701,9 @@ class Supervisor(WorkerRuns):
                     if row["status"] in ("running", "planned"):
                         self.tasks.set_status(row["id"], "cancelled" if tree.stop == STOPPED_BY_YOU else "interrupted",
                                               {"summary": tree.stop or "Task ended before this step completed"})
+                # Its permanent record (L1), composed from the trace once everything above is recorded. Last, so
+                # nothing it does can skip the cleanup; it never raises for a failed build or write.
+                episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
         yield final
 
     async def _release_resources(self, tree: _Tree, parent_span: str) -> bool:
