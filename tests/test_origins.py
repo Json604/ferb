@@ -23,6 +23,7 @@ def test_read_sources_map_to_origins() -> None:
     assert origin.from_read_source("download", "/Users/me/Downloads/x.pdf") == "external:download"
     assert origin.from_read_source("web", "https://mail.google.com/x?y=1") == "external:web:mail.google.com"
     assert origin.from_read_source("web", "shell: curl https://x.io/a") == "external:web:shell"
+    assert origin.from_read_source("web", "http://[bad/x") == "external:web:http://[bad/x"   # malformed: no raise
     assert origin.from_read_source("web", "trail") == "external:web:trail"
     assert origin.from_read_source("web", "com.google.Chrome") == "external:web:com.google.Chrome"
     assert origin.from_read_source("message", "net.whatsapp.WhatsApp") == "external:message:net.whatsapp.WhatsApp"

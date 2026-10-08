@@ -52,7 +52,10 @@ def from_read_source(kind: str, ident: str) -> str:
     if kind == "web":
         if ident.startswith("shell:"):                 # a shell command that fetched over the network
             return external("web", "shell")
-        host = urlsplit(ident).hostname if "://" in ident else None
+        try:
+            host = urlsplit(ident).hostname if "://" in ident else None
+        except ValueError:                             # a malformed URL from outside content must not break labeling
+            host = None
         return external("web", host or ident)
     if kind == "origin":                              # a record's stored origin, passed through by FERB's readers
         return ident
