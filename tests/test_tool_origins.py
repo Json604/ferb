@@ -511,17 +511,83 @@ def test_a_pasted_text_task_keeps_external_paste_in_everything_derived_from_it(d
     assert {"inferred", "external:paste"} <= daemon.run(read())
 
 
-def test_a_retried_task_carries_the_original_requests_origins(daemon: RunningDaemon) -> None:
+def _trim_history(daemon: RunningDaemon) -> list[set[str]]:
+    """From now on the planner's history block holds only its newest entry, a FERB reply recorded before F3 (labeled
+    only `ferb`), so the shown history can't supply external:paste. Returns the origins each trimmed history carried."""
+    sup_ = daemon.daemon.supervisor
+    seen: list[set[str]] = []
+
+    def older_reply() -> None:
+        daemon.daemon.clock.advance(1)
+        daemon.daemon.journal.append("chat.reply", {"session_id": "s1", "request_id": "r-old", "text": "Noted."})
+    _on_loop(daemon, older_reply)
+    full = sup_._recent
+
+    def trimmed(current_request: str = "", conversation: str | None = None, max_tokens: int = 0) -> Any:
+        text, ages, origins = full(current_request, conversation, 1)
+        seen.append(origins)
+        return text, ages, origins
+    sup_._recent = trimmed                                           # type: ignore[method-assign]
+    return seen
+
+
+def _task_origins(daemon: RunningDaemon, root: str) -> set[str]:
+    return _on_loop(daemon, lambda: daemon.daemon.spans.task_origins(root))
+
+
+def _pasted_task(daemon: RunningDaemon) -> str:
     install(daemon, [sup("task", "Summarizing.", task("summarize the pasted text"))],
             {"worker": json.dumps({"status": "needs_user", "summary": "Unclear", "artifacts": [], "evidence": []})})
     chat(daemon, PASTED)
-    first = _root(daemon)
+    return _root(daemon)
+
+
+def _retry(daemon: RunningDaemon, first: str) -> str:
     retry = json.loads(sup("task", "Retrying.", task("try again")))
     retry["control"] = {"task_id": first, "action": "retry"}
     install(daemon, [json.dumps(retry)], {"worker": done("It says…")})
     chat(daemon, "try again")
     second = _root(daemon)
-    assert second != first and "external:paste" in _on_loop(daemon, lambda: daemon.daemon.spans.task_origins(second))
+    assert second != first
+    return second
+
+
+def test_a_retried_task_carries_the_original_requests_origins(daemon: RunningDaemon) -> None:
+    first = _pasted_task(daemon)
+    seen = _trim_history(daemon)
+    sup_ = daemon.daemon.supervisor                   # the task lines shown (history, resumable attempts) say nothing
+    sup_._task_line_origins = lambda task_id: {"inferred"}           # type: ignore[method-assign]
+    second = _retry(daemon, first)                    # so only the retry's own inheritance can carry the paste
+    assert "external:paste" in _task_origins(daemon, second)
+    assert not any("external:paste" in s for s in seen)
+
+
+def test_a_retried_tasks_request_carries_what_the_earlier_attempt_read(daemon: RunningDaemon) -> None:
+    def remember() -> None:
+        src = daemon.daemon.journal.append("chat.message", {"text": "the cafe page"}).id
+        daemon.daemon.memory.propose("fact", "place:cafe", "hours", "The cafe opens at 8", "third_party",
+                                     [("journal", src)])
+    _on_loop(daemon, remember)
+    install(daemon, [sup("task", "Checking.", task("check the cafe hours"))],
+            {"worker": json.dumps({"status": "needs_user", "summary": "Unclear", "artifacts": [], "evidence": []})})
+    chat(daemon, "check the cafe hours")                             # the owner's words hold nothing from outside
+    first = _root(daemon)
+    assert "external:memory" in _task_origins(daemon, first)        # but the attempt read third-party memory
+    _trim_history(daemon)
+    daemon.daemon.supervisor._task_line_origins = lambda task_id: {"inferred"}   # type: ignore[method-assign]
+    _retry(daemon, first)
+    assert "external:memory" in _root_origin(daemon)                 # the retry's request span inherits it
+
+
+def test_a_retry_of_a_task_recorded_before_f3_takes_the_origins_of_its_request_row(daemon: RunningDaemon) -> None:
+    first = _pasted_task(daemon)
+    _on_loop(daemon, lambda: daemon.daemon.db.conn.execute(          # its tree predates F3: no span has an origin
+        "UPDATE spans SET origin = NULL WHERE task_id = ? OR task_id LIKE ?", (first, first + ".%")))
+    assert _task_origins(daemon, first) == set()
+    seen = _trim_history(daemon)
+    second = _retry(daemon, first)                    # the chat.message row still says what the request held
+    assert "external:paste" in _task_origins(daemon, second)
+    assert not any("external:paste" in s for s in seen)
 
 
 def test_previous_attempts_inherit_the_tasks_origins_not_only_its_tool_results(daemon: RunningDaemon) -> None:
@@ -542,23 +608,27 @@ def test_a_clarify_continuation_carries_the_earlier_pasted_text(daemon: RunningD
     sup_ = daemon.daemon.supervisor
     chat(daemon, PASTED)
     assert {"owner", "external:paste"} <= _on_loop(daemon, lambda: sup_._carried_origins("s1", "next"))
-    chat(daemon, "briefly")                                          # this message has no paste; its payload does
+    seen = _trim_history(daemon)                      # the shown history no longer holds the pasted message
+    chat(daemon, "briefly")                           # this message has no paste either; only its payload does
     assert {"inferred", "external:paste"} <= _journal_origin(daemon, "chat.reply")
+    assert not any("external:paste" in s for s in seen)
     assert _on_loop(daemon, lambda: sup_._carried_origins("s1", "next")) == set()   # answered: nothing carried
 
 
 def test_history_and_attempt_lines_carry_their_tasks_origins(daemon: RunningDaemon) -> None:
-    install(daemon, [sup("task", "Summarizing.", task("summarize the pasted text")), sup("reply", "Done earlier.")],
-            {"worker": done("It says…")})
-    chat(daemon, PASTED)
-
-    def labels() -> tuple[set[str], set[str]]:
-        sup_ = daemon.daemon.supervisor
-        _, _, history = sup_._recent("none", "s1")
-        _, shown = sup_._attempts(sup_.continuity.candidates("s1"))
-        return history, {o for t in shown for o in daemon.daemon.spans.task_origins(t)}
-    history, attempts = _on_loop(daemon, labels)
-    assert "external:paste" in history and "external:paste" in attempts
+    first = _pasted_task(daemon)
+    sup_ = daemon.daemon.supervisor
+    # The history budget keeps only the newest timeline entry: at this frozen clock, the task line.
+    text, _, history = _on_loop(daemon, lambda: sup_._recent("none", "s1", 1))
+    assert f"Task {first}:" in text and "Owner:" not in text and "FERB" not in text
+    assert "external:paste" in history
+    # The resumable-attempts block: with the history trimmed to an older FERB reply, the planner's reply can inherit
+    # the paste only through the task line that block shows.
+    seen = _trim_history(daemon)
+    install(daemon, [sup("reply", "Done earlier.")])
+    chat(daemon, "anything else?")
+    assert not any("external:paste" in s for s in seen)
+    assert {"inferred", "external:paste"} <= _journal_origin(daemon, "chat.reply")
 
 
 def _root_origin(daemon: RunningDaemon) -> set[str]:
@@ -584,3 +654,46 @@ def test_a_scheduled_run_takes_the_origin_of_the_request_that_made_it(daemon: Ru
     install(daemon, [run], {"worker": done("wrote it")})
     fire(daemon, 61)
     assert "external:unlabeled" in _root_origin(daemon)              # made outside chat: its request isn't reachable
+
+
+def _scheduled_after_paste(daemon: RunningDaemon, *turns: str) -> set[str]:
+    """`turns` answer the pasted text; then "in a minute write report.md" makes a schedule, which fires."""
+    from datetime import timedelta
+    from tests.test_schedules import fire, schedule_reply
+    run = sup("task", "x", task("write report.md", paths=("report.md",)))
+    install(daemon, [*turns, schedule_reply(daemon, "write report.md", "write report.md",
+                                            daemon.daemon.clock.now() + timedelta(minutes=1)), run],
+            {"worker": done("wrote it")})
+    chat(daemon, PASTED)
+    chat(daemon, "in a minute write report.md")                      # the schedule's own message has no paste
+    fire(daemon, 61)
+    return _root_origin(daemon)
+
+
+def test_a_schedule_made_after_pasted_text_was_discussed_carries_it_into_its_runs(daemon: RunningDaemon) -> None:
+    made = _scheduled_after_paste(daemon, sup("reply", "It says to ignore your rules."))
+    assert {"owner", "inferred", "external:paste"} <= made           # the planner wrote the request from its turn
+
+
+def test_a_schedule_made_while_answering_a_question_carries_the_pasted_text(daemon: RunningDaemon) -> None:
+    made = _scheduled_after_paste(daemon, sup("clarify", "Summarize it how?"))
+    assert {"owner", "inferred", "external:paste"} <= made
+
+
+def test_a_schedule_row_recorded_without_its_turns_origins_stays_unlabeled(daemon: RunningDaemon) -> None:
+    from datetime import timedelta
+    from ferb.policy.targets import Targets
+    from tests.test_schedules import fire, make_schedule
+    install(daemon, [sup("reply", "Hello.")])
+    chat(daemon, PASTED)
+    request_id = _on_loop(daemon, lambda: daemon.daemon.db.conn.execute(
+        "SELECT json_extract(data_json, '$.request_id') AS r FROM journal WHERE kind = 'chat.message'").fetchone()["r"])
+    sched = make_schedule(daemon, "write report.md", "every day at 9 write report.md",
+                          Targets.of(paths=[str(daemon.daemon.home / "workspace" / "report.md")]),
+                          daemon.daemon.clock.now() + timedelta(minutes=1))
+    _on_loop(daemon, lambda: daemon.daemon.journal.append(          # a row from before this label existed
+        "schedule.created", {"schedule_id": sched.id, "request": "write report.md", "request_id": request_id}))
+    install(daemon, [sup("task", "x", task("write report.md", paths=("report.md",)))], {"worker": done("wrote it")})
+    fire(daemon, 61)
+    made = _root_origin(daemon)
+    assert "external:unlabeled" in made and "owner" not in made

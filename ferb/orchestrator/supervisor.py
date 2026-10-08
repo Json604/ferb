@@ -147,7 +147,8 @@ class Supervisor(WorkerRuns):
         self.recall: Callable[[str], Any] = lambda words: ""
         self.timers: Any = None                  # clock.timers.Timers
         # Durable scheduling callbacks supplied by the daemon.
-        self.on_schedule: Callable[[Any, str, str], str] = lambda spec, own, rid: "Scheduling isn't available."
+        self.on_schedule: Callable[[Any, str, str, set[str]], str] = \
+            lambda spec, own, rid, made: "Scheduling isn't available."
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
         self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
         # What the supervisor may use right now (supplied by the daemon: connections, permissions)
@@ -355,8 +356,9 @@ class Supervisor(WorkerRuns):
             yield {"type": "timer", "text": note}
         if len(notes) < len(out.timers) and out.kind == "reply":   # the reply mustn't claim a reminder that wasn't set
             out = SupervisorOutcome(kind="reply", task=None, text=REMINDER_NOT_SET)
-        if out.schedule is not None:
-            yield {"type": "timer", "text": self.on_schedule(out.schedule, typed, request_id)}
+        if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
+            yield {"type": "timer", "text": self.on_schedule(out.schedule, typed, request_id,
+                                                             {origins_.INFERRED} | turn_origins)}
         for ch in out.schedule_changes:
             yield {"type": "timer", "text": self.on_schedule_change(ch, typed)}
         if out.kind == "clarify":                               # the answer will continue this request
@@ -553,12 +555,13 @@ class Supervisor(WorkerRuns):
         return carried
 
     def _schedule_origins(self, schedule_id: str) -> set[str]:
-        """A scheduled run's request: the chat request that made the schedule (its stored origins, plus the planner
-        that wrote the scheduled request), or unlabeled when that request isn't reachable."""
-        made = next((e.data.get("request_id") for e in self.journal.entries()
-                     if e.kind == "schedule.created" and e.data.get("schedule_id") == schedule_id), None)
-        held = self._request_origins(made) if made else set()
-        return (held | {origins_.INFERRED}) if held else {origins_.external("unlabeled")}
+        """A scheduled run's request: what the turn that made the schedule was written from, as recorded on its
+        schedule.created row (always holding `inferred`, since the planner wrote the request). A row recorded without
+        that label (before F3, or by a schedule made outside chat) is unlabeled."""
+        held = {o for e in self.journal.entries()
+                if e.kind == "schedule.created" and e.data.get("schedule_id") == schedule_id
+                for o in origins_.split(e.origin)}
+        return held if origins_.INFERRED in held else {origins_.external("unlabeled")}
 
     def recall_items(self, remembered: Any) -> tuple[str, dict[str, datetime]]:
         if isinstance(remembered, tuple):

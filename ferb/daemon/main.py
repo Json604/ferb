@@ -40,6 +40,7 @@ from ferb.act.fs.files import normalize_path
 from ferb.clock.context import ago as context_ago
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
+from ferb.core import origin as origin_
 from ferb.core.errors import FerbError
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
@@ -962,8 +963,9 @@ class Daemon:
 
     # ---------- schedules ----------
 
-    def _schedule_create(self, spec: Any, own_words: str, request_id: str) -> str:
-        """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future."""
+    def _schedule_create(self, spec: Any, own_words: str, request_id: str, origins: set[str]) -> str:
+        """From chat: the owner's words (quote-checked), the targets recorded now, the first run in the future.
+        `origins`: what the turn that wrote the scheduled request was given; its runs inherit them (S3, MP2)."""
         from ferb.orchestrator.schedules import Rule, ScheduleError
         from ferb.policy.targets import Targets
         norm = " ".join(own_words.lower().split())
@@ -984,7 +986,7 @@ class Daemon:
         t = self.timers.add("schedule", first, s.id)
         self.schedules.set_timer(s.id, t.id, first)
         self._journal().append("schedule.created", {"schedule_id": s.id, "request": s.request, "rule": rule.describe(),
-                                                    "request_id": request_id})   # its runs take this request's origins
+                                                    "request_id": request_id}, origin=origin_.join(origins))
         return f"🗓 scheduled ({s.id}): {s.request} — {rule.describe()}, first on {first.astimezone():%a %d %b %H:%M}"
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
