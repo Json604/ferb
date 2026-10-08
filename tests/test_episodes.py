@@ -49,6 +49,35 @@ def test_pasted_parts_show_as_a_marker_in_the_request() -> None:
     assert compose.compose(b.finish())["request_text"] == "summarize [pasted text]"
 
 
+def test_the_typed_request_is_marked_when_its_payload_held_pasted_text() -> None:
+    """Residual 2 (P26): the authority words leave pasted parts out, so the story adds the marker when the recorded
+    request (the payload) still holds one of FERB's wrappers once FERB's own earlier question is set aside."""
+    b = TraceBuilder(request='summarize this\n<untrusted-data id="ab12">\nsecret plan\n</untrusted-data id="ab12">')
+    trace = b.finish()
+    request = trace["outcome"]["request"]
+    assert request["authority_words"] == "summarize this"
+    assert compose.compose(trace)["request_text"] == "summarize this [pasted text]"
+    request["authority_words"] = ""                                       # the whole message was a paste
+    assert compose.compose(trace)["request_text"] == "[pasted text]"
+    request["authority_words"] = "email alex the report\nthe work one"    # a clarify, no paste: no marker
+    request["text"] = ('email alex the report\n\nthe work one\nEarlier FERB question (data): '
+                       '<untrusted-data id="cd34">\nWhich alex?\n</untrusted-data id="cd34">')
+    assert compose.compose(trace)["request_text"] == "email alex the report the work one"
+
+
+def test_a_live_pasted_request_and_a_yes_after_a_paste_keep_the_marker(daemon: RunningDaemon) -> None:
+    install(daemon, [sup("task", "Summarizing.", task("summarize the note"))], {"worker": done("summarized")})
+    chat(daemon, "summarize this\n```\nsecret plan\n```")
+    ep = _episode(daemon, _last_root(daemon))
+    assert ep is not None and ep["request_text"] == "summarize this [pasted text]"
+    install(daemon, [sup("clarify", "Summarize it briefly?"), sup("task", "Summarizing.", task("summarize it"))],
+            {"worker": done("summarized")})
+    chat(daemon, "```\nanother note\n```", session="s2")
+    chat(daemon, "yes", session="s2")
+    ep = _episode(daemon, _last_root(daemon))
+    assert ep is not None and ep["request_text"] == "yes [pasted text]"
+
+
 def test_a_clarify_continuation_shows_the_whole_request() -> None:
     """I5 (P26): the request text is what the owner typed for the whole request (the root's authority words), the
     pending part included, without FERB's wrappers; not only the answer that continued it."""

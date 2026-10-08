@@ -300,7 +300,8 @@ verified, times, answer, success conditions with evidence, steps, problems, per-
 and desktop changes. `origins` is the full union; `tool_origins` holds only the task's own tool results, so F5's sink
 rule can tell what the task itself read apart from inherited context (the request, memory, planner blocks). The request
 text is what the owner typed for the whole request (the root's `authority_words`, so the part a clarify answer
-continued is included), pasted parts shown as a marker. [`trace/compose.py`](ferb/trace/compose.py) composes it by code
+continued is included), followed by `[pasted text]` when the recorded request still holds one of FERB's wrappers once
+FERB's own earlier question is set aside (`holds_pasted`), since the typed words leave pasted parts out. [`trace/compose.py`](ferb/trace/compose.py) composes it by code
 from the trace (no model); a worker's words stay a claim ("worker reported done: …"), and a stopped worker reads
 "stopped: …" because the supervisor wrote that summary. A failed step shows `✗ failed: …`, a step that never finished
 shows `⏹ did not finish (interrupted)` with no claim or check, and the final-state review shows as an "after cleanup"

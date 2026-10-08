@@ -4,12 +4,11 @@ call a model or add anything the records don't say; a worker's words stay a clai
 Input: the `trace.get` shape {task_id, spans: [forest of span dicts], outcome: SpanStore.outcome()}."""
 
 import json
-import re
 from datetime import datetime
 from typing import Any, Iterator
 
 from ferb.core import origin
-from ferb.sanitize.untrusted import without_ferb_question
+from ferb.sanitize.untrusted import WRAPPED, holds_pasted, without_ferb_question
 from ferb.trace.lines import clip, duration, plural
 
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
@@ -17,7 +16,7 @@ PLANNER_KINDS = ("model.turn", "model.dispatch", "model.question", "model.resour
 OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never finished: no claim, no check, no time
 NO_SCREEN = ("shell.", "fs.")              # tool families that never touch windows, focus or the cursor (RQ2)
 ORIGIN_KINDS = {"task", "tool.call", "context.source"}   # what the task's models were shown (S3; task_origins)
-_WRAPPED = re.compile(r'<untrusted-data id="([0-9a-f]+)">.*?</untrusted-data id="\1">', re.S)
+PASTED = "[pasted text]"
 
 
 def walk(nodes: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
@@ -96,14 +95,18 @@ def _worker(n: dict[str, Any]) -> tuple[str, str]:
 
 def _request_text(outcome: dict[str, Any]) -> str:
     """What the owner asked: the words they typed for the whole request (the root's authority words, so an earlier
-    part a clarify answer continued is included; FERB's question, which records from before 0.27 F3 held, removed);
-    else the last chat message, the recorded request, the goal. Pasted parts show as a marker."""
+    part a clarify answer continued is included; FERB's question, which records from before 0.27 F3 held, removed),
+    marked when the recorded request held pasted text, which the typed words leave out; else the last chat message,
+    the recorded request, the goal. Pasted parts show as a marker."""
     request = outcome.get("request") or {}
     messages = request.get("messages") or []
-    typed = without_ferb_question(str(request.get("authority_words") or "")).strip()
+    typed = " ".join(WRAPPED.sub(PASTED, without_ferb_question(str(request.get("authority_words") or ""))).split())
+    pasted = holds_pasted(str(request.get("text") or ""))
+    if typed or (pasted and request.get("authority_words") is not None):
+        return f"{typed} {PASTED}".strip() if pasted and PASTED not in typed else typed
     last = (messages[-1].get("data") or {}).get("text") if messages else None
-    text = typed or last or request.get("text") or (outcome.get("task_spec") or {}).get("goal") or ""
-    return " ".join(_WRAPPED.sub("[pasted text]", str(text)).split())
+    text = last or request.get("text") or (outcome.get("task_spec") or {}).get("goal") or ""
+    return " ".join(WRAPPED.sub(PASTED, str(text)).split())
 
 
 def compose(trace: dict[str, Any]) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 """Build `trace.get`-shaped dicts ({task_id, spans, outcome}) for composer and renderer tests, with the span kinds,
 inputs and outputs FERB records (supervisor, worker, gateway, disturbance) and SpanStore.outcome()'s keys."""
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -120,7 +121,8 @@ class TraceBuilder:
                    "data": {"session_id": "s1", "request_id": "req-1", "text": self.request, "untrusted_parts": 0}}
         return {"task_id": self.task_id, "spans": self.top + [self.root], "outcome": {
             "schema_version": 1, "task_id": self.task_id,
-            "request": {"id": "req-1", "text": self.request, "authority_words": self.request, "messages": [message]},
+            "request": {"id": "req-1", "text": self.request, "authority_words": _typed(self.request),
+                        "messages": [message]},
             "task_spec": self._spec(),
             "tasks": [{"id": self.task_id, "tree_id": self.task_id, "parent_id": None, "goal": self.goal,
                        "status": status}],
@@ -130,6 +132,12 @@ class TraceBuilder:
                 {"task_id": self.task_id, "status": status, "summary": answer, "verified": verified,
                  "verification": self.verification, "subtasks": [], "resources": []}],
             "owner_verdict": self.verdict}}
+
+
+def _typed(request: str) -> str:
+    """The owner's own words of a request, as intake records them: pasted parts removed, whitespace collapsed."""
+    return " ".join(re.sub(r'<untrusted-data id="([0-9a-f]+)">.*?</untrusted-data id="\1">', " ", request,
+                           flags=re.S).split())
 
 
 def hf_cache_retry() -> dict[str, Any]:

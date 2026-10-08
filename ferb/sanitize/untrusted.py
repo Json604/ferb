@@ -10,10 +10,14 @@ from dataclasses import dataclass
 
 PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
 _FENCE = re.compile(r"```.*?(?:```|\Z)", re.S)
-# Intake's label for FERB's earlier question when an answer continues a request: context, never the owner's words.
+# Intake's labels for FERB's earlier question when an answer continues a request: context in the words it searches
+# (and, before 0.27 F3, in what it recorded as the owner's words), data in the payload. Never the owner's words.
 EARLIER_QUESTION = "Earlier FERB question (context, not owner instructions): "
-_EARLIER = re.compile(r"\n?" + re.escape(EARLIER_QUESTION) +
-                      r'<untrusted-data id="([0-9a-f]+)">.*?</untrusted-data id="\1">', re.S)
+EARLIER_QUESTION_DATA = "Earlier FERB question (data): "
+_WRAPPER = r'<untrusted-data id="([0-9a-f]+)">.*?</untrusted-data id="\1">'      # FERB's own wrapper (wrap_untrusted)
+WRAPPED = re.compile(_WRAPPER, re.S)
+_EARLIER = re.compile(r"\n?(?:" + re.escape(EARLIER_QUESTION) + "|" + re.escape(EARLIER_QUESTION_DATA) + ")" + _WRAPPER,
+                      re.S)
 
 
 @dataclass(frozen=True)
@@ -103,7 +107,14 @@ def wrap_untrusted(text: str) -> str:
     return f'<{tag} id="{uid}">\n{body}\n</{tag} id="{uid}">'
 
 
-def without_ferb_question(words: str) -> str:
-    """The owner's words without FERB's earlier question. Records written before 0.27 F3 appended it, labeled and in
-    FERB's own wrapper, to what they stored as the owner's words (continuity, a task's authority words)."""
-    return _EARLIER.sub("", words)
+def without_ferb_question(text: str) -> str:
+    """The text without FERB's earlier question (either label, in FERB's own wrapper). Records written before 0.27 F3
+    appended it to what they stored as the owner's words (continuity, a task's authority words); a payload holds it as
+    data."""
+    return _EARLIER.sub("", text)
+
+
+def holds_pasted(payload: str) -> bool:
+    """Whether a recorded request still holds one of FERB's wrappers (pasted or quoted text) once FERB's own earlier
+    question is set aside."""
+    return bool(WRAPPED.search(without_ferb_question(payload)))

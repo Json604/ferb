@@ -40,7 +40,7 @@ from ferb.orchestrator.verify import Checks, ConditionResult
 from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.targets import Request, Targets
-from ferb.sanitize.untrusted import EARLIER_QUESTION, mark, wrap_untrusted
+from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, mark, wrap_untrusted
 from ferb.store.spans import SpanStore
 
 HEARTBEAT_POLL_S = 5.0
@@ -292,7 +292,7 @@ class Supervisor(WorkerRuns):
         carried = self._carried_origins(session_id, "") if session.payload else set()   # earlier text in the payload
         if session.asked:
             words += "\n" + EARLIER_QUESTION + wrap_untrusted(session.asked)
-            payload += "\nEarlier FERB question (data): " + wrap_untrusted(session.asked)
+            payload += "\n" + EARLIER_QUESTION_DATA + wrap_untrusted(session.asked)
         session.pending = session.asked = ""
         self.continuity.save_pending(session_id, "", "")
         request_id = self.ids.new_id()
