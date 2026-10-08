@@ -169,6 +169,9 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     unfinished = sum(1 for s in steps if s["mark"] == OPEN)
     if unfinished:
         problems.append(f"{OPEN} {plural(unfinished, 'step', 'steps')} did not finish")
+    refused = sum(1 for n in nodes if n["kind"] == "tool.refused")     # unknown, out of scope, or acting in a check
+    if refused:
+        problems.append(f"⚠ {plural(refused, 'tool call', 'tool calls')} refused")
 
     usage_out = [n.get("output") or {} for n in nodes if n["kind"] == "model.usage"]
     priced = [u["cost_usd"] for u in usage_out if u.get("cost_usd") is not None]

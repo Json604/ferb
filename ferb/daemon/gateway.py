@@ -288,9 +288,11 @@ class Gateway:
             return reply({"error": "task is not running"}, True)
         cap = self.caps.get(name)
         if cap is None or not cap.scopes <= grant.scopes:
+            self._refused(grant, rec, name, "no such tool" if cap is None else "outside this worker's scopes")
             return reply({"error": f"tool {name} is not available to this worker",
                           "next": "Inspect actions.search and report the capability gap to the orchestrator."}, True)
         if grant.observe_only and not observes(cap):   # V3: before it runs, whatever the checker was told to do
+            self._refused(grant, rec, name, "an acting tool: the final check is read-only")
             return reply({"error": CHECKER_READ_ONLY}, True, {origin.FERB})
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
@@ -338,6 +340,14 @@ class Gateway:
         finally:
             self.observer.tool_call(grant, done=True)
 
+    def _refused(self, grant: RunGrant, rec: Any, name: str, reason: str) -> None:
+        """A call refused before anything ran leaves a small span, so `ferb trace` shows it: a tool that doesn't
+        exist or isn't the worker's, or an acting tool asked of the checker, is a hallucination or injection signal.
+        The store redacts it; the tool name (the model's text) is clipped."""
+        span = self.spans.start("tool.refused", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
+                                input={"tool": lines.clip(name, 100), "worker_id": grant.worker_id})
+        self.spans.finish(span, error=reason)
+
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]]) -> dict[str, Any]:
         if self.test_send_allowlist is not None and spec.kind in _SEND_KINDS:
@@ -360,7 +370,8 @@ class Gateway:
                           identity=next(iter(cap.identities)) if len(cap.identities) == 1 else grant.identity,
                           scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                           workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
-                          untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id)
+                          untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
+                          observe_only=grant.observe_only)
         if spec.target.path is not None:
             self.on_path(spec.target.path, grant.task_id)              # file events it causes are FERB's
         try:

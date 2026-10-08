@@ -187,6 +187,7 @@ class ToolContext:
     owner_roots: tuple[str, ...]
     untrusted_roots: tuple[str, ...]
     intent_id: str | None = None             # ledger row of this call when consequential (drivers tag with it)
+    observe_only: bool = False               # the final checker's call (V3, W4): its tools keep it to observing
 
 
 @dataclass(frozen=True)

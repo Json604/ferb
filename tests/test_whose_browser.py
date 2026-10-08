@@ -187,7 +187,9 @@ def test_checker_tab_access_requires_matching_registered_parent(daemon: Any, cha
         assert len(asyncio.run(r.open_tabs(task=tid))) == 1
 
 
-def test_chat_checker_navigates_existing_worker_tab_without_taking_ownership(daemon: Any) -> None:
+def test_chat_checker_reads_existing_worker_tab_without_navigating_or_taking_ownership(daemon: Any) -> None:
+    """V3, W4: the checker reads the worker's borrowed tab where it is (find); it is never offered navigation of an
+    owner's tab, so the page stays as the worker left it, and the tab stays the worker's, then the owner's."""
     import json
     from ferb.act.browser.tools import BrowserClose, BrowserFind, BrowserNavigate, OWNER_BROWSER
     from tests.conftest import chat, cond, done, install, outcome, sup, task, tool
@@ -198,7 +200,7 @@ def test_chat_checker_navigates_existing_worker_tab_without_taking_ownership(dae
     d.router = r
     d.registry.capabilities["browser.find"] = BrowserFind(r, OWNER_BROWSER)
     d.registry.capabilities["browser.close"] = BrowserClose(r, OWNER_BROWSER)
-    d.registry.capabilities["browser.navigate"] = BrowserNavigate(r, OWNER_BROWSER)
+    d.registry.capabilities["browser.navigate"] = BrowserNavigate(r, OWNER_BROWSER)   # installed; not for a checker
     original_call = br.call
 
     async def page(op: str, args: dict[str, Any], **kwargs: Any) -> Any:
@@ -213,12 +215,11 @@ def test_chat_checker_navigates_existing_worker_tab_without_taking_ownership(dae
         return done("last author: a test comment")
 
     def checker(token: str) -> str:
-        navigated = tool(daemon.sock, token, "browser.navigate", tab="t1", url="https://example.com/comments")
-        assert not navigated["is_error"], navigated
-        assert r.owner_of(br, 11) == d._inspection_parent(d.tokens.validate(token).task_id)
         got = tool(daemon.sock, token, "browser.find", tab="t1", text="last author")
         assert not got["is_error"], got
         assert got["content"]["examples"] == ["last author: a test comment"]
+        assert r.owner_of(br, 11) == d._inspection_parent(d.tokens.validate(token).task_id)
+        assert r.tab_url("t1") == "https://www.youtube.com/watch?v=fixture"
         return json.dumps({"results": [{"index": 0, "met": True, "evidence": "fresh read matches"}]})
 
     spec = task("read current comments", "owner", conds=(cond("last comment matches"),))
@@ -228,6 +229,9 @@ def test_chat_checker_navigates_existing_worker_tab_without_taking_ownership(dae
     assert result["verified"] is True, result
     ctx = next(c for _, key, c, _ in script.contexts if key == "worker.verify")
     assert '"tool_prefix": "browser", "tab": "t1"' in ctx
+    offered = next(t for _, key, _, t in script.contexts if key == "worker.verify")
+    assert "browser.find" in offered and "browser.navigate" not in offered
+    assert "navigate" not in br.calls
     assert not r._tabs and "close" not in br.calls
 
 

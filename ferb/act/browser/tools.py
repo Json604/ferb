@@ -33,7 +33,7 @@ class IdentityDriver(BrowserDriver, Protocol):
                        window_id: int | None = None, allow_foreground: bool = False) -> TabRef: ...
     async def navigate(self, tab: TabRef, url: str) -> None: ...
     def claim(self, tab: TabRef, owner: str) -> None: ...
-    def owned_by(self, tab_id: str, owner: str) -> TabRef: ...
+    def owned_by(self, tab_id: str, owner: str, borrow: bool = True) -> TabRef: ...
     def tab_url(self, tab_id: str) -> str | None: ...
     async def keep_open(self, tab: TabRef) -> dict[str, Any]: ...
     def element_info(self, tab_id: str, element_id: str) -> PageElement | None: ...
@@ -157,9 +157,10 @@ class BrowserOpen(_Base):
         if self.family.identity is Identity.FERB and getattr(args, "profile") is not None:
             raise Refused("ferb_browser is bound to FERB's dedicated account profile; use browser.open for an explicit owner profile")
         profile = getattr(args, "profile") if self.family.identity is Identity.OWNER else None
-        tab = await self.driver.open_for(url, ctx.task_id, profile,
-                                         window_id=getattr(args, "window_id"),
-                                         allow_foreground=getattr(args, "allow_foreground"))
+        # Rule 17: a checker never creates a window that may switch Spaces, whatever it was told.
+        foreground = bool(getattr(args, "allow_foreground")) and not ctx.observe_only
+        tab = await self.driver.open_for(url, ctx.task_id, profile, window_id=getattr(args, "window_id"),
+                                         allow_foreground=foreground)
         out: dict[str, object] = {"tab": tab.tab_id, "url": self.driver.tab_url(tab.tab_id)}
         if self.family.identity is Identity.OWNER:
             out["profile"] = f"{tab.browser}/{tab.profile}"
@@ -297,17 +298,31 @@ class BrowserUseTab(_Base):
 
 class BrowserNavigate(_Base):
     verb, blurb = "navigate", "Load a different http(s) URL in one of this task's tabs ({whose})."
-    observation = True                                 # opening a URL to inspect it: the final checker may (V3, W4)
 
     class Input(_Tab):
         url: str
+
+    @property
+    def observation(self) -> bool:
+        """In FERB's own browser, loading a URL to inspect it is observation for the final checker (W4), in a tab it
+        opened itself (`_run`). In the owner's profile it would replace a borrowed or kept-open tab of the owner's and
+        make signed-in requests as the owner (a logout or unsubscribe link): never a checker's (V3)."""
+        return self.family.identity is Identity.FERB
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.NAVIGATE, Target(site=_host(getattr(args, "url"))))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         check_url(str(getattr(args, "url")))
-        ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)
+        tab = str(getattr(args, "tab"))
+        if ctx.observe_only:            # V3: the worker's tabs keep their state for a retry or the owner's handoff
+            try:
+                ref = self.driver.owned_by(tab, ctx.task_id, borrow=False)
+            except Refused:
+                raise Refused(f"tab {tab} isn't one this check opened: read it where it is, or open the page in a "
+                              f"new tab with {self.family.prefix}_open") from None
+        else:
+            ref = self.driver.owned_by(tab, ctx.task_id)
         await self.driver.navigate(ref, str(getattr(args, "url")))
         return ToolResult({"tab": ref.tab_id, "url": self.driver.tab_url(ref.tab_id)},
                           read_sources=self._page(ref.tab_id))
@@ -592,7 +607,6 @@ class BrowserFillOtp(_Base):
 
 class BrowserOtpCandidates(BrowserFillOtp):
     verb = "otp_candidates"
-    observation = True                                 # only reads: the final checker may use it (V3, W4)
     risk, reversible = RiskLevel.LOW, True
     class Input(_El):
         secret: str
