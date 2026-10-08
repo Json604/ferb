@@ -26,6 +26,7 @@ from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.redact import Redactor
 from ferb.store.spans import SpanStore
+from ferb.trace import lines
 
 Publish = Callable[[str, dict[str, Any]], None]
 Redact = Callable[[Any], Any]
@@ -229,7 +230,7 @@ class Gateway:
             unlisted = [r for r in recipients if r not in self.test_send_allowlist]
             if not recipients or unlisted:
                 error = "blocked by FERB test-mode send allowlist" + ("" if recipients else ": no checkable recipient")
-                self.spans.finish(span, error=error)
+                self._finish_call(span, name, {"error": error}, True, error=error)
                 return reply({"error": error, "recipients": unlisted}, True)
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
@@ -237,7 +238,7 @@ class Gateway:
                 intent_id = self.ledger.intend(grant.task_id, name, _target_dict(spec.target), payload_hash(action), reconcile_first=False).id
                 self.ledger.mark(intent_id, "executing")
             except DuplicateUnresolved as e:
-                self.spans.finish(span, error=str(e))
+                self._finish_call(span, name, {"error": str(e)}, True, error=str(e))
                 return reply({"error": str(e)}, True)
 
         ctx = ToolContext(task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
@@ -253,27 +254,44 @@ class Gateway:
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])
             self._observed(name, spec, action, grant, "unknown")
-            self.spans.finish(span, error="cancelled; outcome unknown")
+            self._finish_call(span, name, {"error": "cancelled; outcome unknown"}, True,
+                              error="cancelled; outcome unknown")
             raise
         except Exception as e:                           # outcome unknown: the ledger reconciles, never retries blindly
             detail = self.redact({'error': f'{type(e).__name__}: {e}'})['error']
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", [detail])
             self._observed(name, spec, action, grant, "unknown")
-            self.spans.finish(span, error=f"{type(e).__name__}: {e}")
+            self._finish_call(span, name, {"error": f"{type(e).__name__}: {e}"}, True,
+                              error=f"{type(e).__name__}: {e}")
             return reply({"error": f"{name} failed: {detail}; outcome unknown"}, True)
         if intent_id:
             self.ledger.mark(intent_id, "failed" if result.is_error else "done", [span.id])
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
         content = self.redact(result.content)
-        self.spans.finish(span, output=content, error=content.get("error") if result.is_error else None,
-                          origin=origin.join(origins))
+        self._finish_call(span, name, content, result.is_error, output=content,
+                          error=content.get("error") if result.is_error else None, origins=origins)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
         out = reply(content, result.is_error, origins)
         if result.image is not None and not result.is_error:     # to the model only: not in the span, journal or logs
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
         return out
+
+    def _finish_call(self, span: Any, name: str, content: dict[str, Any], is_error: bool, *,
+                     output: dict[str, Any] | None = None, error: str | None = None,
+                     origins: set[str] | None = None) -> None:
+        """Finish a tool.call span with its one-line summary and publish tool.finished (P26). `content` feeds the
+        summary only; `output` is what the span records (None on error paths). No origins: none is recorded."""
+        args, why = span.input.get("args") or {}, str(span.input.get("why") or "")
+        summary = lines.summarize(name, args, content, is_error)
+        self.spans.finish(span, output=output, error=error, origin=origin.join(origins) if origins else None,
+                          summary=summary)
+        self.publish("tool.finished", {"tool": name, "task_id": span.task_id, "summary": self.redact({"s": summary})["s"],
+                                       "seconds": round((span.ended_at - span.started_at).total_seconds(), 1)
+                                       if span.ended_at else None,
+                                       "error": self.redact({"e": error})["e"] if error else None,
+                                       "args": self.redact(args), "why": self.redact({"w": why})["w"]})
 
     def _observed(self, name: str, spec: Any, action: ActionRequest, grant: RunGrant, status: str) -> None:
         self.publish("action.observed", {"what": name, "where": _target_dict(spec.target), "actor": "ferb",
@@ -322,7 +340,7 @@ class Gateway:
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
-            self.spans.finish(span, output=declined, origin=origin.join(ask_origins(declined)))
+            self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
             return {"declined": True, "reason": "the owner isn't here (a scheduled run): decide yourself or report "
                                                 "what's missing"}
         ask = ActionRequest(capability=OWNER_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
@@ -338,10 +356,11 @@ class Gateway:
             self.observer.tool_call(grant, done=True)
         if answer != "granted":
             refused = {"declined": True, "state": answer}
-            self.spans.finish(span, output=refused, origin=origin.join(ask_origins(refused)))
+            self._finish_call(span, OWNER_ASK, refused, False, output=refused, origins=ask_origins(refused))
             return {"declined": True}
         text = ap.choice or ap.answer or ""
-        self.spans.finish(span, output={"answer": text}, origin=origin.join(ask_origins({"answer": text})))
+        given = {"answer": text}
+        self._finish_call(span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
         return {"answer": text}
 
 

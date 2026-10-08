@@ -78,6 +78,7 @@ class Span:
     cost_usd: float | None
     error: str | None
     origin: str | None = None  # a tool call's result origins, comma-joined (ferb/core/origin.py)
+    summary: str | None = None  # a tool call's one-line result summary (ferb/trace/lines.py)
 
 
 @dataclass

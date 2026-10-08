@@ -59,7 +59,7 @@ from ferb.store.spans import SpanNode, SpanStore
 Redact = Callable[[Any], Any]
 
 # `ferb logs` filter flags -> bus topic patterns
-LOG_FILTERS = {"tasks": "task.*", "trail": "trail.event", "tools": "tool.called", "browsers": "browser.*",
+LOG_FILTERS = {"tasks": "task.*", "trail": "trail.event", "tools": "tool.*", "browsers": "browser.*",
                "actions": "action.*", "timers": "timer.*",
                "voice": "voice.*"}
 MACOS_TICK_S = 0.2

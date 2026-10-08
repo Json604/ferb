@@ -35,18 +35,21 @@ class SpanStore:
         return span
 
     def finish(self, span: Span, *, output: dict[str, Any] | None = None, error: str | None = None,
-               cost_usd: float | None = None, origin: str | None = None) -> Span:
+               cost_usd: float | None = None, origin: str | None = None,
+               summary: str | None = None) -> Span:
         span.ended_at = self._clock.now()
         span.output = None if output is None else self._redact(output)
         span.error = None if error is None else self._redact({"error": error})["error"]
         span.cost_usd = cost_usd
         if origin is not None:                       # no origin given: keep one recorded earlier (set_origin)
             span.origin = self._redact({"origin": origin})["origin"]
+        if summary is not None:
+            span.summary = self._redact({"summary": summary})["summary"]
         self._db.conn.execute(
-            "UPDATE spans SET ended_at = ?, output_json = ?, error = ?, cost_usd = ?, origin = COALESCE(?, origin) "
-            "WHERE id = ?",
+            "UPDATE spans SET ended_at = ?, output_json = ?, error = ?, cost_usd = ?, origin = COALESCE(?, origin), "
+            "summary = COALESCE(?, summary) WHERE id = ?",
             (span.ended_at.isoformat(), None if span.output is None else json.dumps(span.output), span.error,
-             cost_usd, None if origin is None else span.origin, span.id))
+             cost_usd, None if origin is None else span.origin, span.summary, span.id))
         return span
 
     def set_origin(self, span_id: str, origin: str) -> None:
@@ -225,7 +228,7 @@ def _row_to_span(r: Any) -> Span:
                 ended_at=datetime.fromisoformat(r["ended_at"]) if r["ended_at"] else None,
                 input=json.loads(r["input_json"]),
                 output=json.loads(r["output_json"]) if r["output_json"] else None,
-                cost_usd=r["cost_usd"], error=r["error"], origin=r["origin"])
+                cost_usd=r["cost_usd"], error=r["error"], origin=r["origin"], summary=r["summary"])
 
 
 def _span_record(span: Span) -> dict[str, Any]:
@@ -233,7 +236,7 @@ def _span_record(span: Span) -> dict[str, Any]:
             'started_at': span.started_at.isoformat(),
             'ended_at': span.ended_at.isoformat() if span.ended_at else None,
             'input': span.input, 'output': span.output, 'error': span.error, 'cost_usd': span.cost_usd,
-            'origin': span.origin}
+            'origin': span.origin, 'summary': span.summary}
 
 
 def _strings(value: Any) -> list[str]:

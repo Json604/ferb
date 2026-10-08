@@ -7,9 +7,14 @@ from datetime import datetime
 from typing import Any, TextIO
 
 from ferb.cli.client import Client
+from ferb.trace import lines
 
 
 def format_event(ev: dict[str, Any]) -> str:
+    if ev["topic"] == "tool.finished":
+        d = ev["data"]
+        return lines.step_line(ev["at"], d.get("tool", "?"), d.get("args") or {}, d.get("why") or "",
+                               d.get("summary") or "", d.get("seconds"), d.get("error"))
     at = datetime.fromisoformat(ev["at"]).strftime("%H:%M:%S")
     marker = "!" if ev["class"] == "critical" else ("*" if ev["class"] == "notice" else " ")
     data = json.dumps(ev["data"], separators=(",", ":"), ensure_ascii=False)
