@@ -63,9 +63,20 @@ class Journal:
 
     def entries(self, since: datetime | None = None) -> list[JournalEntry]:
         rows = self._db.conn.execute("SELECT * FROM journal ORDER BY seq").fetchall()
-        out = []
-        for r in rows:
-            data = json.loads(r["data_json"])
-            out.append(JournalEntry(r["id"], datetime.fromisoformat(r["at"]), r["kind"], data,
-                                    r["origin"] or journal_origin(r["kind"], data)))
-        return [e for e in out if since is None or e.at >= since]
+        return [e for e in map(_entry, rows) if since is None or e.at >= since]
+
+    def of_kind(self, kind: str, field: str = "", equals: str = "", missing: str | None = None) -> list[JournalEntry]:
+        """One kind's rows, oldest first, read through the journal_kind index; with `field`, only rows whose data holds
+        `equals` there (`missing`: what a row without that field counts as, e.g. "owner" for a pre-session chat)."""
+        sql = "SELECT * FROM journal WHERE kind = ?"
+        params: list[Any] = [kind]
+        if field:
+            sql += " AND COALESCE(json_extract(data_json, ?), ?) = ?"
+            params += ["$." + field, missing, equals]
+        return [_entry(r) for r in self._db.conn.execute(sql + " ORDER BY seq", params)]
+
+
+def _entry(r: Any) -> JournalEntry:
+    data = json.loads(r["data_json"])
+    return JournalEntry(r["id"], datetime.fromisoformat(r["at"]), r["kind"], data,
+                        r["origin"] or journal_origin(r["kind"], data))

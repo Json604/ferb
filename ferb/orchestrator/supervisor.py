@@ -539,18 +539,16 @@ class Supervisor(WorkerRuns):
 
     def _request_origins(self, request_id: str) -> set[str]:
         """The stored origins of the owner's chat message for a request."""
-        return {o for e in self.journal.entries() if e.kind == "chat.message" and e.data.get("request_id") == request_id
+        return {o for e in self.journal.of_kind("chat.message", "request_id", request_id)
                 for o in origins_.split(e.origin)}
 
     def _carried_origins(self, session_id: str, current_request: str) -> set[str]:
         """The origins of the earlier messages a clarify continuation carries in its payload: the session's latest
         messages, back to the first one FERB didn't answer with a question."""
-        entries = self.journal.entries()
-        clarified = {e.data.get("request_id") for e in entries if e.kind == "chat.clarify"}
+        clarified = {e.data.get("request_id") for e in self.journal.of_kind("chat.clarify")}
         carried: set[str] = set()
-        for e in reversed(entries):
-            if e.kind != "chat.message" or e.data.get("session_id", "owner") != session_id \
-                    or e.data.get("request_id") == current_request:
+        for e in reversed(self.journal.of_kind("chat.message", "session_id", session_id, missing="owner")):
+            if e.data.get("request_id") == current_request:
                 continue
             if e.data.get("request_id") not in clarified:
                 break
@@ -561,8 +559,7 @@ class Supervisor(WorkerRuns):
         """A scheduled run's request: what the turn that made the schedule was written from, as recorded on its
         schedule.created row (always holding `inferred`, since the planner wrote the request). A row recorded without
         that label (before F3, or by a schedule made outside chat) is unlabeled."""
-        held = {o for e in self.journal.entries()
-                if e.kind == "schedule.created" and e.data.get("schedule_id") == schedule_id
+        held = {o for e in self.journal.of_kind("schedule.created", "schedule_id", schedule_id)
                 for o in origins_.split(e.origin)}
         return held if origins_.INFERRED in held else {origins_.external("unlabeled")}
 

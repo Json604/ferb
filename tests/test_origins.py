@@ -96,6 +96,30 @@ def test_per_hour_sites_in_a_day_summary_are_outside_text() -> None:
     assert summary.digest_origins(summary.SUMMARY_KIND, {"day": "2026-10-06", "hours": {}}) == {"private"}
 
 
+def test_per_turn_origin_lookups_read_one_kind_through_the_index(daemon: RunningDaemon) -> None:
+    """Minor 3: the chat-turn origin lookups (request, carried clarify payload, schedule) read only the kind they
+    need through the journal_kind index, never the whole journal; their answers are unchanged."""
+    sup_ = daemon.daemon.supervisor
+
+    async def go() -> tuple[list[str], tuple[set[str], set[str], set[str]]]:
+        j, conn = daemon.daemon.journal, daemon.daemon.db.conn
+        j.append("chat.message", {"session_id": "s1", "request_id": "r1", "text": "a", "untrusted_parts": 1})
+        j.append("chat.clarify", {"session_id": "s1", "request_id": "r1", "text": "which?"}, origin="inferred")
+        j.append("schedule.created", {"schedule_id": "k1", "request": "x"}, origin="inferred,owner")
+        statements: list[str] = []
+        conn.set_trace_callback(statements.append)
+        try:
+            got = (sup_._request_origins("r1"), sup_._carried_origins("s1", "r9"), sup_._schedule_origins("k1"))
+        finally:
+            conn.set_trace_callback(None)
+        reads = [sql for sql in statements if "FROM journal" in sql]
+        plans = [" ".join(str(r[-1]) for r in conn.execute("EXPLAIN QUERY PLAN " + sql)) for sql in reads]
+        return plans, got
+    plans, got = daemon.run(go())
+    assert plans and all("journal_kind" in plan for plan in plans), plans
+    assert got == ({"owner", "external:paste"}, {"owner", "external:paste"}, {"inferred", "owner"})
+
+
 def _journal(daemon: RunningDaemon, kind: str) -> list[str]:
     async def go():
         return [r["origin"] for r in daemon.daemon.db.conn.execute(

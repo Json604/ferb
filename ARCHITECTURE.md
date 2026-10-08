@@ -246,7 +246,8 @@ trusted one (`least_trusted`). Origins are facts about where content came from; 
   hold (`digest_origins`, [`memory/summary.py`](ferb/memory/summary.py)), everything else `ferb`. Derived rows
   (`task.answer`, `task.outcome`, chat replies and clarifications, `schedule.created`) record `inferred` plus the origins
   they were derived from, at capture, and say how they were made in `made_by`. Rows from before F3 stay NULL and are
-  derived from kind and data when read.
+  derived from kind and data when read. A chat turn's origin lookups (its request, a carried clarify payload, a
+  schedule's request) read one kind through the `journal_kind` index (`Journal.of_kind`), not the whole journal.
 - `tool.call` spans carry `spans.origin` (migration 0016). The gateway labels a result with `result_origins`
   ([`daemon/gateway.py`](ferb/daemon/gateway.py)): the tool's `read_sources` (`from_read_source`: file, app and
   owner_account are `private`; download is `external:download`; web is `external:web:<host>`, or `external:web:shell` for a
