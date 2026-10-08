@@ -151,6 +151,12 @@ def add_shell(r: Registry, shells: ShellManager) -> None:
     r.add(ShellList(shells))
 
 
+def add_recovery(r: Registry, snapshots: Any) -> None:
+    """S1: an agent's request for a disk snapshot before bulk or destructive work (ferb/act/fs/recovery.py)."""
+    from ferb.act.fs.recovery import RecoverySnapshot
+    r.add(RecoverySnapshot(snapshots))
+
+
 def add_recording(r: Registry, manager: Any) -> None:
     from ferb.act.recording import RecordingStop, RecordingInspect
     r.add(RecordingStop(manager))

@@ -23,10 +23,12 @@ class Kind:
     ACCOUNT_SECURITY = "account_security"                 # passwords, 2FA, recovery settings, account deletion
     CALL = "call"                                         # starting a voice / video call
     CLICK = "click"                                       # a plain click on a page control (no floor word, no form)
+    SNAPSHOT = "snapshot"                                 # a local disk snapshot, a recovery point (S1)
 
 
 # Reversible kinds never get a ledger row: nothing of the owner's changes.
-REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER}
+REVERSIBLE = {Kind.READ, Kind.NAVIGATE, Kind.SEARCH, Kind.OPEN_TAB, Kind.DRAFT, Kind.TRASH, Kind.TIMER,
+              Kind.SNAPSHOT}
 # Kinds whose result is content the tool read (S3): a result that names no source is outside content, unlabeled.
 READING_KINDS = frozenset({Kind.READ, Kind.SEARCH, Kind.NAVIGATE, Kind.MAILBOX_READ})
 

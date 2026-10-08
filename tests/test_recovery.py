@@ -5,10 +5,13 @@ trash, restore (never over a change the owner made since), fallback when clonefi
 Offline: the Trash is a folder in the test home (files.move_to_trash is replaced), and no real tmutil snapshot is ever
 taken (the test daemon has no snapshot hook; local_snapshot's own tests replace subprocess.run)."""
 
+import asyncio
 import io
 import json
 import os
+import stat
 import subprocess
+import threading
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -101,7 +104,7 @@ def test_an_overwrite_keeps_a_recoverable_copy(daemon: RunningDaemon) -> None:
     out = _write(daemon, grant, f, "the replacement")
     assert not out["is_error"] and f.read_text() == "the replacement"
     rec = _recovery_rows(daemon)[-1]
-    assert rec["kind"] == "clone" and rec["original"] == str(f) and rec["reason"] == "overwrite"
+    assert rec["kind"] == "clone" and rec["original"] == str(f.resolve()) and rec["reason"] == "overwrite"
     assert rec["task_id"] == grant.task_id
     assert out["content"]["recoverable"] == rec["id"]                     # the worker and the trace see it
     span = _spans(daemon, "tool.call")[-1]
@@ -272,7 +275,8 @@ def test_a_trash_keeps_the_original_path_durably(daemon: RunningDaemon, trash: P
     out = gateway_tool_call(daemon, grant, "fs.trash", path=str(f), effect="delete")
     assert not out["is_error"] and not f.exists()
     rec = _recovery_rows(daemon)[-1]
-    assert rec["kind"] == "trash" and rec["original"] == str(f) and rec["saved_to"] == str(trash / "old.txt")
+    assert rec["kind"] == "trash" and rec["original"] == str(f.resolve())
+    assert rec["saved_to"] == str(trash.resolve() / "old.txt") and rec["saved_dev"] and rec["saved_ino"]
     assert rec["reason"] == "trash" and out["content"]["recoverable"] == rec["id"]
     restored = _restore(daemon, rec["id"])
     assert restored.resolve() == f.resolve() and f.read_text() == "bye" and not (trash / "old.txt").exists()
@@ -390,64 +394,174 @@ def test_short_paths_use_the_owners_home() -> None:
     assert recovery.short(Path("/tmp/x")) == "/tmp/x"
 
 
-# ---------- a snapshot before shell or delete work ----------
+# ---------- snapshots before bulk or destructive work ----------
 
 class _Snapshots:
-    def __init__(self, name: str | None = "com.apple.TimeMachine.2026-10-09-001938.local",
-                 boom: bool = False) -> None:
-        self.name, self.boom, self.order = name, boom, []
+    """A fake `tmutil localsnapshot`: each call a new name (or a failure), in call order."""
+
+    def __init__(self, fail: str = "", gate: threading.Event | None = None) -> None:
+        self.fail, self.gate, self.order, self.n = fail, gate, [], 0
 
     def __call__(self) -> str | None:
+        if self.gate is not None:
+            self.gate.wait(5)
         self.order.append("snapshot")
-        if self.boom:
+        if self.fail == "boom":
             raise RuntimeError("tmutil went away")
-        return self.name
+        if self.fail == "none":
+            return None
+        self.n += 1
+        return f"com.apple.TimeMachine.2026-10-09-00000{self.n}.local"
 
 
-class _Shell(FakeCap):
-    def __init__(self, order: list[str]) -> None:
-        super().__init__("shell.fake", Kind.RUN_SHELL, {"shell"})
+class _Ordered(FakeCap):
+    def __init__(self, name: str, kind: str, order: list[str]) -> None:
+        super().__init__(name, kind, {"probe"})
         self.order = order
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
-        self.order.append("shell")
+        self.order.append(self.name)
         return await super().run(args, ctx)
 
 
+def _snaps(daemon: RunningDaemon, fake: _Snapshots) -> recovery.Snapshots:
+    service = daemon.daemon.snapshots
+    assert service is not None and daemon.daemon.gateway.snapshots is service
+    service.take = fake
+    return service
+
+
+def _snapshot_rows(daemon: RunningDaemon) -> list[dict[str, Any]]:
+    return [r for r in _recovery_rows(daemon) if r["kind"] == "snapshot"]
+
+
 def test_the_test_daemon_never_takes_a_real_snapshot(daemon: RunningDaemon) -> None:
-    assert daemon.daemon.gateway.snapshot is None
+    assert daemon.daemon.snapshots is not None and daemon.daemon.snapshots.take is None
 
 
-def test_one_snapshot_per_task_tree_before_its_first_shell_command(daemon: RunningDaemon) -> None:
-    snaps = _Snapshots()
-    daemon.daemon.gateway.snapshot = snaps
-    shell = _Shell(snaps.order)
-    grant, _ = gateway_setup(daemon, {"shell"}, gateway_request("tidy my folder"), [shell])
-    assert not gateway_tool_call(daemon, grant, "shell.fake", text="ls")["is_error"]
-    assert not gateway_tool_call(daemon, grant, "shell.fake", text="rm -r build")["is_error"]
-    assert snaps.order == ["snapshot", "shell", "shell"]                    # once, and before the first command
+def test_an_agent_asks_for_a_snapshot_and_it_is_recorded(daemon: RunningDaemon) -> None:
+    fake = _Snapshots()
+    _snaps(daemon, fake)
+    grant, _ = gateway_setup(daemon, set(), gateway_request("clear out the old builds"), [])
+    out = gateway_tool_call(daemon, grant, "recovery.snapshot", before="delete every build folder")
+    assert not out["is_error"] and out["content"]["snapshot"] == "com.apple.TimeMachine.2026-10-09-000001.local"
+    assert "macOS Recovery or Time Machine" in out["content"]["note"]
+    [row] = _snapshot_rows(daemon)
+    assert row["original"] == "/" and row["saved_to"] == out["content"]["snapshot"]
+    assert row["reason"] == "delete every build folder" and row["task_id"] == grant.task_id
+    assert out["content"]["record"] == row["id"]
+
+    async def ledger() -> int:
+        return int(daemon.daemon.db.conn.execute("SELECT count(*) FROM action_ledger").fetchone()[0])
+    assert daemon.run(ledger()) == 0                                        # reversible: no ledger row
+
+
+def test_at_most_one_snapshot_per_fifteen_minutes_across_tasks(daemon: RunningDaemon) -> None:
+    fake = _Snapshots()
+    _snaps(daemon, fake)
+    grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    first = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk rename")["content"]
+    again = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")["content"]
+    assert again["reused"] is True and again["snapshot"] == first["snapshot"] and fake.n == 1
+    assert "reused" in again["note"]
+    daemon.call_soon(daemon.daemon.clock.advance, 16 * 60)
+    later = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")["content"]
+    assert fake.n == 2 and later["snapshot"] != first["snapshot"] and "reused" not in later
+    assert len(_snapshot_rows(daemon)) == 2
+
+
+def test_shell_and_trash_calls_take_no_snapshot(daemon: RunningDaemon, trash: Path) -> None:
+    fake = _Snapshots()
+    _snaps(daemon, fake)
+    shell = _Ordered("shell.fake", Kind.RUN_SHELL, fake.order)
+    grant, _ = gateway_setup(daemon, {"probe", "fs:write"}, gateway_request("tidy"), [shell])
+    gateway_tool_call(daemon, grant, "shell.fake", text="rm -r build")
+    f = _ws(daemon) / "t.txt"
+    f.write_text("x")
+    gateway_tool_call(daemon, grant, "fs.trash", path=str(f))
+    _write(daemon, grant, _ws(daemon) / "w.txt", "x")
+    assert fake.order == ["shell.fake"] and _snapshot_rows(daemon) == []   # agents ask; trash and writes are covered
+
+
+def test_a_permanent_delete_takes_a_snapshot_first(daemon: RunningDaemon) -> None:
+    fake = _Snapshots()
+    _snaps(daemon, fake)
+    gone = _Ordered("fs.fake_delete", Kind.DELETE_PERMANENT, fake.order)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("delete it for good"), [gone])
+    assert not gateway_tool_call(daemon, grant, "fs.fake_delete", text="a")["is_error"]
+    assert fake.order == ["snapshot", "fs.fake_delete"]
     [span] = _spans(daemon, "recovery.snapshot")
-    assert json.loads(span["output_json"]) == {"snapshot": snaps.name} and span["error"] is None
+    assert span["error"] is None and json.loads(span["output_json"])["snapshot"].startswith("com.apple.TimeMachine.")
+    assert len(_snapshot_rows(daemon)) == 1
 
 
-def test_a_failed_snapshot_is_recorded_and_the_command_still_runs(daemon: RunningDaemon) -> None:
-    for snaps in (_Snapshots(boom=True), _Snapshots(name=None)):
-        daemon.daemon.gateway.snapshot = snaps
-        daemon.daemon.gateway.forget_tasks({"task-1"})
-        shell = _Shell(snaps.order)
-        grant, _ = gateway_setup(daemon, {"shell"}, gateway_request("tidy"), [shell])
-        assert not gateway_tool_call(daemon, grant, "shell.fake", text=f"echo {id(snaps)}")["is_error"]
-        assert snaps.order == ["snapshot", "shell"]
+def test_a_failed_snapshot_never_refuses_a_call_and_is_not_remembered(daemon: RunningDaemon) -> None:
+    for fail in ("boom", "none"):
+        fake = _Snapshots(fail=fail)
+        _snaps(daemon, fake)
+        gone = _Ordered(f"fs.fake_delete_{fail}", Kind.DELETE_PERMANENT, fake.order)
+        grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("delete"), [gone])
+        for text in ("a", "b"):                                          # the second call tries again, then runs
+            assert not gateway_tool_call(daemon, grant, gone.name, text=text)["is_error"]
+        assert fake.order == ["snapshot", gone.name, "snapshot", gone.name]
+        asked = gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk")
+        assert asked["is_error"] and "no snapshot was taken" in asked["content"]["error"]
     spans = _spans(daemon, "recovery.snapshot")
-    assert len(spans) == 2 and all(s["error"] for s in spans)
+    assert len(spans) == 4 and all(s["error"] for s in spans) and _snapshot_rows(daemon) == []
 
 
-def test_no_snapshot_for_a_plain_file_write(daemon: RunningDaemon) -> None:
-    snaps = _Snapshots()
-    daemon.daemon.gateway.snapshot = snaps
-    grant = _fs_grant(daemon)
-    _write(daemon, grant, _ws(daemon) / "w.txt", "x")                     # a per-file copy covers a write
-    assert snaps.order == []
+def test_a_cancelled_wait_still_records_the_snapshot_for_the_next_request(daemon: RunningDaemon) -> None:
+    gate = threading.Event()
+    fake = _Snapshots(gate=gate)
+    service = _snaps(daemon, fake)
+
+    async def go() -> tuple[bool, dict[str, Any]]:
+        waiting = asyncio.ensure_future(service.request("task-1", "bulk delete"))
+        await asyncio.sleep(0.05)
+        waiting.cancel()
+        try:
+            await waiting
+        except asyncio.CancelledError:
+            pass
+        gate.set()
+        for _ in range(100):                                             # the snapshot goes on without its asker
+            if service._running is not None and service._running.done():
+                break
+            await asyncio.sleep(0.02)
+        return waiting.cancelled(), await service.request("task-2", "bulk delete")
+    cancelled, nxt = daemon.run(go())
+    assert cancelled and fake.n == 1 and nxt["reused"] is True and len(_snapshot_rows(daemon)) == 1
+
+
+def test_ferb_restore_lists_a_snapshot_with_how_to_open_it(daemon: RunningDaemon) -> None:
+    _snaps(daemon, _Snapshots())
+    grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")
+    rid = _snapshot_rows(daemon)[0]["id"]
+    c = Client(daemon.sock)
+    try:
+        out = io.StringIO()
+        admin.restore(c, None, out)
+        assert "disk snapshot" in out.getvalue() and "macOS Recovery or Time Machine" in out.getvalue()
+        with pytest.raises(RpcError, match="admin rights"):
+            c.call("recovery.restore", {"id": rid})
+    finally:
+        c.close()
+
+
+def test_old_snapshots_are_deleted_then_their_records_go(daemon: RunningDaemon) -> None:
+    _snaps(daemon, _Snapshots())
+    grant, _ = gateway_setup(daemon, set(), gateway_request("tidy"), [])
+    gateway_tool_call(daemon, grant, "recovery.snapshot", before="bulk delete")
+    _sql(daemon, "UPDATE recovery SET at = ? WHERE kind = 'snapshot'",
+         ((daemon.daemon.clock.now() - timedelta(days=8)).isoformat(),))
+    cutoff = (daemon.daemon.clock.now() - timedelta(days=7)).isoformat()
+    deleted: list[str] = []
+
+    async def purge(ok: bool) -> int:
+        return await recovery.purge_snapshots(cutoff, daemon.daemon.db, lambda n: deleted.append(n) or ok)
+    assert daemon.run(purge(False)) == 0 and len(_snapshot_rows(daemon)) == 1   # not deleted: the record stays
+    assert daemon.run(purge(True)) == 1 and _snapshot_rows(daemon) == [] and len(deleted) == 2
 
 
 def test_local_snapshot_asks_tmutil_without_a_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -476,3 +590,205 @@ def test_local_snapshot_is_none_when_tmutil_cannot(monkeypatch: pytest.MonkeyPat
         return subprocess.CompletedProcess(cmd, 0, "something else\n", "")
     monkeypatch.setattr(recovery.subprocess, "run", fake_run)
     assert recovery.local_snapshot() is None
+
+
+def test_delete_local_snapshot_deletes_only_ferbs_named_snapshot_without_a_prompt(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    listed = {"out": "Snapshots for disk /:\ncom.apple.TimeMachine.2026-10-09-001938.local\n"}
+
+    def fake_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        assert kw["stdin"] is subprocess.DEVNULL and kw["timeout"]
+        return subprocess.CompletedProcess(cmd, 0, listed["out"] if "listlocalsnapshots" in cmd else "", "")
+    monkeypatch.setattr(recovery.subprocess, "run", fake_run)
+    assert recovery.delete_local_snapshot("com.apple.TimeMachine.2026-10-09-001938.local")
+    assert calls[-1] == ["/usr/bin/tmutil", "deletelocalsnapshots", "2026-10-09-001938"]
+    calls.clear()
+    listed["out"] = "Snapshots for disk /:\n"                              # macOS thinned it already
+    assert recovery.delete_local_snapshot("com.apple.TimeMachine.2026-10-09-001938.local")
+    assert all("deletelocalsnapshots" not in c for c in calls)
+    calls.clear()
+    assert not recovery.delete_local_snapshot("2026-10-09-001938; rm -rf ~") and calls == []
+
+
+# ---------- the file FERB really writes (fix round 1) ----------
+
+def test_an_overwrite_through_a_symlinked_folder_and_dotdot_copies_the_real_file(daemon: RunningDaemon) -> None:
+    """`link/../notes.txt` is, for the OS, the notes.txt beside the link's target; textually it names a decoy."""
+    ws = _ws(daemon)
+    (ws / "elsewhere" / "inner").mkdir(parents=True)
+    (ws / "link").symlink_to(ws / "elsewhere" / "inner")
+    real, decoy = ws / "elsewhere" / "notes.txt", ws / "notes.txt"
+    real.write_text("the real original")
+    decoy.write_text("a decoy FERB never touches")
+    grant = _fs_grant(daemon)
+    out = _write(daemon, grant, ws / "link" / ".." / "notes.txt", "FERB's version")
+    assert not out["is_error"] and real.read_text() == "FERB's version"
+    assert decoy.read_text() == "a decoy FERB never touches"
+    [rec] = _recovery_rows(daemon)
+    assert rec["original"] == str(real.resolve()) and out["content"]["recoverable"] == rec["id"]
+    assert _restore(daemon, rec["id"]).resolve() == real.resolve() and real.read_text() == "the real original"
+    assert decoy.read_text() == "a decoy FERB never touches"
+
+
+def test_copies_and_hashes_run_off_the_daemon_loop(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ferb.act.fs.recovery as rec_mod
+    seen: list[str] = []
+    real_copy, real_hash = rec_mod._make_copy, rec_mod._sha256
+
+    def copy(src: Path, dst: Path) -> None:
+        seen.append(threading.current_thread().name)
+        real_copy(src, dst)
+
+    def digest(path: Path) -> str:
+        seen.append(threading.current_thread().name)
+        return real_hash(path)
+    monkeypatch.setattr(rec_mod, "_make_copy", copy)
+    monkeypatch.setattr(rec_mod, "_sha256", digest)
+    f = _ws(daemon) / "big.txt"
+    f.write_text("a")
+    grant = _fs_grant(daemon)
+    _write(daemon, grant, f, "b")
+    assert seen and daemon.thread.name not in seen
+
+
+class _WritesThenErrs:
+    """A write-file tool that changes the file and still reports an error."""
+    name, description, scopes, identities = "fs.half", "half", {"fs:write"}, files.FsWrite.identities
+    risk, reversible = files.FsWrite.risk, False
+    Input = files.FsRead.Input
+
+    def describe(self, args: Any) -> Any:
+        return files.FsWrite().describe(files.FsWrite.Input(path=args.path, content=""))
+
+    def real_path(self, args: Any, workspace: str) -> Path:
+        return files.real_path(args.path, workspace)
+
+    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        Path(args.path).write_text("changed anyway")
+        return ToolResult({"error": "partly failed"}, is_error=True)
+
+
+def test_an_error_that_changed_the_file_keeps_the_copy(daemon: RunningDaemon) -> None:
+    f = _ws(daemon) / "half.txt"
+    f.write_text("before")
+    half: Any = _WritesThenErrs()
+    grant, _ = gateway_setup(daemon, {"fs:write"}, gateway_request("save"), [half])
+    out = gateway_tool_call(daemon, grant, "fs.half", path=str(f))
+    assert out["is_error"] and f.read_text() == "changed anyway"
+    [rec] = _recovery_rows(daemon)
+    assert out["content"]["recoverable"] == rec["id"] and rec["written_sha256"] is None
+    restored = _restore(daemon, rec["id"])                                # unknown what FERB left: beside, not over
+    assert restored.name == "half (before FERB).txt" and restored.read_text() == "before"
+
+
+# ---------- the Trash: the very item, while it is there ----------
+
+def test_a_trash_restore_never_takes_out_a_different_item_with_the_same_name(daemon: RunningDaemon,
+                                                                             trash: Path) -> None:
+    f = _ws(daemon) / "same.txt"
+    f.write_text("FERB trashed this")
+    grant = _fs_grant(daemon)
+    gateway_tool_call(daemon, grant, "fs.trash", path=str(f))
+    (trash / "same.txt").unlink()
+    (trash / "same.txt").write_text("the owner's other file, trashed later")
+    with pytest.raises(recovery.NotRestorable, match="isn't the"):
+        _restore(daemon, _recovery_rows(daemon)[-1]["id"])
+    assert (trash / "same.txt").read_text() == "the owner's other file, trashed later" and not f.exists()
+
+
+def test_a_trash_record_outside_a_real_trash_folder_is_refused(daemon: RunningDaemon, trash: Path) -> None:
+    f = _ws(daemon) / "d.txt"
+    f.write_text("z")
+    grant = _fs_grant(daemon)
+    gateway_tool_call(daemon, grant, "fs.trash", path=str(f))
+    rid = _recovery_rows(daemon)[-1]["id"]
+    victim = _ws(daemon) / "victim.txt"
+    victim.write_text("not in any Trash")
+    for bad in (str(trash / ".." / "workspace" / "victim.txt"), str(victim), "relative/.Trash/x"):
+        _sql(daemon, "UPDATE recovery SET saved_to = ? WHERE id = ?", (bad, rid))
+        with pytest.raises(recovery.NotRestorable):
+            _restore(daemon, rid)
+    assert victim.read_text() == "not in any Trash"
+
+
+def test_a_trash_record_stays_while_its_item_is_in_the_trash_up_to_ninety_days(daemon: RunningDaemon,
+                                                                               trash: Path) -> None:
+    for name in ("kept.txt", "emptied.txt", "ancient.txt"):
+        f = _ws(daemon) / name
+        f.write_text(name)
+        gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    now = daemon.daemon.clock.now()
+    _sql(daemon, "UPDATE recovery SET at = ?", ((now - timedelta(days=30)).isoformat(),))
+    _sql(daemon, "UPDATE recovery SET at = ? WHERE original LIKE '%ancient.txt'",
+         ((now - timedelta(days=91)).isoformat(),))
+    (trash / "emptied.txt").unlink()
+
+    async def purge() -> int:
+        return recovery.purge_before((now - timedelta(days=7)).isoformat(), daemon.daemon.db, _root(daemon),
+                                     trash_backstop_iso=(now - timedelta(days=90)).isoformat())
+    assert daemon.run(purge()) == 2
+    assert [Path(r["original"]).name for r in _recovery_rows(daemon)] == ["kept.txt"]
+    assert (trash / "ancient.txt").exists()                               # the item itself stays in the Trash
+
+
+# ---------- restore and purge housekeeping ----------
+
+def test_restore_waits_for_a_ferb_write_on_the_same_file(daemon: RunningDaemon) -> None:
+    f = _ws(daemon) / "busy.txt"
+    f.write_text("before")
+    grant = _fs_grant(daemon)
+    _write(daemon, grant, f, "after")
+    rid = _recovery_rows(daemon)[-1]["id"]
+
+    async def go() -> tuple[bool, bool]:
+        async with daemon.daemon.gateway.locks.hold(["file:" + str(f.resolve())], "a FERB write"):
+            job = asyncio.ensure_future(daemon.daemon._recovery_restore(None, {"id": rid}))   # type: ignore[arg-type]
+            await asyncio.sleep(0.1)
+            waited = not job.done()
+        await job
+        return waited, job.done()
+    assert daemon.run(go()) == (True, True) and f.read_text() == "before"
+
+
+def test_a_copy_of_a_locked_file_is_not_locked(tmp_path: Path) -> None:
+    src, dst = tmp_path / "locked.txt", tmp_path / "copy.txt"
+    src.write_text("x")
+    os.chflags(src, stat.UF_IMMUTABLE)
+    try:
+        recovery._make_copy(src, dst)
+        assert not os.lstat(dst).st_flags & stat.UF_IMMUTABLE and dst.read_text() == "x"
+        dst.unlink()                                                     # the purge can always delete it
+    finally:
+        os.chflags(src, 0)
+
+
+def test_the_purge_sweeps_copies_that_never_got_a_record(daemon: RunningDaemon) -> None:
+    root = _root(daemon)
+    now = daemon.daemon.clock.now()
+    old_day = (now - timedelta(days=9)).astimezone().date().isoformat()
+    today = now.astimezone().date().isoformat()
+    for day in (old_day, today):
+        (root / day).mkdir(parents=True, exist_ok=True)
+        (root / day / "orphan.txt").write_text("no record")
+
+    async def purge() -> int:
+        return recovery.purge_before((now - timedelta(days=7)).isoformat(), daemon.daemon.db, root)
+    daemon.run(purge())
+    assert not (root / old_day).exists() and (root / today / "orphan.txt").exists()   # a fresh one may be in flight
+
+
+def test_ferb_restore_says_how_many_it_does_not_show(daemon: RunningDaemon) -> None:
+    at = daemon.daemon.clock.now().isoformat()
+    for i in range(105):
+        _sql(daemon, "INSERT INTO recovery (id, task_id, kind, original, saved_to, reason, at) "
+                     "VALUES (?, 't', 'clone', ?, ?, 'edit', ?)", (f"r{i:03d}", f"/x/{i}.txt", f"d/{i}.txt", at))
+    c = Client(daemon.sock)
+    try:
+        out = io.StringIO()
+        admin.restore(c, None, out)
+    finally:
+        c.close()
+    text = out.getvalue()
+    assert "Showing the newest 100 of 105." in text and text.count("(its copy is gone)") == 100

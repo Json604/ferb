@@ -474,14 +474,21 @@ def restore(client: Client, rid: str | None, out: TextIO) -> int:
         print(text, file=out)
         return 0
     r = client.call("recovery.list")
-    rows, days = r["records"], r["days"]
+    rows, days, total = r["records"], r["days"], r.get("total", len(r["records"]))
     if not rows:
-        print(f"FERB hasn't changed or deleted any files in the last {days} days.", file=out)
+        print("Nothing to put back: FERB hasn't changed or deleted any files lately.", file=out)
         return 0
-    print(f"Files FERB changed in the last {days} days (newest first):", file=out)
+    print(f"What FERB can put back, newest first (copies of changed files are kept {days} days; items it moved to "
+          f"the Trash, while they are still there):", file=out)
+    if total > len(rows):
+        print(f"Showing the newest {len(rows)} of {total}.", file=out)
     for row in rows:
         at = datetime.fromisoformat(row["at"]).astimezone().strftime("%a %d %b %H:%M")
         shown_id = row["id"][:8] if len(row["id"]) > 12 else row["id"]
+        if row["kind"] == "snapshot":
+            print(f"  {shown_id}  {at}  {'disk snapshot':<14}  {_shown(row.get('saved_to') or '')}: a recovery point "
+                  "of the whole disk you can open from macOS Recovery or Time Machine (admin rights)", file=out)
+            continue
         what = REASONS.get(row["reason"] or "", row["reason"] or row["kind"])
         gone = "" if row["available"] else ("  (not found in the Trash)" if row["kind"] == "trash" else
                                             "  (its copy is gone)")

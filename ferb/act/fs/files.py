@@ -49,9 +49,16 @@ def atomic_text(p: Path, text: str) -> None:
         temp.unlink(missing_ok=True)
 
 
+def real_path(path: str, workspace: str) -> Path:
+    """The file a call really acts on: symlinks followed and `..` applied after them, as the OS does. The fs lock and
+    S1 recovery key on it; `normalize_path` stays textual (display, provenance) and can name another file when a
+    symlinked folder is followed by `..`."""
+    raw = owner_path(path, workspace)
+    return raw.resolve() if raw.exists() else raw.parent.resolve() / raw.name
+
+
 def resolve(path: str, ctx: ToolContext, must_exist: bool) -> Path:
-    raw = owner_path(path, ctx.workspace)
-    p = raw.resolve() if (must_exist or raw.exists()) else raw.parent.resolve() / raw.name
+    p = real_path(path, ctx.workspace)
     if must_exist and not p.exists():
         raise PathRefused(f"{path} does not exist")
     return p
@@ -75,6 +82,10 @@ class _Base:
 
     def describe_path(self, args: BaseModel) -> str:
         return str(Path(str(getattr(args, "path"))).expanduser())
+
+    def real_path(self, args: BaseModel, workspace: str) -> Path:
+        """The file this call acts on (`real_path`): what the gateway locks and S1 copies."""
+        return real_path(str(getattr(args, "path")), workspace)
 
     def locks(self, args: BaseModel) -> list[str]:
         """One file at a time per path; the path as given (relative ones are the workspace's)."""

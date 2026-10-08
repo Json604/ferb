@@ -32,7 +32,7 @@ from ferb.act.mac.driver import MacComputerDriver, profiles_dir
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
-from ferb.registry import add_context_readers, add_recording, add_evidence, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
+from ferb.registry import add_context_readers, add_recording, add_evidence, add_recovery, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
@@ -81,6 +81,7 @@ def _provider(name: str, model: str) -> Any:
 
 
 ROOTS_PER_PURGE = 200
+RESTORE_LIST = 100                                # `ferb restore` lists the newest this many records
 
 
 class _PurgePlan(NamedTuple):
@@ -167,6 +168,7 @@ class Daemon:
         self.run_retention = retention
         self._retention_task: asyncio.Task[None] | None = None
         self.take_snapshots = snapshots                  # S1 local APFS snapshots; tests never take a real one
+        self.snapshots: recovery.Snapshots | None = None
         # Jev in shadow mode: None until a key is in the Keychain
         self.jev: Any = None
         self.jev_post: Any = None                        # tests: a fake Jev endpoint
@@ -199,6 +201,9 @@ class Daemon:
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.evidence = EvidenceStore(self.home / "evidence", self.clock, self.ids, self.redact, self.db)
+        self.snapshots = recovery.Snapshots(recovery.local_snapshot if self.take_snapshots else None, self.db,
+                                            self.clock, self.ids)
+        add_recovery(self.registry, self.snapshots)
         self.ledger = Ledger(self.db, self.clock, self.ids)
         self.tasks.attach(self.db)
         interrupted = self.tasks.interrupt_running(self.clock.now())          # a restart: what was running didn't finish
@@ -450,7 +455,7 @@ class Daemon:
         self.gateway.disturbance = self.disturbance
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
-        self.gateway.snapshot = recovery.local_snapshot if self.take_snapshots else None
+        self.gateway.snapshots = self.snapshots
         self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
@@ -754,7 +759,11 @@ class Daemon:
         finally:
             if not finished and spans:
                 self._journal_purged(plan, spans, 0, 0, 0, plan.left + len(plan.roots) - done, stopped=True)
-        return self._purge_rest(plan, spans)
+        kept = self._recovery()                              # deleting a snapshot takes seconds: a worker thread
+        snapshots = await recovery.purge_snapshots((plan.now - timedelta(days=plan.recovery_days)).isoformat(),
+                                                   kept.db, recovery.delete_local_snapshot if self.take_snapshots
+                                                   else None)
+        return self._purge_rest(plan, spans, snapshots)
 
     def _purge_plan(self) -> _PurgePlan:
         now = self.clock.now()
@@ -779,26 +788,37 @@ class Daemon:
             self._journal().append("retention.failed", {"task_id": root, "error": f"{type(e).__name__}: {e}"})
             return 0
 
-    def _purge_rest(self, plan: _PurgePlan, spans: int) -> dict[str, int]:
-        """Loose spans, old Jev decisions, old evidence and old recovery copies; `retention.purged` is journaled only
-        when the pass purged something or left roots for the next one."""
+    def _purge_rest(self, plan: _PurgePlan, spans: int, snapshots: int = 0) -> dict[str, int]:
+        """Loose spans, old Jev decisions, old evidence and old recovery copies and records (a trash record stays while
+        its item is in the Trash, TRASH_RECORD_MAX_DAYS at most); `snapshots`: FERB's own snapshots the async pass
+        deleted. `retention.purged` is journaled only when the pass purged something or left roots for the next
+        one."""
         spans += retention.purge_loose_spans(self.db, (plan.now - timedelta(days=plan.trace_days)).isoformat())
         decisions = retention.purge_decisions(self.db, (plan.now - timedelta(days=plan.decision_days)).isoformat())
         evidence = self.evidence.purge_before((plan.now - timedelta(days=plan.evidence_days)).isoformat()) \
             if self.evidence is not None else 0
         kept = self._recovery()
-        copies = recovery.purge_before((plan.now - timedelta(days=plan.recovery_days)).isoformat(), kept.db, kept.root)
-        if spans or decisions or evidence or copies or plan.left:
-            self._journal_purged(plan, spans, decisions, evidence, copies, plan.left)
-        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies}
+        copies = recovery.purge_before(
+            (plan.now - timedelta(days=plan.recovery_days)).isoformat(), kept.db, kept.root,
+            trash_backstop_iso=(plan.now - timedelta(days=recovery.TRASH_RECORD_MAX_DAYS)).isoformat())
+        if spans or decisions or evidence or copies or snapshots or plan.left:
+            self._journal_purged(plan, spans, decisions, evidence, copies, plan.left, snapshots=snapshots)
+        return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies,
+                "snapshots": snapshots}
 
     def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, copies: int, left: int,
-                        stopped: bool = False) -> None:
+                        stopped: bool = False, snapshots: int = 0) -> None:
         self._journal().append("retention.purged", {"trace_days": plan.trace_days, "spans": spans,
                                                     "decision_days": plan.decision_days, "decisions": decisions,
                                                     "evidence_days": plan.evidence_days, "evidence": evidence,
                                                     "recovery_days": plan.recovery_days, "recovery": copies,
+                                                    "snapshots": snapshots,
                                                     "roots_left": left} | ({"stopped": True} if stopped else {}))
+
+    def _gateway(self) -> Gateway:
+        if self.gateway is None:
+            raise FerbError("daemon not started")
+        return self.gateway
 
     def _recovery(self) -> recovery.Recovery:
         """S1: where FERB keeps copies of files before it changes them (~/.ferb/recovery) and their records."""
@@ -1927,18 +1947,23 @@ class Daemon:
         return {"task_id": task_id, "spans": spans, "outcome": outcome, "episode": episode}
 
     async def _recovery_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """`ferb restore`: the files FERB changed or trashed within retention.recovery_days, newest first (S1)."""
+        """`ferb restore`: what FERB can put back, newest first (S1), at most RESTORE_LIST of `total`."""
         kept = self._recovery()
-        rows = recovery.recent(kept.db, kept.root)
-        return {"days": int(self.config.get("retention", "recovery_days", 7)),
+        rows, total = recovery.recent(kept.db, kept.root, RESTORE_LIST)
+        return {"days": int(self.config.get("retention", "recovery_days", 7)), "total": total,
+                "trash_days": recovery.TRASH_RECORD_MAX_DAYS,
                 "records": [r | {"original": recovery.short(r["original"])} for r in rows]}
 
     async def _recovery_restore(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
-        """`ferb restore <id>`: put a file back (recovery.restore never overwrites a change made since); journaled."""
+        """`ferb restore <id>`: put a file back (recovery.restore never overwrites a change made since); journaled. It
+        holds the gateway's lock on that file (the key FERB's own fs calls take), so it never races a FERB write; the
+        file work runs in a worker thread."""
         kept = self._recovery()
         try:
             row = recovery.find(kept.db, str(params.get("id") or ""))
-            back = recovery.restore(row["id"], kept.db, kept.root)
+            locks = ["file:" + str(Path(row["original"]).resolve())] if row["kind"] in ("clone", "trash") else []
+            async with self._gateway().locks.hold(locks, "owner:ferb restore"):
+                back = await recovery.restore_async(row["id"], kept.db, kept.root)
         except recovery.NotRestorable as e:
             raise FerbError(str(e)) from None
         original = Path(row["original"])

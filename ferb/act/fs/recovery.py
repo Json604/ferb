@@ -1,31 +1,53 @@
 """Owns S1 recovery: before FERB overwrites or edits a file, a copy of it (an APFS clone, else a byte copy) kept for
-`retention.recovery_days` (7); a durable record of where a trashed file came from and went; restore; and a best-effort
-local APFS snapshot before shell or delete work. This is what makes FERB's file changes recoverable, so F5 treats
-them as not destructive. Must not lose the original: a clone failure falls back to a byte copy, never silently skips,
-and when no copy can be made the caller must not change the file. Must not overwrite anything on restore that the
-owner may have changed since (see `restore`). Copies live under ~/.ferb/recovery (owner only), never sent anywhere;
-this is the owner's own Mac. The gateway calls preserve / mark_written / discard / record_trash (it holds the stores;
-ToolContext has none)."""
+`retention.recovery_days` (7); a durable record of where a trashed item came from and went, kept while it is still in
+the Trash; restore; and local APFS snapshots before bulk or destructive work. This is what makes FERB's file changes
+recoverable, so F5 treats them as not destructive.
+- Must not lose the original: a clone failure falls back to a byte copy, never silently skips, and when no copy can be
+  made the caller must not change the file.
+- Must not overwrite on restore anything the owner may have changed since (see `restore`), nor reach outside the
+  recovery root, nor take an item out of the Trash that isn't the one FERB put there.
+- Every path here is the file the tool really acts on (symlinks followed, `..` after them: files.real_path), never the
+  textual spelling (normalize_path), which can name another file.
+- Copying and hashing run in a worker thread (the `_async` forms); the database is written on the caller's thread.
+Copies live under ~/.ferb/recovery (owner only), never sent anywhere; this is the owner's own Mac."""
 
+import asyncio
 import ctypes
 import errno
 import hashlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+from pydantic import BaseModel, Field
+
+from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.policy.rules import Kind
 
 TRASH_DIRS = (".Trash", ".Trashes")       # macOS Trash folders: the home volume's, and other volumes'
+TRASH_RECORD_MAX_DAYS = 90                # a trash record stays while its item is in the Trash, at most this long
 RENAME_EXCL = 0x00000004                  # renamex_np: fail rather than replace an existing destination
 SNAPSHOT_TIMEOUT_S = 30.0
-_SNAPSHOT_DATE = re.compile(r"Created local snapshot with date: (\S+)")
+SNAPSHOT_DELETE_TIMEOUT_S = 120.0         # measured 15.5 s for one delete (2026-10-09)
+SNAPSHOT_EVERY_S = 15 * 60                # at most one snapshot per 15 minutes, across all tasks
+STARTUP_DISK = "/"
+SNAPSHOT_HOW = ("a recovery point of the whole disk. FERB can't open it (that needs admin rights); you can, from macOS "
+                "Recovery or Time Machine")
+_SNAPSHOT_DATE = re.compile(r"Created local snapshot with date: (\d{4}-\d{2}-\d{2}-\d{6})")
+_SNAPSHOT_NAME = re.compile(r"com\.apple\.TimeMachine\.(\d{4}-\d{2}-\d{2}-\d{6})\.local")
 _SUFFIX = re.compile(r"\.[A-Za-z0-9]{1,16}")
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+_LOCKED = stat.UF_IMMUTABLE | stat.UF_APPEND
 BEFORE_FERB, RESTORED = "before FERB", "restored"
-_INSERT = "INSERT INTO recovery (id, task_id, kind, original, saved_to, reason, at) VALUES (?,?,?,?,?,?,?)"
+_INSERT = ("INSERT INTO recovery (id, task_id, kind, original, saved_to, reason, at, saved_dev, saved_ino) "
+           "VALUES (?,?,?,?,?,?,?,?,?)")
 
 try:
     _libc: Any = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
@@ -77,8 +99,20 @@ def _byte_copy(src: Path, dst: Path) -> None:
                 shutil.copyfileobj(s, d)
             shutil.copystat(src, dst)
         except BaseException:
+            _unlock(dst)
             dst.unlink(missing_ok=True)
             raise
+
+
+def _unlock(path: Path) -> None:
+    """Clear a locked / append-only flag a copy inherited from its original (clone and copystat both carry it), so
+    the purge can always delete the copy. Best effort."""
+    try:
+        flags = os.lstat(path).st_flags
+        if flags & _LOCKED:
+            os.chflags(path, flags & ~_LOCKED, follow_symlinks=False)
+    except (OSError, AttributeError, NotImplementedError):
+        pass
 
 
 def _copy_new(src: Path, dst: Path) -> None:
@@ -91,6 +125,11 @@ def _copy_new(src: Path, dst: Path) -> None:
         if e.errno == errno.EEXIST:
             raise
     _byte_copy(src, dst)
+
+
+def _make_copy(src: Path, dst: Path) -> None:
+    _copy_new(src, dst)
+    _unlock(dst)
 
 
 def _sha256(path: Path) -> str:
@@ -109,11 +148,16 @@ def _inside(root: Path, rel: str | None) -> Path | None:
     return path if path.is_relative_to(root.resolve()) else None
 
 
-def preserve(path: Path, *, reason: str, task_id: str | None, db: Any, clock: Any, ids: Any, root: Path) -> str | None:
-    """Before FERB changes `path`: copy it to root/<day>/<id><suffix> and record it; returns the record id, or None when
-    there is nothing to keep (no such file yet, or a folder). Raises when no copy could be made: the caller must then
-    leave the file alone. The record keeps the path as given (`original`); the copy is of the file itself, through any
-    symlink."""
+@dataclass(frozen=True)
+class _Copy:
+    eid: str
+    src: Path
+    rel: str
+    dst: Path
+    at: datetime
+
+
+def _plan_copy(path: Path, root: Path, clock: Any, ids: Any) -> _Copy | None:
     if not path.is_file():
         return None
     src = path.resolve()
@@ -122,18 +166,42 @@ def preserve(path: Path, *, reason: str, task_id: str | None, db: Any, clock: An
     day = at.astimezone().date().isoformat()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     (root / day).mkdir(mode=0o700, exist_ok=True)
-    suffix = src.suffix if _SUFFIX.fullmatch(src.suffix) else ""
-    rel = f"{day}/{eid}{suffix}"
+    rel = f"{day}/{eid}{src.suffix if _SUFFIX.fullmatch(src.suffix) else ''}"
     dst = root / rel
     if _inside(root, rel) != dst.resolve():                  # an id can't place a copy outside the root
         raise ValueError(f"recovery id {eid!r} is not a plain file name")
-    _copy_new(src, dst)
+    return _Copy(eid, src, rel, dst, at)
+
+
+def _record_copy(c: _Copy, reason: str, task_id: str | None, db: Any) -> str:
     try:
-        db.conn.execute(_INSERT, (eid, task_id, "clone", str(path), rel, reason, at.isoformat()))
+        db.conn.execute(_INSERT, (c.eid, task_id, "clone", str(c.src), c.rel, reason, c.at.isoformat(), None, None))
     except BaseException:
-        dst.unlink(missing_ok=True)                          # never a copy without its record
+        _unlock(c.dst)
+        c.dst.unlink(missing_ok=True)                        # never a copy without its record
         raise
-    return eid
+    return c.eid
+
+
+def preserve(path: Path, *, reason: str, task_id: str | None, db: Any, clock: Any, ids: Any, root: Path) -> str | None:
+    """Before FERB changes the file at `path` (the real path the tool writes): copy it to root/<day>/<id><suffix> and
+    record it; returns the record id, or None when there is nothing to keep (no such file yet, or a folder). Raises when
+    no copy could be made: the caller must then leave the file alone."""
+    c = _plan_copy(path, root, clock, ids)
+    if c is None:
+        return None
+    _make_copy(c.src, c.dst)
+    return _record_copy(c, reason, task_id, db)
+
+
+async def preserve_async(path: Path, *, reason: str, task_id: str | None, db: Any, clock: Any, ids: Any,
+                         root: Path) -> str | None:
+    """`preserve` on the daemon's loop: the copy (a byte copy can be long) runs in a worker thread."""
+    c = _plan_copy(path, root, clock, ids)
+    if c is None:
+        return None
+    await asyncio.to_thread(_make_copy, c.src, c.dst)
+    return _record_copy(c, reason, task_id, db)
 
 
 def mark_written(record_id: str, path: Path, db: Any) -> None:
@@ -141,38 +209,98 @@ def mark_written(record_id: str, path: Path, db: Any) -> None:
     db.conn.execute("UPDATE recovery SET written_sha256 = ? WHERE id = ?", (_sha256(path.resolve()), record_id))
 
 
-def discard(record_id: str, db: Any, root: Path) -> None:
-    """The call refused before changing the file: its copy and record go."""
+async def mark_written_async(record_id: str, path: Path, db: Any) -> None:
+    digest = await asyncio.to_thread(lambda: _sha256(path.resolve()))
+    db.conn.execute("UPDATE recovery SET written_sha256 = ? WHERE id = ?", (digest, record_id))
+
+
+def _same_then_drop(path: Path, copy: Path) -> bool:
+    try:
+        if _sha256(path.resolve()) != _sha256(copy):
+            return False
+    except OSError:
+        return False
+    _unlock(copy)
+    copy.unlink(missing_ok=True)
+    return True
+
+
+async def discard_if_unchanged(record_id: str, path: Path, db: Any, root: Path) -> bool:
+    """The call reported an error: its copy and record go only when the file is still byte-identical to the copy
+    (nothing changed). Otherwise both stay, so whatever happened can be undone."""
     r = db.conn.execute("SELECT saved_to FROM recovery WHERE id = ? AND kind = 'clone'", (record_id,)).fetchone()
-    if r is None:
-        return
-    copy = _inside(root, r["saved_to"])
-    if copy is not None:
-        copy.unlink(missing_ok=True)
+    copy = _inside(root, r["saved_to"]) if r is not None else None
+    if copy is None or not await asyncio.to_thread(_same_then_drop, path, copy):
+        return False
     db.conn.execute("DELETE FROM recovery WHERE id = ?", (record_id,))
+    return True
+
+
+def _trash_place(saved_to: str | None) -> Path | None:
+    """Where an item sits in the Trash: absolute, no `..`, its folder resolved, inside a real .Trash / .Trashes
+    folder; else None."""
+    if not saved_to:
+        return None
+    p = Path(saved_to)
+    if not p.is_absolute() or ".." in p.parts:
+        return None
+    try:
+        real = p.parent.resolve() / p.name                   # the item itself may be a link: never followed
+    except (OSError, RuntimeError):
+        return None
+    if any(a.name in TRASH_DIRS and a.is_dir() for a in real.parents):
+        return real
+    return None
 
 
 def record_trash(original: Path, trashed_to: str | None, *, task_id: str | None, db: Any, clock: Any, ids: Any) -> str:
-    """A durable record of a trashed item: where it was and where it went in the Trash, so `restore` can put it back
-    without depending on Finder's Put Back or on the span that recorded the call (it ages out)."""
+    """A durable record of a trashed item: where it was (the real path the tool trashed) and where it went in the
+    Trash, with the item's device and inode, so `restore` puts back exactly that item without depending on Finder's
+    Put Back or on the span that recorded the call (it ages out)."""
+    place = _trash_place(trashed_to)
+    dev = ino = None
+    if place is not None:
+        try:
+            st = os.lstat(place)
+            dev, ino = st.st_dev, st.st_ino
+        except OSError:
+            pass
     eid = str(ids.new_id())
-    db.conn.execute(_INSERT, (eid, task_id, "trash", str(original), trashed_to, "trash", clock.now().isoformat()))
+    db.conn.execute(_INSERT, (eid, task_id, "trash", str(original), str(place) if place else trashed_to, "trash",
+                              clock.now().isoformat(), dev, ino))
     return eid
+
+
+def _same_trash_item(r: Any) -> bool:
+    place = _trash_place(r["saved_to"])
+    if place is None or r["saved_dev"] is None:
+        return False
+    try:
+        st = os.lstat(place)
+    except OSError:
+        return False
+    return (st.st_dev, st.st_ino) == (r["saved_dev"], r["saved_ino"])
 
 
 # ---------- reading and restoring ----------
 
-def recent(db: Any, root: Path, limit: int = 100) -> list[dict[str, Any]]:
-    """The records, newest first, with whether the copy (or the trashed item) is still there."""
+def recent(db: Any, root: Path, limit: int = 100) -> tuple[list[dict[str, Any]], int]:
+    """The records, newest first (at most `limit`), with whether each can still be put back; and how many there are."""
+    total = int(db.conn.execute("SELECT count(*) FROM recovery").fetchone()[0])
     rows = db.conn.execute("SELECT * FROM recovery ORDER BY at DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
     out = []
     for r in rows:
-        saved = _inside(root, r["saved_to"]) if r["kind"] == "clone" else (
-            Path(r["saved_to"]) if r["saved_to"] else None)
+        if r["kind"] == "clone":
+            copy = _inside(root, r["saved_to"])
+            available: bool | None = copy is not None and copy.is_file()
+        elif r["kind"] == "trash":
+            available = _same_trash_item(r)
+        else:
+            available = None                                 # a snapshot: macOS may have thinned it
         out.append({"id": r["id"], "task_id": r["task_id"], "kind": r["kind"], "original": r["original"],
-                    "reason": r["reason"], "at": r["at"],
-                    "available": saved is not None and os.path.lexists(saved)})
-    return out
+                    "saved_to": r["saved_to"] if r["kind"] == "snapshot" else None, "reason": r["reason"],
+                    "at": r["at"], "available": available})
+    return out, total
 
 
 def find(db: Any, ref: str) -> Any:
@@ -197,19 +325,39 @@ def restore(record_id: str, db: Any, root: Path) -> Path:
       file changed since (or FERB never learned what it left), the copy goes beside it as "<name> (before FERB)<ext>"
       and the current file stays as it is;
     - a trashed item moves back from the Trash to where it was, or beside it as "<name> (restored)<ext>" when something
-      is there now; its record then goes (it is back).
-    `record_id` may be the start of an id. Raises NotRestorable with the reason in the owner's words."""
-    r = find(db, record_id)
+      is there now; only the very item FERB trashed (same device and inode), and its record then goes (it is back);
+    - a snapshot can't be opened by FERB: the error says how the owner can use it.
+    `record_id` may be the start of an id. Raises NotRestorable with the reason in the owner's words. On the daemon's
+    loop use `restore_async` (the file work runs in a thread); hold the file's lock around either."""
+    r = dict(find(db, record_id))
+    back = _put_back(r, root)
+    if r["kind"] == "trash":
+        db.conn.execute("DELETE FROM recovery WHERE id = ?", (r["id"],))
+    return back
+
+
+async def restore_async(record_id: str, db: Any, root: Path) -> Path:
+    r = dict(find(db, record_id))
+    back = await asyncio.to_thread(_put_back, r, root)
+    if r["kind"] == "trash":
+        db.conn.execute("DELETE FROM recovery WHERE id = ?", (r["id"],))
+    return back
+
+
+def _put_back(r: dict[str, Any], root: Path) -> Path:
+    """The file work of a restore (no database): safe in a worker thread."""
     original = Path(r["original"])
+    if r["kind"] == "snapshot":
+        raise NotRestorable(f"{r['saved_to']} is {SNAPSHOT_HOW}")
     dest = original.resolve()                                 # the file itself, through any symlink
     if r["kind"] == "clone":
         return _restore_copy(r, original, dest, root)
     if r["kind"] == "trash":
-        return _restore_trashed(r, original, dest, db)
+        return _restore_trashed(r, original, dest)
     raise NotRestorable(f"unknown record kind {r['kind']!r}")
 
 
-def _restore_copy(r: Any, original: Path, dest: Path, root: Path) -> Path:
+def _restore_copy(r: dict[str, Any], original: Path, dest: Path, root: Path) -> Path:
     copy = _inside(root, r["saved_to"])
     if copy is None or not copy.is_file():
         raise NotRestorable(f"the copy FERB kept of {short(original)} is gone")
@@ -232,23 +380,24 @@ def _restore_copy(r: Any, original: Path, dest: Path, root: Path) -> Path:
     return _beside(dest, BEFORE_FERB, lambda target: _copy_new(copy, target))
 
 
-def _restore_trashed(r: Any, original: Path, dest: Path, db: Any) -> Path:
-    saved = Path(r["saved_to"]) if r["saved_to"] else None
-    if saved is None or not any(part in TRASH_DIRS for part in saved.parts):
+def _restore_trashed(r: dict[str, Any], original: Path, dest: Path) -> Path:
+    place = _trash_place(r["saved_to"])
+    if place is None or r["saved_dev"] is None:
         raise NotRestorable(f"FERB doesn't know where {short(original)} went in the Trash")
-    if not os.path.lexists(saved):
+    if not os.path.lexists(place):
         raise NotRestorable(f"{short(original)} is no longer in the Trash, so it can't be put back")
+    if not _same_trash_item(r):
+        raise NotRestorable(f"what is in the Trash under that name now isn't the {short(original)} FERB moved there, "
+                            "so FERB left it alone")
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        _move_new(saved, dest)
-        back = dest
+        _move_new(place, dest)
+        return dest
     except FileExistsError:
-        back = _beside(dest, RESTORED, lambda target: _move_new(saved, target))
-    db.conn.execute("DELETE FROM recovery WHERE id = ?", (r["id"],))
-    return back
+        return _beside(dest, RESTORED, lambda target: _move_new(place, target))
 
 
-def _beside(dest: Path, label: str, put: Any) -> Path:
+def _beside(dest: Path, label: str, put: Callable[[Path], None]) -> Path:
     """The first free "<stem> (<label>[ n])<suffix>" next to dest; `put` creates it exclusively (a race just moves on
     to the next name)."""
     for n in range(1, 1000):
@@ -280,16 +429,24 @@ def _move_new(src: Path, dst: Path) -> None:
 
 # ---------- retention ----------
 
-def purge_before(cutoff_iso: str, db: Any, root: Path) -> int:
-    """Delete records older than the cutoff, a clone's file first: a file that can't be deleted keeps its record for the
-    next pass. A path outside the recovery root is never deleted; a trashed item stays in the owner's Trash (only its
-    record goes). Empty day folders go too."""
-    rows = db.conn.execute("SELECT id, kind, saved_to FROM recovery WHERE at < ?", (cutoff_iso,)).fetchall()
+def purge_before(cutoff_iso: str, db: Any, root: Path, *, trash_backstop_iso: str | None = None) -> int:
+    """Records older than the cutoff go, a clone's file first: a file that can't be deleted keeps its record for the
+    next pass, and a path outside the recovery root is never deleted.
+    - A trash record stays while its very item is still in the Trash, up to the backstop (TRASH_RECORD_MAX_DAYS); the
+      item itself always stays in the owner's Trash.
+    - Snapshot records are left to `purge_snapshots` (deleting a snapshot is slow).
+    - Copies with no record in day folders older than the cutoff's day (a copy whose record was never written) go,
+      and so do empty day folders."""
+    rows = db.conn.execute("SELECT * FROM recovery WHERE at < ? AND kind != 'snapshot'", (cutoff_iso,)).fetchall()
     gone: list[str] = []
     for r in rows:
+        if r["kind"] == "trash" and _same_trash_item(r) and (trash_backstop_iso is None or
+                                                             r["at"] >= trash_backstop_iso):
+            continue
         copy = _inside(root, r["saved_to"]) if r["kind"] == "clone" else None
         if copy is not None:
             try:
+                _unlock(copy)
                 copy.unlink(missing_ok=True)
             except OSError:
                 continue
@@ -297,16 +454,49 @@ def purge_before(cutoff_iso: str, db: Any, root: Path) -> int:
     for i in range(0, len(gone), 500):
         chunk = gone[i:i + 500]
         db.conn.execute(f"DELETE FROM recovery WHERE id IN ({','.join('?' * len(chunk))})", chunk)
-    try:                                                      # tidying only: never fails the pass
-        for day in root.iterdir():
-            if day.is_dir() and not any(day.iterdir()):
-                day.rmdir()
-    except OSError:
-        pass
+    _sweep(cutoff_iso, db, root)
     return len(gone)
 
 
-# ---------- a snapshot before bulk or destructive work ----------
+def _sweep(cutoff_iso: str, db: Any, root: Path) -> None:
+    """Tidying, never fails the pass: unrecorded copies in day folders before the cutoff's day, then empty folders."""
+    try:
+        before = datetime.fromisoformat(cutoff_iso).astimezone().date().isoformat()
+        kept = {r["saved_to"] for r in db.conn.execute("SELECT saved_to FROM recovery WHERE kind = 'clone'")}
+        for day in root.iterdir():
+            if not day.is_dir() or day.is_symlink() or not _DAY.fullmatch(day.name):
+                continue
+            if day.name < before:
+                for f in day.iterdir():
+                    if f"{day.name}/{f.name}" not in kept and (f.is_file() or f.is_symlink()):
+                        _unlock(f)
+                        f.unlink(missing_ok=True)
+            if not any(day.iterdir()):
+                day.rmdir()
+    except (OSError, ValueError):
+        pass
+
+
+async def purge_snapshots(cutoff_iso: str, db: Any, delete: Callable[[str], bool] | None) -> int:
+    """FERB's own snapshots older than the cutoff: deleted (`delete`, in a worker thread: one takes seconds), then
+    their records. A snapshot that couldn't be deleted keeps its record for the next pass. With no `delete`, macOS's
+    own thinning removes them and only the records go."""
+    rows = db.conn.execute("SELECT id, saved_to FROM recovery WHERE kind = 'snapshot' AND at < ?",
+                           (cutoff_iso,)).fetchall()
+    done = 0
+    for r in rows:
+        if delete is not None and r["saved_to"]:
+            try:
+                if not await asyncio.to_thread(delete, str(r["saved_to"])):
+                    continue
+            except Exception:
+                continue
+        db.conn.execute("DELETE FROM recovery WHERE id = ?", (r["id"],))
+        done += 1
+    return done
+
+
+# ---------- snapshots before bulk or destructive work ----------
 
 def local_snapshot(timeout_s: float = SNAPSHOT_TIMEOUT_S) -> str | None:
     """A local APFS snapshot of the startup disk (`tmutil localsnapshot`); its name, or None when none was taken.
@@ -321,3 +511,108 @@ def local_snapshot(timeout_s: float = SNAPSHOT_TIMEOUT_S) -> str | None:
         return None
     found = _SNAPSHOT_DATE.search(f"{done.stdout}\n{done.stderr}")
     return f"com.apple.TimeMachine.{found.group(1)}.local" if done.returncode == 0 and found else None
+
+
+def delete_local_snapshot(name: str, timeout_s: float = SNAPSHOT_DELETE_TIMEOUT_S) -> bool:
+    """Delete one of FERB's own snapshots by the name `local_snapshot` returned; True when it is gone (deleted now, or
+    already thinned by macOS). Measured 2026-10-09: `tmutil deletelocalsnapshots <date>` needs no admin rights and no
+    prompt, and took 15.5 s. Never waits on input; a name that isn't a Time Machine local snapshot is refused."""
+    found = _SNAPSHOT_NAME.fullmatch(name)
+    if found is None:
+        return False
+    try:
+        listed = subprocess.run(["/usr/bin/tmutil", "listlocalsnapshots", STARTUP_DISK], stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=SNAPSHOT_TIMEOUT_S)
+        if listed.returncode == 0 and name not in listed.stdout.split():
+            return True
+        done = subprocess.run(["/usr/bin/tmutil", "deletelocalsnapshots", found.group(1)], stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=timeout_s)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+class Snapshots:
+    """S1 snapshots, before bulk or destructive work: when an agent asks (`recovery.snapshot`; agents judge what is
+    bulk, rule 6) and before a permanent delete. At most one every SNAPSHOT_EVERY_S across all tasks: a request inside
+    that window reuses the last one and says so. Each is a `recovery` row (kind snapshot) that `ferb restore` lists
+    with how to use it. Best effort: `request` returns a failure as a result and never raises one (only its own
+    caller's cancellation); a failure is never remembered, so the next request tries again. `take` None: off (tests)."""
+
+    def __init__(self, take: Callable[[], str | None] | None, db: Any, clock: Any, ids: Any,
+                 every_s: float = SNAPSHOT_EVERY_S) -> None:
+        self.take, self.db, self.clock, self.ids, self.every_s = take, db, clock, ids, every_s
+        self._running: asyncio.Future[dict[str, Any]] | None = None
+
+    async def request(self, task_id: str | None, reason: str) -> dict[str, Any]:
+        last = self._recent()
+        if last is not None:
+            return last | {"reused": True}
+        if self.take is None:
+            return {"error": "snapshots are turned off for this FERB"}
+        running = self._running
+        mine = running is None or running.done()     # a finished one (taken, failed or cancelled) is never reused
+        if running is None or mine:
+            running = self._running = asyncio.ensure_future(self._run(task_id, reason))
+        try:
+            result = await asyncio.shield(running)
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if current is not None and current.cancelling():
+                raise                                         # our caller was cancelled; the snapshot goes on
+            return {"error": "no snapshot was taken (it was cancelled)"}
+        except Exception as e:
+            return {"error": f"no snapshot was taken ({type(e).__name__})"}
+        return result | ({} if mine or "error" in result else {"reused": True})
+
+    def _recent(self) -> dict[str, Any] | None:
+        since = (self.clock.now() - timedelta(seconds=self.every_s)).isoformat()
+        r = self.db.conn.execute("SELECT id, saved_to, at FROM recovery WHERE kind = 'snapshot' AND at >= ? "
+                                 "ORDER BY at DESC, rowid DESC LIMIT 1", (since,)).fetchone()
+        return None if r is None else {"snapshot": r["saved_to"], "record": r["id"], "taken_at": r["at"]}
+
+    async def _run(self, task_id: str | None, reason: str) -> dict[str, Any]:
+        take = self.take
+        assert take is not None
+        try:
+            name = await asyncio.wait_for(asyncio.to_thread(take), SNAPSHOT_TIMEOUT_S + 5)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            return {"error": f"no snapshot was taken ({type(e).__name__})"}
+        if not name:
+            return {"error": "no snapshot was taken (tmutil refused or is unavailable)"}
+        eid = str(self.ids.new_id())
+        self.db.conn.execute(_INSERT, (eid, task_id, "snapshot", STARTUP_DISK, name, reason[:200],
+                                       self.clock.now().isoformat(), None, None))
+        return {"snapshot": name, "record": eid}
+
+
+class RecoverySnapshot:
+    """`recovery.snapshot`: an agent asks for a recovery point before bulk or destructive work it judged as such."""
+    name = "recovery.snapshot"
+    description = ("Before bulk or destructive file work (many files changed, moved or deleted at once, e.g. a shell "
+                   "command over a folder), take a local snapshot of the Mac's disk as a recovery point the owner can "
+                   "open. At most one every 15 minutes: a recent one is reused. Best effort. Not needed for single "
+                   "fs.write / fs.edit / fs.trash calls: FERB keeps those recoverable itself.")
+    scopes: set[str] = set()
+    identities = {Identity.OWNER, Identity.FERB}
+    risk, reversible = RiskLevel.LOW, True
+
+    class Input(BaseModel):
+        before: str = Field(min_length=1, max_length=200, description="the bulk or destructive work it is for")
+
+    def __init__(self, snapshots: Snapshots) -> None:
+        self.snapshots = snapshots
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.SNAPSHOT, Target())
+
+    async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        out = await self.snapshots.request(ctx.task_id, str(getattr(args, "before")))
+        if "error" in out:
+            return ToolResult(out | {"next": "Decide whether the work is still right without a snapshot; if you go "
+                                             "on, say in your report that no snapshot was taken."}, is_error=True)
+        how = f"The owner can open it from macOS Recovery or Time Machine (admin rights): {out['snapshot']}."
+        reused = "A snapshot from the last 15 minutes is reused. " if out.get("reused") else ""
+        return ToolResult(out | {"note": reused + how})

@@ -95,7 +95,7 @@ def _purged(daemon: RunningDaemon, roots: list[str], before: int, result: dict[s
             "evidence": result["evidence"], "evidence_left": _q(daemon, "SELECT count(*) FROM evidence"),
             "journal": row == {"trace_days": 30, "spans": result["spans"], "decision_days": 30,
                                "decisions": result["decisions"], "evidence_days": 7, "evidence": result["evidence"],
-                               "recovery_days": 7, "recovery": result["recovery"], "roots_left": 0},
+                               "recovery_days": 7, "recovery": result["recovery"], "snapshots": 0, "roots_left": 0},
             "roots_emptied": [_tree_spans(daemon, r) == 0 for r in roots],
             "loose_left": _spans_with_prefix(daemon, "z-p"),
             "decisions_left": _q(daemon, "SELECT count(*) FROM decisions"),
