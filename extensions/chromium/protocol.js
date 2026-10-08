@@ -1,7 +1,7 @@
 // Owns protocol versions, sealing and allowed CDP mechanics; must not interpret task or page meaning.
 // FERB extension protocol , mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 9;
+const FERB_PROTOCOL = 10;
 const FERB_HOST = "com.ferb.native_host";
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
@@ -16,6 +16,13 @@ const EDIT_COMMANDS = new Set(["selectAll", "copy", "cut", "paste", "undo", "red
   "moveLeftAndModifySelection", "moveRightAndModifySelection", "moveUpAndModifySelection", "moveDownAndModifySelection",
   "moveToBeginningOfDocumentAndModifySelection", "moveToEndOfDocumentAndModifySelection",
   "insertNewline", "insertTab", "cancelOperation"]);
+
+// Downloads (D35): document responses in a tab FERB drives pause at the response stage, so one that is a download is
+// held (never handed to the browser's download flow, so no Save dialog) and read in parts of DOWNLOAD_PART bytes:
+// at most 96000 base64 characters, under the 100000-character single-result line (result_parts).
+const DOWNLOAD_PART = 72000;
+const DOWNLOAD_PATTERNS = [{ urlPattern: "*", resourceType: "Document", requestStage: "Response" }];
+const _only = (p, keys) => Object.keys(p).length === keys.length && keys.every((k) => k in p);
 
 // The exact CDP allowlist, enforced here even if the daemon asks for more. Each entry checks the params
 // shape; anything not listed is refused: cookies/storage, other targets, free-form script evaluation.
@@ -67,6 +74,14 @@ const CDP_ALLOW = {
   "DOM.discardSearchResults": p => typeof p.searchId === "string" && Object.keys(p).length === 1,
   "DOM.setFileInputFiles": (p) => Number.isInteger(p.nodeId) && Array.isArray(p.files)
     && p.files.every((f) => typeof f === "string" && f.startsWith("/")),
+  // downloads (D35), tab-scoped: never Browser/Page.setDownloadBehavior (browser-context-wide; and refused to
+  // extensions: measured). A held response is only read and then failed, never rewritten or redirected.
+  "Fetch.enable": (p) => JSON.stringify(p) === JSON.stringify({ patterns: DOWNLOAD_PATTERNS }),
+  "Fetch.continueRequest": (p) => typeof p.requestId === "string" && _only(p, ["requestId"]),
+  "Fetch.failRequest": (p) => typeof p.requestId === "string" && p.errorReason === "Aborted" && _only(p, ["requestId", "errorReason"]),
+  "Fetch.takeResponseBodyAsStream": (p) => typeof p.requestId === "string" && _only(p, ["requestId"]),
+  "IO.read": (p) => typeof p.handle === "string" && p.size === DOWNLOAD_PART && _only(p, ["handle", "size"]),
+  "IO.close": (p) => typeof p.handle === "string" && _only(p, ["handle"]),
 };
 const CDP_RETURN_FIELDS = {                 // filtered return fields (only these keys leave the sendCommand wrapper)
   "Page.captureScreenshot": ["data"],
@@ -80,6 +95,8 @@ const CDP_RETURN_FIELDS = {                 // filtered return fields (only thes
   "DOM.querySelector": ["nodeId"],
   "DOM.performSearch": ["searchId", "resultCount"],
   "DOM.getSearchResults": ["nodeIds"],
+  "Fetch.takeResponseBodyAsStream": ["stream"],
+  "IO.read": ["data", "base64Encoded", "eof"],
 };
 
 function cdpAllowed(method, params) {
@@ -202,7 +219,8 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab"];
+             "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
+             "download_part"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
-                                                      FEED_URL, keyEvent, EDIT_COMMANDS };
+                                                      FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS };

@@ -20,7 +20,7 @@ from ferb.orchestrator.verify import Checks
 from ferb.orchestrator.tree import TaskTree
 from ferb.act.browser.tools import IdentityDriver
 from ferb.core.types import Identity
-from ferb.act.browser import profiles as browser_profiles
+from ferb.act.browser import downloads, profiles as browser_profiles
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.evidence.store import EvidenceStore
@@ -138,6 +138,7 @@ class Daemon:
         self.hub: Hub | None = None
         self.router: Router | None = None
         self.ferb_identity: FerbIdentity | None = None
+        self.downloads: downloads.Downloads | None = None
         self.wake = WakeServer()
         # The owner's Mac + shell
         self.watch_owner_input = watch_owner_input
@@ -450,8 +451,9 @@ class Daemon:
         device = str(self.config.get("device", "id", "unknown-device"))
         workspace = self.home / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
+        # FERB's downloads folder is always outside content (D35, MP2): code adds it, config can't remove it.
         roots = FsRoots(str(workspace), tuple(self.config.get("fs", "owner_roots", [])),
-                        tuple(self.config.get("fs", "untrusted_roots", ["~/Downloads"])))
+                        downloads.untrusted_roots(self.config.get("fs", "untrusted_roots", ["~/Downloads"]), workspace))
         assert self.ledger and self.spans and self.journal
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
@@ -1543,6 +1545,12 @@ class Daemon:
         resolver = Resolver(self._profiles, self.pairings.all, self._identity_profile)
         await self.wake.start()
         self.router = Router(self.hub, resolver, self._profiles, self.wake, self.browser_launch)
+        # D35: a download in a task tab becomes a file in the workspace plus facts, never a dialog.
+        self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
+                                             lambda: self.config.get("browser", "download_max_mb",
+                                                                     downloads.DEFAULT_MAX_MB),
+                                             lambda url: str(self.redact({"u": url})["u"]), self._publish)
+        self.hub.on_download = self.downloads.receive
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.add_secret_value = self._add_secret_value
         add_owner_browsers(self.registry, self.router, self.recordings)
@@ -1553,6 +1561,9 @@ class Daemon:
                                           self.wake, self.browser_launch)
         for drv in (self.router, self.ferb_identity):
             drv.inspection_parent = self._inspection_parent
+            drv.downloads = self.downloads
+        router, identity = self.router, self.ferb_identity
+        self.downloads.task_tab = lambda br, chrome_id: router.task_tab(br, chrome_id) or identity.task_tab(br, chrome_id)
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve

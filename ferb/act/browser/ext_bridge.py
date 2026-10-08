@@ -3,6 +3,7 @@
 Hub binds authenticated installs to profiles. Bridge tracks generation-scoped command IDs, chunks large content,
 and records disconnected actions as unknown without replay. Router binds explicit profiles and element references.
 FerbIdentity adds origin-bound sealed fills and opaque mailbox candidates. Upload receipts retain local byte identity.
+A download caught in a task tab goes to `Hub.on_download` (downloads.py takes it); the drivers say whose tab it is.
 WakeServer serves only the temporary local pairing page; ordinary wake launches no window or URL."""
 
 import asyncio
@@ -16,6 +17,7 @@ from urllib.parse import urlsplit
 
 from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, Event, Hello, Op, Result, TabEvent,
                                            command, parse, version_ok)
+from ferb.act.browser.downloads import Downloads, TaskTab
 from ferb.act.browser.pairing import Binding, Pairings
 from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
 from ferb.act.browser.resolver import Resolver
@@ -34,6 +36,7 @@ CMD_TIMEOUT_S = 30.0
 WINDOWLESS_WAIT_S = 8.0          # a profile loaded with no window: its extension connects by then (spike 19)
 KEEPALIVE_S = 15.0               # while a task tab is open: a ping keeps the MV3 worker awake (idle limit 30 s, 1.1)
 TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "press"})   # real input by default
+BLANK = "about:blank"            # a task tab opens blank, then loads its URL (D35)
 
 
 class OutcomeUnknown(DriverError):
@@ -209,6 +212,8 @@ class Hub:
         self.on_tab: Callable[["Bridge", TabEvent], None] = lambda br, e: None
         self.paused: Callable[[], bool] = lambda: False
         self.owned: Callable[["Bridge", int], bool] = lambda br, tab_id: False
+        # A download the extension holds (D35); the daemon sets downloads.Downloads.receive. Unset: let it go.
+        self.on_download: Callable[["Bridge", Event], None] = _let_download_go
 
     def forget_owner_tabs(self) -> None:
         """On pause: drop what's known about tabs FERB doesn't own (only FERB's own stay tracked)."""
@@ -329,6 +334,8 @@ class Hub:
                                                            "by_owner": ev.reason == "canceled_by_user"})
             elif ev.event == "file_chooser":
                 self.publish("browser.file_chooser", {"profile": br.name, **ev.model_dump(exclude_none=True)})
+            elif ev.event == "download":
+                self.on_download(br, ev)                     # its parts come back on this connection: never awaited
             else:
                 self.publish("browser.dialog", {"profile": br.name, "tab_id": ev.tab_id, "type": ev.type,
                                                 "message": ev.message or "", "handled": ev.handled})
@@ -347,6 +354,24 @@ class Hub:
                 br.tabs[e.tab_id] = (host, bool(e.active))
                 if e.event == "updated":
                     br.navs[e.tab_id] = br.navs.get(e.tab_id, 0) + 1
+
+
+_cancels: set["asyncio.Task[None]"] = set()
+
+
+def _let_download_go(br: Bridge, ev: Event) -> None:
+    """No download handler: the extension fails the held response (no browser download, no dialog)."""
+    if ev.uncaptured or not ev.download_id:
+        return
+
+    async def cancel() -> None:
+        try:
+            await br.call("download_part", {"download_id": ev.download_id, "abort": True}, timeout=10)
+        except DriverError:
+            pass
+    job = asyncio.get_running_loop().create_task(cancel())
+    _cancels.add(job)
+    job.add_done_callback(_cancels.discard)
 
 
 class WakeServer:
@@ -417,6 +442,7 @@ class _Tab:
 class _TabDriver:
     """Task-owned tabs with short aliases and generation-scoped element ids, over one or more bridges."""
     name = "ext"
+    identity: Identity
     features = DriverFeatures(trusted_input_background=True, parallel_actions=True, network_events=False,
                               dom_snapshot=True, screenshot_background=True)
 
@@ -426,6 +452,7 @@ class _TabDriver:
         self.is_running: Callable[[str], bool] = browser_running  # is that browser running (tests replace it)
         self._tabs: dict[str, _Tab] = {}
         self.inspection_parent: Callable[[str], str | None] = lambda task: None  # registered checker, daemon supplied
+        self.downloads: Downloads | None = None         # D35: shared by both drivers, daemon supplied
         self._n = 0
 
     async def _connected(self, br: Bridge) -> Bridge:
@@ -449,7 +476,9 @@ class _TabDriver:
                        window_id: int | None = None, allow_foreground: bool = False) -> TabRef:
         # The extension opens an inactive tab in the selected existing window or returns window choices. App focus belongs to the owner,
         # including while this command is pending; a newly foreground browser is not proof of focus theft.
-        args: dict[str, Any] = {"url": url}
+        # D35: the tab opens blank (the extension prepares it to hold a download) and becomes this task's tab before the
+        # URL loads, so a URL that is a download is already the task's download, never the browser's.
+        args: dict[str, Any] = {"url": BLANK}
         if window_id is not None:
             args["window_id"] = window_id
         if allow_foreground:
@@ -459,13 +488,38 @@ class _TabDriver:
             raise DriverError(str(v["detail"]), facts=v)
         self._n += 1
         ref = TabRef(br.device_id, br.binding.browser, br.binding.folder, br.gen, f"t{self._n}")
-        self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, str(v.get("url") or url))
+        t = self._tabs[ref.tab_id] = _Tab(ref, br, int(v["tab_id"]), owner, BLANK)
         br.hold()
+        loaded = await br.call("navigate", {"tab_id": t.chrome_id, "url": url}, timeout=30)
+        t.url = str(loaded.get("url") or url)
         return ref
 
     def owner_of(self, br: Bridge, chrome_id: int) -> str | None:
         """The task that opened this tab, if FERB did."""
         return next((t.owner for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id), None)
+
+    def task_tab(self, br: Bridge, chrome_id: int) -> TaskTab | None:
+        """The task that drives this tab now (opened or borrowed), for a download caught in it."""
+        t = next((t for t in self._tabs.values() if t.bridge is br and t.chrome_id == chrome_id and t.owner), None)
+        return TaskTab(str(t.owner), t.ref.tab_id, br.binding.identity.value) if t else None
+
+    async def downloads_for(self, tab: TabRef, wait: float = 0.0) -> list[dict[str, Any]]:
+        """Downloads this tab started that the worker hasn't seen yet; `wait` bounds how long to let ones in progress
+        finish (a navigation or open that became a download)."""
+        t = self._tab(tab)
+        if self.downloads is None:
+            return []
+        if wait:
+            await self.downloads.settle(t.bridge, t.chrome_id, wait)
+        return self.downloads.unreported(t.bridge, t.chrome_id)
+
+    def downloads_of(self, task: str) -> list[dict[str, Any]]:
+        """Every download this task's tabs in this identity's profiles started; a registered checker sees its
+        worker's."""
+        if self.downloads is None:
+            return []
+        tasks = {task} | ({p} if (p := self.inspection_parent(task)) else set())
+        return self.downloads.facts_for(tasks, self.identity.value)
 
     async def navigate(self, tab: TabRef, url: str) -> None:
         t = self._tab(tab)

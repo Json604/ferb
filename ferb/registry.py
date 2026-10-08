@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ferb.act.browser.tools import (BrowserRecord, BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
+from ferb.act.browser.tools import (BrowserRecord, BrowserKeepOpen, BrowserAct, BrowserScreenshot, BrowserPoint, BrowserLoginCode, BrowserClose, BrowserDownloads, BrowserFillOtp, BrowserFillSecret, BrowserNavigate,
                                    BrowserFind, BrowserRead, BrowserDialog, BrowserProfiles, BrowserOpen, BrowserScroll, BrowserSnapshot, BrowserTabs, BrowserUseTab, BrowserWait,
                                    FERB_BROWSER, IdentityDriver,
                                    BrowserOtpCandidates, OWNER_BROWSER)
@@ -65,6 +65,7 @@ def add_identity_browser(r: Registry, driver: IdentityDriver, recordings: Any = 
     r.add(BrowserKeepOpen(driver, f))
     r.add(BrowserScroll(driver, f))
     r.add(BrowserFind(driver, f))
+    r.add(BrowserDownloads(driver, f))                 # D35: downloads are facts, never a dialog
     r.add(BrowserFillSecret(driver, f))
     r.add(BrowserFillOtp(driver, f))
     r.add(BrowserOtpCandidates(driver, f))
@@ -89,6 +90,7 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, recordings: Any = No
     r.add(BrowserKeepOpen(router, f))
     r.add(BrowserScroll(router, f))
     r.add(BrowserFind(router, f))
+    r.add(BrowserDownloads(router, f))                 # D35: downloads are facts, never a dialog
     r.add(BrowserTabs(router, f))                      # the owner's open tabs (owner decision, 2026-09-30)
     r.add(BrowserUseTab(router, f))
     r.add(BrowserLoginCode(router, f))

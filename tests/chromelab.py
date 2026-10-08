@@ -228,8 +228,9 @@ def wait_for(cond: Any, timeout: float, what: str) -> None:
 
 
 @contextmanager
-def browser_lab(*, ferb_identity: bool = False, headless: bool = False):
-    """One isolated daemon, native host, extension, profile and Chrome process per lab."""
+def browser_lab(*, ferb_identity: bool = False, headless: bool = False, prefs: dict[str, Any] | None = None):
+    """One isolated daemon, native host, extension, profile and Chrome process per lab. `prefs` seeds the lab
+    profile's Preferences (e.g. its download folder) before Chrome starts."""
     from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
     from ferb.clock.clock import SystemClock
     from ferb.core.types import Identity
@@ -243,6 +244,9 @@ def browser_lab(*, ferb_identity: bool = False, headless: bool = False):
         udd.mkdir()
         (udd / "Local State").write_text(json.dumps({"profile": {"info_cache": {
             "Default": {"name": "Lab", "user_name": ""}}, "last_used": "Default"}}))
+        if prefs:
+            (udd / "Default").mkdir()
+            (udd / "Default" / "Preferences").write_text(json.dumps(prefs))
         d = RunningDaemon(base / "home", clock=SystemClock())
         without_owner_mac(d)
         dm = d.daemon

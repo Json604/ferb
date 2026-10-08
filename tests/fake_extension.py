@@ -28,6 +28,7 @@ from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID, PROTOCOL_VERSION
 ORIGIN = f"chrome-extension://{FERB_EXTENSION_ID}/"
 EXTENSION_VERSION = json.loads((Path(__file__).parents[1] / "extensions" / "chromium" / "manifest.json").read_text())["version"]
 SHOT_PART = 600000
+DOWNLOAD_PART = 72000                                     # raw bytes per download_part, as protocol.js DOWNLOAD_PART
 
 
 def page(url: str) -> dict[str, Any]:
@@ -111,6 +112,12 @@ class FakeExtension:
         self.screenshot_bytes = 10                        # size of the fake jpeg
         self.scroll_pos: dict[tuple[int, str | None], int] = {}
         self.opens = 0
+        # downloads (D35): the extension holds a captured download until the daemon pulls it with download_part
+        self.held_downloads: dict[str, bytes] = {}         # transfer id -> the bytes the browser's response carried
+        self.download_parts: list[dict[str, Any]] = []    # every download_part the daemon sent, as sent
+        self.download_aborts: list[str] = []               # transfers the daemon cancelled
+        self.download_fail_at: int | None = None          # a part at/after this offset fails (the stream broke)
+        self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
         self._window()  # Pre-provisioned fixture window; cold creation is tested explicitly.
 
     # ----- transport (the real native host) -----
@@ -281,9 +288,51 @@ class FakeExtension:
         return {"tab_id": self._n, "url": a["url"], "title": page(a["url"])["title"], "window_id": w}
 
     def op_navigate(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        if a["url"] in self.download_urls:                # the response is a download: the extension holds it, the
+            name, data = self.download_urls[a["url"]]     # navigation never commits, and it ends once FERB took it
+            did = self.start_download(a["tab_id"], name, data, a["url"])
+            end = time.monotonic() + 10
+            while did in self.held_downloads and time.monotonic() < end:
+                time.sleep(0.01)
+            old = self.tabs[a["tab_id"]]
+            return {"tab_id": a["tab_id"], "url": old, "title": page(old)["title"]}
         self.tabs[a["tab_id"]] = a["url"]
         self.tab_event("updated", a["tab_id"], a["url"])
         return {"tab_id": a["tab_id"], "url": a["url"], "title": page(a["url"])["title"]}
+
+    def start_download(self, tab_id: int, name: str, data: bytes, source_url: str, size: int | None | str = "len",
+                       mime: str = "application/octet-stream", source: str = "attachment") -> str:
+        """The extension caught a download in this tab (Fetch, or a blob/data link) and announces it; it keeps the
+        bytes until the daemon pulls them part by part (download_part) or cancels it."""
+        did = "d-" + uuid.uuid4().hex[:16]
+        self.held_downloads[did] = data
+        self.send("event", {"event": "download", "tab_id": tab_id, "download_id": did, "name": name, "mime": mime,
+                            "size": len(data) if size == "len" else size, "source_url": source_url, "source": source})
+        return did
+
+    def uncaptured_download(self, tab_id: int, name: str, source_url: str) -> None:
+        """The browser started a download in this tab that the extension couldn't intercept (Page.downloadWillBegin)."""
+        self.send("event", {"event": "download", "tab_id": tab_id, "uncaptured": True, "name": name,
+                            "source_url": source_url})
+
+    def op_download_part(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        self.download_parts.append(dict(a))
+        did = a["download_id"]
+        if did not in self.held_downloads:
+            raise RuntimeError("download transfer unavailable")
+        if a.get("abort"):
+            self.held_downloads.pop(did)
+            self.download_aborts.append(did)
+            return {"aborted": True}
+        data, offset = self.held_downloads[did], int(a["offset"])
+        if self.download_fail_at is not None and offset >= self.download_fail_at:
+            self.held_downloads.pop(did)
+            raise RuntimeError("the response stream broke")
+        chunk = data[offset:offset + DOWNLOAD_PART]
+        eof = offset + len(chunk) >= len(data)
+        if eof:
+            self.held_downloads.pop(did)
+        return {"data": base64.b64encode(chunk).decode(), "offset": offset, "eof": eof}
 
     def op_close(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         if a['tab_id'] in self.kept:

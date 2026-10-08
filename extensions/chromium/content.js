@@ -486,6 +486,41 @@
     addEventListener("mousemove", (e) => { if (e.isTrusted) probeSeen = true; }, { once: true, capture: true });
   }
 
+  // Downloads (D35): while FERB drives this tab, a blob: or data: link with a download attribute (no network request, so
+  // the tab's debugger can't hold it) is taken here: its default action is cancelled before the browser starts a
+  // download (no Save dialog) and the bytes wait in this frame until the service worker pulls them. http(s) links take
+  // the browser's own path, which the debugger holds. Never armed in a tab FERB isn't driving.
+  let downloadsArmed = false;
+  const heldDownloads = new Map();                 // id -> Blob
+  try { chrome.runtime.sendMessage({ ferbArmed: true }, (on) => { downloadsArmed = on === true; }); } catch (_) { /* no worker */ }
+  addEventListener("click", (e) => {
+    if (!downloadsArmed) return;
+    const a = (e.composedPath ? e.composedPath() : []).find((n) => n instanceof HTMLAnchorElement);
+    const href = a ? String(a.href || "") : "";
+    if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href)) return;
+    e.preventDefault();
+    const id = crypto.randomUUID(), name = a.getAttribute("download") || "";
+    fetch(href).then((r) => r.blob()).then((blob) => {   // started now: a page may revoke the blob right after the click
+      heldDownloads.set(id, blob);
+      chrome.runtime.sendMessage({ ferbDownload: { id, name, mime: blob.type || null, size: blob.size,
+        source_url: /^data:/i.test(href) ? "data:" + (href.slice(5).split(/[;,]/)[0] || "") : href.slice(0, 4096) } });
+    }).catch(() => { /* nothing to take; the browser never started a download either */ });
+  }, true);
+  async function downloadPart(id, offset, n) {
+    const blob = heldDownloads.get(id);
+    if (!blob) return { error: "gone" };
+    const bytes = new Uint8Array(await blob.slice(offset, offset + n).arrayBuffer());
+    const eof = offset + bytes.length >= blob.size;
+    if (eof) heldDownloads.delete(id);
+    let text = "";
+    for (let i = 0; i < bytes.length; i += 32768) text += String.fromCharCode(...bytes.subarray(i, i + 32768));
+    return { data: btoa(text), eof };
+  }
+  function armDownloads(on) {
+    downloadsArmed = on === true;
+    if (!downloadsArmed) heldDownloads.clear();
+  }
+
   // Sealed fill: the value arrives already opened by the service worker, for this element only. Re-check this
   // frame's origin in the same call that sets it; set it on that exact element (never typed into whatever has focus).
   function fill(gen, id, expectedOrigin, value, codeOnly = false) {
@@ -503,5 +538,6 @@
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
                     scrolled, probeArm, probeSeen: () => probeSeen,
                     text: () => (document.body ? document.body.innerText : ""), url: () => location.href,
-                    ready: () => document.readyState };
+                    ready: () => document.readyState, downloadPart, armDownloads,
+                    dropDownload: (id) => { heldDownloads.delete(id); } };
 })();

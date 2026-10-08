@@ -2,9 +2,11 @@
 // Commands carry a connection generation and journaled ID. Stale/duplicate commands never execute.
 // Task tabs open inactive in the FERB minimized window. CDP focus emulation targets the tab only;
 // the daemon sentinel measures OS effects rather than assuming every browser build stays background.
+// A download in a tab FERB drives is held here and handed to the daemon in parts, never to the browser (D35).
 importScripts("protocol.js");
 importScripts("ax.js");
 importScripts("pointer.js");
+importScripts("downloads.js");
 
 let port = null;
 let gen = null;                      // connection generation, assigned by the daemon ("welcome" / "paired")
@@ -17,6 +19,8 @@ let handshakeTimer = null;
 const resultTransfers = new Map();
 const commandTransfers = new Map();
 const outbox = [];                   // retain all queued results/events until reconnect; never discard evidence
+const downloads = new Map();         // transfer id -> a download held for the daemon (D35)
+let DOWNLOAD_IDLE_MS = 30000;        // a held download nobody pulls is failed in the browser, never left to it
 const VIEWPORT = { width: 1280, height: 900 };   // Emulation.setDeviceMetricsOverride for FERB's own tabs
 
 // ---------- state ----------
@@ -127,7 +131,7 @@ async function checkExtensionUpdate() {
     const repair = requiredRelease && requiredRelease.protocol > FERB_PROTOCOL &&
       !newerVersion(requiredRelease.version, disk.version);
     if (!newerVersion(disk.version, current) && !repair) return;
-    if (activeCommands || [...TABS.values()].some(t => t.gesture || t.attached) || (await ownedTabs()).length) return;
+    if (activeCommands || downloads.size || [...TABS.values()].some(t => t.gesture || t.attached) || (await ownedTabs()).length) return;
     const {ferbUpdateAttempt} = await chrome.storage.local.get('ferbUpdateAttempt');
     const attempt = `${current}/p${FERB_PROTOCOL}->${disk.version}/p${requiredRelease?.protocol ?? FERB_PROTOCOL}`;
     if (ferbUpdateAttempt === attempt) return;  // a failed reload must not loop forever
@@ -221,7 +225,11 @@ chrome.alarms.onAlarm.addListener(async () => {
   if (port && refused) await announceHello();  // retry after daemon updates too; refusal is not permanent
   else await ensurePort();
 });
-chrome.runtime.onMessage.addListener((m) => { if (m && m.pairToken) send("pair", { token: m.pairToken }); });
+chrome.runtime.onMessage.addListener((m, sender, reply) => {
+  if (m && m.pairToken) send("pair", { token: m.pairToken });
+  else if (m && m.ferbArmed && sender && sender.tab) reply(!!(TABS.get(sender.tab.id) || {}).armed);   // content.js
+  else if (m && m.ferbDownload && sender && sender.tab) pageDownload(sender.tab.id, sender.frameId || 0, m.ferbDownload);
+});
 
 // ---------- commands ----------
 
@@ -294,6 +302,18 @@ async function ownedTabs() {
   return alive;
 }
 
+// Load a URL in a tab and wait for it: the old page is still "complete", so wait for the new load to start first.
+async function load(tabId, url) {
+  const started = new Promise((resolve) => {
+    const on = (id, info) => { if (id === tabId && info.status === "loading") { chrome.tabs.onUpdated.removeListener(on); resolve(); } };
+    chrome.tabs.onUpdated.addListener(on);
+    setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); resolve(); }, 3000);
+  });
+  await chrome.tabs.update(tabId, { url });
+  await started;
+  await waitComplete(tabId, 20000);
+}
+
 function waitComplete(tabId, ms) {
   return new Promise((resolve) => {
     const done = () => { chrome.tabs.onUpdated.removeListener(check); clearTimeout(timer); resolve(); };
@@ -358,10 +378,11 @@ async function recordingState(tabId) {
 
 // ---------- the debugger session: attached on a task tab's first action, kept for its life ----------
 
-const TABS = new Map();          // tabId -> { attached, detached, dialogs, expect, leaving, frames, ax, shot }
+const TABS = new Map();          // tabId -> { attached, armed, ready, detached, dialogs, expect, leaving, frames, ax, shot }
 function tabState(tabId) {
   let t = TABS.get(tabId);
-  if (!t) { t = { attached: false, detached: null, dialogs: [], fileChoosers: [], inputErrors: [], expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null }; TABS.set(tabId, t); }
+  if (!t) { t = { attached: false, armed: false, ready: false, detached: null, dialogs: [], fileChoosers: [], inputErrors: [], expect: null, leaving: false, frames: {}, sessions: new Map(), axErrors: [], shot: null,
+                  redirects: new Map(), native: new Map() }; TABS.set(tabId, t); }
   return t;
 }
 
@@ -378,30 +399,62 @@ async function cdp(tabId, method, params, sessionId) {
 
 async function attach(tabId) {
   const t = tabState(tabId);
-  if (t.attached) {
+  if (t.attached && t.ready) {
     await Promise.all(t.sessions.values());
     if (t.inputErrors.length) throw Error(`background_input_unavailable: ${t.inputErrors.join("; ")}`);
     return t;
   }
-  await chrome.debugger.attach({ tabId }, "1.3");
-  t.attached = true; t.detached = null;
+  await arm(tabId);
   try {
-    await cdp(tabId, "Page.enable", {});
     // Intercept the browser mechanism, including indirect showPicker()/label/button routes.
     // The event supplies evidence; it never chooses a local/Drive source or opens a native picker.
     await cdp(tabId, "Page.setInterceptFileChooserDialog", {enabled: true});
     await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true });
-    await cdp(tabId, "Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     const s = await session(), tab = await chrome.tabs.get(tabId);
     if (s.windowId != null && tab.windowId === s.windowId)     // FERB's own window: layout independent of its size.
       await cdp(tabId, "Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 1, mobile: false });
     await ready(tabId);                                        // the owner's own tab keeps its real viewport
+    t.ready = true;
     return t;
   } catch (e) {
-    t.attached = false;
+    dropDownloads(tabId);
+    t.attached = false; t.armed = false;
     try { await chrome.debugger.detach({tabId}); } catch (_) {}
     throw e;
   }
+}
+
+// D35: downloads are caught only in a tab FERB drives (opened or borrowed for a task), and only while it does: the
+// tab's own debugger session pauses its document responses at the response stage (Fetch), child frames included, and
+// content.js holds its blob/data download links. Nothing applies to the profile, so the owner's downloads elsewhere
+// are never touched (rule 17). Browser/Page.setDownloadBehavior would be profile-wide, and an extension may not call
+// them (measured). Armed before a URL loads, so a URL that is a download is caught too.
+async function arm(tabId) {
+  const t = tabState(tabId);
+  if (!t.attached) {
+    await chrome.debugger.attach({ tabId }, "1.3");
+    t.attached = true; t.detached = null; t.ready = false; t.armed = false;
+  }
+  if (t.armed) return t;
+  try {
+    await cdp(tabId, "Page.enable", {});                       // dialogs, and the browser's own download events
+    await cdp(tabId, "Fetch.enable", { patterns: DOWNLOAD_PATTERNS });
+    t.armed = true;
+    await cdp(tabId, "Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+  } catch (e) {
+    t.attached = false; t.armed = false;
+    try { await chrome.debugger.detach({tabId}); } catch (_) {}
+    throw e;
+  }
+  await armPage(tabId, true);
+  return t;
+}
+
+async function armPage(tabId, on) {                          // content.js in documents already there
+  try {
+    await Promise.resolve(chrome.scripting.executeScript({ target: { tabId, allFrames: true },
+      func: (v) => { if (window.__ferb && window.__ferb.armDownloads) window.__ferb.armDownloads(v); }, args: [on] }));
+  } catch (_) { /* a page scripts can't reach holds no listener of ours */ }
 }
 
 async function detach(tabId) {
@@ -409,6 +462,10 @@ async function detach(tabId) {
   if (!t || !t.attached) { TABS.delete(tabId); return; }
   // Keep the state until the browser acknowledges release. A failed detach is actionable, not success.
   t.leaving = true;
+  if (t.armed) {                                             // let go of what this tab still holds, then of the page
+    await dropDownloads(tabId);
+    await armPage(tabId, false);
+  }
   try {
     await chrome.debugger.sendCommand({tabId}, 'Emulation.setFocusEmulationEnabled', {enabled:false});
     await chrome.debugger.detach({tabId});
@@ -422,16 +479,21 @@ async function detach(tabId) {
 chrome.debugger.onDetach.addListener((src, reason) => {
   const t = TABS.get(src.tabId);
   if (!t || !t.attached) return;
-  t.attached = false; t.detached = reason || "unknown";
+  const wasArmed = t.armed;
+  t.attached = false; t.armed = false; t.ready = false; t.detached = reason || "unknown";
+  if (wasArmed) { forgetDownloads(src.tabId); armPage(src.tabId, false); }   // the session (and what it held) is gone
   if (!t.leaving) send("event", { event: "detached", tab_id: src.tabId, reason: t.detached });   // not FERB's own close
 });
 
 // Dialog decisions belong to the agent. An unexpected dialog remains pending, including beforeunload.
 chrome.debugger.onEvent.addListener((src, method, params) => {
+  if (method === "Fetch.requestPaused") { onPaused(src, params).catch(e => console.warn("FERB download:", String(e))); return; }
+  if (method === "Page.downloadWillBegin" || method === "Page.downloadProgress") { browserDownload(src.tabId, method, params); return; }
   if (method === "Target.attachedToTarget") {
     const t = tabState(src.tabId), sid = params.sessionId;
     if (params.targetInfo && params.targetInfo.type === "iframe") {
       t.sessions.set(sid, (async () => {
+        if (t.armed) await cdp(src.tabId, "Fetch.enable", { patterns: DOWNLOAD_PATTERNS }, sid);   // an OOPIF's own requests
         await cdp(src.tabId, "Page.enable", {}, sid);
         await cdp(src.tabId, "Page.setInterceptFileChooserDialog", {enabled: true}, sid);
         await cdp(src.tabId, "Target.setAutoAttach", {autoAttach: true, waitForDebuggerOnStart: false, flatten: true}, sid);
@@ -468,6 +530,7 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
 });
 
 chrome.tabs.onRemoved.addListener(tabId => {
+  forgetDownloads(tabId);
   TABS.delete(tabId);
   mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tabId);}).catch(e => console.warn('FERB tab cleanup:', String(e)));
   serially(async () => {
@@ -475,6 +538,90 @@ chrome.tabs.onRemoved.addListener(tabId => {
     if (ids.includes(tabId)) await chrome.storage.local.set({ferbKeptTabs: ids.filter(id => id !== tabId)});
   }).catch(e => console.warn('FERB kept-tab cleanup:', String(e)));
 });
+
+// ---------- downloads (D35): held for the daemon, never handed to the browser ----------
+// A response held at the response stage never reaches the browser's download flow, so no Save dialog and no file in the
+// owner's Downloads. The daemon pulls it in parts (download_part); the last part, a cancel, an idle timeout or letting
+// go of the tab fails the held request (net::ERR_ABORTED: the page stays where it was).
+
+async function onPaused(src, params) {
+  const tabId = src.tabId, t = TABS.get(tabId), sid = src.sessionId;
+  let kind = null;
+  try { kind = t && t.armed ? classify(params, t.redirects) : null; } catch (_) { kind = null; }
+  if (!kind) {
+    try { await cdp(tabId, "Fetch.continueRequest", { requestId: params.requestId }, sid); } catch (_) { /* gone */ }
+    return;
+  }
+  const h = headerMap(params.responseHeaders), size = Number(h["content-length"]);
+  const tr = { id: "d-" + crypto.randomUUID().replace(/-/g, "").slice(0, 16), tabId, sessionId: sid || null,
+               requestId: params.requestId, stream: null, page: null, offset: 0, timer: null };
+  downloads.set(tr.id, tr);
+  idle(tr);
+  await send("event", { event: "download", tab_id: tabId, download_id: tr.id,
+    name: downloadName(params.responseHeaders, params.request.url), mime: mimeOf(h) || null,
+    size: h["content-length"] !== undefined && Number.isSafeInteger(size) && size >= 0 ? size : null,
+    source_url: downloadSource(params.request.url, maskUrl), source: kind });
+}
+
+// content.js caught a blob/data download link in a tab FERB drives; the bytes wait in that frame.
+function pageDownload(tabId, frameId, d) {
+  const t = TABS.get(tabId);
+  if (!d || typeof d.id !== "string") return;
+  const tr = { id: "d-" + crypto.randomUUID().replace(/-/g, "").slice(0, 16), tabId, sessionId: null, requestId: null,
+               stream: null, page: { frameId, ref: d.id }, offset: 0, timer: null };
+  if (!t || !t.armed) { releaseTransfer(tr); return; }
+  downloads.set(tr.id, tr);
+  idle(tr);
+  send("event", { event: "download", tab_id: tabId, download_id: tr.id, name: String(d.name || "").slice(0, 1024),
+    mime: String(d.mime || "") || null, size: Number.isSafeInteger(d.size) && d.size >= 0 ? d.size : null,
+    source_url: downloadSource(d.source_url, maskUrl), source: "page" });
+}
+
+function idle(tr) {
+  clearTimeout(tr.timer);
+  tr.timer = setTimeout(() => { if (downloads.get(tr.id) === tr) releaseTransfer(tr); }, DOWNLOAD_IDLE_MS);
+}
+
+// Done, cancelled or abandoned: the same end. Nothing of it is left to the browser.
+async function releaseTransfer(tr) {
+  downloads.delete(tr.id);
+  clearTimeout(tr.timer);
+  if (tr.page) {
+    try { await inFrame(tr.tabId, tr.page.frameId, (ref) => { window.__ferb.dropDownload(ref); return true; }, [tr.page.ref]); }
+    catch (_) { /* the document is gone, and the bytes with it */ }
+    return;
+  }
+  const sid = tr.sessionId || undefined;
+  if (tr.stream) { try { await cdp(tr.tabId, "IO.close", { handle: tr.stream }, sid); } catch (_) { /* closed */ } }
+  try { await cdp(tr.tabId, "Fetch.failRequest", { requestId: tr.requestId, errorReason: "Aborted" }, sid); }
+  catch (_) { /* the request already ended */ }
+}
+
+async function dropDownloads(tabId) {                // letting go of a tab: fail what it still holds
+  for (const tr of [...downloads.values()]) if (tr.tabId === tabId) await releaseTransfer(tr);
+}
+
+function forgetDownloads(tabId) {                    // the tab or its session is gone, and its held requests with it
+  for (const tr of [...downloads.values()]) if (tr.tabId === tabId) { downloads.delete(tr.id); clearTimeout(tr.timer); }
+}
+
+// A download the browser started itself in a tab FERB drives (a script-made blob/data link without a connected anchor,
+// a type the classification let render): reported once as a fact. Its "canceled" entry for a response FERB held
+// is not one.
+function browserDownload(tabId, method, params) {
+  const t = TABS.get(tabId);
+  if (!t || !t.armed) return;
+  if (method === "Page.downloadWillBegin") {
+    t.native.set(params.guid, { url: params.url || "", name: params.suggestedFilename || "" });
+    return;
+  }
+  const seen = t.native.get(params.guid);
+  if (!seen) return;
+  t.native.delete(params.guid);
+  if (params.state === "canceled") return;
+  send("event", { event: "download", tab_id: tabId, uncaptured: true, name: String(seen.name).slice(0, 1024),
+                  source_url: downloadSource(seen.url, maskUrl) });
+}
 
 // Trusted input needs a readiness probe right after attaching: the tab drops presses until a probe move lands.
 async function ready(tabId) {
@@ -633,6 +780,35 @@ async function settled(tabId, frameId, cid) {
 const SHOT_PART = 600000;        // base64 chars per message: well under the 1 MB native-messaging line
 
 const commands = {
+  async download_part({ download_id, offset, abort }) {
+    const tr = downloads.get(download_id);
+    if (!tr) throw Error("download transfer unavailable: it was already taken, cancelled or let go");
+    if (abort === true) { await releaseTransfer(tr); return { aborted: true }; }
+    if (!Number.isSafeInteger(offset) || offset !== tr.offset) throw Error("download parts are missing or out of order");
+    idle(tr);
+    let data, eof;
+    try {
+      if (tr.page) {
+        const r = await inFrame(tr.tabId, tr.page.frameId, (ref, at, n) => window.__ferb.downloadPart(ref, at, n),
+                                [tr.page.ref, offset, DOWNLOAD_PART]);
+        if (r.error) throw Error(`the page let go of the download (${r.error})`);
+        data = r.data; eof = !!r.eof;
+      } else {
+        const sid = tr.sessionId || undefined;
+        if (!tr.stream) tr.stream = (await cdp(tr.tabId, "Fetch.takeResponseBodyAsStream", { requestId: tr.requestId }, sid)).stream;
+        const r = await cdp(tr.tabId, "IO.read", { handle: tr.stream, size: DOWNLOAD_PART }, sid);
+        // Text arrives as text (measured: whole characters, at most DOWNLOAD_PART bytes); its UTF-8 is the bytes.
+        data = r.base64Encoded ? String(r.data || "") : _b64e(new TextEncoder().encode(String(r.data || "")));
+        eof = !!r.eof;
+      }
+    } catch (e) {
+      await releaseTransfer(tr);
+      throw e;
+    }
+    tr.offset += b64Bytes(data);
+    if (eof) await releaseTransfer(tr);
+    return { data, offset, next_offset: eof ? null : tr.offset, eof };
+  },
   async command_part({id,offset,text,total_chars}) {
     if (typeof id !== "string" || typeof text !== "string" || !Number.isSafeInteger(offset) || offset<0 ||
         !Number.isSafeInteger(total_chars) || total_chars<1 || offset+text.length>total_chars) throw Error("invalid command part");
@@ -677,26 +853,27 @@ const commands = {
         detail:'No FERB window is available. Choose an exact existing window_id for an inactive tab; creating a new window can switch Spaces and requires foreground permission.',
         windows:windows.map(w=>({id:w.id,state:w.state,focused:w.focused,type:w.type,incognito:w.incognito}))};
     }
-    const tab = await chrome.tabs.create({ windowId, url, active: false });      // never active, never focused (E3)
+    // Blank first, never active, never focused (E3); the URL loads once the tab can hold a download (D35).
+    const tab = await chrome.tabs.create({ windowId, url: "about:blank", active: false });
     await mutateSession(s => {s.owned.push({id, tabId:tab.id});});
     try { await chrome.tabs.update(tab.id, { autoDiscardable: false }); } catch (_) { /* Memory Saver opt-out is best effort */ }
-    await waitComplete(tab.id, 20000);
+    try { await arm(tab.id); }
+    catch (e) {
+      try { await chrome.tabs.remove(tab.id); } catch (_) { /* already gone */ }
+      await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab.id);});
+      throw Error(`download_capture_unavailable: FERB couldn't prepare the tab, so it loaded nothing (${e.message || e})`);
+    }
+    if (url !== "about:blank") await load(tab.id, url);   // FERB's daemon opens blank and navigates once the tab is its
     const t = await chrome.tabs.get(tab.id);
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "", window_id: t.windowId };
   },
   async navigate({ tab_id, url }) {
     const st = tabState(tab_id);
+    try { await arm(tab_id); }                         // a URL that is a download is held, never the browser's (D35)
+    catch (e) { throw Error(`download_capture_unavailable: FERB couldn't prepare the tab, so it didn't navigate (${e.message || e})`); }
     st.leaving = true; st.frames = {};
-    const started = new Promise((resolve) => {        // the old page is still "complete": wait for the new load
-      const on = (id, info) => { if (id === tab_id && info.status === "loading") { chrome.tabs.onUpdated.removeListener(on); resolve(); } };
-      chrome.tabs.onUpdated.addListener(on);
-      setTimeout(() => { chrome.tabs.onUpdated.removeListener(on); resolve(); }, 3000);
-    });
-    try {
-      await chrome.tabs.update(tab_id, { url });
-      await started;
-      await waitComplete(tab_id, 20000);
-    } finally { st.leaving = false; }
+    try { await load(tab_id, url); }
+    finally { st.leaving = false; }
     const t = await chrome.tabs.get(tab_id);
     return { tab_id: t.id, url: maskUrl(t.url || t.pendingUrl || ""), title: t.title || "" };
   },
@@ -707,6 +884,7 @@ const commands = {
     }
     const st = TABS.get(tab_id);
     if (st) st.leaving = true;
+    await dropDownloads(tab_id);
     try { await chrome.tabs.remove(tab_id); }
     catch (e) { if (!/No tab with id/i.test(String(e && e.message))) throw e; }
     TABS.delete(tab_id); // Closing the tab destroys its debugger target; onRemoved may arrive later.

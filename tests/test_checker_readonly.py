@@ -24,10 +24,10 @@ OBSERVATION = {
     "actions.search", "chat.history", "memory.read", "task.evidence", "trail.days", "trail.query",
     "fs.list", "fs.read", "recording.inspect", "shell.list", "shell.read", "shell.wait",
     "mac.apps", "mac.screenshot", "mac.snapshot",
-    "browser.find", "browser.point", "browser.profiles", "browser.read", "browser.screenshot", "browser.scroll",
-    "browser.snapshot", "browser.tabs", "browser.wait",
-    "ferb_browser.find", "ferb_browser.navigate", "ferb_browser.open", "ferb_browser.point", "ferb_browser.read",
-    "ferb_browser.screenshot", "ferb_browser.scroll", "ferb_browser.snapshot", "ferb_browser.wait",
+    "browser.downloads", "browser.find", "browser.point", "browser.profiles", "browser.read", "browser.screenshot",
+    "browser.scroll", "browser.snapshot", "browser.tabs", "browser.wait",
+    "ferb_browser.downloads", "ferb_browser.find", "ferb_browser.navigate", "ferb_browser.open", "ferb_browser.point",
+    "ferb_browser.read", "ferb_browser.screenshot", "ferb_browser.scroll", "ferb_browser.snapshot", "ferb_browser.wait",
 }
 
 

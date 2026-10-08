@@ -22,7 +22,9 @@ Setup installs a dedicated interpreter, environment, runtime and LaunchAgent und
 permissions and reports missing grants. `ferb setup --update` installs the current checkout and restarts the daemon;
 run it when existing work can be interrupted. The development environment and installed daemon are separate.
 
-Chrome and Brave need FERB extension **0.13.1**. Prepare its managed folder with `ferb browsers extension install`;
+Chrome and Brave need FERB extension **0.14.0** (protocol 10). After pulling it, run `ferb setup --update` to
+republish the managed bundle; a managed install reloads it when idle, and an older one is refused with a reload notice.
+Prepare its managed folder with `ferb browsers extension install`;
 `ferb browsers extension path` prints the path. Enable Developer mode in the browser's extensions page and Load
 unpacked from `~/.ferb/extensions/chromium`, once per profile. Pair with:
 
@@ -38,6 +40,12 @@ A closed browser is disconnected. An old version or lost pairing has a separate 
 
 FERB uses its own browser by default. Personal profiles are used when you request them, including “scaler Gmail”
 or “my current Brave tab.” Set up FERB's own account with `ferb setup --identity [--profile NAME]`.
+
+A download in a tab FERB is driving for a task never opens a Save dialog: FERB takes the file into
+`~/.ferb/workspace/downloads/<id>-<name>` and the task gets facts (path, size, SHA-256, source URL), labeled outside
+content. Files over `browser.download_max_mb` (default 100) are refused. Your own downloads in other tabs are untouched.
+One kind can't be intercepted: a page script that saves a file through a link it never adds to the page (FileSaver
+style); the browser handles that one itself (it may ask where to save) and the task is told it wasn't taken.
 
 Optional: `ferb setup --voice` builds the background microphone app. Hold Right Option to talk; release to send.
 `ferb chat --speak` speaks terminal replies. Pending questions accept free text, including corrections.
@@ -141,7 +149,7 @@ An unsupported or lost capture route returns a concrete error/partial result.
 
 These are silent sampled videos: 2 captures/second by default, configurable from 0.2–10. They are useful for task
 replays, not high-frame-rate video or audio recording. They need `ffmpeg` and `ffprobe` installed; FERB searches PATH
-and the usual Homebrew/user binary folders. Browser capture requires extension 0.13.1 / protocol 9; native capture
+and the usual Homebrew/user binary folders. Browser capture requires extension 0.14.0 / protocol 10; native capture
 requires macOS Screen Recording access and the target window to remain capturable.
 
 `recording.stop` finalizes the MP4 plus a JSON receipt of the target and capture times/errors. `recording.inspect`

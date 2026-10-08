@@ -212,15 +212,17 @@ def test_cold_open_returns_window_choices_without_creating_or_focusing():
 
 
 def test_explicit_window_opens_only_inactive_tab_and_never_creates_window():
+    """The tab opens blank and inactive in the chosen window; it can hold a download before the URL loads (D35)."""
     result = worker('''(async()=>{
-      const calls=[]; chrome.windows={get:async id=>({id,state:'fullscreen',type:'normal'}),
+      const calls=[], order=[]; chrome.windows={get:async id=>({id,state:'fullscreen',type:'normal'}),
         create:async()=>{throw Error('must not create a window');}};
       chrome.tabs.create=async args=>{calls.push(args);return {id:10};};
       chrome.tabs.update=async()=>{};chrome.tabs.get=async()=>({id:10,windowId:7,url:'https://example.test'});
-      waitComplete=async()=>{};
-      return {value:await commands.open({url:'https://example.test',window_id:7},'explicit'),calls};
+      arm=async id=>{order.push(['arm',id]);}; load=async (id,url)=>{order.push(['load',id,url]);};
+      return {value:await commands.open({url:'https://example.test',window_id:7},'explicit'),calls,order};
     })()''')
-    assert result['calls'] == [{'windowId': 7, 'url': 'https://example.test', 'active': False}]
+    assert result['calls'] == [{'windowId': 7, 'url': 'about:blank', 'active': False}]
+    assert result['order'] == [['arm', 10], ['load', 10, 'https://example.test']]
     assert result['value']['window_id'] == 7
 
 

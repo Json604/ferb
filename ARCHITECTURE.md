@@ -146,13 +146,31 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.13.1 / protocol 9** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
+Extension **0.14.0 / protocol 10** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Local uploads use `DOM.setFileInputFiles` on the identified input, including supported iframe/OOPIF routes. Canonical
 path, size, modified time and SHA-256 receipts tie the chosen local bytes to the selected files. Unknown/unsupported
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs
 model inspection and final observed content evidence.
+
+Downloads (D35) never reach the browser's own download flow in a tab FERB drives (opened, or borrowed while the task
+holds it). The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the task's,
+then navigates): its debugger session pauses document responses at the response stage (`Fetch`, child-frame sessions
+too) and [`downloads.js`](extensions/chromium/downloads.js) classifies each as the browser would: `Content-Disposition:
+attachment`, a renderer-started download (`<a download>`, whose request alone lacks `Upgrade-Insecure-Requests`, plus
+its redirect targets), or a type a page can't show. A download is held, announced as a `download` event, read with
+`Fetch.takeResponseBodyAsStream` + `IO.read` in 72000-byte `download_part`s the daemon pulls, then failed
+(`ERR_ABORTED`: the page stays). `content.js` cancels and holds a connected blob/data `download` link instead. An idle
+hold (30 s), a cancel or letting go of the tab fails the response. Nothing is profile-wide:
+`Browser/Page.setDownloadBehavior` are refused to extensions and would capture the owner's own downloads.
+[`downloads.py`](ferb/act/browser/downloads.py) writes `~/.ferb/workspace/downloads/<id>-<safe name>` through a
+no-follow folder descriptor, hashes the received bytes, enforces `browser.download_max_mb`, removes partial files and
+records facts in `downloads` (migration 0025; redacted source URL, never content). The worker sees them in the
+navigation/open result (it waits for the transfer), the next snapshot or act, and `browser.downloads` (an observation
+tool). The folder is always an untrusted fs root, so reads are `external:download`. A download the browser starts
+itself (a detached script-made blob link, a misread type) arrives as `Page.downloadWillBegin` and is recorded as
+`not_taken`; nothing tab-scoped can stop it (measured), so it can still show a Save dialog.
 
 Dialogs are explicit pending observations and explicit accept/dismiss choices. Email uses observed browser primitives,
 not a fixed Gmail compose/send recipe. OTP inbox candidates have opaque task/account/origin-bound IDs and masked
@@ -346,6 +364,7 @@ are lowercased the way the tokenizer folds them (`query_terms`, [`memory/items.p
 **Residuals F5 must close.**
 - Shell reads of downloaded files are not tracked: shell output is `external:unlabeled` and a file the owner's task
   downloaded and then reads with `cat` is not marked as outside content. F5's path lists and proxy facts narrow this.
+  (`fs` reads of `~/.ferb/workspace/downloads` are `external:download`; code adds that root, D35.)
 - FERB's own `fs` tools reach any path until the never-read / never-write lists exist (F5).
 - Origins and `arg_sources` are facts only; no confirmation or block uses them until F5.
 - `arg_sources` tells `owner_words` (typed in the request) apart from `owner_answer` (an option the owner chose), and

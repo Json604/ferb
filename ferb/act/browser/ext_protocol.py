@@ -2,7 +2,9 @@
 
 Extension messages carry install_id, type, body_json, monotonic seq and HMAC. Commands bind id and generation.
 Protocol 8 adds multipart full evidence/action transport, explicit dialogs and exact-frame local upload receipts.
-Chromium native-message size is a per-frame transport bound; content travels in chunks without clipping."""
+Protocol 10 adds downloads (D35): a `download` event for a download caught in a tab FERB drives, its bytes pulled in
+parts with `download_part`. Chromium native-message size is a per-frame transport bound; content travels in chunks
+without clipping."""
 
 import base64
 import hashlib
@@ -12,15 +14,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 9
-MIN_EXTENSION_VERSION = "0.13.1"
+PROTOCOL_VERSION = 10
+MIN_EXTENSION_VERSION = "0.14.0"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
 ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
-             "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab"]
+             "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
+             "download_part"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -77,8 +80,9 @@ class TabEvent(BaseModel):
 
 
 class Event(BaseModel):
-    """Observed tab dialog, intercepted file chooser, or debugger detachment; no implied user decision."""
-    event: Literal["dialog", "detached", "file_chooser"]
+    """Observed tab dialog, intercepted file chooser, debugger detachment, or a download caught in a tab FERB drives
+    (held by the extension until `download_part` takes or cancels it); no implied user decision."""
+    event: Literal["dialog", "detached", "file_chooser", "download"]
     tab_id: int
     type: str | None = None                    # dialog: alert | confirm | prompt | beforeunload
     message: str | None = None
@@ -92,6 +96,13 @@ class Event(BaseModel):
     transferred: bool | None = None
     direct_upload_available: bool | None = None
     detail: str | None = None
+    download_id: str | None = Field(default=None, max_length=64)   # download: the extension's transfer id
+    name: str | None = Field(default=None, max_length=4096)        # download: the name the response suggested
+    mime: str | None = Field(default=None, max_length=256)
+    size: int | None = Field(default=None, ge=0)                   # download: Content-Length / blob size, if known
+    source_url: str | None = Field(default=None, max_length=8192)  # download: masked by the extension, redacted here
+    source: str | None = None                  # download: attachment | type | link | page
+    uncaptured: bool | None = None             # download: the browser started it itself; nothing is held
 
 
 def mac_text(install_id: str, seq: int, mtype: str, body_json: str) -> bytes:

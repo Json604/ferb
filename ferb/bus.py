@@ -23,7 +23,8 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ap
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",
             "voice.heard", "voice.said", "browser.debugger_detached"}
 TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
-             "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.cleanup_failed", "disturbance.observed"}
+             "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",
+             "disturbance.observed"}
 STABLE_TOPICS = CRITICAL | TELEMETRY
 DROPPED = "bus.dropped"   # synthetic notice to a subscriber: {"count": n} telemetry events were dropped
 
