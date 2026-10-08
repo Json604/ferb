@@ -16,6 +16,7 @@ from ferb.core.errors import FerbError
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import ActionIntent
 from ferb.store.db import Database
+from ferb.store.spans import tree_where
 
 State = Literal["intended", "executing", "done", "failed", "unknown"]
 TRANSITIONS: dict[str, set[str]] = {
@@ -86,6 +87,18 @@ class Ledger:
     def unknown(self) -> list[LedgerRow]:
         return [self._row(r) for r in self._db.conn.execute(
             "SELECT * FROM action_ledger WHERE state = 'unknown' ORDER BY created_at").fetchall()]
+
+    def unresolved(self, tree_id: str) -> list[dict[str, Any]]:
+        """The task tree's actions that may or may not have happened (state `unknown` or `executing`), oldest first,
+        for recovery. Rows keep the worker task id they were written under; the tree is selected by range, as spans
+        are. The ledger is a recovery record, not proof of success: a `done` row says the tool returned, nothing more."""
+        where, params = tree_where(tree_id)
+        rows = self._db.conn.execute(
+            f"SELECT * FROM action_ledger WHERE state IN ('unknown', 'executing') AND {where} ORDER BY created_at, rowid",
+            params).fetchall()
+        return [dict(id=r["id"], task_id=r["task_id"], capability=r["capability"], target=json.loads(r["target_json"]),
+                     payload_hash=r["payload_hash"], state=r["state"], evidence=json.loads(r["evidence_json"]))
+                for r in rows]
 
     def for_task(self, task_id: str) -> list[LedgerRow]:
         return [self._row(r) for r in self._db.conn.execute(
