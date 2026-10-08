@@ -195,7 +195,7 @@ def test_a_worker_that_didnt_load_its_tools_gets_one_more_run(daemon: RunningDae
 def test_a_condition_about_something_read_is_verified_by_reading_not_the_action_log(daemon: RunningDaemon) -> None:
     """Owner's report (2026-10-01): "WhatsApp is running" was checked against the action log — the task only read,
     so the log was empty and a correct answer ended as "failed". With no actions logged, it goes to the verifier."""
-    t = task("say what's on top", conds=(cond("the app is running", "ledger_done"),))
+    t = task("say what's on top", conds=(cond("the app is running"),))
     worker = json.dumps({"status": "done", "summary": "hello is on top", "artifacts": [], "evidence": []})
     seen = json.dumps({"results": [{"index": 0, "met": True, "evidence": "fresh read: it's running"}]})
     install(daemon, [sup("task", "x", t)], {"worker": worker, "worker.verify": seen})

@@ -13,7 +13,7 @@ from pydantic import BaseModel, model_validator
 from ferb.clock.when import WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
 
-CHECK_KINDS = ["none", "file_exists", "file_contains", "ledger_done", "tab_url", "account", "after_change", "after_value"]
+CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value"]
 
 
 def _strings(enum: list[str] | None = None) -> dict[str, Any]:
@@ -100,7 +100,8 @@ QUESTION_SCHEMA = _obj({
 
 VERIFIER_SCHEMA: dict[str, Any] = _obj({
     "results": {"type": "array", "items": _obj({"index": {"type": "integer"}, "met": {"type": ["boolean", "null"]},
-                                                "evidence": {"type": "string"}})},
+                                                "evidence": {"type": "string"},
+                                                "how": {"type": ["string", "null"]}})},
 })
 
 class TargetsSpec(BaseModel):
@@ -114,7 +115,7 @@ class TargetsSpec(BaseModel):
 
 
 class Check(BaseModel):
-    kind: Literal["none", "file_exists", "file_contains", "ledger_done", "tab_url", "account",
+    kind: Literal["none", "file_exists", "file_contains", "tab_url", "account",
                   "after_change", "after_value"]
     path: str | None
     text: str | None
@@ -241,6 +242,7 @@ class VerifierResult(BaseModel):
     index: int
     met: bool | None
     evidence: str
+    how: str | None = None     # unconfirmed only: one plain sentence on how the owner could check it themselves
 
 
 class VerifierOutcome(BaseModel):

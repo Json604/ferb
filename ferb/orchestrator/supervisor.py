@@ -1044,7 +1044,8 @@ class Supervisor(WorkerRuns):
         self.tasks.set_status(vtask.id, "done", verdict.model_dump())
         got = {r.index: r for r in verdict.results}
         return [ConditionResult(i, c.text, got[i].met if i in got else None, "verifier",
-                                got[i].evidence if i in got else "The check gave no answer for this.")
+                                got[i].evidence if i in got else "The check gave no answer for this.",
+                                (got[i].how or "") if i in got and got[i].met is None else "")
                 for i, c in judged]
 
     def _final(self, tree: _Tree) -> dict[str, Any]:
@@ -1113,8 +1114,11 @@ def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: s
     confirmed; the conditions no check gave a verdict on (still to check when the checker failed, still to do when
     the work stopped first, never "unverified" and never the failure's internals); the files; and any question."""
     lines = [header]
-    lines.extend(f"- {r.text} — {'failed' if r.met is False else 'unverified'}: {r.evidence}"
-                 for r in results if r.met is not True and r.path != UNCHECKED)
+    for r in results:
+        if r.met is not True and r.path != UNCHECKED:
+            lines.append(f"- {r.text} — {'failed' if r.met is False else 'unverified'}: {r.evidence}")
+            if r.met is None and r.how:
+                lines.append(f"  To check: {r.how}")
     why = tree.stop_reason or reason
     if why:
         lines += ["", "Why work stopped: " + why]

@@ -28,10 +28,12 @@ class ConditionResult:
     met: bool | None               # None: couldn't be decided
     path: str                      # "code" | "verifier" | UNCHECKED
     evidence: str
+    how: str = ""                  # how the owner could check it themselves (checker, unconfirmed only)
 
     def as_dict(self) -> dict[str, Any]:
-        return {"index": self.index, "condition": self.text, "met": self.met, "path": self.path,
-                "evidence": self.evidence}
+        d = {"index": self.index, "condition": self.text, "met": self.met, "path": self.path,
+             "evidence": self.evidence}
+        return {**d, "how": self.how} if self.how else d
 
 
 class Checks:
@@ -42,11 +44,9 @@ class Checks:
         self.ledger, self.urls_of, self.spans = ledger, urls_of, spans
 
     def code_checkable(self, c: Condition, task_id: str | None = None) -> bool:
-        """`ledger_done` is about actions FERB took: when the task took none (it only read — "WhatsApp is
-        running"), the condition is a reading one and goes to the verifier instead (owner's report 2026-10-01)."""
+        """Only literal predicates are code-checked. Any other kind, including a stale `ledger_done` from an older
+        plan, is unknown to code and goes to the checker: tool completion is not proof of the outcome (V6)."""
         k = c.check
-        if k.kind == "ledger_done":
-            return task_id is None or bool(self.ledger.for_task(task_id))
         if k.kind in ("after_change", "after_value"):     # V2: the task's last acting call read something back
             return self.spans is not None and task_id is not None
         return (k.kind == "file_exists" and bool(k.path)) or (k.kind == "file_contains" and bool(k.path and k.text)) \
@@ -91,12 +91,6 @@ class Checks:
                       else {"changed": (k.expected or "true").strip().lower() != "false"})
             got = aftercheck.compare(expect, after)
             return ConditionResult(i, c.text, got["met"], "code", got["evidence"])
-        if k.kind == "ledger_done":
-            rows = self.ledger.for_task(task_id)
-            states = sorted({r.intent.state for r in rows})
-            return ConditionResult(i, c.text, None, "code",
-                                   f"ledger rows: {', '.join(states) or 'none'}; input completion does not prove the goal")
-
         if k.kind == "tab_url":
             urls = self.urls_of(task_id)
             matches = [url for url in urls if (k.url_contains or "") in url]

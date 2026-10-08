@@ -90,11 +90,12 @@ def test_completed_ledger_rows_do_not_prove_the_requested_goal(tmp_path: Path) -
     ledger.mark(row.id, "executing")
     ledger.mark(row.id, "done", ["span"])
     checks = Checks(ledger, lambda t: [])
-    cond = Condition(text="liked", check=Check(kind="ledger_done", path=None, text=None, url_contains=None,
+    cond = Condition(text="liked", check=Check(kind="none", path=None, text=None, url_contains=None,
                                                  site=None, expected="Spotify like current track"))
     ctx = ToolContext("task1", "verifier", "r", Identity.OWNER, frozenset(), "dev", None, str(tmp_path), (), ())
     r = asyncio.run(checks.run(0, cond, "task1", ctx))
-    assert r.met is None and "done" in r.evidence
+    assert not checks.code_checkable(cond, "task1")     # ledger rows never decide; the checker reads the outcome
+    assert r.met is None
 
 
 def test_extension_wait_and_backoff_are_bounded() -> None:

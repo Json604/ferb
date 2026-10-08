@@ -213,7 +213,7 @@ def test_2_liking_the_current_song_in_spotify_is_an_edit_that_runs_and_is_verifi
                  effect="edit", why="the heart button next to the current track")
         assert not r["is_error"], r
         return report("done", "Added the current song to your Liked Songs.")
-    conds = ({"text": "the song was liked", "check": {"kind": "ledger_done", "path": None, "text": None,
+    conds = ({"text": "the song was liked", "check": {"kind": "none", "path": None, "text": None,
                                                         "url_contains": None, "site": None,
                                                         "expected": "Spotify like current track"}},)
     t = task("add the current song in Spotify to the owner's liked songs", "owner", apps=("Spotify",), conds=conds)

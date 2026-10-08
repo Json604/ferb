@@ -46,6 +46,10 @@ Report missing work the same way, for recovery.
   A long snapshot may show a document prefix rather than the viewport:
   use the page's scroll metrics, screenshot or targeted find to check position and content.
 
+For each condition you leave unknown (`met=null`), also give `how`: one plain sentence, in the owner's terms, on
+how they could check it themselves (an app, page, folder or message they know by name; never an internal tool,
+tab or id). For a condition that is met or false, `how` is null.
+
 Output must match the JSON schema exactly.
 
 You receive the complete original request alongside the planner's specification. Judge substantive success against

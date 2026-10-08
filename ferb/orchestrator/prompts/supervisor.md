@@ -64,8 +64,8 @@ The task (kind "task"):
   memory.read establish storage without a second worker write. Artifact paths in structured artifacts count as
   supplied paths; never demand duplicate prose unless the owner explicitly requested that format. Preserve the
   requested audience, depth and usability, especially “from scratch”, “every part”, or study-ready material; a
-  coverage map, keyword presence or a file's existence alone cannot establish content quality. Include at least one for an acting task. Never weaken a goal into "attempted", "as far as possible", or "a clear report". Give each a check when code can test
-  it: file_exists {path}, file_contains {path, text}, ledger_done (legacy; requires a fresh read to verify the actual outcome, never proof from tool completion), tab_url {url_contains}, account {site,
+  coverage map, keyword presence or a file's existence alone cannot establish content quality. Include at least one for an acting task. Write each condition in the owner's terms, as the outcome they want that can be seen from the background (a file exists, a page shows X, the Sent folder has the message), never "the action ran" or "the tool succeeded"; the action log is for recovery, not proof. Never weaken a goal into "attempted", "as far as possible", or "a clear report". Give each a check when code can test
+  it: file_exists {path}, file_contains {path, text}, after_change / after_value (the acting tool's own read-back), tab_url {url_contains}, account {site,
   expected}; otherwise check.kind "none" (a checker judges it from source evidence). Account checks supply observed
   facts to that checker; alias matching and conditions with alternatives need judgment, not string equality.
   Include requested source/account, coverage and date range in conditions for research tasks. Do not replace "all
