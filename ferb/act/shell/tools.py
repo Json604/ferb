@@ -53,6 +53,8 @@ class ShellStart(_Base):
                    "background=true keeps it alive after task completion (servers); it is not needed to work "
                    "asynchronously during a task. Starting a process does not prove it is ready or successful.")
     target_args = ("cwd",)                             # Target.path, normalized by the gateway (P19 hash)
+    method_args = ("background", "timeout_s")          # how it runs, not what it does (P19 hash)
+    ledger_key = "shell.run"                           # shell.start and shell.run run the same command: one action
 
     class Input(BaseModel):
         command: str
@@ -61,7 +63,8 @@ class ShellStart(_Base):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         cmd = str(getattr(args, "command"))
-        return ActionSpec(Kind.RUN_SHELL, Target(path=getattr(args, "cwd")), content=cmd)
+        # No cwd is the workspace (guard.working_directory); "." normalizes to it, so both spellings are one target
+        return ActionSpec(Kind.RUN_SHELL, Target(path=getattr(args, "cwd") or "."), content=cmd)
 
     async def _start(self, args: BaseModel, ctx: ToolContext) -> ProcHandle:
         cmd = str(getattr(args, "command"))

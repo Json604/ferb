@@ -522,7 +522,8 @@ class MacComputerDriver:
         ok = await asyncio.to_thread(self.ax.press, n.ref)
         self.profiles.record(a.bundle_id, "ax_press", ok)
         return ActionResult(ok, "AX press request accepted; inspect the outcome" if ok else
-                            "AX press request refused; choose another mechanism from fresh evidence",
+                            "AX press request refused; check what happened before trying again (if it may have gone "
+                            "through, a repeat needs the owner)",
                             {"method": "ax", "accepted": ok, "outcome_verified": False})
 
     # ---- typing

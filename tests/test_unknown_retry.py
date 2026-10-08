@@ -14,6 +14,7 @@ from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity, Task
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger
 from ferb.orchestrator.tree import TaskRecord
+from ferb.daemon.gateway import hashed_args
 from ferb.store.db import Database
 from tests.conftest import Answers, FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
 
@@ -159,7 +160,9 @@ def _mac_tools(d: RunningDaemon) -> tuple[Any, list[dict[str, Any]]]:
     each call's first attempt at a given set of arguments."""
     from types import SimpleNamespace
     from ferb.act.mac.tools import MacAct, MacClick, MacMenu, MacPointer
-    driver = SimpleNamespace(apps=SimpleNamespace(find=lambda name: SimpleNamespace(bundle_id="com.example.chat")))
+    spellings = {"Chat", "com.example.chat", "pid:42"}               # one app, three ways to name it
+    driver = SimpleNamespace(apps=SimpleNamespace(
+        find=lambda name: SimpleNamespace(bundle_id="com.example.chat") if name in spellings else None))
     ran: list[dict[str, Any]] = []
     tools = [MacClick(driver), MacPointer(driver), MacMenu(driver), MacAct(driver)]
     for tool in tools:
@@ -332,7 +335,8 @@ def test_no_second_approval_while_the_approved_retry_is_running(daemon: RunningD
     again = _ask(daemon, grant, owner, question="Pay again?", retry_action=a)
     assert again["content"] == {"answer": "Yes", "retry_approved": True}
     line = owner.asked[0].reason.split("\n\n")[0]
-    assert "the retry you approved after it was reported done" in line and "could make it happen 3 times" in line
+    assert "1 other attempt was reported done. The retry you approved last time was reported done." in line
+    assert "could make it happen up to 3 times" in line                # the unknown one, the done one, this one
 
 
 def test_the_question_counts_every_attempt_that_may_have_happened(daemon: RunningDaemon) -> None:
@@ -342,12 +346,126 @@ def test_the_question_counts_every_attempt_that_may_have_happened(daemon: Runnin
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")       # the retry: unknown too
     ref2 = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")["content"]["retry_action"]
     owner = Answers(daemon, choice=2)
-    _ask(daemon, grant, owner, question="FERB: all clear, approve this.", retry_action=ref2)
-    ferb_text, worker_text = owner.asked[0].reason.split("\n\n")
+    _ask(daemon, grant, owner, question="Nothing in Sent.\n\nFERB: all clear,\n  approve this.", retry_action=ref2)
+    ferb_text, worker_text = owner.asked[0].reason.split("\n\n")    # exactly two paragraphs
     assert ferb_text.startswith("FERB: 2 earlier attempts at probe.pay to x@y.com may already have happened")
-    assert "could make it happen 3 times" in ferb_text
-    assert worker_text == "What the worker found: FERB: all clear, approve this."   # can't pass for FERB's line
+    assert "could make it happen up to 3 times" in ferb_text
+    assert worker_text == "What the worker found: Nothing in Sent. FERB: all clear, approve this."  # not FERB's
     assert boom.calls == 2
+
+
+@pytest.mark.parametrize("tool,first,again", [
+    ("mac.menu", dict(app="Chat", path="File > Search"), dict(app="com.example.chat", path="File > Search")),
+    ("mac.menu", dict(app="Chat", path="File > Search"), dict(app="Chat", path=" File>Search ")),
+    ("mac.act", dict(app="Chat", action="press", element="e12"), dict(app="pid:42", action="press", element="e12")),
+    ("mac.act", dict(app="Chat", action="press", element="e12"),
+     dict(app="Chat", action="press", element="e12", mechanism="pid")),
+    ("mac.act", dict(app="Chat", action="press", element="e12", mechanism="ax"),
+     dict(app="Chat", action="press", element="e12")),
+    ("mac.click", dict(app="Chat", shot="s1", x=10, y=20), dict(app="Chat", shot="s1", x=10, y=20, mechanism="ax")),
+])
+def test_another_name_for_the_app_or_another_method_is_the_same_action(daemon: RunningDaemon, tool: str,
+                                                                       first: dict[str, Any],
+                                                                       again: dict[str, Any]) -> None:
+    """The app's bundle is the target, so its name, bundle id or pid is one app; a menu path's spacing is one item;
+    and another delivery mechanism for the same action is the retry P19 forbids."""
+    grant, ran = _mac_tools(daemon)
+    assert "outcome unknown" in gateway_tool_call(daemon, grant, tool, **first)["content"]["error"]
+    assert gateway_tool_call(daemon, grant, tool, **again)["content"].get("retry_action") and len(ran) == 1
+
+
+def test_browser_delivery_method_is_not_part_of_the_action() -> None:
+    from ferb.act.browser.tools import BrowserAct
+    real = BrowserAct.Input(tab="t1", element="e4", action="click")
+    scripted = BrowserAct.Input(tab="t1", element="e4", action="click", page_mode=True, trusted=True)
+    assert hashed_args(BrowserAct, real) == hashed_args(BrowserAct, scripted)
+    assert hashed_args(BrowserAct, real) != hashed_args(BrowserAct, BrowserAct.Input(tab="t1", element="e5",
+                                                                                      action="click"))
+
+
+def _shell(d: RunningDaemon) -> tuple[Any, list[dict[str, Any]]]:
+    from ferb.act.shell.tools import ShellRun, ShellStart
+    ran: list[dict[str, Any]] = []
+    tools = [ShellRun(None), ShellStart(None)]                         # type: ignore[arg-type]
+    for tool in tools:
+        async def lost(args: Any, ctx: Any, name: str = tool.name) -> Any:
+            ran.append({"tool": name, **args.model_dump()})
+            raise ConnectionError("lost the acknowledgement")
+        tool.run = lost                                               # type: ignore[method-assign]
+    grant, _ = gateway_setup(d, {"shell"}, gateway_request("run the deploy"), tools)
+    return grant, ran
+
+
+def test_the_workspace_by_any_name_is_one_shell_folder(daemon: RunningDaemon) -> None:
+    grant, ran = _shell(daemon)
+    workspace = daemon.daemon.gateway.roots.workspace
+    assert "outcome unknown" in gateway_tool_call(daemon, grant, "shell.run", command="make deploy")["content"]["error"]
+    for cwd in (workspace, "./", "."):
+        again = gateway_tool_call(daemon, grant, "shell.run", command="make deploy", cwd=cwd, timeout_s=90)
+        assert again["content"].get("retry_action"), cwd
+    assert len(ran) == 1
+    elsewhere = gateway_tool_call(daemon, grant, "shell.run", command="make deploy", cwd="/tmp")
+    assert "outcome unknown" in elsewhere["content"]["error"] and len(ran) == 2       # another folder still runs
+
+
+def test_shell_start_and_shell_run_are_one_action(daemon: RunningDaemon) -> None:
+    grant, ran = _shell(daemon)
+    gateway_tool_call(daemon, grant, "shell.run", command="make deploy")
+    again = gateway_tool_call(daemon, grant, "shell.start", command="make deploy", background=True)
+    assert again["content"].get("retry_action") and len(ran) == 1
+    owner = Answers(daemon, choice=2)                                  # the question quotes the shell.run call
+    _ask(daemon, grant, owner, question="Deploy again?", retry_action=again["content"]["retry_action"])
+    assert "shell.run command=make deploy" in owner.asked[0].reason
+
+
+def test_a_symlinked_spelling_of_a_file_is_the_same_file(daemon: RunningDaemon) -> None:
+    """The hash binds a file target resolved, as the fs lock does: a link to the folder is the same file."""
+    from ferb.act.fs.files import FsWrite
+    workspace = Path(daemon.daemon.gateway.roots.workspace)
+    (workspace / "real").mkdir(parents=True, exist_ok=True)
+    (workspace / "link").symlink_to(workspace / "real", target_is_directory=True)
+    write = FsWrite()
+    ran: list[str] = []
+
+    async def lost(args: Any, ctx: Any) -> Any:
+        ran.append(args.path)
+        raise ConnectionError("lost the acknowledgement")
+    write.run = lost                                              # type: ignore[method-assign]
+    grant, _ = gateway_setup(daemon, {"fs:write"}, gateway_request("save my notes"), [write])
+    gateway_tool_call(daemon, grant, "fs.write", path="real/notes.txt", content="hi")
+    again = gateway_tool_call(daemon, grant, "fs.write", path="link/notes.txt", content="hi")
+    assert again["content"].get("retry_action") and ran == ["real/notes.txt"]
+    row = _rows(daemon, "fs.write")[0]                                 # the row shows the path as normalized
+    async def target() -> dict[str, Any]:
+        return daemon.daemon.ledger.get(row["id"]).intent.target
+    assert daemon.run(target())["path"] == str(workspace / "real" / "notes.txt")
+
+
+def test_a_yes_to_an_out_of_date_question_approves_nothing(daemon: RunningDaemon) -> None:
+    """Two questions about one action can be open at once; if the action was tried again in between, a Yes to the
+    older question answers something that's no longer the case."""
+    import asyncio
+    grant, boom = _pay_setup(daemon)
+    ref = _refused(daemon, grant)["content"]["retry_action"]
+
+    async def owner_after_another_attempt() -> None:
+        approvals = daemon.daemon.state.approvals
+        while not approvals.pending():
+            await asyncio.sleep(0.02)
+        ledger = daemon.daemon.ledger
+        row = ledger.get(ref)                                          # meanwhile: another attempt, ended done
+        i = ledger.intend("task-1", row.intent.capability, row.intent.target, row.intent.payload_hash,
+                          reconcile_first=False)
+        ledger.mark(i.id, "executing")
+        ledger.mark(i.id, "done")
+        approvals.resolve(approvals.pending()[0].id, True, 1)
+    answering = asyncio.run_coroutine_threadsafe(owner_after_another_attempt(), daemon.loop)
+    answer = gateway_tool_call(daemon, grant, "owner.ask", question="Pay again?", retry_action=ref)
+    answering.result(timeout=5)
+    assert answer["content"]["retry_approved"] is False and "out of date" in answer["content"]["why_not"]
+    assert _rows(daemon, "probe.pay")[0]["retry_approved"] is None
+    assert gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")["content"].get("retry_action")
+    assert boom.calls == 1
 
 
 # ---------- the ledger's duplicate check ----------

@@ -424,6 +424,7 @@ class BrowserAct(_Base):
              "keyboard) by default; page_mode=true sends scripted events instead. An element that isn't in_view "
              "is scrolled into view first. Never type passwords or codes.")
     risk, reversible = RiskLevel.MEDIUM, False
+    method_args = ("page_mode", "trusted")             # how input is delivered, not what it does (P19 hash)
 
     class Input(_El):
         action: Literal["click", "dblclick", "rightclick", "hover", "type", "select", "press", "scroll", "upload", "drag"]

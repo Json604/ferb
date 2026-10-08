@@ -6,7 +6,7 @@ Drivers retain actual window/element/coordinate validity, background mechanics a
 from dataclasses import dataclass
 from typing import Any, Collection, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ferb.act.evidence.mask import Box, to_image_boxes
 from ferb.act.mac import applescript
@@ -35,6 +35,7 @@ def _sources(bundle_id: str) -> tuple[tuple[str, str], ...]:
 class _Base:
     identities = {Identity.OWNER}
     risk, reversible = RiskLevel.LOW, True
+    target_args: tuple[str, ...] = ("app",)          # Target.site holds the app's normalized bundle id (P19 hash)
 
     def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None) -> None:
         self.driver, self.device_profile = driver, device_profile
@@ -113,6 +114,13 @@ class MacMenu(_Base):
 
     class Input(_App):
         path: str | None = Field(default=None, description='menu path, e.g. "File > Search"; empty to list menus')
+
+        @field_validator("path")
+        @classmethod
+        def one_spelling(cls, v: str | None) -> str | None:
+            """"File>Search" and "File > Search" name one item: the stripped items rejoined with " > "."""
+            items = [p.strip() for p in (v or "").split(">") if p.strip()]
+            return " > ".join(items) if items else None
 
     def _items(self, args: BaseModel) -> list[str]:
         return [p.strip() for p in (getattr(args, "path") or "").split(">") if p.strip()]
@@ -218,9 +226,11 @@ class MacAct(_Base):
                    "another route: ax, pid, ax_keyboard, ax_value (whole value), foreground. No automatic retry, "
                    "ancestor press, source substitution or input replay. Delivered input is not verified success. "
                    "Foreground requires allow_foreground=true and prior task-wide owner permission; nothing is "
-                   "restored afterwards. Inspect uncertain effects before choosing the next method.")
+                   "restored afterwards. After an uncertain effect, check what happened before trying again; a "
+                   "repeat needs the owner.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
+    method_args = ("mechanism", "allow_foreground")    # how input is delivered, not what it does (P19 hash)
 
     class Input(_App):
         action: Literal["press", "set_value", "focus", "click", "type", "key", "edit", "scroll", "select", "cancel"]
@@ -296,7 +306,7 @@ class MacRecord(_Base):
                    'captures the whole display. Silent sampled video, default 2 fps. Prefer browser_record for '
                    'individual tabs. Stop with recording_stop and inspect decoded frames with recording_inspect.')
     scopes = {'screen', 'fs:write'}
-    target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
+    target_args = ("app", "path")                      # Target.site / Target.path, normalized (P19 hash)
     class Input(_App):
         shot: str
         path: str = Field(description='New .mp4 output path')
@@ -322,6 +332,9 @@ class MacClick(_Base):
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
     origin = "ferb"                                    # delivery facts written by FERB; no app text comes back
+    method_args = ("mechanism", "allow_foreground")    # how input is delivered, not what it does (P19 hash)
+    # Parked: a click here and mac.pointer action=click at the same point are one action in effect, but their
+    # argument shapes differ, so they hash apart (no shared ledger_key).
 
     class Input(_App):
         shot: str = Field(description="shot id from the latest mac_screenshot of this app")
@@ -385,7 +398,8 @@ class MacPointer(MacClick):
     def describe(self, args: BaseModel) -> ActionSpec:
         spec = super().describe(args)
         kind = Kind.READ if getattr(args, "action") == "hover" else spec.kind
-        return ActionSpec(kind, spec.target, content=str(args.model_dump(exclude={"contact", "purpose"})))
+        return ActionSpec(kind, spec.target, content=str(args.model_dump(
+            exclude={"contact", "purpose", "app", "mechanism", "allow_foreground"})))   # notes, target, method: not content
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app = str(getattr(args, "app"))
