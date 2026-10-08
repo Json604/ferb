@@ -15,6 +15,7 @@ from ferb.act.fs.files import PathRefused, resolve
 from ferb.core.types import ToolContext
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.schemas import Condition
+from ferb.store.spans import SpanStore
 
 
 @dataclass
@@ -34,8 +35,8 @@ class Checks:
     """The deterministic checks. `urls_of` reports every current URL from the task's browser tabs."""
 
     def __init__(self, ledger: Ledger, urls_of: Callable[[str], list[str]],
-                 afters: aftercheck.AfterLog | None = None) -> None:
-        self.ledger, self.urls_of, self.afters = ledger, urls_of, afters
+                 spans: SpanStore | None = None) -> None:
+        self.ledger, self.urls_of, self.spans = ledger, urls_of, spans
 
     def code_checkable(self, c: Condition, task_id: str | None = None) -> bool:
         """`ledger_done` is about actions FERB took: when the task took none (it only read — "WhatsApp is
@@ -44,7 +45,7 @@ class Checks:
         if k.kind == "ledger_done":
             return task_id is None or bool(self.ledger.for_task(task_id))
         if k.kind in ("after_change", "after_value"):     # V2: the task's last acting call read something back
-            return self.afters is not None and task_id is not None and self.afters.last(task_id) is not None
+            return self.spans is not None and task_id is not None
         return (k.kind == "file_exists" and bool(k.path)) or (k.kind == "file_contains" and bool(k.path and k.text)) \
             or (k.kind == "tab_url" and bool(k.url_contains))
 
@@ -75,9 +76,14 @@ class Checks:
             return ConditionResult(i, c.text, found, "code", f"{p} {'contains' if found else 'does not contain'} "
                                                            f"the expected text")
         if k.kind in ("after_change", "after_value"):
-            after = self.afters.last(task_id) if self.afters is not None else None
-            if after is None:
-                return ConditionResult(i, c.text, None, "code", "no acting call has read anything back yet")
+            call = self.spans.latest_acting_call(task_id, k.tool) if self.spans is not None else None
+            if call is None:
+                return ConditionResult(i, c.text, None, "code", f"no {k.tool or 'acting'} call recorded in this task")
+            after = (call["output"] or {}).get("after")     # a call that died has no output: nothing was read back
+            if not isinstance(after, dict):
+                return ConditionResult(i, c.text, None, "code",
+                                       f"the latest {call['tool']} call recorded no after-read"
+                                       + (f" ({call['error']})" if call["error"] else ""))
             expect = ({"value_contains": k.text or ""} if k.kind == "after_value"
                       else {"changed": (k.expected or "true").strip().lower() != "false"})
             got = aftercheck.compare(expect, after)

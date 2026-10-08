@@ -15,11 +15,13 @@ def facts_of(content: dict[str, Any]) -> dict[str, Any]:
 def after_of(facts: dict[str, Any]) -> dict[str, Any]:
     """The acting tool's per-action facts -> a uniform after block. Only keys the tools really return are read."""
     note = str(facts.get("note", ""))
+    # set_value returns no value read-back today (only value_matches), so after_value is unknown for it.
     if "value_matches" in facts or facts.get("method") == "ax_value":
         return {"read": "value", "changed": bool(facts.get("value_matches", facts.get("accepted"))),
                 "value": facts.get("value"), "note": note}
-    if "observed_change" in facts:
-        return {"read": "ax", "changed": bool(facts["observed_change"]), "value": facts.get("value"), "note": note}
+    if "observed_change" in facts:        # False is "not confirmed changed" (a signature diff can miss a change): unknown
+        return {"read": "ax", "changed": True if facts["observed_change"] else None, "value": facts.get("value"),
+                "note": note}
     if isinstance(facts.get("bytes_match"), bool):       # browser upload: the page's selected file compared by sha256
         return {"read": "value", "changed": facts["bytes_match"], "value": None, "note": note}
     return {"read": "none", "changed": None, "value": None, "note": note}
@@ -38,16 +40,3 @@ def compare(expect: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
         return {"met": ok, "evidence": f"the screen {'changed' if after['changed'] else 'did not change'} as "
                                        f"{'expected' if ok else 'not expected'}"}
     return {"met": None, "evidence": "no expectation to compare"}
-
-
-class AfterLog:
-    """The latest after block of each task's acting calls, for the checks that compare it with an expect."""
-
-    def __init__(self) -> None:
-        self._last: dict[str, dict[str, Any]] = {}
-
-    def note(self, task_id: str, after: dict[str, Any]) -> None:
-        self._last[task_id] = after
-
-    def last(self, task_id: str) -> dict[str, Any] | None:
-        return self._last.get(task_id)

@@ -38,7 +38,7 @@ CONDITION_SCHEMA = _obj({
     # a code-checkable form when the condition allows one (verified without a model); kind "none" otherwise
     "check": _obj({"kind": {"type": "string", "enum": CHECK_KINDS}, "path": _nullable("string"),
                    "text": _nullable("string"), "url_contains": _nullable("string"), "site": _nullable("string"),
-                   "expected": _nullable("string")}),
+                   "expected": _nullable("string"), "tool": _nullable("string")}),
 })
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
@@ -119,6 +119,7 @@ class Check(BaseModel):
     url_contains: str | None
     site: str | None
     expected: str | None
+    tool: str | None = None        # after_change / after_value: the tool whose latest call is read (default: any acting call)
 
 
 class Condition(BaseModel):

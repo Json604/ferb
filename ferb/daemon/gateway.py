@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
+from ferb.act import aftercheck
 from ferb.act.fs.files import normalize_path
 from ferb.act.locks import ResourceLocks
 from ferb.act.mac.ax_browser import BROWSER_BUNDLES
@@ -30,7 +31,6 @@ from ferb.orchestrator.tree import TaskTree
 from ferb.policy import provenance
 from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
-from ferb.act import aftercheck
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.redact import Redactor
 from ferb.store.spans import SpanStore
@@ -191,7 +191,6 @@ class Gateway:
         self.route_question: Any = None
         self.disturbance: Any = None
         self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
-        self.afters = aftercheck.AfterLog()                # latest after-read per task (V2)
         self.evidence: Any = None                          # the evidence store (ferb/act/evidence/store.py)
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
         self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = None
@@ -398,10 +397,8 @@ class Gateway:
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
         raw = result.content
-        if spec.kind not in REVERSIBLE and not result.is_error:   # V2: what the action read back, never a guess
-            after = aftercheck.after_of(aftercheck.facts_of(raw))
-            raw = {**raw, "after": after}
-            self.afters.note(grant.task_id, after)
+        if spec.kind not in REVERSIBLE:                  # V2: what the action read back (a failure's too), never a guess
+            raw = {**raw, "after": aftercheck.after_of(aftercheck.facts_of(raw))}
         content = self.redact(raw)
         output = content
         if result.image is not None and not result.is_error and self.evidence is not None:

@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator
 from ferb.core import origin
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import Span
+from ferb.policy.rules import REVERSIBLE
 from ferb.store.db import Database
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
@@ -112,6 +113,19 @@ class SpanStore:
                                      (*params, after_rowid))
         return [(r["rowid"], origin.split(r["origin"]), _joined(json.loads(r["output_json"]), OUTPUT_TEXT_CAP))
                 for r in rows]
+
+    def latest_acting_call(self, root_id: str, tool: str | None = None) -> dict[str, Any] | None:
+        """The latest tool.call in this task tree: of `tool` when named, else any consequential (non-reading) one.
+        Failed calls count. Never a model's claim: the recorded span."""
+        where, params = self._tree_where(root_id)
+        rows = self._db.conn.execute(f"SELECT input_json, output_json, error FROM spans WHERE kind = 'tool.call' AND "
+                                     f"{where} ORDER BY rowid DESC", params)
+        for r in rows:
+            inp = json.loads(r["input_json"])
+            if (inp.get("tool") == tool) if tool else (inp.get("kind") is not None and inp.get("kind") not in REVERSIBLE):
+                return {"tool": inp.get("tool"), "output": json.loads(r["output_json"]) if r["output_json"] else None,
+                        "error": r["error"]}
+        return None
 
     def first_open_tool_call(self, root_id: str, after_rowid: int = 0) -> int | None:
         """The rowid of this task tree's earliest tool call after `after_rowid` that hasn't finished (still running),
