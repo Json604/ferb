@@ -39,9 +39,8 @@ Leaf = tuple[str, ...]      # a copy's folder under `uploads/`: ([outside,] tree
 
 
 def source_path(given: str) -> str:
-    """The file an upload reads, as given by the agent: ~ expanded, links and `..` resolved; a relative path is the
-    daemon's working folder's. The gateway's protection check (BrowserAct.file_paths) and the upload use this one
-    answer, so they always name the same file (rule 10)."""
+    """The file an upload reads: links and `..` resolved. BrowserAct has already made the path absolute (~ expanded, a
+    relative path the workspace's, as the gateway's protection check reads it), so both name the same file (rule 10)."""
     return os.path.realpath(os.path.expanduser(given))
 
 

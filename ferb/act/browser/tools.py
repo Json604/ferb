@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from ferb.act.browser.downloads import SETTLE_S
 from ferb.act.browser.snapshot import for_model
-from ferb.act.browser.uploads import source_path
+from ferb.act.fs.files import owner_path
 from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
@@ -488,8 +488,9 @@ class BrowserAct(_Base):
         return {self.family.act}
 
     def file_paths(self, args: BaseModel) -> list[tuple[str, FileAccess]]:
-        """The files an upload reads (rule 10): never FERB's own files or a never-read store's."""
-        return [(source_path(f), "read") for f in getattr(args, "files", None) or ()]
+        """The files an upload reads, as given (rule 10): the gateway checks each as typed and as resolved, a relative
+        one as the workspace's, as `_run` hands it to the driver. Never FERB's own files or a never-read store's."""
+        return [(f, "read") for f in getattr(args, "files", None) or ()]
 
     def describe(self, args: BaseModel) -> ActionSpec:
         action, text = str(getattr(args, "action")), getattr(args, "text")
@@ -507,8 +508,10 @@ class BrowserAct(_Base):
                                                     page_mode=bool(getattr(args, "page_mode", False)),
                                                     expect_dialog=getattr(args, "expect_dialog", None),
                                                     dialog_text=getattr(args, "dialog_text", None),
-                                                    files=tuple(getattr(args, "files", None) or ()),
-                                                    end_element=getattr(args, "end_element", None)),
+                                                    files=tuple(str(owner_path(f, ctx.workspace))
+                                                                for f in getattr(args, "files", None) or ()),
+                                                    end_element=getattr(args, "end_element", None),
+                                                    files_closed=ctx.path_closed),
                                   ctx.intent_id or "")
         # facts come back from the page (option candidates, scroll state, dialogs): label them with the tab's page
         out = {"ok": r.ok, "detail": r.detail, **r.facts, "next": "take a new snapshot to see the result"}

@@ -704,6 +704,9 @@ class _WritesThenErrs:
     risk, reversible = files.FsWrite.risk, False
     Input = files.FsRead.Input
 
+    def file_paths(self, args: Any) -> list[tuple[str, str]]:              # rule 10: a files tool declares them
+        return [(args.path, "write")]
+
     def describe(self, args: Any) -> Any:
         return files.FsWrite().describe(files.FsWrite.Input(path=args.path, content=""))
 
@@ -854,6 +857,9 @@ class _PlainWrite:
         self.name, self.runs = name, 0
         if target_args is not None:
             self.target_args = target_args
+
+    def file_paths(self, args: Any) -> list[tuple[str, str]]:              # rule 10: a files tool declares them
+        return [(args.where, "write")]
 
     def describe(self, args: Any) -> Any:
         return ActionSpec(Kind.WRITE_FILE, Target(path=args.where), content=args.text)

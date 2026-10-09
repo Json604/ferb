@@ -46,8 +46,55 @@ def opened_path(fd: int) -> Path:
 
 
 def opened_closed(ctx: ToolContext, fd: int, access: FileAccess) -> str | None:
-    """The protection lists' answer for the file a tool really opened (rule 10): the error to return, else None."""
-    return ctx.path_closed(opened_path(fd), access) if ctx.path_closed is not None else None
+    """The protection lists' answer for the file a tool really opened (rule 10): the error to return, else None. A
+    file FERB can't tell is refused before anything is read or changed (a refusal, never an unknown outcome)."""
+    if ctx.path_closed is None:
+        return None
+    try:
+        where = opened_path(fd)
+    except OSError as e:
+        return f"FERB couldn't tell which file it opened ({e.strerror or e}); nothing was read or changed"
+    return ctx.path_closed(where, access)
+
+
+def _check_in(folder: int, name: str, closed: Callable[[Path], str | None] | None) -> None:
+    """Raises PathRefused when the lists close `name` inside the opened folder, or when FERB can't tell which folder
+    it opened: before anything is written, so the call fails cleanly and a retry isn't blocked."""
+    if closed is None:
+        return
+    try:
+        where = opened_path(folder)
+    except OSError as e:
+        raise PathRefused(f"FERB couldn't tell which folder it opened ({e.strerror or e}); nothing was written") from None
+    refusal = closed(where / name)
+    if refusal:
+        raise PathRefused(refusal)
+
+
+def make_folders(folder: Path, closed: Callable[[Path], str | None] | None = None) -> None:
+    """`folder` and any missing folders above it (as mkdir -p), each made inside a folder FERB opened and checked
+    (`closed`: the protection lists), so no folder is made inside FERB's own state through a link swapped in after the
+    gateway's check. Raises PathRefused when the lists close one."""
+    missing: list[str] = []
+    top = folder
+    while not top.exists() and top != top.parent:
+        missing.append(top.name)
+        top = top.parent
+    if not missing:
+        return
+    fd = os.open(top, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for name in reversed(missing):
+            _check_in(fd, name, closed)
+            try:
+                os.mkdir(name, dir_fd=fd)
+            except FileExistsError:
+                pass
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            os.close(fd)
+            fd = child
+    finally:
+        os.close(fd)
 
 
 def _sibling_temp(folder: int, name: str) -> tuple[int, str]:
@@ -66,11 +113,12 @@ def atomic_text(p: Path, text: str, closed: Callable[[Path], str | None] | None 
     """Exclusive sibling temp preserves atomic replacement without touching a pre-existing scratch file. The temp is
     made and renamed inside one opened folder; `closed` checks that folder as macOS opened it (the protection lists),
     so a folder swapped for a link after the gateway's check can't move the write (raises PathRefused)."""
-    folder = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
-        refusal = closed(opened_path(folder) / p.name) if closed is not None else None
-        if refusal:
-            raise PathRefused(refusal)
+        folder = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    except OSError as e:
+        raise PathRefused(f"FERB couldn't open the folder for {p.name} ({e.strerror or e}); nothing was written") from None
+    try:
+        _check_in(folder, p.name, closed)
         fd, temp = _sibling_temp(folder, p.name)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -258,8 +306,8 @@ class FsWrite(_Base):
             return _err(str(e))
         if p.exists() and not getattr(args, "overwrite"):
             return _err(f"{p} exists (set overwrite=true to replace it)")
-        p.parent.mkdir(parents=True, exist_ok=True)
         try:
+            make_folders(p.parent, _write_check(ctx))
             atomic_text(p, str(getattr(args, "content")), _write_check(ctx))
         except PathRefused as e:
             return _err(str(e))

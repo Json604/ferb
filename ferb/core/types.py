@@ -246,6 +246,8 @@ class BrowserAction:
     dialog_text: str | None = None           # prompt() answer when accepting
     files: tuple[str, ...] = ()              # upload: absolute paths
     end_element: str | None = None           # drag: another screenshot-resolved point in the same tab
+    # upload: the protection lists' check of each file as the driver really opened it (ToolContext.path_closed)
+    files_closed: Callable[[Path, str], str | None] | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)

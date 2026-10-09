@@ -499,3 +499,132 @@ def test_the_daemon_builds_protection_from_the_owners_config(home: Path) -> None
         assert prot.ferb_home == home.resolve()
     finally:
         d.stop()
+
+
+def test_an_upload_is_checked_as_typed_too(daemon: RunningDaemon, tmp_path: Path) -> None:
+    """Once ~/.ssh becomes a link after start, ~/.ssh/id still names the store: an upload of it is refused, as an
+    fs.read of it is."""
+    home, fake = daemon.daemon.home, tmp_path / "fakehome"
+    (fake / ".ssh").mkdir(parents=True)
+    (fake / "elsewhere").mkdir()
+    (fake / "elsewhere" / "id").write_text("PRIVATE-KEY-BYTES")
+    driver = _NoBrowser()
+    grant, _ = gateway_setup(daemon, {"browser:act", "fs:read"}, None, [BrowserAct(driver, OWNER_BROWSER)])  # type: ignore[list-item]
+    daemon.daemon.gateway.roots.protection = Protection(fake, home, ["~/.ssh"], [], [])
+    (fake / ".ssh").rmdir()
+    (fake / ".ssh").symlink_to(fake / "elsewhere")
+    r = gateway_tool_call(daemon, grant, "browser.act", tab="t1", element="e1", action="upload",
+                          files=[str(fake / ".ssh" / "id")])
+    assert r["is_error"] and "~/.ssh" in r["content"]["error"] and driver.used == []
+    r = gateway_tool_call(daemon, grant, "fs.read", path=str(fake / ".ssh" / "id"))
+    assert r["is_error"] and "~/.ssh" in r["content"]["error"] and "PRIVATE-KEY-BYTES" not in str(r)
+
+
+class _OneTab:
+    """A browser driver that records what an upload is handed."""
+    def __init__(self) -> None:
+        self.actions: list[Any] = []
+
+    def tab_url(self, tab_id: str) -> str | None:
+        return "https://example.com/form"
+
+    def element_info(self, tab_id: str, element_id: str) -> None:
+        return None
+
+    def owned_by(self, tab_id: str, owner: str, borrow: bool = True) -> Any:
+        return type("Tab", (), {"tab_id": tab_id})()
+
+    def element_ref(self, tab: Any, element_id: str) -> str:
+        return element_id
+
+    async def act(self, el: Any, action: Any, intent_id: str) -> Any:
+        from ferb.core.types import ActionResult
+        self.actions.append(action)
+        return ActionResult(True, "1 file(s) set", {})
+
+
+def test_a_relative_upload_path_is_the_workspaces_in_the_check_and_the_read(daemon: RunningDaemon) -> None:
+    """`cv.pdf` means ~/.ferb/workspace/cv.pdf, as for every other file tool: the check reads it so (`../run/token-x`
+    is FERB's run folder, refused) and the driver is handed that absolute path, with the after-open check."""
+    home = daemon.daemon.home
+    (home / "run").mkdir(exist_ok=True)
+    (home / "run" / "token-x").write_text("secret-token")
+    (home / "workspace" / "cv.pdf").write_bytes(b"%PDF")
+    driver = _OneTab()
+    grant, _ = gateway_setup(daemon, {"browser:act"}, None, [BrowserAct(driver, OWNER_BROWSER)])  # type: ignore[list-item]
+    r = gateway_tool_call(daemon, grant, "browser.act", tab="t1", element="e1", action="upload",
+                          files=["../run/token-x"])
+    assert r["is_error"] and "FERB's own" in r["content"]["error"] and driver.actions == []
+    r = gateway_tool_call(daemon, grant, "browser.act", tab="t1", element="e1", action="upload", files=["cv.pdf"])
+    assert not r["is_error"], r
+    [action] = driver.actions
+    assert action.files == (str(home / "workspace" / "cv.pdf"),) and action.files_closed is not None
+
+
+class _Undeclared:
+    """A tool with file access that doesn't say which files it names."""
+    name, description, scopes = "probe.undeclared", "writes somewhere", {"fs:write"}
+    identities, risk, reversible = {Identity.OWNER, Identity.FERB}, RiskLevel.LOW, True
+
+    class Input(BaseModel):
+        where: str
+
+    def __init__(self) -> None:
+        self.runs = 0
+
+    def describe(self, args: Any) -> ActionSpec:
+        return ActionSpec(Kind.READ, Target(site="example.com"))
+
+    async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        self.runs += 1
+        return ToolResult({"ok": True})
+
+
+def test_a_files_tool_that_declares_nothing_is_refused(daemon: RunningDaemon) -> None:
+    tool = _Undeclared()
+    grant, _ = gateway_setup(daemon, {"fs:write"}, None, [tool])        # type: ignore[list-item]
+    r = gateway_tool_call(daemon, grant, "probe.undeclared", where="x.txt")
+    assert r["is_error"] and "doesn't declare the files" in r["content"]["error"] and tool.runs == 0
+    refused = [n for n in walk(_tree(daemon, grant.task_id)) if n["kind"] == "tool.refused"]
+    assert [(n["input"]["tool"], n["error"]) for n in refused] == [("probe.undeclared", "no file_paths declared")]
+
+
+def test_a_write_that_cant_tell_its_folder_fails_cleanly_and_can_be_retried(daemon: RunningDaemon,
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """When FERB can't tell which folder it opened, nothing is written and the call is a plain failure, not an unknown
+    outcome: the same write runs on the next try (P19 doesn't hold it)."""
+    import ferb.act.fs.files as files
+    grant, _ = gateway_setup(daemon, {"fs:read", "fs:write"}, None, [])
+    target = daemon.daemon.home / "workspace" / "notes.txt"
+    target.write_text("before")
+    real = files.opened_path
+
+    def blind(fd: int) -> Path:
+        raise OSError(5, "Input/output error")
+    monkeypatch.setattr(files, "opened_path", blind)
+    r = gateway_tool_call(daemon, grant, "fs.write", path="notes.txt", content="after", overwrite=True)
+    assert r["is_error"] and "couldn't tell which folder" in r["content"]["error"] and target.read_text() == "before"
+    monkeypatch.setattr(files, "opened_path", real)
+    r = gateway_tool_call(daemon, grant, "fs.write", path="notes.txt", content="after", overwrite=True)
+    assert not r["is_error"] and target.read_text() == "after"
+
+    async def states() -> list[str]:
+        return [row[0] for row in daemon.daemon.db.conn.execute(
+            "SELECT state FROM action_ledger WHERE capability = 'fs.write' ORDER BY rowid")]
+    assert daemon.run(states()) == ["failed", "done"]
+
+
+def test_fs_write_never_makes_a_folder_inside_ferbs_state(tmp_path: Path) -> None:
+    """mkdir -p through a folder swapped for a link after the gateway's check would make folders in FERB's run folder:
+    each missing folder is made inside a folder FERB opened and checked, so nothing is made there."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws, run = ferb / "workspace", ferb / "run"
+    ws.mkdir(parents=True)
+    run.mkdir()
+    (ws / "a").symlink_to(run)
+    tool = FsWrite()
+    result = asyncio.run(tool.run(tool.Input(path="a/b/c/notes.txt", content="x"), _ctx(ws, Protection(home, ferb, [], [], []))))
+    assert result.is_error and "closed by ferb_state" in result.content["error"]
+    assert list(run.iterdir()) == []
+    result = asyncio.run(tool.run(tool.Input(path="d/e/notes.txt", content="x"), _ctx(ws, Protection(home, ferb, [], [], []))))
+    assert not result.is_error and (ws / "d" / "e" / "notes.txt").read_text() == "x"

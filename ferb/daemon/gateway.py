@@ -84,6 +84,8 @@ NO_COPY = "{name} did not run: FERB couldn't keep a recovery copy of the file ({
 FS_FERB_STATE = ("{name} can't touch {path}: it is or holds FERB's own files (records, settings, tokens, recovery "
                  "copies, upload staging), which FERB's tools never read or change; only the owner changes them "
                  "(rule 10)")
+FS_UNDECLARED = ("{name} has file access but doesn't declare the files it names, so FERB can't check them against its "
+                 "protection lists; it didn't run")
 FS_NEVER_READ = ("{name} can't open or change {path}: it is inside or holds {store}, where passwords, keys, sign-ins or "
                  "private messages are kept. FERB's tools stay out of these stores until FERB can reliably keep "
                  "secrets out of what models see. A secret a task needs comes only through FERB's sealed secret path, "
@@ -488,9 +490,14 @@ class Gateway:
     def _files_closed(self, cap: Any, name: str, args: Any) -> tuple[str, str] | None:
         """(the trace's reason, the worker's error) when the protection lists close a file this call declares
         (`file_paths`: each path, read / write / remove), else None (rule 10, OPEN QUESTION 6). Each path is checked as
-        the call would name it (~ expanded, a relative one the workspace's) and as the OS reaches it now."""
+        the call would name it (~ expanded, a relative one the workspace's) and as the OS reaches it now. A tool with a
+        files scope that declares nothing is refused: what it would touch can't be checked."""
         protection, declared = self.roots.protection, getattr(cap, "file_paths", None)
-        if protection is None or declared is None:
+        if protection is None:
+            return None
+        if declared is None:
+            if any(str(s).startswith("fs:") for s in cap.scopes):
+                return "no file_paths declared", FS_UNDECLARED.format(name=name)
             return None
         for given, access in declared(args):
             closed = self._closed(protection, name, owner_path(given, self.roots.workspace), access)

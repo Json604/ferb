@@ -501,3 +501,37 @@ def test_a_lock_flag_the_clone_inherited_that_cant_be_cleared_refuses_the_copy(
         for dirpath, _, names in os.walk(root):
             for n in names:
                 os.chflags(os.path.join(dirpath, n), 0)
+
+
+def test_staging_checks_what_it_opened_after_the_gateways_check(tmp_path: Path) -> None:
+    """Rule 10: the gateway checks an upload's path, then a folder on it can be swapped for a link before the driver
+    opens the file. The driver checks the handle it opened (F_GETPATH) before reading a byte: refused, nothing staged
+    and nothing given to the browser."""
+    from ferb.policy.protection import Protection
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "run").mkdir(parents=True)
+    (ferb / "run" / "cv.pdf").write_bytes(b"secret-token")
+    docs = home / "docs"
+    docs.mkdir()
+    (docs / "cv.pdf").write_bytes(b"%PDF mine")
+    prot = Protection(home, ferb, [], [], [])
+    assert prot.fs_denied(docs / "cv.pdf", "read") is None                 # the gateway's check passes
+    shutil.rmtree(docs)
+    docs.symlink_to(ferb / "run")                                           # then the folder becomes a link
+
+    def closed(path: Path, access: str) -> str | None:
+        rule = prot.fs_denied(path, access)
+        return f"closed by {rule}" if rule else None
+    page, root = _Page(), ferb / "workspace" / "uploads"
+    tab = SimpleNamespace(bridge=page, chrome_id=7, owner="tree1.worker")
+    with pytest.raises(Refused, match="closed by ferb_state"):
+        asyncio.run(_driver(root)._upload(tab, 0, 1, 0, (str(docs / "cv.pdf"),), "i1", closed))
+    assert page.given == [] and not any(root.rglob("*.pdf"))
+
+
+def test_a_relative_upload_path_never_reaches_the_driver_unresolved(tmp_path: Path) -> None:
+    page = _Page()
+    tab = SimpleNamespace(bridge=page, chrome_id=7, owner="tree1.worker")
+    with pytest.raises(Refused, match="must be absolute"):
+        asyncio.run(_driver(tmp_path / "uploads")._upload(tab, 0, 1, 0, ("cv.pdf",), "i1"))
+    assert page.given == []
