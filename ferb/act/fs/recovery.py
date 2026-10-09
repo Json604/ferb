@@ -56,6 +56,10 @@ try:
     _libc.clonefile.restype = ctypes.c_int
     _libc.renamex_np.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
     _libc.renamex_np.restype = ctypes.c_int
+    _libc.fclonefileat.argtypes = (ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32)
+    _libc.fclonefileat.restype = ctypes.c_int
+    _libc.fchflags.argtypes = (ctypes.c_int, ctypes.c_uint)
+    _libc.fchflags.restype = ctypes.c_int
 except (OSError, AttributeError):        # not macOS: no clonefile / renamex_np; the byte copy and rename still work
     _libc = None
 
@@ -146,12 +150,75 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def copy_file(src: Path, dst: Path) -> str:
-    """A new copy of src at dst — an APFS clone where the volume allows it, else a byte copy; never replacing dst; a
-    lock flag the copy inherited cleared — and its SHA-256. The copy S1 keeps (`_make_copy`); upload staging gives a
-    browser one."""
-    _make_copy(src, dst)
-    return _sha256(dst)
+# ---------- copies through handles (upload staging): no path is resolved again ----------
+
+_NEW_FILE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+_READ_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def _fclone(src_fd: int, dir_fd: int, name: str) -> None:
+    """fclonefileat(2): an APFS clone of the open file src_fd as `name` in the open folder dir_fd. Raises OSError where
+    the volume can't clone. Never replaces an entry."""
+    if _libc is None:
+        raise OSError(errno.ENOTSUP, "fclonefileat is unavailable")
+    if _libc.fclonefileat(src_fd, dir_fd, os.fsencode(name), 0) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+
+
+def _byte_copy_fd(src_fd: int, dir_fd: int, name: str) -> None:
+    """A plain copy of the open file src_fd into a new file `name` in the open folder dir_fd (never replacing one,
+    never through a link), with the original's mode and times. A partial copy goes, through the folder."""
+    st = os.fstat(src_fd)
+    out = os.open(name, _NEW_FILE, 0o600, dir_fd=dir_fd)
+    try:
+        try:
+            offset = 0
+            while block := os.pread(src_fd, 1 << 20, offset):
+                view = memoryview(block)
+                while view:
+                    view = view[os.write(out, view):]
+                offset += len(block)
+            os.fchmod(out, stat.S_IMODE(st.st_mode))
+            os.utime(out, ns=(st.st_atime_ns, st.st_mtime_ns))
+        finally:
+            os.close(out)
+    except BaseException:
+        try:
+            os.unlink(name, dir_fd=dir_fd)
+        except OSError:
+            pass
+        raise
+
+
+def sha256_fd(fd: int) -> str:
+    """The SHA-256 of an open file, read from its start (the handle's position is left alone)."""
+    h, offset = hashlib.sha256(), 0
+    while block := os.pread(fd, 1 << 20, offset):
+        h.update(block)
+        offset += len(block)
+    return h.hexdigest()
+
+
+def copy_into(src_fd: int, dir_fd: int, name: str) -> str:
+    """A new copy of the open file src_fd as `name` in the open folder dir_fd — an APFS clone where the volume allows
+    it, else a byte copy — and its SHA-256, read back through the folder. Both ends are handles, so a link swapped into
+    a path meanwhile can't redirect, replace or re-stamp anything. A lock flag the copy inherited is cleared, so its
+    cleanup can delete it. Upload staging gives a browser this copy; S1 keeps its own (`_make_copy`)."""
+    try:
+        _fclone(src_fd, dir_fd, name)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            raise
+        _byte_copy_fd(src_fd, dir_fd, name)
+    fd = os.open(name, _READ_FILE, dir_fd=dir_fd)
+    try:
+        flags = os.fstat(fd).st_flags
+        if flags & _LOCKED and _libc is not None:
+            _libc.fchflags(fd, flags & ~_LOCKED)
+        return sha256_fd(fd)
+    finally:
+        os.close(fd)
 
 
 def _inside(root: Path, rel: str | None) -> Path | None:

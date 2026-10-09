@@ -8,23 +8,24 @@ A download caught in a task tab goes to `Hub.on_download` (downloads.py takes it
 WakeServer serves only the temporary local pairing page; ordinary wake launches no window or URL."""
 
 import asyncio
-import hashlib
 import json
 import os
 import secrets
 from dataclasses import dataclass, field
+from stat import S_ISREG
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlsplit
 
 from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, Event, Hello, Op, Result, TabEvent,
                                            command, parse, version_ok)
 from ferb.act.browser.downloads import Downloads, TaskTab
-from ferb.act.browser.uploads import StagingFailed, Uploads
+from ferb.act.browser.uploads import StagingFailed, Uploads, tab_key
 from ferb.act.browser.pairing import Binding, Pairings
 from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
 from ferb.act.browser.resolver import Resolver
 from ferb.act.browser.snapshot import element as page_element
 from ferb.act.browser.tools import Secrets
+from ferb.act.fs.recovery import sha256_fd
 from ferb.identity.mailbox import FEED_URL, GmailFeedMailbox
 from ferb.identity.seal import seal, seal_key, unseal
 from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
@@ -212,6 +213,9 @@ class Hub:
         self.unpaired: dict[str, str] = {}                   # install_id -> browser: installed, connected, not paired
         # The activity trail: every tab event goes to on_tab; while paused, only tabs FERB owns are tracked.
         self.on_tab: Callable[["Bridge", TabEvent], None] = lambda br, e: None
+        # A tab closed: FERB's own resources tied to it (upload copies) can go; nothing about the tab is recorded, so
+        # this runs while sensing is paused too. A returned awaitable runs in the background.
+        self.on_tab_closed: Callable[["Bridge", int], Awaitable[None] | None] = lambda br, tab_id: None
         self.paused: Callable[[], bool] = lambda: False
         self.owned: Callable[["Bridge", int], bool] = lambda br, tab_id: False
         # A download the extension holds (D35); the daemon sets downloads.Downloads.receive. Unset: back to the browser.
@@ -408,6 +412,8 @@ class Hub:
                 e = TabEvent.model_validate(body)
             except ValueError:
                 return
+            if e.event == "removed" and (job := self.on_tab_closed(br, e.tab_id)) is not None:
+                self._spawn(job)
             if self.paused() and not self.owned(br, e.tab_id):
                 return                                       # paused: the owner's tabs aren't watched at all
             self.on_tab(br, e)
@@ -745,6 +751,8 @@ class _TabDriver:
         self._tabs.pop(tab.tab_id, None)
         if not t.attached:
             t.bridge.unhold()
+        if self.uploads is not None and v.get("closed"):
+            self.uploads.closed(tab_key(t.bridge.name, t.chrome_id))   # rule 17: its upload copies go with its tree
         return self._lifecycle(t, v)
 
     async def snapshot(self, tab: TabRef) -> PageSnapshot:
@@ -859,29 +867,10 @@ class _TabDriver:
         paths = [os.path.realpath(os.path.expanduser(f)) for f in files]
         if not paths:
             raise Refused("upload needs at least one file path")
-        identities = []
-        for path in paths:
-            if not os.path.isfile(path):
-                raise Refused(f"no such file to upload: {path}")
-            with open(path, "rb") as source:
-                before = os.fstat(source.fileno())
-                digest = hashlib.file_digest(source, "sha256").hexdigest()
-                after = os.fstat(source.fileno())
-            if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
-                raise Refused("upload source changed while reading identity; inspect the file again")
-            identities.append({"path": path, "size": before.st_size, "modified_ns": before.st_mtime_ns,
-                               "sha256": digest, "owner_uid": before.st_uid})
-        given = paths
+        staging = None
         if self.uploads is not None:
-            # Rule 17: the browser reads FERB's own copy, never the original in a folder macOS protects (a permission
-            # dialog in front of the owner). The identity above is the original's; the copy must match it.
-            staging, tree = self.uploads, self.task_root(str(t.owner or ""))
-            try:
-                given = await asyncio.to_thread(
-                    lambda: [staging.stage(tree, str(item["path"]), str(item["sha256"])) for item in identities])
-            except (OSError, StagingFailed) as e:
-                raise Refused(f"FERB couldn't make its own copy of the file to upload ({e}); nothing was given to "
-                              "the browser") from None
+            staging = (self.uploads, self.task_root(str(t.owner or "")), tab_key(t.bridge.name, t.chrome_id))
+        identities, given = await asyncio.to_thread(self._sources, paths, staging)
         try:
             v = await t.bridge.call("upload", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
                                                "paths": given}, timeout=30, cid=intent_id or None)
@@ -914,6 +903,50 @@ class _TabDriver:
             facts["reason"] = "uploaded_bytes_mismatch"
             return ActionResult(False, "file input contains different bytes; inspect before any submission", facts)
         return ActionResult(bool(v.get("ok")), str(v.get("detail", "")), facts)
+
+    @staticmethod
+    def _sources(paths: list[str], staging: tuple[Uploads, str, str] | None) -> tuple[list[dict[str, Any]], list[str]]:
+        """Each file's identity, read through one handle that never follows a link at its last step, and the paths the
+        browser is given. Rule 17: with `staging` (uploads, task tree, tab), FERB's own copy made from that same handle,
+        so the browser reads the copy, never the original in a folder macOS protects (a permission dialog in front of
+        the owner), and the copy is checked against the identity just read. Blocking: runs in a worker thread."""
+        handles: list[int] = []
+        try:
+            identities: list[dict[str, Any]] = []
+            for path in paths:
+                try:
+                    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+                except FileNotFoundError:
+                    raise Refused(f"no such file to upload: {path}") from None
+                except OSError as e:
+                    raise Refused(f"FERB can't read the file to upload ({path}: {e.strerror or e}); nothing was given "
+                                  "to the browser") from None
+                handles.append(fd)
+                before = os.fstat(fd)
+                if not S_ISREG(before.st_mode):
+                    raise Refused(f"no such file to upload: {path}")
+                try:
+                    digest = sha256_fd(fd)
+                except OSError as e:
+                    raise Refused(f"FERB can't read the file to upload ({path}: {e.strerror or e}); nothing was given "
+                                  "to the browser") from None
+                after = os.fstat(fd)
+                if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                    raise Refused("upload source changed while reading identity; inspect the file again")
+                identities.append({"path": path, "size": before.st_size, "modified_ns": before.st_mtime_ns,
+                                   "sha256": digest, "owner_uid": before.st_uid})
+            if staging is None:
+                return identities, paths
+            uploads, tree, tab = staging
+            try:
+                return identities, uploads.stage_all(tree, [(fd, path, str(item["sha256"])) for fd, path, item
+                                                            in zip(handles, paths, identities)], tab)
+            except (OSError, StagingFailed) as e:
+                raise Refused(f"FERB couldn't make its own copy of the file to upload ({e}); nothing was given to "
+                              "the browser") from None
+        finally:
+            for fd in handles:
+                os.close(fd)
 
     async def find(self, tab: TabRef, text: str, offset: int = 0, max_chars: int = 12000) -> dict[str, Any]:
         """Search all accessible frames; page full hit text without selecting a candidate."""

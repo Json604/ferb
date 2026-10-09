@@ -519,17 +519,30 @@ class Daemon:
         return resources
 
     async def _tree_finished(self, tree_id: str) -> None:
-        """A task tree ended: the desktop observer's summary, then FERB's upload copies for it go (rule 17). A failure to
-        remove them is journaled; the next start-up sweeps them."""
+        """A task tree ended: the desktop observer's summary, then FERB's upload copies for it go (rule 17), except
+        those a tab that outlives the tree still shows. What couldn't be removed is journaled; the next start-up
+        sweeps it."""
         try:
             await self.disturbance.finish(tree_id)
         finally:
             if self.uploads is not None:
-                try:
-                    await asyncio.to_thread(self.uploads.forget_tree, tree_id)
-                except OSError as e:
-                    self._journal().append("browser.uploads_cleanup_failed",
-                                           {"task_id": tree_id, "error": f"{type(e).__name__}: {e}"})
+                await self._clean_uploads(self.uploads.forget_tree, tree_id, about={"task_id": tree_id})
+
+    def _tab_closed(self, br: Any, tab_id: int) -> Awaitable[None] | None:
+        """A tab closed in a paired browser: the upload copies it showed need not stay (rule 17). Those of a tree that
+        already ended go now, in the background."""
+        if self.uploads is None or not self.uploads.closed(uploads.tab_key(br.name, tab_id)):
+            return None
+        return self._clean_uploads(self.uploads.collect)
+
+    async def _clean_uploads(self, step: Callable[..., int], *args: Any, about: dict[str, Any] | None = None) -> None:
+        """One upload-copy cleanup in a worker thread; what it couldn't remove is journaled (paths, never contents)."""
+        try:
+            await asyncio.to_thread(step, *args)
+        except OSError as e:
+            self._journal().append("browser.uploads_cleanup_failed",
+                                   {**(about or {}), "error": f"{type(e).__name__}: {e}",
+                                    "left": list(getattr(e, "left", []))})
 
     def _stop_identity_browser(self) -> None:
         asyncio.get_event_loop().create_task(self.recordings.shutdown())
@@ -1597,13 +1610,15 @@ class Daemon:
                                        {"step": name, "error": f"{type(e).__name__}: {e}"})
         self.downloads.task_root = self._task_root
         self.hub.on_download = self.downloads.receive
+        self.hub.on_tab_closed = self._tab_closed
         # Rule 17: a file given to a browser to upload is FERB's own copy, never one in a folder macOS protects.
         self.uploads = uploads.Uploads(self.home / "workspace" / uploads.FOLDER,
                                        lambda: self._gateway().roots.untrusted_roots)
         try:
             await asyncio.to_thread(self.uploads.sweep)  # copies a restart left behind belong to no task now
         except OSError as e:
-            self._journal().append("browser.uploads_startup_failed", {"error": f"{type(e).__name__}: {e}"})
+            self._journal().append("browser.uploads_startup_failed", {"error": f"{type(e).__name__}: {e}",
+                                                                      "left": list(getattr(e, "left", []))})
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.add_secret_value = self._add_secret_value
         add_owner_browsers(self.registry, self.router, self.recordings)

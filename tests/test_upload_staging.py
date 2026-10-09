@@ -2,9 +2,11 @@
 run's "Brave Browser would like to access files in your Desktop folder", task 79bc5bfa). The copy keeps the original's
 name and origin label (MP2); the original is only read; copies go when the task tree ends."""
 import asyncio
+import errno
 import hashlib
 import os
 import shutil
+import stat
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,9 +14,11 @@ from typing import Any
 
 import pytest
 
+import ferb.act.browser.ext_bridge as ext_bridge
 from ferb.act.browser.downloads import untrusted_roots
 from ferb.act.browser.ext_bridge import _TabDriver
-from ferb.act.browser.uploads import StagingFailed, Uploads
+from ferb.act.browser.uploads import CleanupLeft, StagingFailed, Uploads
+from ferb.act.fs import recovery
 from ferb.act.fs.files import _source
 from ferb.core import origin
 from ferb.core.errors import Refused
@@ -34,15 +38,16 @@ def _driver(root: Path, untrusted: tuple[str, ...] = ()) -> _TabDriver:
 
 class _Page:
     """The extension's side: records the paths it was given and reports the bytes the page selected."""
+    name = "chrome/Profile 1"
 
     def __init__(self) -> None:
         self.given: list[list[str]] = []
 
     async def call(self, operation: str, args: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         self.given.append(list(args["paths"]))
-        data = Path(args["paths"][0]).read_bytes()
-        return {"ok": True, "detail": "1 file(s) set", "selected_files": [
-            {"name": Path(args["paths"][0]).name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}]}
+        selected = [(Path(p).name, Path(p).read_bytes()) for p in args["paths"]]
+        return {"ok": True, "detail": f"{len(selected)} file(s) set", "selected_files": [
+            {"name": n, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()} for n, data in selected]}
 
 
 def test_the_browser_is_given_the_staged_copy_and_the_original_is_untouched(tmp_path: Path) -> None:
@@ -148,6 +153,7 @@ def test_the_daemon_journals_a_cleanup_it_could_not_do_and_follows_no_link(daemo
         return [e.data for e in d._journal().entries() if e.kind == "browser.uploads_cleanup_failed"]
     [entry] = daemon.run(journal())
     assert entry["task_id"] == "tree1" and "not FERB's folder" in entry["error"]
+    assert [str(root) in x for x in entry["left"]] == [True]
 
 
 # ---------- every delete stays inside the uploads folder and follows no link ----------
@@ -224,28 +230,156 @@ def test_staging_never_writes_through_a_planted_link(tmp_path: Path, planted: st
     assert list(elsewhere.iterdir()) == [] and src.read_bytes() == b"%PDF"
 
 
-def test_copying_runs_off_the_event_loop(tmp_path: Path) -> None:
+def test_reading_the_identity_and_copying_run_off_the_event_loop_in_one_pass(tmp_path: Path,
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
     original = tmp_path / "cv.pdf"
     original.write_bytes(b"%PDF cv")
     driver = _driver(tmp_path / "uploads")
     assert driver.uploads is not None
-    staging, threads = driver.uploads.stage, []
+    threads: list[tuple[str, threading.Thread]] = []
+    hash_fd, stage_all = ext_bridge.sha256_fd, driver.uploads.stage_all
 
-    def stage(tree: str, source: str, sha256: str) -> str:
-        threads.append(threading.current_thread())
-        return staging(tree, source, sha256)
-    driver.uploads.stage = stage                                # type: ignore[method-assign]
+    def hashing(fd: int) -> str:
+        threads.append(("identity", threading.current_thread()))
+        return hash_fd(fd)
+
+    def staging(*args: Any) -> list[str]:
+        threads.append(("copy", threading.current_thread()))
+        return stage_all(*args)
+    monkeypatch.setattr(ext_bridge, "sha256_fd", hashing)
+    monkeypatch.setattr(driver.uploads, "stage_all", staging)
     tab = SimpleNamespace(bridge=_Page(), chrome_id=7, owner="tree1.worker")
     assert asyncio.run(driver._upload(tab, 0, 1, 0, (str(original),), "i1")).ok
-    assert threads and threads[0] is not threading.main_thread()
+    [(_, a), (_, b)] = threads
+    assert [k for k, _ in threads] == ["identity", "copy"] and a is b and a is not threading.main_thread()
 
 
 def test_a_tab_no_task_owns_gets_no_copy(tmp_path: Path) -> None:
     src = tmp_path / "a.txt"
     src.write_bytes(b"x")
     ups = Uploads(tmp_path / "uploads", lambda: ())
-    for tree in ("", ".", "..", "a/b", ".hidden"):
+    for tree in ("", ".", "..", "a/b", ".hidden", "outside"):
         with pytest.raises(StagingFailed, match="no task owns this tab"):
             ups.stage(tree, str(src), _sha(src))
         assert ups.forget_tree(tree) == 0
     assert not (tmp_path / "uploads").exists()
+
+
+# ---------- fix round 1: the copy is made through handles; tabs that outlive the tree keep their copies ----------
+
+def _owner_file(path: Path) -> tuple[bytes, int, int, int]:
+    st = path.stat()
+    return path.read_bytes(), stat.S_IMODE(st.st_mode), st.st_mtime_ns, st.st_flags
+
+
+@pytest.mark.parametrize("way", ["clone", "byte copy"])
+def test_a_folder_swapped_for_a_link_mid_copy_writes_deletes_and_restamps_nothing_outside(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, way: str) -> None:
+    """The reviewer's race: a shell command learns the random folder, plants a same-named one outside, and swaps
+    uploads/<tree> for a link to it while FERB copies. The copy goes into the folder FERB holds, never through the link."""
+    original = tmp_path / "Desktop" / "cv.pdf"
+    original.parent.mkdir()
+    original.write_bytes(b"%PDF the owner's cv")
+    victim = tmp_path / "Documents"
+    victim.mkdir()
+    root = tmp_path / "uploads"
+    real, seen = recovery._fclone, []
+
+    def racing(src_fd: int, dir_fd: int, name: str) -> None:
+        [leaf] = os.listdir(root / "tree1")
+        seen.append(leaf)
+        (victim / leaf).mkdir()
+        if way == "byte copy":                                  # a same-named owner file the old copy deleted/re-stamped
+            planted = victim / leaf / name
+            planted.write_bytes(b"the owner's other file")
+            os.chmod(planted, 0o640)
+            os.utime(planted, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+            os.chflags(planted, stat.UF_NODUMP)
+            seen.append(_owner_file(planted))
+        os.rename(root / "tree1", root / "moved")
+        (root / "tree1").symlink_to(victim)
+        if way == "clone":
+            real(src_fd, dir_fd, name)
+        else:
+            raise OSError(errno.ENOTSUP, "this volume can't clone")
+    monkeypatch.setattr(recovery, "_fclone", racing)
+    with pytest.raises(StagingFailed, match="no longer names FERB's copy"):
+        Uploads(root, lambda: ()).stage("tree1", str(original), _sha(original))
+    leaf = seen[0]
+    if way == "clone":
+        assert os.listdir(victim / leaf) == []                  # nothing written outside
+    else:
+        assert os.listdir(victim / leaf) == ["cv.pdf"] and _owner_file(victim / leaf / "cv.pdf") == seen[1]
+    assert os.listdir(victim) == [leaf] and os.listdir(root / "moved") == []   # FERB's own copy went, through its folder
+    assert original.read_bytes() == b"%PDF the owner's cv"
+
+
+def test_a_copy_shown_in_a_tab_that_outlives_its_tree_stays_until_that_tab_closes(tmp_path: Path) -> None:
+    src = tmp_path / "cv.pdf"
+    src.write_bytes(b"%PDF")
+    root = tmp_path / "uploads"
+    ups = Uploads(root, lambda: ())
+    kept = Path(ups.stage("tree1", str(src), _sha(src), tab="chrome/Profile 1#200"))     # the owner's borrowed tab
+    gone = Path(ups.stage("tree1", str(src), _sha(src), tab="chrome/Profile 1#7"))       # a tab FERB opened
+    assert ups.closed("chrome/Profile 1#7") is False            # FERB closed it during the tree: nothing waits yet
+    assert ups.forget_tree("tree1") == 1 and not gone.exists() and kept.read_bytes() == b"%PDF"
+    assert ups.collect() == 0 and kept.exists()                 # Chromium reads it again when the owner submits
+    assert ups.closed("chrome/Profile 1#200") is True           # the browser said the tab closed
+    assert ups.collect() == 1 and not kept.exists() and not (root / "tree1").exists()
+    assert ups.closed("chrome/Profile 1#9") is False            # nothing of an ended tree waits any more
+
+
+def test_several_files_are_staged_and_a_failure_removes_the_copies_already_made(tmp_path: Path) -> None:
+    a, b = tmp_path / "a.txt", tmp_path / "b.txt"
+    a.write_bytes(b"first")
+    b.write_bytes(b"second")
+    page = _Page()
+    root = tmp_path / "ws" / "uploads"
+    tab = SimpleNamespace(bridge=page, chrome_id=7, owner="tree1.worker")
+    receipt = asyncio.run(_driver(root)._upload(tab, 0, 1, 0, (str(a), str(b)), "i1"))
+    assert receipt.ok and receipt.facts["bytes_match"] is True
+    first, second = (Path(p) for p in page.given[0])
+    assert (first.name, second.name) == ("a.txt", "b.txt") and first.parent != second.parent
+    assert receipt.facts["staged_copies"] == page.given[0]
+    ups = Uploads(tmp_path / "u2", lambda: ())
+    fa, fb = os.open(a, os.O_RDONLY), os.open(b, os.O_RDONLY)
+    try:
+        with pytest.raises(StagingFailed, match="changed while FERB copied it"):
+            ups.stage_all("tree1", [(fa, str(a), _sha(a)), (fb, str(b), hashlib.sha256(b"before").hexdigest())])
+    finally:
+        os.close(fa)
+        os.close(fb)
+    assert os.listdir(tmp_path / "u2" / "tree1") == []          # the first copy went at once, not at the tree's end
+
+
+def test_an_unreadable_original_is_refused_with_the_reason(tmp_path: Path) -> None:
+    original = tmp_path / "locked.pdf"
+    original.write_bytes(b"%PDF")
+    os.chmod(original, 0)
+    page = _Page()
+    tab = SimpleNamespace(bridge=page, chrome_id=7, owner="tree1.worker")
+    try:
+        with pytest.raises(Refused, match="can't read the file to upload .*Permission denied"):
+            asyncio.run(_driver(tmp_path / "uploads")._upload(tab, 0, 1, 0, (str(original),), "i1"))
+    finally:
+        os.chmod(original, 0o600)
+    assert page.given == []
+
+
+def test_a_cleanup_removes_what_it_can_and_names_what_it_couldnt(tmp_path: Path) -> None:
+    src = tmp_path / "a.txt"
+    src.write_bytes(b"x")
+    ups = Uploads(tmp_path / "uploads", lambda: ())
+    stuck = Path(ups.stage("tree1", str(src), _sha(src)))
+    loose = Path(ups.stage("tree1", str(src), _sha(src)))
+    os.chflags(stuck, stat.UF_IMMUTABLE)                        # a lock a shell command set on FERB's copy
+    try:
+        with pytest.raises(CleanupLeft) as left:
+            ups.forget_tree("tree1")
+        assert not loose.exists() and stuck.exists() and any(str(stuck) in x for x in left.value.left)
+        other = Path(ups.stage("tree2", str(src), _sha(src)))
+        with pytest.raises(CleanupLeft) as left:
+            ups.sweep()
+        assert not other.exists() and stuck.exists() and any(str(stuck) in x for x in left.value.left)
+    finally:
+        os.chflags(stuck, 0)

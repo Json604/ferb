@@ -195,6 +195,31 @@ def test_uploads_go_through_the_stamped_file_field_and_only_real_files(bd: Any, 
     field = next(e["id"] for e in snap["elements"] if e.get("type") == "file")
     r = call(d, g, "browser.act", tab=tab, element=field, action="upload", files=[str(tmp_path / "nope.pdf")])
     assert r["is_error"] and "no such file" in r["content"]["error"] and len(ext.uploads) == 1
+    d.run(d.daemon.router.release(g.task_id))                    # FERB closes the tab it opened...
+    d.run(d.daemon.supervisor.on_task_finish("x"))
+    assert not staged.exists() and f.exists()                    # ...so its copy goes when the tree ends
+
+
+def test_a_copy_in_the_owners_borrowed_tab_stays_until_the_browser_says_that_tab_closed(bd: Any,
+                                                                                        tmp_path: Path) -> None:
+    """Chromium reads a file input's file again at submit: "attach my CV and leave it for me to submit" works."""
+    d, launched = bd
+    ext, g = _ready(d, launched)
+    f = tmp_path / "cv.pdf"
+    f.write_bytes(b"%PDF-1.4 test")
+    ext.tabs[200], ext.tab_windows[200] = f"{SHOP}/upload", 5                     # the owner's own tab
+    tab = call(d, g, "browser.use_tab", tab_ref="chrome:Profile 1:200")["content"]["tab"]
+    snap = call(d, g, "browser.snapshot", tab=tab)["content"]
+    field = next(e["id"] for e in snap["elements"] if e.get("type") == "file")
+    r = call(d, g, "browser.act", tab=tab, element=field, action="upload", files=[str(f)])
+    assert not r["is_error"], r
+    [staged] = (Path(p) for p in r["content"]["staged_copies"])
+    d.run(d.daemon.router.release(g.task_id))                    # let go of, never closed
+    d.run(d.daemon.supervisor.on_task_finish("x"))
+    assert 200 in ext.tabs and staged.read_bytes() == f.read_bytes()             # still there for the owner's submit
+    ext.tab_event("removed", 200)                                # the owner closed the tab
+    ext.wait_for(lambda: not staged.exists())
+    assert f.read_bytes() == b"%PDF-1.4 test"
 
 
 def test_screenshots_arrive_in_parts_under_the_message_limit(bd: Any) -> None:
