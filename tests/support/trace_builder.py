@@ -107,13 +107,36 @@ class TraceBuilder:
         node["origin"] = origin
         self._child(self.root, node)
 
-    def desktop(self, changes: int, near: list[tuple[Any, ...]] | tuple = ()) -> None:
-        """`near`: (tool, changed keys[, the tool.call span id the sampler saw in flight])."""
+    def desktop(self, changes: int, near: list[tuple[Any, ...]] | tuple = (),
+                on_screen: dict[str, bool] | None = None) -> None:
+        """`near`: (tool, changed keys[, the tool.call span id the sampler saw in flight]). `on_screen`: the flag the
+        sentinel recorded per tool (left out: a record made before the flag existed)."""
         for tool, changed, *span in near:
+            action: dict[str, Any] = {"tool": tool, "span_id": span[0] if span else "x"}
+            if on_screen is not None and tool in on_screen:
+                action["on_screen"] = on_screen[tool]
             self._child(self.root, self._node("disturbance.change", 0, {}, {
                 "changes": {k: {"before": None, "after": None} for k in changed},
-                "actions": [{"tool": tool, "span_id": span[0] if span else "x"}], "owner_input": False}))
+                "actions": [action], "owner_input": False}))
         self._child(self.root, self._node("disturbance.summary", 0, {}, {"samples": 99, "changes": changes, "errors": 0}))
+
+    def came_forward(self, app: str, bundle_id: str, actions: list[dict[str, Any]] | tuple = (),
+                     processes: list[dict[str, Any]] | tuple | None = (), space: bool = False,
+                     on_screen_in_task: bool = False, last_ended_s: int | None = None) -> None:
+        """A disturbance.change where an app came to the front (and the Space changed when `space`), with the actions,
+        the FERB-started processes and the on-screen timing the sentinel recorded (`processes` None: a record made
+        before processes and timing were kept)."""
+        changes: dict[str, Any] = {"frontmost_app": {
+            "before": {"pid": 1, "bundle_id": "com.example.before", "name": "Before"},
+            "after": {"pid": 2, "bundle_id": bundle_id, "name": app}}}
+        if space:
+            changes["active_space_epoch"] = {"before": 0, "after": 1}
+        out: dict[str, Any] = {"changes": changes, "actions": list(actions), "owner_input": False}
+        if processes is not None:
+            out["processes"] = list(processes)
+            if not any(a.get("on_screen") for a in actions):
+                out |= {"on_screen_in_task": on_screen_in_task, "last_on_screen_ended_s": last_ended_s}
+        self._child(self.root, self._node("disturbance.change", 0, {}, out))
 
     def finish(self, status: str = "done", verified: bool | None = True,
                answer: str = "Deleted ~/.cache/huggingface.") -> dict[str, Any]:

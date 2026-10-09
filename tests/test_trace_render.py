@@ -50,6 +50,21 @@ def test_desktop_changes_near_screen_actions_get_detail_lines() -> None:
     assert "  · 11:04:42 cursor, frontmost_app near mac.act" in lines
 
 
+def test_a_front_app_change_no_ferb_action_was_near_says_so_with_ferbs_running_processes() -> None:
+    b = TraceBuilder()
+    b.worker(5, "done", "submitted")
+    b.came_forward("Google Chrome", "com.google.Chrome",
+                   actions=[{"tool": "shell.wait", "span_id": "w1", "on_screen": False}],
+                   processes=[{"id": "p-1", "task": "f29fee46.worker",
+                               "command": "codex -m gpt-6-astra --dangerously-bypass-approvals-and-sandbox"}])
+    b.desktop(889)
+    lines = render.story(_ep(b.finish()))
+    assert ("Desktop: 889 changes during the task, none near a FERB on-screen action; 1 front-app or Space change "
+            "with no FERB on-screen action in progress") in lines
+    assert ("  · 11:04:42 Google Chrome came to the front — no FERB on-screen action in progress (none in this task); "
+            "running: codex -m gpt-6-astra --dangerously-bypass-approvals-and-san… (started by this task)") in lines
+
+
 def test_failed_status_and_verdict() -> None:
     b = TraceBuilder()
     b.worker(5, "failed", "couldn't open it")

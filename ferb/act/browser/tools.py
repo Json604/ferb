@@ -93,6 +93,9 @@ class _Base:
     verb = ""
     blurb = ""
     risk, reversible = RiskLevel.LOW, True
+    # True: it can change what is on the owner's screen (bring an app or window forward, switch the Space, move
+    # the cursor, open a dialog); desktop changes near it may be FERB's (P26)
+    on_screen = False
 
     def __init__(self, driver: IdentityDriver, family: Family) -> None:
         self.driver, self.family = driver, family
@@ -149,6 +152,7 @@ class _El(_Tab):
 
 class BrowserOpen(_Base):
     verb = "open"
+    on_screen = True
     blurb = ("Open an inactive tab in {whose}. Reuses an existing FERB window; otherwise returns window choices. "
              "Select an exact window_id to avoid creating a window. Returns tab id; then call {p}_snapshot. A URL "
              "that is a download becomes a file in FERB's workspace (`downloads`: path, size, sha256), never a dialog.")
@@ -188,6 +192,7 @@ class BrowserOpen(_Base):
 
 class BrowserScroll(_Base):
     verb = "scroll"
+    on_screen = True
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     blurb = ("Scroll a page in one of this task's tabs ({whose}) by about one screen, up or down — no element "
              "needed — or one scroll container from the latest snapshot (its `container` id, e.g. a chat list or "
@@ -263,6 +268,7 @@ class BrowserProfiles(_Base):
 
 class BrowserDialog(_Base):
     verb = "dialog"
+    on_screen = True
     blurb = "Inspect a pending JavaScript dialog in this exact tab; explicitly choose accept/dismiss only after reading its message and resolving authorization. Unexpected dialogs are never answered automatically."
     class Input(_Tab):
         decision: Literal["accept", "dismiss"] | None = None
@@ -300,6 +306,7 @@ class BrowserTabs(_Base):
 
 class BrowserUseTab(_Base):
     verb = "use_tab"
+    on_screen = True
     blurb = ("Take over one of the owner's open tabs for this task (a tab_ref from {p}_tabs). Returns a tab id for "
              "{p}_snapshot / {p}_act. FERB lets go of it when the task ends and never closes it.")
 
@@ -319,6 +326,7 @@ class BrowserNavigate(_Base):
     verb, blurb = "navigate", ("Load a different http(s) URL in one of this task's tabs ({whose}). A URL that is a "
                                "download becomes a file in FERB's workspace (`downloads`: path, size, sha256) and the "
                                "page stays where it was; never a dialog.")
+    on_screen = True
 
     class Input(_Tab):
         url: str
@@ -441,6 +449,7 @@ class BrowserPoint(_Base):
 
 class BrowserAct(_Base):
     verb = "act"
+    on_screen = True
     blurb = ("Act on one element from the latest snapshot ({whose}): click, dblclick, rightclick, hover, type "
              "(replaces the field's text), select (an option's label or value), press (a key like Enter, Tab, "
              "Escape, Backspace, ArrowDown, or a shortcut like cmd+a, shift+Tab), scroll (up/down, within the "
@@ -502,6 +511,7 @@ class BrowserAct(_Base):
 
 class BrowserLoginCode(_Base):
     verb = "login_code"
+    on_screen = True
     blurb = ("Ask the owner for a login verification code using hidden CLI input and fill this exact code field. "
              "The owner sees the destination origin. The code never reaches you. Use only for the login the owner "
              "requested, after the code field is visible. Passwords use a separate sign-in by the owner.")
@@ -588,6 +598,7 @@ class BrowserDownloads(_Base):
 class BrowserClose(_Base):
     verb, blurb = "close", ("Close a task-created tab ({whose}), or release a borrowed/kept tab without closing it. "
                            "Ordinary task-created tabs also close when the task ends; use {p}_keep_open to preserve one.")
+    on_screen = True
     Input = _Tab
 
     def describe(self, args: BaseModel) -> ActionSpec:
@@ -600,6 +611,7 @@ class BrowserClose(_Base):
 
 class BrowserKeepOpen(_Base):
     verb = "keep_open"
+    on_screen = True
     blurb = ("Keep this exact tab ({whose}) open after the task ends, releasing browser control. Use when the owner "
              "wants a class, playback or other page left running. Does not navigate, switch tabs or take focus. "
              "Returns confirmed tab lifetime; verify the page's actual playback/session separately. "
@@ -616,6 +628,7 @@ class BrowserKeepOpen(_Base):
 
 class BrowserFillSecret(_Base):
     verb = "fill_secret"
+    on_screen = True
     risk, reversible = RiskLevel.MEDIUM, False
 
     class Input(_El):
@@ -641,6 +654,7 @@ class BrowserFillSecret(_Base):
 
 class BrowserFillOtp(_Base):
     verb = "fill_otp"
+    on_screen = True
     risk, reversible = RiskLevel.MEDIUM, False
 
     class Input(_El):
@@ -667,6 +681,7 @@ class BrowserFillOtp(_Base):
 
 class BrowserOtpCandidates(BrowserFillOtp):
     verb = "otp_candidates"
+    on_screen = False   # it only lists the codes; it fills nothing
     risk, reversible = RiskLevel.LOW, True
     class Input(_El):
         secret: str

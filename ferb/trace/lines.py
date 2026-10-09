@@ -24,6 +24,36 @@ def duration(seconds: float | None) -> str:
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
 
+def what_came_forward(changes: dict[str, Any]) -> str:
+    """What a desktop change brought forward, from a disturbance.change record's `changes`: "Google Chrome came to the
+    front", "the Space changed", or both (the bundle id when the app's name wasn't recorded)."""
+    parts = []
+    if "frontmost_app" in changes:
+        after = (changes.get("frontmost_app") or {}).get("after") or {}
+        parts.append(f"{after.get('name') or after.get('bundle_id') or 'another app'} came to the front")
+    if "active_space_epoch" in changes:
+        parts.append("the Space changed")
+    return " and ".join(parts)
+
+
+def not_ferb(what: str, processes: list[dict[str, Any]] | None, task_id: str, *, in_task: bool | None,
+             last_ended_s: int | None) -> str:
+    """A desktop change no FERB on-screen action was in flight for, or had just ended before (P26): what happened, when
+    the latest on-screen FERB call ended (`in_task` False: this task made none; None: a record made before this was
+    kept), and the processes FERB started that were running then, each with whose task started it. Facts only; who did
+    it is the reader's conclusion (rule 6, controller ruling 2026-10-09): a FERB effect can land late."""
+    if processes is None:
+        running = "not recorded"
+    else:
+        tree = task_id.split(".", 1)[0]
+        running = "; ".join(clip(p.get("command", ""), 60) + (
+            " (started by this task)" if str(p.get("task", "")).split(".", 1)[0] == tree
+            else " (started by another FERB task)") for p in processes) or "nothing FERB started"
+    when = ("" if in_task is None or (in_task and last_ended_s is None)
+            else " (none in this task)" if not in_task else f" (the last ended {last_ended_s} s earlier)")
+    return f"{what} — no FERB on-screen action in progress{when}; running: {running}"
+
+
 def _nonblank_lines(text: Any) -> int:
     return len([ln for ln in str(text).splitlines() if ln.strip()])
 

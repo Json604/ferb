@@ -148,7 +148,8 @@ class Daemon:
         self.disturbance = DisturbanceSentinel(DesktopProbe(), self._record_disturbance,
             owner_input=lambda: {"monitored": self.owner_input.running,
                                  "recent": self.owner_input.active(),
-                                 "last_event_wall": self.owner_input.last_owner_wall})
+                                 "last_event_wall": self.owner_input.last_owner_wall},
+            processes=self._running_processes, now=lambda: self.clock.now())
         self.voice: Any = None                              # push-to-talk, built at start
         self.voice_speaker: Any = None                      # tests replace FERB's voice
         self._ptt = False
@@ -530,6 +531,14 @@ class Daemon:
         finally:
             if self.uploads is not None:
                 await self._clean_uploads(self.uploads.forget_tree, tree_id, about={"task_id": tree_id})
+
+    def _running_processes(self) -> list[dict[str, Any]]:
+        """FERB-started processes running now (the `ferb ps` data), commands redacted (rule 14): a front-app or Space
+        change's record names them (P26). Facts only; nothing is inferred about what they did."""
+        if self.shells is None:
+            return []
+        return [{"id": p.id, "task": p.owner_task, "command": self._redact_text(p.command), "background": p.long_lived}
+                for p in self.shells.list() if p.running]
 
     def _tab_closed(self, br: Any, tab_id: int) -> Awaitable[None] | None:
         """A tab closed in a paired browser: the upload copies it showed need not stay (rule 17). Those of a tree that

@@ -59,9 +59,14 @@ def story(ep: dict[str, Any], verdict: dict[str, Any] | None = None) -> list[str
     out.append(_cost(u))
     d = ep.get("desktop") or {}
     near = d.get("near_ferb") or []
+    others = d.get("not_ferb") or []                  # absent in an episode built before 2026-10-09
     out.append(f"Desktop: {d.get('changes', 0)} changes during the task, "
-               + (f"{len(near)} near a FERB on-screen action" if near else "none near a FERB on-screen action"))
-    out += [f"  · {_hms(n['at'])} {', '.join(n['changed'])} near {', '.join(n['tools'])}" for n in near]
+               + (f"{len(near)} near a FERB on-screen action" if near else "none near a FERB on-screen action")
+               + (f"; {lines.plural(len(others), 'front-app or Space change', 'front-app or Space changes')} "
+                  "with no FERB on-screen action in progress" if others else ""))
+    shown = [(n["at"], f"  · {_hms(n['at'])} {', '.join(n['changed'])} near {', '.join(n['tools'])}") for n in near]
+    shown += [(n["at"], f"  · {_hms(n['at'])} {n['text']}") for n in others]
+    out += [line for _, line in sorted(shown, key=lambda item: item[0])]
     if verdict:
         when = datetime.fromisoformat(verdict["at"]).strftime("%d %b %H:%M")
         out.append(f"Your verdict: {verdict['verdict']} ({when})" + (f" — {verdict['note']}" if verdict.get("note") else ""))

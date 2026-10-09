@@ -36,12 +36,55 @@ def test_usage_is_summed_exactly() -> None:
     assert u["unpriced_models"] == [] and u["billing"] == ["subscription"]
 
 
-def test_desktop_details_only_near_screen_actions() -> None:
+def test_desktop_details_follow_the_recorded_on_screen_flag() -> None:
     b = TraceBuilder()
     b.worker(5, "done", "clicked")
-    b.desktop(4, near=[("mac.act", ["frontmost_app"]), ("shell.run", ["cursor"])])
+    b.desktop(4, near=[("mac.act", ["frontmost_app"]), ("fs.write", ["cursor"])],
+              on_screen={"mac.act": True, "fs.write": False})
     d = compose.compose(b.finish())["desktop"]
-    assert d["changes"] == 4 and [n["tools"] for n in d["near_ferb"]] == [["mac.act"]]
+    assert d["changes"] == 4 and [n["tools"] for n in d["near_ferb"]] == [["mac.act"]] and d["not_ferb"] == []
+
+
+def test_a_change_no_ferb_on_screen_action_was_near_is_recorded_with_ferbs_processes() -> None:
+    b = TraceBuilder()
+    b.worker(5, "done", "submitted")
+    b.came_forward("Google Chrome", "com.google.Chrome", space=True,
+                   actions=[{"tool": "task.evidence", "span_id": "e1", "on_screen": False},
+                            {"tool": "recovery.snapshot", "span_id": "r1", "on_screen": False}],
+                   processes=[{"id": "p-1", "task": "f29fee46.worker", "command": "codex exec --json"},
+                              {"id": "p-2", "task": "other.worker", "command": "npm run dev"}])
+    b.came_forward("Brave Browser", "com.brave.Browser",
+                   actions=[{"tool": "browser.open", "span_id": "o1", "on_screen": True}], processes=[])
+    b.came_forward("Safari", "com.apple.Safari", processes=[], on_screen_in_task=True, last_ended_s=12)
+    b.desktop(3)
+    d = compose.compose(b.finish())["desktop"]
+    assert [(n["changed"], n["tools"]) for n in d["near_ferb"]] == [(["frontmost_app"], ["browser.open"])]
+    assert [n["text"] for n in d["not_ferb"]] == [
+        "Google Chrome came to the front and the Space changed — no FERB on-screen action in progress (none in this "
+        "task); running: codex exec --json (started by this task); npm run dev (started by another FERB task)",
+        "Safari came to the front — no FERB on-screen action in progress (the last ended 12 s earlier); running: "
+        "nothing FERB started"]
+
+
+def test_an_older_record_without_processes_says_they_were_not_recorded() -> None:
+    b = TraceBuilder()
+    b.worker(5, "done", "read")
+    b.came_forward("Google Chrome", "com.google.Chrome",
+                   actions=[{"tool": "trail.query", "span_id": "t1", "on_screen": False}], processes=None)
+    b.desktop(1)
+    [entry] = compose.compose(b.finish())["desktop"]["not_ferb"]
+    assert entry["text"].endswith("— no FERB on-screen action in progress; running: not recorded")
+
+
+def test_an_older_record_counts_a_shell_command_as_able_to_change_the_screen() -> None:
+    """Records made before the flag: only the recorded kind decides (a read is never near); the name list that skipped
+    every shell.* and fs.* call is gone, since a command FERB runs can open an app."""
+    b = TraceBuilder()
+    w = b.worker(5, "done", "ran it")
+    runner = b.tool(w, 1, 0.1, "shell.run", {"command": "open -a Safari"}, "exit 0", kind="run_shell")
+    b.desktop(1, near=[("shell.run", ["frontmost_app"], runner)])
+    d = compose.compose(b.finish())["desktop"]
+    assert [n["tools"] for n in d["near_ferb"]] == [["shell.run"]] and d["not_ferb"] == []
 
 
 def test_desktop_details_skip_ferbs_own_reads() -> None:

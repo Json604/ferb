@@ -31,6 +31,9 @@ class _Base:
     identities = {Identity.OWNER}
     scopes = {"shell"}
     risk, reversible = RiskLevel.MEDIUM, False
+    # True: it can change what is on the owner's screen (bring an app or window forward, switch the Space, move
+    # the cursor, open a dialog); desktop changes near it may be FERB's (P26)
+    on_screen = False
 
     def __init__(self, shells: ShellManager) -> None:
         self.shells = shells
@@ -47,6 +50,7 @@ class _Base:
 
 class ShellStart(_Base):
     name = "shell.start"
+    on_screen = True                  # a command FERB runs can open an app or bring a window forward
     description = ("Start a tracked shell command immediately and return its id. Use for coding agents and other "
                    "long commands, then shell.wait/read for actual progress and exit status. Run the command "
                    "directly, without nohup or trailing &: the id tracks this command, not detached children. "
@@ -158,6 +162,7 @@ class ShellRead(_Base):
 
 class ShellSend(_Base):
     name, description = "shell.send", "Send text (e.g. an answer plus a newline) to a running command's input."
+    on_screen = True                  # the command reading it can act on the screen
 
     class Input(BaseModel):
         id: str
@@ -173,6 +178,7 @@ class ShellSend(_Base):
 
 class ShellKill(_Base):
     name, description = "shell.kill", "Stop one of this task's commands (and its children)."
+    on_screen = True                  # ending a process can close its windows
     risk, reversible = RiskLevel.LOW, True
 
     class Input(BaseModel):

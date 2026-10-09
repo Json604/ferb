@@ -85,6 +85,14 @@ def observes(cap: Any) -> bool:
     return bool(getattr(cap, "observation", False))
 
 
+def on_screen(cap: Any) -> bool:
+    """A capability that can change what is on the owner's screen (bring an app or window forward, switch the Space,
+    move the cursor, open a dialog) declares `on_screen = True`. The disturbance record keeps the flag beside each
+    call, so a desktop change with none of these in flight says so, with the facts around it (P26). A declaration,
+    like `observation`, never a name list (rule 6)."""
+    return bool(getattr(cap, "on_screen", False))
+
+
 def evidence_kind(tool: str) -> str:
     """What a tool's image is, for the evidence store: a snapshot's image, a recording's frames, else a screenshot."""
     if tool.endswith(".snapshot"):
@@ -450,7 +458,7 @@ class Gateway:
         try:
             async with self.locks.hold(lock_keys, grant.worker_id):
                 if self.disturbance is not None:
-                    await self.disturbance.before_action(grant.task_id, span.id, name, arguments)
+                    await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
                     return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real)
                 finally:

@@ -35,6 +35,9 @@ def _sources(bundle_id: str) -> tuple[tuple[str, str], ...]:
 class _Base:
     identities = {Identity.OWNER}
     risk, reversible = RiskLevel.LOW, True
+    # True: it can change what is on the owner's screen (bring an app or window forward, switch the Space, move
+    # the cursor, open a dialog); desktop changes near it may be FERB's (P26)
+    on_screen = False
     target_args: tuple[str, ...] = ("app",)          # Target.site holds the app's normalized bundle id (P19 hash)
 
     def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None) -> None:
@@ -80,6 +83,7 @@ class MacApps(_Base):
 
 class MacOpen(_Base):
     name = "mac.open"
+    on_screen = True
     description = ("Request a background launch of an installed app. Does not choose a menu item to reopen a window. "
                    "FERB never restores an earlier foreground app over the owner's current choice. Reading "
                    "an app that isn't running? Open it first.")
@@ -105,6 +109,7 @@ class MacOpen(_Base):
 
 class MacMenu(_Base):
     name = "mac.menu"
+    on_screen = True
     description = ("An app's menu bar, in the background: with no path, list its menus and items; with a path "
                    "(\"File > Search\"), press that item. Many apps keep commands only in their menus — e.g. "
                    "WhatsApp's search opens from File > Search, then mac_snapshot shows the search box. Take a new "
@@ -221,6 +226,7 @@ async def app_window(driver: MacComputerDriver, app: str, scopes: Collection[str
 
 class MacAct(_Base):
     name = "mac.act"
+    on_screen = True
     description = ("Act on the exact app/control from a fresh snapshot. Defaults: press/click/focus/set_value/edit/"
                    "select/scroll use AX; type/key use process-directed events. Choose mechanism explicitly for "
                    "another route: ax, pid, ax_keyboard, ax_value (whole value), foreground. No automatic retry, "
@@ -326,6 +332,7 @@ class MacRecord(_Base):
 
 class MacClick(_Base):
     name = "mac.click"
+    on_screen = True
     description = ("Click exact screenshot pixels using a single chosen mechanism: pointer (default, window/process "
                    "addressed), ax (exact hit-tested control), or foreground. No fallback or replay. "
                    "Foreground requires allow_foreground=true and task-wide owner permission. "
@@ -414,6 +421,7 @@ class MacPointer(MacClick):
 
 class MacAppleScript(_Base):
     name = "mac.applescript"
+    on_screen = True
     description = ("Run AppleScript statements inside one scriptable app (FERB wraps them in `tell application`; "
                    "the body may use the operations needed for the requested task). Returns the script's result.")
     scopes = {"applescript"}

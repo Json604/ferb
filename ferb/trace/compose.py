@@ -10,13 +10,12 @@ from typing import Any, Iterator
 from ferb.core import origin
 from ferb.policy.rules import Kind
 from ferb.sanitize.untrusted import WRAPPED, holds_pasted, without_ferb_question
-from ferb.trace.lines import clip, duration, plural
+from ferb.trace.lines import clip, duration, not_ferb, plural, what_came_forward
 
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
 PLANNER_KINDS = ("model.turn", "model.dispatch", "model.question", "model.resources")   # the orchestrator's turns
 OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never finished: no claim, no check, no time
-NO_SCREEN = ("shell.", "fs.")              # tool families that never touch windows, focus or the cursor (RQ2)
-OBSERVE_KINDS = {Kind.READ, Kind.SEARCH, Kind.MAILBOX_READ}   # recorded reads (FERB's readers, snapshots): same
+OBSERVE_KINDS = {Kind.READ, Kind.SEARCH, Kind.MAILBOX_READ}   # a record made before `on_screen` was kept: reads
 ORIGIN_KINDS = {"task", "tool.call", "context.source"}   # what the task's models were shown (S3; task_origins)
 PASTED = "[pasted text]"
 
@@ -78,6 +77,15 @@ def _checker(n: dict[str, Any], total: int) -> tuple[str, str]:
                      + (f" ({why})" if why else ""))
     bad, unknown = met.count(False), met.count(None)
     return ("✗" if bad else "⚠"), f"{bad} not met, {unknown} unknown, {met.count(True)} verified"
+
+
+def _on_screen(action: dict[str, Any], kinds: dict[str, Any]) -> bool:
+    """Whether a FERB action the sampler saw could change the screen: its capability's `on_screen` flag as recorded
+    (P26). An action recorded before the flag existed counts unless its recorded kind is a read."""
+    if "on_screen" in action:
+        return bool(action["on_screen"])
+    kind: Any = kinds.get(str(action.get("span_id")))
+    return kind not in OBSERVE_KINDS
 
 
 def _worker(n: dict[str, Any]) -> tuple[str, str]:
@@ -191,14 +199,20 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     summary = next((n.get("output") or {} for n in reversed(nodes) if n["kind"] == "disturbance.summary"), {})
     raw = summary.get("changes")
     near: list[dict[str, Any]] = []
+    others: list[dict[str, Any]] = []          # an app came forward or the Space changed, no FERB on-screen call near
     kinds = {n["id"]: (n.get("input") or {}).get("kind") for n in nodes if n["kind"] == "tool.call"}
     for n in nodes:
+        if n["kind"] != "disturbance.change":
+            continue
         out = n.get("output") or {}
-        tools = sorted({str(a.get("tool", "?")) for a in out.get("actions") or []
-                        if not str(a.get("tool", "")).startswith(NO_SCREEN)
-                        and kinds.get(a.get("span_id")) not in OBSERVE_KINDS})
-        if n["kind"] == "disturbance.change" and tools:
-            near.append({"at": n["started_at"], "changed": sorted(out.get("changes") or {}), "tools": tools})
+        changes = out.get("changes") or {}
+        tools = sorted({str(a.get("tool", "?")) for a in out.get("actions") or [] if _on_screen(a, kinds)})
+        if tools:
+            near.append({"at": n["started_at"], "changed": sorted(changes), "tools": tools})
+        elif "frontmost_app" in changes or "active_space_epoch" in changes:
+            others.append({"at": n["started_at"], "text": not_ferb(
+                what_came_forward(changes), out.get("processes"), task_id,
+                in_task=out.get("on_screen_in_task"), last_ended_s=out.get("last_on_screen_ended_s"))})
 
     tools_used: dict[str, dict[str, int]] = {}
     origins: set[str] = set()
@@ -225,4 +239,5 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             "started_at": started, "ended_at": ended, "seconds": _secs(started, ended), "answer": answer,
             "conditions": conditions, "steps": steps, "problems": problems, "tools": tools_used,
             "origins": sorted(origins), "tool_origins": sorted(tool_origins), "usage": usage,
-            "desktop": {"changes": len(raw) if isinstance(raw, (list, dict)) else int(raw or 0), "near_ferb": near}}
+            "desktop": {"changes": len(raw) if isinstance(raw, (list, dict)) else int(raw or 0), "near_ferb": near,
+                        "not_ferb": others}}
