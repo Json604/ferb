@@ -234,9 +234,11 @@ def test_only_a_new_popup_proven_by_its_token_and_its_opener_is_claimed_and_link
       // a relay from a tab FERB doesn't drive, and a non-http URL, are refused outright
       const stale = pageHookPopup(6, 0, {token: '56565656565656565656565656565656', url: 'https://s.example/x'});
       const script = pageHookPopup(5, 0, {token: '78787878787878787878787878787878', url: 'javascript:alert(1)'});
-      const linked = pageOpen(5, {url: 'https://s.example/next'}), staleOpen = pageOpen(6, {url: 'https://s.example/n'});
-      const bg = pageOpen(5, {url: 'https://s.example/bg', background: true});
+      const linkedP = pageOpen(5, {url: 'https://s.example/next'}), staleOpen = await pageOpen(6, {url: 'https://s.example/n'});
+      const bgP = pageOpen(5, {url: 'https://s.example/bg', background: true});
       await sleep(30);
+      for (const b of sent.filter(b => b.event === 'open')) await commands.open_seen({open_id: b.open_id});   // the daemon
+      const linked = await linkedP, bg = await bgP;
       return {sent, armed_, cdps, detached, relayed, stale, script, linked, staleOpen, bg, t21: tabState(21).popupFor,
               tabs: [...TABS.keys()]};
     })()''' % {"T": TOKEN, "O": OTHER})
@@ -461,8 +463,9 @@ const click = (type, a, o = {}) => { const ev = {type, prevented: false, default
   const openBg = messages.filter(m => m.ferbOpen).map(m => m.ferbOpen.background);
   const popups = messages.filter(m => m.ferbPopup).map(m => ({token: m.ferbPopup.token, url: m.ferbPopup.url.length > 100 ? m.ferbPopup.url.length : m.ferbPopup.url}));
   const flood = messages.filter(m => m.ferbDownload && m.ferbDownload.name === 'f.csv').length;
+  const dropped = messages.filter(m => m.ferbDropped).length;
   const part = mode === 'armed' && caught.length ? await ctx.window.__ferb.downloadPart(caught[0].id, 0, 4) : null;
-  console.log(JSON.stringify({clicks, caught: caught.filter(c => c.name !== 'f.csv'), opens, openBg, popups, part, passed, armedAnswer, readyEvents, replies, flood}));
+  console.log(JSON.stringify({clicks, caught: caught.filter(c => c.name !== 'f.csv'), opens, openBg, popups, part, passed, armedAnswer, readyEvents, replies, flood, dropped}));
   process.exit(0);                                               // a pending revoke timer must not hold node open
 })();
 """
@@ -494,6 +497,7 @@ def test_the_page_listener_takes_blob_and_data_links_and_trusted_new_tab_links_w
                              {"token": "00112233445566778899aabbccddeeff", "url": 8192}]
     assert out["readyEvents"] == ["00112233445566778899aabbccddeeff"] and out["replies"] == [True]   # popup_ready answered
     assert out["flood"] == 17                     # 20 holds in all (the 3 above and 17 of the flood); the rest dropped, never native
+    assert out["dropped"] == 1                    # the 13 dropped saves: one note to the worker, not one per save
 
 
 def test_a_base_target_blank_link_is_a_new_tab_link() -> None:
@@ -503,7 +507,7 @@ def test_a_base_target_blank_link_is_a_new_tab_link() -> None:
 def test_the_page_listener_does_nothing_in_a_tab_ferb_isnt_driving() -> None:
     out = _content("unarmed")
     assert not any(out["clicks"].values()) and out["caught"] == [] and out["opens"] == [] and out["passed"] == []
-    assert out["armedAnswer"] is False and out["popups"] == [] and out["flood"] == 0
+    assert out["armedAnswer"] is False and out["popups"] == [] and out["flood"] == 0 and out["dropped"] == 0
 
 
 def test_a_stale_page_listener_hands_the_owners_click_back_to_the_browser() -> None:
@@ -700,3 +704,112 @@ def test_in_ferbs_own_profile_nothing_held_is_handed_to_the_browser() -> None:
       return {unarmed, scripted};
     })()''')
     assert out["unarmed"] == "drop" and out["scripted"] == [[False, True]]          # disarm with drop=true
+
+
+# ---------- final wave (D35) ----------
+
+def test_a_link_to_a_new_tab_waits_briefly_for_the_daemon_then_goes_to_the_browser() -> None:
+    """A stale-armed tab (the daemon restarting, or not holding the tab after a restart): the owner's click is never
+    lost. The extension waits about a second for the daemon's answer (open_seen); without one, content.js opens the
+    link natively, and a late answer can no longer make FERB open it too."""
+    out = worker('''(async () => {
+      const sent = [];
+      port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
+      chrome.tabs.get = async id => ({id, windowId: 9});
+      tabState(5).armed = true;
+      const answered = pageOpen(5, {url: 'https://s.example/a'});
+      await sleep(20);
+      const first = sent.filter(b => b.event === 'open')[0];
+      const seen = await commands.open_seen({open_id: first.open_id});
+      const a = await answered;
+      const t0 = Date.now();
+      const silent = await pageOpen(5, {url: 'https://s.example/b'});
+      const waited = Date.now() - t0;
+      const second = sent.filter(b => b.event === 'open')[1];
+      const late = await commands.open_seen({open_id: second.open_id});
+      const notArmed = await pageOpen(6, {url: 'https://s.example/c'});
+      return {a, seen, silent, waited, late, notArmed, ids: [first.open_id, second.open_id], urls: [first.url, second.url]};
+    })()''')
+    assert out["a"] is True and out["seen"] == {"seen": True}
+    assert out["silent"] is False and 900 <= out["waited"] <= 2000 and out["late"] == {"expired": True}
+    assert out["notArmed"] is False and out["urls"] == ["https://s.example/a", "https://s.example/b"]
+    assert len(set(out["ids"])) == 2 and all(isinstance(i, str) and 0 < len(i) <= 64 for i in out["ids"])
+
+
+def test_relayed_tokens_are_bounded_per_opener_and_in_all() -> None:
+    out = worker('''(async () => {
+      port = {postMessage() {}}; send = async () => {};
+      for (let id = 1; id <= 12; id++) tabState(id).armed = true;
+      const tok = (n) => n.toString(16).padStart(32, '0');
+      for (let i = 0; i < 50; i++) pageHookPopup(1, 0, {token: tok(i), url: 'https://s.example/' + i});
+      const perOpener = [...relayedTokens.values()].filter(r => r.opener === 1).length;
+      for (let t = 2; t <= 12; t++) for (let i = 0; i < 20; i++) pageHookPopup(t, 0, {token: tok(1000 * t + i), url: 'https://s.example/'});
+      const t0 = Date.now();
+      for (let i = 0; i < 20000; i++) pageHookPopup(2 + (i % 11), 0, {token: tok(100000 + i), url: 'https://s.example/'});
+      return {perOpener, total: relayedTokens.size, ms: Date.now() - t0};
+    })()''')
+    assert out["perOpener"] == 20 and out["total"] == 100
+    assert out["ms"] < 5000                                    # bounded work per relay, not a prune over 20k tokens
+
+
+def test_a_popup_whose_opener_does_not_match_is_let_go_even_when_focus_emulation_cannot_be_undone() -> None:
+    """Nothing was enabled on a tab whose opener the browser didn't confirm, so FERB detaches directly; a failing
+    Emulation.setFocusEmulationEnabled (the tab never had it) can't keep the debugger attached."""
+    out = worker('''(async () => {
+      const detached = [];
+      port = {postMessage() {}}; send = async () => {};
+      cdp = async (tab, method) => method === 'Target.getTargetInfo'
+        ? {targetInfo: {targetId: 'T' + tab, openerId: tab === 31 ? 'T200' : undefined}} : {};
+      chrome.debugger = new Proxy({attach: async () => {}, detach: async ({tabId}) => { detached.push(tabId); },
+        sendCommand: async () => { throw Error('Emulation is not enabled'); },
+        onEvent: chrome.debugger.onEvent, onDetach: chrome.debugger.onDetach}, {get: (o, k) => o[k]});
+      tabState(5).armed = true;
+      pageHookPopup(5, 0, {token: 'abababababababababababababababab', url: 'https://s.example/p'});
+      tabCreated({id: 31}); tabUpdated(31, 'about:blank#ferb-abababababababababababababababab');
+      await sleep(30);
+      return {detached, kept: TABS.has(31)};
+    })()''')
+    assert out["detached"] == [31] and out["kept"] is False
+
+
+def test_page_saves_dropped_over_the_hold_caps_send_one_refused_fact_per_document_per_minute() -> None:
+    out = worker('''(async () => {
+      const sent = []; let now = 1000000;
+      Date.now = () => now;
+      port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
+      tabState(3).armed = true;
+      for (let i = 0; i < 25; i++) pageDownload(3, 0, {id: 'h' + i, name: 'x.csv', size: 1}, 'doc-A');
+      pageDropped(3, 0, 'doc-A', 'from-content.csv');            // content.js's own cap, the same document
+      const inMinute = sent.filter(b => b.uncaptured).length;
+      pageDropped(3, 0, 'doc-B', 'y.csv');                      // another document in the tab: its own fact
+      now += 61000;
+      pageDownload(3, 0, {id: 'late', name: 'x.csv', size: 1}, 'doc-A');   // a minute later: one more
+      tabState(4);                                              // a tab FERB doesn't drive: nothing
+      pageDropped(4, 0, 'doc-C', 'z.csv');
+      return {inMinute, facts: sent.filter(b => b.uncaptured).map(b => [b.tab_id, b.detail, b.source, b.name])};
+    })()''')
+    assert out["inMinute"] == 1
+    assert out["facts"] == [[3, "dropped", "page", "x.csv"], [3, "dropped", "page", "y.csv"],
+                            [3, "dropped", "page", "x.csv"]]
+
+
+def test_a_detach_during_a_claim_the_daemon_never_heard_of_sends_nothing() -> None:
+    out = worker('''(async () => {
+      const sent = [];
+      port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
+      const fire = (tabId, reason) => chrome.debugger.onDetach.fire({tabId}, reason);
+      chrome.debugger = new Proxy({attach: async () => {}, detach: async () => {}, sendCommand: async () => ({}),
+        onEvent: chrome.debugger.onEvent, onDetach: chrome.debugger.onDetach}, {get: (o, k) => o[k]});
+      let release; const asked = new Promise(r => { release = r; });
+      cdp = async (tab, method) => { if (method === 'Target.getTargetInfo') { await asked; return {targetInfo: {targetId: 'T' + tab, openerId: 'T5'}}; } return {}; };
+      tabState(5).armed = true;
+      pageHookPopup(5, 0, {token: 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd', url: 'https://s.example/p'});
+      tabCreated({id: 41}); tabUpdated(41, 'about:blank#ferb-cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd');
+      await sleep(10);
+      fire(41, 'canceled_by_user');                             // the owner cancelled the bar while FERB was asking
+      const t = tabState(7); t.attached = true;                 // a tab the daemon drives
+      fire(7, 'canceled_by_user');
+      release(); await sleep(20);
+      return sent.filter(b => b.event === 'detached').map(b => b.tab_id);
+    })()''')
+    assert out == [7]

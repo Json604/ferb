@@ -499,11 +499,13 @@
   // <base target>, or a modifier or middle click) is opened by FERB itself instead: blank and armed before it loads,
   // inactive, the same task's tab; decided in the bubble phase, after the page's own handlers, so a click the page
   // cancelled is left alone, and untrusted (script) clicks keep the browser's own flow and popup blocker. If the service
-  // worker says this tab isn't armed (a stale listener), the click goes back to the browser at once.
+  // worker says this tab isn't armed (a stale listener), the click goes back to the browser at once; if the daemon
+  // doesn't answer within about a second (down or restarting), it goes back to the browser then: never lost.
   let downloadsArmed = false;
   const heldDownloads = new Map();                 // id -> {blob, name, href}
   const HELD_MAX = 20;                             // caught links held or being read; a flood past it is dropped
   let saving = 0;                                  // caught links whose bytes are still being read
+  let droppedAt = -Infinity;                       // when this document last told the worker it dropped a save
   try { chrome.runtime.sendMessage({ ferbArmed: true }, (on) => { downloadsArmed = on === true; }); } catch (_) { /* no worker */ }
   const linkOf = (e) => (e.composedPath ? e.composedPath() : [])
     .find((n) => n instanceof HTMLAnchorElement || (typeof HTMLAreaElement !== "undefined" && n instanceof HTMLAreaElement));
@@ -530,7 +532,14 @@
     const href = a ? String(a.href || "") : "";
     if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href)) return;
     e.preventDefault();
-    if (heldDownloads.size + saving >= HELD_MAX) return;   // a page's flood of saves: dropped, never the browser's
+    if (heldDownloads.size + saving >= HELD_MAX) {   // a page's flood of saves: dropped, never the browser's; the
+      const now = Date.now();                        // worker hears of it (at most once a minute from this document)
+      if (now - droppedAt >= 60000) {
+        droppedAt = now;
+        try { chrome.runtime.sendMessage({ ferbDropped: { name: a.getAttribute("download") || "" } }); } catch (_) { /* no worker */ }
+      }
+      return;
+    }
     const id = randomId(), name = a.getAttribute("download") || "";
     saving++;
     fetch(href).then((r) => r.blob()).then((blob) => {   // started now: a page may revoke the blob right after the click

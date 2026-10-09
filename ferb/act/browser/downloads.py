@@ -36,6 +36,8 @@ DEFAULTS = {"download_max_mb": 100, "download_task_max_files": 20, "download_tas
             "download_total_mb": 2048}  # [browser]; retention.download_days: 30
 DEFAULT_KEEP_DAYS = 30
 OUTSIDE = "skipped: not in FERB's downloads folder, so retention leaves it where it is"
+DROPPED = ("the page started more saves at once than FERB holds (20 in a tab, 100 in all): this one, and any others "
+           "it started within the minute, were dropped, neither taken nor given to the browser; not taken")
 _DROP = {"Cc", "Cf", "Cs", "Zl", "Zp"}  # controls, format (bidi overrides, zero-width), surrogates, line separators
 _MB = 1024 * 1024
 
@@ -160,6 +162,9 @@ class Downloads:
                 await _send(br, ev.download_id, release=True)
             self.publish("browser.download", {"profile": br.name, "tab_id": ev.tab_id, "state": "released",
                                                "reason": "not a live task tab: left to the browser"})
+            return
+        if ev.uncaptured and ev.detail == "dropped":    # over the extension's hold caps: neither FERB's nor the browser's
+            self._insert(br, owner, ev, "refused", reason=DROPPED, final=True)
             return
         if ev.uncaptured:
             self._insert(br, owner, ev, "not_taken", reason=_not_taken(ev.detail), final=True)

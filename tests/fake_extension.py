@@ -126,6 +126,8 @@ class FakeExtension:
         self.plain_opens: list[dict[str, Any]] = []        # links given back to the browser as ordinary tabs
         self.popup_targets: dict[int, str] = {}            # claimed popup -> the URL its page will load
         self.popups_ready: list[int] = []                  # popup_ready commands received
+        self.open_seen: list[str] = []                     # open_seen answers received (open ids)
+        self.expire_opens = False                          # True: the ~1 s wait ran out before the daemon answered
         self.nav_refuse: set[str] = set()                  # navigating here: the tab couldn't be armed (D35)
         self.download_fail_at: int | None = None          # a part at/after this offset fails (the stream broke)
         self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
@@ -346,7 +348,12 @@ class FakeExtension:
         """content.js caught a trusted click on a link in this armed tab that opens a new tab (`background`: a modifier
         or middle click); FERB's daemon opens it itself."""
         self.send("event", {"event": "open", "tab_id": tab_id, "url": url, "window_id": self.tab_windows.get(tab_id),
-                            "background": background})
+                            "background": background, "open_id": "o-" + uuid.uuid4().hex[:16]})
+
+    def op_open_seen(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """The daemon's answer to an open: still waiting (it opens the link), or too late (the browser already did)."""
+        self.open_seen.append(a["open_id"])
+        return {"expired": True} if self.expire_opens else {"seen": True}
 
     def popup(self, opener: int, url: str) -> int:
         """The page hook in this tab opened a popup (about:blank#ferb-<token>) for `url`; the extension claimed it by

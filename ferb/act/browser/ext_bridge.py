@@ -239,14 +239,22 @@ class Hub:
                 self._spawn(br.call("disarm", {"tab_id": int(tab_id)}, timeout=10))
 
     def _on_open(self, br: "Bridge", ev: Event) -> None:
-        """A task tab's link that opens a new tab: FERB opens it itself (blank, armed, then loaded, inactive), as the
-        same task's tab. No live task (a stale listener caught the owner's own click): the browser opens it as the
-        owner would have had it, and the tab is let go of."""
+        self._spawn(self._open(br, ev))
+
+    async def _open(self, br: "Bridge", ev: Event) -> None:
+        """A task tab's link that opens a new tab. First the answer the extension waits for (open_seen, ~1 s): "expired"
+        means the wait ran out and the browser already opened the link, so FERB opens nothing. Then FERB opens it itself
+        (blank, armed, then loaded, inactive), as the same task's tab. No live task (a stale listener caught the owner's
+        own click): the browser opens it as the owner would have had it, and the tab is let go of."""
+        if ev.open_id:
+            seen = await br.call("open_seen", {"open_id": ev.open_id}, timeout=10)
+            if not (isinstance(seen, dict) and seen.get("seen") is True):
+                return
         for d in self.drivers:
             if d.task_tab(br, ev.tab_id) is not None:
-                self._spawn(d.open_from(br, ev.tab_id, str(ev.url or ""), ev.window_id))
+                await d.open_from(br, ev.tab_id, str(ev.url or ""), ev.window_id)
                 return
-        self._spawn(_pass_through(br, ev.tab_id, str(ev.url or ""), active=not ev.background))
+        await _pass_through(br, ev.tab_id, str(ev.url or ""), active=not ev.background)
 
     def _on_popup(self, br: "Bridge", ev: Event) -> None:
         """A popup the extension claimed by its page-hook token for a live task tab: the same task's tab from now on

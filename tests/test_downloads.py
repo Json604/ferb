@@ -860,3 +860,28 @@ def test_a_row_outside_the_downloads_folder_is_left_as_it_is_recorded_once_and_n
     assert rows["dl-aaaaaaaaaaaa"]["kept"].startswith("skipped")
     assert rows["dl-bbbbbbbbbbbb"] == {"id": "dl-bbbbbbbbbbbb", "path": str(inside), "kept": None}
     assert moved == [] and inside.exists()                       # the folder's 300 KB is under 1 MB: nothing goes
+
+
+def test_ferb_opens_a_new_tab_link_only_when_the_extension_still_waits_for_it(bd: Any) -> None:
+    """D35: the extension waits about a second for the daemon's answer (open_seen) before it lets the browser open the
+    owner's link; an answer that comes after that ("expired") makes FERB open nothing, so the link never opens twice."""
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.expire_opens = True                                     # the daemon answered after the extension's wait
+    ext.link_to_new_tab(chrome_id, f"{SITE}/late")
+    ext.wait_for(lambda: len(ext.open_seen) == 1)
+    time.sleep(0.3)
+    assert f"{SITE}/late" not in ext.tabs.values() and ext.plain_opens == []
+    ext.expire_opens = False
+    ext.link_to_new_tab(chrome_id, f"{SITE}/now")
+    ext.wait_for(lambda: f"{SITE}/now" in ext.tabs.values())
+    assert len(ext.open_seen) == 2
+
+
+def test_a_page_save_dropped_over_the_hold_caps_is_a_refused_download_fact(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.send("event", {"event": "download", "tab_id": chrome_id, "uncaptured": True, "detail": "dropped",
+                       "source": "page", "name": "report.csv"})
+    row = _wait_record(d)
+    assert row["state"] == "refused" and "dropped" in row["reason"] and "browser" in row["reason"]

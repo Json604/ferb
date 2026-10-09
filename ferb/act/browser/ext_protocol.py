@@ -4,8 +4,9 @@ Extension messages carry install_id, type, body_json, monotonic seq and HMAC. Co
 Protocol 8 adds multipart full evidence/action transport, explicit dialogs and exact-frame local upload receipts.
 Protocol 10 adds downloads (D35): a `download` event for a download caught in a tab FERB drives, its bytes pulled in
 parts with `download_part` (or it is aborted, or released back to the browser); `open`/`popup` events for new tabs a
-task tab starts (`open_plain` gives one back to the browser; `popup_ready` lets the page hook load a claimed popup); the
-hello lists armed tabs and `disarm` lets go of one the daemon doesn't hold. Chromium native-message size is a per-frame transport bound; content travels in chunks
+task tab starts (`open_seen` answers an `open` within the extension's ~1 s wait, after which the browser opens the link
+itself; `open_plain` gives one back to the browser; `popup_ready` lets the page hook load a claimed popup); the hello
+lists armed tabs and `disarm` lets go of one the daemon doesn't hold. Chromium native-message size is a per-frame transport bound; content travels in chunks
 without clipping."""
 
 import base64
@@ -25,7 +26,7 @@ ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready"]
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
@@ -105,11 +106,13 @@ class Event(BaseModel):
     size: int | None = Field(default=None, ge=0)                   # download: Content-Length / blob size, if known
     source_url: str | None = Field(default=None, max_length=8192)  # download: masked by the extension, redacted here
     source: str | None = None                  # download: attachment | type | link | page
-    uncaptured: bool | None = None             # download: the browser started it itself; nothing is held
+    uncaptured: bool | None = None             # download: nothing is held (the browser started it itself, or detail
+                                               # "dropped": a page's save past the hold caps, neither taken nor given)
     url: str | None = Field(default=None, max_length=8192)         # open: the link a task tab asked for; popup: masked
     opener_tab_id: int | None = None           # popup: the task tab that opened it
     window_id: int | None = None               # open: the window of the task tab (its new tab opens there, inactive)
     background: bool | None = None             # open: a modifier or middle click (the owner's intent: a background tab)
+    open_id: str | None = Field(default=None, max_length=64)       # open: what `open_seen` answers
 
 
 def mac_text(install_id: str, seq: int, mtype: str, body_json: str) -> bytes:
