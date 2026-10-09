@@ -70,6 +70,7 @@ never-read/never-write lists, the network proxy, the escape hatch, the D23 code-
 rule, the worker permission model, plus the items F3 and F4 carried into F5) and F5b (secret classes and redaction,
 screenshot redaction, the start-of-task screenshot, Jev's destructive classifier in shadow, then Full Disk Access by
 default). The F5a plan is `docs/superpowers/plans/2026-10-10-f5a-containment.md` (committed 9891157). The owner answered its
-eight open questions "all recommended" (2026-10-09; recorded in its ledger). Task 1 is complete; Task 2 (the shell
-sandbox) is in progress. Its ledger is
+eight open questions "all recommended" (2026-10-09; recorded in its ledger). Tasks 1-2 are complete (the owner also confirmed
+2026-10-10 that agents FERB starts run inside its sandbox with their own sandbox off); Task 3 (the egress proxy) is
+in progress. Its ledger is
 `.superpowers/sdd/2026-10-10-f5a-containment/progress.md`.
