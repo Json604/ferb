@@ -28,10 +28,11 @@ const _only = (p, keys) => Object.keys(p).length === keys.length && keys.every((
 // installs it (Page.addScriptToEvaluateOnNewDocument, runImmediately) only in armed task tabs and removes it on release;
 // before acting it asks content.js through a cancelable "ferb-armed" event that content.js answers only while FERB
 // drives the tab, so a document still patched after a release behaves natively. It catches what no listener sees:
-// a save through a download link the page never added (FileSaver.js style), which joins the document for its click so
-// content.js's capture listener takes it; and window.open(url) to a new tab, opened blank (the page keeps a real window
-// and its opener) so FERB arms it before its first request and loads the URL, or the popup loads it itself after
-// 1.5 s. It never masks itself.
+// a save through a download link the page never added (FileSaver.js style), clicked while connected so content.js's
+// capture listener takes it; and window.open(url) for an http(s) URL in a new tab or window, opened as
+// about:blank#ferb-<token> (the page keeps its real window and opener) so FERB can claim exactly that tab and arm it;
+// the hook then loads the URL itself, once: when content.js says the popup is ready, or after 1.5 s. FERB never
+// navigates it. A page that fakes "ferb-popup-ready" only loads its own popup early. It never masks itself.
 function ferbPageHook() {
   const MARK = Symbol.for("ferb.page-hook");
   if (window[MARK]) return;
@@ -57,23 +58,28 @@ function ferbPageHook() {
     return dispatch.call(this, event);
   };
   window.open = function (url, target, features) {
+    const raw = url === undefined || url === null ? "" : String(url);
     const name = target === undefined || target === null ? "" : String(target).toLowerCase();
     let href = "";
-    try { href = new URL(String(url === undefined ? "" : url), document.baseURI).href; } catch (_) { href = ""; }
+    if (raw.trim()) { try { href = new URL(raw, document.baseURI).href; } catch (_) { href = ""; } }
     if (!/^https?:/i.test(href) || !["", "_blank"].includes(name) || /noopener|noreferrer/i.test(String(features || "")) ||
         !armed()) return open.apply(window, arguments);
-    const popup = open.call(window, "about:blank", "_blank", features);
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    const popup = open.call(window, "about:blank#ferb-" + token, "_blank", features);
     if (!popup) return popup;
-    const token = crypto.randomUUID();
-    let taken = false;
-    const onTaken = (e) => { if (e.detail === token) taken = true; };
-    document.addEventListener("ferb-popup-taken", onTaken);
+    let loaded = false;
+    const load = () => {
+      if (loaded) return;
+      loaded = true;
+      document.removeEventListener("ferb-popup-ready", onReady);
+      try { popup.location.href = href; } catch (_) { /* closed meanwhile */ }
+    };
+    const onReady = (e) => { if (e.detail === token) load(); };
+    document.addEventListener("ferb-popup-ready", onReady);
     dispatch.call(document, new CustomEvent("ferb-popup", { detail: JSON.stringify({ token, url: href }) }));
-    setTimeout(() => {
-      document.removeEventListener("ferb-popup-taken", onTaken);
-      if (taken) return;
-      try { if (popup.location.href === "about:blank") popup.location.href = href; } catch (_) { /* it moved on */ }
-    }, 1500);
+    setTimeout(load, 1500);
     return popup;
   };
 }
@@ -280,7 +286,7 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain"];
+             "download_part", "disarm", "open_plain", "popup_ready"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS,

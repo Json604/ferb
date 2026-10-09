@@ -17,7 +17,12 @@
   let containers = new Map();          // container id -> WeakRef(scroller element), for the latest snapshot only
   let snapGen = 0;
   let bindings = new Map();
-  const documentId = crypto.randomUUID();
+  const randomId = () => {                         // getRandomValues: also on plain-http pages (randomUUID isn't)
+    const b = new Uint8Array(16);
+    crypto.getRandomValues(b);
+    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  };
+  const documentId = randomId();
   let visualEpoch = 0;
   let pointerSeen = null;
   addEventListener("mousemove", e => {
@@ -523,7 +528,7 @@
     const href = a ? String(a.href || "") : "";
     if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href)) return;
     e.preventDefault();
-    const id = crypto.randomUUID(), name = a.getAttribute("download") || "";
+    const id = randomId(), name = a.getAttribute("download") || "";
     fetch(href).then((r) => r.blob()).then((blob) => {   // started now: a page may revoke the blob right after the click
       heldDownloads.set(id, { blob, name, href });
       chrome.runtime.sendMessage({ ferbDownload: { id, name, mime: blob.type || null, size: blob.size,
@@ -538,7 +543,8 @@
     if (!a || !href || a.hasAttribute("download") || !/^https?:/i.test(href) || !opensNewTab(a, e)) return;
     e.preventDefault();
     const target = a.getAttribute("target") || "_blank";
-    chrome.runtime.sendMessage({ ferbOpen: { url: href } }, (opened) => { if (opened !== true) passOn(href, target); });
+    const background = e.type === "auxclick" || e.metaKey || e.ctrlKey;   // the owner's intent, if it isn't FERB's
+    chrome.runtime.sendMessage({ ferbOpen: { url: href, background } }, (opened) => { if (opened !== true) passOn(href, target); });
   }
   addEventListener("click", onSave, true);
   addEventListener("click", onNewTab, false);
@@ -554,10 +560,14 @@
       if (p && typeof p.token === "string" && typeof p.url === "string") chrome.runtime.sendMessage({ ferbPopup: p });
     });
   }
-  function popupTaken(token) {
-    document.dispatchEvent(new CustomEvent("ferb-popup-taken", { detail: String(token) }));
-    return true;
-  }
+  // The service worker claimed the hook's popup and the daemon made it the task's: the hook loads its URL now.
+  try {
+    chrome.runtime.onMessage.addListener((m) => {
+      if (m && typeof m.ferbPopupReady === "string") {
+        document.dispatchEvent(new CustomEvent("ferb-popup-ready", { detail: m.ferbPopupReady }));
+      }
+    });
+  } catch (_) { /* no worker */ }
   async function downloadPart(id, offset, n) {
     const held = heldDownloads.get(id);
     if (!held) return { error: "gone" };
@@ -599,6 +609,6 @@
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
                     scrolled, probeArm, probeSeen: () => probeSeen,
                     text: () => (document.body ? document.body.innerText : ""), url: () => location.href,
-                    ready: () => document.readyState, downloadPart, armDownloads, releaseDownload, popupTaken,
+                    ready: () => document.readyState, downloadPart, armDownloads, releaseDownload,
                     dropDownload: (id) => { heldDownloads.delete(id); } };
 })();

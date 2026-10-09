@@ -5,6 +5,7 @@ The browser-level behaviour was measured in the headless lab (task 10 report).""
 
 import base64
 import json
+import re
 import subprocess
 
 import pytest
@@ -185,26 +186,43 @@ def test_navigation_steps_through_a_blank_page_when_the_tab_cant_be_armed() -> N
     assert out["opened"]["opened"] is False and out["opened"]["reason"] == "download_capture_unavailable"
 
 
-def test_a_new_tab_from_a_task_tab_is_armed_and_reported_and_links_to_new_tabs_go_through_ferb() -> None:
+TOKEN = "00112233445566778899aabbccddeeff"
+OTHER = "ffeeddccbbaa99887766554433221100"
+
+
+def test_only_a_popup_proven_by_its_token_is_claimed_and_links_to_new_tabs_go_through_ferb() -> None:
     out = worker('''(async () => {
-      const sent = [], armedTabs_ = [];
+      const sent = [], armed_ = [];
       port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
-      arm = async (id) => { const t = tabState(id); if (!t.armed) armedTabs_.push(id); t.attached = true; t.armed = true; return t; };
+      arm = async (id) => { const t = tabState(id); if (!t.armed) armed_.push(id); t.attached = true; t.armed = true; return t; };
       chrome.tabs.get = async id => ({id, windowId: 9});
       tabState(5).armed = true;
-      await adoptPopup({id: 21, openerTabId: 5, pendingUrl: 'https://s.example/pop?token=zz'});
-      await adoptPopup({id: 22, openerTabId: 6, pendingUrl: 'https://s.example/other'});   // not a tab FERB drives
-      const linked = pageOpen(5, {url: 'https://s.example/next'}), stale = pageOpen(6, {url: 'https://s.example/n'});
-      const script = pageOpen(5, {url: 'javascript:alert(1)'});
-      await sleep(10);
-      return {sent, armedTabs_, linked, stale, script, popupFlag: tabState(21).popup};
-    })()''')
-    assert out["armedTabs_"] == [21] and out["popupFlag"] is True
-    popup = next(b for b in out["sent"] if b["event"] == "popup")
-    assert popup["tab_id"] == 21 and popup["opener_tab_id"] == 5 and "zz" not in popup["url"]
-    assert out["linked"] is True and out["stale"] is False and out["script"] is False
+      // relay first, then the tab (a popup window with features is just another tab with that URL)
+      const relayed = pageHookPopup(5, 0, {token: '%(T)s', url: 'https://s.example/pop?token=zz'});
+      seenTab(21, 'about:blank#ferb-%(T)s');
+      // the tab first, then the relay
+      seenTab(22, 'about:blank#ferb-%(O)s');
+      pageHookPopup(5, 0, {token: '%(O)s', url: 'https://s.example/other'});
+      // the reviewer's attack: a forged relay from task tab 5, then the owner cmd-clicks in their own tab 200
+      pageHookPopup(5, 0, {token: 'abababababababababababababababab', url: 'https://evil.example/'});
+      seenTab(77, 'https://owner.example/their-link');
+      seenTab(78, 'about:blank');
+      // a relay from a tab FERB doesn't drive, and a non-http URL, are refused outright
+      const stale = pageHookPopup(6, 0, {token: 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd', url: 'https://s.example/x'});
+      const script = pageHookPopup(5, 0, {token: 'efefefefefefefefefefefefefefefef', url: 'javascript:alert(1)'});
+      const linked = pageOpen(5, {url: 'https://s.example/next'}), staleOpen = pageOpen(6, {url: 'https://s.example/n'});
+      const bg = pageOpen(5, {url: 'https://s.example/bg', background: true});
+      await sleep(20);
+      return {sent, armed_, relayed, stale, script, linked, staleOpen, bg, t21: tabState(21).popupFor, t77: TABS.has(77)};
+    })()''' % {"T": TOKEN, "O": OTHER})
+    assert out["armed_"] == [21, 22] and out["t77"] is False            # tab 77 (and 78): never armed or reported
+    popups = [b for b in out["sent"] if b["event"] == "popup"]
+    assert [(b["tab_id"], b["opener_tab_id"]) for b in popups] == [(21, 5), (22, 5)] and "zz" not in popups[0]["url"]
+    assert out["t21"] == {"opener": 5, "frameId": 0, "token": TOKEN}
+    assert out["relayed"] is True and out["stale"] is False and out["script"] is False
+    assert out["linked"] is True and out["staleOpen"] is False and out["bg"] is True
     opens = [b for b in out["sent"] if b["event"] == "open"]
-    assert opens == [{"event": "open", "tab_id": 5, "url": "https://s.example/next", "window_id": 9}]
+    assert [(b["url"], b["background"]) for b in opens] == [("https://s.example/next", False), ("https://s.example/bg", True)]
 
 
 def test_a_browser_download_the_extension_could_not_intercept_is_reported_and_its_own_cancel_is_not() -> None:
@@ -440,15 +458,19 @@ class HTMLAreaElement extends HTMLElement {}
 class CustomEvent { constructor(t, i = {}) { this.type = t; this.detail = i.detail; this.cancelable = !!i.cancelable; this.defaultPrevented = false; }
   preventDefault() { if (this.cancelable) this.defaultPrevented = true; } }
 const document = new EventTarget();
-document.baseURI = 'https://s.example/page';
+document.baseURI = process.argv[3];                              // an http page that isn't localhost works the same
 document.documentElement = {appendChild(el) { el.isConnected = true; log.push(['appended']); }};
-const window = {open: (u, t, f) => { const w = {location: {href: u}}; log.push(['native-open', u, t === undefined ? null : t, f === undefined ? null : f]); return w; }};
+const popups = [];
+const window = {open: (u, t, f) => {
+  const w = {navigations: [], location: {}}; let href = u;
+  Object.defineProperty(w.location, 'href', {get: () => href, set: (v) => { w.navigations.push(v); href = v; }});
+  popups.push(w); log.push(['native-open', u, t === undefined ? null : t, f === undefined ? null : f]); return w; }};
 let armed = process.argv[2] === 'armed';
 document.addEventListener('ferb-armed', (e) => { if (armed) e.preventDefault(); });
 const relayed = [];
 document.addEventListener('ferb-popup', (e) => relayed.push(JSON.parse(e.detail)));
 const ctx = vm.createContext({window, document, EventTarget, HTMLElement, HTMLAnchorElement, HTMLAreaElement, CustomEvent,
-                              URL, crypto: globalThis.crypto, setTimeout});
+                              URL, crypto: {getRandomValues: (a) => globalThis.crypto.getRandomValues(a)}, setTimeout});
 vm.runInContext(p.PAGE_HOOK, ctx);
 vm.runInContext(p.PAGE_HOOK, ctx);                               // installed twice: wraps once
 (async () => {
@@ -462,44 +484,52 @@ vm.runInContext(p.PAGE_HOOK, ctx);                               // installed tw
   out.area = mark();
   new HTMLAnchorElement('https://s.example/f', {download: ''}).click();
   out.httpLink = mark();
-  const plainA = new HTMLAnchorElement('blob:https://s.example/3', {}); plainA.click();
-  out.noDownloadAttr = mark();
-  const w1 = window.open('/file.zip');
+  const w1 = window.open('/file.zip');                            // nobody says ready: the hook loads it after 1.5 s
   out.open = mark(); out.relayed = relayed.splice(0);
-  const w2 = window.open('https://s.example/taken.zip', '_blank');
-  const taken = relayed.splice(0)[0];
-  document.dispatchEvent(new CustomEvent('ferb-popup-taken', {detail: taken ? taken.token : ''}));
-  mark();
+  const w2 = window.open('/oauth', '_blank', 'popup,width=400,height=300');   // a popup window with features
+  out.openWindow = mark();
+  const r2 = relayed.splice(0)[0];
+  document.dispatchEvent(new CustomEvent('ferb-popup-ready', {detail: r2 ? r2.token : ''}));
+  document.dispatchEvent(new CustomEvent('ferb-popup-ready', {detail: r2 ? r2.token : ''}));   // twice: still one load
+  out.readyNav = w2 ? w2.navigations.slice() : null;
+  window.open(); window.open(''); window.open('   '); out.empty = mark();
   window.open('https://s.example/named', 'results'); out.named = mark();
   window.open('https://s.example/nop', '_blank', 'noopener'); out.noopener = mark();
   window.open('javascript:alert(1)'); out.script = mark();
   await new Promise((r) => setTimeout(r, 1700));
-  out.fallback = w1 ? w1.location.href : null;
-  out.takenStays = w2 ? w2.location.href : null;
+  out.fallbackNav = w1 ? w1.navigations : null;
+  out.readyNavAfter = w2 ? w2.navigations : null;
   console.log(JSON.stringify(out));
 })();
 """
 
 
-def _hook(mode: str) -> dict:
-    r = subprocess.run([_node(), "-e", HOOK_HARNESS, str(EXT / "protocol.js"), mode], capture_output=True, text=True,
-                       timeout=20)
+def _hook(mode: str, base: str = "https://s.example/page") -> dict:
+    r = subprocess.run([_node(), "-e", HOOK_HARNESS, str(EXT / "protocol.js"), mode, base], capture_output=True,
+                       text=True, timeout=20)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
 
 
-def test_the_page_hook_brings_unseen_save_links_into_the_document_and_opens_new_tabs_blank_while_ferb_drives() -> None:
-    out = _hook("armed")
+@pytest.mark.parametrize("base", ["https://s.example/page", "http://lab.test:8080/page"])
+def test_the_page_hook_brings_unseen_saves_in_and_binds_popups_to_a_token_while_ferb_drives(base: str) -> None:
+    out = _hook("armed", base)
+    origin = base.rsplit("/", 1)[0]
     assert out["unseenClick"] == [["appended"], ["native-click", "blob:https://s.example/1", True], ["removed"]]
     # a page's `new MouseEvent("click")` can't be cancelled: the hook clicks it itself, connected, so content.js can
     assert out["unseenDispatch"] == [["appended"], ["native-click", "blob:https://s.example/2", True], ["removed"]]
     assert out["area"][0] == ["appended"]
     assert out["httpLink"] == [["native-click", "https://s.example/f", False]]     # the debugger holds http(s) ones
-    assert out["noDownloadAttr"] == [["native-click", "blob:https://s.example/3", False]]
-    assert out["open"] == [["native-open", "about:blank", "_blank", None]]         # a real window, opener kept
-    assert [r["url"] for r in out["relayed"]] == ["https://s.example/file.zip"]
-    assert out["fallback"] == "https://s.example/file.zip"                         # FERB didn't take it: it loads itself
-    assert out["takenStays"] == "about:blank"                                      # FERB took it: FERB loads it
+    [[op, url, target, features]] = out["open"]
+    assert op == "native-open" and target == "_blank" and features is None
+    assert re.fullmatch(r"about:blank#ferb-[0-9a-f]{32}", url)                    # what the extension claims, exactly
+    assert out["relayed"] == [{"token": url.split("ferb-")[1], "url": f"{origin}/file.zip"}]
+    assert out["openWindow"][0][3] == "popup,width=400,height=300"               # features kept: a popup window
+    assert out["readyNav"] == [f"{origin}/oauth"]                                 # the page loads it when ready...
+    assert out["readyNavAfter"] == [f"{origin}/oauth"]                            # ...exactly once
+    assert out["fallbackNav"] == [f"{origin}/file.zip"]                           # ...or itself after 1.5 s, once
+    assert out["empty"] == [["native-open", None, None, None], ["native-open", "", None, None],
+                            ["native-open", "   ", None, None]]                   # empty URLs: native, untouched
     assert out["named"] == [["native-open", "https://s.example/named", "results", None]]
     assert out["noopener"] == [["native-open", "https://s.example/nop", "_blank", "noopener"]]
     assert out["script"] == [["native-open", "javascript:alert(1)", None, None]]
@@ -510,7 +540,7 @@ def test_the_page_hook_is_native_when_ferb_isnt_driving_the_tab() -> None:
     assert out["unseenClick"] == [["native-click", "blob:https://s.example/1", False]]
     assert out["unseenDispatch"] == [] and out["area"] == [["native-click", "data:text/plain,x", False]]
     assert out["open"] == [["native-open", "/file.zip", None, None]] and out["relayed"] == []
-    assert out["fallback"] == "/file.zip"
+    assert out["fallbackNav"] == []                                               # the browser loaded it, not the hook
 
 
 def test_the_page_hook_is_pinned_and_installed_and_removed_with_the_tabs_arming() -> None:
@@ -523,7 +553,7 @@ console.log(JSON.stringify([
   p.cdpAllowed("Page.addScriptToEvaluateOnNewDocument", {{source: p.PAGE_HOOK}}),
   p.cdpAllowed("Page.removeScriptToEvaluateOnNewDocument", {{identifier: "1"}}),
   p.cdpAllowed("Runtime.evaluate", {{expression: p.PAGE_HOOK}}),
-  p.PAGE_HOOK.includes("toString")]));
+  /Function\\.prototype\\.toString|\\.toString\\s*=/.test(p.PAGE_HOOK)]));
 """], capture_output=True, text=True, timeout=20).stdout)
     assert out == [True, False, False, True, False, False]                 # exact source; no masking
     calls = worker('''(async () => {
@@ -542,24 +572,24 @@ console.log(JSON.stringify([
     assert calls["released"].index("Page.removeScriptToEvaluateOnNewDocument") < calls["released"].index("detach")
 
 
-def test_a_page_hook_popup_is_adopted_and_loaded_by_ferb_and_its_page_is_told() -> None:
+def test_a_claimed_popup_is_never_navigated_by_ferb_its_opener_page_is_told_when_it_is_the_tasks() -> None:
     out = worker('''(async () => {
-      const sent = [], told = [];
+      const sent = [], told = [], loads = [];
       port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
       arm = async (id) => { const t = tabState(id); t.attached = true; t.armed = true; return t; };
-      load = async () => {};
-      inFrame = async (tab, frame, fn, args) => { told.push([tab, frame, args[0]]); return true; };
-      chrome.tabs.get = async id => ({id, url: 'about:blank'});
+      load = async (id, url) => { loads.push([id, url]); };
+      chrome.tabs.sendMessage = async (tab, m, o) => { told.push([tab, m, o]); };
       tabState(5).armed = true;
-      const relayed = pageHookPopup(5, 2, {token: 'tok', url: 'https://s.example/f.zip'});
-      const refused = pageHookPopup(5, 2, {token: 'x', url: 'javascript:alert(1)'});
-      await adoptPopup({id: 31, openerTabId: 5, pendingUrl: 'about:blank'});
-      await commands.navigate({tab_id: 31, url: 'https://s.example/f.zip'});
-      return {relayed, refused, popup: sent.find(b => b.event === 'popup'), told};
-    })()''')
-    assert out["relayed"] is True and out["refused"] is False
-    assert out["popup"]["load_url"] == "https://s.example/f.zip" and out["popup"]["opener_tab_id"] == 5
-    assert out["told"] == [[5, 2, "tok"]]                               # the opener's page: FERB loads it, not the hook
+      pageHookPopup(5, 2, {token: '%s', url: 'https://s.example/f.zip'});
+      seenTab(31, 'about:blank#ferb-%s');
+      await sleep(10);
+      const ready = await commands.popup_ready({tab_id: 31});
+      const again = await commands.popup_ready({tab_id: 31});
+      return {popup: sent.find(b => b.event === 'popup'), told, loads, ready, again};
+    })()''' % (TOKEN, TOKEN))
+    assert out["popup"]["opener_tab_id"] == 5 and out["popup"]["tab_id"] == 31 and "load_url" not in out["popup"]
+    assert out["told"] == [[5, {"ferbPopupReady": TOKEN}, {"frameId": 2}]] and out["loads"] == []
+    assert out["ready"] == {"ready": True} and out["again"] == {"ready": False}
 
 
 def test_in_ferbs_own_profile_nothing_held_is_handed_to_the_browser() -> None:

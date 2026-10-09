@@ -381,7 +381,8 @@ class Downloads:
     def purge(self) -> int:
         """Files older than retention.download_days, then the oldest while the folder is over browser.download_total_mb,
         move to the Trash; their rows stay, with the path cleared and where the Trash put them. A file already gone is
-        recorded so; one that won't move is skipped and recorded, and never makes a newer file go in its place."""
+        recorded so; one that won't move is skipped and recorded (the next pass tries again) and stops counting toward the
+        total, so it never makes a newer file go in its place."""
         lim = self.limits()
         cutoff = (self.now() - timedelta(days=lim.keep_days)).isoformat()
         rows = [dict(r) for r in self.db.conn.execute(
@@ -397,12 +398,9 @@ class Downloads:
                 if not old and total <= lim.total_bytes:
                     break
                 result = self._trash(folder, r)
-                if result == "stuck":
-                    if old:
-                        continue                         # still too old; the next pass tries again
-                    break                                # over budget: never evict a newer file in its place
-                moved += 1
-                total -= int(r["bytes"] or 0)
+                total -= int(r["bytes"] or 0)            # a stuck file stops counting: no newer file goes in its place
+                if result != "stuck":
+                    moved += 1
         finally:
             os.close(folder)
         return moved

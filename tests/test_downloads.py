@@ -648,11 +648,13 @@ def test_a_tab_opened_while_its_task_let_go_of_its_tabs_is_let_go_of_too(bd: Any
         t.owner == g.task_id for t in d.daemon.router._tabs.values())
 
 
-def test_a_page_hook_popup_is_loaded_by_ferb_as_the_tasks_tab(bd: Any) -> None:
+def test_a_claimed_popup_becomes_the_tasks_tab_and_its_page_loads_it_ferb_never_navigates_it(bd: Any) -> None:
     d, launched = bd
     ext, g, tab, chrome_id = _task_tab(d, launched)
-    pop = ext.popup(chrome_id, "about:blank", load_url=f"{SITE}/oauth")
-    ext.wait_for(lambda: ext.tabs.get(pop) == f"{SITE}/oauth")         # FERB navigated the blank popup
+    pop = ext.popup(chrome_id, f"{SITE}/oauth")
+    ext.wait_for(lambda: pop in ext.popups_ready)                       # made the task's, then the page is told
+    assert ext.tabs[pop] == f"{SITE}/oauth"
+    assert not [m for m in ext.wire if '"op": "navigate"' in m and f'"tab_id": {pop}' in m]   # no FERB navigation
     [new] = call(d, g, "browser.snapshot", tab=tab)["content"]["opened_tabs"]
     assert new["url"] == f"{SITE}/oauth" and new["tab"] in d.daemon.router.tabs_of(g.task_id)
 
@@ -718,3 +720,76 @@ def test_the_downloads_description_names_the_configured_retention(bd: Any) -> No
     ext, g, tab, chrome_id = _task_tab(d, launched)
     desc = next(t["description"] for t in d.daemon.gateway.tools_for(g) if t["name"] == "browser.downloads")
     assert "kept 7 days" in desc
+
+
+# ---------- fix round 3 ----------
+
+def test_a_stale_listeners_middle_or_cmd_click_opens_in_the_background(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.tabs[301], ext.tab_windows[301] = f"{SITE}/owner", 5
+    ext.link_to_new_tab(301, f"{SITE}/later", background=True)
+    ext.wait_for(lambda: 301 in ext.disarmed)
+    assert ext.plain_opens == [{"tab_id": 301, "url": f"{SITE}/later", "active": False}]
+
+
+def test_a_stuck_old_file_stops_counting_so_newer_ones_stay(bd: Any, monkeypatch: Any) -> None:
+    from ferb.act.fs import files
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    old = _deliver(d, ext, chrome_id, name="old.bin", data=os.urandom(600_000), source_url="https://x.example/o")
+    d.call_soon(d.daemon.clock.advance, 31 * 86400)
+    d.daemon.config.set("browser", "download_total_mb", 1)
+
+    trash = _fake_trash(monkeypatch, d.daemon.home)
+    moved = files.move_to_trash
+
+    def only_old_stuck(p: Path) -> str:                               # the old file won't move; any other would
+        if p.name.endswith("old.bin"):
+            raise files.TrashRefused("in use")
+        return moved(p)
+    monkeypatch.setattr(files, "move_to_trash", only_old_stuck)
+    new1 = _deliver(d, ext, chrome_id, name="new1.bin", data=os.urandom(300_000), source_url="https://x.example/1")
+    new2 = _deliver(d, ext, chrome_id, name="new2.bin", data=os.urandom(300_000), source_url="https://x.example/2")
+    assert all(Path(f["path"]).exists() for f in (old, new1, new2))   # old is stuck; the newer ones never pay for it
+    assert {r["name"]: r["kept"] for r in _records(d)}["old.bin"].startswith("stuck") and not list(trash.iterdir())
+
+
+def test_released_tasks_and_tab_counts_stay_bounded(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched, tid="ta")
+    ext.link_to_new_tab(chrome_id, f"{SITE}/a-new")
+    ext.wait_for(lambda: f"{SITE}/a-new" in ext.tabs.values())
+    router = d.daemon.router
+    d.run(router.release(g.task_id))
+
+    async def end() -> None:
+        d.daemon.tasks.remove(g.task_id)
+    d.run(end())
+    other = task(d, "tb", OWNER, sites=frozenset({"shop.example"}))
+    d.run(router.release(other.task_id))
+    assert router._released == {"tb"} and "ta" not in router._tabs_opened
+
+
+def test_a_startup_step_that_fails_doesnt_skip_the_other(monkeypatch: Any) -> None:
+    import shutil
+    import tempfile
+    from ferb.act.browser.downloads import Downloads
+    ran: list[str] = []
+
+    def broken(self: Any) -> int:
+        raise OSError("unreadable folder")
+    monkeypatch.setattr(Downloads, "sweep", broken)
+    monkeypatch.setattr(Downloads, "finalize_stale", lambda self: ran.append("finalize") or 0)
+    base = Path(tempfile.mkdtemp(prefix="ferbt-"))
+    try:
+        d = RunningDaemon(base / "home")
+        try:
+            async def journal() -> list[str]:
+                return [json.dumps(e.data) for e in d.daemon._journal().entries()
+                        if e.kind == "browser.downloads_startup_failed"]
+            assert ran == ["finalize"] and any('"sweep"' in j for j in d.run(journal()))
+        finally:
+            d.stop()
+    finally:
+        shutil.rmtree(base, ignore_errors=True)

@@ -228,9 +228,11 @@ def wait_for(cond: Any, timeout: float, what: str) -> None:
 
 
 @contextmanager
-def browser_lab(*, ferb_identity: bool = False, headless: bool = False, prefs: dict[str, Any] | None = None):
+def browser_lab(*, ferb_identity: bool = False, headless: bool = False, prefs: dict[str, Any] | None = None,
+                chrome_args: list[str] | None = None):
     """One isolated daemon, native host, extension, profile and Chrome process per lab. `prefs` seeds the lab
-    profile's Preferences (e.g. its download folder) before Chrome starts."""
+    profile's Preferences (e.g. its download folder) before Chrome starts; `chrome_args` adds lab-only switches (e.g.
+    --host-resolver-rules mapping a test name to 127.0.0.1, so a page is plain http without being localhost)."""
     from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
     from ferb.clock.clock import SystemClock
     from ferb.core.types import Identity
@@ -262,7 +264,7 @@ def browser_lab(*, ferb_identity: bool = False, headless: bool = False, prefs: d
         write_native_host(udd, d.sock, FERB_EXTENSION_ID)
         front, chrome = Frontmost(), None
         try:
-            chrome = ChromeLab(udd, extra_args=["--headless=new"] if headless else None)
+            chrome = ChromeLab(udd, extra_args=(["--headless=new"] if headless else []) + list(chrome_args or []))
             assert chrome.load_extension(Path(__file__).parents[1] / "extensions" / "chromium") == FERB_EXTENSION_ID
             wait_for(lambda: "chrome" in dm.hub.unpaired.values(), 30, "the extension never said hello")
 

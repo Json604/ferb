@@ -1572,11 +1572,12 @@ class Daemon:
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
                                              self.config.get, lambda text: str(self.redact({"u": text})["u"]),
                                              self._publish)
-        try:                                             # what a restart cut off: partial files, running rows
-            self.downloads.sweep()
-            self.downloads.finalize_stale()
-        except Exception as e:
-            self._journal().append("browser.downloads_startup_failed", {"error": f"{type(e).__name__}: {e}"})
+        for name, step in (("sweep", self.downloads.sweep), ("finalize_stale", self.downloads.finalize_stale)):
+            try:                                         # what a restart cut off, each step on its own
+                step()
+            except Exception as e:
+                self._journal().append("browser.downloads_startup_failed",
+                                       {"step": name, "error": f"{type(e).__name__}: {e}"})
         self.downloads.task_root = self._task_root
         self.hub.on_download = self.downloads.receive
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)

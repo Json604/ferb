@@ -168,13 +168,20 @@ holds a blob/data `download` link in the capture phase (a page's `stopPropagatio
 phase routes a trusted click on a link to a new tab (`target=_blank`, also via `<base target>`, a modifier or middle
 click; other named targets stay the browser's) through FERB's own open as the same task's tab, released like its opener
 when that is the owner's borrowed tab, within `browser.task_max_tabs` (20) per task tree (past it the browser opens an
-ordinary tab, as a fact). The page hook (`PAGE_HOOK`, pinned by exact source in `protocol.js`; installed only in armed
-task tabs and their OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed on release) asks content.js through a
-cancelable `ferb-armed` event before doing anything, so a still-patched document is native once FERB lets go. It clicks
-a FileSaver-style save link (never added to the page) itself while briefly connected, so the capture listener takes it,
-and turns `window.open(url)` (http(s), no target or `_blank`, without `noopener`) into a blank popup the page keeps (its
-opener intact: an OAuth popup's `window.opener.postMessage` works, measured) that FERB adopts, arms and loads, or that
-loads itself after 1.5 s. Chrome's `openerTabId` names the window's active tab, so the hook's own report names the opener. Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
+ordinary tab, as a fact). The page hook (`PAGE_HOOK`, pinned by exact source in `protocol.js`; installed only in armed task tabs and their
+OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed on release) asks content.js through a cancelable
+`ferb-armed` event before doing anything, so a still-patched document is native once FERB lets go. It clicks a
+FileSaver-style save link (never added to the page) itself while briefly connected, so the capture listener takes it,
+and opens `window.open(url)` (a non-empty http(s) URL, no target or `_blank`, without `noopener`; anything else is
+native) as `about:blank#ferb-<token>` (`crypto.getRandomValues`, so plain-http pages work). FERB adopts a new tab only
+when it opened it itself (`browser.open`, a routed link) or when its URL is exactly `about:blank#ferb-<token>` for a
+token a live task tab relayed (either may come first; 2 s each; any window, so popup windows with features count).
+Chrome's `openerTabId` names the window's active tab (measured), so it is never used: the owner's own new tabs are
+never FERB's. FERB never navigates a popup: once the daemon has made it the task's (within the tab cap, `attached` from
+its opener) it sends `popup_ready`, content.js fires `ferb-popup-ready`, and the hook sets the popup's location once
+(normal Referer and navigation); without it the hook does so after 1.5 s. A page faking `ferb-popup-ready` only loads
+its own popup early. Measured in the headless lab on a plain-http, non-localhost origin: a popup tab's and a popup
+window's downloads are taken, and an OAuth popup's `window.opener.postMessage` reaches its opener. Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
 takes a download only while `Hub.task_tab` finds a running task's tab, else it is released back to the browser
 untouched (`download_part {release}` → `Fetch.continueRequest`); the hello lists armed tabs and the daemon disarms any it
 doesn't hold (a failed release, a restart); an unpulled hold goes back to the browser after 30 s (in FERB's own profile it
@@ -190,14 +197,17 @@ untrusted fs root (`external:download`). Files are FERB's working copies: after 
 `browser.download_total_mb` (2048, oldest first) they move to the Trash (`move_to_trash`); rows stay with `trashed_to`.
 
 Residuals (measured in the headless lab; nothing tab-scoped closes them), recorded `not_taken` from the tab's own
-`Page.downloadWillBegin`/`downloadProgress` when seen (a later `canceled` too, e.g. a dismissed Save dialog), and able
-to show a Save dialog: a held response whose debugger detaches (the owner's Cancel on the debugging bar, a worker
-crash) continues into the browser's download flow (one whose body FERB already took does not); a popup opened with
-`noopener`, from a frame content.js wasn't injected into, or by an untrusted click on a `target=_blank` link, races its
-adoption and its first response won 6/6 (a download-only popup closes itself, so nothing is reported); a form posted
-to `target=_blank`; an OOPIF's first document before its session's `Fetch.enable`; a misread type; and a page's own
-save picker (`showSaveFilePicker`). `Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to
-extensions, and the tab session's `Target.setAutoAttach` doesn't attach popups.
+`Page.downloadWillBegin`/`downloadProgress` when FERB is attached (a later `canceled` too, e.g. a dismissed Save
+dialog), and able to show a Save dialog: a held response whose debugger detaches (the owner's Cancel on the debugging
+bar, a worker crash) continues into the browser's download flow (one whose body FERB already took does not); a new tab
+FERB didn't open or claim (a popup with `noopener`/`noreferrer`, an empty or named target, an untrusted click on a
+`target=_blank` link, a form posted to `target=_blank`, a link in a frame content.js wasn't injected into) is the
+browser's, unarmed and unreported; an OOPIF's first document before its session's `Fetch.enable`; a misread type; a
+script-made save before content.js is injected; and a page's own save picker (`showSaveFilePicker`). A page can tell
+FERB drives it (the patched functions, the `ferb-armed` answer) and can opt itself out of capture by answering
+`ferb-armed` itself or cancelling its own clicks: no escalation, its downloads then follow the browser's own flow.
+`Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to extensions, and the tab session's
+`Target.setAutoAttach` doesn't attach popups.
 
 Dialogs are explicit pending observations and explicit accept/dismiss choices. Email uses observed browser primitives,
 not a fixed Gmail compose/send recipe. OTP inbox candidates have opaque task/account/origin-bound IDs and masked

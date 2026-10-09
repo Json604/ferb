@@ -36,7 +36,8 @@ PAGE = b"""<!doctype html><title>Downloads lab</title>
 <button onclick="exportDetached()">Export detached</button>
 <a target=_blank href="/attach.bin?name=newtab.bin">New tab file</a>
 <button onclick="window.open('/attach.bin?name=popup.bin')">Popup file</button>
-<button onclick="window.open('/oauth')">Sign in</button>
+<button onclick="window.open('/attach.bin?name=popwin.bin', '_blank', 'popup,width=400,height=300')">Popup window file</button>
+<button onclick="window.open('/oauth', '_blank', 'popup,width=400,height=300')">Sign in</button>
 <p id=status>not signed in</p>
 <script>
 addEventListener('message', (e) => { if (e.data === 'signed-in') document.getElementById('status').textContent = 'signed in via popup'; });
@@ -106,7 +107,11 @@ async def _live_task(d: Any, task_id: str) -> None:
 def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_download(site: str) -> None:
     folder = Path(tempfile.mkdtemp(prefix="ferb-lab-dl-"))
     prefs = {"download": {"default_directory": str(folder), "prompt_for_download": False, "directory_upgrade": True}}
-    with browser_lab(headless=True, prefs=prefs) as (d, chrome, front):
+    # A plain-http page that isn't localhost (no secure context: no crypto.randomUUID), resolved by the lab Chrome
+    # itself to the 127.0.0.1 server; no DNS, nothing outside this Mac.
+    site = site.replace("127.0.0.1", "ferblab.test")
+    with browser_lab(headless=True, prefs=prefs,
+                     chrome_args=["--host-resolver-rules=MAP ferblab.test 127.0.0.1"]) as (d, chrome, front):
         window = int(chrome.evaluate(chrome.sw, "ferbWindow(true)"))
         driver = d.daemon.router
         root = d.daemon.home / "workspace" / "downloads"
@@ -148,10 +153,17 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
             out["new_tabs"] = await opened(tab)
             new = driver.owned_by(out["new_tabs"][0]["tab"], "lab-task")
             out["in_new_tab"] = await driver.downloads_for(new, 30)
-            await click(tab, "Popup file")                              # window.open: the page hook opens it blank
+            out["secure_context"] = chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target: {{tabId: "
+                                                    f"{driver._tabs[tab.tab_id].chrome_id}}}, world: 'MAIN', func: () => "
+                                                    "window.isSecureContext}).then(r => r[0].result)")
+            await click(tab, "Popup file")                              # window.open: claimed by its token
             out["popups"] = await opened(tab, 5)
             pop = driver.owned_by(out["popups"][0]["tab"], "lab-task") if out["popups"] else None
             out["in_popup"] = await driver.downloads_for(pop, 30) if pop else []
+            await click(tab, "Popup window file")                       # a popup window with features
+            out["popup_windows"] = await opened(tab, 5)
+            win = driver.owned_by(out["popup_windows"][0]["tab"], "lab-task") if out["popup_windows"] else None
+            out["in_popup_window"] = await driver.downloads_for(win, 30) if win else []
             await click(tab, "Sign in")                                 # its opener relationship must survive
             await asyncio.sleep(2)
             out["oauth_popup"] = await opened(tab, 5)
@@ -195,8 +207,11 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
         assert newtab["state"] == "taken" and newtab["name"] == "newtab.bin"
         [fromnewtab] = out["from_new_tab_page"]
         assert fromnewtab["state"] == "taken" and fromnewtab["name"] == "fromnewtab.bin"
-        [popup] = out["in_popup"]                                      # window.open: blank, armed, then loaded by FERB
-        assert popup["state"] == "taken" and popup["name"] == "popup.bin"
+        assert out["secure_context"] is False                          # the page was plain http, not localhost
+        [popup] = out["in_popup"]                                      # window.open: claimed by token, armed, then
+        assert popup["state"] == "taken" and popup["name"] == "popup.bin"   # loaded by the page itself
+        [popwin] = out["in_popup_window"]
+        assert popwin["state"] == "taken" and popwin["name"] == "popwin.bin"
         assert out["oauth"] is True and out["oauth_popup"]             # the OAuth-style popup still answered its opener
     assert out["opened_url"] in ("about:blank", "")                    # the page never became the download
     assert mid == [], mid                                              # nothing of the task's reached the browser's flow

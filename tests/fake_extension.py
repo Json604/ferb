@@ -124,6 +124,8 @@ class FakeExtension:
         self.fail_release_times = 0                        # ...only this many times (a transient failure)
         self.open_delay = 0.0                              # seconds an open takes (a race with the task's end)
         self.plain_opens: list[dict[str, Any]] = []        # links given back to the browser as ordinary tabs
+        self.popup_targets: dict[int, str] = {}            # claimed popup -> the URL its page will load
+        self.popups_ready: list[int] = []                  # popup_ready commands received
         self.nav_refuse: set[str] = set()                  # navigating here: the tab couldn't be armed (D35)
         self.download_fail_at: int | None = None          # a part at/after this offset fails (the stream broke)
         self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
@@ -340,20 +342,29 @@ class FakeExtension:
         self.send("event", {"event": "download", "tab_id": tab_id, "uncaptured": True, "name": name,
                             "source_url": source_url, "detail": detail})
 
-    def link_to_new_tab(self, tab_id: int, url: str) -> None:
-        """content.js caught a link in this armed tab that opens a new tab; FERB's daemon opens it itself."""
-        self.send("event", {"event": "open", "tab_id": tab_id, "url": url, "window_id": self.tab_windows.get(tab_id)})
+    def link_to_new_tab(self, tab_id: int, url: str, background: bool = False) -> None:
+        """content.js caught a trusted click on a link in this armed tab that opens a new tab (`background`: a modifier
+        or middle click); FERB's daemon opens it itself."""
+        self.send("event", {"event": "open", "tab_id": tab_id, "url": url, "window_id": self.tab_windows.get(tab_id),
+                            "background": background})
 
-    def popup(self, opener: int, url: str, load_url: str | None = None) -> int:
-        """The page in this tab opened a new tab (window.open; the page hook opens it blank for `load_url`); the
-        extension armed it and reports it."""
+    def popup(self, opener: int, url: str) -> int:
+        """The page hook in this tab opened a popup (about:blank#ferb-<token>) for `url`; the extension claimed it by
+        that token, armed it and reports it. The page loads it once the daemon says ready (popup_ready)."""
         self._n += 1
-        self.tabs[self._n] = url
+        self.tabs[self._n] = "about:blank"
         self.tab_windows[self._n] = self.tab_windows.get(opener) or 0
         self.armed.add(self._n)
-        self.send("event", {"event": "popup", "tab_id": self._n, "opener_tab_id": opener, "url": url,
-                            **({"load_url": load_url} if load_url else {})})
+        self.popup_targets[self._n] = url
+        self.send("event", {"event": "popup", "tab_id": self._n, "opener_tab_id": opener, "url": url})
         return self._n
+
+    def op_popup_ready(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        """The opener's page hook loads the popup itself (FERB never navigates it)."""
+        self.popups_ready.append(a["tab_id"])
+        if a["tab_id"] in self.popup_targets:
+            self.tabs[a["tab_id"]] = self.popup_targets.pop(a["tab_id"])
+        return {"ready": True}
 
     def op_disarm(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         self.disarmed.append(a["tab_id"])
