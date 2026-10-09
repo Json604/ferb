@@ -131,13 +131,27 @@ def test_no_new_name_can_be_made_for_a_protected_file(daemon: RunningDaemon, tmp
         assert r["is_error"] and not (out / "c").exists() and "aws-key" not in str(r) and "secret-token" not in str(r)
 
 
-def test_the_keychain_service_is_out_of_reach_without_a_prompt(daemon: RunningDaemon) -> None:
-    # `security` must fail at the service at once, never show a prompt; no keychain of the owner's is named.
-    g = task(daemon, "k", Identity.OWNER, SHELL)
-    r = call(daemon, g, "shell.run", command="security find-generic-password -s ferb-sandbox-test-nothing 2>&1; echo rc=$?")
-    assert "rc=0" not in r["content"]["output"] and "ferb-sandbox-test-nothing" not in r["content"].get("error", "")
-    r = call(daemon, g, "shell.run", command="security list-keychains 2>&1; echo rc=$?")
-    assert "rc=0" not in r["content"]["output"] and "login.keychain" not in r["content"]["output"]
+def test_the_keychain_service_is_out_of_reach_without_a_prompt(daemon: RunningDaemon, tmp_path: Path) -> None:
+    # A throwaway keychain with a throwaway item, in a scratch folder; `security` must fail at the service at once,
+    # never show a prompt and never print the secret. The owner's default search list is never touched.
+    kc = tmp_path / "scratch.keychain-db"
+    pw = __import__("secrets").token_hex(8)
+    before = subprocess.run(["security", "list-keychains"], capture_output=True, text=True).stdout
+    subprocess.run(["security", "create-keychain", "-p", pw, str(kc)], check=True)
+    try:
+        subprocess.run(["security", "unlock-keychain", "-p", pw, str(kc)], check=True)
+        subprocess.run(["security", "add-generic-password", "-a", "a", "-s", "ferb-sandbox-test",
+                        "-w", "s3cret-value", str(kc)], check=True)
+        g = task(daemon, "k", Identity.OWNER, SHELL)
+        r = call(daemon, g, "shell.run",
+                 command=f"security find-generic-password -s ferb-sandbox-test -w {kc} 2>&1; echo rc=$?")
+        assert "rc=0" not in r["content"]["output"] and "s3cret-value" not in str(r)
+        r = call(daemon, g, "shell.run", command=f"security list-keychains 2>&1; echo rc=$?")
+        assert "rc=0" not in r["content"]["output"]
+    finally:
+        subprocess.run(["security", "delete-keychain", str(kc)], capture_output=True)
+    after = subprocess.run(["security", "list-keychains"], capture_output=True, text=True).stdout
+    assert after == before                                                    # the owner's search list is unchanged
 
 
 def test_direct_network_is_denied_inside_the_sandbox(daemon: RunningDaemon) -> None:
@@ -181,6 +195,10 @@ def test_shell_rules_lists_the_boundaries_and_what_is_liftable(daemon: RunningDa
     assert ids["ferb_state"]["liftable"] is False and ids["network"]["liftable"] is False and ids["admin"]["liftable"]
     assert r["footer"].endswith("Origin: ferb")
     assert "danger-full-access" in r["content"]["own_sandbox"]
+    assert "can't open apps" in r["content"]["apps"]
+    assert "escape" not in r["content"]                                       # Task 6 adds it
+    # The proxy isn't running this task, so the network line says loopback only, derived from proxy_port()
+    assert r["content"]["network"] == "no network beyond this Mac (loopback only); FERB's proxy is not running"
 
 
 def test_shell_tools_say_a_programs_own_sandbox_cant_start_inside(daemon: RunningDaemon) -> None:
@@ -262,9 +280,14 @@ def test_applescript_runs_under_the_same_sandbox(tmp_path: Path, monkeypatch: py
         assert Path(a[2]).exists()                                   # the profile is there while it runs
         return await real_exec(sys.executable, "-c", "print('ok')", stdout=-1, stderr=-1)
     monkeypatch.setattr(applescript.asyncio, "create_subprocess_exec", fake_exec)
-    ok, out = asyncio.run(applescript.run("com.apple.TextEdit", "get name", sandbox=sb))
+    ok, out = asyncio.run(applescript.run("com.apple.TextEdit", "get name", sandbox=sb, cwd=str(ferb / "workspace")))
     assert ok and seen[0][:2] == [SANDBOX_EXEC, "-f"] and seen[0][3] == "/usr/bin/osascript"
     assert not list((tmp_path / "p").glob("*.sb"))
+    # mac.applescript's profile keeps Apple Events and app launches; the shell's denies them
+    apps = Path(seen[0][2]).read_text() if Path(seen[0][2]).exists() else sb.profile(apps=True)
+    assert "(deny lsopen)" not in sb.profile(apps=True) and "(deny lsopen)" in sb.profile()
+    assert "launchservicesd" not in sb.profile(apps=True) and "launchservicesd" in sb.profile()
+    assert "(deny job-creation)" in sb.profile(apps=True)                     # still no background jobs
 
 
 def test_without_a_working_sandbox_the_shell_and_applescript_are_left_out(home: Path,
@@ -293,3 +316,75 @@ def test_the_daemon_reports_containment(daemon: RunningDaemon) -> None:
     assert {"shell.run", "shell.rules", "mac.applescript"} <= set(daemon.daemon.registry.capabilities)
     # The daemon socket is named too, not only covered by the network rule: a later network rule can't reopen it
     assert f'(remote unix-socket (path-literal "{daemon.sock}"))' in daemon.daemon.sandbox.profile()   # type: ignore[union-attr]
+
+
+def test_dev_tools_work_in_the_workspace(daemon: RunningDaemon) -> None:
+    """FERB's home may be looked at (metadata), so tools that walk up from the workspace work: git, a POSIX cd,
+    python/node realpath, venv, and ls -l at the root (fix round 1). FERB's own files stay unreadable."""
+    ws = daemon.daemon.home / "workspace"
+    (ws / "proj").mkdir(exist_ok=True)
+    g = task(daemon, "d", Identity.OWNER, SHELL)
+    checks = {
+        "git": "cd proj && git init -q . && git status --short; echo rc=$?",
+        "cd+pwd": f"cd {ws} && pwd; echo rc=$?",
+        "getcwd": "cd proj && python3 -c 'import os; print(os.getcwd())'; echo rc=$?",
+        "venv": "cd proj && rm -rf v && python3 -m venv v && test -x v/bin/python3; echo rc=$?",
+        "ls -l root": f"ls -l {ws} >/dev/null; echo rc=$?",
+        "find": f"cd {ws} && find . -maxdepth 1 >/dev/null; echo rc=$?",
+    }
+    for name, cmd in checks.items():
+        r = call(daemon, g, "shell.run", command=cmd)
+        assert "rc=0" in r["content"]["output"] and not r["is_error"], f"{name}: {r['content']['output'][-300:]}"
+    if __import__("shutil").which("node"):
+        r = call(daemon, g, "shell.run", command="cd proj && node -e 'console.log(require(\"fs\").realpathSync(\".\"))'; echo rc=$?")
+        assert "rc=0" in r["content"]["output"], r["content"]["output"][-300:]
+    # Looking is allowed; reading FERB's own files is not
+    (daemon.daemon.home / "run").mkdir(exist_ok=True)
+    (daemon.daemon.home / "run" / "tok").write_text("secret-token")
+    r = call(daemon, g, "shell.run", command=f"cat {daemon.daemon.home / 'run' / 'tok'}")
+    assert r["is_error"] and "secret-token" not in str(r)
+
+
+def test_the_shell_cannot_open_apps_urls_or_start_background_jobs(daemon: RunningDaemon) -> None:
+    """lsopen, the LaunchServices lookups and job-creation are denied, so FERB's shell can't bring an app forward or
+    schedule a daemon (fix round 1). A launchd job must leave nothing behind."""
+    g = task(daemon, "a", Identity.OWNER, SHELL)
+    (daemon.daemon.home / "workspace" / "x.txt").write_text("x")
+    label = f"com.ferb.test.sandbox.{__import__('os').getpid()}"
+    try:
+        r = call(daemon, g, "shell.run", command=f"launchctl submit -l {label} -- /usr/bin/true; echo rc=$?")
+        assert "rc=0" not in r["content"]["output"]
+        r = call(daemon, g, "shell.run", command=f"open -g -j {daemon.daemon.home / 'workspace' / 'x.txt'}; echo rc=$?")
+        assert "rc=0" not in r["content"]["output"]
+        r = call(daemon, g, "shell.run", command="open -g -j -a TextEdit; echo rc=$?")
+        assert "rc=0" not in r["content"]["output"]
+    finally:
+        subprocess.run(["launchctl", "remove", label], capture_output=True)
+    assert label not in subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
+    caps = daemon.daemon.registry.capabilities
+    assert "can't open apps" in caps["shell.run"].description
+
+
+def test_literal_parent_denies_only_cover_existing_folders(tmp_path: Path) -> None:
+    """A first `cargo`/`rustup` install must be able to create ~/.cargo; the entry's own subpath deny still blocks
+    creating the entry itself (fix round 1)."""
+    home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    sb = Sandbox(Protection(home, ferb, ["~/.cargo/credentials.toml"], [], []), tmp_path / "p")
+    prof = sb.profile()
+    assert f'(deny file-write* (literal "{home}/.cargo"))' not in prof        # ~/.cargo doesn't exist yet
+    assert f'(deny file-write* (literal "{home}"))' in prof                   # the home does
+    argv = sb.argv(f"mkdir -p {home}/.cargo/bin && echo ok > {home}/.cargo/bin/x && "
+                   f"cat {home}/.cargo/credentials.toml 2>&1")
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    finally:
+        sb.cleanup(sb.profile_path(argv))
+    assert (home / ".cargo" / "bin" / "x").read_text() == "ok\n"              # the install folder is created
+    (home / ".cargo" / "credentials.toml").write_text("token")
+    argv = sb.argv(f"cat {home}/.cargo/credentials.toml")                     # but the entry itself stays denied
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    finally:
+        sb.cleanup(sb.profile_path(argv))
+    assert r.returncode != 0 and "token" not in r.stdout

@@ -19,15 +19,17 @@ def wrap(bundle_id: str, body: str) -> str:
     return f'tell application id "{bundle_id}"\n{body}\nend tell'
 
 
-async def run(bundle_id: str, body: str, timeout: float = 30.0, sandbox: Any = None) -> tuple[bool, str]:
-    """`sandbox` (ferb/act/shell/sandbox.py's Sandbox) contains osascript; the tool never runs a script without one."""
+async def run(bundle_id: str, body: str, timeout: float = 30.0, sandbox: Any = None,
+              cwd: str | None = None) -> tuple[bool, str]:
+    """`sandbox` (ferb/act/shell/sandbox.py's Sandbox) contains osascript with its AppleScript profile (Apple Events
+    and app launches kept); the tool never runs a script without one. `cwd` is FERB's workspace."""
     script = wrap(bundle_id, body)
     argv = ["/usr/bin/osascript", "-e", script]
     if sandbox is not None:
-        argv = sandbox.wrap(argv)
+        argv = sandbox.wrap(argv, apps=True)
     try:
         proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.PIPE)
+                                                    stderr=asyncio.subprocess.PIPE, cwd=cwd)
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout)
         except asyncio.TimeoutError:

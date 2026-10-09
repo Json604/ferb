@@ -3,12 +3,17 @@
 Tool-list proxy for FERB's Claude runtime only:
 
 - bound to 127.0.0.1; used only as ANTHROPIC_BASE_URL of runs FERB starts;
-- records ONLY the tool names of each request (per run, from a /run/<id> path prefix) — never auth headers,
-  prompts, replies or any other body content; nothing is logged or written to disk;
+- forwards only for a live run: the /run/<id>/<secret> prefix must name a run FERB registered (`base_url`) and not yet
+  forgotten, with that run's random secret. Anything else gets 403, so a command in FERB's shell (which may reach
+  loopback) can't use it to reach the API host (F5a Task 2 review);
+- records ONLY the tool names of each request (per run) — never auth headers, prompts, replies or any other body
+  content; nothing is logged or written to disk;
 - forwards everything else unchanged to the real API."""
 
+import hmac
 import http.server
 import json
+import secrets
 import threading
 
 import httpx
@@ -33,6 +38,7 @@ class ToolListProxy:
     def __init__(self, upstream: str = UPSTREAM) -> None:
         self.upstream = upstream
         self._seen: dict[str, set[str]] = {}
+        self._live: dict[str, str] = {}                      # run id -> its secret, while the run lives
         self._lock = threading.Lock()
         proxy = self
 
@@ -41,9 +47,12 @@ class ToolListProxy:
 
             def _forward(self) -> None:
                 prefix, _, rest = self.path.lstrip("/").partition("/")
-                run_id, _, upstream_path = rest.partition("/") if prefix == "run" else ("", "", "")
-                if not run_id:
-                    self.send_error(404)
+                run_id, _, rest = rest.partition("/") if prefix == "run" else ("", "", "")
+                secret, _, upstream_path = rest.partition("/")
+                with proxy._lock:
+                    expected = proxy._live.get(run_id)
+                if expected is None or not hmac.compare_digest(expected, secret):
+                    self.send_error(403)
                     return
                 body = self.rfile.read(int(self.headers.get("content-length") or 0))
                 if body and upstream_path.startswith("v1/messages"):
@@ -73,7 +82,10 @@ class ToolListProxy:
         threading.Thread(target=self._srv.serve_forever, daemon=True).start()
 
     def base_url(self, run_id: str) -> str:
-        return f"http://127.0.0.1:{self._srv.server_port}/run/{run_id}"
+        """Registers the run (until `forget`) and returns its base URL, carrying a fresh secret."""
+        with self._lock:
+            secret = self._live.setdefault(run_id, secrets.token_urlsafe(24))
+        return f"http://127.0.0.1:{self._srv.server_port}/run/{run_id}/{secret}"
 
     def seen(self, run_id: str) -> set[str]:
         with self._lock:
@@ -82,6 +94,7 @@ class ToolListProxy:
     def forget(self, run_id: str) -> None:
         with self._lock:
             self._seen.pop(run_id, None)
+            self._live.pop(run_id, None)
 
     def close(self) -> None:
         self._srv.shutdown()

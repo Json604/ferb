@@ -461,5 +461,6 @@ class MacAppleScript(_Base):
         if self.sandbox is None:
             return _err("AppleScript runs only inside FERB's sandbox, which isn't available here (ferb doctor says why)")
         ok, out = await applescript.run(a.bundle_id, str(getattr(args, "script")),
-                                        timeout=float(getattr(args, "timeout_s")), sandbox=self.sandbox)
+                                        timeout=float(getattr(args, "timeout_s")), sandbox=self.sandbox,
+                                        cwd=ctx.workspace)
         return ToolResult({"ok": ok, "result": out}, is_error=not ok, read_sources=_sources(a.bundle_id))

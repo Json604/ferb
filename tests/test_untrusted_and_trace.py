@@ -59,12 +59,21 @@ def test_proxy_records_only_tool_names_per_run_and_forwards() -> None:
     try:
         body = {"messages": [{"role": "user", "content": "SECRET PROMPT"}],
                 "tools": [{"name": "mcp__ferb__fs_read"}, {"type": "web_search_20260209"}]}
-        r = httpx.post(proxy.base_url("run-a") + "/v1/messages", json=body, headers={"authorization": "Bearer tok"})
+        base = proxy.base_url("run-a")                                                       # registers the run + secret
+        r = httpx.post(base + "/v1/messages", json=body, headers={"authorization": "Bearer tok"})
         assert r.json() == {"ok": True}
         assert received[0][0] == "/v1/messages" and json.loads(received[0][2]) == body   # forwarded unchanged
         assert received[0][1].get("authorization") == "Bearer tok"
         assert proxy.seen("run-a") == {"mcp__ferb__fs_read", "web_search_20260209"}
         assert proxy.seen("run-b") == set()                                                  # per run
+        # A contained command that guesses the path, without the run's secret, is refused: it can't reach the API host
+        port = proxy._srv.server_port
+        assert httpx.post(f"http://127.0.0.1:{port}/run/run-a/v1/messages", json=body).status_code == 403
+        assert httpx.post(f"http://127.0.0.1:{port}/run/run-a/wrong-secret/v1/messages", json=body).status_code == 403
+        assert httpx.post(f"http://127.0.0.1:{port}/run/run-unknown/x/v1/messages", json=body).status_code == 403
+        assert len(received) == 1                                                             # none of those forwarded
+        proxy.forget("run-a")
+        assert httpx.post(base + "/v1/messages", json=body).status_code == 403                # forgotten: refused
         stored = repr(proxy.__dict__)
         assert "SECRET PROMPT" not in stored and "Bearer tok" not in stored                 # names only
         assert proxy._srv.server_address[0] == "127.0.0.1"

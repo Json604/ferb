@@ -5,7 +5,9 @@ ShellManager: start / read / send / wait / kill / list, with task ownership and 
 Processes belong to the task that started them; a worker only sees its own task's. When the task ends its
 processes are killed unless started as long-lived (servers); `ferb stop` kills them all; `ferb ps` / `ferb kill`
 list and end them. Commands run through /bin/sh in a clean environment (no FERB tokens, no API keys), under FERB's
-sandbox (sandbox.py): the daemon never starts a command without it, and a process FERB starts can't leave it."""
+sandbox (sandbox.py): the daemon never starts a command without it, and a child process can't shed the profile
+(macOS applies it to the whole tree). The sandbox bounds files, the Keychain, app/URL launches, launchd jobs and
+outbound network (what each rule covers, and its measured residuals, is in sandbox.py and the F5a Task 2 report)."""
 
 import dataclasses
 import os

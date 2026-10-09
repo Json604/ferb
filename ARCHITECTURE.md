@@ -757,12 +757,22 @@ same rules.
 
 The profile:
 - denies reads and writes of the never-read stores, FERB's state and upload staging, with the workspace allowed back;
+  FERB's home and upload staging allow `file-read-metadata` only, so tools that walk up from the workspace (git, node,
+  a POSIX `cd`, `python3 -m venv`, `ls -l`) work while the contents stay unreadable;
 - denies writes to the never-write places;
-- denies writes to every folder above a protected path, and to the workspace folder itself, as literals, so a rename
-  can't carry protected content to an unnamed path;
+- denies writes to every *existing* folder above a protected path, and to the workspace folder itself, as literals, so
+  a rename can't carry protected content to an unnamed path (a missing parent like `~/.cargo` is left writable so a
+  first install can create it; the entry's own subpath deny still blocks the entry);
 - denies the Keychain service (`com.apple.SecurityServer`);
+- denies launchd jobs (`job-creation`), opening apps or URLs (`lsopen`), and the two LaunchServices lookups
+  (`com.apple.coreservices.launchservicesd`, `com.apple.lsd.mapdb`) that `open` and `tell application` need, so the
+  shell can't put an app on the owner's screen; FERB's browser and Mac tools do that;
 - denies all network except the Mac's own addresses;
 - names the daemon socket explicitly.
+
+`mac.applescript` runs under a second profile (`profile(apps=True)`) with the same file, network and Keychain rules but
+`lsopen` and the LaunchServices lookups kept, because `tell application` may launch the app; `job-creation` stays
+denied.
 
 What was measured on this Mac (the Task 2 report has each run):
 - Rules match resolved paths, and on the case-insensitive volume every case and Unicode spelling.
@@ -784,16 +794,23 @@ When `sandbox-exec` can't run, the shell tools and `mac.applescript` are not reg
 Limits of the platform, stated to the agents in the shell tools' descriptions and in `shell.rules`, never enforced on
 their flags:
 - Nothing inside can start its own macOS sandbox (`sandbox_apply: Operation not permitted`). Codex CLI runs inside with
-  its own sandbox off: `--sandbox danger-full-access` keeps its approval setting, and the full bypass flag is only for
-  when the owner asked for it.
+  its own sandbox off: `--sandbox danger-full-access` (measured working), and the full bypass flag is only for when the
+  owner asked for it.
 - Setuid programs such as `sudo` cannot start under any profile.
+- The shell can't open apps or URLs, script other apps, or start background jobs; `shell.rules` says so.
+
+The loopback tool-list proxy for the Claude runtime
+([`runtimes/proxy.py`](ferb/runtimes/proxy.py)) forwards only for a run id that is live and carries that run's random
+secret (`/run/<id>/<secret>/…`); anything else gets 403, so a shell command that reaches loopback can't use it to leave
+the Mac. Task 3's egress proxy decides how wide loopback stays.
 
 Residuals:
 - A server bound to `0.0.0.0` accepts connections from the LAN: Seatbelt's `localhost` means any of the Mac's own
   addresses.
 - A hardlink made before FERB is a different path and isn't covered.
-- Apple Events from inside reach unsandboxed apps (Terminal, Finder) within FERB's Automation grants; Seatbelt can't
-  filter them.
+- `mac.applescript`, and an `osascript` the shell could reach, run under the apps profile, so AppleScript can still
+  drive already-authorized apps (Terminal `do script`, Finder) on the owner's screen within FERB's Automation grants;
+  Seatbelt can't filter Apple Events. (The shell profile denies Apple Events outright.)
 - `~/.docker` on the never-read list also hides `~/.docker/bin`.
 
 ## 13. Documentation and diagrams

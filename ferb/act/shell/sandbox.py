@@ -25,6 +25,11 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   connect: measured, E3).
 - Inside it, nothing can apply another sandbox (any deny rule makes `sandbox_apply` fail: E5), and setuid programs
   such as sudo cannot start (E6).
+- The shell can't start launchd jobs, open apps or URLs (`open`), or address apps by Apple Events (`tell
+  application`): `job-creation`, `lsopen` and the two LaunchServices lookups are denied (measured). mac.applescript's
+  profile keeps Apple Events and launches and every other rule.
+- FERB's home and upload staging may be looked at (metadata), never listed or read: tools walk up from the
+  workspace (git, node, a POSIX `cd`, venv failed without it: measured).
 
 An approved escape lifts exactly one listed path rule for one run (`lift`); FERB's own state and the network rule are
 never lifted, and `admin` (sudo) is no profile change at all, since sudo can't start under any profile (Task 6 runs
@@ -43,8 +48,14 @@ SECURITY_SERVER = "com.apple.SecurityServer"
 CERT_BUNDLE = "/etc/ssl/cert.pem"            # Apple's root certificates as a file (macOS ships it)
 # What a program that starts its own macOS sandbox meets inside FERB's (E5); shown to agents, never enforced on them
 NESTED_SANDBOX = ("A program can't start its own macOS sandbox inside FERB's shell (FERB's sandbox applies to it). "
-                  "Codex CLI needs its sandbox off: --sandbox danger-full-access (its own approval setting stays), or "
+                  "Codex CLI needs its sandbox off: --sandbox danger-full-access (measured working), or "
                   "--dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.")
+# What the shell profile keeps out beyond files and network (measured, F5a Task 2 fix round 1); shown to agents
+NO_APPS = ("FERB's shell can't open apps or URLs on the owner's screen, script other apps, or start background jobs "
+           "(launchd); FERB's browser and Mac tools do that.")
+# Launching and addressing apps: `open` (lsopen), app lookup by Apple Events (both services denied together stop
+# `tell application`; either alone did not), and launchd jobs (`launchctl submit`/`load`)
+LAUNCH_SERVICES = ("com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb")
 
 
 def _q(path: Path) -> str:
@@ -62,7 +73,9 @@ class Sandbox:
                  proxy_port: Callable[[], int | None] = lambda: None, *, socket: Path | None = None) -> None:
         self.protection, self.profiles_dir, self.proxy_port, self.socket = protection, profiles_dir, proxy_port, socket
 
-    def profile(self, lift: str | None = None) -> str:
+    def profile(self, lift: str | None = None, *, apps: bool = False) -> str:
+        """The shell's profile; `apps=True` is mac.applescript's: the same file, network and Keychain rules, but Apple
+        Events and app launches stay possible (`tell application` may launch the app)."""
         p = self.protection
         if lift is not None:
             if lift in (FERB_STATE, NETWORK):
@@ -75,15 +88,24 @@ class Sandbox:
         lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.ferb_home)]
         # The workspace exactly as FERB made it, never where a link there points: an allow must not widen
         lines.append(f"(allow file-read* file-write* (subpath {_q(p.workspace)}))")
+        # Tools walk up from the workspace (git, node's realpath, a POSIX `cd`, venv): FERB's home may be looked at,
+        # never listed or read; so may upload staging, from the workspace root (`ls -l`), its contents stay closed
+        lines += [f"(allow file-read-metadata (literal {_q(f)}))" for f in _forms(p.ferb_home)]
         lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.uploads)]
+        lines += [f"(allow file-read-metadata (literal {_q(f)}))" for f in _forms(p.uploads)]
         lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in self._paths(p.reads, lift)]
         lines += [f"(deny file-write* (subpath {_q(f)}))" for f in self._paths(p.writes, lift)]
-        folders = [f for g in (*p.guarded_parents(), p.workspace) for f in _forms(g)]
+        # Only folders that exist: a first install may still create ~/.cargo (the entry's own rule covers the entry)
+        folders = [f for g in (*p.guarded_parents(), p.workspace) if os.path.isdir(g) for f in _forms(g)]
         lines += [f"(deny file-write* (literal {_q(f)}))" for f in dict.fromkeys(folders)]
         lines += [f'(deny mach-lookup (global-name "{SECURITY_SERVER}"))',
+                  "(deny job-creation)",
                   "(deny network*)",
                   '(allow network-outbound (remote ip "localhost:*"))',
                   '(allow network-bind network-inbound (local ip "localhost:*"))']
+        if not apps:
+            lines.append("(deny lsopen)")
+            lines += [f'(deny mach-lookup (global-name "{name}"))' for name in LAUNCH_SERVICES]
         if self.socket is not None:
             lines += [f"(deny network-outbound (remote unix-socket (path-literal {_q(s)})))" for s in _forms(self.socket)]
         return "\n".join(lines) + "\n"
@@ -93,10 +115,10 @@ class Sandbox:
         """Each entry as resolved at FERB's start, as written, and as written resolved now (it may be a link since)."""
         return list(dict.fromkeys(f for e in entries if e.id != lift for f in (e.path, *_forms(e.typed))))
 
-    def wrap(self, argv: list[str], lift: str | None = None) -> list[str]:
+    def wrap(self, argv: list[str], lift: str | None = None, *, apps: bool = False) -> list[str]:
         """argv under the profile. The profile file stays until `cleanup` (after the process ends): sandbox-exec reads
         it after it starts, so removing it as soon as Popen returns failed every run (measured)."""
-        text = self.profile(lift)
+        text = self.profile(lift, apps=apps)
         self.profiles_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self.profiles_dir / f"{secrets.token_hex(8)}.sb"
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
