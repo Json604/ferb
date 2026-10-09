@@ -14,22 +14,15 @@ def _words(name: str) -> str:
 
 
 SENTENCES = [
-    ("worker.md",
-     "When the owner names who does the work (a coding agent, an app, a person), that one does it, not you. Your part "
-     "is to start it, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps "
-     "it cannot), monitor it and check its result. If it is stuck or slow, help it, or use owner_ask; do none of its "
-     "work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that "
-     "you did it."),
+        ("worker.md",
+     'When the owner hands the work to a particular agent or person that does it on its own (a coding agent like Codex Astra, a colleague, a service), that one does it, not you. An app you drive as a tool (WhatsApp, Spotify, Gmail, a browser) is not that: you do the work through it. Your part is to start the agent, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps it cannot), monitor it and check its result. If it is stuck or slow, help it, or use owner_ask; do none of its work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that you did it.'),
     ("worker.md",
      "- summary: the concrete result, useful details and remaining limitations, in FERB's first-person voice. Say who "
      "did each part (FERB itself, or the agent, app or person that did it) and what was used, as the records show."),
-    ("supervisor.md",
-     "When the owner names who does the work (an agent, app or person), the goal says that one does it and FERB starts "
-     "it, helps it and checks its result without doing that work itself."),
-    ("supervisor.md",
-     'When the owner names who does the work, one condition is that they did it, not FERB or a substitute. Each '
-     'quality or limit the owner states for the result ("score well", "no overfitting", "no hardcoding") is its own '
-     'condition, in their words.'),
+        ("supervisor.md",
+     'When the owner hands the work to a named agent or person that does it on its own (not an app FERB uses as a tool), the goal says that one does it and FERB starts it, helps it and checks its result without doing that work itself.'),
+        ("supervisor.md",
+     'When the owner hands the work to a named agent or person (not an app FERB uses as a tool), one condition is that they did it, not FERB or a substitute.'),
     ("supervisor.md",
      "monitor its result, inspect artifacts and report when it finishes; if it is stuck, FERB helps it or asks the "
      "owner before doing its work."),
@@ -40,16 +33,12 @@ SENTENCES = [
      'Everything the owner reads (answers, summaries, questions, success conditions, stop reasons, and a check\'s '
      'evidence and how) speaks to them as "you" and "your" ("your Brave Work profile"), never "the owner" or "the '
      'user". In a success condition, "you" means the owner.'),
-    ("dispatch.md",
-     "When the owner named who does the work (an agent, app or person), never instruct a worker to do that work "
-     "itself: have it help the named one, or use action=ask to ask the owner whether FERB should take over, saying "
-     "what is stuck."),
-    ("question.md",
-     "A worker asking to do work the owner gave to a named agent, app or person is the owner's decision: "
-     "ask_owner=true, saying what is stuck and what FERB would do instead."),
-    ("verifier.md",
-     "A condition that the agent, app or person the owner named did the work is met only by evidence that they "
-     "produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it."),
+        ("dispatch.md",
+     'When the owner handed the work to a named agent or person (not an app FERB uses as a tool), never instruct a worker to do that work itself: have it help the named one, or use action=ask to ask the owner whether FERB should take over, saying what is stuck.'),
+        ("question.md",
+     "A worker asking to do work the owner handed to a named agent or person (not an app FERB uses as a tool) is the owner's decision about who does the work, not a method question: ask_owner=true, saying what is stuck and what FERB would do instead."),
+        ("verifier.md",
+     'A condition that the agent or person the owner handed the work to did it is met only by evidence that they produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it. An app FERB used as a tool is not such an agent.'),
 ]
 
 
