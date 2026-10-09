@@ -64,7 +64,7 @@ only owner-controlled surfaces (D17): FERB's Gmail, WhatsApp "message yourself",
 request-logging server, and disposable files in a test folder (here `~/ferb-test`). Pause between supervised actions
 and record what you saw on screen with each one, so a disturbance can be tied to one action; record each task's
 verdict with `ferb verdict TASK pass|fail`. Afterwards run `ferb baseline` for F4's numbers
-(`unverified` is now counted apart).
+(the not-confirmed count is counted apart, as `unverified` in the JSON).
 
 Statuses and the checker:
 1. **Three statuses.**
@@ -73,12 +73,12 @@ Statuses and the checker:
    - A task the check can't confirm from the background (for example a Spotify like, or a Gmail send from FERB's
      account to its own address when Sent doesn't load): the answer starts "Done, but not confirmed:", each open
      condition reads "— unverified: <the real reason>", often with "To check: …" in your terms; `ferb trace` says
-     `done (unverified)`. It must not say `failed` for that alone (unless the orchestrator judged the work failed).
+     `done (not confirmed)`. It must not say `failed` for that alone (unless the orchestrator judged the work failed).
    - A task that fails (for example "edit ~/ferb-test/missing.txt", a file that doesn't exist): the answer starts "I
      couldn't finish this task." or "I couldn't confirm the task was complete:" with the real reason; `ferb trace` says
-     `failed ✗`. "Unverified" appears only where a check ran.
-   - `ferb stats` shows "done N (x%), unverified N (y%), failed N (z%)"; `ferb chat --verbose` shows `done ✓ —`,
-     `done — unverified —` or `failed ✗ —` before the answer.
+     `failed ✗`. "Unverified" appears only beside a condition a check ran on.
+   - `ferb stats` shows "done N (x%), not confirmed N (y%), failed N (z%)"; `ferb chat --verbose` shows `done ✓ —`,
+     `done — not confirmed —` or `failed ✗ —` before the answer.
 2. **Read-only checker.** A task whose check would need a click (for example a WhatsApp "message yourself" note where
    confirming needs the chat opened): the checker only reads; the condition stays unknown with what is missing, and
    the orchestrator sends a worker to gather it before the check passes. `ferb trace TASK --full`: the checker made no
@@ -92,7 +92,9 @@ Statuses and the checker:
 4. **The renamed vision test.** `uv run pytest -m real tests/test_mac_vision_real.py` (Codex runtime, you observe): the
    frame is stored only in the evidence store. Renamed in F4 and not yet run.
 
-Recovery and snapshots:
+Recovery and snapshots (`ferb restore` prints the path FERB stored: the file it really wrote, symlinks followed, your
+home shown as `~`; `~/ferb-test/...` below is shorthand, so a test folder elsewhere or behind a symlink shows its full
+real path):
 5. **Overwrite, then restore.** FERB overwrites `~/ferb-test/notes.txt` ("replace its contents with X"). `ferb restore`
    lists it as "overwrote ~/ferb-test/notes.txt" with an id; `ferb restore <id>` prints "Restored ~/ferb-test/notes.txt
    to what it was before FERB changed it." and the original text is back.
@@ -121,9 +123,13 @@ Unknown outcomes and named targets:
     daemon yourself (for example `ferb setup --update`). Then ask FERB to continue.
     - Expected: it does not silently send again. It checks for evidence (Sent folder, the chat) and reports what it
       found, or asks.
-    - Within one task, code refuses an identical retry. The question starts "FERB: an earlier attempt at … may already
-      have happened (outcome unknown). Trying again could make it happen twice." and offers Yes and No; Yes allows one
-      attempt only.
+    - Within one task, code refuses an identical retry. The question starts "FERB: an earlier attempt at <tool>
+      <target> may already have happened (outcome unknown). Trying again could make it happen twice." (after more
+      than one unknown attempt: "FERB: N earlier attempts at … may already have happened (outcomes unknown). Trying
+      again could make it happen up to N+1 times.") and offers Yes and No; Yes allows one attempt only.
+    - If you restart the daemon while the task is driving a browser tab, a download that tab starts during the restart
+      can show the browser's own Save dialog (a known residual below), and a link to a new tab opens normally after
+      about a second.
     - A continuation is a new task tree: there it is the orchestrator's judgment from "Uncertain prior actions", not
       a code refusal. Note which path you saw.
 11. **Named target (D34).** The "Code Astra" case on a disposable repository: ask for something FERB can't find by that
@@ -171,7 +177,16 @@ to "ask where to save"):
 - a page that opts itself out (it can tell FERB is driving it; that gives it no extra power);
 - the daemon adopting a popup more slowly than 1.5 s (the hook loads the popup first);
 - a page navigating its own popup when FERB's ready arrives before that navigation commits (the hook loads the original
-  URL over it).
+  URL over it);
+- the daemon down or restarting while a task drives a tab: a download there goes to the browser's own flow, and after
+  a restart the tab stays armed until the extension's next hello (then the daemon disarms it); a link to a new tab from
+  it opens natively after about a second;
+- in your own profile, a held download the daemon doesn't start taking within 30 s goes back to the browser;
+- when a task lets go of your borrowed tab, downloads from it that FERB started holding but hasn't streamed yet go back
+  to the browser.
+
+A page that starts more saves at once than FERB holds (20 in a tab, 100 in all) has the rest dropped (neither FERB's
+nor the browser's); the task gets one refused download fact per page per minute.
 
 Also: while a task drives one of your tabs, downloads in that tab and in tabs opened from it go to FERB's workspace,
 not to your Downloads.

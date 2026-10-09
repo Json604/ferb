@@ -172,7 +172,10 @@ phase (a page's `stopPropagation` can't hide it), and in the bubble phase (after
 page cancelled stays cancelled) routes a trusted click on a link to a new tab (`target=_blank`, also via `<base
 target>`, a modifier or middle click; other named targets stay the browser's) through FERB's own open as the same task's
 tab, released like its opener when that is the owner's borrowed tab, within `browser.task_max_tabs` (20) per task tree
-(past it the browser opens an ordinary tab, as a fact). The page hook (`PAGE_HOOK`, pinned by exact source in
+(past it the browser opens an ordinary tab, as a fact). The service worker answers content.js only once the daemon has
+answered the `open` event (`open_seen`, which the daemon awaits before opening anything) or after `OPEN_WAIT_MS` (1 s);
+with no answer content.js lets the browser open the link, and a late `open_seen` gets `expired`, so the daemon opens
+nothing and the owner's click is never lost nor doubled. The page hook (`PAGE_HOOK`, pinned by exact source in
 `protocol.js`; installed only in armed task tabs and their OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed
 on release) asks content.js through a cancelable `ferb-armed` event before doing anything, so a still-patched document
 is native once FERB lets go. It clicks a FileSaver-style save link (never added to the page) itself while briefly
@@ -182,10 +185,11 @@ plain-http pages work). FERB adopts a new tab only when it opened it itself (`br
 three hold: the tab is new (`chrome.tabs.onCreated`, and this is its first URL report, there or in its first
 `onUpdated`; a later navigation of any tab never counts), that URL is exactly `about:blank#ferb-<token>` for a token a
 live task tab relayed (either may come first; 2 s each; any window, so popup windows with features count; 20 relays per
-opener tab, 100 in all, one per token), and, once attached, the browser itself names that task tab as the opener: the
+opener tab, 100 in all, one per token; the tokens already relayed are bounded the same way), and, once attached, the browser itself names that task tab as the opener: the
 popup's `Target.getTargetInfo` `openerId` equals the task tab's own `targetId` (measured for a popup tab, a popup window
 and a popup opened from a cross-site iframe, whose `openerId` is still the tab; a popup of another tab names that tab).
-No match, or no answer: detached at once and never reported; if it was the hook's own popup whose opener the browser
+No match, or no answer: detached at once (`chrome.debugger.detach` directly: nothing was enabled on it) and never
+reported, not even if the owner cancels the debugging bar during the check; if it was the hook's own popup whose opener the browser
 didn't confirm, the hook loads it natively after 1.5 s, and any other tab at that URL stays with whatever opened it. The
 allowlist admits `Target.getTargetInfo` with no params only (another target's is also refused by Chrome, "Not allowed")
 and returns just the two ids. Chrome's `openerTabId` names the window's active tab (measured), so it is never used. So a
@@ -225,7 +229,13 @@ browser's, unarmed and unreported; a hooked popup the daemon takes longer than 1
 first, and a download it starts at once goes back to the browser (released, never failed); an OOPIF's first document
 before its session's `Fetch.enable`; a type FERB lets render that the profile downloads (a PDF with "download PDFs" on,
 a sniffed type); a script-made save before content.js is injected; and a page's own save picker (`showSaveFilePicker`).
-More than 20 page saves held at once in one document are dropped (neither FERB's nor the browser's, and no fact). A page
+More than 20 page saves held at once in one document (or 20 in a tab, 100 in all) are dropped, neither FERB's nor the
+browser's; the daemon records a `refused` download for it, one per document per minute (not one per dropped save).
+With the daemon down or restarting while a task drives a tab, a download there continues into the browser's own flow,
+and after a restart the tab stays armed until the extension's next hello, when the daemon disarms it
+(`Hub._disarm_unheld`); a link to a new tab from it opens natively after 1 s. In an owner profile a held download the
+daemon doesn't start pulling within 30 s goes back to the browser, and releasing a borrowed tab hands back the
+FERB-started downloads not yet streamed; each can show a Save dialog. A page
 can tell FERB drives it (the patched functions, the `ferb-armed` answer) and can opt itself out of capture by answering
 `ferb-armed` itself or cancelling its own clicks: no escalation, its downloads then follow the browser's own flow.
 `Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to extensions, and the tab session's
@@ -415,7 +425,10 @@ only when it purged something or left roots for the next pass; a pass that shutd
 journals what it purged, marked `stopped`. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
 before it. Typed text and clipboard (7 days) arrive with F7. F4 added evidence (`retention.evidence_days`, 7),
 recovery copies and snapshots (`retention.recovery_days`, 7) and downloaded files (`retention.download_days`, 30) to the
-same pass (section 11).
+same pass (section 11). Every `retention.*_days` value is read through `retention.days`: at least `MIN_DAYS` (1), so a
+0 never purges what was just kept. Download retention never records a file gone or clears its path without looking:
+a row whose file is outside the downloads folder is left as it is, recorded once as skipped and not counted toward
+`browser.download_total_mb`.
 
 **Content search (D9).** Migration 0019 adds `trail_fts` and `summary_fts` (same tokenizer as memory, so Devanagari words
 stay whole) kept in step by triggers and created with FTS5 `secure-delete`, so a purged or forgotten row's terms are zeroed
@@ -454,12 +467,13 @@ The dispatch schema's `result` (`unconfirmed`, `failed` or null) is the orchestr
 check, the answer is "I couldn't finish this task." with "Still to do:", and when the checker itself failed the
 conditions are listed under "Still to check (the check couldn't run, a problem on my side):". A worker's prose is never
 stated as success. The cleanup review ([`resources.md`](ferb/orchestrator/prompts/resources.md)) can't turn an
-unconfirmed outcome into `failed` for that alone, nor a judged failure into `done_unverified`. The readers:
-`ferb trace` heads the story `done ✓ verified`, `done (unverified)` or `failed ✗`
+unconfirmed outcome into `failed` for that alone, nor a judged failure into `done_unverified`. The readers label
+`done_unverified` "not confirmed" (the stored status and the baseline keys keep their names):
+`ferb trace` heads the story `done ✓ verified`, `done (not confirmed)` or `failed ✗`
 ([`trace/render.py`](ferb/trace/render.py); an older `done` without the verified flag reads `done`);
-`ferb chat --verbose` prints `done ✓`, `done — unverified` or `failed ✗` before the answer; `ferb stats` says
-"done N (x%), unverified N (y%), failed N (z%)"; `ferb baseline` adds `unverified`, `unverified_pct`, `failed` and
-`failed_pct`, and `done_pct` counts only `done`. A scheduled run that ends
+`ferb chat --verbose` prints `done ✓`, `done — not confirmed` or `failed ✗` before the answer; `ferb stats` says
+"done N (x%), not confirmed N (y%), failed N (z%)"; `ferb baseline` adds `unverified` (the not-confirmed count),
+`unverified_pct`, `failed` and `failed_pct`, and `done_pct` counts only `done`. A scheduled run that ends
 `done_unverified` neither clears nor adds to its schedule's failure count; the "FERB finished" notification title is
 for `done` only.
 
@@ -479,10 +493,12 @@ to gather it. Every refused call (an acting tool asked of the checker, an unknow
 **After-action reads (V2).** Every consequential (non-`REVERSIBLE`) result carries an `after` block, a failed call's
 too: `{read, changed, value, note}` from [`act/aftercheck.py`](ferb/act/aftercheck.py) (`after_of(facts_of(content))`).
 `read` is `ax` (a mac tool's `observed_change`), `value` (`value_matches` / `ax_value`, or a browser upload's
-`bytes_match`) or `none`; `changed` is None whenever nothing was read back, and an accessibility diff that saw no change
-is None too, never False. Conditions of kind `after_change` and `after_value` (optional `Check.tool`) compare the block
-of the latest acting `tool.call` span (`SpanStore.latest_acting_call`), failed calls included; a call that died gives
-unknown.
+`bytes_match`) or `none`; `changed` is None whenever nothing was read back (an `ax_value` result with neither
+`value_matches` nor `accepted`, such as a failed edit, reads `none`), and an accessibility diff that saw no change is
+None too, never False. Conditions of kind `after_change` and `after_value` (optional `Check.tool`) compare the block of
+the latest acting `tool.call` span (`SpanStore.latest_acting_call`), failed calls included; a call that died gives
+unknown, and a failed call (a span error, or `ok: false`) whose block says the screen changed never confirms
+`expected=true` (unknown: the change may not be the one expected).
 
 **Conditions and the ledger (V6, V7).** `CHECK_KINDS` are `none`, `file_exists`, `file_contains`, `tab_url`, `account`,
 `after_change` and `after_value`. `ledger_done` is gone: a spec saved with it loads as `none` (a `Check` validator), so
@@ -497,14 +513,15 @@ scripts stop creating rows" waits for one.
 migration 0020 `evidence`) keeps captured state the checker can re-inspect for `retention.evidence_days` (7): files at
 `~/.ferb/evidence/<day>/<id>.jpg` (folders 0700, files 0600, created exclusively, kept inside the root) and a row with
 the kind (`screenshot`, `snapshot`, `recording`, `app_window`), redacted facts and the result's origin. The gateway keeps
-each tool image (`_keep_image`); the model gets it as before, and the span's output names it (`evidence: <id>`, or
-`evidence_error`). These keep facts only, with `image_withheld` saying why: a site on the exclusion list; a result that
-lists a secret field (no image-pixel box to mask it with); a browser window or a page with no known host (it may show
+each tool image (`_keep_image`, through `put_async`: masking and the file write run in a worker thread, the row on the
+loop); the model gets it as before, and the span's output names it (`evidence: <id>`, or `evidence_error`). These keep
+facts only, with `image_withheld` saying why: a site on the exclusion list; a result that lists a secret field (no image-pixel box to mask it with); a browser window or a page with no known host (it may show
 the owner's own tab, D29); a recording's contact sheet (the recording file is the evidence); and, until F5 redacts
 screenshots, a messaging or mail app (`UNTRUSTED_APPS`) or an email/message source, where one-time codes arrive
 (rule 14). When a worker's first successful `mac.*` call targets an app, the gateway also takes one picture of that
-app's window (`_first_look`, `MacComputerDriver.window_image`: one window through ScreenCaptureKit, never the desktop,
-never brought forward, never the worker's latest shot; the password-field floor still drops the frame), masks the
+app's window, after the call has answered and outside its resource lock (`_look_later` starts `_first_look` as its own
+job, in `Gateway.looks`; a stopped or ended task cancels it and shutdown drains it), through
+`MacComputerDriver.window_image` (one window through ScreenCaptureKit, never the desktop, never brought forward, never the worker's latest shot; the password-field floor still drops the frame), masks the
 secret fields its accessibility tree shows ([`act/evidence/mask.py`](ferb/act/evidence/mask.py), in a worker thread) and
 stores it as `app_window` on an `evidence.app_window` span. That happens once per task, worker and app, not when the
 call itself returned an image (kept or facts only), not for browsers, not without the screen scope or with `[mac] snapshot_image` off; a failure,
@@ -519,19 +536,27 @@ episode's `verified` flag and the task's stored evidence; learning from it is F8
 reconcile_first=True)` looks for the same action anywhere in the task tree (ledger rows keep the worker's task id) in
 state `unknown`, `intended` or `executing`. The same action means the same ledger key and `payload_hash`
 ([`policy/rules.py`](ferb/policy/rules.py), `ledger_identity` in the gateway): the capability, or its `ledger_key`
-(`shell.start` and `shell.run` are one); identity; account, site, contact, recipients, path (normalized, resolved through
-symlinks) and amount; content; and the validated arguments, minus the agent's notes (`ANNOTATIONS`: `why`, `effect`,
+(`shell.start` and `shell.run` are one); identity; account, site, contact, recipients, path (the file the call really
+writes, `files.real_path`: symlinks first, then `..`, as the fs lock and S1 key it; a path with a NUL is refused before
+anything runs) and amount; content; and the validated arguments, minus the agent's notes (`ANNOTATIONS`: `why`, `effect`,
 `purpose`, `contact`), minus arguments a normalized target already binds (`target_args`: fs `path`, shell `cwd`, whose
 absence is the workspace, a mac tool's `app`, a recording's `path`) and minus how the call is delivered (`method_args`:
 mac `mechanism` and `allow_foreground`, browser `page_mode` and `trusted`, shell `background` and `timeout_s`). The kind
-is left out. An earlier unknown attempt refuses the call: "A previous attempt at this exact action may have gone through
+is left out. An AX action the app didn't answer in time (`kAXErrorCannotComplete`: it may still have acted) raises
+`NoAnswer` in [`accessibility.py`](ferb/act/mac/accessibility.py), so its row is `unknown`; any other AX error is a
+definite failure. An earlier unknown attempt refuses the call: "A previous attempt at this exact action may have gone through
 (its outcome is unknown); it was not repeated without the owner.", with `retry_action` (the row id) and `next` (look for
 evidence that it happened). One still running refuses with "The same action is already running in this task; it was
 not started again." A call that could not start, or whose recovery copy failed, is `failed`, not unknown. The agent may
 then ask with `owner.ask(retry_action=…)`: the gateway checks the row is this tree's and unknown, writes its own line
-first ("FERB: an earlier attempt at <action> may already have happened (outcome unknown). Trying again could make it
-happen twice. The call with the unknown outcome: <redacted excerpt>. Try it again?", then "What the worker found:
-…"), offers only Yes and No, and skips the orchestrator. Only the owner's Yes approves. Migration 0022 adds
+first ("FERB: an earlier attempt at <tool> <target> may already have happened (outcome unknown). Trying again could
+make it happen twice. The call with the unknown outcome: <redacted excerpt>. Try it again?"; after several, "FERB: N
+earlier attempts at … may already have happened (outcomes unknown). Trying again could make it happen up to N+1
+times."), then "What the worker found: …"), offers only Yes and No, and skips the orchestrator. `<tool>` is the tool
+the worker really called (from the attempt's span, not the shared ledger key) and `<target>` one short target (the
+first recipient "and N others", else the contact, the path, the site or the account); C0/C1 control characters are
+removed from both paragraphs, as `ferb chat` removes them from everything it prints
+([`sanitize/terminal.py`](ferb/sanitize/terminal.py)). Only the owner's Yes approves. Migration 0022 adds
 `retry_approved` (the approving `owner.ask` span) and `retried_by`; the row stays `unknown`, since nobody observed the
 outcome, and one approval allows exactly one new attempt. A Yes to a question that went out of date (another attempt
 started meanwhile) approves nothing. Limits: a reworded message or another target is another action (code can't judge

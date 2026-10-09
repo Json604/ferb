@@ -46,7 +46,9 @@ A download in a tab FERB is driving for a task never opens a Save dialog: FERB t
 content. Limits: `browser.download_max_mb` (100) per file and, per task, `browser.download_task_max_files` (20),
 `browser.download_task_max_mb` (500) and `browser.task_max_tabs` (20 new tabs FERB opens from its pages); one download
 at a time per tab (the next waits up to 20 s), each within 10 minutes. Refused ones are reported, still without a
-dialog. The worker sees the facts in its open/navigate result and with `browser.downloads`. The files are FERB's working
+dialog. A page that starts more saves at once than FERB holds (20 in a tab, 100 in all) has the rest dropped (neither
+taken nor given to the browser), and the task is told. The worker sees the facts in its open/navigate result and with
+`browser.downloads`. The files are FERB's working
 copies: after `retention.download_days` (30), or when the folder passes `browser.download_total_mb` (2048), they move to
 the Trash, so ask FERB to copy a file you want to keep where you want it. While a task drives one of your tabs,
 downloads in that tab and in tabs opened from it go to FERB, not to your Downloads; tabs opened from your tab are
@@ -59,8 +61,12 @@ still reach the browser itself (it may ask where to save): a download held when 
 debugging" bar or when the extension's service worker crashes; a new tab FERB didn't open or claim (a popup opened
 with `noopener`, a named or empty target, a script's click on a link, a form posted to a new tab, a link in a frame
 FERB's script isn't in); a popup FERB took longer than 1.5 s to adopt; a type the browser shows but your profile is set
-to download (such as "download PDFs"); a save a page makes before FERB's script is in it; and pages' own save pickers
-(`showSaveFilePicker`). The task is told when FERB saw it. A page can tell FERB is driving it and can opt itself out of
+to download (such as "download PDFs"); a save a page makes before FERB's script is in it; pages' own save pickers
+(`showSaveFilePicker`); while the daemon is down or restarting, a download in a tab a task was driving (after a
+restart that tab stays set up for FERB until the extension reconnects) and a link to a new tab from it, which your
+browser opens itself after about a second; in your own profile, a held download FERB doesn't start taking within 30 s;
+and, when a task lets go of your tab, downloads from it FERB hasn't started taking yet. The task is told when FERB saw
+it. A page can tell FERB is driving it and can opt itself out of
 capture; its downloads then behave as usual. A popup a task page opens shows `about:blank#ferb-<token>` for a moment
 before the page loads it.
 
@@ -94,20 +100,24 @@ A task ends in one of three results, each its own status:
 - **done, but not confirmed** (`done_unverified`): the work finished and the check found nothing wrong, but couldn't
   confirm everything from the background. The answer starts "Done, but not confirmed:" and lists each unconfirmed
   condition as "— unverified: <the real reason>", often with "To check: …" saying how you can check it yourself.
-  `ferb trace` shows `done (unverified)`. A task with nothing to check against says "Done, but there was nothing to
+  `ferb trace` shows `done (not confirmed)`. A task with nothing to check against says "Done, but there was nothing to
   check it against."
 - **failed**: the work didn't finish, a check found a condition false, or FERB judged that it failed. The answer gives
   the real reason; `ferb trace` shows `failed ✗`.
 
-"Unverified" appears only when a check ran. If the work stopped before any check, the answer says "I couldn't finish
-this task." and lists what is "Still to do". `ferb stats` counts the three apart ("done N (x%), unverified N (y%),
-failed N (z%)"), `ferb baseline` records `unverified` and `failed` with their percentages, and
-`ferb chat --verbose` shows `done ✓`, `done — unverified` or `failed ✗` before the answer.
+"Unverified" appears only beside a condition a check ran on; the status itself reads "not confirmed". If the work
+stopped before any check, the answer says "I couldn't finish this task." and lists what is "Still to do". `ferb stats`
+counts the three apart ("done N (x%), not confirmed N (y%), failed N (z%)"), `ferb baseline` records them as `done`,
+`unverified` and `failed` with their percentages (`unverified` is the not-confirmed count), and `ferb chat --verbose`
+shows `done ✓`, `done — not confirmed` or `failed ✗` before the answer.
 
-Within a task, code refuses to repeat an action whose outcome is unknown, such as a send that was cut off. The worker
-looks for evidence that it happened; if that doesn't settle it, you get a question that starts "FERB:", names the
-action and offers Yes or No, and your Yes allows exactly one more attempt. A later request that continues the task sees
-the uncertain action and is told to check before retrying.
+Within a task, code refuses to repeat an action whose outcome is unknown, such as a send that was cut off, or a press
+the app didn't answer in time (it may still have acted). The worker looks for evidence that it happened; if that
+doesn't settle it, you get a question that starts "FERB: an earlier attempt at <tool> <target> may already have
+happened (outcome unknown). Trying again could make it happen twice." (after several: "FERB: 2 earlier attempts at …
+may already have happened (outcomes unknown). Trying again could make it happen up to 3 times."), with the call that
+had the unknown outcome, then "What the worker found: …", and offers Yes or No. Your Yes allows exactly one more
+attempt. A later request that continues the task sees the uncertain action and is told to check before retrying.
 
 Before FERB overwrites or edits one of your files with its file tools, it keeps a copy (an APFS clone) for
 `retention.recovery_days` (7 days). Items its file tools delete go to the Trash, and FERB remembers where each came from
@@ -163,9 +173,10 @@ memory removes its corresponding daily-log copies too. This is single-device con
 Sensing records app/window/tab metadata and configured folder events, not keystrokes, clipboard or continuous
 screenshots. Exclusions and pause apply before storage. Task tools can explicitly capture windows for the model.
 Those images, and one picture of an app's window when a worker starts on it, are kept in `~/.ferb/evidence` so the
-check can look again. A secret field the accessibility tree shows is blacked out, or the image is kept as facts only;
-browser windows, messaging and mail apps and recordings always keep facts only (full screenshot redaction arrives with
-F5).
+check can look again. A secret field the accessibility tree shows is blacked out, or the image is kept as facts only.
+Always facts only: `mac.screenshot` of a browser app's window (it shows your own tabs), a page with no known host,
+messaging and mail apps, and recordings' frames (full screenshot redaction arrives with F5). A `browser.screenshot` of a
+task's tab with a known host is kept as an image, unless the site is on your exclusion list.
 Secrets are redacted; OTPs use a sealed input path. Full trace output remains private data: share deliberately.
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
 An oversized unfinished record may be replaced by an explicit redaction marker.
@@ -177,7 +188,8 @@ task's steps before its story exists. After `trace_days`, `--steps`, `--full` an
 `evidence_days` (7) is how long captured images and their facts are kept; `recovery_days` (7) how long the copies of
 files FERB changed, and FERB's own disk snapshots, are kept (a record of an item FERB moved to the Trash stays while the
 item is there, at most 90 days); `download_days` (30) how long downloaded files stay in FERB's workspace before they
-move to the Trash.
+move to the Trash. Every `retention` days setting counts as at least 1 day (0 or less is read as 1), so nothing is
+purged the moment it is kept.
 
 Start with `ferb doctor` and `ferb trace TASK --full` when something fails. Doctor compares the installed code,
 runtime prompts and extension resources with the checkout. Connection errors, provider errors, watcher failures,

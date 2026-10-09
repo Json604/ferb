@@ -58,6 +58,28 @@ development.
 - Documentation (this commit; P16, D6, D20, D26, D29, P19, S1, D34, D35): architecture section "Verification and
   recovery (F4)" and corrected download wording; README statuses, `ferb restore`, retention keys, evidence and download
   notes; RPC `recovery.list` / `recovery.restore`; registry tests; the F4 live-check list; one `background.js` comment.
+- F4 final fix wave (`e8d2bfb`, `d28ea7e` and the documentation commit after them), from the whole-branch review:
+  - Statuses (V5): `done_unverified` is labeled "not confirmed": `ferb trace` `done (not confirmed)`, verbose chat
+    `done — not confirmed`, `ferb stats` "not confirmed N (y%)"; the stored status and `ferb baseline`'s JSON keys
+    are unchanged. A planning failure's text gets its missing sentence separator.
+  - Unknown outcomes (P19): the hash keys a file by the path the call really writes (as the fs lock and S1), and the
+    trail is told that path; a path with a NUL is refused cleanly. An AX action the app didn't answer
+    (`kAXErrorCannotComplete`) is unknown, never failed. The retry question names the tool the worker really called
+    and one short target; control characters are stripped from it and from everything `ferb chat` prints. `mac.act`
+    says a repeat needs the owner for every action but focus.
+  - After-action reads (V2): an `ax_value` result that read nothing back is unknown, not "no change"; a failed call
+    that changed the screen never confirms `expected=true`.
+  - Evidence (V1, D26): the app-window picture is taken after the call answers, outside its app lock; tool images are
+    written off the event loop.
+  - Recovery and retention (S1, D35): every `retention.*_days` is at least 1 day; download retention leaves a row
+    outside the downloads folder as it is (skipped once, not counted).
+  - Downloads (D35): an owner's new-tab click in a tab FERB drives waits at most ~1 s for the daemon (`open_seen`),
+    then opens natively, never lost or doubled; relayed popup tokens are bounded; an unconfirmed popup is detached
+    directly; dropped page saves become one refused fact per document per minute; no `detached` event for a popup
+    still being checked. Within protocol 10 / extension 0.14.0, never published.
+  - Named targets (D34): the checker gives `how` for an uninspectable named target; such a task ends not confirmed.
+  - Docs: the daemon-down/restart, 30 s idle and borrowed-release hand-backs in the D35 residuals; both forms of the
+    retry question; what `ferb restore` prints; which screenshots keep facts only.
 - Carried to F5: full screenshot redaction; the destructive-action and sink confirmations that build on S1; never-read
   lists covering `~/.ferb/run` and `~/.ferb/recovery`; FERB's shell reaching the daemon socket; shell and AppleScript
   file changes, which get no per-file copy.
