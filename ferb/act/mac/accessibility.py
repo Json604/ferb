@@ -17,6 +17,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from ferb.core.errors import FerbError
+
 MAX_DEPTH = 40
 MAX_ELEMENTS = 5000  # response page; every later node is retrievable with offset
 
@@ -116,9 +118,29 @@ def actions(el: Any) -> list[str]:
     return [str(n) for n in (names or [])] if err == 0 else []
 
 
+AX_CANNOT_COMPLETE = -25204        # kAXErrorCannotComplete: the app was busy or didn't answer in time
+
+
+class NoAnswer(FerbError):
+    """An AX action the app didn't answer (kAXErrorCannotComplete): it may still have been delivered, so it is neither
+    done nor failed. Raised, never reduced to False, so the gateway records the outcome as unknown and a repeat needs
+    the owner (P19). Every other AX error is a definite failure (False)."""
+
+    def __init__(self, action: str, code: int = AX_CANNOT_COMPLETE) -> None:
+        super().__init__(f"{action}: the app didn't answer in time (AX error {code}); the action may have happened")
+        self.action, self.code = action, code
+
+
 def perform(el: Any, action: str) -> bool:
+    """One AX action on an exact element: True when the app accepted it, False on a definite AX error; raises
+    NoAnswer when the app didn't answer (the action may have happened)."""
     import ApplicationServices as AX
-    return el is not None and bool(AX.AXUIElementPerformAction(el, action) == 0)
+    if el is None:
+        return False
+    code = int(AX.AXUIElementPerformAction(el, action))
+    if code == AX_CANNOT_COMPLETE:
+        raise NoAnswer(action, code)
+    return code == 0
 
 
 def role_of(el: Any) -> str:
@@ -448,7 +470,7 @@ def press_menu(pid: int, path: list[str]) -> bool:
         if el is None:
             return False
         level = el
-    return el is not None and AX.AXUIElementPerformAction(el, "AXPress") == 0
+    return perform(el, "AXPress")
 
 
 def menu_item_for_shortcut(pid: int, key: str, modifiers: list[str]) -> tuple[Any, str, bool] | None:

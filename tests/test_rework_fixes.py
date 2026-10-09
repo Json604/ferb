@@ -89,7 +89,7 @@ def test_completed_ledger_rows_do_not_prove_the_requested_goal(tmp_path: Path) -
     row = ledger.intend("task1", "mac.click", {"site": "com.spotify.client"}, "h")
     ledger.mark(row.id, "executing")
     ledger.mark(row.id, "done", ["span"])
-    checks = Checks(ledger, lambda t: [])
+    checks = Checks(lambda t: [])                       # a done ledger row exists; the checks never read it
     cond = Condition(text="liked", check=Check(kind="none", path=None, text=None, url_contains=None,
                                                  site=None, expected="Spotify like current track"))
     ctx = ToolContext("task1", "verifier", "r", Identity.OWNER, frozenset(), "dev", None, str(tmp_path), (), ())

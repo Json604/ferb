@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, NamedTuple
 
 from ferb.core import origin
+from ferb.store import retention
 
 ORIGIN = origin.external("download")
 FOLDER = "downloads"                    # under FERB's workspace
@@ -34,6 +35,7 @@ SETTLE_S = 60.0                         # a navigation/open waits this long for 
 DEFAULTS = {"download_max_mb": 100, "download_task_max_files": 20, "download_task_max_mb": 500,
             "download_total_mb": 2048}  # [browser]; retention.download_days: 30
 DEFAULT_KEEP_DAYS = 30
+OUTSIDE = "skipped: not in FERB's downloads folder, so retention leaves it where it is"
 _DROP = {"Cc", "Cf", "Cs", "Zl", "Zp"}  # controls, format (bidi overrides, zero-width), surrogates, line separators
 _MB = 1024 * 1024
 
@@ -122,7 +124,8 @@ class Downloads:
         b = {k: _number(self.setting("browser", k, v), v) for k, v in DEFAULTS.items()}
         return Limits(int(b["download_max_mb"] * _MB), int(b["download_task_max_files"]),
                       int(b["download_task_max_mb"] * _MB), int(b["download_total_mb"] * _MB),
-                      int(_number(self.setting("retention", "download_days", DEFAULT_KEEP_DAYS), DEFAULT_KEEP_DAYS)))
+                      retention.days(_number(self.setting("retention", "download_days", DEFAULT_KEEP_DAYS),
+                                             DEFAULT_KEEP_DAYS)))
 
     # ---------- the extension's download event ----------
 
@@ -382,11 +385,16 @@ class Downloads:
         """Files older than retention.download_days, then the oldest while the folder is over browser.download_total_mb,
         move to the Trash; their rows stay, with the path cleared and where the Trash put them. A file already gone is
         recorded so; one that won't move is skipped and recorded (the next pass tries again) and stops counting toward the
-        total, so it never makes a newer file go in its place."""
+        total, so it never makes a newer file go in its place. A row whose file isn't in the downloads folder is left as
+        it is (path and file), recorded once as skipped, and never counted."""
         lim = self.limits()
         cutoff = (self.now() - timedelta(days=lim.keep_days)).isoformat()
         rows = [dict(r) for r in self.db.conn.execute(
-            "SELECT id, path, bytes, at FROM downloads WHERE path IS NOT NULL ORDER BY at, rowid")]
+            "SELECT id, path, bytes, at, kept FROM downloads WHERE path IS NOT NULL ORDER BY at, rowid")]
+        for r in [r for r in rows if Path(str(r["path"])).parent != self.root]:
+            rows.remove(r)
+            if r["kept"] != OUTSIDE:
+                self.db.conn.execute("UPDATE downloads SET kept = ? WHERE id = ?", (OUTSIDE, r["id"]))
         total, moved = sum(int(r["bytes"] or 0) for r in rows), 0
         try:
             folder = self._open_folder()
@@ -412,11 +420,12 @@ class Downloads:
             pass                                        # the next retention pass tries again
 
     def _trash(self, folder: int, row: dict[str, Any]) -> str:
-        """One working copy to the Trash: "trashed", "gone" (no such file in the folder any more) or "stuck"."""
+        """One working copy in the downloads folder to the Trash: "trashed", "gone" (looked: no such file in the
+        folder any more) or "stuck"."""
         from ferb.act.fs import files                   # Task 8's seam (tests replace move_to_trash)
         p = Path(str(row["path"]))
         try:
-            st = os.stat(p.name, dir_fd=folder, follow_symlinks=False) if p.parent == self.root else None
+            st = os.stat(p.name, dir_fd=folder, follow_symlinks=False)
         except FileNotFoundError:
             st = None
         if st is None or not stat.S_ISREG(st.st_mode):
@@ -467,7 +476,7 @@ def _fact(row: dict[str, Any]) -> dict[str, Any]:
     kept = row.get("kept")
     if row["state"] == "taken" and not row.get("path"):
         out["kept"] = "already gone when retention ran" if kept == "gone" else "moved to the Trash (retention)"
-    elif kept and str(kept).startswith("stuck"):
+    elif kept and str(kept).startswith(("stuck", "skipped")):
         out["kept"] = str(kept)
     return out
 

@@ -15,10 +15,15 @@ def facts_of(content: dict[str, Any]) -> dict[str, Any]:
 def after_of(facts: dict[str, Any]) -> dict[str, Any]:
     """The acting tool's per-action facts -> a uniform after block. Only keys the tools really return are read."""
     note = str(facts.get("note", ""))
-    # set_value returns no value read-back today (only value_matches), so after_value is unknown for it.
+    # set_value returns no value read-back today (only value_matches), so after_value is unknown for it. An ax_value
+    # result that says neither (a failed edit reports only its method) read nothing back: unknown, never "unchanged".
     if "value_matches" in facts or facts.get("method") == "ax_value":
-        return {"read": "value", "changed": bool(facts.get("value_matches", facts.get("accepted"))),
-                "value": facts.get("value"), "note": note}
+        matched = facts.get("value_matches")
+        if matched is None:
+            matched = facts.get("accepted")
+        if matched is None:
+            return {"read": "none", "changed": None, "value": facts.get("value"), "note": note}
+        return {"read": "value", "changed": bool(matched), "value": facts.get("value"), "note": note}
     if "observed_change" in facts:        # False is "not confirmed changed" (a signature diff can miss a change): unknown
         return {"read": "ax", "changed": True if facts["observed_change"] else None, "value": facts.get("value"),
                 "note": note}

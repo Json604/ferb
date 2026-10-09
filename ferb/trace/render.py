@@ -7,9 +7,10 @@ from typing import Any
 from ferb.trace import lines
 from ferb.trace.compose import walk
 
-# V4: "done" is recorded only when every condition was verified, "done_unverified" when a check ran and couldn't
-# confirm. A "done" without the verified flag is an older record that never said it was checked: shown as recorded.
-STATUS = {"done": "done", "done_unverified": "done (unverified)", "failed": "failed ✗", "needs_user": "waiting for you",
+# V4: "done" is recorded only when every condition was verified, "done_unverified" when the work finished but it stands
+# unconfirmed; its label is "not confirmed" (V5: "unverified" is said only beside a condition a check ran on). A "done"
+# without the verified flag is an older record that never said it was checked: shown as recorded.
+STATUS = {"done": "done", "done_unverified": "done (not confirmed)", "failed": "failed ✗", "needs_user": "waiting for you",
           "cancelled": "stopped", "interrupted": "interrupted by a restart", "running": "running",
           "unknown": "outcome unknown"}
 

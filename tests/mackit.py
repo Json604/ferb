@@ -36,7 +36,10 @@ def grant_task(d: RunningDaemon, tid: str, identity: Identity, scopes: set[str],
 
 
 def gateway_call(d: RunningDaemon, grant: Any, name: str, timeout: float = 30, **args: Any) -> dict[str, Any]:
-    return d.run(d.daemon.gateway.call(grant, name, args), timeout=timeout)    # type: ignore[no-any-return]
+    """One gateway call, then the first look it may have started (D26: taken after the call answered)."""
+    out = d.run(d.daemon.gateway.call(grant, name, args), timeout=timeout)
+    d.run(d.daemon.gateway.looks_settled(), timeout=timeout)
+    return out                                                               # type: ignore[no-any-return]
 
 
 @dataclass

@@ -14,7 +14,7 @@ def test_ledger_done_is_not_a_check_kind() -> None:
 
 
 def test_an_old_ledger_done_condition_is_treated_as_an_observation_not_proof(tmp_path) -> None:
-    checks = Checks(ledger=None, urls_of=lambda t: [])    # type: ignore[arg-type]
+    checks = Checks(urls_of=lambda t: [])
     # A condition that slips through with kind ledger_done (from an older plan) is never code-checked true.
     cond = Condition.model_construct(text="the message was sent", layer="outcome", check=SimpleNamespace(
         kind="ledger_done", path=None, text=None, url_contains=None, site=None, expected=None, tool=None))
@@ -76,3 +76,9 @@ def test_continuity_load_of_a_task_saved_with_ledger_done_does_not_raise(tmp_pat
                     "request_payload) VALUES ('t1', ?, ?, 'like it', NULL, '')", (conversation, _old_spec_json()))
     loaded = cont.load("t1", conversation)
     assert loaded is not None and loaded[0].success_conditions[0].check.kind == "none"
+
+
+def test_the_checks_hold_no_ledger() -> None:
+    """Ledger rows never decide a condition (V6): the literal checks don't even take one."""
+    import inspect
+    assert "ledger" not in inspect.signature(Checks).parameters

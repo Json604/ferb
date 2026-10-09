@@ -33,7 +33,7 @@ def test_unreadable_literal_predicate_still_reaches_checker(tmp_path, monkeypatc
     supervisor = Supervisor.__new__(Supervisor)
     supervisor.device_id = "test"
     supervisor.roots = SimpleNamespace(workspace=str(tmp_path), owner_roots=(), untrusted_roots=())
-    supervisor.checks = Checks(None, lambda _: [])
+    supervisor.checks = Checks(lambda _: [])
     supervisor._verifier = AsyncMock(return_value=[])
     worker = Task("task.worker", "task", "Inspect artifact", "test", Identity.FERB, set(), "worker", "request", [], None)
     tree = SimpleNamespace(worker=worker, spec=SimpleNamespace(success_conditions=conditions))

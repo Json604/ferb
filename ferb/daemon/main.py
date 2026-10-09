@@ -290,6 +290,8 @@ class Daemon:
         if self.supervisor:
             self.supervisor.cancel_all()
         await drain(self._turns | self._runs, "task turns")
+        if self.gateway is not None:                         # first looks still being taken (D26)
+            await drain(set(self.gateway.looks), "first looks")
         if self._proxy:
             self._proxy.close()
         await self.recordings.shutdown()
@@ -467,7 +469,7 @@ class Daemon:
                                      publish=self._publish, clock=self.clock, ids=self.ids, device_id=device,
                                      workspace=str(workspace), on_violation=self._runtime_violation,
                                      on_task_end=self._task_end, facts=self._facts,
-                                     checks=Checks(self.ledger, self._urls_of, self.spans), roots=roots)
+                                     checks=Checks(self._urls_of, self.spans), roots=roots)
         self.supervisor.browser_context = self._browser_context
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self.disturbance.finish
@@ -784,10 +786,10 @@ class Daemon:
 
     def _purge_plan(self) -> _PurgePlan:
         now = self.clock.now()
-        trace_days = int(self.config.get("retention", "trace_days", 30))
-        decision_days = int(self.config.get("retention", "decision_days", 30))
-        evidence_days = int(self.config.get("retention", "evidence_days", 7))
-        recovery_days = int(self.config.get("retention", "recovery_days", 7))
+        trace_days = retention.days(self.config.get("retention", "trace_days", 30))          # each at least 1 day
+        decision_days = retention.days(self.config.get("retention", "decision_days", 30))
+        evidence_days = retention.days(self.config.get("retention", "evidence_days", 7))
+        recovery_days = retention.days(self.config.get("retention", "recovery_days", 7))
         roots = retention.finished_roots_before(self.db, (now - timedelta(days=trace_days)).isoformat())
         return _PurgePlan(now, trace_days, decision_days, evidence_days, recovery_days,
                           roots[:ROOTS_PER_PURGE], max(0, len(roots) - ROOTS_PER_PURGE))   # oldest first; the rest wait
@@ -2002,7 +2004,7 @@ class Daemon:
         """`ferb restore`: what FERB can put back, newest first (S1), at most RESTORE_LIST of `total`."""
         kept = self._recovery()
         rows, total = recovery.recent(kept.db, kept.root, RESTORE_LIST)
-        return {"days": int(self.config.get("retention", "recovery_days", 7)), "total": total,
+        return {"days": retention.days(self.config.get("retention", "recovery_days", 7)), "total": total,
                 "trash_days": recovery.TRASH_RECORD_MAX_DAYS,
                 "records": [r | {"original": recovery.short(r["original"])} for r in rows]}
 

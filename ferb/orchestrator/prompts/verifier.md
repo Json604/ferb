@@ -88,4 +88,5 @@ and report that gap; do not substitute a familiar item and mark it verified. Thi
 A condition that names a target (an app, site, person, account, file or tool) is met only by evidence about that exact
 target; "What the owner named" lists them. A familiar or similar tool, app, person or account is a substitute, not the
 target. When the evidence is about a substitute, give `met=false` and say in the evidence what was actually used and
-that it is not what the owner named. If the named target could not be inspected, that is `met=null`.
+that it is not what the owner named. If the named target could not be inspected, that is `met=null`, and give `how`,
+in the owner's terms.

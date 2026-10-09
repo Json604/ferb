@@ -227,7 +227,7 @@ class MacAct(_Base):
                    "ancestor press, source substitution or input replay. Delivered input is not verified success. "
                    "Foreground requires allow_foreground=true and prior task-wide owner permission; nothing is "
                    "restored afterwards. After an uncertain effect, check what happened before trying again; a "
-                   "repeat needs the owner.")
+                   "repeat of any action but focus needs the owner.")
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
     method_args = ("mechanism", "allow_foreground")    # how input is delivered, not what it does (P19 hash)

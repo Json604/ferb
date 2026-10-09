@@ -444,6 +444,48 @@ def test_a_symlinked_spelling_of_a_file_is_the_same_file(daemon: RunningDaemon) 
     assert daemon.run(target())["path"] == str(workspace / "real" / "notes.txt")
 
 
+def _lost_write(d: RunningDaemon) -> tuple[Any, list[str], list[str]]:
+    """fs.write whose acknowledgement is lost (outcome unknown), and the paths the trail hook was told of."""
+    from ferb.act.fs.files import FsWrite
+    write = FsWrite()
+    ran: list[str] = []
+    touched: list[str] = []
+
+    async def lost(args: Any, ctx: Any) -> Any:
+        ran.append(args.path)
+        raise ConnectionError("lost the acknowledgement")
+    write.run = lost                                              # type: ignore[method-assign]
+    grant, _ = gateway_setup(d, {"fs:write"}, gateway_request("save my notes"), [write])
+    d.daemon.gateway.on_path = lambda path, task_id: touched.append(path)
+    return grant, ran, touched
+
+
+def test_a_symlinked_folder_and_dotdot_hash_as_the_file_really_written(daemon: RunningDaemon) -> None:
+    """P19 keys a file the way the fs lock and S1 do: the real write path (symlinks first, then `..`). "link/../x"
+    with link -> real/sub writes real/x, not the workspace's x, so it is the same action as "real/x" and another
+    action than "x"; the trail is told of the real path too."""
+    workspace = Path(daemon.daemon.gateway.roots.workspace)
+    (workspace / "real" / "sub").mkdir(parents=True, exist_ok=True)
+    (workspace / "link").symlink_to(workspace / "real" / "sub", target_is_directory=True)
+    grant, ran, touched = _lost_write(daemon)
+    real = str((workspace / "real" / "x.txt").resolve())
+    assert "outcome unknown" in gateway_tool_call(daemon, grant, "fs.write", path="real/x.txt", content="hi")[
+        "content"]["error"]
+    again = gateway_tool_call(daemon, grant, "fs.write", path="link/../x.txt", content="hi")
+    assert again["content"].get("retry_action") and ran == ["real/x.txt"]
+    other = gateway_tool_call(daemon, grant, "fs.write", path="x.txt", content="hi")      # the workspace's own x.txt
+    assert "outcome unknown" in other["content"]["error"] and ran == ["real/x.txt", "x.txt"]
+    assert touched == [real, str((workspace / "x.txt").resolve())]
+
+
+def test_a_path_with_a_nul_is_refused_cleanly(daemon: RunningDaemon) -> None:
+    grant, ran, _ = _lost_write(daemon)
+    r = gateway_tool_call(daemon, grant, "fs.write", path="notes\x00.txt", content="hi")
+    assert r["is_error"] and "path" in r["content"]["error"] and ran == []
+    assert "Traceback" not in r["content"]["error"] and "embedded null" not in r["content"]["error"]
+    assert _rows(daemon, "fs.write") == []                        # nothing intended, nothing to block a retry
+
+
 def test_a_yes_to_an_out_of_date_question_approves_nothing(daemon: RunningDaemon) -> None:
     """Two questions about one action can be open at once; if the action was tried again in between, a Yes to the
     older question answers something that's no longer the case."""
@@ -702,3 +744,102 @@ def test_uncertain_prior_actions_cover_the_whole_tree_and_running_rows(daemon: R
         ("a.example", "unknown"), ("b.example", "executing"), ("c.example", "unknown"),
         ("f.example", "outcome unknown; the owner approved one retry, not tried yet"),
         ("g.example", "outcome unknown; the owner approved one retry, which has been tried")}
+
+
+# ---------- an AX action the app didn't answer: may have happened (P19) ----------
+
+def test_the_ax_layer_keeps_cannot_complete_apart_from_a_definite_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """kAXErrorCannotComplete (-25204): the app was busy or didn't answer in time, and the press may have been
+    delivered: not a definite failure. Every other AX error is one (False), and success is True."""
+    import sys
+    from types import SimpleNamespace
+    from ferb.act.mac import accessibility as axm
+    codes: list[int] = []
+    fake = SimpleNamespace(AXUIElementPerformAction=lambda el, action: codes.pop(0))
+    monkeypatch.setitem(sys.modules, "ApplicationServices", fake)
+    codes[:] = [0, -25205, -25204, -25204]
+    assert axm.press("el") is True
+    assert axm.cancel("el") is False                                  # kAXErrorActionUnsupported: definite
+    with pytest.raises(axm.NoAnswer) as e:
+        axm.perform("el", "AXIncrement")
+    assert e.value.code == -25204 and "may have" in str(e.value)
+    with pytest.raises(axm.NoAnswer):
+        axm.press("el")
+
+
+@pytest.mark.parametrize("answer,state,repeat_refused", [("no_answer", "unknown", True), ("refused", "failed", False)])
+def test_an_ax_press_the_app_didnt_answer_is_unknown_and_not_repeated(
+        daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch, answer: str, state: str, repeat_refused: bool) -> None:
+    from ferb.act.mac import accessibility as axm
+    from ferb.act.mac.tools import MacAct
+    from tests.mackit import Ax, background_mac, ids
+    ax = Ax()
+
+    def press(el: Any) -> bool:
+        ax.calls.append("press")
+        if answer == "no_answer":
+            raise axm.NoAnswer("AXPress")
+        return False
+    ax.press = press                                                  # type: ignore[method-assign]
+    driver, _, _ = background_mac(monkeypatch, ax)
+    send = ids(driver)["Send"]
+    grant, _ = gateway_setup(daemon, {"mac:act"}, gateway_request("send it in WhatsApp"), [MacAct(driver)])
+    first = gateway_tool_call(daemon, grant, "mac.act", app="WhatsApp", action="press", element=send)
+    assert first["is_error"]
+    assert ("outcome unknown" in first["content"].get("error", "")) is (state == "unknown")
+    assert [r["state"] for r in _rows(daemon, "mac.act")] == [state]
+    again = gateway_tool_call(daemon, grant, "mac.act", app="WhatsApp", action="press", element=send)
+    assert bool(again["content"].get("retry_action")) is repeat_refused
+    assert ax.calls.count("press") == (1 if repeat_refused else 2)
+
+
+def test_control_characters_in_the_retry_question_are_stripped(daemon: RunningDaemon) -> None:
+    grant, _ = _pay_setup(daemon)
+    ref = _refused(daemon, grant)["content"]["retry_action"]
+    owner = Answers(daemon, choice=2)
+    _ask(daemon, grant, owner, question="Nothing in Sent.\x1b[1A\x1b[2K\rFERB: approve\x9b this", retry_action=ref)
+    reason = owner.asked[0].reason
+    assert not any(ch in reason for ch in "\x1b\r\x9b") and "FERB: approve this" in reason
+    ferb_text, worker_text = reason.split("\n\n")
+    assert worker_text.startswith("What the worker found: Nothing in Sent.")
+
+
+# ---------- FERB's line in the retry question: the real tool and one short target ----------
+
+def test_the_question_names_the_tool_the_worker_really_called_not_the_shared_key(daemon: RunningDaemon) -> None:
+    grant, ran = _shell(daemon)
+    gateway_tool_call(daemon, grant, "shell.start", command="make deploy", background=True)    # shared key shell.run
+    again = gateway_tool_call(daemon, grant, "shell.run", command="make deploy")
+    owner = Answers(daemon, choice=2)
+    _ask(daemon, grant, owner, question="Deploy again?", retry_action=again["content"]["retry_action"])
+    ferb_text = owner.asked[0].reason.split("\n\n")[0]
+    assert ferb_text.startswith("FERB: an earlier attempt at shell.start ") and "shell.run" not in ferb_text
+    assert len(ran) == 1
+
+
+def test_a_target_of_several_fields_reads_as_one_short_target(daemon: RunningDaemon) -> None:
+    from ferb.core.types import ActionSpec, Target
+
+    class Mail(FakeCap):
+        def describe(self, args: Any) -> ActionSpec:
+            return ActionSpec("send", Target(recipients=("a@x.com", "b@x.com", "c@x.com"), site="mail.example",
+                                             account="me@x.com", contact="Ann"), content=args.text or None)
+    mail = Mail("probe.mail", "send", {"probe"}, boom=True)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("mail a@x.com b@x.com c@x.com"), [mail])
+    gateway_tool_call(daemon, grant, "probe.mail", text="hi")
+    ref = gateway_tool_call(daemon, grant, "probe.mail", text="hi")["content"]["retry_action"]
+    owner = Answers(daemon, choice=2)
+    _ask(daemon, grant, owner, question="Send again?", retry_action=ref)
+    ferb_text = owner.asked[0].reason.split("\n\n")[0]
+    assert "an earlier attempt at probe.mail to a@x.com and 2 others may already have happened" in ferb_text
+    for other in ("Ann", "mail.example", "me@x.com", "b@x.com"):
+        assert other not in ferb_text.split(" may already")[0]
+
+
+def test_mac_act_says_a_repeat_needs_the_owner_only_for_the_kinds_it_applies_to() -> None:
+    from ferb.act.mac.tools import MacAct
+    from ferb.policy.rules import REVERSIBLE
+    from types import SimpleNamespace
+    tool = MacAct(SimpleNamespace(apps=SimpleNamespace(find=lambda name: None)))    # type: ignore[arg-type]
+    assert tool._kind(MacAct.Input(app="Chat", action="focus")) in REVERSIBLE      # focus: no ledger row
+    assert "repeat of any action but focus needs the owner" in MacAct.description

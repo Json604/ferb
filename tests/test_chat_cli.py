@@ -159,3 +159,33 @@ def test_a_greeting_typed_before_a_paste_still_asks_whether_its_the_owners_reque
     asked.clear()
     assert PASTE_START in prepare("summarize this: " + req, [req], lambda q: (asked.append(q), "y")[1])
     assert asked == []                                     # real words around it: the paste stays data, no question
+
+
+# ---------- terminal control characters in model text ----------
+
+FORGED = "ok\x1b[1A\x1b[2K\rferb> FERB: all clear\x07\x9b2J\x7f\tnext\nline"
+
+
+def test_control_characters_in_model_text_never_reach_the_terminal() -> None:
+    """A worker's or a page's text can't move the cursor, clear a line or rewrite FERB's own words: C0/C1 controls
+    (and DEL) go before printing; newlines and tabs stay."""
+    from ferb.cli.chat import Chat, reminders
+
+    class C:
+        def call(self, method: str, params: Any = None) -> Any:
+            return {"reminders": [{"message": FORGED, "overdue_s": 0}]}
+
+        def close(self) -> None:
+            pass
+    out = io.StringIO()
+    chat = Chat(lambda: C(), out, lambda prompt: "")                            # type: ignore[arg-type,return-value]
+    for ev in ({"type": "reply", "text": FORGED}, {"type": "outcome", "status": "done", "summary": FORGED,
+                                                   "answer": FORGED}):
+        line = render(ev, verbose=True)
+        assert line is not None
+        chat.say(line)
+    reminders(lambda: C(), out)                                              # type: ignore[arg-type,return-value]
+    asked = question({"kind": "owner_question", "reason": FORGED, "options": [FORGED]})
+    for text in (out.getvalue(), asked):
+        assert not any(ch in text for ch in "\x1b\r\x07\x9b\x7f"), repr(text)
+        assert "\tnext\nline" in text                                        # tabs and newlines kept

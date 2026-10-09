@@ -514,8 +514,8 @@ def baseline(home: Any, out: TextIO) -> int:
 
     c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
-        # V4: done (every condition verified), done but unverified (a check ran and couldn't confirm) and failed are
-        # counted apart; done % counts only done.
+        # V4: done (every condition verified), done but not confirmed (done_unverified) and failed are counted apart;
+        # done % counts only done. The JSON keys (`unverified`, `unverified_pct`) stay for data compatibility.
         requests, done, unverified, failed, verified = c.execute(
             "SELECT COUNT(*), COALESCE(SUM(status = 'done'), 0), COALESCE(SUM(status = 'done_unverified'), 0), "
             "COALESCE(SUM(status = 'failed'), 0), COALESCE(SUM(json_extract(outcome_json, '$.verified') = 1), 0) "
@@ -583,9 +583,11 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                              "GROUP BY status ORDER BY 2 DESC", (since,)).fetchall()
         total = sum(n for _, n in outcomes)
         count = dict(outcomes)
-        # V4: done means every condition verified; unverified means done but not confirmed; failed, not done.
+        # V4: done means every condition verified; not confirmed (done_unverified) means done but it stands
+        # unconfirmed; failed, not done. V5: the label never says "unverified".
         shares = ", ".join(f"{label} {count.get(st, 0)} ({100 * count.get(st, 0) // total}%)"
-                           for label, st in (("done", "done"), ("unverified", "done_unverified"), ("failed", "failed"))
+                           for label, st in (("done", "done"), ("not confirmed", "done_unverified"),
+                                             ("failed", "failed"))
                            ) if total else ""
         print(f"Requests in the last {days} day(s): {total}" + (f" — {shares}" if total else ""), file=out)
         for status, n in outcomes:

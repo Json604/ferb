@@ -66,7 +66,7 @@ REMINDER_NOT_SET = ("I couldn't set that reminder — a problem on my side, not 
 HISTORY_TOKENS = 12000      # the conversation's newest entries that fit; older ones stay in chat.history
 ATTEMPTS_TOKENS = 2000      # resumable attempts: newest that fit
 TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done",
-              "done_unverified": "done but unverified", "failed": "failed",
+              "done_unverified": "done but not confirmed", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
               "unknown": "outcome unclear", "skipped": "skipped"}
 
@@ -847,7 +847,7 @@ class Supervisor(WorkerRuns):
                     tree.stands_unconfirmed = True
                     return finished
                 return Outcome(task.id, "cancelled" if tree.stop else "failed",
-                               tree.stop or f"{out.summary} I couldn't plan the next attempt{problem}.",
+                               tree.stop or _sentence(out.summary) + f"I couldn't plan the next attempt{problem}.",
                                artifacts, evidence)
             if choice.action == "ask":
                 tree.owner_question = choice.question
@@ -1109,6 +1109,12 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+
+
+def _sentence(text: str) -> str:
+    """A report as a sentence another sentence can follow: its own end punctuation, else a period, then a space."""
+    text = text.strip()
+    return "" if not text else text + ("" if text[-1] in ".!?" else ".") + " "
 NOTHING_TO_CHECK = "Done, but there was nothing to check it against."
 
 

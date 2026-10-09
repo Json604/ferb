@@ -10,6 +10,13 @@ from typing import Any, Iterator
 
 from ferb.store.spans import tree_where
 
+MIN_DAYS = 1        # a retention of 0 days would purge what was just kept, before the checker or the owner could use it
+
+
+def days(value: Any) -> int:
+    """A `retention.*_days` setting in whole days, never under MIN_DAYS."""
+    return max(MIN_DAYS, int(value))
+
 
 @contextmanager
 def _transaction(db: Any) -> Iterator[None]:

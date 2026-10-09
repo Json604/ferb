@@ -22,6 +22,7 @@ import time
 from typing import Any, Callable, TextIO
 
 from ferb.cli.client import Client
+from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import PASTE_END, PASTE_START
 from ferb.voice.speak import Silent
 
@@ -86,8 +87,9 @@ def wrap_pastes(text: str, pastes: list[str]) -> str:
     return "".join(out) + rest
 
 
-# V4: a task's three outcomes read differently. "done" is set only when every condition was verified.
-OUTCOME = {"done": "done ✓", "done_unverified": "done — unverified", "failed": "failed ✗"}
+# V4: a task's three outcomes read differently. "done" is set only when every condition was verified; done_unverified
+# reads "not confirmed" (V5: "unverified" is said only beside a condition a check ran on).
+OUTCOME = {"done": "done ✓", "done_unverified": "done — not confirmed", "failed": "failed ✗"}
 
 
 def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
@@ -132,7 +134,11 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
 
 
 def question(d: dict[str, Any]) -> str:
-    """An approval in plain words."""
+    """An approval in plain words, without terminal control characters (the question and options are model text)."""
+    return printable(_question(d))
+
+
+def _question(d: dict[str, Any]) -> str:
     if d.get("kind") == "owner_login_code":
         return f"   ? {d.get('reason', '')} "
     if d.get("kind") == "owner_question":                 # a worker's question to the owner (owner.ask)
@@ -202,6 +208,7 @@ class Chat:
         self.new, self.resume = new, resume
 
     def say(self, line: str) -> None:
+        line = printable(line)                            # model text never drives the owner's terminal
         print(line, file=self.out, flush=True)
         if line.lstrip().startswith(("ferb>", "📞", "✉️")):                 # FERB's words, never internals
             self.speaker.say(line)
@@ -251,7 +258,7 @@ class Chat:
         for d in st.get("approvals", []):
             self.answer_approval(d)
         for q in st.get("questions", []):                    # asked while you were away (a scheduled run)
-            reply = self.ask(f"   ? {q['question']} [y/N] ")
+            reply = self.ask(printable(f"   ? {q['question']} [y/N] "))
             self.call("questions.answer", {"id": q["id"], "yes": reply.strip().lower() in ("y", "yes")})
         reminders(self.connect, self.out)
 
@@ -363,7 +370,7 @@ def reminders(connect: Callable[[], Client], out: TextIO) -> None:
         try:
             for r in c.call("reminders.unseen")["reminders"]:
                 late = f" (due {round(r['overdue_s'] / 60)} min ago)" if (r.get("overdue_s") or 0) >= 60 else ""
-                print(f"\n   ⏰ reminder: {r['message']}{late}", file=out, flush=True)
+                print(printable(f"\n   ⏰ reminder: {r['message']}{late}"), file=out, flush=True)
         finally:
             c.close()
     except Exception:

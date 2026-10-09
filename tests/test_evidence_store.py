@@ -341,11 +341,60 @@ def test_masking_for_a_first_look_runs_off_the_event_loop(daemon: RunningDaemon,
     assert threads and daemon.thread.ident not in threads
 
 
+def test_the_first_look_runs_after_the_call_answers_and_outside_its_app_lock(daemon: RunningDaemon,
+                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
+    """The picture of the app a worker starts on is taken after the call has answered, never inside the call's app
+    lock: a slow capture (up to 10 s) neither delays the worker's first mac.* call nor holds the app."""
+    import asyncio
+    shots, _ = _fake_mac(daemon, monkeypatch)
+    _menus(daemon)
+    gateway = daemon.daemon.gateway
+    real = gateway.app_window
+    gate: dict[str, asyncio.Event] = {}
+
+    async def make() -> None:
+        gate["open"] = asyncio.Event()
+    daemon.run(make())
+
+    async def slow(app: str, scopes: frozenset[str]) -> Any:
+        await gate["open"].wait()
+        assert real is not None
+        return await real(app, scopes)
+    gateway.app_window = slow
+    g = grant_task(daemon, "a", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
+    r = daemon.run(gateway.call(g, "mac.menu", {"app": "Notes"}), timeout=5)    # answered while the capture waits
+    assert not r["is_error"] and r["content"]["menus"] and shots.captured == []
+    other = grant_task(daemon, "b", Identity.OWNER, {"mac:read"}, "look at my notes")
+    assert not daemon.run(gateway.call(other, "mac.menu", {"app": "Notes"}), timeout=5)["is_error"]   # not held
+    daemon.call_soon(gate["open"].set)
+    daemon.run(gateway.looks_settled(), timeout=5)
+    assert shots.captured == [110]
+    assert [x["kind"] for x in daemon.run(_list(daemon.daemon.evidence, "a"))] == ["app_window"]
+
+
+def test_a_tool_image_is_written_off_the_event_loop(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+    from ferb.act.evidence import store as store_module
+    threads: list[int] = []
+    real = store_module._write_file
+
+    def recorded(path: Any, image: bytes) -> None:
+        threads.append(threading.get_ident())
+        real(path, image)
+    monkeypatch.setattr(store_module, "_write_file", recorded)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"),
+                             [_ImageTool("probe.screenshot", _solid_jpeg(8, 8), {"shot": "bs-1"},
+                                         reads=(("web", "https://x.example/a"),))])
+    assert not gateway_tool_call(daemon, grant, "probe.screenshot")["is_error"]
+    rows = daemon.run(_list(daemon.daemon.evidence, "task-1"))
+    assert rows[0]["has_image"] and threads and daemon.thread.ident not in threads
+
+
 def test_a_store_error_in_the_trace_names_its_type_not_a_path(daemon: RunningDaemon,
                                                               monkeypatch: pytest.MonkeyPatch) -> None:
-    def full(*a: Any, **k: Any) -> str:
+    async def full(*a: Any, **k: Any) -> str:
         raise PermissionError(13, "Permission denied", "/Users/someone/.ferb/evidence/2026-01-01/x.jpg")
-    monkeypatch.setattr(daemon.daemon.evidence, "put", full)
+    monkeypatch.setattr(daemon.daemon.evidence, "put_async", full)
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"),
                              [_ImageTool("probe.screenshot", _solid_jpeg(8, 8), {"shot": "bs-1"})])
     assert not gateway_tool_call(daemon, grant, "probe.screenshot")["is_error"]

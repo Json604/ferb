@@ -13,7 +13,6 @@ from typing import Any, Callable
 from ferb.act import aftercheck
 from ferb.act.fs.files import PathRefused, resolve
 from ferb.core.types import ToolContext
-from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.schemas import Condition
 from ferb.store.spans import SpanStore
 
@@ -39,9 +38,8 @@ class ConditionResult:
 class Checks:
     """The deterministic checks. `urls_of` reports every current URL from the task's browser tabs."""
 
-    def __init__(self, ledger: Ledger, urls_of: Callable[[str], list[str]],
-                 spans: SpanStore | None = None) -> None:
-        self.ledger, self.urls_of, self.spans = ledger, urls_of, spans
+    def __init__(self, urls_of: Callable[[str], list[str]], spans: SpanStore | None = None) -> None:
+        self.urls_of, self.spans = urls_of, spans
 
     def code_checkable(self, c: Condition, task_id: str | None = None) -> bool:
         """Only literal predicates are code-checked. Any other kind, including a stale `ledger_done` from an older
@@ -89,6 +87,13 @@ class Checks:
                                        + (f" ({call['error']})" if call["error"] else ""))
             expect = ({"value_contains": k.text or ""} if k.kind == "after_value"
                       else {"changed": (k.expected or "true").strip().lower() != "false"})
+            failed = bool(call["error"]) or (call["output"] or {}).get("ok") is False    # as the tool itself reported
+            if failed and expect.get("changed") is True and after.get("changed") is True:
+                # The screen changed, but the call itself reported an error: the change read back may not be the one
+                # expected (a partial or different effect). Not a confirmation; unknown, for the checker.
+                return ConditionResult(i, c.text, None, "code", f"the latest {call['tool']} call changed the screen "
+                                       f"but reported an error ({call['error'] or 'ok: false'}), so the change "
+                                       "isn't confirmed")
             got = aftercheck.compare(expect, after)
             return ConditionResult(i, c.text, got["met"], "code", got["evidence"])
         if k.kind == "tab_url":

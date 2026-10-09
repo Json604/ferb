@@ -9,7 +9,7 @@ P19: a consequential action identical to one in the same task tree whose outcome
 is refused by code, never retried on its own. The only way past is the owner's Yes to the question FERB attaches to
 that exact action (owner.ask with retry_action). That answer allows one more attempt and nothing else does; the
 earlier attempt stays unknown, since nobody observed its outcome. "The same action" is the same call: its normalized
-target, content and validated arguments, without the agent's notes (why, effect, purpose, contact) or the kind
+target (a file as the file it really writes, as the fs lock and S1 key it), content and validated arguments, without the agent's notes (why, effect, purpose, contact) or the kind
 derived from them (ferb/policy/rules.py payload_hash, hashed_args).
 S1: before a call changes an existing file, a copy of the file it really writes and a record (ferb/act/fs/recovery.py);
 no copy, no change. A trash keeps where the item came from and went. A local APFS snapshot before a permanent delete
@@ -44,6 +44,7 @@ from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.redact import Redactor
+from ferb.sanitize.terminal import printable
 from ferb.store.spans import SpanStore
 from ferb.trace import lines
 
@@ -154,18 +155,32 @@ def ask_origins(answer: dict[str, Any]) -> set[str]:
     return {origin.INFERRED} if answer.get("answered_by") == "orchestrator" else {origin.OWNER}
 
 
-def retry_line(latest: LedgerRow, attempts: list[LedgerRow], call: str) -> str:
-    """FERB's own words in a retry question (P19), first and labeled so a worker's text can't pass for them: the exact
-    action from its recorded target; the attempts that may have happened (unknown) or did (reported done), and the
-    count says exactly those plus the new one; what became of the retry the owner approved last time; and the call
-    whose outcome is unknown."""
-    target = latest.intent.target
-    parts = [f"to {', '.join(target['recipients'])}" if target.get("recipients") else "",
-             f"to {target['contact']}" if target.get("contact") else "",
-             f"on {target['site']}" if target.get("site") else "", str(target.get("path") or ""),
-             f"amount {target['amount']}" if target.get("amount") else "",
-             f"as {target['account']}" if target.get("account") else ""]
-    action = " ".join([latest.intent.capability, *(p for p in parts if p)])
+def short_target(target: dict[str, Any]) -> str:
+    """One short readable target from a recorded one, for FERB's question: who it went to, else the file, else the
+    place, else the account; clipped. The call excerpt beside it shows the full arguments."""
+    who = [str(r) for r in target.get("recipients") or []]
+    if who:
+        more = len(who) - 1
+        text = f"to {who[0]}" + (f" and {more} {'other' if more == 1 else 'others'}" if more else "")
+    elif target.get("contact"):
+        text = f"to {target['contact']}"
+    elif target.get("path"):
+        text = str(target["path"])
+    elif target.get("site"):
+        text = f"on {target['site']}"
+    elif target.get("account"):
+        text = f"as {target['account']}"
+    else:
+        text = ""
+    return lines.clip(text, 80) if text else ""
+
+
+def retry_line(latest: LedgerRow, attempts: list[LedgerRow], call: str, tool: str = "") -> str:
+    """FERB's own words in a retry question (P19), first and labeled so a worker's text can't pass for them: the action,
+    as the tool the worker really called (`tool`; else the ledger key siblings share) and one short target; the
+    attempts that may have happened (unknown) or did (reported done), and the count says exactly those plus the new
+    one; what became of the retry the owner approved last time; and the call whose outcome is unknown."""
+    action = " ".join(p for p in (tool or latest.intent.capability, short_target(latest.intent.target)) if p)
     unknown = sum(a.intent.state == "unknown" for a in attempts)
     done = sum(a.intent.state == "done" for a in attempts)
     text = (f"{unknown} earlier attempts at {action} may already have happened (outcomes unknown)" if unknown > 1
@@ -191,17 +206,25 @@ def hashed_args(cap: Any, args: Any) -> dict[str, Any]:
     return {k: v for k, v in args.model_dump(mode="json").items() if k not in dropped}
 
 
-def ledger_identity(cap: Any, name: str, action: ActionRequest, args: Any) -> tuple[str, str]:
+def ledger_identity(cap: Any, name: str, action: ActionRequest, args: Any,
+                    real: Path | None = None) -> tuple[str, str]:
     """The ledger key and payload hash of a call (P19). Sibling tools that do the same thing share a key (`ledger_key`,
-    e.g. shell.start and shell.run). A file target is hashed resolved (symlinks: /tmp is /private/tmp), as the fs lock
-    does; the ledger row keeps the normalized path for display."""
+    e.g. shell.start and shell.run). A file target is hashed as the file the call really writes (`real`: symlinks
+    followed first, then `..`), the path the fs lock and S1 use, so "link/../x" and the file it really names are one
+    action; without one, the normalized path resolved. The ledger row keeps the normalized path for display. A path no
+    file can have (a NUL in it) is refused (Refused): nothing runs."""
     key = getattr(cap, "ledger_key", name)
     target = action.target
     if target.path:
         try:
-            target = dataclasses.replace(target, path=str(Path(target.path).resolve()))
+            path = str(real) if real is not None else str(Path(target.path).resolve())
+            if "\0" in path:                             # real_path doesn't ask the OS about a missing file
+                raise ValueError("embedded null character in path")
         except (OSError, RuntimeError):                  # a symlink loop: keep the normalized path
-            pass
+            path = target.path
+        except ValueError as e:                          # a NUL: no file can have that name
+            raise Refused("that path can't name a file (it contains a NUL character); nothing ran") from e
+        target = dataclasses.replace(target, path=path)
     return key, payload_hash(dataclasses.replace(action, capability=key, target=target), hashed_args(cap, args))
 
 
@@ -279,6 +302,7 @@ class Gateway:
         # The daemon's app-window picture (ferb/act/mac/tools.py app_window): (app, scopes) -> AppWindow | None.
         self.app_window: Callable[[str, frozenset[str]], Awaitable[Any]] | None = None
         self._looked: dict[tuple[str, str], set[str]] = {}  # (task, worker) -> apps whose window it has as evidence
+        self.looks: dict[asyncio.Task[None], str] = {}     # first looks still being taken, by task (D26)
         self.recovery: recovery.Recovery | None = None      # S1: copies before a change, the Trash record
         self.snapshots: recovery.Snapshots | None = None    # S1: a snapshot before a permanent delete
 
@@ -325,8 +349,22 @@ class Gateway:
         for job, tid in list(self._in_flight.items()):
             if tid in task_ids:
                 job.cancel()
+        self._stop_looks(task_ids)
+
+    def _stop_looks(self, task_ids: set[str]) -> None:
+        for job, tid in list(self.looks.items()):
+            if tid in task_ids:
+                job.cancel()
+
+    async def looks_settled(self) -> None:
+        """Wait until the first looks being taken have ended (tests; shutdown drains `looks` itself). Only jobs still
+        running are awaited: a gather of finished ones completes without yielding, so their done callbacks couldn't
+        run."""
+        while pending := [job for job in self.looks if not job.done()]:
+            await asyncio.wait(pending)
 
     def forget_tasks(self, task_ids: set[str]) -> None:
+        self._stop_looks(task_ids)
         self._cancelled_tasks.difference_update(task_ids)
         for task_id in task_ids:
             self._outside.pop(task_id, None)
@@ -447,8 +485,12 @@ class Gateway:
                 return reply({"error": error, "recipients": unlisted}, True)
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
+            try:
+                key, digest = ledger_identity(cap, name, action, args, real)
+            except Refused as e:                         # a path no file can have: refused, no row, nothing ran
+                self._finish_call(span, name, {"error": str(e)}, True, error=str(e))
+                return reply({"error": str(e)}, True, {origin.FERB})
             try:                                         # P19: refused while the same action in the tree is unresolved
-                key, digest = ledger_identity(cap, name, action, args)
                 intent_id = self.ledger.intend(grant.task_id, key, _target_dict(spec.target), digest,
                                                reconcile_first=True).id
                 self.ledger.mark(intent_id, "executing", [span.id])
@@ -466,8 +508,8 @@ class Gateway:
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
                               observe_only=grant.observe_only)
-            if spec.target.path is not None:
-                self.on_path(spec.target.path, grant.task_id)          # file events it causes are FERB's
+            if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
+                self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
         except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)
             error = f"{name} could not start: {error_name(e)}"
             if intent_id:
@@ -524,15 +566,15 @@ class Gateway:
         content = self.redact(raw)
         output = content
         if result.image is not None and not result.is_error and self.evidence is not None:
-            output = content | self._keep_image(name, spec, grant, span.id, content, result, origins)
+            output = content | await self._keep_image(name, spec, grant, span.id, content, result, origins)
         self._finish_call(span, name, content, result.is_error, output=output,
                           error=content.get("error") if result.is_error else None, origins=origins)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
         out = reply(content, result.is_error, origins)
         if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
-        if not result.is_error:
-            await self._first_look(name, spec, grant, rec, span.id)
+        if not result.is_error:                          # after the reply, outside the call's lock (D26)
+            self._look_later(name, spec, grant, rec, span.id)
         return out
 
     def _real_path(self, cap: Any, args: Any, spec: Any) -> Path | None:
@@ -624,13 +666,13 @@ class Gateway:
     def _looked_at(self, grant: RunGrant) -> set[str]:
         return self._looked.setdefault((grant.task_id, grant.worker_id), set())
 
-    def _keep_image(self, name: str, spec: Any, grant: RunGrant, span_id: str, content: dict[str, Any],
-                    result: Any, origins: set[str]) -> dict[str, str]:
+    async def _keep_image(self, name: str, spec: Any, grant: RunGrant, span_id: str, content: dict[str, Any],
+                          result: Any, origins: set[str]) -> dict[str, str]:
         """V1: the image a tool produced is kept as evidence the checker can re-inspect (on the owner's Mac for
         retention.evidence_days, 7); the span's output names it. The capture floor already drops a frame showing an
         accessibility-known password field. Facts only, no pixels: a site on the owner's exclusion list (never
         recorded), what `pixels_withheld` names, and a result that still lists a secret field (no image-pixel box to
-        mask it with). Never fatal: the result reaches the worker anyway."""
+        mask it with). Never fatal: the result reaches the worker anyway. The file is written in a worker thread."""
         facts = image_facts(name, content)
         kept: bytes | None = result.image
         withheld = pixels_withheld(name, spec.target.site, result.read_sources)
@@ -641,30 +683,48 @@ class Gateway:
         elif shows_secret_field(content):
             kept, facts["image_withheld"] = None, SECRET_WITHHELD
         try:
-            eid = self.evidence.put(grant.task_id, span_id, evidence_kind(name), image=kept, data=facts,
-                                    origin=origin.join(origins))
+            eid = await self.evidence.put_async(grant.task_id, span_id, evidence_kind(name), image=kept, data=facts,
+                                                origin=origin.join(origins))
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             return {"evidence_error": error_name(e)}
         if name.startswith("mac.") and spec.target.site:            # this image (kept or facts only) was the
             self._looked_at(grant).add(spec.target.site.lower())    # worker's first look at that app
         return {"evidence": eid}
 
-    async def _first_look(self, name: str, spec: Any, grant: RunGrant, rec: Any, after: str) -> None:
+    def _look_later(self, name: str, spec: Any, grant: RunGrant, rec: Any, after: str) -> None:
         """D26, D29: when a worker starts on a Mac app (its first mac.* call there that worked), FERB keeps one picture
-        of that app's window as evidence, unless the call itself returned one. Background only: one window, never the
-        desktop, never brought forward, never the worker's shot. Best effort: a failure is recorded on its own span and
-        never fails the call. Nothing to take (no screen scope, images off, a browser) records nothing; no window yet
-        (NoTarget) records nothing and leaves the first look to a later call. A refusal (a password field) counts."""
+        of that app's window as evidence, unless the call itself returned one. Taken after the call has answered, as
+        its own job, never inside the call's resource lock: a slow capture (up to 10 s) never delays the call or holds
+        the app, and its failure never touches the call. Stopping or ending the task cancels it."""
         app = spec.target.site
         if self.app_window is None or self.evidence is None or not name.startswith("mac.") or not app:
             return
         looked = self._looked_at(grant)
         if app.lower() in looked:
             return
-        looked.add(app.lower())
+        looked.add(app.lower())                          # now, so a quick next call doesn't take a second look
+        job = asyncio.get_running_loop().create_task(self._first_look(app, name, grant, rec, after))
+        self.looks[job] = grant.task_id
+        job.add_done_callback(self._look_done)
+
+    def _look_done(self, job: "asyncio.Task[None]") -> None:
+        self.looks.pop(job, None)
+        if not job.cancelled():
+            job.exception()                              # retrieved: a look's own failure is never the call's
+
+    async def _first_look(self, app: str, name: str, grant: RunGrant, rec: Any, after: str) -> None:
+        """One picture of the app's window (`_look_later`). Background only: one window, never the desktop, never
+        brought forward, never the worker's shot. Best effort: a failure is recorded on its own span. Nothing to take
+        (no screen scope, images off, a browser) records nothing; no window yet (NoTarget) records nothing and leaves
+        the first look to a later call. A refusal (a password field) counts."""
+        window, looked = self.app_window, self._looked_at(grant)
+        if window is None:
+            return
         shot, eid, error = None, None, None
         try:
-            shot = await asyncio.wait_for(self.app_window(app, grant.scopes), APP_WINDOW_TIMEOUT_S)
+            shot = await asyncio.wait_for(window(app, grant.scopes), APP_WINDOW_TIMEOUT_S)
         except asyncio.CancelledError:
             raise
         except NoTarget:
@@ -743,9 +803,11 @@ class Gateway:
             row, attempts = found
             retry = row.intent.id                    # the latest unknown attempt: the one the approval goes on
             asked_about = [a.intent.id for a in attempts]
-            ferb_line = self.redact({"q": retry_line(row, attempts, self._earlier_call(row))})["q"]
-            # one paragraph: the worker's text can't open a paragraph of its own that looks like FERB's
-            question = f"{ferb_line}\n\nWhat the worker found: {' '.join(question.split())}"
+            tool, call = self._earlier_call(row)
+            ferb_line = printable(self.redact({"q": retry_line(row, attempts, call, tool)})["q"])
+            # one paragraph, no terminal control characters: the worker's text can't open a paragraph of its own, or
+            # rewrite a line on the owner's terminal, that looks like FERB's
+            question = f"{ferb_line}\n\nWhat the worker found: {' '.join(printable(question).split())}"
             options = [RETRY_YES, RETRY_NO]
         elif self.route_question is not None:
             self.observer.waiting(grant.worker_id, True)
@@ -814,14 +876,15 @@ class Gateway:
             return "the owner already approved one more attempt at this action; it can run now"
         return latest, attempts
 
-    def _earlier_call(self, row: LedgerRow) -> str:
-        """What the attempt's call did, from its tool.call span (the ledger keeps the span id as evidence)."""
+    def _earlier_call(self, row: LedgerRow) -> tuple[str, str]:
+        """The tool the attempt really called and what its call did, from its tool.call span (the ledger keeps the span
+        id as evidence); ("", "") when that span is gone."""
         for ref in row.evidence:
             found = self.spans.tool_call(row.intent.task_id, ref)
             tool = str(found["input"].get("tool") or "") if found is not None else ""
             if found is not None and getattr(self.caps.get(tool), "ledger_key", tool) == row.intent.capability:
-                return call_excerpt(found)
-        return ""
+                return tool, call_excerpt(found)
+        return "", ""
 
     def _settle_retry(self, ref: str, ask_span: str, asked_about: list[str]) -> dict[str, Any]:
         """The owner chose Yes: one more attempt at the same action may run (P19). The earlier attempt stays unknown;

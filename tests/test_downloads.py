@@ -820,3 +820,43 @@ def test_a_tab_opened_while_its_task_ended_without_releasing_is_let_go_of_too(bd
 def test_the_lab_chrome_never_uses_a_system_proxy() -> None:
     from tests import chromelab
     assert "--no-proxy-server" in chromelab.LAB_ARGS
+
+
+# ---------- final wave: a row outside the folder is never marked gone ----------
+
+def test_a_row_outside_the_downloads_folder_is_left_as_it_is_recorded_once_and_never_counted(
+        tmp_path: Path, monkeypatch: Any) -> None:
+    """Retention never records "gone" or clears a path without looking at the file: a row whose file is outside the
+    downloads folder (an older layout, a moved workspace) keeps its path and its file, is recorded once as skipped,
+    and doesn't count toward the folder's total, so it never makes a file in the folder go in its place."""
+    from datetime import datetime, timedelta, timezone
+    from ferb.act.browser.downloads import Downloads
+    from ferb.act.fs import files
+    from ferb.store.db import Database
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    root = tmp_path / "workspace" / "downloads"
+    root.mkdir(parents=True)
+    outside = tmp_path / "elsewhere" / "dl-aaaaaaaaaaaa-old.pdf"
+    outside.parent.mkdir()
+    outside.write_bytes(b"old")
+    inside = root / "dl-bbbbbbbbbbbb-new.pdf"
+    inside.write_bytes(b"new")
+    now = datetime(2026, 10, 9, tzinfo=timezone.utc)
+    for fid, path, size, age in (("dl-aaaaaaaaaaaa", outside, 900_000, 40), ("dl-bbbbbbbbbbbb", inside, 300_000, 1)):
+        db.conn.execute("INSERT INTO downloads (id, task_id, profile, identity, state, path, name, bytes, origin, at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)", (fid, "t", "chrome/Work", "owner", "taken", str(path),
+                                                         path.name, size, "external:download",
+                                                         (now - timedelta(days=age)).isoformat()))
+    settings = {("browser", "download_total_mb"): 1}
+    moved: list[Path] = []
+    monkeypatch.setattr(files, "move_to_trash", lambda p: moved.append(p) or str(tmp_path / "Trash" / p.name))
+    dl = Downloads(root, db, lambda: now, lambda s, k, v: settings.get((s, k), v), lambda t: t, lambda *a: None)
+    assert dl.purge() == 0
+    changes = db.conn.total_changes
+    assert dl.purge() == 0 and db.conn.total_changes == changes      # recorded once, not on every pass
+    rows = {r["id"]: dict(r) for r in db.conn.execute("SELECT id, path, kept FROM downloads")}
+    assert rows["dl-aaaaaaaaaaaa"]["path"] == str(outside) and outside.read_bytes() == b"old"
+    assert rows["dl-aaaaaaaaaaaa"]["kept"].startswith("skipped")
+    assert rows["dl-bbbbbbbbbbbb"] == {"id": "dl-bbbbbbbbbbbb", "path": str(inside), "kept": None}
+    assert moved == [] and inside.exists()                       # the folder's 300 KB is under 1 MB: nothing goes

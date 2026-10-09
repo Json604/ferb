@@ -227,12 +227,13 @@ def test_a_planning_failure_after_an_unconfirmed_finish_stays_done_unverified(da
     assert not any(word in evs["answer"] for word in INTERNAL)
 
 
-def test_a_planning_failure_after_a_failed_attempt_hides_the_exception(daemon: RunningDaemon) -> None:
+@pytest.mark.parametrize("report", ["couldn't find it", "couldn't find it."])
+def test_a_planning_failure_after_a_failed_attempt_hides_the_exception(daemon: RunningDaemon, report: str) -> None:
     install(daemon, [sup("task", "On it.", task("do it", conds=(cond("the file exists"),)))],
-            {"worker": _failed("couldn't find it"), "worker.dispatch": "not json"})
+            {"worker": _failed(report), "worker.dispatch": "not json"})
     evs = outcome(chat(daemon, "do it"))
     assert evs["status"] == "failed"
-    why = "Why work stopped: couldn't find it I couldn't plan the next attempt (a problem on my side)."
+    why = "Why work stopped: couldn't find it. I couldn't plan the next attempt (a problem on my side)."
     assert why in evs["answer"]
     assert not any(word in evs["answer"] for word in INTERNAL)
     failures = _sql(daemon, "SELECT data_json FROM journal WHERE kind = 'task.dispatch_failed'")
@@ -273,7 +274,7 @@ def test_chat_verbose_shows_three_distinct_outcomes() -> None:
     shown = {s: render({"type": "outcome", "status": s, "summary": "S", "answer": "A", "verified": s == "done"},
                        verbose=True) for s in ("done", "done_unverified", "failed")}
     assert shown["done"].startswith("ferb: done ✓ — S")
-    assert shown["done_unverified"].startswith("ferb: done — unverified — S")
+    assert shown["done_unverified"].startswith("ferb: done — not confirmed — S")   # V5: no "unverified" label
     assert shown["failed"].startswith("ferb: failed ✗ — S")
 
 
@@ -303,8 +304,9 @@ def test_stats_counts_unverified_apart_from_done_and_failed(tmp_path: Path) -> N
     out = io.StringIO()
     assert stats(tmp_path, out, days=36500) == 0
     text = out.getvalue()
-    assert "done 1 (25%)" in text and "unverified 1 (25%)" in text and "failed 2 (50%)" in text
-    assert "  done_unverified 1" in text
+    assert "done 1 (25%), not confirmed 1 (25%), failed 2 (50%)" in text
+    assert "unverified 1 (25%)" not in text                  # V5: the label is "not confirmed"
+    assert "  done_unverified 1" in text                     # the stored status, as recorded
 
 
 def test_baseline_counts_unverified_apart_from_done_and_failed(tmp_path: Path) -> None:
@@ -329,7 +331,7 @@ def test_trace_story_names_each_status() -> None:
         assert ep["status"] == status and ep["verified"] is verified
         return render.story(ep | {"made_by": "x", "built_at": "2026-10-07T11:07:00+05:30"})[0]
     assert " · done ✓ verified · " in first_line("done", True)
-    assert " · done (unverified) · " in first_line("done_unverified", False)
+    assert " · done (not confirmed) · " in first_line("done_unverified", False)
     assert " · failed ✗ · " in first_line("failed", False)
     assert " · done · " in first_line("done", None)          # an older record that never said it was checked
 
