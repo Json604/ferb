@@ -5,25 +5,27 @@ own download flow, so no Save dialog. This side takes it only while that tab is 
 goes back to the browser untouched (the owner's own download, never cancelled or read). It pulls the bytes in parts
 (`download_part`), one transfer per tab, within a per-file, per-task and time budget; hashes what it received; writes
 `~/.ferb/workspace/downloads/<id>-<safe name>` (never elsewhere) and records facts, never content. The file is FERB's
-working copy, outside content (MP2: `external:download`, the folder is always an untrusted fs root), moved to the Trash
-after `retention.download_days` or when the folder passes `browser.download_total_mb`. A download the extension couldn't
-intercept, or one it could not take, is a fact for the worker."""
+working copy, outside content (MP2: `external:download`, the folder is always an untrusted fs root). It stays until the
+owner deletes it; only when the folder passes `browser.download_total_mb` do the oldest move to the Trash (owner,
+2026-10-09: no time-based clearing). A download that would leave less than `browser.download_min_free_gb` free on the
+disk is refused: by its declared size before any byte moves, and before each part is written while it streams. A
+download the extension couldn't intercept, or one it could not take, is a fact for the worker."""
 
 import asyncio
 import base64
 import hashlib
 import os
 import secrets
+import shutil
 import stat
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, NamedTuple
 
 from ferb.act.browser import uploads
 from ferb.core import origin
-from ferb.store import retention
 
 ORIGIN = origin.external("download")
 FOLDER = "downloads"                    # under FERB's workspace
@@ -33,14 +35,16 @@ TRANSFER_DEADLINE_S = 600.0             # a slow drip under the per-part timeout
 TAB_WAIT_S = 20.0                       # a second download in a tab waits this long for the first (the extension's
                                         # hold lasts 30 s), then is refused
 SETTLE_S = 60.0                         # a navigation/open waits this long for a download its tab started
-DEFAULTS = {"download_max_mb": 100, "download_task_max_files": 20, "download_task_max_mb": 500,
-            "download_total_mb": 2048}  # [browser]; retention.download_days: 30
-DEFAULT_KEEP_DAYS = 30
+# [browser] limits, the owner's decision of 2026-10-09 (F4 live fixes): one download, per task tree, FERB's folder, and
+# the free disk a download must leave. No time-based clearing (retention.download_days is gone).
+DEFAULTS = {"download_max_mb": 512, "download_task_max_files": 50, "download_task_max_mb": 4096,
+            "download_total_mb": 20480, "download_min_free_gb": 10}
 OUTSIDE = "skipped: not in FERB's downloads folder, so retention leaves it where it is"
 DROPPED = ("the page started more saves at once than FERB holds (20 in a tab, 100 in all): this one, and any others "
            "it started within the minute, were dropped, neither taken nor given to the browser; not taken")
 _DROP = {"Cc", "Cf", "Cs", "Zl", "Zp"}  # controls, format (bidi overrides, zero-width), surrogates, line separators
 _MB = 1024 * 1024
+_GB = 1024 * _MB
 
 Publish = Callable[[str, dict[str, Any]], None]
 Setting = Callable[[str, str, Any], Any]
@@ -59,7 +63,7 @@ class Limits(NamedTuple):
     task_files: int
     task_bytes: int
     total_bytes: int
-    keep_days: int
+    min_free_bytes: int
 
 
 class _Refused(Exception):
@@ -103,6 +107,10 @@ def _mb(n: int) -> str:
     return f"{n / _MB:g} MB"
 
 
+def _gb(n: int) -> str:
+    return f"{n / _GB:g} GB"
+
+
 def _number(value: Any, default: float) -> float:
     try:
         return max(float(value), 0.0)
@@ -125,13 +133,20 @@ class Downloads:
         self._running: dict[str, int] = {}                  # tree -> transfers still running
         self._unreported: dict[tuple[str, int], list[dict[str, Any]]] = {}
         self._tab_task: dict[tuple[str, int], str] = {}     # tab -> the task whose downloads it holds (pruning)
+        self.free_bytes: Callable[[], int] = self._disk_free   # tests replace it
 
     def limits(self) -> Limits:
         b = {k: _number(self.setting("browser", k, v), v) for k, v in DEFAULTS.items()}
         return Limits(int(b["download_max_mb"] * _MB), int(b["download_task_max_files"]),
                       int(b["download_task_max_mb"] * _MB), int(b["download_total_mb"] * _MB),
-                      retention.days(_number(self.setting("retention", "download_days", DEFAULT_KEEP_DAYS),
-                                             DEFAULT_KEEP_DAYS)))
+                      int(b["download_min_free_gb"] * _GB))
+
+    def _disk_free(self) -> int:
+        """Free bytes on the disk that holds FERB's downloads folder (its nearest existing folder)."""
+        where = self.root
+        while not where.exists() and where != where.parent:
+            where = where.parent
+        return shutil.disk_usage(where).free
 
     # ---------- the extension's download event ----------
 
@@ -207,9 +222,17 @@ class Downloads:
                 raise _Refused(f"would pass this task's {_mb(lim.task_bytes)} download budget "
                                f"(browser.download_task_max_mb, per request; {used} bytes taken or arriving): {size} "
                                "bytes; not taken", size)
+            if size is not None and self.free_bytes() - size < lim.min_free_bytes:
+                raise _Refused(f"would leave less than {_gb(lim.min_free_bytes)} free on this disk "
+                               f"(browser.download_min_free_gb): {size} bytes; not taken", size)
         except _Refused as r:
             await _send(br, ev.download_id, abort=True)
             self._insert(br, owner, ev, "refused", size=r.size, reason=r.reason, final=True)
+            return
+        except OSError as e:                            # the floor can't be checked: refused, never left to the browser
+            await _send(br, ev.download_id, abort=True)
+            self._insert(br, owner, ev, "refused", size=size, final=True, reason=self.redact_text(
+                f"couldn't read the free disk space for browser.download_min_free_gb ({e}); not taken"))
             return
         await self._take(br, owner, ev, lim, tree)
 
@@ -247,6 +270,10 @@ class Downloads:
                     raise _Refused(f"passed this task's {_mb(lim.task_bytes)} download budget "
                                    f"(browser.download_task_max_mb, per request) after {received} bytes; not taken",
                                    received)
+                if self.free_bytes() - len(data) < lim.min_free_bytes:
+                    raise _Refused(f"would leave less than {_gb(lim.min_free_bytes)} free on this disk "
+                                   f"(browser.download_min_free_gb): stopped after {received - len(data)} bytes; "
+                                   "not taken", received - len(data))
                 view = memoryview(data)
                 while view:
                     view = view[os.write(fd, view):]
@@ -388,16 +415,16 @@ class Downloads:
             params.append(identity)
         return [_fact(dict(r)) for r in self.db.conn.execute(sql + " ORDER BY at, rowid", params)]
 
-    # ---------- retention: FERB's working copies go to the Trash, never unlinked ----------
+    # ---------- the folder's total: the oldest working copies go to the Trash, never unlinked ----------
 
     def purge(self) -> int:
-        """Files older than retention.download_days, then the oldest while the folder is over browser.download_total_mb,
-        move to the Trash; their rows stay, with the path cleared and where the Trash put them. A file already gone is
-        recorded so; one that won't move is skipped and recorded (the next pass tries again) and stops counting toward the
-        total, so it never makes a newer file go in its place. A row whose file isn't in the downloads folder is left as
-        it is (path and file), recorded once as skipped, and never counted."""
+        """While the folder is over browser.download_total_mb, the oldest files move to the Trash (owner, 2026-10-09: no
+        time-based clearing; a file stays until the owner deletes it). Their rows stay, with the path cleared and where
+        the Trash put them. A file already gone is recorded so; one that won't move is skipped and recorded (the next
+        pass tries again) and stops counting toward the total, so it never makes a newer file go in its place. A row
+        whose file isn't in the downloads folder is left as it is (path and file), recorded once as skipped, and never
+        counted."""
         lim = self.limits()
-        cutoff = (self.now() - timedelta(days=lim.keep_days)).isoformat()
         rows = [dict(r) for r in self.db.conn.execute(
             "SELECT id, path, bytes, at, kept FROM downloads WHERE path IS NOT NULL ORDER BY at, rowid")]
         for r in [r for r in rows if Path(str(r["path"])).parent != self.root]:
@@ -411,8 +438,7 @@ class Downloads:
             return 0
         try:
             for r in rows:
-                old = r["at"] < cutoff
-                if not old and total <= lim.total_bytes:
+                if total <= lim.total_bytes:
                     break
                 result = self._trash(folder, r)
                 total -= int(r["bytes"] or 0)            # a stuck file stops counting: no newer file goes in its place

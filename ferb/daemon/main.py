@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, NamedTuple
 
 from ferb.bus import DROPPED, Bus, Overflow
 from ferb.clock.clock import SystemClock
-from ferb.config import Config
+from ferb.config import LIMITS_DECIDED, Config
 from ferb.daemon.gateway import FsRoots, Gateway
 from ferb.orchestrator.supervisor import Supervisor
 from ferb.orchestrator.verify import Checks
@@ -204,6 +204,9 @@ class Daemon:
         self.db = Database(self.home / "ferb.db")
         self.db.migrate()
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
+        if not self.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED):   # once, and journaled: never silent
+            self.journal.append("config.upgraded", {"upgrade": LIMITS_DECIDED,
+                                                    "changes": self.config.upgrade_ferb_written()})
         self.spans = SpanStore(self.db, self.clock, self.ids, self.redact)
         self.evidence = EvidenceStore(self.home / "evidence", self.clock, self.ids, self.redact, self.db)
         self.snapshots = recovery.Snapshots(recovery.local_snapshot if self.take_snapshots else None, self.db,
@@ -853,8 +856,8 @@ class Daemon:
         return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed}
 
     def _purge_downloads(self) -> int:
-        """D35: FERB's downloaded working copies older than retention.download_days, or past browser.download_total_mb
-        (oldest first), go to the Trash; their records stay. Journaled when any moved."""
+        """D35: when FERB's downloads folder passes browser.download_total_mb, its oldest working copies go to the
+        Trash (no time-based clearing, owner 2026-10-09); their records stay. Journaled when any moved."""
         if self.downloads is None:
             return 0
         try:
@@ -863,8 +866,8 @@ class Daemon:
             self._journal().append("retention.failed", {"downloads": True, "error": f"{type(e).__name__}: {e}"})
             return 0
         if trashed:
-            self._journal().append("retention.downloads", {"trashed": trashed,
-                                                           "download_days": self.downloads.limits().keep_days})
+            self._journal().append("retention.downloads", {
+                "trashed": trashed, "total_mb": self.downloads.limits().total_bytes // (1024 * 1024)})
         return trashed
 
     def _journal_purged(self, plan: _PurgePlan, spans: int, decisions: int, evidence: int, copies: int, left: int,
@@ -1633,7 +1636,7 @@ class Daemon:
             drv.uploads = self.uploads
             drv.task_running = lambda task_id: self.tasks.get(task_id) is not None   # removed when its tree ends
             drv.task_root = self._task_root
-            drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 20))
+            drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 50))
         self.downloads.task_tab = self.hub.task_tab      # only a live task's tab holds downloads (D35)
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()

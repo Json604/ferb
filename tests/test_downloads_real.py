@@ -151,7 +151,7 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
             d.daemon.config.set("browser", "download_max_mb", 1)
             await driver.navigate(tab, f"{site}/big")
             out["big"] = await driver.downloads_for(tab, 30)
-            d.daemon.config.set("browser", "download_max_mb", 100)
+            d.daemon.config.set("browser", "download_max_mb", 512)
             await driver.navigate(tab, f"{site}/")
             await click(tab, "Export detached")
             out["detached"] = await driver.downloads_for(tab, 30)

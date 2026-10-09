@@ -508,24 +508,23 @@ def _fake_trash(monkeypatch: Any, home: Path) -> Path:
     return bin_
 
 
-def test_old_downloads_go_to_the_trash_and_their_records_stay(bd: Any, monkeypatch: Any) -> None:
+def test_downloads_stay_until_the_owner_deletes_them_however_old(bd: Any, monkeypatch: Any) -> None:
+    """Owner, 2026-10-09: no time-based clearing; only the folder's total moves the oldest to the Trash."""
     d, launched = bd
     trash = _fake_trash(monkeypatch, d.daemon.home)
     ext, g, tab, chrome_id = _task_tab(d, launched)
     rec = _deliver(d, ext, chrome_id, name="old.pdf", data=b"%PDF old", source_url="https://x.example/old")
-    d.call_soon(d.daemon.clock.advance, 31 * 86400)
+    d.call_soon(d.daemon.clock.advance, 400 * 86400)
     out: dict[str, Any] = {}
     d.call_soon(lambda: out.update(d.daemon._purge_records()))
-    assert out["downloads"] == 1 and _kept(d) == [] and (trash / Path(rec["path"]).name).read_bytes() == b"%PDF old"
+    assert out["downloads"] == 0 and Path(rec["path"]).read_bytes() == b"%PDF old" and not list(trash.iterdir())
     [row] = _records(d)
-    assert row["path"] is None and row["trashed_to"] == str(trash / Path(rec["path"]).name) and row["state"] == "taken"
-    [fact] = call(d, g, "browser.downloads")["content"]["downloads"]
-    assert "path" not in fact and fact["kept"].startswith("moved to the Trash")
+    assert row["path"] == rec["path"] and row["trashed_to"] is None
 
 
 def test_the_folder_keeps_to_its_total_budget_oldest_first(bd: Any, monkeypatch: Any) -> None:
     d, launched = bd
-    _fake_trash(monkeypatch, d.daemon.home)
+    trash = _fake_trash(monkeypatch, d.daemon.home)
     d.daemon.config.set("browser", "download_total_mb", 1)
     ext, g, tab, chrome_id = _task_tab(d, launched)
     names = []
@@ -534,7 +533,10 @@ def test_the_folder_keeps_to_its_total_budget_oldest_first(bd: Any, monkeypatch:
                               source_url="https://x.example/f")["name"])
         d.call_soon(d.daemon.clock.advance, 1)
     assert sorted(p.split("-", 2)[-1] for p in _kept(d)) == ["1.bin", "2.bin"]       # 0.bin, the oldest, went
-    assert len([r for r in _records(d) if r["trashed_to"]]) == 1
+    [gone] = [r for r in _records(d) if r["trashed_to"]]
+    assert gone["path"] is None and gone["state"] == "taken" and Path(gone["trashed_to"]).parent == trash
+    fact = next(f for f in call(d, g, "browser.downloads")["content"]["downloads"] if f["download"] == gone["id"])
+    assert "path" not in fact and fact["kept"].startswith("moved to the Trash")
 
 
 def test_partial_files_a_restart_cut_off_are_swept(bd: Any) -> None:
@@ -715,12 +717,12 @@ def test_retention_records_a_gone_file_and_never_evicts_a_newer_one_for_one_that
     assert facts["a.bin"]["kept"] == "already gone when retention ran" and facts["b.bin"]["kept"].startswith("stuck")
 
 
-def test_the_downloads_description_names_the_configured_retention(bd: Any) -> None:
+def test_the_downloads_description_says_files_stay_until_the_folder_passes_its_total(bd: Any) -> None:
     d, launched = bd
-    d.daemon.config.set("retention", "download_days", 7)
+    d.daemon.config.set("browser", "download_total_mb", 1000)
     ext, g, tab, chrome_id = _task_tab(d, launched)
     desc = next(t["description"] for t in d.daemon.gateway.tools_for(g) if t["name"] == "browser.downloads")
-    assert "kept 7 days" in desc
+    assert "stays until the owner deletes it" in desc and "passes 1000 MB" in desc and " days" not in desc
 
 
 # ---------- fix round 3 ----------
@@ -886,3 +888,57 @@ def test_a_page_save_dropped_over_the_hold_caps_is_a_refused_download_fact(bd: A
                        "source": "page", "name": "report.csv"})
     row = _wait_record(d)
     assert row["state"] == "refused" and "dropped" in row["reason"] and "browser" in row["reason"]
+
+
+# ---------- the owner's limits (2026-10-09) ----------
+
+def test_the_limits_default_to_the_owners_decision(tmp_path: Path) -> None:
+    from ferb.act.browser.downloads import Downloads, Limits
+    dl = Downloads(tmp_path / "downloads", None, lambda: None, lambda s, k, v: v, lambda t: t, lambda *a: None)
+    mb = 1024 * 1024
+    assert dl.limits() == Limits(512 * mb, 50, 4096 * mb, 20480 * mb, 10 * 1024 * mb)
+
+
+def test_a_task_tree_may_open_fifty_tabs_by_default(bd: Any) -> None:
+    from types import SimpleNamespace
+    from ferb.act.browser.ext_bridge import _TabDriver
+    d, launched = bd
+    assert d.daemon.router.max_tabs() == 50 and d.daemon.ferb_identity.max_tabs() == 50
+    assert _TabDriver(SimpleNamespace(), lambda: []).max_tabs() == 50       # type: ignore[arg-type]
+
+
+def test_a_download_that_would_leave_less_than_the_free_disk_floor_is_refused_before_any_byte_moves(bd: Any) -> None:
+    d, launched = bd
+    floor = 10 * 1024 ** 3
+    d.daemon.downloads.free_bytes = lambda: floor + 1000
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    rec = _deliver(d, ext, chrome_id, name="big.bin", data=b"x" * 2000, source_url="https://x.example/big")
+    assert rec["state"] == "refused" and rec["size"] == 2000 and "path" not in rec
+    assert "10 GB" in rec["reason"] and "browser.download_min_free_gb" in rec["reason"]
+    assert ext.download_parts and all(p.get("abort") for p in ext.download_parts)     # cancelled, nothing read
+    assert _kept(d) == []
+
+
+def test_an_undeclared_size_stops_before_it_would_pass_the_free_disk_floor(bd: Any) -> None:
+    d, launched = bd
+    floor = 10 * 1024 ** 3
+    root = _root(d)
+    d.daemon.downloads.free_bytes = lambda: floor + 100_000 - sum(p.stat().st_size for p in root.glob(".dl-*.part"))
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    rec = _deliver(d, ext, chrome_id, name="stream.bin", data=os.urandom(3 * DOWNLOAD_PART),
+                   source_url="https://x.example/s", size=None)
+    assert rec["state"] == "refused" and "browser.download_min_free_gb" in rec["reason"]
+    assert f"stopped after {DOWNLOAD_PART} bytes" in rec["reason"]
+    assert ext.download_parts[-1].get("abort") is True and _kept(d) == []        # the partial file is gone
+
+
+def test_a_free_disk_that_cant_be_read_refuses_the_download_never_leaves_it_to_the_browser(bd: Any) -> None:
+    d, launched = bd
+
+    def unreadable() -> int:
+        raise PermissionError("statfs refused")
+    d.daemon.downloads.free_bytes = unreadable
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    rec = _deliver(d, ext, chrome_id, name="a.bin", data=b"x" * 2000, source_url="https://x.example/a")
+    assert rec["state"] == "refused" and "free disk" in rec["reason"] and "browser.download_min_free_gb" in rec["reason"]
+    assert ext.download_parts and all(p.get("abort") for p in ext.download_parts) and _kept(d) == []

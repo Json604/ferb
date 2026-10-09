@@ -20,6 +20,16 @@ from ferb.core.errors import FerbError
 DEFAULT_EXCLUDE_APPS = ["com.1password.1password", "com.agilebits.onepassword7", "com.bitwarden.desktop",
                         "com.apple.Passwords", "com.apple.keychainaccess"]
 
+# Download and tab limits FERB itself wrote into config.toml in F4 (ensure_privacy_defaults), before the owner chose
+# them. The owner's decision of 2026-10-09 replaces them: a key still holding FERB's old value takes the decided one;
+# any other value is the owner's and stays. Time-based clearing of downloads was removed, so its key goes. The daemon
+# applies this once and journals it (`config.upgraded`), so a value the owner sets later is never replaced.
+LIMITS_DECIDED = "download-limits-2026-10-09"
+FERB_WRITTEN = {("browser", "download_max_mb"): (100, 512), ("browser", "download_task_max_files"): (20, 50),
+                ("browser", "download_task_max_mb"): (500, 4096), ("browser", "download_total_mb"): (2048, 20480),
+                ("browser", "task_max_tabs"): (20, 50)}
+RETIRED = (("retention", "download_days"),)
+
 
 class InsecureConfig(FerbError):
     pass
@@ -72,6 +82,29 @@ class Config:
         doc[section][key] = value              # type: ignore[index]
         self.save(doc)
 
+    def remove(self, section: str, key: str) -> None:
+        doc = self.load()
+        tbl = doc.get(section)
+        if tbl is not None and key in tbl:
+            del tbl[key]
+            self.save(doc)
+
+    def upgrade_ferb_written(self) -> list[dict[str, Any]]:
+        """The owner's limits decision (LIMITS_DECIDED), for the daemon to apply once: each FERB_WRITTEN key still
+        holding FERB's old value takes the decided one; each RETIRED key goes. Returns what changed (journaled)."""
+        changed: list[dict[str, Any]] = []
+        for (section, key), (old, new) in FERB_WRITTEN.items():
+            if self.get(section, key) == old:
+                self.set(section, key, new)
+                changed.append({"key": f"{section}.{key}", "from": old, "to": new})
+        for section, key in RETIRED:
+            value = self.get(section, key)
+            if value is not None:
+                self.remove(section, key)
+                changed.append({"key": f"{section}.{key}", "from": getattr(value, "unwrap", lambda: value)(),
+                                "to": None})
+        return changed
+
     def exclude_apps(self) -> frozenset[str]:
         return frozenset(self.get("privacy", "exclude_apps", DEFAULT_EXCLUDE_APPS))
 
@@ -86,9 +119,8 @@ class Config:
                                     ("sense", "idle_after_s", 120), ("sense", "trail_retention_days", 30),
                                     ("retention", "trace_days", 30), ("retention", "decision_days", 30),
                                     ("retention", "evidence_days", 7), ("retention", "recovery_days", 7),
-                                    ("retention", "download_days", 30),
-                                    ("browser", "download_max_mb", 100), ("browser", "download_task_max_files", 20),
-                                    ("browser", "download_task_max_mb", 500), ("browser", "download_total_mb", 2048),
-                                    ("browser", "task_max_tabs", 20)):
+                                    ("browser", "download_max_mb", 512), ("browser", "download_task_max_files", 50),
+                                    ("browser", "download_task_max_mb", 4096), ("browser", "download_total_mb", 20480),
+                                    ("browser", "download_min_free_gb", 10), ("browser", "task_max_tabs", 50)):
             if self.get(section, key) is None:
                 self.set(section, key, value)

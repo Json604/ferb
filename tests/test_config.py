@@ -3,10 +3,11 @@
 import os
 import stat
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from ferb.config import Config, InsecureConfig
+from ferb.config import FERB_WRITTEN, LIMITS_DECIDED, Config, InsecureConfig
 
 EXISTING = """# FERB runtime config. Owner-only (0600).
 
@@ -65,3 +66,56 @@ def test_missing_config_is_empty_and_first_write_creates_it_0600(tmp_path: Path)
     c.set("policy", "autonomy", "careful")
     assert stat.S_IMODE((h / "config.toml").stat().st_mode) == 0o600
     assert stat.S_IMODE(h.stat().st_mode) == 0o700
+
+
+def test_fresh_defaults_are_the_owners_limits_with_no_time_based_download_clearing(home: Path) -> None:
+    c = Config(home)
+    c.ensure_privacy_defaults()
+    keys = ("download_max_mb", "download_task_max_files", "download_task_max_mb", "download_total_mb",
+            "download_min_free_gb", "task_max_tabs")
+    assert [c.get("browser", k) for k in keys] == [512, 50, 4096, 20480, 10, 50]
+    assert c.get("retention", "download_days") is None
+
+
+def test_the_limits_ferb_wrote_take_the_decided_values_and_an_owner_value_stays(home: Path) -> None:
+    c = Config(home)
+    for (section, key), (old, _) in FERB_WRITTEN.items():
+        c.set(section, key, old)
+    c.set("browser", "download_total_mb", 1000)                 # the owner's own value
+    c.set("retention", "download_days", 30)
+    changes = c.upgrade_ferb_written()
+    assert (c.get("browser", "download_max_mb"), c.get("browser", "download_task_max_files"),
+            c.get("browser", "download_task_max_mb"), c.get("browser", "task_max_tabs")) == (512, 50, 4096, 50)
+    assert c.get("browser", "download_total_mb") == 1000 and c.get("retention", "download_days") is None
+    assert {"key": "browser.download_max_mb", "from": 100, "to": 512} in changes
+    assert {"key": "retention.download_days", "from": 30, "to": None} in changes
+    assert not any(ch["key"] == "browser.download_total_mb" for ch in changes)
+    assert "# keep this comment" in (home / "config.toml").read_text()
+
+
+def test_the_daemon_applies_the_limits_decision_once_and_journals_it() -> None:
+    import shutil
+    import tempfile
+    from tests.conftest import RunningDaemon
+    base = Path(tempfile.mkdtemp(prefix="ferbt-"))              # short: AF_UNIX socket paths are limited
+
+    async def upgraded(d: Any) -> list[dict[str, Any]]:
+        return [e.data for e in d.daemon.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED)]
+    try:
+        Config(base / "home").set("browser", "download_max_mb", 100)          # what F4's daemon wrote
+        d = RunningDaemon(base / "home")
+        try:
+            assert d.daemon.config.get("browser", "download_max_mb") == 512
+            [row] = d.run(upgraded(d))
+            assert {"key": "browser.download_max_mb", "from": 100, "to": 512} in row["changes"]
+            d.daemon.config.set("browser", "download_max_mb", 100)            # now the owner's own choice
+        finally:
+            d.stop()
+        d = RunningDaemon(base / "home")
+        try:
+            assert d.daemon.config.get("browser", "download_max_mb") == 100    # never replaced again
+            assert len(d.run(upgraded(d))) == 1
+        finally:
+            d.stop()
+    finally:
+        shutil.rmtree(base, ignore_errors=True)

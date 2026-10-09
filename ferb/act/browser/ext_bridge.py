@@ -537,7 +537,7 @@ class _TabDriver:
         self.uploads: Uploads | None = None             # rule 17: daemon supplied; the browser reads FERB's copy
         self.task_running: Callable[[str], bool] = lambda task: True   # daemon supplied: the task hasn't ended
         self.task_root: Callable[[str], str] = lambda task: task      # daemon supplied: the task tree (tab cap)
-        self.max_tabs: Callable[[], int] = lambda: 20                 # daemon supplied: browser.task_max_tabs
+        self.max_tabs: Callable[[], int] = lambda: 50                 # daemon supplied: browser.task_max_tabs
         self._tabs_opened: dict[str, int] = {}                        # task tree -> tabs FERB opened from its pages
         self._released: set[str] = set()                              # tasks that let go of their tabs
         self._n = 0

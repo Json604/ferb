@@ -365,15 +365,15 @@ def test_a_pass_handles_at_most_200_roots_oldest_first(daemon: RunningDaemon, mo
 
 
 def test_every_retention_days_setting_is_at_least_one_day(daemon: RunningDaemon) -> None:
-    """A retention of 0 (or less) would purge evidence, recovery copies, downloads or traces the moment they exist,
+    """A retention of 0 (or less) would purge evidence, recovery copies or traces the moment they exist,
     before the checker, the owner or `ferb restore` could use them: every retention.*_days F4 reads is at least 1."""
-    for key in ("trace_days", "decision_days", "evidence_days", "recovery_days", "download_days"):
+    for key in ("trace_days", "decision_days", "evidence_days", "recovery_days"):
         daemon.daemon.config.set("retention", key, 0 if key != "decision_days" else -3)
 
     async def read() -> Any:
         plan = daemon.daemon._purge_plan()
         listed = await daemon.daemon._recovery_list(None, {})            # type: ignore[arg-type]
-        return plan, daemon.daemon.downloads.limits().keep_days, listed["days"]
-    plan, download_days, restore_days = daemon.run(read())
+        return plan, listed["days"]
+    plan, restore_days = daemon.run(read())
     assert (plan.trace_days, plan.decision_days, plan.evidence_days, plan.recovery_days) == (1, 1, 1, 1)
-    assert download_days == 1 and restore_days == 1
+    assert restore_days == 1
