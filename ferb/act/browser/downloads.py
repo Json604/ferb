@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Iterable, NamedTuple
 
+from ferb.act.browser import uploads
 from ferb.core import origin
 from ferb.store import retention
 
@@ -88,11 +89,14 @@ def safe_name(raw: str) -> str:
 
 
 def untrusted_roots(configured: Iterable[str], workspace: Path) -> tuple[str, ...]:
-    """The fs roots whose files are outside content: the owner's configured ones plus FERB's downloads folder, which
-    code adds so config can't remove it (MP2)."""
+    """The fs roots whose files are outside content: the owner's configured ones, plus FERB's downloads folder and the
+    folder of upload copies made from outside content (`uploads/outside`), which code adds so config can't remove
+    them (MP2)."""
     out = [str(p) for p in configured]
-    folder = str(workspace / FOLDER)
-    return tuple(out if folder in out else [*out, folder])
+    for folder in (str(workspace / FOLDER), str(workspace / uploads.FOLDER / uploads.OUTSIDE)):
+        if folder not in out:
+            out.append(folder)
+    return tuple(out)
 
 
 def _mb(n: int) -> str:

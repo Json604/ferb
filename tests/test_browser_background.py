@@ -185,7 +185,12 @@ def test_uploads_go_through_the_stamped_file_field_and_only_real_files(bd: Any, 
     field = next(e["id"] for e in snap["elements"] if e.get("type") == "file")
     r = call(d, g, "browser.act", tab=tab, element=field, action="upload", files=[str(f)])
     assert not r["is_error"], r
-    assert ext.uploads[-1]["paths"] == [str(f)] and "1 file(s)" in r["content"]["detail"]
+    [given] = ext.uploads[-1]["paths"]
+    staged = Path(given)                                         # the browser reads FERB's copy, never the original
+    assert staged.name == "cv.pdf" and staged.read_bytes() == f.read_bytes()
+    assert staged.parent.parent == d.daemon.home / "workspace" / "uploads" / "x"
+    assert r["content"]["files"][0]["path"] == str(f.resolve()) and r["content"]["staged_copies"] == [given]
+    assert "1 file(s)" in r["content"]["detail"]
     snap = call(d, g, "browser.snapshot", tab=tab)["content"]
     field = next(e["id"] for e in snap["elements"] if e.get("type") == "file")
     r = call(d, g, "browser.act", tab=tab, element=field, action="upload", files=[str(tmp_path / "nope.pdf")])

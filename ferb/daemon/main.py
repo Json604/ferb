@@ -20,7 +20,7 @@ from ferb.orchestrator.verify import Checks
 from ferb.orchestrator.tree import TaskTree
 from ferb.act.browser.tools import IdentityDriver
 from ferb.core.types import Identity
-from ferb.act.browser import downloads, profiles as browser_profiles
+from ferb.act.browser import downloads, profiles as browser_profiles, uploads
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
 from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.act.evidence.store import EvidenceStore
@@ -139,6 +139,7 @@ class Daemon:
         self.router: Router | None = None
         self.ferb_identity: FerbIdentity | None = None
         self.downloads: downloads.Downloads | None = None
+        self.uploads: uploads.Uploads | None = None
         self.wake = WakeServer()
         # The owner's Mac + shell
         self.watch_owner_input = watch_owner_input
@@ -453,7 +454,8 @@ class Daemon:
         device = str(self.config.get("device", "id", "unknown-device"))
         workspace = self.home / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
-        # FERB's downloads folder is always outside content (D35, MP2): code adds it, config can't remove it.
+        # FERB's downloads folder and its upload copies of outside content are always outside content (D35, MP2):
+        # code adds them, config can't remove them.
         roots = FsRoots(str(workspace), tuple(self.config.get("fs", "owner_roots", [])),
                         downloads.untrusted_roots(self.config.get("fs", "untrusted_roots", ["~/Downloads"]), workspace))
         assert self.ledger and self.spans and self.journal
@@ -472,7 +474,7 @@ class Daemon:
                                      checks=Checks(self._urls_of, self.spans), roots=roots)
         self.supervisor.browser_context = self._browser_context
         self.supervisor.on_task_start = self.disturbance.start
-        self.supervisor.on_task_finish = self.disturbance.finish
+        self.supervisor.on_task_finish = self._tree_finished
         self.supervisor.disturbance_context = self.disturbance.context
         self.supervisor.relevant_context = self._relevant_context
         add_context_readers(self.registry, self.supervisor.continuity,
@@ -515,6 +517,19 @@ class Daemon:
             except Exception as exc:
                 resources.append({'resource': 'shell', 'released': False, 'error': f"{type(exc).__name__}: {exc}"})
         return resources
+
+    async def _tree_finished(self, tree_id: str) -> None:
+        """A task tree ended: the desktop observer's summary, then FERB's upload copies for it go (rule 17). A failure to
+        remove them is journaled; the next start-up sweeps them."""
+        try:
+            await self.disturbance.finish(tree_id)
+        finally:
+            if self.uploads is not None:
+                try:
+                    await asyncio.to_thread(self.uploads.forget_tree, tree_id)
+                except OSError as e:
+                    self._journal().append("browser.uploads_cleanup_failed",
+                                           {"task_id": tree_id, "error": f"{type(e).__name__}: {e}"})
 
     def _stop_identity_browser(self) -> None:
         asyncio.get_event_loop().create_task(self.recordings.shutdown())
@@ -1582,6 +1597,13 @@ class Daemon:
                                        {"step": name, "error": f"{type(e).__name__}: {e}"})
         self.downloads.task_root = self._task_root
         self.hub.on_download = self.downloads.receive
+        # Rule 17: a file given to a browser to upload is FERB's own copy, never one in a folder macOS protects.
+        self.uploads = uploads.Uploads(self.home / "workspace" / uploads.FOLDER,
+                                       lambda: self._gateway().roots.untrusted_roots)
+        try:
+            await asyncio.to_thread(self.uploads.sweep)  # copies a restart left behind belong to no task now
+        except OSError as e:
+            self._journal().append("browser.uploads_startup_failed", {"error": f"{type(e).__name__}: {e}"})
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.add_secret_value = self._add_secret_value
         add_owner_browsers(self.registry, self.router, self.recordings)
@@ -1593,6 +1615,7 @@ class Daemon:
         for drv in (self.router, self.ferb_identity):
             drv.inspection_parent = self._inspection_parent
             drv.downloads = self.downloads
+            drv.uploads = self.uploads
             drv.task_running = lambda task_id: self.tasks.get(task_id) is not None   # removed when its tree ends
             drv.task_root = self._task_root
             drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 20))

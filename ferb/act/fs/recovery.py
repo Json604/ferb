@@ -146,6 +146,14 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def copy_file(src: Path, dst: Path) -> str:
+    """A new copy of src at dst — an APFS clone where the volume allows it, else a byte copy; never replacing dst; a
+    lock flag the copy inherited cleared — and its SHA-256. The copy S1 keeps (`_make_copy`); upload staging gives a
+    browser one."""
+    _make_copy(src, dst)
+    return _sha256(dst)
+
+
 def _inside(root: Path, rel: str | None) -> Path | None:
     """A clone's file, only when it resolves inside the recovery root (symlinks followed); else None."""
     if not rel:

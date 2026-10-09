@@ -267,7 +267,7 @@ def test_fs_read_of_a_downloaded_file_is_outside_content(bd: Any) -> None:
 
 
 def test_the_downloads_folder_stays_outside_content_when_config_drops_every_untrusted_root(tmp_path: Path) -> None:
-    """Code adds the folder; config can't remove it."""
+    """Code adds the folders (downloads, and upload copies of outside content); config can't remove them."""
     import shutil
     import tempfile
     from ferb.config import Config
@@ -277,7 +277,8 @@ def test_the_downloads_folder_stays_outside_content_when_config_drops_every_untr
         d = RunningDaemon(base / "home")
         try:
             roots = d.daemon.gateway.roots.untrusted_roots
-            assert roots == (str(base / "home" / "workspace" / "downloads"),)
+            assert roots == (str(base / "home" / "workspace" / "downloads"),
+                             str(base / "home" / "workspace" / "uploads" / "outside"))
         finally:
             d.stop()
     finally:

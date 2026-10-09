@@ -2,7 +2,8 @@
 
 Hub binds authenticated installs to profiles. Bridge tracks generation-scoped command IDs, chunks large content,
 and records disconnected actions as unknown without replay. Router binds explicit profiles and element references.
-FerbIdentity adds origin-bound sealed fills and opaque mailbox candidates. Upload receipts retain local byte identity.
+FerbIdentity adds origin-bound sealed fills and opaque mailbox candidates. Upload receipts retain local byte identity;
+the browser is given FERB's own copy of the file (uploads.py), never the original.
 A download caught in a task tab goes to `Hub.on_download` (downloads.py takes it); the drivers say whose tab it is.
 WakeServer serves only the temporary local pairing page; ordinary wake launches no window or URL."""
 
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit
 from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, Event, Hello, Op, Result, TabEvent,
                                            command, parse, version_ok)
 from ferb.act.browser.downloads import Downloads, TaskTab
+from ferb.act.browser.uploads import StagingFailed, Uploads
 from ferb.act.browser.pairing import Binding, Pairings
 from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
 from ferb.act.browser.resolver import Resolver
@@ -526,6 +528,7 @@ class _TabDriver:
         self._tabs: dict[str, _Tab] = {}
         self.inspection_parent: Callable[[str], str | None] = lambda task: None  # registered checker, daemon supplied
         self.downloads: Downloads | None = None         # D35: shared by both drivers, daemon supplied
+        self.uploads: Uploads | None = None             # rule 17: daemon supplied; the browser reads FERB's copy
         self.task_running: Callable[[str], bool] = lambda task: True   # daemon supplied: the task hasn't ended
         self.task_root: Callable[[str], str] = lambda task: task      # daemon supplied: the task tree (tab cap)
         self.max_tabs: Callable[[], int] = lambda: 20                 # daemon supplied: browser.task_max_tabs
@@ -868,9 +871,20 @@ class _TabDriver:
                 raise Refused("upload source changed while reading identity; inspect the file again")
             identities.append({"path": path, "size": before.st_size, "modified_ns": before.st_mtime_ns,
                                "sha256": digest, "owner_uid": before.st_uid})
+        given = paths
+        if self.uploads is not None:
+            # Rule 17: the browser reads FERB's own copy, never the original in a folder macOS protects (a permission
+            # dialog in front of the owner). The identity above is the original's; the copy must match it.
+            staging, tree = self.uploads, self.task_root(str(t.owner or ""))
+            try:
+                given = await asyncio.to_thread(
+                    lambda: [staging.stage(tree, str(item["path"]), str(item["sha256"])) for item in identities])
+            except (OSError, StagingFailed) as e:
+                raise Refused(f"FERB couldn't make its own copy of the file to upload ({e}); nothing was given to "
+                              "the browser") from None
         try:
             v = await t.bridge.call("upload", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
-                                               "paths": paths}, timeout=30, cid=intent_id or None)
+                                               "paths": given}, timeout=30, cid=intent_id or None)
         except DriverError as e:
             if str(e).startswith("detached:"):
                 raise OutcomeUnknown(self._detached_msg(str(e)[9:])) from None
@@ -879,6 +893,8 @@ class _TabDriver:
             raise StaleRef("the file field is gone; take a new snapshot")
         facts = {k: value for k, value in v.items() if k not in {"ok", "detail"}}
         facts.update(source="local", files=identities, transferred=bool(v.get("ok")))
+        if given is not paths:
+            facts["staged_copies"] = given          # what the browser read: FERB's copies; the originals are unchanged
         selected = v.get("selected_files")
         facts["bytes_match"] = (len(selected) == len(identities) and all(
             a.get("sha256") == b["sha256"] and a.get("size") == b["size"]
