@@ -36,7 +36,10 @@ PAGE = b"""<!doctype html><title>Downloads lab</title>
 <button onclick="exportDetached()">Export detached</button>
 <a target=_blank href="/attach.bin?name=newtab.bin">New tab file</a>
 <button onclick="window.open('/attach.bin?name=popup.bin')">Popup file</button>
+<button onclick="window.open('/oauth')">Sign in</button>
+<p id=status>not signed in</p>
 <script>
+addEventListener('message', (e) => { if (e.data === 'signed-in') document.getElementById('status').textContent = 'signed in via popup'; });
 function exportAttached() {          // a page-made file through a connected link, revoked at once
   const u = URL.createObjectURL(new Blob(['a,b\\n1,2\\n'], {type: 'text/csv'}));
   const a = document.createElement('a'); a.href = u; a.download = 'export.csv';
@@ -64,6 +67,9 @@ def site() -> Iterator[str]:
                 head, body = {"content-type": "text/csv; charset=utf-8"}, "é,😀\n".encode() * 50_000
             elif p == "/plain.txt":
                 head, body = {"content-type": "text/plain"}, b"plain words"
+            elif p == "/oauth":                                    # an OAuth-style popup: it answers its opener
+                body = (b"<title>Sign in</title><script>window.opener && window.opener.postMessage('signed-in', '*');"
+                        b"</script>signed in")
             elif p == "/big":
                 head, body = {"content-type": "application/zip", "content-disposition": "attachment; filename=big.zip"}, BIG
             self.send_response(200)
@@ -142,10 +148,14 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
             out["new_tabs"] = await opened(tab)
             new = driver.owned_by(out["new_tabs"][0]["tab"], "lab-task")
             out["in_new_tab"] = await driver.downloads_for(new, 30)
-            await click(tab, "Popup file")                              # window.open: the measured race
+            await click(tab, "Popup file")                              # window.open: the page hook opens it blank
             out["popups"] = await opened(tab, 5)
             pop = driver.owned_by(out["popups"][0]["tab"], "lab-task") if out["popups"] else None
             out["in_popup"] = await driver.downloads_for(pop, 30) if pop else []
+            await click(tab, "Sign in")                                 # its opener relationship must survive
+            await asyncio.sleep(2)
+            out["oauth_popup"] = await opened(tab, 5)
+            out["oauth"] = "signed in via popup" in (await driver.snapshot(tab)).text
             borrowed = await driver.attach(f"chrome:Default:{newtab_owner}", "lab-task")
             await driver.navigate(borrowed, f"{site}/attach.bin?name=fromnewtab.bin")   # through a blank page
             out["from_new_tab_page"] = await driver.downloads_for(borrowed, 30)
@@ -178,15 +188,16 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
         assert Path(blob["path"]).read_bytes() == b"a,b\n1,2\n"
         [big] = out["big"]
         assert big["state"] == "refused" and "path" not in big
-        [detached] = out["detached"]
-        assert detached["state"] == "not_taken" and detached["name"] == "detached.txt"   # the measured residual
+        [detached] = out["detached"]                                   # FileSaver style: the page hook brings it in
+        assert detached["state"] == "taken" and detached["name"] == "detached.txt"
+        assert Path(detached["path"]).read_bytes() == b"detached"
         [newtab] = out["in_new_tab"]
         assert newtab["state"] == "taken" and newtab["name"] == "newtab.bin"
         [fromnewtab] = out["from_new_tab_page"]
         assert fromnewtab["state"] == "taken" and fromnewtab["name"] == "fromnewtab.bin"
-        popup_taken = [f for f in out["in_popup"] if f["state"] == "taken"]
+        [popup] = out["in_popup"]                                      # window.open: blank, armed, then loaded by FERB
+        assert popup["state"] == "taken" and popup["name"] == "popup.bin"
+        assert out["oauth"] is True and out["oauth_popup"]             # the OAuth-style popup still answered its opener
     assert out["opened_url"] in ("about:blank", "")                    # the page never became the download
-    # Only the residuals reached the browser's own flow: the detached blob, and the popup when it won its race.
-    assert set(mid) - {"popup.bin"} == {"detached.txt"}, mid
-    assert ("popup.bin" in mid) != bool(popup_taken)                   # taken by FERB, or the browser's: never both
+    assert mid == [], mid                                              # nothing of the task's reached the browser's flow
     assert set(end) - set(mid) == {"after.bin", "owner.bin"}           # the owner's own downloads: untouched

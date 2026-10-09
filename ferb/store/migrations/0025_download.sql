@@ -22,6 +22,7 @@ CREATE TABLE downloads (
     reason     TEXT,
     origin     TEXT NOT NULL,
     at         TEXT NOT NULL,
-    trashed_to TEXT                   -- where the Trash put the file (retention), NULL while kept
+    trashed_to TEXT,                  -- where the Trash put the file (retention), NULL while kept
+    kept       TEXT                   -- retention: NULL while kept, trash | gone | "stuck: ..." (left in place)
 );
 CREATE INDEX downloads_task ON downloads(task_id);

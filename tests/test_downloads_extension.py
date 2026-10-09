@@ -79,9 +79,9 @@ def test_what_becomes_of_a_held_download_nobody_takes(identity: str) -> None:
       steps.left = downloads.size;
       return steps;
     })()''' % identity)
+    gone = "Fetch.failRequest" if identity == "ferb" else "Fetch.continueRequest"   # FERB's profile: never the browser's
     assert out["abort"] == {"aborted": True} and out["afterAbort"] == ["Fetch.failRequest"]
-    assert out["release"] == {"released": True, "handed_back": True} and out["afterRelease"] == ["Fetch.continueRequest"]
-    gone = "Fetch.failRequest" if identity == "ferb" else "Fetch.continueRequest"
+    assert out["release"] == {"released": True, "handed_back": identity == "owner"} and out["afterRelease"] == [gone]
     assert out["afterIdle"] == [gone] and out["noDaemon"] == [gone] and out["noDaemonEvents"] == 0
     assert out["left"] == 0
 
@@ -189,7 +189,7 @@ def test_a_new_tab_from_a_task_tab_is_armed_and_reported_and_links_to_new_tabs_g
     out = worker('''(async () => {
       const sent = [], armedTabs_ = [];
       port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
-      arm = async (id) => { armedTabs_.push(id); const t = tabState(id); t.attached = true; t.armed = true; return t; };
+      arm = async (id) => { const t = tabState(id); if (!t.armed) armedTabs_.push(id); t.attached = true; t.armed = true; return t; };
       chrome.tabs.get = async id => ({id, windowId: 9});
       tabState(5).armed = true;
       await adoptPopup({id: 21, openerTabId: 5, pendingUrl: 'https://s.example/pop?token=zz'});
@@ -323,42 +323,60 @@ console.log(JSON.stringify([p.cdpFilter("IO.read", {{data: "x", base64Encoded: t
 
 CONTENT_HARNESS = r"""
 const vm = require('vm'), fs = require('fs');
-const listeners = {}, messages = [], passed = [];
+const listeners = {capture: {}, bubble: {}}, messages = [], passed = [];
 class HTMLAnchorElement { constructor(href, attrs = {}) { this.href = href; this.attrs = attrs; this.isConnected = true; }
   hasAttribute(n) { return n in this.attrs; } getAttribute(n) { return n in this.attrs ? this.attrs[n] : null; }
   click() { passed.push({href: this.href, target: this.target || null, download: this.download === undefined ? null : this.download}); } }
 const blob = {size: 9, type: 'text/csv', slice: (a, b) => ({arrayBuffer: async () => new TextEncoder().encode('a,b\n1,2\n!').slice(a, b).buffer})};
-const mode = process.argv[2];                                    // armed | unarmed | stale
+const mode = process.argv[2];                                    // armed | unarmed | stale | base
+const base = mode === 'base' ? new HTMLAnchorElement('', {target: '_blank'}) : null;
+const docListeners = {};
 const ctx = vm.createContext({document: {readyState: 'complete', createElement: () => new HTMLAnchorElement(''),
-    querySelector: () => null}, window: {}, crypto: globalThis.crypto, WeakRef, TextEncoder, CSS: {escape: s => s},
+    querySelector: (sel) => sel === 'base[target]' ? base : null,
+    addEventListener: (t, fn) => { (docListeners[t] = docListeners[t] || []).push(fn); },
+    dispatchEvent: (e) => { for (const fn of docListeners[e.type] || []) fn(e); return !e.defaultPrevented; }},
+  window: {}, crypto: globalThis.crypto, WeakRef, TextEncoder, CSS: {escape: s => s},
+  CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; this.defaultPrevented = false; }
+                       preventDefault() { this.defaultPrevented = true; } },
   btoa, atob, innerWidth: 800, innerHeight: 600, location: {origin: 'https://s.example', href: 'https://s.example/'},
-  addEventListener: (t, fn, c) => { (listeners[t] = listeners[t] || []).push(fn); }, setTimeout,
-  MutationObserver: class { observe() {} }, ShadowRoot: class {}, HTMLAnchorElement,
+  addEventListener: (t, fn, c) => { const phase = c === true ? 'capture' : 'bubble'; (listeners[phase][t] = listeners[phase][t] || []).push(fn); },
+  setTimeout, MutationObserver: class { observe() {} }, ShadowRoot: class {}, HTMLAnchorElement,
   URL: Object.assign(function () {}, {createObjectURL: () => 'blob:https://s.example/again', revokeObjectURL() {}}),
   fetch: async (u) => ({blob: async () => blob}),
-  chrome: {runtime: {sendMessage: (m, cb) => { messages.push(m); if (cb) cb(mode === 'armed' ? true : mode === 'stale' ? false : false); }}}});
-if (mode === 'stale') ctx.chrome.runtime.sendMessage = (m, cb) => { messages.push(m); if (cb) cb(m.ferbArmed ? true : false); };
+  chrome: {runtime: {sendMessage: (m, cb) => { messages.push(m); if (cb) cb(mode === 'unarmed' ? false : mode === 'stale' ? !!m.ferbArmed : true); }}}});
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
-const click = (type, a, extra = {}) => { const ev = {type, prevented: false, defaultPrevented: !!extra.cancelled,
-  composedPath: () => [a], preventDefault() { this.prevented = true; }, button: 0, ...extra};
-  for (const fn of listeners[type] || []) fn(ev); return ev.prevented; };
+// capture listeners, then the page's own handler (cancel / stopPropagation), then bubble listeners unless stopped
+const click = (type, a, o = {}) => { const ev = {type, prevented: false, defaultPrevented: false, isTrusted: o.trusted !== false,
+  composedPath: () => [a], preventDefault() { this.prevented = true; this.defaultPrevented = true; }, button: o.button || 0,
+  metaKey: !!o.metaKey};
+  for (const fn of listeners.capture[type] || []) fn(ev);
+  if (o.pageCancels) ev.defaultPrevented = true;
+  if (!o.pageStops) for (const fn of listeners.bubble[type] || []) fn(ev);
+  return ev.prevented; };
 (async () => {
   const A = (href, attrs) => new HTMLAnchorElement(href, attrs);
   const clicks = {
     blob: click('click', A('blob:https://s.example/1', {download: 'r.csv'})),
+    blobStopped: click('click', A('blob:https://s.example/2', {download: 's.csv'}), {pageStops: true, trusted: false}),
     plain: click('click', A('https://s.example/plain', {})),
     data: click('click', A('data:text/csv;base64,YQ==', {download: 'd.csv'})),
     blank: click('click', A('https://s.example/next', {target: '_blank'})),
+    untrusted: click('click', A('https://s.example/script', {target: '_blank'}), {trusted: false}),
+    named: click('click', A('https://s.example/named', {target: 'results'})),
+    baseTarget: click('click', A('https://s.example/viabase', {})),
     cmd: click('click', A('https://s.example/cmd', {}), {metaKey: true}),
     middle: click('auxclick', A('https://s.example/mid', {}), {button: 1}),
     httpDownload: click('click', A('https://s.example/file.zip', {download: '', target: '_blank'})),
-    pageCancelled: click('click', A('https://s.example/spa', {target: '_blank'}), {cancelled: true}),
+    pageCancelled: click('click', A('https://s.example/spa', {target: '_blank'}), {pageCancels: true}),
   };
+  const armedAnswer = !ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-armed', {cancelable: true}));
+  ctx.document.dispatchEvent(new ctx.CustomEvent('ferb-popup', {detail: JSON.stringify({token: 't1', url: 'https://s.example/pop'})}));
   await new Promise(r => setTimeout(r, 20));
   const caught = messages.filter(m => m.ferbDownload).map(m => m.ferbDownload);
   const opens = messages.filter(m => m.ferbOpen).map(m => m.ferbOpen.url);
+  const popups = messages.filter(m => m.ferbPopup).map(m => m.ferbPopup);
   const part = mode === 'armed' && caught.length ? await ctx.window.__ferb.downloadPart(caught[0].id, 0, 4) : null;
-  console.log(JSON.stringify({clicks, caught, opens, part, passed}));
+  console.log(JSON.stringify({clicks, caught, opens, popups, part, passed, armedAnswer}));
   process.exit(0);                                               // a pending revoke timer must not hold node open
 })();
 """
@@ -371,20 +389,28 @@ def _content(mode: str) -> dict:
     return json.loads(r.stdout)
 
 
-def test_the_page_listener_takes_blob_and_data_links_and_new_tab_links_while_ferb_drives_the_tab() -> None:
+def test_the_page_listener_takes_blob_and_data_links_and_trusted_new_tab_links_while_ferb_drives_the_tab() -> None:
     out = _content("armed")
-    assert out["clicks"] == {"blob": True, "plain": False, "data": True, "blank": True, "cmd": True, "middle": True,
+    assert out["clicks"] == {"blob": True, "blobStopped": True, "plain": False, "data": True, "blank": True,
+                             "untrusted": False, "named": False, "baseTarget": False, "cmd": True, "middle": True,
                              "httpDownload": False, "pageCancelled": False}
-    assert [c["name"] for c in out["caught"]] == ["r.csv", "d.csv"] and out["caught"][0]["size"] == 9
-    assert out["caught"][1]["source_url"] == "data:text/csv"       # never the data itself as a "URL"
+    assert [c["name"] for c in out["caught"]] == ["r.csv", "s.csv", "d.csv"]   # a page's stopPropagation can't hide one
+    assert out["caught"][2]["source_url"] == "data:text/csv"       # never the data itself as a "URL"
     assert out["opens"] == ["https://s.example/next", "https://s.example/cmd", "https://s.example/mid"]
     assert base64.b64decode(out["part"]["data"]) == b"a,b\n" and out["part"]["eof"] is False
     assert out["passed"] == []                                     # nothing handed back: FERB has them all
+    assert out["armedAnswer"] is True                              # the page hook's question, answered
+    assert out["popups"] == [{"token": "t1", "url": "https://s.example/pop"}]
+
+
+def test_a_base_target_blank_link_is_a_new_tab_link() -> None:
+    assert _content("base")["clicks"]["baseTarget"] is True
 
 
 def test_the_page_listener_does_nothing_in_a_tab_ferb_isnt_driving() -> None:
     out = _content("unarmed")
     assert not any(out["clicks"].values()) and out["caught"] == [] and out["opens"] == [] and out["passed"] == []
+    assert out["armedAnswer"] is False and out["popups"] == []
 
 
 def test_a_stale_page_listener_hands_the_owners_click_back_to_the_browser() -> None:
@@ -392,7 +418,160 @@ def test_a_stale_page_listener_hands_the_owners_click_back_to_the_browser() -> N
     tab go to the browser as they would have, never cancelled or dropped."""
     out = _content("stale")
     passed = {p["href"]: p for p in out["passed"]}
-    assert passed["blob:https://s.example/again"]["download"] == "r.csv"         # the held Blob, as a fresh URL
+    assert passed["blob:https://s.example/again"]["download"] in ("r.csv", "s.csv")   # the held Blob, as a fresh URL
     assert passed["data:text/csv;base64,YQ=="]["download"] == "d.csv"
     assert passed["https://s.example/next"]["target"] == "_blank"
     assert {"https://s.example/cmd", "https://s.example/mid"} <= set(passed)
+
+
+HOOK_HARNESS = r"""
+const vm = require('vm');
+const p = require(process.argv[1]);
+const log = [];
+class EventTarget { constructor() { this.l = {}; }
+  addEventListener(t, f) { (this.l[t] = this.l[t] || []).push(f); }
+  removeEventListener(t, f) { this.l[t] = (this.l[t] || []).filter((x) => x !== f); }
+  dispatchEvent(e) { for (const f of (this.l[e.type] || []).slice()) f(e); return !e.defaultPrevented; } }
+class HTMLElement extends EventTarget { constructor(href = '', attrs = {}) { super(); this.href = href; this.attrs = attrs; this.isConnected = false; }
+  click() { log.push(['native-click', this.href, this.isConnected]); }
+  hasAttribute(n) { return n in this.attrs; } remove() { this.isConnected = false; log.push(['removed']); } }
+class HTMLAnchorElement extends HTMLElement {}
+class HTMLAreaElement extends HTMLElement {}
+class CustomEvent { constructor(t, i = {}) { this.type = t; this.detail = i.detail; this.cancelable = !!i.cancelable; this.defaultPrevented = false; }
+  preventDefault() { if (this.cancelable) this.defaultPrevented = true; } }
+const document = new EventTarget();
+document.baseURI = 'https://s.example/page';
+document.documentElement = {appendChild(el) { el.isConnected = true; log.push(['appended']); }};
+const window = {open: (u, t, f) => { const w = {location: {href: u}}; log.push(['native-open', u, t === undefined ? null : t, f === undefined ? null : f]); return w; }};
+let armed = process.argv[2] === 'armed';
+document.addEventListener('ferb-armed', (e) => { if (armed) e.preventDefault(); });
+const relayed = [];
+document.addEventListener('ferb-popup', (e) => relayed.push(JSON.parse(e.detail)));
+const ctx = vm.createContext({window, document, EventTarget, HTMLElement, HTMLAnchorElement, HTMLAreaElement, CustomEvent,
+                              URL, crypto: globalThis.crypto, setTimeout});
+vm.runInContext(p.PAGE_HOOK, ctx);
+vm.runInContext(p.PAGE_HOOK, ctx);                               // installed twice: wraps once
+(async () => {
+  const out = {};
+  const mark = () => log.splice(0);
+  new HTMLAnchorElement('blob:https://s.example/1', {download: ''}).click();
+  out.unseenClick = mark();
+  new HTMLAnchorElement('blob:https://s.example/2', {download: ''}).dispatchEvent({type: 'click'});
+  out.unseenDispatch = mark();
+  new HTMLAreaElement('data:text/plain,x', {download: 'a.txt'}).click();
+  out.area = mark();
+  new HTMLAnchorElement('https://s.example/f', {download: ''}).click();
+  out.httpLink = mark();
+  const plainA = new HTMLAnchorElement('blob:https://s.example/3', {}); plainA.click();
+  out.noDownloadAttr = mark();
+  const w1 = window.open('/file.zip');
+  out.open = mark(); out.relayed = relayed.splice(0);
+  const w2 = window.open('https://s.example/taken.zip', '_blank');
+  const taken = relayed.splice(0)[0];
+  document.dispatchEvent(new CustomEvent('ferb-popup-taken', {detail: taken ? taken.token : ''}));
+  mark();
+  window.open('https://s.example/named', 'results'); out.named = mark();
+  window.open('https://s.example/nop', '_blank', 'noopener'); out.noopener = mark();
+  window.open('javascript:alert(1)'); out.script = mark();
+  await new Promise((r) => setTimeout(r, 1700));
+  out.fallback = w1 ? w1.location.href : null;
+  out.takenStays = w2 ? w2.location.href : null;
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def _hook(mode: str) -> dict:
+    r = subprocess.run([_node(), "-e", HOOK_HARNESS, str(EXT / "protocol.js"), mode], capture_output=True, text=True,
+                       timeout=20)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_the_page_hook_brings_unseen_save_links_into_the_document_and_opens_new_tabs_blank_while_ferb_drives() -> None:
+    out = _hook("armed")
+    assert out["unseenClick"] == [["appended"], ["native-click", "blob:https://s.example/1", True], ["removed"]]
+    # a page's `new MouseEvent("click")` can't be cancelled: the hook clicks it itself, connected, so content.js can
+    assert out["unseenDispatch"] == [["appended"], ["native-click", "blob:https://s.example/2", True], ["removed"]]
+    assert out["area"][0] == ["appended"]
+    assert out["httpLink"] == [["native-click", "https://s.example/f", False]]     # the debugger holds http(s) ones
+    assert out["noDownloadAttr"] == [["native-click", "blob:https://s.example/3", False]]
+    assert out["open"] == [["native-open", "about:blank", "_blank", None]]         # a real window, opener kept
+    assert [r["url"] for r in out["relayed"]] == ["https://s.example/file.zip"]
+    assert out["fallback"] == "https://s.example/file.zip"                         # FERB didn't take it: it loads itself
+    assert out["takenStays"] == "about:blank"                                      # FERB took it: FERB loads it
+    assert out["named"] == [["native-open", "https://s.example/named", "results", None]]
+    assert out["noopener"] == [["native-open", "https://s.example/nop", "_blank", "noopener"]]
+    assert out["script"] == [["native-open", "javascript:alert(1)", None, None]]
+
+
+def test_the_page_hook_is_native_when_ferb_isnt_driving_the_tab() -> None:
+    out = _hook("unarmed")
+    assert out["unseenClick"] == [["native-click", "blob:https://s.example/1", False]]
+    assert out["unseenDispatch"] == [] and out["area"] == [["native-click", "data:text/plain,x", False]]
+    assert out["open"] == [["native-open", "/file.zip", None, None]] and out["relayed"] == []
+    assert out["fallback"] == "/file.zip"
+
+
+def test_the_page_hook_is_pinned_and_installed_and_removed_with_the_tabs_arming() -> None:
+    proto = EXT / "protocol.js"
+    out = json.loads(subprocess.run([_node(), "-e", f"""
+const p = require({json.dumps(str(proto))});
+console.log(JSON.stringify([
+  p.cdpAllowed("Page.addScriptToEvaluateOnNewDocument", {{source: p.PAGE_HOOK, runImmediately: true}}),
+  p.cdpAllowed("Page.addScriptToEvaluateOnNewDocument", {{source: p.PAGE_HOOK + " ", runImmediately: true}}),
+  p.cdpAllowed("Page.addScriptToEvaluateOnNewDocument", {{source: p.PAGE_HOOK}}),
+  p.cdpAllowed("Page.removeScriptToEvaluateOnNewDocument", {{identifier: "1"}}),
+  p.cdpAllowed("Runtime.evaluate", {{expression: p.PAGE_HOOK}}),
+  p.PAGE_HOOK.includes("toString")]));
+"""], capture_output=True, text=True, timeout=20).stdout)
+    assert out == [True, False, False, True, False, False]                 # exact source; no masking
+    calls = worker('''(async () => {
+      const cmds = [];
+      port = {postMessage() {}}; send = async () => {};
+      chrome.debugger = new Proxy({attach: async () => {}, sendCommand: async (t, m, p) => { cmds.push(m);
+          return m === 'Page.addScriptToEvaluateOnNewDocument' ? {identifier: 'h1'} : {}; },
+        detach: async () => { cmds.push('detach'); }, onEvent: chrome.debugger.onEvent, onDetach: chrome.debugger.onDetach},
+        {get: (o, k) => o[k]});
+      await arm(12);
+      const armed = cmds.splice(0);
+      await detach(12);
+      return {armed, released: cmds};
+    })()''')
+    assert "Page.addScriptToEvaluateOnNewDocument" in calls["armed"]
+    assert calls["released"].index("Page.removeScriptToEvaluateOnNewDocument") < calls["released"].index("detach")
+
+
+def test_a_page_hook_popup_is_adopted_and_loaded_by_ferb_and_its_page_is_told() -> None:
+    out = worker('''(async () => {
+      const sent = [], told = [];
+      port = {postMessage() {}}; send = async (type, body) => { sent.push(body); };
+      arm = async (id) => { const t = tabState(id); t.attached = true; t.armed = true; return t; };
+      load = async () => {};
+      inFrame = async (tab, frame, fn, args) => { told.push([tab, frame, args[0]]); return true; };
+      chrome.tabs.get = async id => ({id, url: 'about:blank'});
+      tabState(5).armed = true;
+      const relayed = pageHookPopup(5, 2, {token: 'tok', url: 'https://s.example/f.zip'});
+      const refused = pageHookPopup(5, 2, {token: 'x', url: 'javascript:alert(1)'});
+      await adoptPopup({id: 31, openerTabId: 5, pendingUrl: 'about:blank'});
+      await commands.navigate({tab_id: 31, url: 'https://s.example/f.zip'});
+      return {relayed, refused, popup: sent.find(b => b.event === 'popup'), told};
+    })()''')
+    assert out["relayed"] is True and out["refused"] is False
+    assert out["popup"]["load_url"] == "https://s.example/f.zip" and out["popup"]["opener_tab_id"] == 5
+    assert out["told"] == [[5, 2, "tok"]]                               # the opener's page: FERB loads it, not the hook
+
+
+def test_in_ferbs_own_profile_nothing_held_is_handed_to_the_browser() -> None:
+    """Every download in FERB's own profile is FERB's: what it can't take is dropped or failed, never given to the
+    browser's flow (which could open a dialog)."""
+    out = worker('''(async () => {
+      const scripted = [];
+      profileIdentity = 'ferb'; port = null;
+      chrome.scripting = {executeScript: async (o) => { scripted.push(o.args); return []; }};
+      const unarmed = pageDownload(9, 0, {id: 'x', name: 'n'});
+      tabState(9).armed = true; port = {postMessage() {}}; send = async () => {};
+      await armPage(9, false);
+      return {unarmed, scripted};
+    })()''')
+    assert out["unarmed"] == "drop" and out["scripted"] == [[False, True]]          # disarm with drop=true

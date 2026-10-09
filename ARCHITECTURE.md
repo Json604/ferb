@@ -164,14 +164,22 @@ attachment`, a renderer-started download (`<a download>`, whose request alone la
 its redirect targets), or a type a page can't show. A download is held, announced as a `download` event and read with
 `Fetch.takeResponseBodyAsStream` + `IO.read` in 72000-byte `download_part`s the daemon pulls (never in the command
 journal), then failed (`ERR_ABORTED`: the page stays). `content.js` (bubble phase, after the page's own handlers)
-holds a connected blob/data `download` link, and routes a link to a new tab (`target=_blank`, a modifier or middle
-click) through FERB's own open as the same task's tab; a tab the page opens itself is adopted from
-`chrome.tabs.onCreated` (`openerTabId`). Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
+holds a blob/data `download` link in the capture phase (a page's `stopPropagation` can't hide it), and in the bubble
+phase routes a trusted click on a link to a new tab (`target=_blank`, also via `<base target>`, a modifier or middle
+click; other named targets stay the browser's) through FERB's own open as the same task's tab, released like its opener
+when that is the owner's borrowed tab, within `browser.task_max_tabs` (20) per task tree (past it the browser opens an
+ordinary tab, as a fact). The page hook (`PAGE_HOOK`, pinned by exact source in `protocol.js`; installed only in armed
+task tabs and their OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed on release) asks content.js through a
+cancelable `ferb-armed` event before doing anything, so a still-patched document is native once FERB lets go. It clicks
+a FileSaver-style save link (never added to the page) itself while briefly connected, so the capture listener takes it,
+and turns `window.open(url)` (http(s), no target or `_blank`, without `noopener`) into a blank popup the page keeps (its
+opener intact: an OAuth popup's `window.opener.postMessage` works, measured) that FERB adopts, arms and loads, or that
+loads itself after 1.5 s. Chrome's `openerTabId` names the window's active tab, so the hook's own report names the opener. Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
 takes a download only while `Hub.task_tab` finds a running task's tab, else it is released back to the browser
 untouched (`download_part {release}` → `Fetch.continueRequest`); the hello lists armed tabs and the daemon disarms any it
 doesn't hold (a failed release, a restart); an unpulled hold goes back to the browser after 30 s (in FERB's own profile it
 is failed); closing FERB's own tab fails what it holds, letting go of a borrowed one hands it back. A refused download
-(over `browser.download_max_mb` 100, the task's `download_task_max_files` 20 / `download_task_max_mb` 500, a second
+(over `browser.download_max_mb` 100, the task tree's `download_task_max_files` 20 / `download_task_max_mb` 500, a second
 transfer in a tab waiting over 20 s, or a 10-minute transfer) is failed in the browser, so no dialog. The daemon writes
 `~/.ferb/workspace/downloads/<id>-<safe name>` through a no-follow folder descriptor, hashes the received bytes,
 removes partial files (and sweeps orphan `.dl-*.part` at startup), and records facts in `downloads` (migration 0025:
@@ -181,15 +189,15 @@ the next snapshot or act (with `opened_tabs`), and `browser.downloads` (an obser
 untrusted fs root (`external:download`). Files are FERB's working copies: after `retention.download_days` (30) or past
 `browser.download_total_mb` (2048, oldest first) they move to the Trash (`move_to_trash`); rows stay with `trashed_to`.
 
-Residuals (measured in the headless lab; nothing tab-scoped closes them): a download the browser starts itself (a
-FileSaver-style blob link never added to the page, an `<area download>` link, a link in a frame content.js wasn't
-injected into, a misread type) is recorded `not_taken` from `Page.downloadWillBegin`/`downloadProgress` (a later
-`canceled` is reported too, e.g. a dismissed Save dialog) and may show a Save dialog; a popup's (`window.open`) first
-response beats the adoption (lost 6/6; a download-only popup closes itself, so nothing is reported); an OOPIF's first
-document can load before its session's `Fetch.enable`; a held response whose debugger detaches (the owner's Cancel on the
-debugging bar, a worker crash) continues into the browser's download flow, while one whose body FERB already took does
-not. `Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to extensions, and the tab session's
-`Target.setAutoAttach` doesn't attach popups.
+Residuals (measured in the headless lab; nothing tab-scoped closes them), recorded `not_taken` from the tab's own
+`Page.downloadWillBegin`/`downloadProgress` when seen (a later `canceled` too, e.g. a dismissed Save dialog), and able
+to show a Save dialog: a held response whose debugger detaches (the owner's Cancel on the debugging bar, a worker
+crash) continues into the browser's download flow (one whose body FERB already took does not); a popup opened with
+`noopener`, from a frame content.js wasn't injected into, or by an untrusted click on a `target=_blank` link, races its
+adoption and its first response won 6/6 (a download-only popup closes itself, so nothing is reported); a form posted
+to `target=_blank`; an OOPIF's first document before its session's `Fetch.enable`; a misread type; and a page's own
+save picker (`showSaveFilePicker`). `Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to
+extensions, and the tab session's `Target.setAutoAttach` doesn't attach popups.
 
 Dialogs are explicit pending observations and explicit accept/dismiss choices. Email uses observed browser primitives,
 not a fixed Gmail compose/send recipe. OTP inbox candidates have opaque task/account/origin-bound IDs and masked

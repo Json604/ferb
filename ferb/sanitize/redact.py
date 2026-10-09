@@ -36,8 +36,14 @@ SECRET_QUERY = {"token", "code", "key", "sig", "signature", "auth", "session", "
 SECRET_QUERY_WORDS = ("signature", "token", "credential", "secret", "password", "apikey", "api_key", "hmac")
 
 
+# Pagination cursors name "token" but are no credential (rule 14 covers credentials): kept readable.
+CURSOR_PARAMS = {"pagetoken", "nextpagetoken", "continuationtoken", "synctoken", "cursor"}
+
+
 def secret_param(name: str) -> bool:
     k = name.lower()
+    if "".join(ch for ch in k if ch.isalnum()) in CURSOR_PARAMS:
+        return False
     flat = "".join(ch for ch in k if ch.isalnum())
     return (k in SECRET_QUERY or any(w in k or w.replace("_", "") in flat for w in SECRET_QUERY_WORDS)
             or flat.endswith("sig") or flat in {"xamzcredential", "xgoogcredential"})

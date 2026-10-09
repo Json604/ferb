@@ -121,6 +121,9 @@ class FakeExtension:
         self.armed: set[int] = set()                       # tabs the extension holds downloads for (hello reports them)
         self.disarmed: list[int] = []                      # disarm commands received
         self.fail_release = False                          # release_tab fails (e.g. the transport broke)
+        self.fail_release_times = 0                        # ...only this many times (a transient failure)
+        self.open_delay = 0.0                              # seconds an open takes (a race with the task's end)
+        self.plain_opens: list[dict[str, Any]] = []        # links given back to the browser as ordinary tabs
         self.nav_refuse: set[str] = set()                  # navigating here: the tab couldn't be armed (D35)
         self.download_fail_at: int | None = None          # a part at/after this offset fails (the stream broke)
         self.download_urls: dict[str, tuple[str, bytes]] = {}   # navigating here becomes a download (name, bytes)
@@ -162,8 +165,11 @@ class FakeExtension:
         data = json.dumps(msg).encode()
         self.wire.append(data.decode())
         with self._lock:
-            self.proc.stdin.write(struct.pack("<I", len(data)) + data)
-            self.proc.stdin.flush()
+            try:
+                self.proc.stdin.write(struct.pack("<I", len(data)) + data)
+                self.proc.stdin.flush()
+            except (BrokenPipeError, ValueError):
+                pass                                  # the host is gone (the test ended): the reply has nowhere to go
 
     def send(self, mtype: str, body: dict[str, Any], key: bytes | None = None, seq: int | None = None) -> None:
         msg: dict[str, Any] = {"install_id": self.install_id, "type": mtype, "body_json": json.dumps(body)}
@@ -272,7 +278,17 @@ class FakeExtension:
             self.tab_active[self._n] = True
         return self.ferb_window
 
+    def op_open_plain(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        self.plain_opens.append(dict(a))
+        self._n += 1
+        self.tabs[self._n] = a["url"]
+        self.tab_windows[self._n] = self.tab_windows.get(a["tab_id"]) or 0
+        self.tab_active[self._n] = bool(a.get("active"))
+        return {"opened": True, "tab_id": self._n}
+
     def op_open(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
+        if self.open_delay:
+            time.sleep(self.open_delay)
         if a.get("window_id") is not None:
             w = a["window_id"]
             if w not in self.tab_windows.values():
@@ -328,13 +344,15 @@ class FakeExtension:
         """content.js caught a link in this armed tab that opens a new tab; FERB's daemon opens it itself."""
         self.send("event", {"event": "open", "tab_id": tab_id, "url": url, "window_id": self.tab_windows.get(tab_id)})
 
-    def popup(self, opener: int, url: str) -> int:
-        """The page in this tab opened a new tab (window.open); the extension armed it and reports it."""
+    def popup(self, opener: int, url: str, load_url: str | None = None) -> int:
+        """The page in this tab opened a new tab (window.open; the page hook opens it blank for `load_url`); the
+        extension armed it and reports it."""
         self._n += 1
         self.tabs[self._n] = url
         self.tab_windows[self._n] = self.tab_windows.get(opener) or 0
         self.armed.add(self._n)
-        self.send("event", {"event": "popup", "tab_id": self._n, "opener_tab_id": opener, "url": url})
+        self.send("event", {"event": "popup", "tab_id": self._n, "opener_tab_id": opener, "url": url,
+                            **({"load_url": load_url} if load_url else {})})
         return self._n
 
     def op_disarm(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
@@ -378,10 +396,13 @@ class FakeExtension:
 
     def op_release_tab(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         tab = a['tab_id']
-        if self.fail_release:
+        if self.fail_release or self.fail_release_times > 0:
+            self.fail_release_times = max(0, self.fail_release_times - 1)
             raise RuntimeError('transport failed')
         if tab not in self.tabs:
-            raise ValueError('tab no longer open')
+            if a.get('keep_open'):
+                raise ValueError('tab no longer open')
+            return {'tab_id': tab, 'released': True, 'kept_open': False, 'gone': True, 'url': ''}   # e.g. a popup that closed
         if a.get('keep_open'):
             self.kept.add(tab)
         self.attached.discard(tab)

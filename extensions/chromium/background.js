@@ -237,6 +237,8 @@ chrome.runtime.onMessage.addListener((m, sender, reply) => {
   // content.js asks before it keeps what it caught; "not armed" makes it hand the click back to the browser at once.
   else if (m && m.ferbDownload && sender && sender.tab) reply(pageDownload(sender.tab.id, sender.frameId || 0, m.ferbDownload));
   else if (m && m.ferbOpen && sender && sender.tab) reply(pageOpen(sender.tab.id, m.ferbOpen));
+  else if (m && m.ferbPopup && sender && sender.tab)
+    reply(pageHookPopup(sender.tab.id, sender.frameId || 0, m.ferbPopup, sender.tab.windowId ?? null));
 });
 
 // ---------- commands ----------
@@ -455,14 +457,27 @@ async function arm(tabId) {
     try { await chrome.debugger.detach({tabId}); } catch (_) {}
     throw e;
   }
+  t.hookId = await installHook(tabId);
   await armPage(tabId, true);
   return t;
 }
 
+// The page hook (protocol.js PAGE_HOOK) in this session's documents, the current one included; best effort: without it
+// only what it catches (unseen save links, window.open) is left to the browser, reported when seen.
+async function installHook(tabId, sessionId) {
+  try {
+    const r = await cdp(tabId, "Page.addScriptToEvaluateOnNewDocument", { source: PAGE_HOOK, runImmediately: true }, sessionId);
+    return (r && r.identifier) || null;
+  } catch (e) { console.warn("FERB page hook:", String(e.message || e)); return null; }
+}
+
 async function armPage(tabId, on) {                          // content.js in documents already there
+  // Disarming hands what the page holds back to the browser; in FERB's own profile it is dropped (every download there
+  // is FERB's, and a handed-back one could open a dialog).
+  const drop = profileIdentity === "ferb";
   try {
     await Promise.resolve(chrome.scripting.executeScript({ target: { tabId, allFrames: true },
-      func: (v) => { if (window.__ferb && window.__ferb.armDownloads) window.__ferb.armDownloads(v); }, args: [on] }));
+      func: (v, d) => { if (window.__ferb && window.__ferb.armDownloads) window.__ferb.armDownloads(v, d); }, args: [on, drop] }));
   } catch (_) { /* a page scripts can't reach holds no listener of ours */ }
 }
 
@@ -474,6 +489,10 @@ async function detach(tabId) {
   if (t.armed) {                                             // let go of what this tab still holds, then of the page
     await dropDownloads(tabId);
     await armPage(tabId, false);
+    if (t.hookId) {                                          // documents loaded from now on are native again
+      try { await cdp(tabId, "Page.removeScriptToEvaluateOnNewDocument", { identifier: t.hookId }); } catch (_) { /* gone */ }
+      t.hookId = null;
+    }
   }
   try {
     await chrome.debugger.sendCommand({tabId}, 'Emulation.setFocusEmulationEnabled', {enabled:false});
@@ -502,7 +521,10 @@ chrome.debugger.onEvent.addListener((src, method, params) => {
     const t = tabState(src.tabId), sid = params.sessionId;
     if (params.targetInfo && params.targetInfo.type === "iframe") {
       t.sessions.set(sid, (async () => {
-        if (t.armed) await cdp(src.tabId, "Fetch.enable", { patterns: DOWNLOAD_PATTERNS }, sid);   // an OOPIF's own requests
+        if (t.armed) {                                         // an OOPIF's own requests and its page hook
+          await cdp(src.tabId, "Fetch.enable", { patterns: DOWNLOAD_PATTERNS }, sid);
+          await installHook(src.tabId, sid);
+        }
         await cdp(src.tabId, "Page.enable", {}, sid);
         await cdp(src.tabId, "Page.setInterceptFileChooserDialog", {enabled: true}, sid);
         await cdp(src.tabId, "Target.setAutoAttach", {autoAttach: true, waitForDebuggerOnStart: false, flatten: true}, sid);
@@ -586,7 +608,7 @@ async function onPaused(src, params) {
 // back to the browser itself (false: a stale listener in a tab FERB no longer drives never eats the owner's click).
 function pageDownload(tabId, frameId, d) {
   const t = TABS.get(tabId);
-  if (!d || typeof d.id !== "string" || !t || !t.armed || !port) return false;
+  if (!d || typeof d.id !== "string" || !t || !t.armed || !port) return profileIdentity === "ferb" ? "drop" : false;
   const tr = { id: "d-" + crypto.randomUUID().replace(/-/g, "").slice(0, 16), tabId, sessionId: null, requestId: null,
                stream: null, page: { frameId, ref: d.id }, offset: 0, timer: null };
   downloads.set(tr.id, tr);
@@ -608,33 +630,60 @@ function pageOpen(tabId, o) {
   return true;
 }
 
-// A tab a task tab's page opened itself (window.open, a link content.js didn't see): armed at once and reported, so it
-// becomes the same task's tab. Measured: its first response usually wins this race, so a download it starts at once
-// reaches the browser; its own Page events report that as not taken.
+// A tab a task tab's page opened itself: armed and reported, so it becomes the same task's tab. Measured: Chrome's
+// openerTabId names the window's active tab, not a background opener, so the page hook's own report (content.js relays
+// which task tab opened a blank popup, and for what URL) names the opener when there is one. A popup without the hook
+// (a link content.js didn't see, window.open with noopener) usually wins its race: a download it starts at once reaches
+// the browser, and its own Page events report that as not taken.
 async function adoptPopup(tab) {
-  const opener = tab.openerTabId != null ? TABS.get(tab.openerTabId) : null;
-  if (!opener || !opener.armed || !port) return;
+  if (tab.openerTabId == null || !port) return;                 // FERB's own tabs have no opener
+  let openerId = (TABS.get(tab.openerTabId) || {}).armed ? tab.openerTabId : null;
+  let hooked = null;
+  if (openerId !== null) {
+    try { await arm(tab.id); } catch (e) { console.warn("FERB popup:", String(e.message || e)); return; }
+  }
+  for (let i = 0; i < 15 && !hooked; i++) {                     // content.js's relay can arrive after onCreated
+    hooked = takeHookPopup(tab.windowId);
+    if (!hooked) await sleep(20);
+  }
+  if (hooked) openerId = hooked.opener;
+  if (openerId === null) return;
   try {
-    await arm(tab.id);
-    tabState(tab.id).popup = true;
-    await send("event", { event: "popup", tab_id: tab.id, opener_tab_id: tab.openerTabId,
-                          url: maskUrl(tab.pendingUrl || tab.url || "") });
+    const t = await arm(tab.id);
+    t.popup = true;
+    if (hooked) t.hook = { opener: hooked.opener, frameId: hooked.frameId, token: hooked.token };
+    await send("event", { event: "popup", tab_id: tab.id, opener_tab_id: openerId,
+                          url: maskUrl(tab.pendingUrl || tab.url || ""), ...(hooked ? { load_url: hooked.url } : {}) });
   } catch (e) { console.warn("FERB popup:", String(e.message || e)); }
 }
 chrome.tabs.onCreated.addListener(adoptPopup);
 
+// content.js relays the page hook's window.open: this armed tab's next blank popup in its window is for this URL.
+const hookPopups = [];
+function pageHookPopup(tabId, frameId, p, windowId = null) {
+  const t = TABS.get(tabId);
+  if (!p || typeof p.token !== "string" || typeof p.url !== "string" || !/^https?:/i.test(p.url) || !t || !t.armed || !port)
+    return false;
+  const now = Date.now();
+  while (hookPopups.length && (hookPopups[0].at < now - 2000 || hookPopups.length > 20)) hookPopups.shift();
+  hookPopups.push({ opener: tabId, windowId, token: p.token.slice(0, 64), url: p.url.slice(0, 8192), frameId, at: now });
+  return true;
+}
+function takeHookPopup(windowId) {
+  const now = Date.now();
+  const i = hookPopups.findIndex((h) => h.at > now - 2000 && (h.windowId === windowId || h.windowId === null));
+  return i < 0 ? null : hookPopups.splice(i, 1)[0];
+}
+
 function idle(tr) {
   clearTimeout(tr.timer);
-  tr.timer = setTimeout(() => {
-    if (downloads.get(tr.id) !== tr) return;
-    if (profileIdentity === "ferb") releaseTransfer(tr); else handBack(tr);
-  }, DOWNLOAD_IDLE_MS);
+  tr.timer = setTimeout(() => { if (downloads.get(tr.id) === tr) handBack(tr); }, DOWNLOAD_IDLE_MS);
 }
 
 // Not FERB's to take (no live task tab, nobody pulled it, FERB let go of the tab): the response continues to the
 // browser untouched, or content.js re-clicks its link. Once FERB took the body it can only be failed.
 async function handBack(tr) {
-  if (tr.stream) return releaseTransfer(tr);
+  if (tr.stream || profileIdentity === "ferb") return releaseTransfer(tr);   // FERB's own profile: never the browser's
   downloads.delete(tr.id);
   clearTimeout(tr.timer);
   if (tr.page) {
@@ -862,7 +911,11 @@ const commands = {
   async download_part({ download_id, offset, abort, release }) {
     const tr = downloads.get(download_id);
     if (!tr) throw Error("download transfer unavailable: it was already taken, cancelled or let go");
-    if (release === true) { await handBack(tr); return { released: true, handed_back: !tr.stream }; }   // not FERB's
+    if (release === true) {                          // not FERB's: the browser's (FERB's own profile: failed)
+      const back = !tr.stream && profileIdentity !== "ferb";
+      await handBack(tr);
+      return { released: true, handed_back: back };
+    }
     if (abort === true) { await releaseTransfer(tr); return { aborted: true }; }      // refused in a task tab: no dialog
     if (!Number.isSafeInteger(offset) || offset !== tr.offset) throw Error("download parts are missing or out of order");
     idle(tr);
@@ -888,6 +941,14 @@ const commands = {
     tr.offset += b64Bytes(data);
     if (eof) await releaseTransfer(tr);
     return { data, offset, next_offset: eof ? null : tr.offset, eof };
+  },
+  // A link the daemon won't open as FERB's (the task's tab cap, or no live task: a stale listener caught the owner's own
+  // click): the browser opens it as an ordinary tab, never FERB's (no opener link, so it isn't adopted).
+  async open_plain({ tab_id, url, active = false }) {
+    if (!/^https?:/i.test(String(url || ""))) throw Error("only http(s) links are opened");
+    const opener = await chrome.tabs.get(tab_id);
+    const tab = await chrome.tabs.create({ windowId: opener.windowId, index: opener.index + 1, url, active: active === true });
+    return { opened: true, tab_id: tab.id, window_id: tab.windowId };
   },
   // The daemon holds no live task tab here (a failed release, a restart): stop holding its downloads, never close it.
   async disarm({ tab_id }) {
@@ -974,6 +1035,11 @@ const commands = {
                          `page: ${e.message || e}), so it didn't load the URL. A tab FERB opens itself can.` };
       } finally { st.leaving = false; }
     }
+    if (st.hook) {                                       // the page hook's popup: FERB loads it, so the page doesn't
+      const h = st.hook; st.hook = null;
+      try { await inFrame(h.opener, h.frameId, (token) => window.__ferb.popupTaken(token), [h.token]); }
+      catch (_) { /* the opener moved on; the popup is FERB's either way */ }
+    }
     st.leaving = true; st.frames = {};
     try { await load(tab_id, url); }
     finally { st.leaving = false; }
@@ -995,7 +1061,14 @@ const commands = {
     return { closed: true };
   },
   async release_tab({tab_id, keep_open = false}) {
-    const tab = await chrome.tabs.get(tab_id);  // missing tab is not a successful keep-open handoff
+    let tab;
+    try { tab = await chrome.tabs.get(tab_id); }  // missing tab is not a successful keep-open handoff
+    catch (e) {
+      if (keep_open || !/No tab with id/i.test(String(e && e.message))) throw e;
+      TABS.delete(tab_id);                        // e.g. a popup that closed itself: nothing left to let go of
+      await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});
+      return {tab_id, released:true, kept_open:false, gone:true, url:'', window_id:null};
+    }
     if (keep_open) await rememberKeptTab(tab_id);  // persist before detach/session cleanup, safe after lost ACK
     await detach(tab_id);
     await mutateSession(s => {s.owned = s.owned.filter(o => o.tabId !== tab_id);});

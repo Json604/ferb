@@ -24,6 +24,61 @@ const DOWNLOAD_PART = 72000;
 const DOWNLOAD_PATTERNS = [{ urlPattern: "*", resourceType: "Document", requestStage: "Response" }];
 const _only = (p, keys) => Object.keys(p).length === keys.length && keys.every((k) => k in p);
 
+// The page hook (D35): FERB's only main-world code, pinned here by its exact source. The tab's own debugger session
+// installs it (Page.addScriptToEvaluateOnNewDocument, runImmediately) only in armed task tabs and removes it on release;
+// before acting it asks content.js through a cancelable "ferb-armed" event that content.js answers only while FERB
+// drives the tab, so a document still patched after a release behaves natively. It catches what no listener sees:
+// a save through a download link the page never added (FileSaver.js style), which joins the document for its click so
+// content.js's capture listener takes it; and window.open(url) to a new tab, opened blank (the page keeps a real window
+// and its opener) so FERB arms it before its first request and loads the URL, or the popup loads it itself after
+// 1.5 s. It never masks itself.
+function ferbPageHook() {
+  const MARK = Symbol.for("ferb.page-hook");
+  if (window[MARK]) return;
+  Object.defineProperty(window, MARK, { value: true });
+  const dispatch = EventTarget.prototype.dispatchEvent, click = HTMLElement.prototype.click, open = window.open;
+  const armed = () => !dispatch.call(document, new CustomEvent("ferb-armed", { cancelable: true }));
+  const unseenSave = (el) => (el instanceof HTMLAnchorElement || el instanceof HTMLAreaElement) && !el.isConnected &&
+    el.hasAttribute("download") && /^(blob|data):/i.test(String(el.href || ""));
+  // In the document for one click() (cancelable, unlike a page's `new MouseEvent("click")`, so content.js can cancel it).
+  const viaDocument = (el) => {
+    document.documentElement.appendChild(el);
+    try { click.call(el); } finally { el.remove(); }
+  };
+  HTMLElement.prototype.click = function () {
+    if (unseenSave(this) && document.documentElement && armed()) return viaDocument(this);
+    return click.call(this);
+  };
+  EventTarget.prototype.dispatchEvent = function (event) {
+    if (event && event.type === "click" && unseenSave(this) && document.documentElement && armed()) {
+      viaDocument(this);
+      return true;
+    }
+    return dispatch.call(this, event);
+  };
+  window.open = function (url, target, features) {
+    const name = target === undefined || target === null ? "" : String(target).toLowerCase();
+    let href = "";
+    try { href = new URL(String(url === undefined ? "" : url), document.baseURI).href; } catch (_) { href = ""; }
+    if (!/^https?:/i.test(href) || !["", "_blank"].includes(name) || /noopener|noreferrer/i.test(String(features || "")) ||
+        !armed()) return open.apply(window, arguments);
+    const popup = open.call(window, "about:blank", "_blank", features);
+    if (!popup) return popup;
+    const token = crypto.randomUUID();
+    let taken = false;
+    const onTaken = (e) => { if (e.detail === token) taken = true; };
+    document.addEventListener("ferb-popup-taken", onTaken);
+    dispatch.call(document, new CustomEvent("ferb-popup", { detail: JSON.stringify({ token, url: href }) }));
+    setTimeout(() => {
+      document.removeEventListener("ferb-popup-taken", onTaken);
+      if (taken) return;
+      try { if (popup.location.href === "about:blank") popup.location.href = href; } catch (_) { /* it moved on */ }
+    }, 1500);
+    return popup;
+  };
+}
+const PAGE_HOOK = `(${ferbPageHook.toString()})();`;
+
 // The exact CDP allowlist, enforced here even if the daemon asks for more. Each entry checks the params
 // shape; anything not listed is refused: cookies/storage, other targets, free-form script evaluation.
 // Every method is used by background.js; the comment states its mechanical purpose.
@@ -82,6 +137,10 @@ const CDP_ALLOW = {
   "Fetch.takeResponseBodyAsStream": (p) => typeof p.requestId === "string" && _only(p, ["requestId"]),
   "IO.read": (p) => typeof p.handle === "string" && p.size === DOWNLOAD_PART && _only(p, ["handle", "size"]),
   "IO.close": (p) => typeof p.handle === "string" && _only(p, ["handle"]),
+  // the page hook, exactly that source; no general script evaluation.
+  "Page.addScriptToEvaluateOnNewDocument": (p) => p.source === PAGE_HOOK && p.runImmediately === true &&
+    _only(p, ["source", "runImmediately"]),
+  "Page.removeScriptToEvaluateOnNewDocument": (p) => typeof p.identifier === "string" && _only(p, ["identifier"]),
 };
 const CDP_RETURN_FIELDS = {                 // filtered return fields (only these keys leave the sendCommand wrapper)
   "Page.captureScreenshot": ["data"],
@@ -97,6 +156,7 @@ const CDP_RETURN_FIELDS = {                 // filtered return fields (only thes
   "DOM.getSearchResults": ["nodeIds"],
   "Fetch.takeResponseBodyAsStream": ["stream"],
   "IO.read": ["data", "base64Encoded", "eof"],
+  "Page.addScriptToEvaluateOnNewDocument": ["identifier"],
 };
 
 function cdpAllowed(method, params) {
@@ -220,7 +280,8 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm"];
+             "download_part", "disarm", "open_plain"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
-                                                      FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS };
+                                                      FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS,
+                                                      PAGE_HOOK, ferbPageHook };

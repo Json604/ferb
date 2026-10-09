@@ -110,10 +110,13 @@ class Downloads:
         self.root, self.db, self.now, self.setting, self.redact_text, self.publish = (
             root, db, now, setting, redact_text, publish)
         self.task_tab: Callable[[Any, int], TaskTab | None] = lambda br, chrome_id: None   # live task tabs only
+        self.task_root: Callable[[str], str] = lambda task: task   # the task tree a worker step belongs to (budgets)
         self._active: dict[tuple[str, int], set[asyncio.Task[None]]] = {}
         self._locks: dict[tuple[str, int], asyncio.Lock] = {}
-        self._inflight: dict[str, int] = {}                 # task -> bytes received by transfers still running
+        self._inflight: dict[str, int] = {}                 # tree -> bytes received by its transfers still running
+        self._running: dict[str, int] = {}                  # tree -> transfers still running
         self._unreported: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        self._tab_task: dict[tuple[str, int], str] = {}     # tab -> the task whose downloads it holds (pruning)
 
     def limits(self) -> Limits:
         b = {k: _number(self.setting("browser", k, v), v) for k, v in DEFAULTS.items()}
@@ -161,6 +164,7 @@ class Downloads:
         if not ev.download_id:
             return
         key = (br.name, int(ev.tab_id))
+        self._tab_task[key] = owner.task
         lock = self._locks.setdefault(key, asyncio.Lock())
         try:
             await asyncio.wait_for(lock.acquire(), TAB_WAIT_S)
@@ -176,34 +180,39 @@ class Downloads:
 
     async def _admit_and_take(self, br: Any, owner: TaskTab, ev: Any) -> None:
         lim = self.limits()
-        files, used = self._task_usage(owner.task)
+        tree = self.task_root(owner.task)
+        files, taken = self._tree_usage(tree)
+        used = taken + self._inflight.get(tree, 0)
         size = ev.size
         try:
             if files >= lim.task_files:
                 raise _Refused(f"this task already took {files} downloads, its limit "
-                               "(browser.download_task_max_files); not taken", size)
+                               "(browser.download_task_max_files, per request); not taken", size)
             if size is not None and size > lim.file_bytes:
                 raise _Refused(f"larger than the {_mb(lim.file_bytes)} limit (browser.download_max_mb): {size} bytes; "
                                "not taken", size)
             if size is not None and used + size > lim.task_bytes:
                 raise _Refused(f"would pass this task's {_mb(lim.task_bytes)} download budget "
-                               f"(browser.download_task_max_mb; {used} bytes taken): {size} bytes; not taken", size)
+                               f"(browser.download_task_max_mb, per request; {used} bytes taken or arriving): {size} "
+                               "bytes; not taken", size)
         except _Refused as r:
             await _send(br, ev.download_id, abort=True)
             self._insert(br, owner, ev, "refused", size=r.size, reason=r.reason, final=True)
             return
-        await self._take(br, owner, ev, lim, used)
+        await self._take(br, owner, ev, lim, tree)
 
-    async def _take(self, br: Any, owner: TaskTab, ev: Any, lim: Limits, used: int) -> None:
-        fid = self._insert(br, owner, ev, "in_progress")
+    async def _take(self, br: Any, owner: TaskTab, ev: Any, lim: Limits, tree: str) -> None:
         name = safe_name(self.redact_text(ev.name or ""))
-        final, temp = f"{fid}-{name}", f".{fid}.part"
+        fid = ""
         loop = asyncio.get_running_loop()
         started, received, digest = loop.time(), 0, hashlib.sha256()
         folder = fd = -1
         moved = False
-        self._inflight[owner.task] = self._inflight.get(owner.task, 0)
+        self._running[tree] = self._running.get(tree, 0) + 1     # the tree's entries live while any transfer runs
+        self._inflight[tree] = self._inflight.get(tree, 0)
         try:
+            fid = self._insert(br, owner, ev, "in_progress")
+            final, temp = f"{fid}-{name}", f".{fid}.part"
             folder = self._open_folder()
             fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
             while True:
@@ -217,13 +226,15 @@ class Downloads:
                     raise ValueError("the browser sent download parts out of order")
                 data = base64.b64decode(str(part.get("data") or ""), validate=True)
                 received += len(data)
-                self._inflight[owner.task] += len(data)
+                self._inflight[tree] += len(data)
                 if received > lim.file_bytes:
                     raise _Refused(f"larger than the {_mb(lim.file_bytes)} limit (browser.download_max_mb): stopped "
                                    f"after {received} bytes; not taken", received)
-                if used + self._inflight[owner.task] > lim.task_bytes:
+                # what the tree took (other transfers' bytes committed since this one started included) + what arrives
+                if self._tree_usage(tree)[1] + self._inflight[tree] > lim.task_bytes:
                     raise _Refused(f"passed this task's {_mb(lim.task_bytes)} download budget "
-                                   f"(browser.download_task_max_mb) after {received} bytes; not taken", received)
+                                   f"(browser.download_task_max_mb, per request) after {received} bytes; not taken",
+                                   received)
                 view = memoryview(data)
                 while view:
                     view = view[os.write(fd, view):]
@@ -258,15 +269,17 @@ class Downloads:
             self._finish_quietly(br, ev, fid, "failed", size=received or None, reason=self.redact_text(
                 f"the transfer didn't finish ({e}); nothing was kept"))
         finally:
-            self._inflight[owner.task] = max(self._inflight.get(owner.task, 0) - received, 0)
-            if not self._inflight[owner.task]:
-                self._inflight.pop(owner.task, None)
+            self._inflight[tree] = max(self._inflight.get(tree, 0) - received, 0)
+            self._running[tree] = self._running.get(tree, 1) - 1
+            if self._running[tree] <= 0:                 # only the last transfer of the tree clears its entries
+                self._running.pop(tree, None)
+                self._inflight.pop(tree, None)
             if fd >= 0:
                 os.close(fd)
             if folder >= 0:
-                if not moved:
+                if not moved and fid:
                     try:
-                        os.unlink(temp, dir_fd=folder)
+                        os.unlink(f".{fid}.part", dir_fd=folder)
                     except FileNotFoundError:
                         pass
                 os.close(folder)
@@ -283,12 +296,30 @@ class Downloads:
 
     # ---------- records ----------
 
-    def _task_usage(self, task: str) -> tuple[int, int]:
-        """Downloads this task took or is taking, and the bytes it took (running transfers count separately)."""
-        r = self.db.conn.execute("SELECT count(*) AS n, COALESCE(sum(CASE WHEN state = 'taken' THEN bytes END), 0) AS b "
-                                 "FROM downloads WHERE task_id = ? AND state IN ('taken', 'in_progress')",
-                                 (task,)).fetchone()
+    def _tree_usage(self, tree: str) -> tuple[int, int]:
+        """Downloads the task tree (the request's root task and its steps, `root.*`) took or is taking, and the bytes
+        it took; running transfers' bytes are counted separately (`_inflight`)."""
+        r = self.db.conn.execute(
+            "SELECT count(*) AS n, COALESCE(sum(CASE WHEN state = 'taken' THEN bytes END), 0) AS b FROM downloads "
+            "WHERE (task_id = ? OR (task_id >= ? || '.' AND task_id < ? || '/')) AND state IN ('taken', 'in_progress')",
+            (tree, tree, tree)).fetchone()
         return int(r["n"]), int(r["b"])
+
+    def forget_task(self, task: str) -> None:
+        """Task end: its tabs' locks (when idle) and unreported facts go (the records stay)."""
+        for key in [k for k, t in self._tab_task.items() if t == task]:
+            lock = self._locks.get(key)
+            if lock is not None and not lock.locked():
+                self._locks.pop(key, None)
+            if key not in self._active:
+                self._unreported.pop(key, None)
+                self._tab_task.pop(key, None)
+
+    def finalize_stale(self) -> int:
+        """At startup: a transfer a restart cut off can't still be running."""
+        return int(self.db.conn.execute(
+            "UPDATE downloads SET state = 'failed', reason = 'FERB restarted before the transfer finished; nothing was "
+            "kept' WHERE state = 'in_progress'").rowcount or 0)
 
     def _insert(self, br: Any, owner: TaskTab, ev: Any, state: str, *, size: int | None = None,
                 reason: str | None = None, final: bool = False) -> str:
@@ -312,6 +343,8 @@ class Downloads:
         self._report(br, ev, dict(row))
 
     def _finish_quietly(self, br: Any, ev: Any, fid: str, state: str, **fields: Any) -> None:
+        if not fid:
+            return                                      # the in_progress row was never written
         try:
             self._finish(br, ev, fid, state, **fields)
         except Exception:
@@ -347,18 +380,31 @@ class Downloads:
 
     def purge(self) -> int:
         """Files older than retention.download_days, then the oldest while the folder is over browser.download_total_mb,
-        move to the Trash; their rows stay, with the path cleared and where the Trash put them."""
+        move to the Trash; their rows stay, with the path cleared and where the Trash put them. A file already gone is
+        recorded so; one that won't move is skipped and recorded, and never makes a newer file go in its place."""
         lim = self.limits()
         cutoff = (self.now() - timedelta(days=lim.keep_days)).isoformat()
         rows = [dict(r) for r in self.db.conn.execute(
             "SELECT id, path, bytes, at FROM downloads WHERE path IS NOT NULL ORDER BY at, rowid")]
         total, moved = sum(int(r["bytes"] or 0) for r in rows), 0
-        for r in rows:
-            if r["at"] >= cutoff and total <= lim.total_bytes:
-                break
-            if self._trash(r):
+        try:
+            folder = self._open_folder()
+        except OSError:
+            return 0
+        try:
+            for r in rows:
+                old = r["at"] < cutoff
+                if not old and total <= lim.total_bytes:
+                    break
+                result = self._trash(folder, r)
+                if result == "stuck":
+                    if old:
+                        continue                         # still too old; the next pass tries again
+                    break                                # over budget: never evict a newer file in its place
                 moved += 1
                 total -= int(r["bytes"] or 0)
+        finally:
+            os.close(folder)
         return moved
 
     def _evict(self) -> None:
@@ -367,17 +413,26 @@ class Downloads:
         except Exception:
             pass                                        # the next retention pass tries again
 
-    def _trash(self, row: dict[str, Any]) -> bool:
+    def _trash(self, folder: int, row: dict[str, Any]) -> str:
+        """One working copy to the Trash: "trashed", "gone" (no such file in the folder any more) or "stuck"."""
         from ferb.act.fs import files                   # Task 8's seam (tests replace move_to_trash)
         p = Path(str(row["path"]))
-        where: str | None = None
-        if p.parent == self.root and p.is_file() and not p.is_symlink():
-            try:
-                where = files.move_to_trash(p)
-            except Exception:
-                return False                            # left where it is; the next pass tries again
-        self.db.conn.execute("UPDATE downloads SET path = NULL, trashed_to = ? WHERE id = ?", (where, row["id"]))
-        return True
+        try:
+            st = os.stat(p.name, dir_fd=folder, follow_symlinks=False) if p.parent == self.root else None
+        except FileNotFoundError:
+            st = None
+        if st is None or not stat.S_ISREG(st.st_mode):
+            self.db.conn.execute("UPDATE downloads SET path = NULL, kept = 'gone' WHERE id = ?", (row["id"],))
+            return "gone"
+        try:
+            where = files.move_to_trash(self.root / p.name)
+        except Exception as e:
+            self.db.conn.execute("UPDATE downloads SET kept = ? WHERE id = ?",
+                                 (self.redact_text(f"stuck: couldn't move it to the Trash ({e})")[:300], row["id"]))
+            return "stuck"
+        self.db.conn.execute("UPDATE downloads SET path = NULL, trashed_to = ?, kept = 'trash' WHERE id = ?",
+                             (where, row["id"]))
+        return "trashed"
 
     def sweep(self) -> int:
         """At startup: partial files of transfers that never finished (FERB's own `.dl-*.part`) are removed."""
@@ -411,8 +466,11 @@ def _fact(row: dict[str, Any]) -> dict[str, Any]:
     out = {k: row[src] for src, k in keys.items() if row.get(src) not in (None, "")}
     if row.get("bytes") is not None:
         out["bytes" if row["state"] == "taken" else "size"] = row["bytes"]
+    kept = row.get("kept")
     if row["state"] == "taken" and not row.get("path"):
-        out["kept"] = "moved to the Trash (retention)"
+        out["kept"] = "already gone when retention ran" if kept == "gone" else "moved to the Trash (retention)"
+    elif kept and str(kept).startswith("stuck"):
+        out["kept"] = str(kept)
     return out
 
 

@@ -43,13 +43,16 @@ or “my current Brave tab.” Set up FERB's own account with `ferb setup --iden
 
 A download in a tab FERB is driving for a task never opens a Save dialog: FERB takes the file into
 `~/.ferb/workspace/downloads/<id>-<name>` and the task gets facts (path, size, SHA-256, source URL), labeled outside
-content. Limits: `browser.download_max_mb` (100) per file, `browser.download_task_max_files` (20) and
-`browser.download_task_max_mb` (500) per task; refused ones are reported, still without a dialog. The files are FERB's
-working copies: after `retention.download_days` (30), or when the folder passes `browser.download_total_mb` (2048), they
-move to the Trash. Your own downloads, in other tabs or in a tab once its task is over, are never touched. What can't be
-intercepted: a page script that saves a file through a link it never adds to the page (FileSaver style), a popup that
-downloads the moment it opens, and a download already held when you press Cancel on the "started debugging" bar; the
-browser handles those itself (it may ask where to save) and the task is told when FERB saw it.
+content. Limits per request: `browser.download_max_mb` (100) per file, `browser.download_task_max_files` (20),
+`browser.download_task_max_mb` (500) and `browser.task_max_tabs` (20 new tabs FERB opens from its pages); refused ones
+are reported, still without a dialog. The files are FERB's working copies: after `retention.download_days` (30), or
+when the folder passes `browser.download_total_mb` (2048), they move to the Trash. While a task drives one of your tabs,
+downloads in that tab and in tabs opened from it go to FERB, not to your Downloads; tabs opened from your tab are
+released to you, never closed, when the task ends. Your downloads in other tabs, and in your tab once the task lets go
+of it, are never touched. What still reaches the browser itself (it may ask where to save): a download already held
+when you press Cancel on the "started debugging" bar, a popup a page opens with `noopener` or from a frame FERB hasn't
+prepared, a form posted to a new tab, and pages' own save pickers (`showSaveFilePicker`); the task is told when FERB
+saw it.
 
 Optional: `ferb setup --voice` builds the background microphone app. Hold Right Option to talk; release to send.
 `ferb chat --speak` speaks terminal replies. Pending questions accept free text, including corrections.

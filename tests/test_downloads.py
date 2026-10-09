@@ -546,3 +546,175 @@ def test_partial_files_a_restart_cut_off_are_swept(bd: Any) -> None:
     async def sweep() -> int:
         return d.daemon.downloads.sweep()
     assert d.run(sweep()) == 1 and _kept(d) == ["dl-0123456789ab-kept.txt"]
+
+
+# ---------- fix round 2 ----------
+
+def _second_tab(d: RunningDaemon, ext: FakeExtension, g: Any, path: str = "/other") -> tuple[str, int]:
+    opened = call(d, g, "browser.open", url=f"{SITE}{path}")
+    assert not opened["is_error"], opened
+    return opened["content"]["tab"], max(t for t, u in ext.tabs.items() if u == f"{SITE}{path}")
+
+
+def test_two_concurrent_transfers_in_one_task_share_its_budget_without_breaking(bd: Any) -> None:
+    """Regression (round 2, A): the first transfer to finish dropped the task's running count under the second."""
+    d, launched = bd
+    d.daemon.config.set("browser", "download_task_max_mb", 0.8)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    tab2, chrome2 = _second_tab(d, ext, g)
+    ext.download_part_delay = 0.05
+    ext.start_download(chrome_id, "a.bin", os.urandom(450_000), "https://x.example/a", size=None)
+    ext.start_download(chrome2, "b.bin", os.urandom(450_000), "https://x.example/b", size=None)
+    rows = sorted([_wait_record(d, 1), _wait_record(d, 2)], key=lambda r: r["state"])
+    assert [r["state"] for r in rows] == ["refused", "taken"]          # together they pass the budget: one is refused
+    assert "browser.download_task_max_mb" in rows[0]["reason"]
+    assert len(_kept(d)) == 1
+    assert d.daemon.downloads._inflight == {} and d.daemon.downloads._running == {}
+
+
+def test_the_budget_is_per_task_tree_not_per_step(bd: Any) -> None:
+    d, launched = bd
+    d.daemon.config.set("browser", "download_task_max_files", 1)
+    ext, g, tab, chrome_id = _task_tab(d, launched, tid="tree")
+    step = task(d, "tree.step2", OWNER, sites=frozenset({"shop.example"}))
+    tab2, chrome2 = _second_tab(d, ext, step)
+    first = _deliver(d, ext, chrome_id, name="one.txt", data=b"1", source_url="https://x.example/1")
+    second = _deliver(d, ext, chrome2, name="two.txt", data=b"2", source_url="https://x.example/2")
+    assert first["state"] == "taken" and second["state"] == "refused" and "per request" in second["reason"]
+
+
+def test_tabs_a_task_opens_from_its_pages_are_capped(bd: Any) -> None:
+    d, launched = bd
+    d.daemon.config.set("browser", "task_max_tabs", 1)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.link_to_new_tab(chrome_id, f"{SITE}/first")
+    ext.wait_for(lambda: f"{SITE}/first" in ext.tabs.values())
+    ext.link_to_new_tab(chrome_id, f"{SITE}/second")
+    ext.wait_for(lambda: ext.plain_opens)                              # past the cap: an ordinary browser tab
+    assert ext.plain_opens[0]["url"] == f"{SITE}/second" and ext.plain_opens[0]["active"] is False
+    pop = ext.popup(chrome_id, f"{SITE}/popup")
+    ext.wait_for(lambda: pop in ext.disarmed)                         # adopted popups count too
+    opened = call(d, g, "browser.snapshot", tab=tab)["content"]["opened_tabs"]
+    assert [o.get("tab") is not None for o in opened] == [True, False, False]
+    assert all("browser.task_max_tabs" in o["error"] for o in opened[1:])
+
+
+def test_a_new_tab_from_the_owners_borrowed_tab_is_released_never_closed(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    _borrowed(d, ext, g)
+    ext.link_to_new_tab(200, f"{SITE}/from-owner")
+    ext.wait_for(lambda: f"{SITE}/from-owner" in ext.tabs.values())
+    new_id = max(t for t, u in ext.tabs.items() if u == f"{SITE}/from-owner")
+    ext.wait_for(lambda: len(d.daemon.router.tabs_of(g.task_id)) == 3)
+    d.run(d.daemon.router.release(g.task_id))
+    assert new_id in ext.tabs and 200 in ext.tabs                      # the owner's: released, still open
+    assert chrome_id not in ext.tabs                                   # FERB's own task tab: closed
+
+
+def test_a_stale_listener_in_a_tab_no_task_drives_opens_the_owners_link_normally(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.tabs[300], ext.tab_windows[300] = f"{SITE}/owner", 5
+    ext.link_to_new_tab(300, f"{SITE}/theirs")
+    ext.wait_for(lambda: 300 in ext.disarmed)
+    assert ext.plain_opens == [{"tab_id": 300, "url": f"{SITE}/theirs", "active": True}]
+
+
+def test_a_transient_release_failure_is_retried_before_the_tab_stops_being_the_tasks(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    _borrowed(d, ext, g)
+    ext.fail_release_times = 1
+    d.run(d.daemon.router.release(g.task_id))                         # no error: the second attempt released it
+    assert d.daemon.router.tabs_of(g.task_id) == []
+
+
+def test_a_tab_opened_while_its_task_let_go_of_its_tabs_is_let_go_of_too(bd: Any) -> None:
+    import asyncio
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    br = d.daemon.hub.bridges[("chrome", "Profile 1")]
+    ext.open_delay = 0.5
+
+    async def race() -> None:
+        opening = asyncio.ensure_future(d.daemon.router.open_from(br, chrome_id, f"{SITE}/late", None))
+        await asyncio.sleep(0.1)
+        ext.open_delay = 0.0
+        await d.daemon.router.release(g.task_id)
+        await opening
+    d.run(race(), timeout=20)
+    assert f"{SITE}/late" not in ext.tabs.values() and not any(
+        t.owner == g.task_id for t in d.daemon.router._tabs.values())
+
+
+def test_a_page_hook_popup_is_loaded_by_ferb_as_the_tasks_tab(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    pop = ext.popup(chrome_id, "about:blank", load_url=f"{SITE}/oauth")
+    ext.wait_for(lambda: ext.tabs.get(pop) == f"{SITE}/oauth")         # FERB navigated the blank popup
+    [new] = call(d, g, "browser.snapshot", tab=tab)["content"]["opened_tabs"]
+    assert new["url"] == f"{SITE}/oauth" and new["tab"] in d.daemon.router.tabs_of(g.task_id)
+
+
+def test_running_rows_a_restart_cut_off_are_finalized_as_failed(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    ext.download_part_delay = 0.3
+    ext.start_download(chrome_id, "cut.bin", os.urandom(3 * DOWNLOAD_PART), "https://x.example/cut")
+    _wait_record(d, 1, settled=False)
+
+    async def restart_finalize() -> int:
+        return d.daemon.downloads.finalize_stale()
+    assert d.run(restart_finalize()) == 1
+    assert _records(d)[0]["state"] == "failed" and "restarted" in _records(d)[0]["reason"]
+
+
+def test_task_end_forgets_its_tabs_locks_and_unreported_facts(bd: Any) -> None:
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    _deliver(d, ext, chrome_id, name="x.txt", data=b"x", source_url="https://x.example/x")
+    dl = d.daemon.downloads
+    assert dl._locks and dl._unreported
+    d.run(d.daemon._task_end(g.task_id))
+    assert not dl._locks and not dl._unreported and not dl._tab_task
+
+
+def test_pagination_cursors_stay_readable_while_credentials_are_redacted() -> None:
+    from ferb.sanitize.redact import Redactor
+    out = Redactor().text("https://api.example/list?pageToken=P1&nextPageToken=N2&cursor=C&syncToken=S"
+                          "&continuationToken=T&access_token=SECRET&X-Goog-Signature=SIG")
+    assert "pageToken=P1" in out and "nextPageToken=N2" in out and "cursor=C" in out and "syncToken=S" in out
+    assert "continuationToken=T" in out and "SECRET" not in out and "SIG" not in out
+
+
+def test_retention_records_a_gone_file_and_never_evicts_a_newer_one_for_one_that_wont_move(bd: Any,
+                                                                                          monkeypatch: Any) -> None:
+    from ferb.act.fs import files
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    d.daemon.config.set("browser", "download_total_mb", 1)
+    a = _deliver(d, ext, chrome_id, name="a.bin", data=os.urandom(300_000), source_url="https://x.example/a")
+    d.call_soon(d.daemon.clock.advance, 1)
+    b = _deliver(d, ext, chrome_id, name="b.bin", data=os.urandom(300_000), source_url="https://x.example/b")
+    d.call_soon(d.daemon.clock.advance, 1)
+    Path(a["path"]).unlink()                                           # the owner removed it
+
+    def stuck(p: Path) -> str:
+        raise files.TrashRefused("in use")
+    monkeypatch.setattr(files, "move_to_trash", stuck)
+    c = _deliver(d, ext, chrome_id, name="c.bin", data=os.urandom(800_000), source_url="https://x.example/c")
+    rows = {r["name"]: r for r in _records(d)}
+    assert rows["a.bin"]["kept"] == "gone" and rows["a.bin"]["path"] is None
+    assert rows["b.bin"]["kept"].startswith("stuck") and Path(b["path"]).exists()   # left in place, recorded
+    assert Path(c["path"]).exists()                                    # never evicted in b's place
+    facts = {f["name"]: f for f in call(d, g, "browser.downloads")["content"]["downloads"]}
+    assert facts["a.bin"]["kept"] == "already gone when retention ran" and facts["b.bin"]["kept"].startswith("stuck")
+
+
+def test_the_downloads_description_names_the_configured_retention(bd: Any) -> None:
+    d, launched = bd
+    d.daemon.config.set("retention", "download_days", 7)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    desc = next(t["description"] for t in d.daemon.gateway.tools_for(g) if t["name"] == "browser.downloads")
+    assert "kept 7 days" in desc

@@ -505,6 +505,8 @@ class Daemon:
                     resources.extend(await drv.release(task_id) or [])
                 except Exception as exc:
                     resources.append({'resource': name, 'released': False, 'error': f"{type(exc).__name__}: {exc}"})
+        if (kept := getattr(self, "downloads", None)) is not None:
+            kept.forget_task(task_id)                    # after its tabs are let go of: their locks and unreported facts
         if self.shells is not None:
             try:
                 await self.shells.end_task(task_id)
@@ -1409,6 +1411,11 @@ class Daemon:
         stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
         return {"stable": stable, "live": live}
 
+    def _task_root(self, task_id: str) -> str:
+        """The request's root task a worker step belongs to: download budgets and the tab cap are per task tree."""
+        rec = self.tasks.get(task_id)
+        return (rec.tree_id if rec is not None and rec.tree_id else None) or task_id.split(".", 1)[0]
+
     def _inspection_parent(self, task_id: str) -> str | None:
         """A registered checker borrows its worker's tabs/evidence, without changing their ownership."""
         rec = self.tasks.get(task_id)
@@ -1565,7 +1572,12 @@ class Daemon:
         self.downloads = downloads.Downloads(self.home / "workspace" / downloads.FOLDER, self.db, self.clock.now,
                                              self.config.get, lambda text: str(self.redact({"u": text})["u"]),
                                              self._publish)
-        self.downloads.sweep()                           # partial files of transfers a restart cut off
+        try:                                             # what a restart cut off: partial files, running rows
+            self.downloads.sweep()
+            self.downloads.finalize_stale()
+        except Exception as e:
+            self._journal().append("browser.downloads_startup_failed", {"error": f"{type(e).__name__}: {e}"})
+        self.downloads.task_root = self._task_root
         self.hub.on_download = self.downloads.receive
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
         self.router.add_secret_value = self._add_secret_value
@@ -1579,6 +1591,8 @@ class Daemon:
             drv.inspection_parent = self._inspection_parent
             drv.downloads = self.downloads
             drv.task_running = lambda task_id: self.tasks.get(task_id) is not None   # removed when its tree ends
+            drv.task_root = self._task_root
+            drv.max_tabs = lambda: int(self.config.get("browser", "task_max_tabs", 20))
         self.downloads.task_tab = self.hub.task_tab      # only a live task's tab holds downloads (D35)
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()
