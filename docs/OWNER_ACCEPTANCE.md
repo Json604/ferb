@@ -57,6 +57,129 @@ Recall and caching (same session, later):
 Owner sign-off: F1 accepted with these carry-overs (D34/D35 to F4, recall relevance to F8, the Codex cache key
 to F2): "lets move to f2" (2026-10-07).
 
+## 0.27 F4 — pending live checks
+
+Run after the final review and `ferb setup --update`, which installs F4 and republishes the browser extension. Use
+only owner-controlled surfaces (D17): FERB's Gmail, WhatsApp "message yourself", kartikey.xyz test pages with the
+request-logging server, and disposable files in a test folder (here `~/ferb-test`). Pause between supervised actions
+and record what you saw on screen with each one, so a disturbance can be tied to one action; record each task's
+verdict with `ferb verdict TASK pass|fail`. Afterwards run `ferb baseline` for F4's numbers
+(`unverified` is now counted apart).
+
+Statuses and the checker:
+1. **Three statuses.**
+   - A task that clearly succeeds (for example "write hello into ~/ferb-test/a.txt"): the answer is the outcome, and
+     the `ferb trace` story head line says `done ✓ verified`.
+   - A task the check can't confirm from the background (for example a Spotify like, or a Gmail send from FERB's
+     account to its own address when Sent doesn't load): the answer starts "Done, but not confirmed:", each open
+     condition reads "— unverified: <the real reason>", often with "To check: …" in your terms; `ferb trace` says
+     `done (unverified)`. It must not say `failed` for that alone (unless the orchestrator judged the work failed).
+   - A task that fails (for example "edit ~/ferb-test/missing.txt", a file that doesn't exist): the answer starts "I
+     couldn't finish this task." or "I couldn't confirm the task was complete:" with the real reason; `ferb trace` says
+     `failed ✗`. "Unverified" appears only where a check ran.
+   - `ferb stats` shows "done N (x%), unverified N (y%), failed N (z%)"; `ferb chat --verbose` shows `done ✓ —`,
+     `done — unverified —` or `failed ✗ —` before the answer.
+2. **Read-only checker.** A task whose check would need a click (for example a WhatsApp "message yourself" note where
+   confirming needs the chat opened): the checker only reads; the condition stays unknown with what is missing, and
+   the orchestrator sends a worker to gather it before the check passes. `ferb trace TASK --full`: the checker made no
+   send, write or click; any attempt shows as a `tool.refused` span and the story line "⚠ N tool calls refused".
+3. **Brief state captured.** A Spotify like: the worker's first Mac call on Spotify stores one picture of Spotify's
+   window. `ferb trace TASK --json` shows the `evidence.app_window` span with `{"evidence": "<id>"}` (and image tool
+   calls carry `evidence` in their output); the checker confirms from `task.evidence kind=evidence` after the
+   change is no longer on screen. WhatsApp "message yourself": by design the capture keeps facts only (`image_withheld`:
+   "a messaging or mail app, …") until F5; the checker confirms from the recorded accessibility reads instead. No
+   picture of a browser window is ever stored.
+4. **The renamed vision test.** `uv run pytest -m real tests/test_mac_vision_real.py` (Codex runtime, you observe): the
+   frame is stored only in the evidence store. Renamed in F4 and not yet run.
+
+Recovery and snapshots:
+5. **Overwrite, then restore.** FERB overwrites `~/ferb-test/notes.txt` ("replace its contents with X"). `ferb restore`
+   lists it as "overwrote ~/ferb-test/notes.txt" with an id; `ferb restore <id>` prints "Restored ~/ferb-test/notes.txt
+   to what it was before FERB changed it." and the original text is back.
+6. **Changed since.** As in 5, but edit the file yourself after FERB wrote it, then `ferb restore <id>`. Expected:
+   "~/ferb-test/notes.txt has changed since FERB changed it, so it was left as it is. The version from before FERB's
+   change is now at ~/ferb-test/notes (before FERB).txt." Your edit stays.
+7. **Trash from the daemon.** FERB moves `~/ferb-test/old.txt` to the Trash. `ferb restore` lists "moved to Trash
+   ~/ferb-test/old.txt"; `ferb trace TASK --full` shows the `fs.trash` result with `trashed_to` and `recoverable`;
+   `ferb restore <id>` prints "Put ~/ferb-test/old.txt back from the Trash." This is the first run of the Trash record
+   and restore (lstat and rename in `~/.Trash`) from the installed daemon under TCC; offline tests never touch the real
+   Trash.
+8. **Snapshot from the daemon.** Ask for bulk work on a disposable folder and say "take a snapshot first" (for
+   example "rename every file in ~/ferb-test/bulk to lowercase"). The worker calls `recovery.snapshot`: no password
+   prompt, the result names `com.apple.TimeMachine.<date>.local`, `tmutil listlocalsnapshots /` lists it, and
+   `ferb restore` lists a "disk snapshot". A second request within 15 minutes says "A snapshot from the last 15 minutes
+   is reused." If tmutil fails from the LaunchAgent, the error is on the call and the work goes on: record the error.
+   Spot-check later that `retention.snapshot_purged` appears in `ferb timeline` after 7 days.
+9. **Recording end to end.** `uv run pytest -m real tests/test_recording_real.py` (Codex runtime, you observe).
+   `recording.stop` had failed on every gateway call since `88368e8` (an unknown `recording` lock kind); F4 fixed it
+   offline. Expected: the test passes and each video and receipt is finalized.
+
+Unknown outcomes and named targets:
+10. **Unknown outcome (P19).** Ask FERB to send a short test email from FERB's Gmail to FERB's own address, or a
+    WhatsApp "message yourself" note, and interrupt it mid-send (the test-mode send allowlist can't be switched on
+    for the installed daemon until F5, D17 note, so use only these self-addressed surfaces): Ctrl-C, or restart the
+    daemon yourself (for example `ferb setup --update`). Then ask FERB to continue.
+    - Expected: it does not silently send again. It checks for evidence (Sent folder, the chat) and reports what it
+      found, or asks.
+    - Within one task, code refuses an identical retry. The question starts "FERB: an earlier attempt at … may already
+      have happened (outcome unknown). Trying again could make it happen twice." and offers Yes and No; Yes allows one
+      attempt only.
+    - A continuation is a new task tree: there it is the orchestrator's judgment from "Uncertain prior actions", not
+      a code refusal. Note which path you saw.
+11. **Named target (D34).** The "Code Astra" case on a disposable repository: ask for something FERB can't find by that
+    name ("start a code astra session in ~/ferb-test/repo"). FERB asks what or which it is, with what it searched;
+    it never reports a substitute as done. If a worker used a substitute anyway (VS Code's Copilot, say), the check
+    gives `met=false` naming what was used, and the task is `failed ✗`.
+
+Downloads (D35):
+12. **Extension update.** After `ferb setup --update`, each browser runs FERB extension 0.14.0: `ferb browsers` shows
+    it connected, `ferb doctor` shows the version. A managed install reloads itself when idle (an older one is
+    refused with a reload notice); a first install or a repository-loaded one needs Load unpacked from
+    `~/.ferb/extensions/chromium` (a browser setup step).
+13. **The original incident.** In your Brave, with your usual download setting (including "ask where to save" if you
+    use it), have FERB read a Google Doc through its `export?format=txt` link in your current Brave tab, as in task
+    `c4072385`. Expected: no Save dialog, nothing new in `~/Downloads`, the page stays; the reply names
+    `~/.ferb/workspace/downloads/dl-…-<name>.txt` with its size and SHA-256, labeled outside content. Note whether the
+    "started debugging" bar appears on your tab (expected while FERB drives it).
+14. **kartikey.xyz downloads.** On a kartikey.xyz test page in a task tab: (a) a `Content-Disposition: attachment`
+    link, (b) an `<a download>` link, (c) a popup window download (`window.open(url, "_blank",
+    "popup,width=400,height=300")`), (d) a FileSaver-style "Export CSV" (a blob link the page never adds to itself).
+    Each: no dialog; the file is in FERB's workspace with size and hash, and `browser.downloads` lists it. Note whether
+    Brave's download bubble flashes and whether `brave://downloads` shows a "canceled" entry (measured for a captured
+    `<a download>`). For (c), note whether the page's popup window comes to the front (the page opens it, not FERB).
+15. **The popup's first URL in a headed browser.** FERB claims a popup only if the browser reports its first URL as
+    `about:blank#ferb-<token>` (measured only in headless Chrome). In 14(c) the popup must be claimed: its download is
+    taken (`browser.downloads` lists it) and the task's next browser result lists the popup under `opened_tabs`. If
+    headed Brave or Chrome reports plain `about:blank` first, popups are never claimed: the page loads the popup after
+    1.5 s, and its download goes to the browser's own flow (a dialog is possible). Record which happened, in Brave and
+    in Chrome.
+16. **The debugging bar on an opener check.** FERB attaches to a new popup at its own magic URL to read who opened it.
+    In 14(c), note whether the "started debugging" bar appears on the popup (expected while it is the task's). Then,
+    while a task runs, open a popup from a page in a tab FERB isn't driving: it is never FERB's and shows no bar. Note
+    any brief flash.
+
+Residuals to know about (each can still reach the browser's own download flow, with a dialog possible in a profile set
+to "ask where to save"):
+- you press Cancel on the "started debugging" bar, or the extension's service worker crashes, while a download is held;
+- a new tab FERB didn't open or claim: `noopener` or `noreferrer`, a named or empty target, an untrusted (script) click
+  on a `target=_blank` link, a form posted to `target=_blank`, a link in a frame content.js wasn't injected into, a
+  popup whose opener the browser doesn't confirm;
+- an out-of-process iframe's first document;
+- a type the browser shows but the profile is set to download (for example "download PDFs");
+- a script-made save before content.js is injected into that document;
+- `showSaveFilePicker` (the page's own system Save dialog);
+- a page that opts itself out (it can tell FERB is driving it; that gives it no extra power);
+- the daemon adopting a popup more slowly than 1.5 s (the hook loads the popup first);
+- a page navigating its own popup when FERB's ready arrives before that navigation commits (the hook loads the original
+  URL over it).
+
+Also: while a task drives one of your tabs, downloads in that tab and in tabs opened from it go to FERB's workspace,
+not to your Downloads.
+
+Carried to F5 (not live checks): full screenshot redaction; the destructive-action and sink confirmations that build
+on S1; never-read lists covering `~/.ferb/run`; FERB's shell reaching the daemon socket; shell file changes having no
+per-file copy.
+
 ## 0.27 F3 — pending live checks
 
 Run after the final review and `ferb setup --update`.

@@ -22,9 +22,9 @@ Setup installs a dedicated interpreter, environment, runtime and LaunchAgent und
 permissions and reports missing grants. `ferb setup --update` installs the current checkout and restarts the daemon;
 run it when existing work can be interrupted. The development environment and installed daemon are separate.
 
-Chrome and Brave need FERB extension **0.14.0** (protocol 10). After pulling it, run `ferb setup --update` to
-republish the managed bundle; a managed install reloads it when idle, and an older one is refused with a reload notice.
-Prepare its managed folder with `ferb browsers extension install`;
+Chrome and Brave need FERB extension **0.14.0** (protocol 10); downloads without a Save dialog need it. After pulling
+it, run `ferb setup --update` to republish the managed bundle; a managed install reloads it when idle, and an older one
+is refused with a reload notice. Prepare its managed folder with `ferb browsers extension install`;
 `ferb browsers extension path` prints the path. Enable Developer mode in the browser's extensions page and Load
 unpacked from `~/.ferb/extensions/chromium`, once per profile. Pair with:
 
@@ -43,19 +43,26 @@ or “my current Brave tab.” Set up FERB's own account with `ferb setup --iden
 
 A download in a tab FERB is driving for a task never opens a Save dialog: FERB takes the file into
 `~/.ferb/workspace/downloads/<id>-<name>` and the task gets facts (path, size, SHA-256, source URL), labeled outside
-content. Limits per request: `browser.download_max_mb` (100) per file, `browser.download_task_max_files` (20),
-`browser.download_task_max_mb` (500) and `browser.task_max_tabs` (20 new tabs FERB opens from its pages); refused ones
-are reported, still without a dialog. The files are FERB's working copies: after `retention.download_days` (30), or
-when the folder passes `browser.download_total_mb` (2048), they move to the Trash. While a task drives one of your
-tabs, downloads in that tab and in tabs opened from it go to FERB, not to your Downloads; tabs opened from your tab
-are released to you, never closed, when the task ends. Your downloads in other tabs, and in your tab once the task
-lets go of it, are never touched. FERB adopts only tabs it opened itself and new popups that the browser confirms a task
-tab opened (through FERB's own page hook); a tab that already existed is never claimed, and a new tab that your own
-page opened is let go of at once. What still reaches the browser itself (it may ask where to save): a download already
-held when you press Cancel on the "started debugging" bar, a new tab FERB didn't open (a popup opened with `noopener`,
-a form posted to a new tab, a script's click on a link), and pages' own save pickers (`showSaveFilePicker`); the task
-is told when FERB saw it. A page can tell FERB is driving it and can opt itself out of capture; its downloads then
-behave as usual. A popup a task page opens shows `about:blank#ferb-<token>` for a moment before the page loads it.
+content. Limits: `browser.download_max_mb` (100) per file and, per task, `browser.download_task_max_files` (20),
+`browser.download_task_max_mb` (500) and `browser.task_max_tabs` (20 new tabs FERB opens from its pages); one download
+at a time per tab (the next waits up to 20 s), each within 10 minutes. Refused ones are reported, still without a
+dialog. The worker sees the facts in its open/navigate result and with `browser.downloads`. The files are FERB's working
+copies: after `retention.download_days` (30), or when the folder passes `browser.download_total_mb` (2048), they move to
+the Trash, so ask FERB to copy a file you want to keep where you want it. While a task drives one of your tabs,
+downloads in that tab and in tabs opened from it go to FERB, not to your Downloads; tabs opened from your tab are
+released to you, never closed, when the task ends. Your downloads in other tabs, and in your tab once the task lets go
+of it, are never touched. FERB adopts only tabs it opened itself and new popups that the browser confirms a task tab
+opened (through FERB's own page hook); a tab that already existed is never claimed, and a new tab that your own page
+opens is never touched. The only new tabs FERB looks at are ones at its own popup address, `about:blank#ferb-<token>`:
+it attaches long enough to ask the browser who opened the tab and lets go at once unless it was a task tab. What can
+still reach the browser itself (it may ask where to save): a download held when you press Cancel on the "started
+debugging" bar or when the extension's service worker crashes; a new tab FERB didn't open or claim (a popup opened
+with `noopener`, a named or empty target, a script's click on a link, a form posted to a new tab, a link in a frame
+FERB's script isn't in); a popup FERB took longer than 1.5 s to adopt; a type the browser shows but your profile is set
+to download (such as "download PDFs"); a save a page makes before FERB's script is in it; and pages' own save pickers
+(`showSaveFilePicker`). The task is told when FERB saw it. A page can tell FERB is driving it and can opt itself out of
+capture; its downloads then behave as usual. A popup a task page opens shows `about:blank#ferb-<token>` for a moment
+before the page loads it.
 
 Optional: `ferb setup --voice` builds the background microphone app. Hold Right Option to talk; release to send.
 `ferb chat --speak` speaks terminal replies. Pending questions accept free text, including corrections.
@@ -80,6 +87,37 @@ FERB can read and operate native apps, browse through its extension, run shell c
 work with files, send email from its own account, remember useful context, and create reminders or scheduled tasks.
 Each new action task has explicit success conditions. Result inspection uses recorded evidence and fresh reads;
 incomplete coverage goes back to the orchestrator. A delivered click or launched process does not prove completion.
+The final check is read-only, enforced by code: it can look but not click, type, send or write.
+
+A task ends in one of three results, each its own status:
+- **done**: every condition was checked and confirmed. `ferb trace` heads the story `done ✓ verified`.
+- **done, but not confirmed** (`done_unverified`): the work finished and the check found nothing wrong, but couldn't
+  confirm everything from the background. The answer starts "Done, but not confirmed:" and lists each unconfirmed
+  condition as "— unverified: <the real reason>", often with "To check: …" saying how you can check it yourself.
+  `ferb trace` shows `done (unverified)`. A task with nothing to check against says "Done, but there was nothing to
+  check it against."
+- **failed**: the work didn't finish, a check found a condition false, or FERB judged that it failed. The answer gives
+  the real reason; `ferb trace` shows `failed ✗`.
+
+"Unverified" appears only when a check ran. If the work stopped before any check, the answer says "I couldn't finish
+this task." and lists what is "Still to do". `ferb stats` counts the three apart ("done N (x%), unverified N (y%),
+failed N (z%)"), `ferb baseline` records `unverified` and `failed` with their percentages, and
+`ferb chat --verbose` shows `done ✓`, `done — unverified` or `failed ✗` before the answer.
+
+Within a task, code refuses to repeat an action whose outcome is unknown, such as a send that was cut off. The worker
+looks for evidence that it happened; if that doesn't settle it, you get a question that starts "FERB:", names the
+action and offers Yes or No, and your Yes allows exactly one more attempt. A later request that continues the task sees
+the uncertain action and is told to check before retrying.
+
+Before FERB overwrites or edits one of your files with its file tools, it keeps a copy (an APFS clone) for
+`retention.recovery_days` (7 days). Items its file tools delete go to the Trash, and FERB remembers where each came from
+while it is still there. `ferb restore` lists what it can put back, newest first, with an id; `ferb restore ID` puts one
+back. A copy goes back in place only if the file is gone or unchanged since FERB wrote it; if you changed it since, your
+version stays and the earlier one is saved beside it as "<name> (before FERB)<ext>". A trashed item moves back without
+replacing anything ("<name> (restored)<ext>" beside whatever is there now). Before bulk work an agent may take a local
+disk snapshot (at most one per 15 minutes; FERB deletes its own after 7 days). FERB can't open a snapshot itself (that
+needs admin rights); you can, from macOS Recovery or Time Machine. File changes FERB makes through shell commands or
+AppleScript get no per-file copy.
 
 Closing chat leaves tasks running. Ctrl-C stops the current task. `ferb stop` stops all tasks until
 `ferb resume-tasks`. `ferb pause` / `ferb resume` pause/resume activity sensing.
@@ -99,6 +137,7 @@ Borrowed owner tabs stay open. Cleanup results and errors are recorded so the fi
 | `ferb voice on`, `ferb voice off` | Toggle push-to-talk |
 | `ferb decide stats` | Inspect optional enrichment decisions |
 | `ferb verdict TASK pass\|fail [--note TEXT]` | Record your acceptance verdict on a task; `ferb trace --json` shows it |
+| `ferb restore`, `ferb restore ID` | What FERB can put back (files it overwrote or edited, items it moved to the Trash, disk snapshots), and put one back |
 | `ferb runtimes` | The model runtimes (Codex, Claude, Anthropic, OpenAI, Google), what each can do, which are usable, and what each role uses |
 | `ferb runtimes use ROLE RUNTIME [--model M]` | Make `orchestrator`, `worker` or `checker` use a runtime from its next call (`[runtimes]` and `[models]` in `config.toml`; the checker follows the worker unless set) |
 | `ferb setup --key PROVIDER` | Store an Anthropic, OpenAI or Google API key in the Keychain (`security` asks for it) and make one tiny test call |
@@ -123,6 +162,10 @@ memory removes its corresponding daily-log copies too. This is single-device con
 
 Sensing records app/window/tab metadata and configured folder events, not keystrokes, clipboard or continuous
 screenshots. Exclusions and pause apply before storage. Task tools can explicitly capture windows for the model.
+Those images, and one picture of an app's window when a worker starts on it, are kept in `~/.ferb/evidence` so the
+check can look again. A secret field the accessibility tree shows is blacked out, or the image is kept as facts only;
+browser windows, messaging and mail apps and recordings always keep facts only (full screenshot redaction arrives with
+F5).
 Secrets are redacted; OTPs use a sealed input path. Full trace output remains private data: share deliberately.
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
 An oversized unfinished record may be replaced by an explicit redaction marker.
@@ -131,6 +174,10 @@ Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how lon
 and `decision_days` (default 30) how long Jev decisions are kept. A task's story (`ferb trace TASK`), the task list,
 chat, daily summaries and memory are kept; the story is written when the task ends, and a purge never removes a
 task's steps before its story exists. After `trace_days`, `--steps`, `--full` and `--json` have no steps to show.
+`evidence_days` (7) is how long captured images and their facts are kept; `recovery_days` (7) how long the copies of
+files FERB changed, and FERB's own disk snapshots, are kept (a record of an item FERB moved to the Trash stays while the
+item is there, at most 90 days); `download_days` (30) how long downloaded files stay in FERB's workspace before they
+move to the Trash.
 
 Start with `ferb doctor` and `ferb trace TASK --full` when something fails. Doctor compares the installed code,
 runtime prompts and extension resources with the checkout. Connection errors, provider errors, watcher failures,

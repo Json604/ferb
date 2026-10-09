@@ -45,13 +45,17 @@ browser bridge pages large observations; client RPC and extension protocol versi
 | `stop.lift` | `{}` | Lifts global stop; does not replay completed/uncertain actions |
 | `trace.get` | `{task_id: exact_id_or_unique_prefix_or_last}` | Redacted span forest plus structured `outcome` |
 | `verdict.set` | `{task_id: exact_root_id_or_unique_prefix, verdict: "pass"\|"fail", note?}` | Appends the owner's verdict (note redacted); refuses `last` and child tasks, naming the root |
+| `recovery.list` | `{}` | What FERB can put back (S1), newest first: `{days, total, trash_days, records}`; at most 100 records, `total` counts all |
+| `recovery.restore` | `{id: record_id_or_unique_prefix}` | Puts one back, never over a change made since: `{id, kind, original, restored_to, in_place}`; journaled `recovery.restored` |
 | `timeline.get` | `{since?: ISO timestamp}` | Complete matching journal entries, chronological |
 | `logs.subscribe` | Optional `filters` list and `maxsize` queue bound | `logs.subscribe.event` notifications; overflow is explicit |
 
 `chat.send` events contain a `type`; examples include plan, progress/tool events, verification, approval/question,
-and outcome. Render unknown event types safely rather than treating them as completion. `outcome` includes status,
-answer, artifacts/evidence through subtasks, verification, a separate `stop_reason`, and resource outcomes. Display the supplied `answer`
-verbatim: rebuilding a cheerful summary can hide failed conditions.
+and outcome. Render unknown event types safely rather than treating them as completion. `outcome` includes status
+(`done` only when every condition was verified, `done_unverified` when the work finished but a check couldn't confirm
+it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through subtasks, verification, a separate
+`stop_reason`, and resource outcomes. Display the supplied `answer` verbatim: rebuilding a cheerful summary can hide
+failed conditions.
 
 A streaming request occupies its connection. Use a second authenticated connection for question replies, stop,
 status or trace reads. The stream ends with a response carrying its request ID. Events are notifications, without

@@ -703,7 +703,9 @@ async function claimPopup(token, tabId) {
       await chrome.debugger.attach({ tabId }, "1.3");
       t.attached = true; t.detached = null; t.ready = false; t.armed = false;
     }
-    if (!(await openedBy(tabId, relay.opener))) {    // not that task tab's popup after all: let it be (the hook loads it)
+    // Not confirmed as that task tab's popup: let it go. Only the hook's own popup, whose opener the browser couldn't
+    // confirm, is then loaded by the hook (natively, after 1.5 s); any other tab at that URL stays with what opened it.
+    if (!(await openedBy(tabId, relay.opener))) {
       await detach(tabId);
       return;
     }

@@ -29,9 +29,10 @@ override with default fallback. No learning loop or additional Jev decision fami
 | Context and durable continuation | [`core/context.py`](ferb/core/context.py), [`continuity.py`](ferb/orchestrator/continuity.py) |
 | Runtime execution and liveness | [`worker.py`](ferb/orchestrator/worker.py), [`runtimes/`](ferb/runtimes/) |
 | Tool gateway and ledger | [`gateway.py`](ferb/daemon/gateway.py), [`ledger.py`](ferb/orchestrator/ledger.py), [`registry.py`](ferb/registry.py) |
-| Evidence/checking | [`verify.py`](ferb/orchestrator/verify.py), [`evidence.py`](ferb/orchestrator/evidence.py), [`store/spans.py`](ferb/store/spans.py) |
+| Evidence/checking | [`verify.py`](ferb/orchestrator/verify.py), [`evidence.py`](ferb/orchestrator/evidence.py), [`store/spans.py`](ferb/store/spans.py), [`act/evidence/`](ferb/act/evidence/), [`act/aftercheck.py`](ferb/act/aftercheck.py) |
+| Recovery of FERB's file changes (S1) | [`act/fs/recovery.py`](ferb/act/fs/recovery.py) |
 | Background observation | [`daemon/disturbance.py`](ferb/daemon/disturbance.py) |
-| Browser | [`act/browser/`](ferb/act/browser/), [`native_host/`](ferb/native_host/), [`extension`](extensions/chromium/) |
+| Browser (downloads: [`act/browser/downloads.py`](ferb/act/browser/downloads.py)) | [`act/browser/`](ferb/act/browser/), [`native_host/`](ferb/native_host/), [`extension`](extensions/chromium/) |
 | Native, processes, files, recordings | [`act/mac/`](ferb/act/mac/), [`act/shell/`](ferb/act/shell/), [`act/fs/files.py`](ferb/act/fs/files.py), [`act/recording.py`](ferb/act/recording.py) |
 | Memory, sensing, reminders and schedules | [`memory/`](ferb/memory/), [`sense/`](ferb/sense/), [`clock/`](ferb/clock/), [`schedules.py`](ferb/orchestrator/schedules.py) |
 | Optional typed enrichment | [`decide/`](ferb/decide/) |
@@ -91,7 +92,8 @@ The trace forest includes the pre-task planner by exact request ID. `trace --jso
 outcome with request, plan, actions/results, verification, disturbances, cleanup and final records. `ferb verdict`
 (RPC `verdict.set`) appends the owner's pass/fail to the `owner_verdicts` table for a root task; the export shows the
 latest one as `owner_verdict`, and null means no verdict, not acceptance. Compact CLI previews use `--full`/`--json`
-for all fields. Redacted secrets and unstored screenshots are intentionally unrecoverable from tool text.
+for all fields. Redacted secrets, and images the evidence store keeps as facts only (section 11), are intentionally
+unrecoverable from tool text.
 
 `ferb/eval/` holds the 0.27 measurement tools. `ferb regress` submits a TOML task set (default
 `ferb/eval/sets/smoke.toml`) in one fresh conversation, declines owner questions, writes one row per task to
@@ -105,6 +107,8 @@ The owner-only Unix socket authenticates client roles. Worker run tokens are sco
 `Gateway.call` validates, binds the task, locks the actual resource, records the action, invokes the chosen tool and
 returns redacted facts. Canonical filesystem locks preserve the exact requested path. Ledger transitions distinguish
 intended, executing, done, failed and unknown delivery. A delivered event is not proof of the requested outcome.
+Code refuses a consequential call identical to one in the same task tree whose outcome is unknown or still running;
+only the owner's Yes allows one more attempt (P19, section 11).
 Each `tool.call` span records the action `kind` and its non-empty `target` fields, so exported traces can be scanned
 offline. `Gateway.test_send_allowlist` is for tests only: when set, send-class actions to unlisted or unidentifiable
 recipients are refused before the ledger; it is None (inert) in normal running. GUI typing into a messaging app is
@@ -154,52 +158,56 @@ path, size, modified time and SHA-256 receipts tie the chosen local bytes to the
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs
 model inspection and final observed content evidence.
 
-Downloads (D35) never reach the browser's own download flow in a live task's tab (opened, adopted, or borrowed while
-the task holds it). The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the
+Downloads (D35) never reach the browser's own download flow in a live task's tab (opened, adopted, or borrowed while the
+task holds it). The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the
 task's, then navigates; a tab the debugger can't attach to, such as a new-tab or `chrome://` page, steps through
-`about:blank` first, and only then is the URL refused as a structured `download_capture_unavailable` fact). Its
-debugger session pauses document responses at the response stage (`Fetch`, child-frame sessions too) and
+`about:blank` first, and only then is the URL refused as a structured `download_capture_unavailable` fact). Its debugger
+session pauses document responses at the response stage (`Fetch`, child-frame sessions too) and
 [`downloads.js`](extensions/chromium/downloads.js) classifies each as the browser would: `Content-Disposition:
 attachment`, a renderer-started download (`<a download>`, whose request alone lacks `Upgrade-Insecure-Requests`, plus
 its redirect targets), or a type a page can't show. A download is held, announced as a `download` event and read with
 `Fetch.takeResponseBodyAsStream` + `IO.read` in 72000-byte `download_part`s the daemon pulls (never in the command
-journal), then failed (`ERR_ABORTED`: the page stays). `content.js` (bubble phase, after the page's own handlers)
-holds a blob/data `download` link in the capture phase (a page's `stopPropagation` can't hide it), and in the bubble
-phase routes a trusted click on a link to a new tab (`target=_blank`, also via `<base target>`, a modifier or middle
-click; other named targets stay the browser's) through FERB's own open as the same task's tab, released like its opener
-when that is the owner's borrowed tab, within `browser.task_max_tabs` (20) per task tree (past it the browser opens an
-ordinary tab, as a fact). The page hook (`PAGE_HOOK`, pinned by exact source in `protocol.js`; installed only in armed task tabs and their
-OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed on release) asks content.js through a cancelable
-`ferb-armed` event before doing anything, so a still-patched document is native once FERB lets go. It clicks a
-FileSaver-style save link (never added to the page) itself while briefly connected, so the capture listener takes it,
-and opens `window.open(url)` (a non-empty http(s) URL, no target or `_blank`, without `noopener`; anything else is
-native) as `about:blank#ferb-<token>` (`crypto.getRandomValues`, so plain-http pages work). FERB adopts a new tab only
-when it opened it itself (`browser.open`, a routed link) or when all three hold: the tab is new (`chrome.tabs.onCreated`,
-and this is its first URL report, there or in its first `onUpdated`; a later navigation of any tab never counts), that
-URL is exactly `about:blank#ferb-<token>` for a token a live task tab relayed (either may come first; 2 s each; any
-window, so popup windows with features count; 20 relays per opener tab, 100 in all, one per token), and, once attached,
-the browser itself names that task tab as the opener: the popup's `Target.getTargetInfo` `openerId` equals the task
-tab's own `targetId` (measured for a popup tab, a popup window and a popup opened from a cross-site iframe, whose
-`openerId` is still the tab; a popup of another tab names that tab). No match: detached at once, never reported, and
-the hook loads it natively after 1.5 s. The allowlist admits `Target.getTargetInfo` with no params only (another
-target's is also refused by Chrome, "Not allowed") and returns just the two ids. Chrome's `openerTabId` names the
-window's active tab (measured), so it is never used. So a tab that existed before can't be claimed, even by navigating
-itself to the magic URL while a frame in a task tab relays the token, and a new popup of the owner's own page is let go
-of. FERB never navigates a popup: once the daemon has made it the task's (within the tab cap, `attached` from its
-opener) it sends `popup_ready`, content.js fires `ferb-popup-ready` (and answers, so the result says the page was told),
-and the hook sets the popup's location once, only if the popup is still exactly at its blank URL (a page that navigated
-or closed its popup meanwhile keeps its own choice); without the ready, the hook does the same after 1.5 s. A page
-faking `ferb-popup-ready` only loads its own popup early. Measured in the headless lab on a plain-http, non-localhost
-origin: a popup tab's and a popup window's downloads are taken on the ready path (the page saw `ferb-popup-ready` well
-under 1.5 s after `window.open`), and an OAuth popup's `window.opener.postMessage` reaches its opener. Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
-takes a download only while `Hub.task_tab` finds a running task's tab, else it is released back to the browser
-untouched (`download_part {release}` → `Fetch.continueRequest`); the hello lists armed tabs and the daemon disarms any it
-doesn't hold (a failed release, a restart); an unpulled hold goes back to the browser after 30 s (in FERB's own profile it
-is failed); closing FERB's own tab fails what it holds, letting go of a borrowed one hands it back. A refused download
-(over `browser.download_max_mb` 100, the task tree's `download_task_max_files` 20 / `download_task_max_mb` 500, a second
+journal), then failed (`ERR_ABORTED`: the page stays). `content.js` holds a blob/data `download` link in the capture
+phase (a page's `stopPropagation` can't hide it), and in the bubble phase (after the page's own handlers, so a click the
+page cancelled stays cancelled) routes a trusted click on a link to a new tab (`target=_blank`, also via `<base
+target>`, a modifier or middle click; other named targets stay the browser's) through FERB's own open as the same task's
+tab, released like its opener when that is the owner's borrowed tab, within `browser.task_max_tabs` (20) per task tree
+(past it the browser opens an ordinary tab, as a fact). The page hook (`PAGE_HOOK`, pinned by exact source in
+`protocol.js`; installed only in armed task tabs and their OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed
+on release) asks content.js through a cancelable `ferb-armed` event before doing anything, so a still-patched document
+is native once FERB lets go. It clicks a FileSaver-style save link (never added to the page) itself while briefly
+connected, so the capture listener takes it, and opens `window.open(url)` (a non-empty http(s) URL, no target or
+`_blank`, without `noopener`; anything else is native) as `about:blank#ferb-<token>` (`crypto.getRandomValues`, so
+plain-http pages work). FERB adopts a new tab only when it opened it itself (`browser.open`, a routed link) or when all
+three hold: the tab is new (`chrome.tabs.onCreated`, and this is its first URL report, there or in its first
+`onUpdated`; a later navigation of any tab never counts), that URL is exactly `about:blank#ferb-<token>` for a token a
+live task tab relayed (either may come first; 2 s each; any window, so popup windows with features count; 20 relays per
+opener tab, 100 in all, one per token), and, once attached, the browser itself names that task tab as the opener: the
+popup's `Target.getTargetInfo` `openerId` equals the task tab's own `targetId` (measured for a popup tab, a popup window
+and a popup opened from a cross-site iframe, whose `openerId` is still the tab; a popup of another tab names that tab).
+No match, or no answer: detached at once and never reported; if it was the hook's own popup whose opener the browser
+didn't confirm, the hook loads it natively after 1.5 s, and any other tab at that URL stays with whatever opened it. The
+allowlist admits `Target.getTargetInfo` with no params only (another target's is also refused by Chrome, "Not allowed")
+and returns just the two ids. Chrome's `openerTabId` names the window's active tab (measured), so it is never used. So a
+tab that existed before can't be claimed, even by navigating itself to the magic URL while a frame in a task tab relays
+the token. A new tab or popup that the owner's own page opens is never touched: only armed task tabs have the hook, so
+such a tab is never at a relayed URL unless a page put it there on purpose, and then FERB attaches only long enough to
+read its opener. FERB never navigates a popup: once the daemon has made it the task's (within the tab cap, `attached`
+from its opener) it sends `popup_ready`, content.js fires `ferb-popup-ready` (and answers, so the result says the page
+was told), and the hook sets the popup's location once, only if the popup is still exactly at its blank URL (a page that
+navigated or closed its popup meanwhile keeps its own choice); without the ready, the hook does the same after 1.5 s. A
+page faking `ferb-popup-ready` only loads its own popup early. Measured in the headless lab on a plain-http,
+non-localhost origin: a popup tab's and a popup window's downloads are taken on the ready path (the page saw
+`ferb-popup-ready` well under 1.5 s after `window.open`), and an OAuth popup's `window.opener.postMessage` reaches its
+opener. Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py) takes a download only
+while `Hub.task_tab` finds a running task's tab, else it is released back to the browser untouched (`download_part
+{release}` → `Fetch.continueRequest`); the hello lists armed tabs and the daemon disarms any it doesn't hold (a failed
+release, a restart); an unpulled hold goes back to the browser after 30 s (in FERB's own profile it is failed); closing
+FERB's own tab fails what it holds, letting go of a borrowed one hands it back. A refused download (over
+`browser.download_max_mb` 100, the task tree's `download_task_max_files` 20 / `download_task_max_mb` 500, a second
 transfer in a tab waiting over 20 s, or a 10-minute transfer) is failed in the browser, so no dialog. The daemon writes
-`~/.ferb/workspace/downloads/<id>-<safe name>` through a no-follow folder descriptor, hashes the received bytes,
-removes partial files (and sweeps orphan `.dl-*.part` at startup), and records facts in `downloads` (migration 0025:
+`~/.ferb/workspace/downloads/<id>-<safe name>` through a no-follow folder descriptor, hashes the received bytes, removes
+partial files (and sweeps orphan `.dl-*.part` at startup), and records facts in `downloads` (migration 0025:
 `in_progress` → `taken|refused|failed|not_taken`; source URL and URL-derived names through the redactor, which covers
 signed-URL credentials; never content). The worker sees them in the open/navigate result (it waits for the transfer),
 the next snapshot or act (with `opened_tabs`), and `browser.downloads` (an observation tool). The folder is always an
@@ -209,18 +217,22 @@ untrusted fs root (`external:download`). Files are FERB's working copies: after 
 Residuals (measured in the headless lab; nothing tab-scoped closes them), recorded `not_taken` from the tab's own
 `Page.downloadWillBegin`/`downloadProgress` when FERB is attached (a later `canceled` too, e.g. a dismissed Save
 dialog), and able to show a Save dialog: a held response whose debugger detaches (the owner's Cancel on the debugging
-bar, a worker crash) continues into the browser's download flow (one whose body FERB already took does not); a new tab
-FERB didn't open or claim (a popup with `noopener`/`noreferrer`, an empty or named target, an untrusted click on a
-`target=_blank` link, a form posted to `target=_blank`, a link in a frame content.js wasn't injected into) is the
-browser's, unarmed and unreported; an OOPIF's first document before its session's `Fetch.enable`; a misread type; a
-script-made save before content.js is injected; and a page's own save picker (`showSaveFilePicker`). A page can tell
-FERB drives it (the patched functions, the `ferb-armed` answer) and can opt itself out of capture by answering
+bar, the extension's service worker crashing) continues into the browser's download flow (one whose body FERB already
+took does not); a new tab FERB didn't open or claim (a popup with `noopener`/`noreferrer`, an empty or named target, an
+untrusted click on a `target=_blank` link, a form posted to `target=_blank`, a link in a frame content.js wasn't
+injected into, a popup whose opener the browser doesn't confirm, a popup past 20 relays from one tab in 2 s) is the
+browser's, unarmed and unreported; a hooked popup the daemon takes longer than 1.5 s to adopt is loaded by the hook
+first, and a download it starts at once goes back to the browser (released, never failed); an OOPIF's first document
+before its session's `Fetch.enable`; a type FERB lets render that the profile downloads (a PDF with "download PDFs" on,
+a sniffed type); a script-made save before content.js is injected; and a page's own save picker (`showSaveFilePicker`).
+More than 20 page saves held at once in one document are dropped (neither FERB's nor the browser's, and no fact). A page
+can tell FERB drives it (the patched functions, the `ferb-armed` answer) and can opt itself out of capture by answering
 `ferb-armed` itself or cancelling its own clicks: no escalation, its downloads then follow the browser's own flow.
 `Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to extensions, and the tab session's
 `Target.setAutoAttach` doesn't attach popups. A hooked popup shows `about:blank#ferb-<token>` until its page loads it,
-so same-origin pages (the opener, its frames) can read that token from the popup's URL for that moment; the token
-buys nothing but a claim of that very popup, which they opened. If a page navigates its popup itself and FERB's ready
-arrives before that navigation commits, the popup still reads as blank and the hook loads the original URL over it.
+so same-origin pages (the opener, its frames) can read that token from the popup's URL for that moment; the token buys
+nothing but a claim of that very popup, which they opened. If a page navigates its popup itself and FERB's ready arrives
+before that navigation commits, the popup still reads as blank and the hook loads the original URL over it.
 
 Dialogs are explicit pending observations and explicit accept/dismiss choices. Email uses observed browser primitives,
 not a fixed Gmail compose/send recipe. OTP inbox candidates have opaque task/account/origin-bound IDs and masked
@@ -401,7 +413,9 @@ first. The loop runs hourly, starting a minute after start-up, on the daemon loo
 `_purge_records` runs the same steps synchronously), and journals `retention.purged` with the counts and `roots_left`
 only when it purged something or left roots for the next pass; a pass that shutdown cancels between roots still
 journals what it purged, marked `stopped`. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
-before it. Typed text and clipboard (7 days) arrive with F7 and media (7 days) with F4.
+before it. Typed text and clipboard (7 days) arrive with F7. F4 added evidence (`retention.evidence_days`, 7),
+recovery copies and snapshots (`retention.recovery_days`, 7) and downloaded files (`retention.download_days`, 30) to the
+same pass (section 11).
 
 **Content search (D9).** Migration 0019 adds `trail_fts` and `summary_fts` (same tokenizer as memory, so Devanagari words
 stay whole) kept in step by triggers and created with FTS5 `secure-delete`, so a purged or forgotten row's terms are zeroed
@@ -420,7 +434,160 @@ are lowercased the way the tokenizer folds them (`query_terms`, [`memory/items.p
 - `arg_sources` tells `owner_words` (typed in the request) apart from `owner_answer` (an option the owner chose), and
   episodes keep `tool_origins` apart from inherited origins; F5's confirmations and sink rule decide what each means.
 
-## 11. Documentation and diagrams
+## 11. Verification and recovery (F4)
+
+**Three statuses (V4, V5, D20).** A root task ends `done`, `done_unverified` or `failed` (or, as before, `needs_user`,
+`cancelled`, `interrupted`); migration 0021 adds `done_unverified` to the `tasks` status check, keeping row ids.
+`Supervisor._final` ([`supervisor.py`](ferb/orchestrator/supervisor.py)) decides, and the episode stores the status
+beside its `verified` flag:
+- `done`: the work finished and every condition was verified true. The answer is the outcome.
+- `done_unverified`: the worker reported done, the check found nothing false, and the orchestrator finished with
+  `result: "unconfirmed"` (or failed while choosing another attempt); also a task that had no conditions. The answer
+  starts "Done, but not confirmed:" and lists each unconfirmed condition as "- <condition> — unverified: <evidence>",
+  with "  To check: <how>" when the checker said how the owner can check it; with no conditions it is "Done, but there
+  was nothing to check it against."
+- `failed`: the work didn't finish, a check found a condition false, the orchestrator finished with `result: "failed"`
+  or no result, or work stopped for another reason than the owner's stop (FERB stopped, the task crashed).
+
+The dispatch schema's `result` (`unconfirmed`, `failed` or null) is the orchestrator's judgment; code only maps it
+(rule 6). "Unverified" is printed only for a condition a check gave a verdict on (V5): when the work stopped before any
+check, the answer is "I couldn't finish this task." with "Still to do:", and when the checker itself failed the
+conditions are listed under "Still to check (the check couldn't run, a problem on my side):". A worker's prose is never
+stated as success. The cleanup review ([`resources.md`](ferb/orchestrator/prompts/resources.md)) can't turn an
+unconfirmed outcome into `failed` for that alone, nor a judged failure into `done_unverified`. The readers:
+`ferb trace` heads the story `done ✓ verified`, `done (unverified)` or `failed ✗`
+([`trace/render.py`](ferb/trace/render.py); an older `done` without the verified flag reads `done`);
+`ferb chat --verbose` prints `done ✓`, `done — unverified` or `failed ✗` before the answer; `ferb stats` says
+"done N (x%), unverified N (y%), failed N (z%)"; `ferb baseline` adds `unverified`, `unverified_pct`, `failed` and
+`failed_pct`, and `done_pct` counts only `done`. A scheduled run that ends
+`done_unverified` neither clears nor adds to its schedule's failure count; the "FERB finished" notification title is
+for `done` only.
+
+**Read-only checker (V3, W4).** The checker's run token is observe-only (`RunGrant.observe_only` in
+[`auth.py`](ferb/daemon/auth.py), issued for the verifier role in [`worker.py`](ferb/orchestrator/worker.py)). The
+gateway offers it only capabilities that declare `observation = True` (`observes`) and refuses any other call before
+validation, ledger, locks or run, with "the final check is read-only: this tool acts and is not available to a checker;
+report what you could not confirm as unknown". Unmarked means acting, so a new tool stays out of the checker's reach
+until someone marks it; `tests/test_checker_readonly.py` pins the marked set. Opening and navigating are observation
+only in FERB's own browser (`ferb_browser.open`, `ferb_browser.navigate`), and a checker may navigate only the FERB tabs
+it opened itself; the owner-profile `browser.open` and `browser.navigate` are not observation, so a checker never moves
+the owner's tabs, and a checker's open never creates a window that may switch Spaces. It still reads the worker's tabs
+where they are. A check that needs a click or typing stays `met=null` with what is missing, and the orchestrator can send a worker
+to gather it. Every refused call (an acting tool asked of the checker, an unknown or out-of-scope tool) leaves a
+`tool.refused` span; the story adds "⚠ N tool calls refused".
+
+**After-action reads (V2).** Every consequential (non-`REVERSIBLE`) result carries an `after` block, a failed call's
+too: `{read, changed, value, note}` from [`act/aftercheck.py`](ferb/act/aftercheck.py) (`after_of(facts_of(content))`).
+`read` is `ax` (a mac tool's `observed_change`), `value` (`value_matches` / `ax_value`, or a browser upload's
+`bytes_match`) or `none`; `changed` is None whenever nothing was read back, and an accessibility diff that saw no change
+is None too, never False. Conditions of kind `after_change` and `after_value` (optional `Check.tool`) compare the block
+of the latest acting `tool.call` span (`SpanStore.latest_acting_call`), failed calls included; a call that died gives
+unknown.
+
+**Conditions and the ledger (V6, V7).** `CHECK_KINDS` are `none`, `file_exists`, `file_contains`, `tab_url`, `account`,
+`after_change` and `after_value`. `ledger_done` is gone: a spec saved with it loads as `none` (a `Check` validator), so
+an older task still continues. The planner phrases conditions as the outcome the owner wants, observable from the
+background; the checker may add `how` (nullable) to a condition it leaves unknown. The ledger is a recovery record,
+not proof of success: `Ledger.unresolved(tree)` lists the tree's `unknown` and `executing` rows (with `retry_approved`
+and `retried_by`), which "Uncertain prior actions" shows for the tree and the task it continues. AppleScript stays
+ledgered: no declared read-only flag exists and code can't prove a script only reads (rule 6), so V7's "read-only
+scripts stop creating rows" waits for one.
+
+**Evidence store (V1, D20, D26, D29).** `EvidenceStore` ([`act/evidence/store.py`](ferb/act/evidence/store.py),
+migration 0020 `evidence`) keeps captured state the checker can re-inspect for `retention.evidence_days` (7): files at
+`~/.ferb/evidence/<day>/<id>.jpg` (folders 0700, files 0600, created exclusively, kept inside the root) and a row with
+the kind (`screenshot`, `snapshot`, `recording`, `app_window`), redacted facts and the result's origin. The gateway keeps
+each tool image (`_keep_image`); the model gets it as before, and the span's output names it (`evidence: <id>`, or
+`evidence_error`). These keep facts only, with `image_withheld` saying why: a site on the exclusion list; a result that
+lists a secret field (no image-pixel box to mask it with); a browser window or a page with no known host (it may show
+the owner's own tab, D29); a recording's contact sheet (the recording file is the evidence); and, until F5 redacts
+screenshots, a messaging or mail app (`UNTRUSTED_APPS`) or an email/message source, where one-time codes arrive
+(rule 14). When a worker's first successful `mac.*` call targets an app, the gateway also takes one picture of that
+app's window (`_first_look`, `MacComputerDriver.window_image`: one window through ScreenCaptureKit, never the desktop,
+never brought forward, never the worker's latest shot; the password-field floor still drops the frame), masks the
+secret fields its accessibility tree shows ([`act/evidence/mask.py`](ferb/act/evidence/mask.py), in a worker thread) and
+stores it as `app_window` on an `evidence.app_window` span. That happens once per task, worker and app, not when the
+call itself returned an image (kept or facts only), not for browsers, not without the screen scope or with `[mac] snapshot_image` off; a failure,
+or a capture over 10 s, is logged on the span and never fails the call. The picture is evidence only: it does not go to
+the model. The checker lists captures with `task.evidence kind=evidence` and reads one by `evidence_id` (facts and
+origin; never bytes or paths; its own task's only). Retention deletes the file before the row. Not built: a screenshot
+sent automatically with each task turn (D6, D26); workers take screenshots with the tools when they choose. Stored
+images carry only accessibility-known masking until F5's screenshot redaction (D13, D28). V8's input exists: an
+episode's `verified` flag and the task's stored evidence; learning from it is F8.
+
+**Unknown outcomes are never retried by code (P19).** Before a consequential call runs, `Ledger.intend(...,
+reconcile_first=True)` looks for the same action anywhere in the task tree (ledger rows keep the worker's task id) in
+state `unknown`, `intended` or `executing`. The same action means the same ledger key and `payload_hash`
+([`policy/rules.py`](ferb/policy/rules.py), `ledger_identity` in the gateway): the capability, or its `ledger_key`
+(`shell.start` and `shell.run` are one); identity; account, site, contact, recipients, path (normalized, resolved through
+symlinks) and amount; content; and the validated arguments, minus the agent's notes (`ANNOTATIONS`: `why`, `effect`,
+`purpose`, `contact`), minus arguments a normalized target already binds (`target_args`: fs `path`, shell `cwd`, whose
+absence is the workspace, a mac tool's `app`, a recording's `path`) and minus how the call is delivered (`method_args`:
+mac `mechanism` and `allow_foreground`, browser `page_mode` and `trusted`, shell `background` and `timeout_s`). The kind
+is left out. An earlier unknown attempt refuses the call: "A previous attempt at this exact action may have gone through
+(its outcome is unknown); it was not repeated without the owner.", with `retry_action` (the row id) and `next` (look for
+evidence that it happened). One still running refuses with "The same action is already running in this task; it was
+not started again." A call that could not start, or whose recovery copy failed, is `failed`, not unknown. The agent may
+then ask with `owner.ask(retry_action=…)`: the gateway checks the row is this tree's and unknown, writes its own line
+first ("FERB: an earlier attempt at <action> may already have happened (outcome unknown). Trying again could make it
+happen twice. The call with the unknown outcome: <redacted excerpt>. Try it again?", then "What the worker found:
+…"), offers only Yes and No, and skips the orchestrator. Only the owner's Yes approves. Migration 0022 adds
+`retry_approved` (the approving `owner.ask` span) and `retried_by`; the row stays `unknown`, since nobody observed the
+outcome, and one approval allows exactly one new attempt. A Yes to a question that went out of date (another attempt
+started meanwhile) approves nothing. Limits: a reworded message or another target is another action (code can't judge
+"the same meaning", rule 6); a GUI retry with a fresh snapshot element id hashes differently; and a continuation in a
+new task tree is not refused by code: its orchestrator sees the earlier tree's rows under "Uncertain prior actions".
+
+**Recovery (S1).** [`act/fs/recovery.py`](ferb/act/fs/recovery.py); migrations 0023 `recovery` and 0024 (`saved_dev`,
+`saved_ino`).
+- Copies. Before a `WRITE_FILE` call changes an existing regular file (`fs.write` with `overwrite=True`: "overwrite";
+  `fs.edit`: "edit", from each tool's `recovery_reason`), the gateway copies it to `~/.ferb/recovery/<day>/<id><ext>`
+  (0700): an APFS clone, else an exclusive byte copy, in a worker thread. The file is the one the call really writes:
+  `files.real_path` (symlinks first, then `..`), which is also the fs lock key; never the textual spelling. A write tool
+  whose file can't be told is refused (`NoFileTarget`) unless it declares `creates_new_only` (the recording tools,
+  which refuse an existing path). No copy, no change: when the copy fails, the call doesn't run. After the call,
+  `written_sha256` records the file as FERB left it; an error result drops the copy only when the file still equals it;
+  an exception (unknown outcome) keeps it. The result says `recoverable: <id>`, or `recovery_error`. Copies and their
+  records are kept `retention.recovery_days` (7).
+- Trash. `fs.trash` moves the item to the Trash (`move_to_trash`), and a `trash` record keeps the resolved original
+  path, the Trash path (a real `.Trash` or `.Trashes` ancestor is required) and the item's device and inode. The record
+  stays while that very item is still in the Trash, at most 90 days (`TRASH_RECORD_MAX_DAYS`); the item itself always
+  stays in the owner's Trash.
+- Snapshots. Only when an agent asks (`recovery.snapshot`, input `before`: kind `snapshot`, reversible, no ledger row,
+  not an observation tool) or before a `DELETE_PERMANENT` call (no capability has that kind yet), on a
+  `recovery.snapshot` span: `tmutil localsnapshot`, measured 2026-10-09 from a terminal with no admin rights and no
+  prompt (0.43 s). At most one attempt per 15 minutes across all tasks, a failed one included; a recent snapshot is
+  reused. Each is a `recovery` row (kind `snapshot`, original `/`, `saved_to` the snapshot's name, reason the redacted
+  `before`). The hourly pass deletes FERB's own snapshots older than `recovery_days` (`tmutil deletelocalsnapshots`: no
+  admin, about 15.5 s each, journaled `retention.snapshot_purged`). FERB can't read a snapshot back (mounting one needs
+  admin rights); it is a recovery point the owner can open from macOS Recovery or Time Machine. A failure never refuses
+  the call.
+- `ferb restore` (RPCs `recovery.list`, `recovery.restore`) lists what FERB can put back, newest first, and puts one
+  back by id or a unique prefix, holding the file's gateway lock. A copy goes back in place only when the file is gone
+  or still exactly what FERB wrote (SHA-256); otherwise the current file stays and the copy goes beside it as
+  "<name> (before FERB)<ext>". A trashed item moves back with `renamex_np(RENAME_EXCL)`, never replacing anything
+  ("<name> (restored)<ext>" beside whatever is there now), only when its device and inode still match; its record then
+  goes. Each restore is journaled as `recovery.restored`.
+- Not covered: file changes made through shell commands or AppleScript get no per-file copy.
+
+**Named targets (D34).** The "What the owner named" block (the spec's apps, sites, folders/files and people) reaches
+every role, the checker included, and ends "The owner named these; evidence must be about them, not a substitute." The
+checker's prompt makes evidence about a substitute `met=false`, naming what was actually used, so the task is
+`failed`; a named target it couldn't inspect is `met=null`. Asking which target the owner meant is the agents'
+what/which question (`owner.ask`); no code judges whether a target matches (rule 6).
+
+**Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
+`name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
+the `downloads` table (migration 0025); `browser.downloads` is an observation tool; extension 0.14.0, protocol 10;
+`retention.download_days` (30) moves old files to the Trash.
+
+**Carried to F5.** Full screenshot redaction (stored images get accessibility-known masking only, and messaging and
+mail apps keep facts only until then); the destructive-action and sink confirmations, which build on S1 (FERB's fs
+overwrite, edit and trash are recoverable; a shell change is not); never-read lists covering `~/.ferb/run` (run tokens)
+and `~/.ferb/recovery` (copies); FERB's shell reaching the daemon socket, from which it could answer owner questions,
+P19 approvals included; and shell file changes, which get no per-file copy.
+
+## 12. Documentation and diagrams
 
 The [offline walkthrough](docs/walkthrough/index.html) is a local teaching aid, not an executable agent or live trace.
 The [HLD Mermaid source](docs/diagrams/ferb-hld.mmd) maps responsibilities and the
@@ -428,7 +595,7 @@ The [HLD Mermaid source](docs/diagrams/ferb-hld.mmd) maps responsibilities and t
 them. Current diagrams and walkthrough describe 0.26. Source-reference checks flag broken current-doc paths and
 explicit qualified Python symbols. Historical changelog/audit evidence is intentionally exempt.
 
-## 12. Change rule
+## 13. Change rule
 
 Do not fix a failure by adding a keyword rule for that one failure. Expose platform facts, give the agent full evidence,
 and test the general boundary. A filename match does not prove identity; a topic match does not prove teaching depth;

@@ -28,7 +28,8 @@ summary = "No system log (log stream) monitoring: too much noise"
 
 [D6]
 milestone = "F4"
-tests = []
+tests = ["tests/test_evidence_store.py"]
+note = "F4: still no continuous capture or text recognition. When a worker starts on a Mac app, FERB stores one picture of that app's window as evidence (not sent to the model); browsers excluded, messaging and mail apps facts only until F5. Not built: a screenshot sent automatically with each task turn; workers take screenshots with the tools when they choose."
 summary = "No continuous screen capture or text recognition; a screenshot goes with each task turn"
 
 [D7]
@@ -99,7 +100,7 @@ summary = "Inferred memory is stored as inferred, unconfirmed, used as labeled h
 
 [D20]
 milestone = "F4"
-tests = []
+tests = ["tests/test_evidence_store.py", "tests/test_statuses.py", "tests/test_after_action.py", "tests/test_checker_readonly.py"]
 summary = "Verification: separate done-but-unverified status; media evidence kept"
 
 [D21]
@@ -129,7 +130,8 @@ summary = "CLAUDE.md is rewritten once planning ends to match this plan"
 
 [D26]
 milestone = "F4"
-tests = []
+tests = ["tests/test_evidence_store.py"]
+note = "F4 built the app-window picture when a worker starts on an app (once per task, worker and app; masked secret fields; evidence only) and per-step after-action reads (V2). The per-turn perception screenshot is not built (see D6)."
 summary = "One screenshot per task turn; screenshot when a worker starts on an app"
 
 [D27]
@@ -144,7 +146,7 @@ summary = "OTPs are secrets: redacted, filled only through the sealed input"
 
 [D29]
 milestone = "F4"
-tests = []
+tests = ["tests/test_evidence_store.py"]
 summary = "Screenshots and recordings cover only the app FERB is working on"
 
 [D30]
@@ -260,7 +262,8 @@ summary = "Large-input fan-out: inventory, map/reduce, feasibility validation, c
 
 [P16]
 milestone = "F4"
-tests = []
+tests = ["tests/test_evidence_store.py", "tests/test_after_action.py", "tests/test_checker_readonly.py", "tests/test_statuses.py", "tests/test_conditions.py", "tests/test_ledger_recovery.py"]
+note = "V1 media is kept 7 days (D20), not the draft's 30. V7's 'read-only scripts stop creating rows' waits for a declared read-only flag: AppleScript stays ledgered (code can't prove a script only reads, rule 6). V8's record exists (episode verified flag plus stored evidence); its consumer is F8."
 summary = "Verification design V1-V8"
 
 [P17]
@@ -275,7 +278,8 @@ summary = "Keystroke capture rules: Secure Input, field role, ~0.5 s hold, OTP r
 
 [P19]
 milestone = "F4"
-tests = []
+tests = ["tests/test_unknown_retry.py"]
+note = "Code refuses within one task tree; a continuation in a new tree is not refused by code (its orchestrator sees the earlier rows under 'Uncertain prior actions'). A reworded message is another action (rule 6)."
 summary = "Never retry a consequential action with an unknown outcome without the owner"
 
 [P20]
@@ -341,7 +345,8 @@ summary = "Worker writes the owner answer in the same output; checker verdict de
 
 [S1]
 milestone = "F4"
-tests = []
+tests = ["tests/test_recovery.py"]
+note = "Per-file copies cover FERB's fs tools only; shell and AppleScript file changes get no per-file copy (F5 must not count them as recoverable). Snapshots only on an agent's request or before DELETE_PERMANENT; FERB can't read one back. tmutil from the installed LaunchAgent and Trash access under TCC are pending live checks."
 summary = "Recovery: Trash plus 7-day pre-change copies, snapshots before bulk or destructive work"
 
 [S2]
@@ -402,6 +407,7 @@ summary = "Boundary by effect: tools report the kind of action; consequential ki
 [W4]
 milestone = "F5"
 tests = []
+note = "F4 (V3) already gives the final checker an observe-only run token enforced by the gateway (tests/test_checker_readonly.py); F5's worker permission model owns the rest."
 summary = "The final checker gets observation tools only; unverifiable becomes unknown, never a block"
 
 [D33]
@@ -411,12 +417,14 @@ summary = "\"Already authorized\" decided by code from provenance; the orchestra
 
 [D34]
 milestone = "F4"
-tests = []
+tests = ["tests/test_named_target.py"]
+note = "F4 built the checker side: the named targets reach the checker, and evidence about a substitute is met=false, so the task is failed. Asking which target is the agents' owner.ask; remembering the answer uses the existing chat capture, unchanged in F4."
 summary = "A named target FERB can't find becomes a what/which question, answered once and remembered as the owner's words; never a substitute"
 
 [D35]
 milestone = "F4"
 tests = ["tests/test_downloads.py", "tests/test_downloads_extension.py"]
+note = "Also the headless lab test tests/test_downloads_real.py (-m real). Headed Brave/Chrome behavior (no dialog, the popup's first URL, the debugging bar) is a pending owner live check."
 summary = "Browser downloads never open a dialog on the owner's screen; FERB takes the file into its workspace as facts"
 
 [D36]

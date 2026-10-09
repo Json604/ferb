@@ -10,6 +10,58 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0-dev — 2026-10-09 — F4 verification and recovery
+
+Milestone F4 of `docs/0.27_PLAN.md` (P16 V1–V8, D6, D20, D26, D29, P19, S1, D34, D35). Commits `ddf1830` (the F4 plan)
+through this documentation commit. The version in `pyproject.toml` and `ferb/__init__.py` stays 0.26.1 while 0.27 is in
+development.
+
+- Evidence store and app-window pictures (`3fabb44`, `5193810`; V1, D20, D26, D29, rule 14): migration 0020
+  `evidence`; each tool image kept 7 days (`retention.evidence_days`) under `~/.ferb/evidence`, the span names its id;
+  one masked picture of an app's window when a worker starts on it (evidence only); facts only, no pixels, for excluded
+  sites, results listing a secret field, browser windows and hostless pages, recording contact sheets, and messaging
+  and mail apps until F5; the checker reads captures with `task.evidence kind=evidence`.
+- Read-only checker (`668ac96`, `eab7919`; V3, W4): an observe-only run token; the gateway offers and runs only
+  capabilities marked `observation`; a checker navigates only FERB tabs it opened and never the owner's; every refused
+  call leaves a `tool.refused` span and the story says "⚠ N tool calls refused".
+- After-action reads (`b007868`, `8ad09cd`; V2): every consequential result, a failure's too, carries an `after` block;
+  an unconfirmed change is unknown, never false; `after_change` / `after_value` conditions read the recorded span.
+- Three statuses (`3623fee`, `a48207f`; V4, V5, D20): migration 0021 adds `done_unverified`; the orchestrator's finish
+  carries `result: unconfirmed|failed`; "Done, but not confirmed:" and "Done, but there was nothing to check it
+  against."; "unverified" only where a check gave a verdict; `ferb stats`, `ferb baseline`, `ferb trace` and verbose
+  chat count and label the three apart; an unconfirmed scheduled run neither clears nor adds a failure.
+- Conditions (`44c55db`, `5a6d8d4`; V6, V7, V4): `ledger_done` is no longer a check kind (a saved one loads as `none`);
+  conditions name observable outcomes; the checker's optional `how` becomes "To check: …".
+- Ledger for recovery (`2314eea`; V7): `Ledger.unresolved(tree)`; AppleScript stays ledgered (no declared read-only
+  flag; code can't prove a script only reads).
+- Unknown outcomes (`5a34bfc`, `4814808`, `a3c50c8`, `e8ecc8d`, plan renumbering `4138e05`; P19): code refuses an
+  identical consequential call while one in the tree is unknown or running; "the same action" ignores notes, target
+  spellings, method choices and sibling tools (`ANNOTATIONS`, `target_args`, `method_args`, `ledger_key`); the owner
+  approves one retry through a FERB-written Yes/No question (migration 0022: the row stays unknown); "Uncertain prior
+  actions" covers the whole tree.
+- Recovery (`e481fe7`, `f62415c`, `7d7284c`, `f583757`; S1): migrations 0023 and 0024; a clone of a file before FERB's
+  fs tools overwrite or edit it (the file really written, symlinks first; no copy, no change; a write tool whose file
+  can't be told is refused unless it declares `creates_new_only`); durable Trash records checked by device and inode;
+  `ferb restore` never over a later change ("(before FERB)" beside it); snapshots only when an agent asks
+  (`recovery.snapshot`) or before a permanent delete, at most one per 15 minutes, deleted after 7 days;
+  `retention.recovery_days` (7). Also fixed: `recording.stop` had failed on every gateway call since `88368e8` (unknown
+  `recording` lock kind).
+- Named targets (`bba6d1c`; D34): the checker gets the owner's named targets; evidence about a substitute is
+  `met=false`, so the task is failed.
+- Downloads (`362166e`, `72ff310`, `90d4c90`, `e620ee2`, `205c009`; D35): a download in a live task's tab is taken
+  through tab-scoped CDP `Fetch` (plus content.js for blob/data links and a pinned page hook for FileSaver-style saves
+  and `window.open` popups) into `~/.ferb/workspace/downloads/` as facts (path, size, SHA-256, source, origin
+  `external:download`), never a dialog; anything outside a live task's tab goes back to the browser untouched; budgets
+  (`browser.download_max_mb`, `download_task_max_files`, `download_task_max_mb`, `task_max_tabs`,
+  `download_total_mb`), `retention.download_days` (30) to the Trash; popups claimed only as new tabs whose opener the
+  browser confirms; migration 0025; extension 0.14.0, protocol 10.
+- Documentation (this commit; P16, D6, D20, D26, D29, P19, S1, D34, D35): architecture section "Verification and
+  recovery (F4)" and corrected download wording; README statuses, `ferb restore`, retention keys, evidence and download
+  notes; RPC `recovery.list` / `recovery.restore`; registry tests; the F4 live-check list; one `background.js` comment.
+- Carried to F5: full screenshot redaction; the destructive-action and sink confirmations that build on S1; never-read
+  lists covering `~/.ferb/run` and `~/.ferb/recovery`; FERB's shell reaching the daemon socket; shell and AppleScript
+  file changes, which get no per-file copy.
+
 ## 0.27.0-dev — 2026-10-08 — F3 data foundations
 
 Milestone F3 of `docs/0.27_PLAN.md` (D9, D14, D21, MP1, MP2, P26, S3). Commits `b3ef759` (the F3 plan) through this
