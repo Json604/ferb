@@ -33,8 +33,8 @@ from ferb.orchestrator.availability import Availability, build as build_availabi
 from ferb.orchestrator.evidence import memory_origin
 from ferb.orchestrator.guards import STALL_S, Activity
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA, WORKER_SCHEMA,
-                                       Condition, DispatchOutcome, QuestionOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome,
-                                       WorkerOutcome)
+                                       Check, Condition, DispatchOutcome, QuestionOutcome, SupervisorOutcome, TaskSpec,
+                                       VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
@@ -53,6 +53,20 @@ STOPPED_BY_YOU = "stopped by you"
 RETRY_APPROVED_STATUS = "outcome unknown; the owner approved one retry, not tried yet"
 RETRY_USED_STATUS = "outcome unknown; the owner approved one retry, which has been tried"
 WORKER = "worker"                                # the one worker's step id (task id "<tree>.worker")
+
+# F4 live fixes (task 79bc5bfa): every check also judges the report the owner will see against the recorded evidence.
+# Code adds this condition and hands the checker the report; the checker judges it (rule 6). The owner reads it only
+# when it isn't met.
+REPORT_CONDITION = Condition(
+    text="My report to you says truthfully what was done, who did each part (FERB itself, or the agent, app or person "
+         "you named) and with what, and leaves out nothing that changes the result",
+    check=Check(kind="none", path=None, text=None, url_contains=None, site=None, expected=None), layer="outcome")
+
+
+def checked_conditions(spec: TaskSpec) -> list[Condition]:
+    """What a check judges: the planner's conditions, then FERB's report condition, numbered last. None when the plan
+    has none (no check runs then)."""
+    return [*spec.success_conditions, REPORT_CONDITION] if spec.success_conditions else []
 
 
 def _env_text(env: dict[str, Any]) -> str:
@@ -810,7 +824,7 @@ class Supervisor(WorkerRuns):
                                          "error": f"{type(exc).__name__}: {exc}"})
                     tree.verification = [ConditionResult(i, c.text, None, UNCHECKED,      # no check gave a verdict
                                                          f"The check couldn't run: {type(exc).__name__}: {exc}")
-                                         for i, c in enumerate(tree.spec.success_conditions)]
+                                         for i, c in enumerate(checked_conditions(tree.spec))]
                 unresolved = [f"{r.text}: {r.evidence}" for r in tree.verification if r.met is not True]
                 if unresolved:
                     # Unknown coverage is also work for the planner. It decides retry/ask/finish; no retry cap
@@ -988,7 +1002,10 @@ class Supervisor(WorkerRuns):
         try:
             final = await self._run(rt, decision, system, ctx, '', span.id, tree, '')
             reviewed = WorkerOutcome.model_validate_json(final)
-            tree.outcome = Outcome(tree.worker.id, reviewed.status, reviewed.summary,
+            # A done answer is the report the check judged (F4 live fixes, task 79bc5bfa): the review may change the
+            # status when cleanup broke something, never reword a done report after its check.
+            summary = out.summary if out.status == reviewed.status == "done" else reviewed.summary
+            tree.outcome = Outcome(tree.worker.id, reviewed.status, summary,
                                    sorted(set(out.artifacts + reviewed.artifacts)), out.evidence + reviewed.evidence)
             self.spans.finish(span, output={'text': final})
         except BaseException as exc:
@@ -1008,7 +1025,7 @@ class Supervisor(WorkerRuns):
         ctx = ToolContext(task.id, "verifier", task.request_id, task.identity, frozenset(task.scopes),
                           self.device_id, None, self.roots.workspace, self.roots.owner_roots, self.roots.untrusted_roots)
         observations = []
-        judged = list(enumerate(tree.spec.success_conditions))
+        judged = list(enumerate(checked_conditions(tree.spec)))
         for i, condition in judged:
             if self.checks is not None and self.checks.code_checkable(condition, task.id):
                 observations.append(await self.checks.run(i, condition, task.id, ctx))
@@ -1063,8 +1080,9 @@ class Supervisor(WorkerRuns):
         "Unverified" is said only for a condition a check actually gave a verdict on (V5). Unresolved facts come
         before confirmed ones, and a worker's success claim is never stated as fact without a check confirming it."""
         out = tree.outcome or Outcome(tree.worker.id, "failed", "No report was received.", [], [])
-        conditions = tree.spec.success_conditions
         attempted = bool(tree.verification)        # the last attempt finished and its conditions went to the check
+        # FERB's report condition is judged only by a check: work that stopped before one has no report checked.
+        conditions = checked_conditions(tree.spec) if attempted else tree.spec.success_conditions
         by_index = {result.index: result for result in tree.verification}
         results = [by_index.get(index) or ConditionResult(index, condition.text, None, UNCHECKED, NOT_CHECKED)
                    for index, condition in enumerate(conditions)]
@@ -1132,7 +1150,7 @@ def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: s
     why = tree.stop_reason or reason
     if why:
         lines += ["", "Why work stopped: " + why]
-    met = [r for r in results if r.met is True]
+    met = [r for r in results if r.met is True and r.text != REPORT_CONDITION.text]   # FERB's own check: shown when unmet
     if met:
         lines += ["", "Confirmed:"] + [f"- {r.text}" for r in met]
     unchecked = [r for r in results if r.path == UNCHECKED]

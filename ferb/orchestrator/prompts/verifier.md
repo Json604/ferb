@@ -91,3 +91,10 @@ target. When the evidence is about a substitute, give `met=false` and say in the
 that it is not what the owner named. If the named target could not be inspected, that is `met=null`, and give `how`,
 in the owner's terms.
 A condition that the agent or person the owner handed the work to did it is met only by evidence that they produced it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it. An app FERB used as a tool is not such an agent.
+
+FERB adds one condition to every check, numbered last, starting "My report to you says truthfully what was done".
+Judge it by comparing the complete worker report with the recorded evidence (task_evidence): who did each part
+(FERB's own tool calls, or the agent, app or person that did it), which tools, files, accounts and sources were used,
+and what happened. Give `met=false` when the report states or implies something the records contradict, or leaves
+out something that changes the result (for example that FERB made an artifact the owner asked another agent to make);
+`met=null` only when the records cannot settle it.

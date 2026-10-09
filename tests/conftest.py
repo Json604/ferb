@@ -279,6 +279,7 @@ class Script:
         self.contexts: list[tuple[str, str, str, list[str]]] = []      # (mode, key, context, tool names)
         self.requests: list[tuple[str, str, Any]] = []                  # (mode, key, ModelRequest)
         self.times: dict[str, tuple[float, float]] = {}
+        self.fill_report_verdict = True       # complete older scripted verdicts (complete_report_verdict)
 
     def step(self, key: str) -> Any:
         # Most lifecycle tests are not about recovery policy. Their scripted orchestrator escalates the worker's
@@ -301,6 +302,27 @@ class Script:
         return w.pop(0) if isinstance(w, list) else w
 
 
+def complete_report_verdict(script: "Script", context: str, final: str) -> str:
+    """Scripted checker verdicts written before FERB added its report condition (F4 live fixes) answer only the
+    planner's conditions. FERB numbers its report condition last in the checker's Conditions list; a verdict that
+    doesn't answer it gets met=True for it, so those tests keep testing what they did. A test about the report
+    condition answers it itself, or sets script.fill_report_verdict = False to leave it unanswered."""
+    from ferb.orchestrator.supervisor import REPORT_CONDITION
+    found = re.search(r"^([0-9]+)\. " + re.escape(REPORT_CONDITION.text) + r"$", context, re.M)
+    if not script.fill_report_verdict or found is None:
+        return final
+    try:
+        verdict = json.loads(final)
+    except ValueError:
+        return final
+    results = verdict.get("results") if isinstance(verdict, dict) else None
+    index = int(found.group(1))
+    if not isinstance(results, list) or any(isinstance(r, dict) and r.get("index") == index for r in results):
+        return final
+    results.append({"index": index, "met": True, "evidence": "Scripted: the report matches the records.", "how": None})
+    return json.dumps(verdict)
+
+
 class FakeRuntime:
     name = "fake"
     capabilities = Capabilities("direct", "prefix", False, "native", False, False, False, False, "api")
@@ -312,7 +334,8 @@ class FakeRuntime:
         key = task.id.split(".", 1)[1] if "." in task.id else "supervisor"   # worker / worker.verify / …
         self.script.contexts.append((self.mode, key, request.context, self.tools))
         self.script.requests.append((self.mode, key, request))
-        return RunHandle(f"run-{task.id}", self.name, task.id, {"token": run_token, "key": key, "cancel": False})
+        return RunHandle(f"run-{task.id}", self.name, task.id, {"token": run_token, "key": key, "cancel": False,
+                                                                 "context": request.context})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         key = run.state["key"]
@@ -329,6 +352,8 @@ class FakeRuntime:
             final = await anyio.to_thread.run_sync(step, run.state["token"])
         else:
             final = step
+        if key.endswith(".verify") and isinstance(final, str):
+            final = complete_report_verdict(self.script, run.state["context"], final)
         yield RuntimeEvent("usage", {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001})
         self.script.times[key] = (t0, time.monotonic())
         yield RuntimeEvent("final", {"text": final})

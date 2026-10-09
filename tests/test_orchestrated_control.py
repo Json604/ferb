@@ -113,7 +113,8 @@ def test_final_answer_is_reconciled_with_actual_tab_lifecycle(daemon, retained):
         'worker.resources': json.dumps({'status': 'done' if retained else 'failed', 'summary': summary,
                                         'artifacts': [], 'evidence': ['Confirmed tab lifecycle']})})
     result = outcome(chat(daemon, 'Keep class running'))
-    assert result['answer'] == summary or result['answer'].endswith(summary)
+    expected = 'Class left running.' if retained else summary       # a done review keeps the checked report
+    assert result['answer'] == expected or result['answer'].endswith(expected)
     assert result['verified'] is retained
     assert result['resources'] == [lifecycle]
     context = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker.resources')
@@ -150,7 +151,7 @@ def test_lifecycle_failure_reaches_recovery_and_successful_retention_finishes(da
         'worker.dispatch': recovery})
     result = outcome(chat(daemon, 'Keep class running'))
     assert result['status'] == 'done' and result['verified']
-    assert result['answer'] == 'The class remains open.' and len(kept) == 1
+    assert result['answer'] == 'Class restored and retained.' and len(kept) == 1
     assert '/tmp/class-notes.md' in result['artifacts']
     assert result['resources'] == [{'tab': 't2', 'kept_open': True, 'closed': False, 'released': True}]
     contexts = [ctx for _, key, ctx, _ in script.contexts if key == 'worker']
