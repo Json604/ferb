@@ -324,6 +324,10 @@ def timeline(client: Client, since: str | None, out: TextIO) -> int:
             text = str(d.get("text", ""))[:160]
         elif e["kind"] == "task.outcome":
             text = f"{status_label(d.get('status'))}: {str(d.get('summary', ''))[:160]}"
+        elif e["kind"] == "config.upgraded":            # every change in full: the owner audits what FERB rewrote
+            changes = "; ".join(f"{c.get('key')} {c.get('from')} → {'removed' if c.get('to') is None else c.get('to')}"
+                                for c in d.get("changes") or [])
+            text = f"{d.get('upgrade')}: {changes or 'settings already current'}"
         else:
             text = ", ".join(f"{k}={v}" for k, v in d.items())[:160]
         print(f"{e['at'][:16].replace('T', ' ')}  {e['kind']:<22} {text}", file=out)

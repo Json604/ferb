@@ -108,7 +108,12 @@ def _mb(n: int) -> str:
 
 
 def _gb(n: int) -> str:
-    return f"{n / _GB:g} GB"
+    return f"{n / _GB:.2f}".rstrip("0").rstrip(".") + " GB"
+
+
+def _low_disk(free: int, floor: int, what: str) -> str:
+    return (f"only {_gb(free)} free now; FERB keeps at least {_gb(floor)} free (browser.download_min_free_gb): "
+            f"{what}; not taken")
 
 
 def _number(value: Any, default: float) -> float:
@@ -147,6 +152,14 @@ class Downloads:
         while not where.exists() and where != where.parent:
             where = where.parent
         return shutil.disk_usage(where).free
+
+    def _free(self, what: str, size: int | None) -> int:
+        """Free bytes now, for the floor. Unreadable: the floor can't be checked, so the download is refused."""
+        try:
+            return self.free_bytes()
+        except OSError as e:
+            raise _Refused(self.redact_text(f"couldn't read the free disk space to check browser.download_min_free_gb "
+                                            f"({e}): {what}; not taken"), size) from e
 
     # ---------- the extension's download event ----------
 
@@ -190,28 +203,49 @@ class Downloads:
             return
         if not ev.download_id:
             return
+        # From here the held download is a live task tab's: whatever breaks, it is aborted, never left to the
+        # extension's idle hand-back (in a task tab that is a Save dialog or a silent ~/Downloads save).
         key = (br.name, int(ev.tab_id))
-        self._tab_task[key] = owner.task
-        lock = self._locks.setdefault(key, asyncio.Lock())
         try:
+            self._tab_task[key] = owner.task
+            lock = self._locks.setdefault(key, asyncio.Lock())
             await asyncio.wait_for(lock.acquire(), TAB_WAIT_S)
         except asyncio.TimeoutError:
             await _send(br, ev.download_id, abort=True)
             self._insert(br, owner, ev, "refused", size=ev.size, final=True, reason=(
                 "another download from this tab was still being taken (one at a time per tab); not taken"))
             return
+        except Exception as e:
+            await self._not_admitted(br, owner, ev, e)
+            return
         try:
-            await self._admit_and_take(br, owner, ev)
+            admitted = await self._admit(br, owner, ev)
+            if admitted is not None:
+                await self._take(br, owner, ev, *admitted)
         finally:
             lock.release()
 
-    async def _admit_and_take(self, br: Any, owner: TaskTab, ev: Any) -> None:
-        lim = self.limits()
-        tree = self.task_root(owner.task)
-        files, taken = self._tree_usage(tree)
-        used = taken + self._inflight.get(tree, 0)
+    async def _not_admitted(self, br: Any, owner: TaskTab, ev: Any, e: Exception) -> None:
+        """Admission broke (e.g. config.toml left half-edited mid-task): abort first, so the browser never gets it,
+        then record the failure for the worker, best effort (no record: the event still says why)."""
+        await _send(br, ev.download_id, abort=True)
+        reason = self.redact_text(f"FERB couldn't check this download against its limits ({type(e).__name__}: {e}); "
+                                  "not taken")
+        try:
+            self._insert(br, owner, ev, "failed", size=ev.size, reason=reason, final=True)
+        except Exception:
+            self.publish("browser.download", {"profile": br.name, "tab_id": ev.tab_id, "state": "failed",
+                                               "reason": reason})
+
+    async def _admit(self, br: Any, owner: TaskTab, ev: Any) -> tuple[Limits, str] | None:
+        """The budgets and the free-disk floor, before any byte moves. Returns the limits and the task tree to take it
+        under; None when it was refused or admission broke (aborted in the browser and recorded either way)."""
         size = ev.size
         try:
+            lim = self.limits()
+            tree = self.task_root(owner.task)
+            files, taken = self._tree_usage(tree)
+            used = taken + self._inflight.get(tree, 0)
             if files >= lim.task_files:
                 raise _Refused(f"this task already took {files} downloads, its limit "
                                "(browser.download_task_max_files, per request); not taken", size)
@@ -222,19 +256,18 @@ class Downloads:
                 raise _Refused(f"would pass this task's {_mb(lim.task_bytes)} download budget "
                                f"(browser.download_task_max_mb, per request; {used} bytes taken or arriving): {size} "
                                "bytes; not taken", size)
-            if size is not None and self.free_bytes() - size < lim.min_free_bytes:
-                raise _Refused(f"would leave less than {_gb(lim.min_free_bytes)} free on this disk "
-                               f"(browser.download_min_free_gb): {size} bytes; not taken", size)
+            what = f"this download is {size} bytes" if size is not None else "its size isn't declared; nothing was read"
+            free = self._free(what, size)
+            if free - (size or 0) < lim.min_free_bytes:
+                raise _Refused(_low_disk(free, lim.min_free_bytes, what), size)
         except _Refused as r:
             await _send(br, ev.download_id, abort=True)
             self._insert(br, owner, ev, "refused", size=r.size, reason=r.reason, final=True)
-            return
-        except OSError as e:                            # the floor can't be checked: refused, never left to the browser
-            await _send(br, ev.download_id, abort=True)
-            self._insert(br, owner, ev, "refused", size=size, final=True, reason=self.redact_text(
-                f"couldn't read the free disk space for browser.download_min_free_gb ({e}); not taken"))
-            return
-        await self._take(br, owner, ev, lim, tree)
+            return None
+        except Exception as e:
+            await self._not_admitted(br, owner, ev, e)
+            return None
+        return lim, tree
 
     async def _take(self, br: Any, owner: TaskTab, ev: Any, lim: Limits, tree: str) -> None:
         name = safe_name(self.redact_text(ev.name or ""))
@@ -270,10 +303,10 @@ class Downloads:
                     raise _Refused(f"passed this task's {_mb(lim.task_bytes)} download budget "
                                    f"(browser.download_task_max_mb, per request) after {received} bytes; not taken",
                                    received)
-                if self.free_bytes() - len(data) < lim.min_free_bytes:
-                    raise _Refused(f"would leave less than {_gb(lim.min_free_bytes)} free on this disk "
-                                   f"(browser.download_min_free_gb): stopped after {received - len(data)} bytes; "
-                                   "not taken", received - len(data))
+                written = received - len(data)
+                free = self._free(f"stopped after {written} bytes", written)
+                if free - len(data) < lim.min_free_bytes:
+                    raise _Refused(_low_disk(free, lim.min_free_bytes, f"stopped after {written} bytes"), written)
                 view = memoryview(data)
                 while view:
                     view = view[os.write(fd, view):]

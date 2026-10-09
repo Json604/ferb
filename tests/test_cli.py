@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -178,3 +179,28 @@ def test_a_slow_tool_call_isnt_reported_as_the_daemon_going_away(tmp_path: Path)
         c.call("ping")
     c.close()
     srv.close()
+
+
+def test_the_timeline_shows_each_upgraded_setting_in_full_and_an_empty_upgrade_plainly() -> None:
+    from ferb.cli.admin import timeline
+    changes = [{"key": "browser.download_max_mb", "from": 100, "to": 512},
+               {"key": "browser.download_task_max_files", "from": 20, "to": 50},
+               {"key": "browser.download_task_max_mb", "from": 500, "to": 4096},
+               {"key": "browser.download_total_mb", "from": 2048, "to": 20480},
+               {"key": "browser.task_max_tabs", "from": 20, "to": 50},
+               {"key": "retention.download_days", "from": 30, "to": None}]
+
+    class C:
+        def call(self, method: str, params: Any = None) -> Any:
+            return {"entries": [
+                {"at": "2026-10-09T10:00:00", "kind": "config.upgraded",
+                 "data": {"upgrade": "download-limits-2026-10-09", "changes": changes}},
+                {"at": "2026-10-09T10:01:00", "kind": "config.upgraded",
+                 "data": {"upgrade": "download-limits-2026-10-09", "changes": []}}]}
+    out = io.StringIO()
+    assert timeline(C(), None, out) == 0                                   # type: ignore[arg-type]
+    first, second = out.getvalue().splitlines()
+    for ch in changes[:-1]:
+        assert f"{ch['key']} {ch['from']} → {ch['to']}" in first
+    assert "retention.download_days 30 → removed" in first             # the last one too: nothing cut off
+    assert "download-limits-2026-10-09" in second and "settings already current" in second

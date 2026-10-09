@@ -942,3 +942,51 @@ def test_a_free_disk_that_cant_be_read_refuses_the_download_never_leaves_it_to_t
     rec = _deliver(d, ext, chrome_id, name="a.bin", data=b"x" * 2000, source_url="https://x.example/a")
     assert rec["state"] == "refused" and "free disk" in rec["reason"] and "browser.download_min_free_gb" in rec["reason"]
     assert ext.download_parts and all(p.get("abort") for p in ext.download_parts) and _kept(d) == []
+
+
+# ---------- fix round 1: admission never leaves a task tab's download to the browser ----------
+
+def test_a_config_that_breaks_mid_task_fails_the_download_and_never_hands_it_to_the_browser(bd: Any) -> None:
+    """Admission re-reads config.toml (the limits): a file the owner left half-edited mid-task must not leave the held
+    download to the extension's idle hand-back (a Save dialog or a silent ~/Downloads save in a task tab)."""
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    cfg = d.daemon.home / "config.toml"
+    good = cfg.read_text()
+    cfg.write_text(good + "\n[browser\nbroken = \n")                    # not TOML any more
+    try:
+        rec = _deliver(d, ext, chrome_id, name="a.bin", data=b"x" * 2000, source_url="https://x.example/a")
+    finally:
+        cfg.write_text(good)
+    assert rec["state"] == "failed" and "not taken" in rec["reason"] and "path" not in rec
+    assert len(ext.download_aborts) == 1 and not ext.held_downloads and not ext.download_releases   # no hand-back
+    assert _kept(d) == []
+
+
+def test_an_undeclared_size_is_refused_before_any_part_moves_when_the_disk_is_already_under_the_floor(bd: Any) -> None:
+    d, launched = bd
+    d.daemon.downloads.free_bytes = lambda: int(8.2 * 1024 ** 3)
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    rec = _deliver(d, ext, chrome_id, name="s.bin", data=os.urandom(DOWNLOAD_PART), source_url="https://x.example/s",
+                   size=None)
+    assert rec["state"] == "refused"
+    assert "only 8.2 GB free now; FERB keeps at least 10 GB free (browser.download_min_free_gb)" in rec["reason"]
+    assert ext.download_parts and all(p.get("abort") for p in ext.download_parts) and _kept(d) == []
+
+
+def test_a_free_disk_that_cant_be_read_mid_stream_names_the_floor_check(bd: Any) -> None:
+    d, launched = bd
+    reads = {"n": 0}
+
+    def flaky() -> int:
+        reads["n"] += 1
+        if reads["n"] >= 3:                                            # admission, part 1 fine; part 2 can't tell
+            raise PermissionError("statfs refused")
+        return 100 * 1024 ** 3
+    d.daemon.downloads.free_bytes = flaky
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    rec = _deliver(d, ext, chrome_id, name="m.bin", data=os.urandom(3 * DOWNLOAD_PART),
+                   source_url="https://x.example/m", size=None)
+    assert rec["state"] == "refused" and "browser.download_min_free_gb" in rec["reason"]
+    assert f"stopped after {DOWNLOAD_PART} bytes" in rec["reason"] and "statfs refused" in rec["reason"]
+    assert ext.download_parts[-1].get("abort") is True and _kept(d) == []

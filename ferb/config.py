@@ -82,27 +82,27 @@ class Config:
         doc[section][key] = value              # type: ignore[index]
         self.save(doc)
 
-    def remove(self, section: str, key: str) -> None:
-        doc = self.load()
-        tbl = doc.get(section)
-        if tbl is not None and key in tbl:
-            del tbl[key]
-            self.save(doc)
-
     def upgrade_ferb_written(self) -> list[dict[str, Any]]:
         """The owner's limits decision (LIMITS_DECIDED), for the daemon to apply once: each FERB_WRITTEN key still
-        holding FERB's old value takes the decided one; each RETIRED key goes. Returns what changed (journaled)."""
+        holding FERB's old value takes the decided one; each RETIRED key goes. All or nothing: every change is made on
+        one loaded document and saved in one atomic write (a failure leaves config.toml as it was). Returns what
+        changed, for the daemon to journal after the write."""
+        doc = self.load()
         changed: list[dict[str, Any]] = []
         for (section, key), (old, new) in FERB_WRITTEN.items():
-            if self.get(section, key) == old:
-                self.set(section, key, new)
+            tbl = doc.get(section)
+            if tbl is not None and tbl.get(key) == old:
+                tbl[key] = new
                 changed.append({"key": f"{section}.{key}", "from": old, "to": new})
         for section, key in RETIRED:
-            value = self.get(section, key)
-            if value is not None:
-                self.remove(section, key)
+            tbl = doc.get(section)
+            if tbl is not None and tbl.get(key) is not None:
+                value = tbl[key]
+                del tbl[key]
                 changed.append({"key": f"{section}.{key}", "from": getattr(value, "unwrap", lambda: value)(),
                                 "to": None})
+        if changed:
+            self.save(doc)
         return changed
 
     def exclude_apps(self) -> frozenset[str]:

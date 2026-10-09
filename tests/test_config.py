@@ -119,3 +119,67 @@ def test_the_daemon_applies_the_limits_decision_once_and_journals_it() -> None:
             d.stop()
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+def test_the_upgrade_is_all_or_nothing_and_journaled_only_once_it_is_saved(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failure partway (the one save raises): config.toml is unchanged and nothing is journaled; the next start
+    applies the whole decision once."""
+    import asyncio
+    import shutil
+    import tempfile
+    from ferb.daemon.main import Daemon
+    from ferb.memory.journal import Journal
+    from ferb.store.db import Database
+    from tests.conftest import RunningDaemon
+    base = Path(tempfile.mkdtemp(prefix="ferbt-"))              # short: AF_UNIX socket paths are limited
+    home = base / "home"
+    try:
+        c = Config(home)
+        c.ensure_privacy_defaults()                                 # an F4 config: every key present, FERB's values
+        for (section, key), (old, _) in FERB_WRITTEN.items():
+            c.set(section, key, old)
+        c.set("retention", "download_days", 30)
+        before = (home / "config.toml").read_text()
+
+        save = Config.save
+
+        def refused(self: Config, doc: Any) -> None:                # fails partway: the write carrying the tabs change
+            if doc.get("browser", {}).get("task_max_tabs") == 50:
+                raise OSError("disk full")
+            save(self, doc)
+        monkeypatch.setattr(Config, "save", refused)
+        with pytest.raises(OSError):
+            c.upgrade_ferb_written()
+        assert (home / "config.toml").read_text() == before
+
+        async def start() -> None:
+            dm = Daemon(home=home, watchers=False, distill=False, retention=False, notifications=False,
+                        snapshots=False)
+            try:
+                await dm.start()
+            finally:
+                if dm.db is not None:
+                    dm.db.close()
+        with pytest.raises(OSError):
+            asyncio.run(start())
+        assert (home / "config.toml").read_text() == before
+        db = Database(home / "ferb.db")
+        try:
+            assert Journal(db, None, None, lambda x: x).of_kind("config.upgraded") == []   # type: ignore[arg-type]
+        finally:
+            db.close()
+
+        monkeypatch.undo()
+        d = RunningDaemon(home)
+
+        async def upgraded() -> list[dict[str, Any]]:
+            return [e.data for e in d.daemon.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED)]
+        try:
+            [row] = d.run(upgraded())
+            assert len(row["changes"]) == len(FERB_WRITTEN) + 1
+            assert d.daemon.config.get("browser", "task_max_tabs") == 50
+            assert d.daemon.config.get("retention", "download_days") is None
+        finally:
+            d.stop()
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
