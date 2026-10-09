@@ -44,7 +44,7 @@ DROPPED = ("the page started more saves at once than FERB holds (20 in a tab, 10
            "it started within the minute, were dropped, neither taken nor given to the browser; not taken")
 _DROP = {"Cc", "Cf", "Cs", "Zl", "Zp"}  # controls, format (bidi overrides, zero-width), surrogates, line separators
 _MB = 1024 * 1024
-_GB = 1024 * _MB
+_GB = 1000 ** 3                         # decimal GB, as Finder and macOS show it
 
 Publish = Callable[[str, dict[str, Any]], None]
 Setting = Callable[[str, str, Any], Any]

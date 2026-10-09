@@ -37,8 +37,7 @@ commit, after the plan `84779cf`; the version stays 0.26.1.
   new tab with an old id can delete an old copy early.
 - Download limits (`8c55913`, `c1f932a`; D35): the owner's limits of 2026-10-09: 512 MB per download, 50 files and
   4096 MB per task tree, 50 new tabs per task tree, a 20480 MB folder (only past it do the oldest go to the Trash), a
-  free-disk floor `browser.download_min_free_gb` = 10 (10 GiB of the space macOS reports as available, purgeable space
-  not counted), checked before any byte moves (an undeclared size too) and before each part is written, the refusal
+  free-disk floor `browser.download_min_free_gb` = 10 (10 GB, as macOS shows it; space macOS can purge doesn't count), checked before any byte moves (an undeclared size too) and before each part is written, the refusal
   saying how much is free; no time-based clearing (`retention.download_days` removed). A one-time, all-or-nothing
   upgrade changes only `config.toml` values still at F4's defaults (and removes `retention.download_days`), journaled
   as `config.upgraded`, which `ferb timeline` prints change by change or as "settings already current". Any admission

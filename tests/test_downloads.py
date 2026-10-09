@@ -896,7 +896,7 @@ def test_the_limits_default_to_the_owners_decision(tmp_path: Path) -> None:
     from ferb.act.browser.downloads import Downloads, Limits
     dl = Downloads(tmp_path / "downloads", None, lambda: None, lambda s, k, v: v, lambda t: t, lambda *a: None)
     mb = 1024 * 1024
-    assert dl.limits() == Limits(512 * mb, 50, 4096 * mb, 20480 * mb, 10 * 1024 * mb)
+    assert dl.limits() == Limits(512 * mb, 50, 4096 * mb, 20480 * mb, 10 * 1000 ** 3)
 
 
 def test_a_task_tree_may_open_fifty_tabs_by_default(bd: Any) -> None:
@@ -909,7 +909,7 @@ def test_a_task_tree_may_open_fifty_tabs_by_default(bd: Any) -> None:
 
 def test_a_download_that_would_leave_less_than_the_free_disk_floor_is_refused_before_any_byte_moves(bd: Any) -> None:
     d, launched = bd
-    floor = 10 * 1024 ** 3
+    floor = 10 * 1000 ** 3
     d.daemon.downloads.free_bytes = lambda: floor + 1000
     ext, g, tab, chrome_id = _task_tab(d, launched)
     rec = _deliver(d, ext, chrome_id, name="big.bin", data=b"x" * 2000, source_url="https://x.example/big")
@@ -921,7 +921,7 @@ def test_a_download_that_would_leave_less_than_the_free_disk_floor_is_refused_be
 
 def test_an_undeclared_size_stops_before_it_would_pass_the_free_disk_floor(bd: Any) -> None:
     d, launched = bd
-    floor = 10 * 1024 ** 3
+    floor = 10 * 1000 ** 3
     root = _root(d)
     d.daemon.downloads.free_bytes = lambda: floor + 100_000 - sum(p.stat().st_size for p in root.glob(".dl-*.part"))
     ext, g, tab, chrome_id = _task_tab(d, launched)
@@ -965,7 +965,7 @@ def test_a_config_that_breaks_mid_task_fails_the_download_and_never_hands_it_to_
 
 def test_an_undeclared_size_is_refused_before_any_part_moves_when_the_disk_is_already_under_the_floor(bd: Any) -> None:
     d, launched = bd
-    d.daemon.downloads.free_bytes = lambda: int(8.2 * 1024 ** 3)
+    d.daemon.downloads.free_bytes = lambda: int(8.2 * 1000 ** 3)
     ext, g, tab, chrome_id = _task_tab(d, launched)
     rec = _deliver(d, ext, chrome_id, name="s.bin", data=os.urandom(DOWNLOAD_PART), source_url="https://x.example/s",
                    size=None)
@@ -982,7 +982,7 @@ def test_a_free_disk_that_cant_be_read_mid_stream_names_the_floor_check(bd: Any)
         reads["n"] += 1
         if reads["n"] >= 3:                                            # admission, part 1 fine; part 2 can't tell
             raise PermissionError("statfs refused")
-        return 100 * 1024 ** 3
+        return 100 * 1000 ** 3
     d.daemon.downloads.free_bytes = flaky
     ext, g, tab, chrome_id = _task_tab(d, launched)
     rec = _deliver(d, ext, chrome_id, name="m.bin", data=os.urandom(3 * DOWNLOAD_PART),

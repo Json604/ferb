@@ -15,7 +15,7 @@ def _words(name: str) -> str:
 
 SENTENCES = [
         ("worker.md",
-     'When the owner hands the work to a particular agent or person that does it on its own (a coding agent like Codex Astra, a colleague, a service), that one does it, not you. An app you drive as a tool (WhatsApp, Spotify, Gmail, a browser) is not that: you do the work through it. Your part is to start the agent, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps it cannot), monitor it and check its result. If it is stuck or slow, help it, or use owner_ask; do none of its work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that you did it.'),
+     'When the owner hands the work to a particular agent or person that does it on its own (a coding agent like Codex Astra, a colleague, a service), that one does it, not you. An app you drive as a tool (WhatsApp, Spotify, Gmail, a browser) is not that: you do the work through it. Your part is to start the agent, give it what it needs (answer its questions, supply data or files, do the browser or Mac steps it cannot), monitor it and check its result. If it is stuck, help it, or use owner_ask; do none of its work yourself unless the owner says so (the orchestrator relays the answer), and then say in your report that you did it.'),
     ("worker.md",
      "- summary: the concrete result, useful details and remaining limitations, in FERB's first-person voice. Say who "
      "did each part (FERB itself, or the agent, app or person that did it) and what was used, as the records show."),

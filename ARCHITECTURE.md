@@ -280,8 +280,8 @@ release, a restart); an unpulled hold goes back to the browser after 30 s (in FE
 FERB's own tab fails what it holds, letting go of a borrowed one hands it back. A refused download (over
 `browser.download_max_mb` 512, the task tree's `download_task_max_files` 50 / `download_task_max_mb` 4096, a transfer
 that would leave less than `browser.download_min_free_gb` 10 free on the disk, a second transfer in a tab waiting over
-20 s, or a 10-minute transfer) is failed in the browser, so no dialog. The free-disk floor is 10 GiB of the space macOS
-reports as available (`shutil.disk_usage(...).free`, which leaves out purgeable space), checked in `Downloads._admit`
+20 s, or a 10-minute transfer) is failed in the browser, so no dialog. The free-disk floor is 10 GB (as macOS shows it; space macOS can
+purge doesn't count; `shutil.disk_usage(...).free`), checked in `Downloads._admit`
 before any byte moves (by the declared size; with no declared size, whether the disk is already under the floor) and
 in `_take` before each part is written; the refusal says how much is free ("only 8.2 GB free now; FERB keeps at least
 10 GB free (browser.download_min_free_gb): …; not taken"), and free space that can't be read refuses the download too.
@@ -723,7 +723,7 @@ pins the sentences).
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
 the `downloads` table (migration 0025); `browser.downloads` is an observation tool; extension 0.14.0, protocol 10. The
 owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
-20480 MB folder (only past it do the oldest go to the Trash), a 10 GiB free-disk floor, no time-based clearing; the
+20480 MB folder (only past it do the oldest go to the Trash), a 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing; the
 page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
 `ensure_privacy_defaults` writes these values where a key is missing, `browser.download_min_free_gb` included. The
 values F4 had written into `config.toml` before the owner chose (100, 20, 500, 2048, `task_max_tabs` 20) are replaced

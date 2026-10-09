@@ -341,8 +341,10 @@ class Uploads:
             try:
                 at = _open(self.root, None, self.root)
                 held.append(at)
+                shown = self.root
                 for name in leaf[:-1]:
-                    at = _open(name, at, self.root)
+                    shown = shown / name
+                    at = _open(name, at, shown)
                     held.append(at)
                 _remove(at, leaf[-1], Path(copy).parent, [])
             except OSError:

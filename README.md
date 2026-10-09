@@ -46,8 +46,8 @@ A download in a tab FERB is driving for a task never opens a Save dialog: FERB t
 content. Limits (your decision of 2026-10-09): `browser.download_max_mb` (512) per file and, per task (one request,
 all its attempts), `browser.download_task_max_files` (50), `browser.download_task_max_mb` (4096) and
 `browser.task_max_tabs` (50 new tabs FERB opens from its pages); one download at a time per tab (the next waits up to
-20 s), each within 10 minutes. A download that would leave less than `browser.download_min_free_gb` (10 GB of the space
-macOS reports as available, which leaves out purgeable space) free on the disk is refused: by its declared size before
+20 s), each within 10 minutes. A download that would leave less than `browser.download_min_free_gb` (10 GB, as macOS shows it; space macOS can
+purge doesn't count) free on the disk is refused: by its declared size before
 any byte moves (with no declared size, when the disk is already under the floor), and again before each part is
 written; the reason says how much is free. Refused ones, and any FERB couldn't check against these limits (for example
 while `config.toml` is half-edited), are reported, still without a dialog. A page that starts more saves at once than

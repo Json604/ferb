@@ -302,6 +302,8 @@ class Script:
         return w.pop(0) if isinstance(w, list) else w
 
 
+# WARNING: every scripted .verify step gets met=True for FERB's report condition unless the test sets
+# script.fill_report_verdict = False; tests about the report condition must opt out.
 def complete_report_verdict(script: "Script", context: str, final: str) -> str:
     """Scripted checker verdicts written before FERB added its report condition (F4 live fixes) answer only the
     planner's conditions. FERB numbers its report condition last in the checker's Conditions list; a verdict that
@@ -365,6 +367,8 @@ class FakeRuntime:
         run.state["cancel"] = True
 
 
+# WARNING: scripts made here fill met=True for FERB's report condition in every scripted .verify step unless the test
+# sets script.fill_report_verdict = False (see complete_report_verdict); tests about the report condition must opt out.
 def install(d: RunningDaemon, supervisor: list[Any], workers: dict[str, Any] | None = None) -> Script:
     script = Script(supervisor, workers or {})
     d.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema: FakeRuntime(script, mode, tool_names)

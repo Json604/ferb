@@ -428,7 +428,7 @@ summary = "A named target FERB can't find becomes a what/which question, answere
 [D35]
 milestone = "F4"
 tests = ["tests/test_downloads.py", "tests/test_downloads_extension.py", "tests/test_config.py"]
-note = "Also the headless lab test tests/test_downloads_real.py (-m real). Headed Brave/Chrome behavior (no dialog, the popup's first URL, the debugging bar) is a pending owner live check. Limits per the owner's decision of 2026-10-09 (512 MB, 50 files / 4096 MB, 50 tabs, 20480 MB folder, 10 GB free-disk floor, no time-based clearing); the values F4 had written into config.toml are upgraded once, journaled as config.upgraded (owner approved; tests/test_config.py)."
+note = "Also the headless lab test tests/test_downloads_real.py (-m real). Headed Brave/Chrome behavior (no dialog, the popup's first URL, the debugging bar) is a pending owner live check. Limits per the owner's decision of 2026-10-09 (512 MB, 50 files / 4096 MB, 50 tabs, 20480 MB folder, 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing); the values F4 had written into config.toml are upgraded once, journaled as config.upgraded (owner approved; tests/test_config.py)."
 summary = "Browser downloads never open a dialog on the owner's screen; FERB takes the file into its workspace as facts"
 
 [D36]
