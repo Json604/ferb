@@ -61,8 +61,22 @@ def test_a_front_app_change_no_ferb_action_was_near_says_so_with_ferbs_running_p
     lines = render.story(_ep(b.finish()))
     assert ("Desktop: 889 changes during the task, none near a FERB on-screen action; 1 front-app or Space change "
             "with no FERB on-screen action in progress") in lines
-    assert ("  · 11:04:42 Google Chrome came to the front — no FERB on-screen action in progress (none in this task); "
+    assert ("  · 11:04:42 Google Chrome came to the front — no FERB on-screen action in progress (none yet); "
             "running: codex -m gpt-6-astra --dangerously-bypass-approvals-and-san… (started by this task)") in lines
+
+
+def test_another_tasks_call_and_a_pause_are_said_plainly() -> None:
+    b = TraceBuilder()
+    b.worker(5, "done", "waited")
+    b.came_forward("Safari", "com.apple.Safari", processes=[],
+                   actions=[{"tool": "mac.act", "span_id": "x1", "task_id": "f29fee46.worker", "on_screen": True},
+                            {"tool": "browser.open", "span_id": "x2", "task_id": "other.worker", "on_screen": True}])
+    b.paused(30)
+    b.desktop(1)
+    lines = render.story(_ep(b.finish()))
+    assert lines[-3:] == ["Desktop: 1 changes during the task, 1 near a FERB on-screen action",
+                          "  · 11:04:42 frontmost_app near mac.act, browser.open (another FERB task's call)",
+                          "  · 11:04:42 desktop not observed (paused) until 11:05:12"]
 
 
 def test_failed_status_and_verdict() -> None:

@@ -1,8 +1,8 @@
-"""FERB tells desktop changes it may have caused from ones it didn't (owner, 2026-10-09, task fbe968b0: Codex Astra,
-which FERB started, opened visible Chrome with its own screen tool). Tools declare whether they can change the screen;
-the gateway records the flag beside each call; a change with no such FERB call in flight says so, with when the last
-one ended and the processes FERB started that were running (P26, rule 6: facts only; who did it is the reader's
-conclusion)."""
+"""FERB's records separate desktop changes that happened while one of its on-screen tool calls was in flight or had
+just ended from changes with none in progress (owner, 2026-10-09, task fbe968b0: Chrome came forward while FERB only
+waited on Codex Astra, a process it had started). Tools declare whether they can change the screen; the gateway records
+the flag beside each call; a change with none in progress is stated as that, with when the last one ended and the
+processes FERB started that were running (P26, rule 6: facts only; who did it is the reader's conclusion)."""
 from pathlib import Path
 from typing import Any
 
@@ -79,3 +79,59 @@ def test_the_running_processes_a_change_records_are_ferbs_with_commands_redacted
         daemon.run(shells.kill(h))
     assert [(p["id"], p["task"], p["background"]) for p in procs] == [(h.id, "tree1.worker", True)]
     assert secret not in str(procs) and procs[0]["command"].startswith("sleep 30 #")
+
+
+def test_ferb_pause_stops_desktop_sensing_for_a_task(daemon: RunningDaemon) -> None:
+    """`ferb pause` promises nothing is recorded until `ferb resume`: the daemon's sentinel reads nothing and records
+    only that the desktop went unobserved."""
+    d = daemon.daemon
+    assert d.sense is not None
+    reads: list[int] = []
+
+    def read() -> dict[str, Any]:
+        reads.append(1)
+        return {"frontmost_app": {"pid": 1, "bundle_id": "a.app", "name": "A"}}
+
+    d.disturbance.read = read
+    daemon.run(d.sense.pause())
+    try:
+        daemon.run(d.disturbance.start("paused-task"))
+        assert d.disturbance.context("paused-task") == ""
+        daemon.run(d.disturbance.finish("paused-task"))
+    finally:
+        daemon.run(d.sense.resume())
+    assert reads == [] and _kinds(daemon, "paused-task") == ["disturbance.paused", "disturbance.summary"]
+    daemon.run(d.disturbance.start("watched-task"))
+    daemon.run(d.disturbance.finish("watched-task"))
+    assert reads and _kinds(daemon, "watched-task") == ["disturbance.baseline", "disturbance.summary"]
+
+
+def _kinds(daemon: RunningDaemon, task_id: str) -> list[str]:
+    async def query() -> list[str]:                  # the database belongs to the daemon's thread
+        assert daemon.daemon.db is not None
+        return [r[0] for r in daemon.daemon.db.conn.execute(
+            "SELECT kind FROM spans WHERE task_id = ? ORDER BY rowid", (task_id,))]
+    return daemon.run(query())
+
+
+def test_ferbs_own_cleanup_is_an_on_screen_action_and_observation_never_blocks_it(daemon: RunningDaemon) -> None:
+    sup = daemon.daemon.supervisor
+    assert sup is not None
+    ended: list[str] = []
+
+    async def end(task_id: str) -> list[dict[str, Any]]:
+        ended.append(task_id)
+        return [{"resource": "tab", "released": True}]
+
+    class Broken(_Seen):
+        async def before_action(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("sentinel store gone")
+
+    sup.on_task_end = end
+    seen = _Seen()
+    sup.disturbance = seen
+    assert daemon.run(sup._end_task("t1.worker", "cleanup-1")) == [{"resource": "tab", "released": True}]
+    assert seen.calls == [("task.cleanup", True)]
+    sup.disturbance = Broken()
+    daemon.run(sup._end_task("t2.worker", "cleanup-2"))
+    assert ended == ["t1.worker", "t2.worker"]

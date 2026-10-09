@@ -149,6 +149,7 @@ class Supervisor(WorkerRuns):
         self.on_task_start: Callable[[str], Awaitable[Any]] | None = None
         self.on_task_finish: Callable[[str], Awaitable[Any]] | None = None
         self.disturbance_context: Callable[[str], str] = lambda task_id: ""
+        self.disturbance: Any = None              # the desktop sentinel: cleanup is an on-screen FERB action (P26)
         self.browser_context: Callable[[str], str] = lambda task_id: ""
         self.relevant_context: Callable[[str], Any] = lambda words: ""   # text, or (text, origin)
         self.worker_types: Callable[[], list[str]] = lambda: ['default', 'codex', 'claude']
@@ -735,7 +736,7 @@ class Supervisor(WorkerRuns):
             cleanup = self.spans.start("task.cleanup", task_id=tid, parent_id=parent_span,
                                       input={"operation": "release task resources"})
             try:
-                resources = await self.on_task_end(tid) or []
+                resources = await self._end_task(tid, cleanup.id)
                 observed = observed or bool(resources)
                 tree.resources.extend(resources)
                 errors = [str(r['error']) for r in resources if r.get('error')]
@@ -752,6 +753,22 @@ class Supervisor(WorkerRuns):
                 tree.cleanup_errors.append(detail)
                 self.spans.finish(cleanup, error=detail)
         return observed
+
+    async def _end_task(self, tid: str, span_id: str) -> list[dict[str, Any]]:
+        """One task's resource release, observed by the desktop sentinel as an on-screen FERB action: closing tabs and
+        ending processes can change the screen, so a desktop change meanwhile is near it (P26). Observation never
+        blocks or fails the cleanup."""
+        assert self.on_task_end is not None
+        sentinel = self.disturbance
+        if sentinel is not None:
+            with suppress(Exception):
+                await sentinel.before_action(tid, span_id, "task.cleanup", {}, on_screen=True)
+        try:
+            return list(await self.on_task_end(tid) or [])
+        finally:
+            if sentinel is not None:
+                with suppress(Exception):
+                    await sentinel.after_action(span_id)
 
     async def _execute(self, tree: _Tree, span: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
         worker = tree.worker

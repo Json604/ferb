@@ -236,7 +236,8 @@ class SpanStore:
         params: list[Any] = [task_id]
         if root_id:
             where += " OR (task_id = ? AND kind IN ('task','task.intake','context.source','disturbance.baseline'," \
-                     "'disturbance.change','disturbance.error','disturbance.summary'))"
+                     "'disturbance.change','disturbance.error','disturbance.summary','disturbance.paused'," \
+                     "'disturbance.resumed'))"
             params.append(root_id)
             where += " OR (task_id IN (?, ?) AND kind IN ('worker','task.cleanup'))"
             params.extend([task_id, task_id + ".verify"])

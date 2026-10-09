@@ -149,7 +149,8 @@ class Daemon:
             owner_input=lambda: {"monitored": self.owner_input.running,
                                  "recent": self.owner_input.active(),
                                  "last_event_wall": self.owner_input.last_owner_wall},
-            processes=self._running_processes, now=lambda: self.clock.now())
+            processes=self._running_processes, now=lambda: self.clock.now(),
+            paused=lambda: self.sense is not None and self.sense.paused)     # `ferb pause`: no desktop sensing
         self.voice: Any = None                              # push-to-talk, built at start
         self.voice_speaker: Any = None                      # tests replace FERB's voice
         self._ptt = False
@@ -480,6 +481,7 @@ class Daemon:
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self._tree_finished
         self.supervisor.disturbance_context = self.disturbance.context
+        self.supervisor.disturbance = self.disturbance
         self.supervisor.relevant_context = self._relevant_context
         add_context_readers(self.registry, self.supervisor.continuity,
                             lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None),

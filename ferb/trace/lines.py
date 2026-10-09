@@ -24,33 +24,80 @@ def duration(seconds: float | None) -> str:
     return f"{s // 60}m{s % 60:02d}s" if s >= 60 else f"{s}s"
 
 
-def what_came_forward(changes: dict[str, Any]) -> str:
-    """What a desktop change brought forward, from a disturbance.change record's `changes`: "Google Chrome came to the
-    front", "the Space changed", or both (the bundle id when the app's name wasn't recorded)."""
-    parts = []
-    if "frontmost_app" in changes:
-        after = (changes.get("frontmost_app") or {}).get("after") or {}
-        parts.append(f"{after.get('name') or after.get('bundle_id') or 'another app'} came to the front")
-    if "active_space_epoch" in changes:
-        parts.append("the Space changed")
-    return " and ".join(parts)
+def front_pid(app: Any) -> int | None:
+    """A front-app reading's pid; None when the front app couldn't be read."""
+    pid = app.get("pid") if isinstance(app, dict) else None
+    return pid if isinstance(pid, int) else None
 
 
-def not_ferb(what: str, processes: list[dict[str, Any]] | None, task_id: str, *, in_task: bool | None,
-             last_ended_s: int | None) -> str:
-    """A desktop change no FERB on-screen action was in flight for, or had just ended before (P26): what happened, when
-    the latest on-screen FERB call ended (`in_task` False: this task made none; None: a record made before this was
-    kept), and the processes FERB started that were running then, each with whose task started it. Facts only; who did
-    it is the reader's conclusion (rule 6, controller ruling 2026-10-09): a FERB effect can land late."""
+class CameForward:
+    """What came forward in one task's desktop records, read in order (P26). "Came to the front" is stated only when a
+    readable front app differs from the last readable one, so a sample where the front app couldn't be read, and the
+    same app read again after it, state nothing; "the Space changed" likewise needs a readable Space count that differs
+    from the last readable one. The sentinel and the trace both read records through this one rule."""
+
+    def __init__(self) -> None:
+        self.pid: int | None = None
+        self.epoch: int | None = None
+
+    def baseline(self, snapshot: dict[str, Any]) -> None:
+        self.pid = front_pid(snapshot.get("frontmost_app"))
+        epoch = snapshot.get("active_space_epoch")
+        self.epoch = epoch if isinstance(epoch, int) else None
+
+    def change(self, changes: dict[str, Any]) -> str:
+        """What one disturbance.change brought forward, "" for nothing: "Google Chrome came to the front", "the Space
+        changed", or both (the bundle id when the app's name wasn't recorded)."""
+        parts = []
+        if "frontmost_app" in changes:
+            entry = changes.get("frontmost_app") or {}
+            before = front_pid(entry.get("before"))
+            self.pid = before if before is not None else self.pid
+            after = entry.get("after")
+            pid = front_pid(after)
+            if pid is not None and isinstance(after, dict):
+                if self.pid is not None and pid != self.pid:
+                    parts.append(f"{after.get('name') or after.get('bundle_id') or 'another app'} came to the front")
+                self.pid = pid
+        if "active_space_epoch" in changes:
+            entry = changes.get("active_space_epoch") or {}
+            before, after = entry.get("before"), entry.get("after")
+            self.epoch = before if isinstance(before, int) else self.epoch
+            if isinstance(after, int):
+                if self.epoch is not None and after != self.epoch:
+                    parts.append("the Space changed")
+                self.epoch = after
+        return " and ".join(parts)
+
+
+def seconds(value: float) -> str:
+    """An elapsed time: one decimal under 10 s, so a short gap never reads as 0 s; whole seconds from 10 s."""
+    return f"{value:.1f}" if value < 10 else str(int(value))
+
+
+def no_on_screen_action(what: str, processes: list[dict[str, Any]] | None, task_id: str, *, in_task: bool | None,
+                        last_ended_s: float | None) -> str:
+    """A desktop change with no FERB on-screen call in flight or just ended (P26): what happened, when the latest
+    on-screen FERB call ended (`in_task` False: this task made none; None: a record made before this was kept;
+    `last_ended_s` None: none since the daemon started), and the processes FERB started that were running then. This
+    task's show their (redacted) command; another task's show only their id, since its command text was never this
+    task's to read (MP2). Facts only; who did it is the reader's conclusion (rule 6, controller ruling 2026-10-09): a
+    FERB effect can land late."""
     if processes is None:
         running = "not recorded"
     else:
         tree = task_id.split(".", 1)[0]
-        running = "; ".join(clip(p.get("command", ""), 60) + (
-            " (started by this task)" if str(p.get("task", "")).split(".", 1)[0] == tree
-            else " (started by another FERB task)") for p in processes) or "nothing FERB started"
-    when = ("" if in_task is None or (in_task and last_ended_s is None)
-            else " (none in this task)" if not in_task else f" (the last ended {last_ended_s} s earlier)")
+        running = "; ".join(
+            f"{clip(p.get('command', ''), 60)} (started by this task)" if str(p.get("task", "")).split(".", 1)[0] == tree
+            else f"{p.get('id', '?')} (started by another FERB task)" for p in processes) or "nothing FERB started"
+    if in_task is None or (in_task and last_ended_s is None):
+        when = ""
+    elif last_ended_s is None:
+        when = " (none yet)"
+    elif in_task:
+        when = f" (the last ended {seconds(last_ended_s)} s earlier)"
+    else:
+        when = f" (none in this task; the last of any FERB task ended {seconds(last_ended_s)} s earlier)"
     return f"{what} — no FERB on-screen action in progress{when}; running: {running}"
 
 

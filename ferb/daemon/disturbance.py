@@ -6,11 +6,13 @@ content, pixels or keystrokes are collected. Public Space notifications report t
 Each action carries its capability's declared `on_screen` flag; an app coming forward or a Space change
 with no such action in flight or just ended is stated as that fact, with when the last one ended and the
 processes FERB started that were running (P26). Who did it stays the reader's conclusion (rule 6).
+While the owner has paused sensing (`ferb pause`), nothing about the desktop is read or recorded.
 """
 
 import asyncio
 import copy
 import json
+import math
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -19,7 +21,8 @@ from typing import Any, Callable
 
 from ferb.trace import lines
 
-NOT_FERB_KEPT = 10   # the newest plain statements an agent's context carries; every change stays in the records
+NO_ON_SCREEN_KEPT = 10   # the newest plain statements an agent's context carries; every change stays in the records
+PAUSED = "sensing paused by the owner (ferb pause): nothing about the desktop is read or recorded until ferb resume"
 
 
 class DesktopProbe:
@@ -123,8 +126,10 @@ class _Observation:
     unavailable: dict[str, str] = field(default_factory=dict)
     max_sample_ms: float = 0
     on_screen_calls: int = 0                      # this task's FERB calls that can change the screen, so far
-    not_ferb: deque[str] = field(default_factory=lambda: deque(maxlen=NOT_FERB_KEPT))
-    not_ferb_count: int = 0
+    no_on_screen_action: deque[str] = field(default_factory=lambda: deque(maxlen=NO_ON_SCREEN_KEPT))
+    no_on_screen_action_count: int = 0
+    forward: lines.CameForward = field(default_factory=lines.CameForward)
+    paused: bool = False
 
 
 class DisturbanceSentinel:
@@ -133,11 +138,12 @@ class DisturbanceSentinel:
     def __init__(self, read: Callable[[], dict[str, Any]], record: Callable[[str, str, dict[str, Any]], None], *,
                  interval_s: float = 0.25, owner_input: Callable[[], dict[str, Any]] = dict,
                  processes: Callable[[], list[dict[str, Any]]] = list,
-                 now: Callable[[], datetime] = lambda: datetime.now().astimezone()) -> None:
+                 now: Callable[[], datetime] = lambda: datetime.now().astimezone(),
+                 paused: Callable[[], bool] = lambda: False) -> None:
         if interval_s <= 0:
             raise ValueError("sample interval must be positive")
         self.read, self.record, self.interval_s, self.owner_input = read, record, interval_s, owner_input
-        self.processes, self.now = processes, now
+        self.processes, self.now, self.paused = processes, now, paused
         self._on_screen_ended: datetime | None = None   # when the latest on-screen FERB call of any task ended
         self.active: dict[str, _Observation] = {}
         self._actions: dict[str, dict[str, Any]] = {}
@@ -211,6 +217,8 @@ class DisturbanceSentinel:
         if not self.active:
             return
         async with self._lock:
+            if self._held():
+                return
             started = time.monotonic()
             try:
                 if hasattr(self.read, "pump"):
@@ -234,6 +242,7 @@ class DisturbanceSentinel:
                 observed.max_sample_ms = max(observed.max_sample_ms, sample_ms)
                 observed.unavailable.update(snapshot.get("unavailable", {}))
                 if observed.last is None:
+                    observed.forward.baseline(snapshot)
                     self.record(task_id, "disturbance.baseline", {"snapshot": snapshot,
                                 "sample_interval_s": self.interval_s, "space_identity": "transition_epoch_only"})
                 else:
@@ -246,14 +255,32 @@ class DisturbanceSentinel:
                             "changes": changes, "actions": actions, "owner_input": owner,
                             "sample_duration_ms": sample_ms, "permission_assessment": "not_inferred",
                             "attribution": "temporal_correlation_only"}
-                        if "frontmost_app" in changes or "active_space_epoch" in changes:
+                        if "frontmost_app" in changes and lines.front_pid(snapshot.get("frontmost_app")) is None:
+                            data["front_app_unreadable"] = True     # raw record only: nothing is stated about it
+                        what = observed.forward.change(changes)
+                        if what:                  # a readable app came forward, or the Space changed
                             if not listed:
                                 procs, listed = self._listed(), True
-                            data["processes"] = procs
+                            data["processes"] = _for_tree(procs, task_id)
                             if not near:          # no FERB call that can change the screen in flight or just ended
-                                self._not_ferb(task_id, observed, changes, data)
+                                self._no_on_screen_action(task_id, observed, what, data)
                         self.record(task_id, "disturbance.change", data)
                 observed.last = snapshot
+
+    def _held(self) -> bool:
+        """While the owner has paused sensing: each task's record says so once, nothing is read, and the next sample
+        after `ferb resume` starts from a fresh baseline (what changed meanwhile was never observed)."""
+        if not self.paused():
+            for task_id, observed in self.active.items():
+                if observed.paused:
+                    observed.paused = False
+                    self.record(task_id, "disturbance.resumed", {})
+            return False
+        for task_id, observed in self.active.items():
+            if not observed.paused:
+                observed.paused, observed.last, observed.forward = True, None, lines.CameForward()
+                self.record(task_id, "disturbance.paused", {"reason": PAUSED})
+        return True
 
     def _listed(self) -> list[dict[str, Any]] | None:
         """The processes FERB started that are running now; None when they couldn't be listed."""
@@ -262,28 +289,43 @@ class DisturbanceSentinel:
         except Exception:
             return None
 
-    def _not_ferb(self, task_id: str, observed: _Observation, changes: dict[str, Any], data: dict[str, Any]) -> None:
-        """The facts of a change no FERB on-screen call was near: whether this task made one, the whole seconds since
-        the latest one of any task ended (controller ruling 2026-10-09: a FERB effect can land after the window), and
-        the plain statement agents read. States facts, never who caused it (rule 6)."""
+    def _no_on_screen_action(self, task_id: str, observed: _Observation, what: str, data: dict[str, Any]) -> None:
+        """The facts of a change no FERB on-screen call was near: whether this task made one, the time since the latest
+        one of any task ended (controller ruling 2026-10-09: a FERB effect can land after the window; one decimal under
+        10 s), and the plain statement agents read. States facts, never who caused it (rule 6)."""
         now = self.now()
         ended = self._on_screen_ended
         data["on_screen_in_task"] = observed.on_screen_calls > 0
-        data["last_on_screen_ended_s"] = (None if ended is None
-                                          else max(0, int((now - ended).total_seconds())))
-        observed.not_ferb_count += 1
-        observed.not_ferb.append(f"{now.astimezone():%H:%M:%S} " + lines.not_ferb(
-            lines.what_came_forward(changes), data["processes"], task_id,
-            in_task=data["on_screen_in_task"], last_ended_s=data["last_on_screen_ended_s"]))
+        data["last_on_screen_ended_s"] = None if ended is None else _elapsed((now - ended).total_seconds())
+        observed.no_on_screen_action_count += 1
+        observed.no_on_screen_action.append(f"{now.astimezone():%H:%M:%S} " + lines.no_on_screen_action(
+            what, data["processes"], task_id, in_task=data["on_screen_in_task"],
+            last_ended_s=data["last_on_screen_ended_s"]))
 
     def context(self, task_id: str) -> str:
         observed = self.active.get(task_id.split(".", 1)[0])
-        if observed is None:
+        if observed is None or self.paused():         # paused: nothing about the desktop reaches an agent
             return ""
         return ("\nDesktop observations (facts, not inferred permission or causation; FERB's actions that can change "
                 "the screen are marked on_screen): " + json.dumps({
                     "samples": observed.samples, "changes": observed.changes, "errors": observed.errors,
                     "unavailable": observed.unavailable,
-                    "came_forward_with_no_ferb_on_screen_action": observed.not_ferb_count,
-                    "latest": list(observed.not_ferb),
+                    "front_or_space_changes_with_no_ferb_on_screen_action": observed.no_on_screen_action_count,
+                    "latest": list(observed.no_on_screen_action),
                     "read_full": "task.evidence query=disturbance on this task root"}, ensure_ascii=False))
+
+
+def _for_tree(processes: list[dict[str, Any]] | None, tree: str) -> list[dict[str, Any]] | None:
+    """FERB-started processes as one task tree's record keeps them: another tree's lose their command text, which was
+    never this tree's to read and would reach its models labelled as FERB's (MP2, S3)."""
+    if processes is None:
+        return None
+    return [p if str(p.get("task", "")).split(".", 1)[0] == tree else {k: v for k, v in p.items() if k != "command"}
+            for p in processes]
+
+
+def _elapsed(s: float) -> float:
+    """Seconds since an on-screen call ended: tenths under 10 s (rounded down, so a gap never reads longer than it
+    was), whole seconds from 10 s."""
+    s = max(0.0, s)
+    return float(int(s)) if s >= 10 else math.floor(s * 10) / 10

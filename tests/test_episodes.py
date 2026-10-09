@@ -42,7 +42,8 @@ def test_desktop_details_follow_the_recorded_on_screen_flag() -> None:
     b.desktop(4, near=[("mac.act", ["frontmost_app"]), ("fs.write", ["cursor"])],
               on_screen={"mac.act": True, "fs.write": False})
     d = compose.compose(b.finish())["desktop"]
-    assert d["changes"] == 4 and [n["tools"] for n in d["near_ferb"]] == [["mac.act"]] and d["not_ferb"] == []
+    assert d["changes"] == 4 and [n["tools"] for n in d["near_ferb"]] == [["mac.act"]]
+    assert d["no_on_screen_action"] == []
 
 
 def test_a_change_no_ferb_on_screen_action_was_near_is_recorded_with_ferbs_processes() -> None:
@@ -56,14 +57,17 @@ def test_a_change_no_ferb_on_screen_action_was_near_is_recorded_with_ferbs_proce
     b.came_forward("Brave Browser", "com.brave.Browser",
                    actions=[{"tool": "browser.open", "span_id": "o1", "on_screen": True}], processes=[])
     b.came_forward("Safari", "com.apple.Safari", processes=[], on_screen_in_task=True, last_ended_s=12)
-    b.desktop(3)
+    b.came_forward("Mail", "com.apple.mail", processes=[], on_screen_in_task=False, last_ended_s=3.4)
+    b.desktop(4)
     d = compose.compose(b.finish())["desktop"]
     assert [(n["changed"], n["tools"]) for n in d["near_ferb"]] == [(["frontmost_app"], ["browser.open"])]
-    assert [n["text"] for n in d["not_ferb"]] == [
-        "Google Chrome came to the front and the Space changed — no FERB on-screen action in progress (none in this "
-        "task); running: codex exec --json (started by this task); npm run dev (started by another FERB task)",
+    assert [n["text"] for n in d["no_on_screen_action"]] == [
+        "Google Chrome came to the front and the Space changed — no FERB on-screen action in progress (none yet); "
+        "running: codex exec --json (started by this task); p-2 (started by another FERB task)",
         "Safari came to the front — no FERB on-screen action in progress (the last ended 12 s earlier); running: "
-        "nothing FERB started"]
+        "nothing FERB started",
+        "Mail came to the front — no FERB on-screen action in progress (none in this task; the last of any FERB task "
+        "ended 3.4 s earlier); running: nothing FERB started"]
 
 
 def test_an_older_record_without_processes_says_they_were_not_recorded() -> None:
@@ -71,20 +75,53 @@ def test_an_older_record_without_processes_says_they_were_not_recorded() -> None
     b.worker(5, "done", "read")
     b.came_forward("Google Chrome", "com.google.Chrome",
                    actions=[{"tool": "trail.query", "span_id": "t1", "on_screen": False}], processes=None)
-    b.desktop(1)
-    [entry] = compose.compose(b.finish())["desktop"]["not_ferb"]
-    assert entry["text"].endswith("— no FERB on-screen action in progress; running: not recorded")
+    b.came_forward("Safari", "com.apple.Safari", processes=None)        # no action at all: an empty list counts
+    b.desktop(2)
+    texts = [n["text"] for n in compose.compose(b.finish())["desktop"]["no_on_screen_action"]]
+    assert texts == ["Google Chrome came to the front — no FERB on-screen action in progress; running: not recorded",
+                     "Safari came to the front — no FERB on-screen action in progress; running: not recorded"]
 
 
-def test_an_older_record_counts_a_shell_command_as_able_to_change_the_screen() -> None:
-    """Records made before the flag: only the recorded kind decides (a read is never near); the name list that skipped
-    every shell.* and fs.* call is gone, since a command FERB runs can open an app."""
+def test_an_older_record_keeps_the_old_rule_and_gets_no_statement_from_its_kinds() -> None:
+    """Records made before the flag keep the old rule (shell.* and fs.* calls and recorded reads are never near), and a
+    change whose actions don't all carry the flag gets no "no FERB on-screen action" statement: nothing is inferred
+    from an older record's kinds."""
     b = TraceBuilder()
     w = b.worker(5, "done", "ran it")
     runner = b.tool(w, 1, 0.1, "shell.run", {"command": "open -a Safari"}, "exit 0", kind="run_shell")
-    b.desktop(1, near=[("shell.run", ["frontmost_app"], runner)])
+    clicker = b.tool(w, 2, 0.1, "mac.act", {}, "ok", kind="mac_input")
+    b.desktop(2, near=[("shell.run", ["cursor"], runner), ("mac.act", ["cursor"], clicker)])
+    b.came_forward("Safari", "com.apple.Safari", actions=[{"tool": "shell.run", "span_id": runner}], processes=None)
     d = compose.compose(b.finish())["desktop"]
-    assert [n["tools"] for n in d["near_ferb"]] == [["shell.run"]] and d["not_ferb"] == []
+    assert [n["tools"] for n in d["near_ferb"]] == [["mac.act"]] and d["no_on_screen_action"] == []
+
+
+def test_an_unreadable_front_app_is_not_a_change_of_app_in_the_record() -> None:
+    b = TraceBuilder()
+    b.worker(5, "done", "waited")
+    brave, chrome = {"pid": 1, "bundle_id": "com.brave.Browser", "name": "Brave Browser"}, \
+        {"pid": 2, "bundle_id": "com.google.Chrome", "name": "Google Chrome"}
+    b.front(brave, None)              # AX couldn't read the front app
+    b.front(None, brave)              # the same app, readable again
+    b.front(brave, chrome)            # a real switch
+    b.desktop(3)
+    texts = [n["text"] for n in compose.compose(b.finish())["desktop"]["no_on_screen_action"]]
+    assert texts == ["Google Chrome came to the front — no FERB on-screen action in progress (none yet); running: "
+                     "nothing FERB started"]
+
+
+def test_another_tasks_on_screen_call_is_kept_apart_and_a_pause_is_recorded() -> None:
+    b = TraceBuilder()
+    b.worker(5, "done", "waited")
+    b.came_forward("Safari", "com.apple.Safari", processes=[],
+                   actions=[{"tool": "mac.act", "span_id": "x1", "task_id": "other.worker", "on_screen": True}])
+    b.paused(30)
+    b.paused(10, resumed=False)
+    b.desktop(1)
+    d = compose.compose(b.finish())["desktop"]
+    assert [(n["tools"], n["other_task_tools"]) for n in d["near_ferb"]] == [([], ["mac.act"])]
+    assert [(n["at"][11:19], (n["until"] or "")[11:19]) for n in d["paused"]] == [("11:04:42", "11:05:12"),
+                                                                                  ("11:05:12", "11:05:22")]
 
 
 def test_desktop_details_skip_ferbs_own_reads() -> None:

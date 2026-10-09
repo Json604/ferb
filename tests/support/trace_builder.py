@@ -138,6 +138,22 @@ class TraceBuilder:
                 out |= {"on_screen_in_task": on_screen_in_task, "last_on_screen_ended_s": last_ended_s}
         self._child(self.root, self._node("disturbance.change", 0, {}, out))
 
+    def front(self, before: dict[str, Any] | None, after: dict[str, Any] | None,
+              actions: list[dict[str, Any]] | tuple = ()) -> None:
+        """A disturbance.change of the front app with the exact readings the sentinel took (None: unreadable)."""
+        out: dict[str, Any] = {"changes": {"frontmost_app": {"before": before, "after": after}},
+                               "actions": list(actions), "owner_input": False, "processes": [],
+                               "on_screen_in_task": False, "last_on_screen_ended_s": None}
+        if after is None:
+            out["front_app_unreadable"] = True
+        self._child(self.root, self._node("disturbance.change", 0, {}, out))
+
+    def paused(self, seconds: float, resumed: bool = True) -> None:
+        """`ferb pause` during the task for `seconds`, then `ferb resume` (unless `resumed` is False)."""
+        self._child(self.root, self._node("disturbance.paused", seconds, {}, {"reason": "sensing paused"}))
+        if resumed:
+            self._child(self.root, self._node("disturbance.resumed", 0, {}, {}))
+
     def finish(self, status: str = "done", verified: bool | None = True,
                answer: str = "Deleted ~/.cache/huggingface.") -> dict[str, Any]:
         self.root["ended_at"] = self.t.isoformat()

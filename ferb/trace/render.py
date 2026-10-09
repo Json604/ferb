@@ -59,13 +59,17 @@ def story(ep: dict[str, Any], verdict: dict[str, Any] | None = None) -> list[str
     out.append(_cost(u))
     d = ep.get("desktop") or {}
     near = d.get("near_ferb") or []
-    others = d.get("not_ferb") or []                  # absent in an episode built before 2026-10-09
+    others = d.get("no_on_screen_action") or []       # absent in an episode built before 2026-10-09
     out.append(f"Desktop: {d.get('changes', 0)} changes during the task, "
                + (f"{len(near)} near a FERB on-screen action" if near else "none near a FERB on-screen action")
                + (f"; {lines.plural(len(others), 'front-app or Space change', 'front-app or Space changes')} "
                   "with no FERB on-screen action in progress" if others else ""))
-    shown = [(n["at"], f"  · {_hms(n['at'])} {', '.join(n['changed'])} near {', '.join(n['tools'])}") for n in near]
+    shown = [(n["at"], f"  · {_hms(n['at'])} {', '.join(n['changed'])} near "
+                       + ", ".join(list(n["tools"]) + [f"{t} (another FERB task's call)"
+                                                      for t in n.get("other_task_tools") or []])) for n in near]
     shown += [(n["at"], f"  · {_hms(n['at'])} {n['text']}") for n in others]
+    shown += [(n["at"], f"  · {_hms(n['at'])} desktop not observed (paused)"
+                        + (f" until {_hms(n['until'])}" if n.get("until") else "")) for n in d.get("paused") or []]
     out += [line for _, line in sorted(shown, key=lambda item: item[0])]
     if verdict:
         when = datetime.fromisoformat(verdict["at"]).strftime("%d %b %H:%M")

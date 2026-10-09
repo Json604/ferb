@@ -10,12 +10,13 @@ from typing import Any, Iterator
 from ferb.core import origin
 from ferb.policy.rules import Kind
 from ferb.sanitize.untrusted import WRAPPED, holds_pasted, without_ferb_question
-from ferb.trace.lines import clip, duration, not_ferb, plural, what_came_forward
+from ferb.trace.lines import CameForward, clip, duration, no_on_screen_action, plural
 
 MODEL_KINDS = {"model.turn", "model.dispatch", "model.question", "model.resources", "worker"}
 PLANNER_KINDS = ("model.turn", "model.dispatch", "model.question", "model.resources")   # the orchestrator's turns
 OPEN, OPEN_TEXT = "⏹", "did not finish (interrupted)"   # a step span never finished: no claim, no check, no time
-OBSERVE_KINDS = {Kind.READ, Kind.SEARCH, Kind.MAILBOX_READ}   # a record made before `on_screen` was kept: reads
+NO_SCREEN = ("shell.", "fs.")   # a record made before `on_screen` was kept: these families never counted (RQ2)
+OBSERVE_KINDS = {Kind.READ, Kind.SEARCH, Kind.MAILBOX_READ}   # nor did recorded reads (FERB's readers, snapshots)
 ORIGIN_KINDS = {"task", "tool.call", "context.source"}   # what the task's models were shown (S3; task_origins)
 PASTED = "[pasted text]"
 
@@ -81,11 +82,55 @@ def _checker(n: dict[str, Any], total: int) -> tuple[str, str]:
 
 def _on_screen(action: dict[str, Any], kinds: dict[str, Any]) -> bool:
     """Whether a FERB action the sampler saw could change the screen: its capability's `on_screen` flag as recorded
-    (P26). An action recorded before the flag existed counts unless its recorded kind is a read."""
+    (P26). An action recorded before the flag existed keeps the old rule: shell.* and fs.* calls and recorded reads
+    never counted."""
     if "on_screen" in action:
         return bool(action["on_screen"])
     kind: Any = kinds.get(str(action.get("span_id")))
-    return kind not in OBSERVE_KINDS
+    return not str(action.get("tool", "")).startswith(NO_SCREEN) and kind not in OBSERVE_KINDS
+
+
+def _desktop(nodes: list[dict[str, Any]], task_id: str, ended: str | None) -> dict[str, Any]:
+    """The task's desktop records in order: changes near a FERB on-screen call (this task's or another's), an app
+    coming forward or the Space changing with none in progress, and when the owner's pause left the desktop unobserved.
+    A "none in progress" statement needs every action in its record to carry the flag (an empty list does): nothing
+    is inferred from an older record's kinds."""
+    summary = next((n for n in reversed(nodes) if n["kind"] == "disturbance.summary"), None)
+    raw = ((summary or {}).get("output") or {}).get("changes")
+    tree = task_id.split(".", 1)[0]
+    near: list[dict[str, Any]] = []
+    none_near: list[dict[str, Any]] = []
+    paused: list[dict[str, Any]] = []
+    kinds = {n["id"]: (n.get("input") or {}).get("kind") for n in nodes if n["kind"] == "tool.call"}
+    forward = CameForward()
+    for n in nodes:
+        out = n.get("output") or {}
+        if n["kind"] == "disturbance.baseline":
+            forward.baseline(out.get("snapshot") or {})
+        elif n["kind"] == "disturbance.paused":
+            paused.append({"at": n["started_at"], "until": None})
+        elif n["kind"] == "disturbance.resumed" and paused and paused[-1]["until"] is None:
+            paused[-1]["until"] = n["started_at"]
+        elif n["kind"] == "disturbance.change":
+            changes = out.get("changes") or {}
+            actions = out.get("actions") or []
+            what = forward.change(changes)
+            screen = [a for a in actions if _on_screen(a, kinds)]
+            own = sorted({str(a.get("tool", "?")) for a in screen
+                          if str(a.get("task_id") or tree).split(".", 1)[0] == tree})
+            other = sorted({str(a.get("tool", "?")) for a in screen
+                            if str(a.get("task_id") or tree).split(".", 1)[0] != tree})
+            if own or other:
+                near.append({"at": n["started_at"], "changed": sorted(changes), "tools": own,
+                             "other_task_tools": other})
+            elif what and all("on_screen" in a for a in actions):
+                none_near.append({"at": n["started_at"], "text": no_on_screen_action(
+                    what, out.get("processes"), task_id, in_task=out.get("on_screen_in_task"),
+                    last_ended_s=out.get("last_on_screen_ended_s"))})
+    if paused and paused[-1]["until"] is None:        # still paused when observation ended
+        paused[-1]["until"] = summary["started_at"] if summary else ended
+    return {"changes": len(raw) if isinstance(raw, (list, dict)) else int(raw or 0), "near_ferb": near,
+            "no_on_screen_action": none_near, "paused": paused}
 
 
 def _worker(n: dict[str, Any]) -> tuple[str, str]:
@@ -196,24 +241,6 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
                                         if u.get("cost_usd") is None}),
              "billing": sorted({u["billing"] for u in usage_out if u.get("billing")})}
 
-    summary = next((n.get("output") or {} for n in reversed(nodes) if n["kind"] == "disturbance.summary"), {})
-    raw = summary.get("changes")
-    near: list[dict[str, Any]] = []
-    others: list[dict[str, Any]] = []          # an app came forward or the Space changed, no FERB on-screen call near
-    kinds = {n["id"]: (n.get("input") or {}).get("kind") for n in nodes if n["kind"] == "tool.call"}
-    for n in nodes:
-        if n["kind"] != "disturbance.change":
-            continue
-        out = n.get("output") or {}
-        changes = out.get("changes") or {}
-        tools = sorted({str(a.get("tool", "?")) for a in out.get("actions") or [] if _on_screen(a, kinds)})
-        if tools:
-            near.append({"at": n["started_at"], "changed": sorted(changes), "tools": tools})
-        elif "frontmost_app" in changes or "active_space_epoch" in changes:
-            others.append({"at": n["started_at"], "text": not_ferb(
-                what_came_forward(changes), out.get("processes"), task_id,
-                in_task=out.get("on_screen_in_task"), last_ended_s=out.get("last_on_screen_ended_s"))})
-
     tools_used: dict[str, dict[str, int]] = {}
     origins: set[str] = set()
     tool_origins: set[str] = set()                 # the task's own tool results, apart from inherited context
@@ -239,5 +266,4 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             "started_at": started, "ended_at": ended, "seconds": _secs(started, ended), "answer": answer,
             "conditions": conditions, "steps": steps, "problems": problems, "tools": tools_used,
             "origins": sorted(origins), "tool_origins": sorted(tool_origins), "usage": usage,
-            "desktop": {"changes": len(raw) if isinstance(raw, (list, dict)) else int(raw or 0), "near_ferb": near,
-                        "not_ferb": others}}
+            "desktop": _desktop(nodes, task_id, ended)}
