@@ -57,6 +57,51 @@ Recall and caching (same session, later):
 Owner sign-off: F1 accepted with these carry-overs (D34/D35 to F4, recall relevance to F8, the Codex cache key
 to F2): "lets move to f2" (2026-10-07).
 
+## 0.27 F4 live fixes — re-check
+
+Run after `ferb setup --update`, on owner-controlled surfaces (D17), pausing between supervised actions and noting what
+you saw with each one. Record each verdict with `ferb verdict TASK pass|fail`.
+1. **The named agent does the work.** In a disposable repository (`~/ferb-test/repo`), ask FERB to start a Codex Astra
+   session to write a small script, with FERB doing one browser step on a kartikey.xyz test page. Expected: FERB
+   writes none of the script itself; if Astra stalls, FERB helps it or asks you before taking over; the answer says
+   who did each part. If a worker did the work itself, the task ends `failed ✗`, with the named-agent condition
+   "— failed: …" or "What I reported didn't match the records: …" in the answer.
+2. **A lasting choice.** On a kartikey.xyz test page with a "mark as final" option, ask FERB to submit a test entry.
+   Expected: it asks you before marking anything final.
+3. **"You".** Answers, questions and conditions say "your Brave Work profile", never "the owner's".
+4. **The checked report.** For a browser task whose cleanup closes a tab, `ferb trace TASK` shows a Planner step
+   "after cleanup: done — …", yet the Answer line is the worker's report that the check judged;
+   `ferb trace TASK --json` lists "My report to you says truthfully …" last in the `verification` of the `task.outcome`
+   record (`outcome_records`), with its verdict.
+5. **Upload from the Desktop.** First turn off Brave's Desktop access (System Settings → Privacy & Security → Files and
+   Folders → Brave Browser), since the live run may have granted it. Then have FERB upload a disposable file from
+   `~/Desktop/ferb-test/` to a kartikey.xyz upload page in your Brave. Expected: no macOS folder-access dialog; the page
+   shows the original file name; `ferb trace TASK --full` shows `staged_copies` under `~/.ferb/workspace/uploads/`. If
+   FERB opened the tab and closed it, `ls ~/.ferb/workspace/uploads` shows nothing for the task once it ends; if it
+   used a tab of yours or kept the tab open, the copy stays until you close that tab. Note which you saw.
+6. **Limits.** `~/.ferb/config.toml` shows `download_max_mb = 512`, `download_task_max_files = 50`,
+   `download_task_max_mb = 4096`, `download_total_mb = 20480`, `download_min_free_gb = 10`, `task_max_tabs = 50`, and no
+   `retention.download_days` (a value you had set yourself stays as you set it). `ferb timeline` shows one
+   `config.upgraded` line, "download-limits-2026-10-09: browser.download_max_mb 100 → 512; …; retention.download_days
+   30 → removed" (each change in full), and a second `ferb setup --update` adds no other.
+7. **A desktop change with no FERB on-screen action.** While a task only waits on a process it started (for example a
+   coding agent, or a `sleep 60` via FERB), bring another app to the front yourself. Expected: `ferb trace TASK` lists
+   "· HH:MM:SS <App> came to the front — no FERB on-screen action in progress (the last ended N s earlier); running:
+   sleep 60 (started by this task)" (one decimal under 10 s), and nothing in it says who caused the change.
+8. **Pause.** During a task, run `ferb pause`, switch apps, then `ferb resume`. Expected: `ferb trace TASK` shows
+   "· HH:MM:SS desktop not observed (paused) until HH:MM:SS" and no "came to the front" line for the switches made while
+   paused.
+
+Residuals: a FERB effect that lands more than 0.5 s after its call ends (an app FERB opened finishing its launch) is
+stated as "no FERB on-screen action in progress", with the seconds since FERB's last on-screen action ended; a tab of
+yours, or one FERB kept open, whose file field holds FERB's copy keeps it only until FERB restarts, so after
+`ferb setup --update` submitting that form sends no file; tab ids repeat after a browser restart, so closing a new tab
+that reuses an old id can remove an old copy early.
+
+Carried to F5 (not a live check): when the shell sandbox lands, deny `~/.ferb/workspace/uploads` to FERB's shell for
+reads and writes, or move staging beside `~/.ferb/recovery`; until then a shell command could change a staged copy
+before the browser reads it (the upload's `bytes_match` reports different bytes).
+
 ## 0.27 F4 — pending live checks
 
 Run after the final review and `ferb setup --update`, which installs F4 and republishes the browser extension. Use

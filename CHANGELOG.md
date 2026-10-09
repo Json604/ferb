@@ -10,6 +10,59 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0-dev — 2026-10-09 — F4 live fixes
+
+From the owner's live acceptance run of F4 (tasks `79bc5bfa`, `fbe968b0`). Commits `6b7eb85` through this documentation
+commit, after the plan `84779cf`; the version stays 0.26.1.
+
+- Who does the work (`6b7eb85`, `1ca394d`; V6, D34, P27): the prompts say that work the owner hands to a named agent or
+  person that does it on its own is done by that one (an app FERB uses as a tool is not that): FERB starts it, helps it
+  and checks its result, and asks before taking over (a worker's request to take over is the owner's decision, not a
+  method question); one condition says the named one did it, and each quality or limit the owner states is its own
+  condition; reports say who did each part and with what; a lasting choice the owner did not ask for and the request
+  does not need is confirmed first; everything the owner reads says "you" and "your" (`tests/test_prompt_contract.py`).
+- The report check (`a6494d6`, `515f402`; P16, D34): every check judges, numbered last, whether the report the owner
+  will see matches the records (`REPORT_CONDITION`, judged by the checker); false fails the task. A done answer is the
+  report the check judged (`checked_report`); the review after cleanup may lower the status but never writes new done
+  wording. FERB's condition is found by its index and said in the owner's terms: "What I reported didn't match the
+  records: …", "I couldn't confirm my report matches the records: …", and under "Still to check" "Whether what I
+  reported matches the records". The story's "checked nothing" count includes it.
+- Uploads (`d30a15b`, `b0e1f73`, `26f05fe`; MP2, rule 17): the browser reads FERB's own copy under the original name
+  (`~/.ferb/workspace/uploads/<tree>/<random>/<name>`; `uploads/outside/`, an untrusted root, for outside content),
+  so no macOS folder-access dialog; the original is only read. Copies are made through held file descriptors
+  (`fclonefileat` with `CLONE_NOFOLLOW`, or a byte copy with `O_EXCL|O_NOFOLLOW`) and checked against the original's
+  SHA-256; cleanup never follows a link. Copies used only in tabs FERB closed go when the tree ends; one used in a
+  borrowed or kept tab stays until the browser reports that tab removed, or until the next start-up. Residuals: after
+  `ferb setup --update` a still-open tab's staged file is gone; tab ids repeat after a browser restart, so closing a
+  new tab with an old id can delete an old copy early.
+- Download limits (`8c55913`, `c1f932a`; D35): the owner's limits of 2026-10-09: 512 MB per download, 50 files and
+  4096 MB per task tree, 50 new tabs per task tree, a 20480 MB folder (only past it do the oldest go to the Trash), a
+  free-disk floor `browser.download_min_free_gb` = 10 (10 GiB of the space macOS reports as available, purgeable space
+  not counted), checked before any byte moves (an undeclared size too) and before each part is written, the refusal
+  saying how much is free; no time-based clearing (`retention.download_days` removed). A one-time, all-or-nothing
+  upgrade changes only `config.toml` values still at F4's defaults (and removes `retention.download_days`), journaled
+  as `config.upgraded`, which `ferb timeline` prints change by change or as "settings already current". Any admission
+  error in a live task tab aborts the download and records a fact; it is never handed to the browser.
+- Desktop changes with no FERB on-screen action (`c6b4ad9`, `a9e91d1`, `189c087`; P26, P4, MP2): tools declare
+  `on_screen` and the gateway records it with each call; FERB's cleanup is an on-screen action (`task.cleanup`). When a
+  readable front app changes, or the Space changes, with no FERB on-screen action in progress, the record keeps the
+  facts and the agents' context and the story state them: "<App> came to the front — no FERB on-screen action in
+  progress (the last ended N s earlier); running: …" ("(none in this task; the last of any FERB task ended N s
+  earlier)", "(none yet)", one decimal under 10 s); another tree's processes appear only as "<id> (started by another
+  FERB task)". Code never says who caused a change. Older records keep the old near rule. While `ferb pause` is on
+  nothing about the desktop is recorded (a read under way is dropped); the story says "desktop not observed (paused)
+  until …". Fields `desktop.no_on_screen_action`; context key `front_or_space_changes_with_no_ferb_on_screen_action`.
+- Owner decisions of 2026-10-09 recorded here and in the plan: the limits above; the one-time config upgrade ("yes");
+  no instruction or restriction on another agent's harness ("i dont want this hardcoded control over other agent's
+  harness. ferb should just know that it didnt do it"), so FERB's records state facts instead; D6/D26 as clarified (a
+  start-of-task screenshot of the working app's window, then screenshots only on the model's request; built in F5;
+  see the F4 entry below).
+- Documentation (this commit; P16, D34, D35, MP2, P26, P27): README, ARCHITECTURE (sections 2, 6, 7, 10, 11), RPC
+  disturbance kinds, owner guide upload line, decision registry tests and notes (P4, P16, P26, P27, D34, D35, MP2),
+  the owner's re-check list, the plan's decision status for 2026-10-09, and the F5 carry-forward in the plan: when the
+  shell sandbox lands, deny `workspace/uploads` to the shell for reads and writes, or move staging beside
+  `~/.ferb/recovery`.
+
 ## 0.27.0-dev — 2026-10-09 — F4 verification and recovery
 
 Milestone F4 of `docs/0.27_PLAN.md` (P16 V1–V8, D6, D20, D26, D29, P19, S1, D34, D35). Commits `ddf1830` (the F4 plan)

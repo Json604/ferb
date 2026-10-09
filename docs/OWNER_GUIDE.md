@@ -30,9 +30,11 @@ Imagine asking: “Use this local PDF in the test form, and leave my desktop alo
    resource, executes, redacts and records. It does not infer recipients from labels or give permission to switch
    from a local file to Drive. A failed mechanism returns a fact for the model to interpret.
 7. **`ferb/act/browser/ext_bridge.py`** transports browser work through the paired extension. An upload identifies
-   an actual file input and exact frame, then sets local files through CDP. The receipt records the canonical local
-   source, size and hash, and the selected bytes are compared. An unsupported target is a refusal, not a source
-   substitution. The model must still inspect the form’s attachment and eventual submitted result.
+   an actual file input and exact frame, then sets FERB's own copy of each local file (`uploads.py`, under
+   `~/.ferb/workspace/uploads`, original name kept) through CDP, so the browser never reads a folder macOS protects.
+   The receipt records the canonical local source, size and hash, and the selected bytes are compared. An unsupported
+   target is a refusal, not a source substitution. The model must still inspect the form’s attachment and eventual
+   submitted result.
 8. **`ferb/daemon/disturbance.py`** observes the desktop throughout execution and cleanup. It samples before and
    after actions as well as periodically. It records changes; it does not block the worker, approve foreground use
    or move you back to an earlier app.

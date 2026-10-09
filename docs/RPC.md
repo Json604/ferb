@@ -84,9 +84,13 @@ journal records. `owner_verdict` is the latest `verdict.set` record (`verdict`, 
 given; null is not acceptance. Historical coverage flags distinguish missing
 request/sentinel data from a tested success. Fields may be added compatibly; clients should preserve unknown ones.
 
-Disturbance spans have baseline/change/error/summary kinds. A change lists before/after facts, overlapping/recent
-action span IDs, owner-input observations and explicit non-attribution. Missing data is not zero disturbance. The
-sentinel is evidence, not an approval gate. Images are not embedded in stored tool spans; use artifact receipts.
+Disturbance spans have baseline/change/error/summary kinds, plus paused/resumed around a `ferb pause` (nothing about the
+desktop is recorded between them). A change lists before/after facts, overlapping/recent actions (span IDs, each with
+its capability's `on_screen` flag), owner-input observations and explicit non-attribution; when an app came to the front
+or the Space changed it also lists the FERB-started processes running then (another task's by id only), and with no
+on-screen FERB action in progress `on_screen_in_task` and `last_on_screen_ended_s`. Missing data is not zero
+disturbance. The sentinel is evidence, not an approval gate. Images are not embedded in stored tool spans; use artifact
+receipts.
 
 Standard errors: `-32700` malformed JSON, `-32600` invalid request, `-32601` missing method, `-32603` internal error;
 FERB errors: `-32001` unauthorized, `-32002` oversize, `-32003` unsupported, `-32004` operation failure. Do not retry

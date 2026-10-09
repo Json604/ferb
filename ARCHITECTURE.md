@@ -32,7 +32,7 @@ override with default fallback. No learning loop or additional Jev decision fami
 | Evidence/checking | [`verify.py`](ferb/orchestrator/verify.py), [`evidence.py`](ferb/orchestrator/evidence.py), [`store/spans.py`](ferb/store/spans.py), [`act/evidence/`](ferb/act/evidence/), [`act/aftercheck.py`](ferb/act/aftercheck.py) |
 | Recovery of FERB's file changes (S1) | [`act/fs/recovery.py`](ferb/act/fs/recovery.py) |
 | Background observation | [`daemon/disturbance.py`](ferb/daemon/disturbance.py) |
-| Browser (downloads: [`act/browser/downloads.py`](ferb/act/browser/downloads.py)) | [`act/browser/`](ferb/act/browser/), [`native_host/`](ferb/native_host/), [`extension`](extensions/chromium/) |
+| Browser (downloads: [`act/browser/downloads.py`](ferb/act/browser/downloads.py); upload copies: [`act/browser/uploads.py`](ferb/act/browser/uploads.py)) | [`act/browser/`](ferb/act/browser/), [`native_host/`](ferb/native_host/), [`extension`](extensions/chromium/) |
 | Native, processes, files, recordings | [`act/mac/`](ferb/act/mac/), [`act/shell/`](ferb/act/shell/), [`act/fs/files.py`](ferb/act/fs/files.py), [`act/recording.py`](ferb/act/recording.py) |
 | Memory, sensing, reminders and schedules | [`memory/`](ferb/memory/), [`sense/`](ferb/sense/), [`clock/`](ferb/clock/), [`schedules.py`](ferb/orchestrator/schedules.py) |
 | Optional typed enrichment | [`decide/`](ferb/decide/) |
@@ -139,6 +139,48 @@ visible window order and public Space-transition notifications throughout every 
 blocks actions nor asserts authorization or causal certainty. Short changes between samples may be missed. Public
 Space notifications give transitions, not stable Space IDs. There is no private-API Space/window manipulation.
 
+**On-screen actions and what came forward (P26, P4; F4 live fixes).** A capability that can change what is on the
+owner's screen declares `on_screen = True` (`gateway.on_screen`; a declaration like `observation`, never a name list,
+rule 6): `mac.open`, `mac.menu`, `mac.act`, `mac.click`, `mac.pointer`, `mac.applescript`; in both browser families
+`open`, `navigate`, `act`, `scroll`, `dialog`, `close`, `keep_open`, `use_tab`, `login_code`, `fill_secret` and
+`fill_otp`; `shell.start`, `shell.run`, `shell.send` and `shell.kill` (a command FERB runs can open an app). Nothing
+else is, `shell.wait`/`read`/`list` included, so waiting on a coding agent never puts the agent's changes near a FERB
+action. The gateway passes the flag to `before_action`, so every action in a desktop record carries it; FERB's own
+cleanup is observed as one on-screen action, `task.cleanup` (`Supervisor._end_task`; an observation failure never stops
+or fails the cleanup). "Came to the front" is stated only when a readable front app differs from the last readable one,
+and "the Space changed" only for a readable Space count that differs from the last readable one (`lines.CameForward`,
+one rule for the sentinel and the trace); an unreadable front app gets `front_app_unreadable` in the raw record and no
+statement. The probe reads the front app's name (`localizedName`); a readable switch also records the FERB-started
+processes running then (`processes`: `Daemon._running_processes`, the `ferb ps` data, commands redacted, rule 14;
+another task tree's are kept by id only, without their command, `_for_tree`). With no on-screen call of any task in
+flight or ended within two sample intervals (0.5 s), the record adds `on_screen_in_task` and `last_on_screen_ended_s`
+(tenths under 10 s, rounded down; whole seconds from 10 s, on the daemon's clock), and the sentinel and the trace
+compose the statement from the record (`lines.no_on_screen_action`): "<App> came to the front — no FERB on-screen action
+in progress (the last ended N s earlier); running: <command> (started by this task); <id> (started by another FERB
+task)". When this tree made none it reads "(none in this task; the last of any FERB task ended N s earlier)", or "(none
+yet)" when none has ended since the daemon started; "running: nothing FERB started" when the list is empty and "running:
+not recorded" when listing failed. The agents' context (`DisturbanceSentinel.context`) carries the count as
+`front_or_space_changes_with_no_ferb_on_screen_action` and the newest 10 statements as `latest` (`NO_ON_SCREEN_KEPT`);
+every change stays in the records. The episode's `desktop` keeps the statements as `no_on_screen_action` and near
+changes as `near_ferb` (`tools`, plus `other_task_tools`, rendered "<tool> (another FERB task's call)"); the story lists
+both by time under its "Desktop:" line. Code states facts, never who caused a change (rule 6; controller ruling
+2026-10-09): a change may come from the owner, another app, a process FERB started (a coding agent acts with its own
+permissions) or a FERB effect that landed late, and [`interaction.md`](ferb/orchestrator/prompts/interaction.md) tells
+the agents to weigh the elapsed time and the running processes. FERB never instructs or restricts another agent's
+harness (owner, 2026-10-09: "i dont want this hardcoded control over other agent's harness. ferb should just know that
+it didnt do it"). A record made before the flag keeps the old rule (`NO_SCREEN` in
+[`trace/compose.py`](ferb/trace/compose.py): `shell.*` and `fs.*` calls and recorded reads never count as near) and gets
+no statement from its kinds. Residual: a FERB effect that lands more than 0.5 s after its call ends (an app finishing
+its launch) is stated as "no FERB on-screen action in progress", with the seconds since FERB's last one ended for the
+reader to weigh.
+
+While the owner has paused sensing (`ferb pause`), the sentinel reads and records nothing about the desktop (`paused=`,
+wired to the sensing pipeline's pause): each running task's record gets one `disturbance.paused` (the reason only) and
+then `disturbance.resumed`; a read under way when the pause begins is dropped; `context()` returns nothing; and the
+first sample after `ferb resume` is a fresh baseline, so a change made while paused is never reported as a change. The
+story says "desktop not observed (paused) until HH:MM:SS" (the episode's `desktop.paused`). FERB's own tool-call records
+are unchanged.
+
 [Apple’s Space notification](https://developer.apple.com/documentation/appkit/nsworkspace/activespacedidchangenotification)
 is observed through the workspace notification center; window ordering uses
 [public Core Graphics observations](https://developer.apple.com/documentation/coregraphics/cgwindowlistcopywindowinfo(_:_:)).
@@ -158,6 +200,31 @@ path, size, modified time and SHA-256 receipts tie the chosen local bytes to the
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs
 model inspection and final observed content evidence.
 
+The browser reads FERB's copy, never the original (rule 17, MP2; F4 live fixes,
+[`uploads.py`](ferb/act/browser/uploads.py)). macOS asks the owner, in front of their work, when a browser reads a
+folder it protects (Desktop, Documents, Downloads, iCloud Drive; task `79bc5bfa`); FERB's workspace is not one.
+`_upload` opens each original once without following a link at its last step and reads its identity from that handle
+(`_TabDriver._sources`, one worker thread), then `Uploads.stage_all` copies it from the same handle to
+`~/.ferb/workspace/uploads/<tree>/<random>/<original name>`, or under `uploads/outside/` when the original is under an
+untrusted fs root: that folder is itself an untrusted root code adds (`downloads.untrusted_roots`), so the copy keeps
+the original's outside label. Every folder from `uploads/` down is held by a handle opened `O_NOFOLLOW`, and the copy is
+made into its folder's handle (`recovery.copy_into`): `fclonefileat` with `CLONE_NOFOLLOW` (an APFS clone), else a byte
+copy opened `O_EXCL|O_NOFOLLOW`, so anything already at the name, a planted link included, refuses the copy; the copy
+must hash to the identity just read and still be a regular file at the path given to the browser. The result's `files`
+keep the originals' identities and `staged_copies` lists what the browser read; the site sees the original name; the
+original is only read. Any failure refuses the upload with nothing given to the browser, and copies already made for it
+go at once. Copies used only in tabs FERB closed go when the tree ends (`Daemon._tree_finished` → `forget_tree`). A copy
+used in a borrowed or kept tab stays until the browser reports that tab removed (`Hub.on_tab_closed` →
+`Daemon._tab_closed` → `collect`) or until the next start-up (`sweep`), since Chromium reads the file again at submit.
+Cleanup never follows a link: every removal goes through the handle of the folder that holds the entry; a link in place
+of a tree folder is removed as a link, and one in place of `uploads/` itself is left alone and reported. What a cleanup
+couldn't remove is journaled (`browser.uploads_cleanup_failed`, `browser.uploads_startup_failed`, with `left`: paths and
+errors, never contents). Residuals: after a daemon restart (`ferb setup --update`) the start-up sweep removes the staged
+file of a tab still open, so a form submitted there sends no file; tab ids repeat after a browser restart, so closing a
+new tab that reuses an old id can delete an old copy early. FERB's shell can write the workspace, so a command could
+change a copy before the browser reads it; the browser-side `bytes_match` reports different bytes (carried to F5,
+section 11).
+
 Downloads (D35) never reach the browser's own download flow in a live task's tab (opened, adopted, or borrowed while the
 task holds it). The tab is armed before any URL loads (`arm` in `background.js`: a task tab opens blank, becomes the
 task's, then navigates; a tab the debugger can't attach to, such as a new-tab or `chrome://` page, steps through
@@ -171,7 +238,7 @@ journal), then failed (`ERR_ABORTED`: the page stays). `content.js` holds a blob
 phase (a page's `stopPropagation` can't hide it), and in the bubble phase (after the page's own handlers, so a click the
 page cancelled stays cancelled) routes a trusted click on a link to a new tab (`target=_blank`, also via `<base
 target>`, a modifier or middle click; other named targets stay the browser's) through FERB's own open as the same task's
-tab, released like its opener when that is the owner's borrowed tab, within `browser.task_max_tabs` (20) per task tree
+tab, released like its opener when that is the owner's borrowed tab, within `browser.task_max_tabs` (50) per task tree
 (past it the browser opens an ordinary tab, as a fact). The service worker answers content.js only once the daemon has
 answered the `open` event (`open_seen`, which the daemon awaits before opening anything) or after `OPEN_WAIT_MS` (1 s);
 with no answer (the daemon down, restarting or just slow) content.js lets the browser open the link, and a late
@@ -211,15 +278,25 @@ while `Hub.task_tab` finds a running task's tab, else it is released back to the
 {release}` → `Fetch.continueRequest`); the hello lists armed tabs and the daemon disarms any it doesn't hold (a failed
 release, a restart); an unpulled hold goes back to the browser after 30 s (in FERB's own profile it is failed); closing
 FERB's own tab fails what it holds, letting go of a borrowed one hands it back. A refused download (over
-`browser.download_max_mb` 100, the task tree's `download_task_max_files` 20 / `download_task_max_mb` 500, a second
-transfer in a tab waiting over 20 s, or a 10-minute transfer) is failed in the browser, so no dialog. The daemon writes
+`browser.download_max_mb` 512, the task tree's `download_task_max_files` 50 / `download_task_max_mb` 4096, a transfer
+that would leave less than `browser.download_min_free_gb` 10 free on the disk, a second transfer in a tab waiting over
+20 s, or a 10-minute transfer) is failed in the browser, so no dialog. The free-disk floor is 10 GiB of the space macOS
+reports as available (`shutil.disk_usage(...).free`, which leaves out purgeable space), checked in `Downloads._admit`
+before any byte moves (by the declared size; with no declared size, whether the disk is already under the floor) and
+in `_take` before each part is written; the refusal says how much is free ("only 8.2 GB free now; FERB keeps at least
+10 GB free (browser.download_min_free_gb): …; not taken"), and free space that can't be read refuses the download too.
+Once the tab is a live task tab, any other admission error (a half-edited `config.toml`, a database error) aborts the
+download in the browser first and then records a `failed` fact ("FERB couldn't check this download against its limits
+(…); not taken"; `_not_admitted`), so it is never handed back to the browser. The daemon writes
 `~/.ferb/workspace/downloads/<id>-<safe name>` through a no-follow folder descriptor, hashes the received bytes, removes
 partial files (and sweeps orphan `.dl-*.part` at startup), and records facts in `downloads` (migration 0025:
 `in_progress` → `taken|refused|failed|not_taken`; source URL and URL-derived names through the redactor, which covers
 signed-URL credentials; never content). The worker sees them in the open/navigate result (it waits for the transfer),
 the next snapshot or act (with `opened_tabs`), and `browser.downloads` (an observation tool). The folder is always an
-untrusted fs root (`external:download`). Files are FERB's working copies: after `retention.download_days` (30) or past
-`browser.download_total_mb` (2048, oldest first) they move to the Trash (`move_to_trash`); rows stay with `trashed_to`.
+untrusted fs root (`external:download`). Files are FERB's working copies and stay until the owner deletes them; only
+while the folder is over `browser.download_total_mb` (20480) do the oldest move to the Trash (`move_to_trash`, the
+hourly pass); rows stay with `trashed_to`. There is no time-based clearing. These limits are the owner's decision of
+2026-10-09 (section 11 has the one-time upgrade of the values F4 had written into `config.toml`).
 
 Residuals (measured in the headless lab; nothing tab-scoped closes them), recorded `not_taken` from the tab's own
 `Page.downloadWillBegin`/`downloadProgress` when FERB is attached (a later `canceled` too, e.g. a dismissed Save
@@ -410,10 +487,10 @@ episode can be rebuilt while its spans exist.
 
 **`ferb trace` levels (P26).** `ferb trace [TASK]` prints the story from the episode: a head line, numbered steps, the
 answer, problems, a token/cache/≈ $ cost line (the estimate says it is one; an unpriced model says cost unknown), the
-desktop line and your verdict. `--steps` prints one line per tool call from the spans (or says steps are no longer kept
-and shows the story). `--full` and `--json` show the raw recorded trace. Every story line is rendered by code from
-records ([`trace/render.py`](ferb/trace/render.py)); golden tests pin the output. A task without an episode falls back to
-the raw view.
+desktop line with its listed changes and paused spans (section 6) and your verdict. `--steps` prints one line per tool
+call from the spans (or says steps are no longer kept and shows the story). `--full` and `--json` show the raw recorded
+trace. Every story line is rendered by code from records ([`trace/render.py`](ferb/trace/render.py)); golden tests pin
+the output. A task without an episode falls back to the raw view.
 
 **Retention (D14, D21).** [`store/retention.py`](ferb/store/retention.py) with `Daemon._purge_records`
 ([`daemon/main.py`](ferb/daemon/main.py)). Config: `retention.trace_days` and `retention.decision_days`, both 30. Aged
@@ -427,12 +504,13 @@ first. The loop runs hourly, starting a minute after start-up, on the daemon loo
 `_purge_records` runs the same steps synchronously), and journals `retention.purged` with the counts and `roots_left`
 only when it purged something or left roots for the next pass; a pass that shutdown cancels between roots still
 journals what it purged, marked `stopped`. A task interrupted by a restart ages from the restart (`interrupt_running` bumps `updated_at`), never from
-before it. Typed text and clipboard (7 days) arrive with F7. F4 added evidence (`retention.evidence_days`, 7),
-recovery copies and snapshots (`retention.recovery_days`, 7) and downloaded files (`retention.download_days`, 30) to the
-same pass (section 11). Every `retention.*_days` value is read through `retention.days`: at least `MIN_DAYS` (1), so a
-0 never purges what was just kept. Download retention never records a file gone or clears its path without looking:
-a row whose file is outside the downloads folder is left as it is, recorded once as skipped and not counted toward
-`browser.download_total_mb`.
+before it. Typed text and clipboard (7 days) arrive with F7. F4 added evidence (`retention.evidence_days`, 7) and
+recovery copies and snapshots (`retention.recovery_days`, 7) to the same pass (section 11). Every `retention.*_days`
+value is read through `retention.days`: at least `MIN_DAYS` (1), so a 0 never purges what was just kept. Downloaded
+files have no time limit (owner, 2026-10-09; `retention.download_days` is gone): the same hourly pass moves the oldest
+to the Trash only while FERB's downloads folder is over `browser.download_total_mb` (`Downloads.purge`, journaled
+`retention.downloads`). It never records a file gone or clears its path without looking: a row whose file is outside
+the downloads folder is left as it is, recorded once as skipped and not counted toward `browser.download_total_mb`.
 
 **Content search (D9).** Migration 0019 adds `trail_fts` and `summary_fts` (same tokenizer as memory, so Devanagari words
 stay whole) kept in step by triggers and created with FTS5 `secure-delete`, so a purged or forgotten row's terms are zeroed
@@ -480,6 +558,26 @@ unconfirmed outcome into `failed` for that alone, nor a judged failure into `don
 `unverified_pct`, `failed` and `failed_pct`, and `done_pct` counts only `done`. A scheduled run that ends
 `done_unverified` neither clears nor adds to its schedule's failure count; the "FERB finished" notification title is
 for `done` only.
+
+**The report check (P16 V4/V6, D34; F4 live fixes).** `checked_conditions`
+([`supervisor.py`](ferb/orchestrator/supervisor.py)) adds `REPORT_CONDITION` ("My report to you says truthfully what was
+done, who did each part (FERB itself, or the agent, app or person you named) and with what, and leaves out nothing that
+changes the result"; check kind `none`, layer `outcome`) last to every check of a plan that has conditions; a plan with
+none still gets no check. The checker receives the complete worker report as data and judges it against the records
+([`verifier.md`](ferb/orchestrator/prompts/verifier.md): FERB's own tool calls versus the agent, app or person that did
+each part, and the tools, files, accounts and sources used); code matches nothing in the report (rule 6). `met=false`
+makes the task `failed`, as for any condition; unknown keeps it from `done`. The owner never saw the worker's report, so
+`_report` finds FERB's condition by its index (it follows the planner's conditions, so a planner condition in the same
+words stays its own) and says it in their terms: "What I reported didn't match the records: …" when false, "I couldn't
+confirm my report matches the records: …" (with "To check: …" when the checker said how) when unknown, and "Whether what
+I reported matches the records" under "Still to check" when the check couldn't run (crash or no verdict); a met one is
+left out of "Confirmed:". Work that stopped before any check never lists it. A done answer is the report the check
+judged: `_verifier` keeps it as `checked_report` (reset with each attempt), the verified answer in `_final` is that
+report, and `_reconcile_resources`, the review after cleanup ([`resources.md`](ferb/orchestrator/prompts/resources.md)),
+may still lower the status, its own words then saying why, but never writes new done wording; its summary stays in the
+`model.resources` span, which the story shows as an "after cleanup: …" Planner step. In task `79bc5bfa` the
+after-cleanup rewording became the answer and dropped that FERB, not Codex Astra, had made the submission. The story's
+"checked nothing — N conditions unknown" counts the report condition.
 
 **Read-only checker (V3, W4).** The checker's run token is observe-only (`RunGrant.observe_only` in
 [`auth.py`](ferb/daemon/auth.py), issued for the verifier role in [`worker.py`](ferb/orchestrator/worker.py)). The
@@ -608,20 +706,42 @@ new task tree is not refused by code: its orchestrator sees the earlier tree's r
 
 **Named targets (D34).** The "What the owner named" block (the spec's apps, sites, folders/files and people) reaches
 every role, the checker included, and ends "The owner named these; evidence must be about them, not a substitute." The
-checker's prompt makes evidence about a substitute `met=false`, naming what was actually used, so the task is
-`failed`; a named target it couldn't inspect is `met=null`. Asking which target the owner meant is the agents'
-what/which question (`owner.ask`); no code judges whether a target matches (rule 6).
+checker's prompt makes evidence about a substitute `met=false`, naming what was actually used, so the task is `failed`;
+a named target it couldn't inspect is `met=null`. Asking which target the owner meant is the agents' what/which question
+(`owner.ask`); no code judges whether a target matches (rule 6). The prompts (F4 live fixes, V6, P27) carry the same
+rule for work: when the owner hands work to a named agent or person that does it on its own (not an app FERB uses as a
+tool), the planner's goal and one condition say that one does it; a worker starts, helps and monitors it and does none
+of its work unless the owner says so, and asking the owner to take over is the owner's decision about who does the work,
+not a method question ([`question.md`](ferb/orchestrator/prompts/question.md)); the checker gives `met=false` for work
+FERB did itself. Each quality or limit the owner states for the result is its own condition, in their words; a worker's
+report says who did each part and with what; a lasting choice the owner did not ask for and the request does not need is
+an outcome to confirm; and everything the owner reads says "you" and "your"
+([`interaction.md`](ferb/orchestrator/prompts/interaction.md), shared by every role; `tests/test_prompt_contract.py`
+pins the sentences).
 
 **Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
-the `downloads` table (migration 0025); `browser.downloads` is an observation tool; extension 0.14.0, protocol 10;
-`retention.download_days` (30) moves old files to the Trash.
+the `downloads` table (migration 0025); `browser.downloads` is an observation tool; extension 0.14.0, protocol 10. The
+owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
+20480 MB folder (only past it do the oldest go to the Trash), a 10 GiB free-disk floor, no time-based clearing; the
+page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
+`ensure_privacy_defaults` writes these values where a key is missing, `browser.download_min_free_gb` included. The
+values F4 had written into `config.toml` before the owner chose (100, 20, 500, 2048, `task_max_tabs` 20) are replaced
+once, with the owner's approval of 2026-10-09: at start-up, unless a `config.upgraded` row for
+`download-limits-2026-10-09` (`LIMITS_DECIDED`) exists, `Config.upgrade_ferb_written` changes each `FERB_WRITTEN` key
+still holding F4's value (any other value is the owner's and stays) and removes `retention.download_days` (`RETIRED`),
+all in one atomic write, and the daemon then journals `config.upgraded` with the changes (a fresh home records none; the
+row also marks the upgrade as done, so a value the owner sets later is never replaced). `ferb timeline` prints every
+change in full ("browser.download_max_mb 100 → 512; …; retention.download_days 30 → removed") or "settings already
+current".
 
-**Carried to F5.** Full screenshot redaction (stored images get accessibility-known masking only, and messaging and
-mail apps keep facts only until then); the destructive-action and sink confirmations, which build on S1 (FERB's fs
-overwrite, edit and trash are recoverable; a shell change is not); never-read lists covering `~/.ferb/run` (run tokens)
-and `~/.ferb/recovery` (copies); FERB's shell reaching the daemon socket, from which it could answer owner questions,
-P19 approvals included; and shell file changes, which get no per-file copy.
+**Carried to F5.** Full screenshot redaction (stored images get accessibility-known masking only, and messaging and mail
+apps keep facts only until then); the destructive-action and sink confirmations, which build on S1 (FERB's fs overwrite,
+edit and trash are recoverable; a shell change is not); never-read lists covering `~/.ferb/run` (run tokens) and
+`~/.ferb/recovery` (copies); FERB's shell reaching the daemon socket, from which it could answer owner questions, P19
+approvals included; shell file changes, which get no per-file copy; and upload copies: FERB's shell can read and write
+`~/.ferb/workspace/uploads`, so when the shell sandbox lands it is denied that folder for reads and writes, or staging
+moves beside `~/.ferb/recovery` (F4 live fixes).
 
 ## 12. Documentation and diagrams
 

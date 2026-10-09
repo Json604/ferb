@@ -172,7 +172,8 @@ summary = "Raw evidence is append-only, redacted at capture, and the source of t
 
 [MP2]
 milestone = "F3"
-tests = ["tests/test_origins.py", "tests/test_tool_origins.py"]
+tests = ["tests/test_origins.py", "tests/test_tool_origins.py", "tests/test_upload_staging.py"]
+note = "F4 live fixes: a browser upload reads FERB's own copy; a copy of outside content is kept under workspace/uploads/outside, an untrusted fs root code adds, so it keeps the original's label."
 summary = "Trust follows origin, permanently"
 
 [MP3]
@@ -218,6 +219,7 @@ summary = "Context layers 1-6 (identity, situation, recent activity, memory, req
 [P4]
 milestone = "F7"
 tests = []
+note = "F4 live fixes (2026-10-09) built one part early: each FERB tool call in a desktop record carries its capability's declared on_screen flag, and FERB's own cleanup is recorded as an on-screen action (task.cleanup); tested in tests/test_desktop_attribution.py. Typed text per field and the password defenses remain F7."
 summary = "FERB's own input recorded as FERB's; Secure Input and field role guard password fields"
 
 [P5]
@@ -262,8 +264,8 @@ summary = "Large-input fan-out: inventory, map/reduce, feasibility validation, c
 
 [P16]
 milestone = "F4"
-tests = ["tests/test_evidence_store.py", "tests/test_after_action.py", "tests/test_checker_readonly.py", "tests/test_statuses.py", "tests/test_conditions.py", "tests/test_ledger_recovery.py"]
-note = "V1 media is kept 7 days (D20), not the draft's 30. V7's 'read-only scripts stop creating rows' waits for a declared read-only flag: AppleScript stays ledgered (code can't prove a script only reads, rule 6). V8's record exists (episode verified flag plus stored evidence); its consumer is F8."
+tests = ["tests/test_evidence_store.py", "tests/test_after_action.py", "tests/test_checker_readonly.py", "tests/test_statuses.py", "tests/test_conditions.py", "tests/test_ledger_recovery.py", "tests/test_report_check.py"]
+note = "V1 media is kept 7 days (D20), not the draft's 30. V7's 'read-only scripts stop creating rows' waits for a declared read-only flag: AppleScript stays ledgered (code can't prove a script only reads, rule 6). V8's record exists (episode verified flag plus stored evidence); its consumer is F8. F4 live fixes (2026-10-09): every check also judges, numbered last, whether the report the owner will see matches the records (REPORT_CONDITION; false fails the task); a done answer is the report the check judged (checked_report), and the review after cleanup may lower the status but never writes new done wording."
 summary = "Verification design V1-V8"
 
 [P17]
@@ -315,12 +317,14 @@ summary = "Neutral acknowledgment list, picked at random without repeats"
 
 [P26]
 milestone = "F3"
-tests = ["tests/test_trace_render.py", "tests/test_trace_levels.py", "tests/test_step_lines.py"]
+tests = ["tests/test_trace_render.py", "tests/test_trace_levels.py", "tests/test_step_lines.py", "tests/test_desktop_attribution.py", "tests/test_disturbance.py", "tests/test_episodes.py"]
+note = "F4 live fixes (owner, 2026-10-09: 'i dont want this hardcoded control over other agent's harness. ferb should just know that it didnt do it'): tools declare on_screen; a front-app or Space change with no FERB on-screen action in progress is stated as facts (when FERB's last one ended, the FERB-started processes running), never who caused it; ferb pause stops desktop sensing for tasks. FERB never instructs or restricts another agent's harness."
 summary = "Three trace levels built by code: story, steps, full/json, with token and cost line"
 
 [P27]
 milestone = "F6"
-tests = []
+tests = ["tests/test_prompt_contract.py"]
+note = "F4 live fixes pinned rule 2 (you/your) in the shared prompt; F6 owns the rest."
 summary = "Rules for everything FERB says to the owner"
 
 [P28]
@@ -417,14 +421,14 @@ summary = "\"Already authorized\" decided by code from provenance; the orchestra
 
 [D34]
 milestone = "F4"
-tests = ["tests/test_named_target.py"]
-note = "F4 built the checker side: the named targets reach the checker, and evidence about a substitute is met=false, so the task is failed. Asking which target is the agents' owner.ask; remembering the answer uses the existing chat capture, unchanged in F4."
+tests = ["tests/test_named_target.py", "tests/test_report_check.py", "tests/test_prompt_contract.py"]
+note = "F4 built the checker side: the named targets reach the checker, and evidence about a substitute is met=false, so the task is failed. Asking which target is the agents' owner.ask; remembering the answer uses the existing chat capture, unchanged in F4. F4 live fixes: every check also judges the report the owner sees (who did each part, with what); the named agent does the work (work the owner hands to an agent or person that does it on its own; an app FERB uses as a tool is not that), and FERB asks before taking over."
 summary = "A named target FERB can't find becomes a what/which question, answered once and remembered as the owner's words; never a substitute"
 
 [D35]
 milestone = "F4"
-tests = ["tests/test_downloads.py", "tests/test_downloads_extension.py"]
-note = "Also the headless lab test tests/test_downloads_real.py (-m real). Headed Brave/Chrome behavior (no dialog, the popup's first URL, the debugging bar) is a pending owner live check."
+tests = ["tests/test_downloads.py", "tests/test_downloads_extension.py", "tests/test_config.py"]
+note = "Also the headless lab test tests/test_downloads_real.py (-m real). Headed Brave/Chrome behavior (no dialog, the popup's first URL, the debugging bar) is a pending owner live check. Limits per the owner's decision of 2026-10-09 (512 MB, 50 files / 4096 MB, 50 tabs, 20480 MB folder, 10 GB free-disk floor, no time-based clearing); the values F4 had written into config.toml are upgraded once, journaled as config.upgraded (owner approved; tests/test_config.py)."
 summary = "Browser downloads never open a dialog on the owner's screen; FERB takes the file into its workspace as facts"
 
 [D36]
