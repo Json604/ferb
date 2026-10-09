@@ -345,3 +345,18 @@ def test_no_cleanup_activation_overrides_a_later_owner_choice(monkeypatch):
         await asyncio.sleep(0.05)
     asyncio.run(work())
     assert apps.activated == [] and apps.frontmost().bundle_id == 'com.apple.Calculator'
+
+
+def test_closing_a_popup_menu_the_app_doesnt_answer_keeps_a_known_non_selection_failed(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """No matching item is a known outcome; the cleanup's AXCancel timing out (NoAnswer) must not make it unknown."""
+    from ferb.act.mac.accessibility import NoAnswer
+    ax = PopupAx()
+
+    def busy(el: Any) -> bool:
+        ax.calls.append(f"cancel {el}")
+        raise NoAnswer("AXCancel")
+    ax.cancel = busy                                                 # type: ignore[method-assign]
+    d, apps, posted = setup(monkeypatch, ax)
+    r = asyncio.run(d.act("WhatsApp", ComputerAction("select", ids(d)["Format"], "Markdown")))
+    assert not r.ok and r.facts["code"] == "target_unresolved" and "cancel menu" in ax.calls

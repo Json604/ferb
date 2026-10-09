@@ -65,7 +65,7 @@ development.
   - Unknown outcomes (P19): the hash keys a file by the path the call really writes (as the fs lock and S1), and the
     trail is told that path; a path with a NUL is refused cleanly. An AX action the app didn't answer
     (`kAXErrorCannotComplete`) is unknown, never failed. The retry question names the tool the worker really called
-    and one short target; control characters are stripped from it and from everything `ferb chat` prints. `mac.act`
+    and one readable target; control characters are stripped from it and from everything `ferb chat` prints. `mac.act`
     says a repeat needs the owner for every action but focus.
   - After-action reads (V2): an `ax_value` result that read nothing back is unknown, not "no change"; a failed call
     that changed the screen never confirms `expected=true`.
@@ -74,12 +74,18 @@ development.
   - Recovery and retention (S1, D35): every `retention.*_days` is at least 1 day; download retention leaves a row
     outside the downloads folder as it is (skipped once, not counted).
   - Downloads (D35): an owner's new-tab click in a tab FERB drives waits at most ~1 s for the daemon (`open_seen`),
-    then opens natively, never lost or doubled; relayed popup tokens are bounded; an unconfirmed popup is detached
+    then opens natively, at most once; relayed popup tokens are bounded; an unconfirmed popup is detached
     directly; dropped page saves become one refused fact per document per minute; no `detached` event for a popup
     still being checked. Within protocol 10 / extension 0.14.0, never published.
   - Named targets (D34): the checker gives `how` for an uninspectable named target; such a task ends not confirmed.
   - Docs: the daemon-down/restart, 30 s idle and borrowed-release hand-backs in the D35 residuals; both forms of the
     retry question; what `ferb restore` prints; which screenshots keep facts only.
+  - Re-review follow-up (D20, P19, D35, D6, P3): a cancel during an evidence write leaves no file without its row,
+    and the call's and the first look's spans still end ("cancelled"); a task's end no longer cancels its first look
+    (only a stop or shutdown); a look failure that escapes its span is logged; `_select`'s menu-closing cleanup can't
+    turn a known non-selection into unknown; the retry question keeps every recipient, the amount and the account;
+    an orphaned content.js (after an extension reload) never eats the owner's click; `ferb timeline` and `ferb stats`
+    rows say "not confirmed"; live check 3 notes the picture's delay; plan P3 points at the D6/D26 clarification.
   - D6/D26 clarified (owner, 2026-10-09): one start-of-task screenshot of the working app's window goes to the model,
     then screenshots only on the model's request, never per step; the model-bound part is built in F5 after
     screenshot redaction (plan, decision registry, architecture).

@@ -818,12 +818,15 @@ def test_the_question_names_the_tool_the_worker_really_called_not_the_shared_key
 
 
 def test_a_target_of_several_fields_reads_as_one_short_target(daemon: RunningDaemon) -> None:
+    """One readable target, but every consequential identifier stays: all recipients, the amount and the account; the
+    site (and a contact beside recipients) go."""
     from ferb.core.types import ActionSpec, Target
 
     class Mail(FakeCap):
         def describe(self, args: Any) -> ActionSpec:
             return ActionSpec("send", Target(recipients=("a@x.com", "b@x.com", "c@x.com"), site="mail.example",
-                                             account="me@x.com", contact="Ann"), content=args.text or None)
+                                             account="me@x.com", contact="Ann", amount="5 USD"),
+                              content=args.text or None)
     mail = Mail("probe.mail", "send", {"probe"}, boom=True)
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("mail a@x.com b@x.com c@x.com"), [mail])
     gateway_tool_call(daemon, grant, "probe.mail", text="hi")
@@ -831,8 +834,9 @@ def test_a_target_of_several_fields_reads_as_one_short_target(daemon: RunningDae
     owner = Answers(daemon, choice=2)
     _ask(daemon, grant, owner, question="Send again?", retry_action=ref)
     ferb_text = owner.asked[0].reason.split("\n\n")[0]
-    assert "an earlier attempt at probe.mail to a@x.com and 2 others may already have happened" in ferb_text
-    for other in ("Ann", "mail.example", "me@x.com", "b@x.com"):
+    assert ("an earlier attempt at probe.mail to a@x.com, b@x.com, c@x.com amount 5 USD as me@x.com may already "
+            "have happened") in ferb_text
+    for other in ("Ann", "mail.example"):
         assert other not in ferb_text.split(" may already")[0]
 
 

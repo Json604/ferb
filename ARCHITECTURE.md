@@ -174,8 +174,11 @@ target>`, a modifier or middle click; other named targets stay the browser's) th
 tab, released like its opener when that is the owner's borrowed tab, within `browser.task_max_tabs` (20) per task tree
 (past it the browser opens an ordinary tab, as a fact). The service worker answers content.js only once the daemon has
 answered the `open` event (`open_seen`, which the daemon awaits before opening anything) or after `OPEN_WAIT_MS` (1 s);
-with no answer content.js lets the browser open the link, and a late `open_seen` gets `expired`, so the daemon opens
-nothing and the owner's click is never lost nor doubled. The page hook (`PAGE_HOOK`, pinned by exact source in
+with no answer (the daemon down, restarting or just slow) content.js lets the browser open the link, and a late
+`open_seen` gets `expired`, so the daemon opens nothing: the link opens at most once; it can be lost only if the
+connection drops in that same moment. After an extension reload (`ferb setup --update`) a document's old content.js
+can't reach the service worker (`chrome.runtime.id` gone, sending throws): it stops taking clicks and answering
+`ferb-armed`, and a click it had already taken goes back to the browser (`passOn`, `releaseDownload`). The page hook (`PAGE_HOOK`, pinned by exact source in
 `protocol.js`; installed only in armed task tabs and their OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed
 on release) asks content.js through a cancelable `ferb-armed` event before doing anything, so a still-patched document
 is native once FERB lets go. It clicks a FileSaver-style save link (never added to the page) itself while briefly
@@ -233,7 +236,8 @@ More than 20 page saves held at once in one document (or 20 in a tab, 100 in all
 browser's; the daemon records a `refused` download for it, one per document per minute (not one per dropped save).
 With the daemon down or restarting while a task drives a tab, a download there continues into the browser's own flow,
 and after a restart the tab stays armed until the extension's next hello, when the daemon disarms it
-(`Hub._disarm_unheld`); a link to a new tab from it opens natively after 1 s. In an owner profile a held download the
+(`Hub._disarm_unheld`); a link to a new tab from it opens natively after 1 s (as it does whenever the daemon answers
+later than that). In an owner profile a held download the
 daemon doesn't start pulling within 30 s goes back to the browser, and releasing a borrowed tab hands back the
 FERB-started downloads not yet streamed; each can show a Save dialog. A page
 can tell FERB drives it (the patched functions, the `ferb-armed` answer) and can opt itself out of capture by answering
@@ -514,18 +518,22 @@ migration 0020 `evidence`) keeps captured state the checker can re-inspect for `
 `~/.ferb/evidence/<day>/<id>.jpg` (folders 0700, files 0600, created exclusively, kept inside the root) and a row with
 the kind (`screenshot`, `snapshot`, `recording`, `app_window`), redacted facts and the result's origin. The gateway keeps
 each tool image (`_keep_image`, through `put_async`: masking and the file write run in a worker thread, the row on the
-loop); the model gets it as before, and the span's output names it (`evidence: <id>`, or `evidence_error`). These keep
-facts only, with `image_withheld` saying why: a site on the exclusion list; a result that lists a secret field (no image-pixel box to mask it with); a browser window or a page with no known host (it may show
-the owner's own tab, D29); a recording's contact sheet (the recording file is the evidence); and, until F5 redacts
+loop right after the write; cancelled mid-write, it waits for the thread, removes the file and re-raises, so never a
+file without its row; the cancelled call's span still ends, with `evidence_error: cancelled`); the model gets it as
+before, and the span's output names it (`evidence: <id>`, or `evidence_error`). These keep facts only, with
+`image_withheld` saying why: a site on the exclusion list; a result that lists a secret field (no image-pixel box to
+mask it with); a browser window or a page with no known host (it may show the owner's own tab, D29); a recording's contact sheet (the recording file is the evidence); and, until F5 redacts
 screenshots, a messaging or mail app (`UNTRUSTED_APPS`) or an email/message source, where one-time codes arrive
 (rule 14). When a worker's first successful `mac.*` call targets an app, the gateway also takes one picture of that
 app's window, after the call has answered and outside its resource lock (`_look_later` starts `_first_look` as its own
-job, in `Gateway.looks`; a stopped or ended task cancels it and shutdown drains it), through
+job, in `Gateway.looks`; a stop or shutdown cancels it, while a task that just ended lets it finish, bounded by its
+10 s capture timeout), through
 `MacComputerDriver.window_image` (one window through ScreenCaptureKit, never the desktop, never brought forward, never the worker's latest shot; the password-field floor still drops the frame), masks the
 secret fields its accessibility tree shows ([`act/evidence/mask.py`](ferb/act/evidence/mask.py), in a worker thread) and
 stores it as `app_window` on an `evidence.app_window` span. That happens once per task, worker and app, not when the
 call itself returned an image (kept or facts only), not for browsers, not without the screen scope or with `[mac] snapshot_image` off; a failure,
-or a capture over 10 s, is logged on the span and never fails the call. The picture is evidence only: it does not go to
+or a capture over 10 s, is logged on the span (a cancel finishes it as `cancelled`; a failure of the span store itself
+goes to the daemon's log) and never fails the call. The picture is evidence only: it does not go to
 the model. The checker lists captures with `task.evidence kind=evidence` and reads one by `evidence_id` (facts and
 origin; never bytes or paths; its own task's only). Retention deletes the file before the row. D6/D26 as clarified
 2026-10-09: the model gets this start-of-task picture of the working app's window, then screenshots only when it asks
@@ -555,8 +563,9 @@ first ("FERB: an earlier attempt at <tool> <target> may already have happened (o
 make it happen twice. The call with the unknown outcome: <redacted excerpt>. Try it again?"; after several, "FERB: N
 earlier attempts at … may already have happened (outcomes unknown). Trying again could make it happen up to N+1
 times."), then "What the worker found: …"), offers only Yes and No, and skips the orchestrator. `<tool>` is the tool
-the worker really called (from the attempt's span, not the shared ledger key) and `<target>` one short target (the
-first recipient "and N others", else the contact, the path, the site or the account); C0/C1 control characters are
+the worker really called (from the attempt's span, not the shared ledger key) and `<target>` one readable target that
+keeps every consequential identifier (every recipient, else the contact, else the path or the site; then the amount
+and the account); C0/C1 control characters are
 removed from both paragraphs, as `ferb chat` removes them from everything it prints
 ([`sanitize/terminal.py`](ferb/sanitize/terminal.py)). Only the owner's Yes approves. Migration 0022 adds
 `retry_approved` (the approving `owner.ask` span) and `retried_by`; the row stays `unknown`, since nobody observed the

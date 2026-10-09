@@ -64,7 +64,7 @@ FERB's script isn't in); a popup FERB took longer than 1.5 s to adopt; a type th
 to download (such as "download PDFs"); a save a page makes before FERB's script is in it; pages' own save pickers
 (`showSaveFilePicker`); while the daemon is down or restarting, a download in a tab a task was driving (after a
 restart that tab stays set up for FERB until the extension reconnects) and a link to a new tab from it, which your
-browser opens itself after about a second; in your own profile, a held download FERB doesn't start taking within 30 s;
+browser opens itself after about a second (also when the daemon is just slow to answer); in your own profile, a held download FERB doesn't start taking within 30 s;
 and, when a task lets go of your tab, downloads from it FERB hasn't started taking yet. The task is told when FERB saw
 it. A page can tell FERB is driving it and can opt itself out of
 capture; its downloads then behave as usual. A popup a task page opens shows `about:blank#ferb-<token>` for a moment

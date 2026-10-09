@@ -41,7 +41,9 @@ class EvidenceStore:
                         data: dict[str, Any] | None = None, rects: list[mask.Box] | None = None,
                         mime: str = "image/jpeg", origin: str) -> str:
         """`put` for the daemon's event loop: the masking (decode, fill, encode) and the file write run in a worker
-        thread; the row is written on the loop, which owns the database connection."""
+        thread; the row is written on the loop, which owns the database connection, right after the write (no await
+        between them). Cancelled during the write, it waits for the thread (which writes on regardless), removes the
+        file and re-raises: never a file without its row, which retention could never find."""
         if image is not None and rects:
             try:
                 image = await asyncio.to_thread(mask.mask_secret_fields, image, rects)
@@ -49,7 +51,14 @@ class EvidenceStore:
                 image, data = None, {**(data or {}), "image_withheld": UNMASKABLE}
         eid, at, payload, rel = self._plan(image, data, mime)
         if rel is not None and image is not None:
-            await asyncio.to_thread(_write_file, self.root / rel, image)
+            path = self.root / rel
+            write = asyncio.ensure_future(asyncio.to_thread(_write_file, path, image))
+            try:
+                await asyncio.shield(write)
+            except asyncio.CancelledError:
+                await _ended(write)
+                path.unlink(missing_ok=True)
+                raise
         return self._insert(eid, at, task_id, span_id, kind, mime, rel, payload, origin)
 
     def _plan(self, image: bytes | None, data: dict[str, Any] | None,
@@ -117,6 +126,17 @@ class EvidenceStore:
             return None
         path = (self.root / rel).resolve()
         return path if path.is_relative_to(self.root.resolve()) else None
+
+
+async def _ended(job: "asyncio.Future[None]") -> None:
+    """Wait until a worker-thread job has ended, whatever cancels the waiter meanwhile (a thread can't be stopped)."""
+    while not job.done():
+        try:
+            await asyncio.wait({job})
+        except asyncio.CancelledError:
+            continue
+    if not job.cancelled():
+        job.exception()                                             # retrieved: the caller is being cancelled anyway
 
 
 def _write_file(path: Path, image: bytes) -> None:

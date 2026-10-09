@@ -305,8 +305,24 @@ def test_stats_counts_unverified_apart_from_done_and_failed(tmp_path: Path) -> N
     assert stats(tmp_path, out, days=36500) == 0
     text = out.getvalue()
     assert "done 1 (25%), not confirmed 1 (25%), failed 2 (50%)" in text
-    assert "unverified 1 (25%)" not in text                  # V5: the label is "not confirmed"
-    assert "  done_unverified 1" in text                     # the stored status, as recorded
+    assert "unverified" not in text                          # V5: the label is "not confirmed", in every row
+    assert "  not confirmed   1" in text and "  failed          2" in text
+
+
+def test_the_timeline_labels_a_not_confirmed_outcome_in_the_owners_words() -> None:
+    from ferb.cli.admin import timeline
+
+    class C:
+        def call(self, method: str, params: Any = None) -> Any:
+            return {"entries": [{"at": "2026-10-09T10:00:00", "kind": "task.outcome",
+                                 "data": {"status": "done_unverified", "summary": "Done, but not confirmed: x"}},
+                                {"at": "2026-10-09T10:01:00", "kind": "task.outcome",
+                                 "data": {"status": "failed", "summary": "couldn't"}}]}
+    out = io.StringIO()
+    assert timeline(C(), None, out) == 0                                   # type: ignore[arg-type]
+    text = out.getvalue()
+    assert "not confirmed: Done, but not confirmed: x" in text and "done_unverified" not in text
+    assert "failed: couldn't" in text
 
 
 def test_baseline_counts_unverified_apart_from_done_and_failed(tmp_path: Path) -> None:

@@ -17,6 +17,11 @@ ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9
 ARG_KEYS = ("url", "path", "command", "text", "query", "app", "bundle_id", "action", "allow_foreground", "element", "direction", "amount", "distance", "x", "y", "profile", "tab", "id")
 
 
+def status_label(status: Any) -> str:
+    """A task status as the owner reads it: done_unverified is "not confirmed" (V5); the others as stored."""
+    return "not confirmed" if status == "done_unverified" else str(status)
+
+
 def _clip(s: str, n: int, full: bool) -> str:
     s = " ".join(str(s).split())
     return s if full or len(s) <= n else s[: n - 1] + "…"
@@ -318,7 +323,7 @@ def timeline(client: Client, since: str | None, out: TextIO) -> int:
         elif e["kind"] in ("chat.message", "chat.reply"):
             text = str(d.get("text", ""))[:160]
         elif e["kind"] == "task.outcome":
-            text = f"{d.get('status')}: {str(d.get('summary', ''))[:160]}"
+            text = f"{status_label(d.get('status'))}: {str(d.get('summary', ''))[:160]}"
         else:
             text = ", ".join(f"{k}={v}" for k, v in d.items())[:160]
         print(f"{e['at'][:16].replace('T', ' ')}  {e['kind']:<22} {text}", file=out)
@@ -591,7 +596,7 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                            ) if total else ""
         print(f"Requests in the last {days} day(s): {total}" + (f" — {shares}" if total else ""), file=out)
         for status, n in outcomes:
-            print(f"  {status:<16}{n}", file=out)
+            print(f"  {status_label(status):<16}{n}", file=out)
         calls, errors = c.execute("SELECT COUNT(*), SUM(error IS NOT NULL) FROM spans WHERE kind = 'tool.call' "
                                   "AND started_at >= ?", (since,)).fetchone()
         print(f"Tool calls: {calls or 0}, errored: {errors or 0}", file=out)

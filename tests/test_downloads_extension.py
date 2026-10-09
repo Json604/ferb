@@ -404,7 +404,7 @@ class HTMLAnchorElement { constructor(href, attrs = {}) { this.href = href; this
   hasAttribute(n) { return n in this.attrs; } getAttribute(n) { return n in this.attrs ? this.attrs[n] : null; }
   click() { passed.push({href: this.href, target: this.target || null, download: this.download === undefined ? null : this.download}); } }
 const blob = {size: 9, type: 'text/csv', slice: (a, b) => ({arrayBuffer: async () => new TextEncoder().encode('a,b\n1,2\n!').slice(a, b).buffer})};
-const mode = process.argv[2];                                    // armed | unarmed | stale | base
+const mode = process.argv[2];                                    // armed | unarmed | stale | base | orphaned | invalidating
 const base = mode === 'base' ? new HTMLAnchorElement('', {target: '_blank'}) : null;
 const docListeners = {};
 const ctx = vm.createContext({document: {readyState: 'complete', createElement: () => new HTMLAnchorElement(''),
@@ -419,7 +419,12 @@ const ctx = vm.createContext({document: {readyState: 'complete', createElement: 
   setTimeout, MutationObserver: class { observe() {} }, ShadowRoot: class {}, HTMLAnchorElement,
   URL: Object.assign(function () {}, {createObjectURL: () => 'blob:https://s.example/again', revokeObjectURL() {}}),
   fetch: async (u) => ({blob: async () => blob}),
-  chrome: {runtime: {sendMessage: (m, cb) => { messages.push(m); if (cb) cb(mode === 'unarmed' ? false : mode === 'stale' ? !!m.ferbArmed : true); },
+  // orphaned: the extension reloaded under this document (no runtime id, every message throws); invalidating: the id
+  // still reads, but sending throws
+  chrome: {runtime: {id: mode === 'orphaned' ? undefined : 'ferb',
+                     sendMessage: (m, cb) => { if ((mode === 'orphaned' || mode === 'invalidating') && !m.ferbArmed)
+                                                 throw new Error('Extension context invalidated.');
+                                               messages.push(m); if (cb) cb(mode === 'unarmed' ? false : mode === 'stale' ? !!m.ferbArmed : true); },
                      onMessage: {addListener: (fn) => { onMessage.push(fn); }}}}});
 const onMessage = [];
 vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), ctx);
@@ -813,3 +818,22 @@ def test_a_detach_during_a_claim_the_daemon_never_heard_of_sends_nothing() -> No
       return sent.filter(b => b.event === 'detached').map(b => b.tab_id);
     })()''')
     assert out == [7]
+
+
+@pytest.mark.parametrize("mode", ["orphaned", "invalidating"])
+def test_an_orphaned_page_listener_never_eats_the_owners_click(mode: str) -> None:
+    """After an extension reload (`ferb setup --update`) the old content.js in a still-armed tab can't reach the
+    service worker. A click it would have taken goes to the browser exactly once: not taken at all when the runtime is
+    already gone, or handed back (re-dispatched) when sending fails after it was taken; then it stops taking clicks."""
+    out = _content(mode)
+    taken = {k for k, v in out["clicks"].items() if v}
+    passed = {p["href"]: p for p in out["passed"]}
+    if mode == "orphaned":
+        assert taken == set() and passed == {}                    # nothing prevented: the browser has every click
+    else:
+        assert taken == {"blob", "blobStopped", "data", "blank"}  # the first new-tab send failed: no more taken after it
+        assert passed["https://s.example/next"]["target"] == "_blank"
+        assert passed["data:text/csv;base64,YQ=="]["download"] == "d.csv"
+        assert passed["blob:https://s.example/again"]["download"] in ("r.csv", "s.csv")
+        assert len(out["passed"]) == 4                            # each taken click reached the browser once
+    assert out["armedAnswer"] is False                            # the page hook behaves natively from then on

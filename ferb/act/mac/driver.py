@@ -818,8 +818,11 @@ class MacComputerDriver:
                 now = await asyncio.to_thread(self.ax.value, n.ref)
                 return ActionResult(True, f"AX selection press accepted for {title!r}; observed value: {now!r}",
                                     {"method": "ax", "accepted": True, "observed_value": now, "outcome_verified": False})
-            if menu is not None:
-                await asyncio.to_thread(self.ax.cancel, menu)
+            if menu is not None:                        # closing it is cleanup: the non-selection is already known
+                try:
+                    await asyncio.to_thread(self.ax.cancel, menu)
+                except axm.NoAnswer:
+                    pass
             if items:
                 return ActionResult(False, f"no unique exact item {title!r}; inspect the returned candidates",
                                     {"code": "target_unresolved", "matches": len(matches),

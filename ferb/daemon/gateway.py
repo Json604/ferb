@@ -18,6 +18,7 @@ no copy, no change. A trash keeps where the item came from and went. A local APF
 import asyncio
 import base64
 import dataclasses
+import logging
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -156,23 +157,15 @@ def ask_origins(answer: dict[str, Any]) -> set[str]:
 
 
 def short_target(target: dict[str, Any]) -> str:
-    """One short readable target from a recorded one, for FERB's question: who it went to, else the file, else the
-    place, else the account; clipped. The call excerpt beside it shows the full arguments."""
-    who = [str(r) for r in target.get("recipients") or []]
-    if who:
-        more = len(who) - 1
-        text = f"to {who[0]}" + (f" and {more} {'other' if more == 1 else 'others'}" if more else "")
-    elif target.get("contact"):
-        text = f"to {target['contact']}"
-    elif target.get("path"):
-        text = str(target["path"])
-    elif target.get("site"):
-        text = f"on {target['site']}"
-    elif target.get("account"):
-        text = f"as {target['account']}"
-    else:
-        text = ""
-    return lines.clip(text, 80) if text else ""
+    """One readable target from a recorded one, for FERB's question, keeping every consequential identifier: who it
+    went to (every recipient, else the contact), else the file, else the place; then the amount and the account. The
+    place beside a recipient is dropped. The call excerpt beside it shows the full arguments."""
+    who = [str(r) for r in target.get("recipients") or []] or ([str(target["contact"])] if target.get("contact") else [])
+    parts = [f"to {', '.join(who)}" if who else str(target.get("path") or "") or
+             (f"on {target['site']}" if target.get("site") else ""),
+             f"amount {target['amount']}" if target.get("amount") else "",
+             f"as {target['account']}" if target.get("account") else ""]
+    return lines.clip(" ".join(p for p in parts if p), 240)
 
 
 def retry_line(latest: LedgerRow, attempts: list[LedgerRow], call: str, tool: str = "") -> str:
@@ -364,7 +357,8 @@ class Gateway:
             await asyncio.wait(pending)
 
     def forget_tasks(self, task_ids: set[str]) -> None:
-        self._stop_looks(task_ids)
+        """A task tree ended. A first look still being taken for it finishes in the background (its own 10 s bound);
+        only a stop (`cancel_tasks`) or shutdown cancels one."""
         self._cancelled_tasks.difference_update(task_ids)
         for task_id in task_ids:
             self._outside.pop(task_id, None)
@@ -566,7 +560,12 @@ class Gateway:
         content = self.redact(raw)
         output = content
         if result.image is not None and not result.is_error and self.evidence is not None:
-            output = content | await self._keep_image(name, spec, grant, span.id, content, result, origins)
+            try:
+                output = content | await self._keep_image(name, spec, grant, span.id, content, result, origins)
+            except asyncio.CancelledError:               # stopped while the image was kept: the call ran, its span ends
+                self._finish_call(span, name, content, result.is_error, output=content | {"evidence_error": "cancelled"},
+                                  error=content.get("error") if result.is_error else None, origins=origins)
+                raise
         self._finish_call(span, name, content, result.is_error, output=output,
                           error=content.get("error") if result.is_error else None, origins=origins)
         self._observed(name, spec, action, grant, "failed" if result.is_error else "done")
@@ -697,7 +696,8 @@ class Gateway:
         """D26, D29: when a worker starts on a Mac app (its first mac.* call there that worked), FERB keeps one picture
         of that app's window as evidence, unless the call itself returned one. Taken after the call has answered, as
         its own job, never inside the call's resource lock: a slow capture (up to 10 s) never delays the call or holds
-        the app, and its failure never touches the call. Stopping or ending the task cancels it."""
+        the app, and its failure never touches the call. Stopping the task or shutdown cancels it; the task ending
+        doesn't (a fast task's check may come before the picture)."""
         app = spec.target.site
         if self.app_window is None or self.evidence is None or not name.startswith("mac.") or not app:
             return
@@ -705,21 +705,27 @@ class Gateway:
         if app.lower() in looked:
             return
         looked.add(app.lower())                          # now, so a quick next call doesn't take a second look
-        job = asyncio.get_running_loop().create_task(self._first_look(app, name, grant, rec, after))
+        job = asyncio.get_running_loop().create_task(self._first_look(app, name, grant, rec, after, looked))
         self.looks[job] = grant.task_id
         job.add_done_callback(self._look_done)
 
     def _look_done(self, job: "asyncio.Task[None]") -> None:
+        """A look records its own failures on its span; one that still escapes (the span store itself failed) goes to
+        the daemon's log, by type only. Never the call's."""
         self.looks.pop(job, None)
-        if not job.cancelled():
-            job.exception()                              # retrieved: a look's own failure is never the call's
+        if job.cancelled():
+            return
+        e = job.exception()
+        if e is not None:
+            logging.getLogger(__name__).warning("FERB first look failed: %s", error_name(e))
 
-    async def _first_look(self, app: str, name: str, grant: RunGrant, rec: Any, after: str) -> None:
+    async def _first_look(self, app: str, name: str, grant: RunGrant, rec: Any, after: str, looked: set[str]) -> None:
         """One picture of the app's window (`_look_later`). Background only: one window, never the desktop, never
-        brought forward, never the worker's shot. Best effort: a failure is recorded on its own span. Nothing to take
-        (no screen scope, images off, a browser) records nothing; no window yet (NoTarget) records nothing and leaves
-        the first look to a later call. A refusal (a password field) counts."""
-        window, looked = self.app_window, self._looked_at(grant)
+        brought forward, never the worker's shot. Best effort: a failure is recorded on its own span, and a cancel
+        (a stop, shutdown) finishes the span as "cancelled". Nothing to take (no screen scope, images off, a browser)
+        records nothing; no window yet (NoTarget) records nothing and leaves the first look to a later call. A refusal
+        (a password field) counts. `looked` is the worker's set, kept even after its task ended."""
+        window = self.app_window
         if window is None:
             return
         shot, eid, error = None, None, None
@@ -736,18 +742,22 @@ class Gateway:
             return
         span = self.spans.start("evidence.app_window", task_id=grant.task_id, parent_id=rec.span_id,
                                 device_id=self.device_id, input={"app": app, "after": name, "after_span": after})
-        if shot is not None:
-            origins = without_excluded_hosts(result_origins(shot.read_sources, None, Kind.READ), self.excluded_host)
-            facts, image = dict(shot.facts), shot.image
-            withheld = pixels_withheld(name, app, shot.read_sources)
-            if withheld:                                            # second layer: the capture helper drops these too
-                facts["image_withheld"], image = withheld, None
-            try:
+        try:
+            if shot is not None:
+                origins = without_excluded_hosts(result_origins(shot.read_sources, None, Kind.READ),
+                                                 self.excluded_host)
+                facts, image = dict(shot.facts), shot.image
+                withheld = pixels_withheld(name, app, shot.read_sources)
+                if withheld:                                        # second layer: the capture helper drops these too
+                    facts["image_withheld"], image = withheld, None
                 eid = await self.evidence.put_async(grant.task_id, span.id, "app_window", image=image, data=facts,
                                                     rects=shot.rects if image is not None else None,
                                                     origin=origin.join(origins))
-            except Exception as e:
-                error = error_name(e)
+        except asyncio.CancelledError:                              # the store left no file without its row
+            self.spans.finish(span, error="cancelled")
+            raise
+        except Exception as e:
+            error = error_name(e)
         self.spans.finish(span, output={"evidence": eid} if eid else None, error=error)
 
     def _finish_call(self, span: Any, name: str, content: dict[str, Any], is_error: bool, *,

@@ -88,7 +88,9 @@ Statuses and the checker:
    calls carry `evidence` in their output); the checker confirms from `task.evidence kind=evidence` after the
    change is no longer on screen. WhatsApp "message yourself": by design the capture keeps facts only (`image_withheld`:
    "a messaging or mail app, …") until F5; the checker confirms from the recorded accessibility reads instead. No
-   picture of a browser window is ever stored.
+   picture of a browser window is ever stored. The app-window picture is taken after the worker's first call answers
+   and can arrive up to ~10 s later, so in a fast task the check may run before it exists; the checker can take its
+   own screenshot instead. Note which you saw.
 4. **The renamed vision test.** `uv run pytest -m real tests/test_mac_vision_real.py` (Codex runtime, you observe): the
    frame is stored only in the evidence store. Renamed in F4 and not yet run.
 
@@ -129,7 +131,8 @@ Unknown outcomes and named targets:
       again could make it happen up to N+1 times.") and offers Yes and No; Yes allows one attempt only.
     - If you restart the daemon while the task is driving a browser tab, a download that tab starts during the restart
       can show the browser's own Save dialog (a known residual below), and a link to a new tab opens normally after
-      about a second.
+      about a second. After `ferb setup --update` reloads the extension, a tab FERB was driving takes no more clicks:
+      links and saves there behave as usual.
     - A continuation is a new task tree: there it is the orchestrator's judgment from "Uncertain prior actions", not
       a code refusal. Note which path you saw.
 11. **Named target (D34).** The "Code Astra" case on a disposable repository: ask for something FERB can't find by that
@@ -180,7 +183,7 @@ to "ask where to save"):
   URL over it);
 - the daemon down or restarting while a task drives a tab: a download there goes to the browser's own flow, and after
   a restart the tab stays armed until the extension's next hello (then the daemon disarms it); a link to a new tab from
-  it opens natively after about a second;
+  it opens natively after about a second (also when the daemon is only slow to answer);
 - in your own profile, a held download the daemon doesn't start taking within 30 s goes back to the browser;
 - when a task lets go of your borrowed tab, downloads from it that FERB started holding but hasn't streamed yet go back
   to the browser.

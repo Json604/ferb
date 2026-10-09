@@ -519,6 +519,14 @@
     }
     return String(target || "").trim().toLowerCase() === "_blank";   // other names: the browser's (frames, windows)
   }
+  // After an extension reload (`ferb setup --update`) this document's old script can't reach the service worker any
+  // more: chrome.runtime.id is gone and sending throws. Then it stops taking clicks, and a click it already took goes
+  // back to the browser, so the owner's click is never lost.
+  function live() {
+    try { if (chrome.runtime && chrome.runtime.id) return true; } catch (_) { /* invalidated */ }
+    downloadsArmed = false;
+    return false;
+  }
   function passOn(href, target, name) {            // a detached link the browser follows itself; no listener sees it
     const a = document.createElement("a");
     a.href = href;
@@ -530,7 +538,7 @@
     if (!downloadsArmed) return;
     const a = linkOf(e);
     const href = a ? String(a.href || "") : "";
-    if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href)) return;
+    if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href) || !live()) return;
     e.preventDefault();
     if (heldDownloads.size + saving >= HELD_MAX) {   // a page's flood of saves: dropped, never the browser's; the
       const now = Date.now();                        // worker hears of it (at most once a minute from this document)
@@ -545,21 +553,31 @@
     fetch(href).then((r) => r.blob()).then((blob) => {   // started now: a page may revoke the blob right after the click
       saving--;
       heldDownloads.set(id, { blob, name, href });
-      chrome.runtime.sendMessage({ ferbDownload: { id, name, mime: blob.type || null, size: blob.size,
-        source_url: /^data:/i.test(href) ? "data:" + (href.slice(5).split(/[;,]/)[0] || "") : href.slice(0, 4096) } },
-        (kept) => { if (kept === "drop") heldDownloads.delete(id); else if (kept !== true) releaseDownload(id); });
+      try {
+        chrome.runtime.sendMessage({ ferbDownload: { id, name, mime: blob.type || null, size: blob.size,
+          source_url: /^data:/i.test(href) ? "data:" + (href.slice(5).split(/[;,]/)[0] || "") : href.slice(0, 4096) } },
+          (kept) => { if (kept === "drop") heldDownloads.delete(id); else if (kept !== true) releaseDownload(id); });
+      } catch (_) {                                  // orphaned by a reload: the browser saves it as it would have
+        downloadsArmed = false;
+        releaseDownload(id);
+      }
     }).catch(() => { saving--; /* nothing to take; the browser never started a download either */ });
   }
   function onNewTab(e) {                           // bubble phase: trusted clicks on links to a new tab
     if (!downloadsArmed || e.defaultPrevented || e.isTrusted !== true) return;
     const a = linkOf(e);
     const href = a ? String(a.href || "") : "";
-    if (!a || !href || a.hasAttribute("download") || !/^https?:/i.test(href) || !opensNewTab(a, e)) return;
+    if (!a || !href || a.hasAttribute("download") || !/^https?:/i.test(href) || !opensNewTab(a, e) || !live()) return;
     e.preventDefault();
     const target = a.getAttribute("target") || "_blank";
     // the owner's intent, if it isn't FERB's: cmd/ctrl or middle click opens behind, with shift in front (as the browser)
     const background = (e.type === "auxclick" || e.metaKey === true || e.ctrlKey === true) && e.shiftKey !== true;
-    chrome.runtime.sendMessage({ ferbOpen: { url: href, background } }, (opened) => { if (opened !== true) passOn(href, target); });
+    try {
+      chrome.runtime.sendMessage({ ferbOpen: { url: href, background } }, (opened) => { if (opened !== true) passOn(href, target); });
+    } catch (_) {                                    // orphaned by a reload: the browser opens it after all
+      downloadsArmed = false;
+      passOn(href, target);
+    }
   }
   addEventListener("click", onSave, true);
   addEventListener("click", onNewTab, false);
@@ -567,13 +585,15 @@
   // The page hook asks whether FERB drives this tab (a cancelable event: the answer is preventDefault), and relays a
   // window.open it opened blank for a URL.
   if (typeof document.addEventListener === "function") {
-    document.addEventListener("ferb-armed", (e) => { if (downloadsArmed) e.preventDefault(); });
+    document.addEventListener("ferb-armed", (e) => { if (downloadsArmed && live()) e.preventDefault(); });
     document.addEventListener("ferb-popup", (e) => {     // page content: cut to shape before it leaves the page
       if (!downloadsArmed || typeof e.detail !== "string" || e.detail.length > 16384) return;
       let p = null;
       try { p = JSON.parse(e.detail); } catch (_) { return; }
-      if (p && typeof p.token === "string" && /^[0-9a-f]{32}$/.test(p.token) && typeof p.url === "string")
-        chrome.runtime.sendMessage({ ferbPopup: { token: p.token, url: p.url.slice(0, 8192) } });
+      if (p && typeof p.token === "string" && /^[0-9a-f]{32}$/.test(p.token) && typeof p.url === "string") {
+        try { chrome.runtime.sendMessage({ ferbPopup: { token: p.token, url: p.url.slice(0, 8192) } }); }
+        catch (_) { downloadsArmed = false; }       // orphaned: the hook loads its popup itself after 1.5 s
+      }
     });
   }
   // The service worker claimed the hook's popup and the daemon made it the task's: the hook loads its URL now. The
