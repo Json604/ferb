@@ -263,8 +263,8 @@ class Protection:
         out: list[dict[str, Any]] = [
             {"id": FERB_STATE, "kind": "read and write", "path": "FERB's own files (~/.ferb except its workspace, and "
              "the workspace's uploads)", "liftable": False},
-            {"id": NETWORK, "kind": "network", "path": "every connection goes through FERB's proxy; nothing else "
-             "leaves", "liftable": False},
+            {"id": NETWORK, "kind": "network", "path": "no direct connection off this Mac: only to this Mac's own "
+             "addresses (shell.rules says whether FERB's proxy is running)", "liftable": False},
             {"id": ADMIN, "kind": "admin", "path": "a command that needs your Mac password (sudo)", "liftable": True}]
         out += [{"id": e.id, "kind": "read", "path": e.shown, "liftable": True} for e in self.reads]
         out += [{"id": e.id, "kind": "write", "path": e.shown, "liftable": True} for e in self.writes]

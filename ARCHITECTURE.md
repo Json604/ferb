@@ -764,14 +764,16 @@ The profile:
   a rename can't carry protected content to an unnamed path (a missing parent like `~/.cargo` is left writable so a
   first install can create it; the entry's own subpath deny still blocks the entry);
 - denies the Keychain service (`com.apple.SecurityServer`);
-- denies launchd jobs (`job-creation`), opening apps or URLs (`lsopen`), and the two LaunchServices lookups
-  (`com.apple.coreservices.launchservicesd`, `com.apple.lsd.mapdb`) that `open` and `tell application` need, so the
+- denies launchd jobs (`job-creation`), opening apps or URLs (`lsopen`), the two LaunchServices lookups
+  (`com.apple.coreservices.launchservicesd`, `com.apple.lsd.mapdb`) and the Apple Events service
+  (`com.apple.coreservices.appleevents`), so the
   shell can't put an app on the owner's screen; FERB's browser and Mac tools do that;
 - denies all network except the Mac's own addresses;
 - names the daemon socket explicitly.
 
 `mac.applescript` runs under a second profile (`profile(apps=True)`) with the same file, network and Keychain rules but
-`lsopen` and the LaunchServices lookups kept, because `tell application` may launch the app; `job-creation` stays
+`lsopen`, the LaunchServices lookups and the Apple Events service kept, because `tell application` may launch the
+app; `job-creation` stays
 denied.
 
 What was measured on this Mac (the Task 2 report has each run):
@@ -808,9 +810,10 @@ Residuals:
 - A server bound to `0.0.0.0` accepts connections from the LAN: Seatbelt's `localhost` means any of the Mac's own
   addresses.
 - A hardlink made before FERB is a different path and isn't covered.
-- `mac.applescript`, and an `osascript` the shell could reach, run under the apps profile, so AppleScript can still
-  drive already-authorized apps (Terminal `do script`, Finder) on the owner's screen within FERB's Automation grants;
-  Seatbelt can't filter Apple Events. (The shell profile denies Apple Events outright.)
+- `mac.applescript` runs under the apps profile, so a script it runs can drive apps FERB is authorized to automate,
+  within FERB's Automation grants; Seatbelt can't narrow Apple Events to particular apps. The shell profile denies
+  the Apple Events service, so no program in FERB's shell can send them (each denied service is pinned by a
+  `bootstrap_look_up` test).
 - `~/.docker` on the never-read list also hides `~/.docker/bin`.
 
 ## 13. Documentation and diagrams

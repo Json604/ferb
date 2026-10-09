@@ -25,6 +25,19 @@ from ferb.core.errors import Refused
 CLEAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL", "TMPDIR")
 
 
+def clean_env(sandbox: Sandbox | None = None) -> dict[str, str]:
+    """The environment of a process FERB contains (the shell, AppleScript): no FERB tokens, no API keys."""
+    env = {k: os.environ[k] for k in CLEAN_ENV_KEYS if k in os.environ}
+    # launchd gives the daemon a bare PATH; the owner's tools (brew, node, uv, gh) live in these (audit 2026-10-02)
+    extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", str(Path.home() / ".local" / "bin")]
+    system = env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
+    env["PATH"] = ":".join(dict.fromkeys([e for e in extras if os.path.isdir(e)] + system))
+    env["TERM"] = "dumb"
+    if sandbox is not None:
+        env.update(sandbox.env())
+    return env
+
+
 @dataclass(frozen=True)
 class ProcHandle:
     id: str
@@ -56,15 +69,7 @@ class ShellManager:
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}
 
     def _env(self) -> dict[str, str]:
-        env = {k: os.environ[k] for k in CLEAN_ENV_KEYS if k in os.environ}
-        # launchd gives the daemon a bare PATH; the owner's tools (brew, node, uv, gh) live in these (audit 2026-10-02)
-        extras = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", str(Path.home() / ".local" / "bin")]
-        system = env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
-        env["PATH"] = ":".join(dict.fromkeys([e for e in extras if os.path.isdir(e)] + system))
-        env["TERM"] = "dumb"
-        if self.sandbox is not None:
-            env.update(self.sandbox.env())
-        return env
+        return clean_env(self.sandbox)
 
     async def start(self, command: str, cwd: Path, owner_task: str, long_lived: bool = False,
                     network: bool = False, *, lift: str | None = None) -> ProcHandle:

@@ -71,6 +71,13 @@ def test_proxy_records_only_tool_names_per_run_and_forwards() -> None:
         assert httpx.post(f"http://127.0.0.1:{port}/run/run-a/v1/messages", json=body).status_code == 403
         assert httpx.post(f"http://127.0.0.1:{port}/run/run-a/wrong-secret/v1/messages", json=body).status_code == 403
         assert httpx.post(f"http://127.0.0.1:{port}/run/run-unknown/x/v1/messages", json=body).status_code == 403
+        # A raw non-ASCII secret byte must not crash the handler (compare_digest would raise on it): quiet 403.
+        import socket as _socket
+        c = _socket.create_connection(("127.0.0.1", port), 2)
+        c.sendall(b"GET /run/run-a/s\xc3\xa9cret/v1/messages HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        status = c.recv(64).split(b" ")[1]
+        c.close()
+        assert status == b"403"
         assert len(received) == 1                                                             # none of those forwarded
         proxy.forget("run-a")
         assert httpx.post(base + "/v1/messages", json=body).status_code == 403                # forgotten: refused

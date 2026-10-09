@@ -25,11 +25,13 @@ async def run(bundle_id: str, body: str, timeout: float = 30.0, sandbox: Any = N
     and app launches kept); the tool never runs a script without one. `cwd` is FERB's workspace."""
     script = wrap(bundle_id, body)
     argv = ["/usr/bin/osascript", "-e", script]
+    env = None
     if sandbox is not None:
-        argv = sandbox.wrap(argv, apps=True)
+        from ferb.act.shell.manager import clean_env
+        argv, env = sandbox.wrap(argv, apps=True), clean_env(sandbox)       # the shell's clean environment
     try:
         proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.PIPE, cwd=cwd)
+                                                    stderr=asyncio.subprocess.PIPE, cwd=cwd, env=env)
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout)
         except asyncio.TimeoutError:

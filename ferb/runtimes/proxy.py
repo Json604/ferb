@@ -51,7 +51,11 @@ class ToolListProxy:
                 secret, _, upstream_path = rest.partition("/")
                 with proxy._lock:
                     expected = proxy._live.get(run_id)
-                if expected is None or not hmac.compare_digest(expected, secret):
+                try:
+                    allowed = expected is not None and hmac.compare_digest(expected, secret)
+                except TypeError:                                  # a non-ASCII segment: not a secret FERB issued
+                    allowed = False
+                if not allowed:
                     self.send_error(403)
                     return
                 body = self.rfile.read(int(self.headers.get("content-length") or 0))

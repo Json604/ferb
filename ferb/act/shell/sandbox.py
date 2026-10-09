@@ -25,9 +25,9 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   connect: measured, E3).
 - Inside it, nothing can apply another sandbox (any deny rule makes `sandbox_apply` fail: E5), and setuid programs
   such as sudo cannot start (E6).
-- The shell can't start launchd jobs, open apps or URLs (`open`), or address apps by Apple Events (`tell
-  application`): `job-creation`, `lsopen` and the two LaunchServices lookups are denied (measured). mac.applescript's
-  profile keeps Apple Events and launches and every other rule.
+- The shell can't start launchd jobs, open apps or URLs, or send Apple Events to other apps: `job-creation`,
+  `lsopen`, the LaunchServices lookups and the Apple Events service are denied (measured). mac.applescript's profile
+  keeps Apple Events and launches and every other rule.
 - FERB's home and upload staging may be looked at (metadata), never listed or read: tools walk up from the
   workspace (git, node, a POSIX `cd`, venv failed without it: measured).
 
@@ -51,11 +51,10 @@ NESTED_SANDBOX = ("A program can't start its own macOS sandbox inside FERB's she
                   "Codex CLI needs its sandbox off: --sandbox danger-full-access (measured working), or "
                   "--dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.")
 # What the shell profile keeps out beyond files and network (measured, F5a Task 2 fix round 1); shown to agents
-NO_APPS = ("FERB's shell can't open apps or URLs on the owner's screen, script other apps, or start background jobs "
-           "(launchd); FERB's browser and Mac tools do that.")
-# Launching and addressing apps: `open` (lsopen), app lookup by Apple Events (both services denied together stop
-# `tell application`; either alone did not), and launchd jobs (`launchctl submit`/`load`)
-LAUNCH_SERVICES = ("com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb")
+NO_APPS = ("FERB's shell can't open apps or URLs on the owner's screen, send Apple Events to other apps, or start "
+           "background jobs (launchd); FERB's browser and Mac tools (mac.applescript included) do that.")
+# Denied to the shell profile only (mac.applescript's keeps them): app lookup and the Apple Events service
+APP_SERVICES = ("com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb", "com.apple.coreservices.appleevents")
 
 
 def _q(path: Path) -> str:
@@ -95,9 +94,15 @@ class Sandbox:
         lines += [f"(allow file-read-metadata (literal {_q(f)}))" for f in _forms(p.uploads)]
         lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in self._paths(p.reads, lift)]
         lines += [f"(deny file-write* (subpath {_q(f)}))" for f in self._paths(p.writes, lift)]
-        # Only folders that exist: a first install may still create ~/.cargo (the entry's own rule covers the entry)
-        folders = [f for g in (*p.guarded_parents(), p.workspace) if os.path.isdir(g) for f in _forms(g)]
-        lines += [f"(deny file-write* (literal {_q(f)}))" for f in dict.fromkeys(folders)]
+        # An existing folder is denied as a literal. A missing one may still be made (a first install creates
+        # ~/.cargo), but once made it can't be removed or renamed, and it can't be made as a link
+        guarded = list(dict.fromkeys((*p.guarded_parents(), p.workspace)))
+        present = [f for g in guarded if os.path.isdir(g) for f in _forms(g)]
+        missing = [f for g in guarded if not os.path.isdir(g) for f in _forms(g)]
+        lines += [f"(deny file-write* (literal {_q(f)}))" for f in dict.fromkeys(present)]
+        for f in dict.fromkeys(missing):
+            lines += [f"(deny file-write-unlink (literal {_q(f)}))",
+                      f"(deny file-write-create (require-all (literal {_q(f)}) (vnode-type SYMLINK)))"]
         lines += [f'(deny mach-lookup (global-name "{SECURITY_SERVER}"))',
                   "(deny job-creation)",
                   "(deny network*)",
@@ -105,7 +110,7 @@ class Sandbox:
                   '(allow network-bind network-inbound (local ip "localhost:*"))']
         if not apps:
             lines.append("(deny lsopen)")
-            lines += [f'(deny mach-lookup (global-name "{name}"))' for name in LAUNCH_SERVICES]
+            lines += [f'(deny mach-lookup (global-name "{name}"))' for name in APP_SERVICES]
         if self.socket is not None:
             lines += [f"(deny network-outbound (remote unix-socket (path-literal {_q(s)})))" for s in _forms(self.socket)]
         return "\n".join(lines) + "\n"

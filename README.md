@@ -210,11 +210,12 @@ Secrets are redacted; OTPs use a sealed input path. Full trace output remains pr
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
 FERB's shell and its AppleScript run inside a macOS sandbox built from `[protection]`. It can't read the credential
 stores or FERB's own files, can't write the never-write places, can't use the Keychain, can't open apps or URLs or
-start background jobs, and (measured on this Mac) can't reach the network beyond this Mac; neither can anything it
-starts (a coding agent included). Known gaps: a server it starts on `0.0.0.0` is reachable from the LAN; a hardlink
-made before FERB is a separate name; and AppleScript it runs can still drive already-authorized apps (Finder, Terminal)
-on the owner's screen. If the sandbox can't run, those tools are off and `ferb doctor` says why. `shell.rules` lists the
-rules.
+start background jobs, can't send Apple Events to other apps, and (measured on this Mac) can't reach the network
+beyond this Mac; neither can anything it starts (a coding agent included). `mac.applescript` runs under a second
+profile with the same file, network and Keychain rules that keeps Apple Events, so a script you have it run can drive
+apps you have authorized FERB to automate (Finder, for example). Known gaps: a server the shell starts on `0.0.0.0` is
+reachable from the LAN, and a hardlink made before FERB is a separate name. If the sandbox can't run, those tools are
+off and `ferb doctor` says why. `shell.rules` lists the rules.
 An oversized unfinished record may be replaced by an explicit redaction marker.
 
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,
