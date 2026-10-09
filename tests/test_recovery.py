@@ -185,7 +185,7 @@ def test_an_unknown_outcome_keeps_the_copy(daemon: RunningDaemon, monkeypatch: p
     f = _ws(daemon) / "half.txt"
     f.write_text("before")
 
-    def boom(p: Path, text: str) -> None:
+    def boom(p: Path, text: str, closed: Any = None) -> None:
         raise OSError(5, "I/O error")
     monkeypatch.setattr(files, "atomic_text", boom)
     grant = _fs_grant(daemon)
@@ -970,6 +970,7 @@ def test_a_snapshot_with_a_raw_name_is_recorded_listed_and_rate_limited(daemon: 
 class _FakeRecordings:
     def __init__(self) -> None:
         self.stopped: list[str] = []
+        self.records: dict[str, Any] = {}                 # RecordingStop.file_paths looks up the reserved video here
 
     async def stop(self, rid: str, owner: str, reason: str | None = None) -> dict[str, Any]:
         self.stopped.append(rid)

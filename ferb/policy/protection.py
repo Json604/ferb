@@ -6,18 +6,24 @@ The owner edits [protection] in config.toml (written once with these defaults). 
 except its workspace, and the workspace's upload staging (a copy the browser is about to read): no entry can remove
 them and no escape hatch lifts them (rule 10). A path nobody may read is a path nobody may write.
 
-FERB's own `fs` tools never touch FERB's own state. They also stay out of the never-read stores while
-`protection.fs_reads_never_read` is false (OPEN QUESTION 6, built as recommended: until F5b's redaction is measured, a
-secret in a credential store would otherwise reach a model). That refusal is never lifted by the escape hatch, which
-is for FERB's shell: a secret a task needs comes through the sealed secret path (D8, D12, D28)."""
+FERB's own tools that name files (`fs.*`, uploads, recordings: each declares `file_paths`) never touch FERB's own
+state. They also stay out of the never-read stores while `protection.fs_reads_never_read` is false (OPEN QUESTION 6,
+built as recommended: until F5b's redaction is measured, a secret in a credential store would otherwise reach a model
+or a site). That refusal is never lifted by the escape hatch, which is for FERB's shell: a secret a task needs comes
+through the sealed secret path (D8, D12, D28), and a file from a store is the owner's to send.
+
+A path is checked as typed and as the OS reaches it now (links first, then `..`), against each entry as written and as
+it resolved when FERB started: a rule matching any of them applies. FERB's workspace is the literal folder in FERB's
+home: a link planted there never moves the exception (and the daemon won't start with one)."""
 
 import os
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ferb.act.fs.files import real_path
+from ferb.core.errors import FerbError
 from ferb.policy.rules import Kind
 
 # SQ3 revised: the sensitive stores FERB's shell never reads. ~ is the owner's home.
@@ -52,29 +58,47 @@ DEFAULT_TERMINAL_APPS = ("com.apple.Terminal", "com.googlecode.iterm2", "dev.war
                          "co.zeit.hyper")
 FERB_STATE, NETWORK, ADMIN = "ferb_state", "network", "admin"
 WORKSPACE, UPLOADS = "workspace", "uploads"
-# Kinds that take a path away with everything inside it: a folder holding FERB's state is FERB's state for them.
-_REMOVES = frozenset({Kind.TRASH, Kind.DELETE_PERMANENT})
+READ, WRITE, REMOVE = "read", "write", "remove"         # FileAccess (ferb/core/types.py): what a call does to a file
+# A call that takes a path away with everything inside it: a folder holding protected content is protected for it.
+_REMOVES = frozenset({REMOVE, Kind.TRASH, Kind.DELETE_PERMANENT})
+
+
+class BadProtection(FerbError, ValueError):
+    """[protection] or FERB's workspace isn't as FERB can enforce it: FERB doesn't start, and says why."""
 
 
 @dataclass(frozen=True)
 class Entry:
     id: str          # read:~/.ssh | write:~/.zshrc
-    path: Path       # resolved
+    path: Path       # resolved when FERB started
     shown: str       # as the owner wrote it, the home as ~
+    typed: Path      # as written, absolute, `..` folded: still matched if the entry later becomes a link
+
+
+def _absolute(path: Path) -> Path:
+    return path if path.is_absolute() else Path.cwd() / path
+
+
+def _typed(path: Path) -> Path:
+    """A path as typed: absolute, `.` and `..` folded as text, no link followed."""
+    return Path(os.path.normpath(_absolute(path)))
 
 
 def _real(path: Path) -> Path:
     """The path as the OS reaches it (files.real_path: links followed first, then `..`), so a store reached through a
-    link is still the store; its textual form when it can't be resolved (a link loop, a folder macOS won't look into),
+    link is still the store; its typed form when it can't be resolved (a link loop, a folder macOS won't look into),
     which keeps the rule rather than dropping it."""
-    path = path if path.is_absolute() else Path.cwd() / path
     try:
-        return real_path(str(path), os.sep)
+        return real_path(str(_absolute(path)), os.sep)
     except (OSError, RuntimeError, ValueError):
-        return Path(os.path.normpath(path))
+        return _typed(path)
 
 
-def _absolute(home: Path, entry: str) -> Path:
+def _forms(path: Path) -> tuple[Path, ...]:
+    return tuple(dict.fromkeys((_typed(path), _real(path))))
+
+
+def _entry_path(home: Path, entry: str) -> Path:
     """An entry as a path: ~ is the owner's home, and a relative entry is the home's."""
     if entry == "~" or entry.startswith("~/"):
         return home / entry[2:]
@@ -83,7 +107,7 @@ def _absolute(home: Path, entry: str) -> Path:
 
 def _shown(home: Path, path: Path) -> str:
     """The rule id's path: the entry as the owner writes it, the home as ~ (textual, never resolved)."""
-    p, h = Path(os.path.normpath(path)), Path(os.path.normpath(home))
+    p, h = _typed(path), _typed(home)
     if p == h:
         return "~"
     return "~/" + str(p.relative_to(h)) if p.is_relative_to(h) else str(p)
@@ -91,7 +115,9 @@ def _shown(home: Path, path: Path) -> str:
 
 def _key(path: Path) -> tuple[str, ...]:
     """A path as a Mac volume compares it: APFS ignores case and Unicode normalization by default, so ~/.FERB/run is
-    ~/.ferb/run there. On a case-sensitive volume this can only close more, never less."""
+    ~/.ferb/run there. On a case-sensitive volume, folding widens every rule, and the workspace exception also covers
+    a case-variant sibling of the workspace (~/.ferb/WORKSPACE): a folder FERB never makes, holding no FERB state;
+    upload staging stays closed in every spelling."""
     return tuple(unicodedata.normalize("NFC", part).casefold() for part in path.parts)
 
 
@@ -110,23 +136,54 @@ def _folder_or_missing(path: Path) -> bool:
 
 
 def _strings(value: Any, key: str, what: str) -> list[str]:
-    """A [protection] list as written: one string would otherwise be read letter by letter (a "~" entry closes the
-    whole home), so anything but a list of non-empty strings is refused, never guessed."""
-    items = None if isinstance(value, (str, bytes)) or not isinstance(value, Iterable) else list(value)
+    """A [protection] list as written: only a TOML list of non-empty strings. A single string would be read letter by
+    letter (a "~" entry closes the whole home) and an inline table as its keys, so anything else is refused, never
+    guessed."""
+    items = list(value) if isinstance(value, (list, tuple)) else None
     if items is None or not all(isinstance(v, str) and v.strip() for v in items):
-        raise ValueError(f"protection.{key} in config.toml must be a list of {what}, each in quotes")
+        raise BadProtection(f"protection.{key} in config.toml must be a list of {what}, each in quotes")
     return items
+
+
+def workspace_problem(ferb_home: Path) -> str | None:
+    """Why FERB must not start with this workspace, else None: it must be a plain folder directly in FERB's home (or
+    not exist yet). A link there could make FERB's own files look like the workspace to anything that follows it."""
+    ws = ferb_home / WORKSPACE
+    if ws.is_symlink():
+        return (f"FERB's workspace ({ws}) is a link to {os.readlink(ws)}, not a folder. A link there could open FERB's "
+                f"own files to its tools, so FERB won't start until you move the link away (FERB then makes a fresh "
+                f"workspace).")
+    if ws.exists() and (not ws.is_dir() or _real(ws) != _real(ferb_home) / WORKSPACE):
+        return (f"FERB's workspace ({ws}) is not a plain folder in FERB's home, so FERB won't start until you move it "
+                f"away (FERB then makes a fresh workspace).")
+    return None
+
+
+def load(get: Callable[[str, str, Any], Any], home: Path, ferb_home: Path) -> "Protection":
+    """The daemon's lists from config.toml's [protection] (`get` is Config.get), after checking the workspace. Raises
+    BadProtection with the reason, which the daemon shows by not starting and `ferb doctor` shows as a failed check."""
+    problem = workspace_problem(ferb_home)
+    if problem:
+        raise BadProtection(problem)
+    return Protection(home, ferb_home, get("protection", "never_read", DEFAULT_NEVER_READ),
+                      get("protection", "never_write", DEFAULT_NEVER_WRITE),
+                      get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
+                      get("protection", "fs_reads_never_read", False))
 
 
 class Protection:
     def __init__(self, home: Path, ferb_home: Path, never_read: Iterable[str], never_write: Iterable[str],
                  terminal_apps: Iterable[str], fs_reads_never_read: bool = False) -> None:
         if not isinstance(fs_reads_never_read, bool):
-            raise ValueError("protection.fs_reads_never_read in config.toml must be true or false")
+            raise BadProtection("protection.fs_reads_never_read in config.toml must be true or false")
         self.home = home
         self.ferb_home = _real(ferb_home)
-        self.workspace = _real(self.ferb_home / WORKSPACE)
-        self.uploads = _real(self.workspace / UPLOADS)
+        self.workspace = self.ferb_home / WORKSPACE          # literal: never where a link there points
+        self.uploads = self.workspace / UPLOADS
+        typed = _typed(ferb_home)
+        # FERB's own state as (home, workspace, uploads), resolved and as typed
+        self._state_roots = tuple(dict.fromkeys(((self.ferb_home, self.workspace, self.uploads),
+                                                 (typed, typed / WORKSPACE, typed / WORKSPACE / UPLOADS))))
         self.reads = self._entries("read", _strings(never_read, "never_read", "paths"))
         self.writes = self._entries("write", _strings(never_write, "never_write", "paths"))
         self.terminal_apps = frozenset(a.lower() for a in _strings(terminal_apps, "terminal_apps", "app bundle ids"))
@@ -135,46 +192,50 @@ class Protection:
     def _entries(self, prefix: str, items: list[str]) -> list[Entry]:
         out: dict[str, Entry] = {}
         for item in items:                               # one rule per id: the first spelling of an entry is kept
-            raw = _absolute(self.home, item)
+            raw = _entry_path(self.home, item)
             shown = _shown(self.home, raw)
-            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", _real(raw), shown))
+            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", _real(raw), shown, _typed(raw)))
         return list(out.values())
 
-    def _check(self, path: Path) -> Path:
-        """A checked path, resolved as the OS reaches it; a relative one is the workspace's (as FERB's fs tools)."""
-        return _real(path if path.is_absolute() else self.workspace / path)
+    def _forms(self, path: Path) -> tuple[Path, ...]:
+        """A checked path as typed and as resolved now; a relative one is the workspace's (as FERB's fs tools)."""
+        return _forms(path if path.is_absolute() else self.workspace / path)
 
-    def _state(self, real: Path) -> bool:
-        return (_under(real, self.ferb_home) and not _under(real, self.workspace)) or _under(real, self.uploads)
+    def _state(self, forms: tuple[Path, ...], removes: bool = False) -> bool:
+        """FERB's own state: its home minus the workspace, and the upload staging inside the workspace; for a call
+        that removes, also a folder holding any of it."""
+        return any((_under(p, home) and not _under(p, ws)) or _under(p, up)
+                   or (removes and (_under(home, p) or _under(up, p)))
+                   for p in forms for home, ws, up in self._state_roots)
+
+    @staticmethod
+    def _hit(entries: list[Entry], forms: tuple[Path, ...], removes: bool = False) -> str | None:
+        """The first entry a path is inside (as typed or resolved, against the entry as written or resolved); for a
+        call that removes, also an entry inside the path."""
+        return next((e.id for e in entries for p in forms for root in (e.path, e.typed)
+                     if _under(p, root) or (removes and _under(root, p))), None)
 
     def ferb_state(self, path: Path) -> bool:
-        """FERB's own state: its home minus the workspace, and the upload staging inside the workspace."""
-        return self._state(self._check(path))
+        return self._state(self._forms(path))
 
     def read_denied(self, path: Path) -> str | None:
-        real = self._check(path)
-        if self._state(real):
-            return FERB_STATE
-        return next((e.id for e in self.reads if _under(real, e.path)), None)
+        forms = self._forms(path)
+        return FERB_STATE if self._state(forms) else self._hit(self.reads, forms)
 
     def write_denied(self, path: Path) -> str | None:
-        denied = self.read_denied(path)
-        if denied:
-            return denied
-        real = self._check(path)
-        return next((e.id for e in self.writes if _under(real, e.path)), None)
+        return self.read_denied(path) or self._hit(self.writes, self._forms(path))
 
-    def fs_denied(self, real: Path, kind: str) -> str | None:
-        """FERB's own fs tools (any kind): FERB's own state is closed to them (rule 10), and so is a folder holding it
-        for a call that takes the folder away (trash). The never-read stores are closed to them too while
-        fs_reads_never_read is false (OPEN QUESTION 6), and readable, labelled private, when the owner sets it true
-        (SQ3 revised). Never-write entries don't bind them: changes there go through them, with S1 copies (SQ5)."""
-        p = self._check(real)
-        if self._state(p) or (kind in _REMOVES and (_under(self.ferb_home, p) or _under(self.uploads, p))):
+    def fs_denied(self, path: Path, access: str) -> str | None:
+        """FERB's own tools that name files (`access`: read, write, remove; a trash or permanent-delete kind counts as
+        remove). FERB's own state is closed to them (rule 10), and so is a folder holding it for a call that takes the
+        folder away. The never-read stores are closed to them too while fs_reads_never_read is false (OPEN QUESTION 6),
+        including a folder that holds one for a call that removes (trashing ~/.config would hand over ~/.config/gh);
+        readable, labelled private, when the owner sets it true (SQ3 revised). Never-write entries don't bind them:
+        changes there go through them, with S1 copies (SQ5)."""
+        forms, removes = self._forms(path), access in _REMOVES
+        if self._state(forms, removes):
             return FERB_STATE
-        if self.fs_reads_never_read:
-            return None
-        return next((e.id for e in self.reads if _under(p, e.path)), None)
+        return None if self.fs_reads_never_read else self._hit(self.reads, forms, removes)
 
     def liftable(self, rule_id: str) -> bool:
         return rule_id == ADMIN or any(e.id == rule_id for e in (*self.reads, *self.writes))
@@ -183,12 +244,20 @@ class Protection:
         return next((e for e in (*self.reads, *self.writes) if e.id == rule_id), None)
 
     def read_entries(self) -> list[tuple[Path, bool]]:
-        """Resolved (path, is_dir) pairs of the never-read list, for the shell profile (Task 2)."""
-        return [(e.path, _folder_or_missing(e.path)) for e in self.reads]
+        """(path, is_dir) pairs of the never-read list, resolved and as written, for the shell profile (Task 2)."""
+        return [(p, _folder_or_missing(p)) for e in self.reads for p in dict.fromkeys((e.path, e.typed))]
 
     def write_entries(self) -> list[tuple[Path, bool]]:
-        """Resolved (path, is_dir) pairs of the never-write list, for the shell profile (Task 2)."""
-        return [(e.path, _folder_or_missing(e.path)) for e in self.writes]
+        """(path, is_dir) pairs of the never-write list, resolved and as written, for the shell profile (Task 2)."""
+        return [(p, _folder_or_missing(p)) for e in self.writes for p in dict.fromkeys((e.path, e.typed))]
+
+    def guarded_parents(self) -> list[Path]:
+        """Every folder above a listed entry and above FERB's upload staging (so the workspace and FERB's home too),
+        for the shell profile's `(deny file-write* (literal <folder>))`: moving or deleting such a folder would carry
+        the protected content to a path no rule names. Files can still be made inside them. The root is left out."""
+        roots = [p for e in (*self.reads, *self.writes) for p in (e.path, e.typed)]
+        roots += [up for _, _, up in self._state_roots]
+        return sorted({parent for r in roots for parent in r.parents if parent != parent.parent})
 
     def rules(self) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = [

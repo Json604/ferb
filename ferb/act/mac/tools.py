@@ -14,7 +14,7 @@ from ferb.act.mac.ax_browser import is_browser
 from ferb.act.mac.driver import UNTRUSTED_APPS, MacComputerDriver
 from ferb.act.mac.input import Yielded
 from ferb.core.errors import Refused, StaleRef
-from ferb.core.types import ActionSpec, ComputerAction, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.core.types import ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.contacts import Contact
 from ferb.policy.rules import Kind
 
@@ -321,6 +321,8 @@ class MacRecord(_Base):
     def __init__(self, driver: MacComputerDriver, recordings: Any) -> None:
         super().__init__(driver)
         self.recordings = recordings
+    def file_paths(self, args: Any) -> list[tuple[str, FileAccess]]:
+        return [(args.path, "write")]                  # the video it will write (rule 10)
     def describe(self, args: Any) -> ActionSpec:
         return ActionSpec('write_file', Target(site=self._bundle(args), path=args.path))
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:

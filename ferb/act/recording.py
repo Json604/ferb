@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from ferb.act.fs.files import resolve
 from ferb.core.errors import Refused
-from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.core.types import ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 
 Capture = Callable[[], Awaitable[bytes]]
 
@@ -254,6 +254,9 @@ class RecordingStop:
     class Input(BaseModel):
         id: str
     def __init__(self, manager: RecordingManager) -> None: self.manager = manager
+    def file_paths(self, args: Any) -> list[tuple[str, FileAccess]]:
+        rec = self.manager.records.get(args.id)        # the video it publishes, reserved at start (rule 10)
+        return [(str(rec.path), "write")] if rec is not None else []
     def locks(self, args: Any) -> list[str]: return ['recording:'+args.id]
     def describe(self, args: Any) -> ActionSpec: return ActionSpec('write_file')
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
@@ -281,6 +284,7 @@ class RecordingInspect:
         path: str
         times_s: list[float] | None = Field(None, min_length=1, max_length=6)
     def locks(self, args: Any) -> list[str]: return []
+    def file_paths(self, args: Any) -> list[tuple[str, FileAccess]]: return [(args.path, "read")]   # rule 10
     def describe(self, args: Any) -> ActionSpec: return ActionSpec('read',Target(path=args.path))
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         path = resolve(args.path,ctx,must_exist=True)

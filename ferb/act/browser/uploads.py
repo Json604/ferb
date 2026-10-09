@@ -38,6 +38,13 @@ _OPEN_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 Leaf = tuple[str, ...]      # a copy's folder under `uploads/`: ([outside,] tree, random)
 
 
+def source_path(given: str) -> str:
+    """The file an upload reads, as given by the agent: ~ expanded, links and `..` resolved; a relative path is the
+    daemon's working folder's. The gateway's protection check (BrowserAct.file_paths) and the upload use this one
+    answer, so they always name the same file (rule 10)."""
+    return os.path.realpath(os.path.expanduser(given))
+
+
 class StagingFailed(Exception):
     """No copy for the browser, in words the worker reads. Nothing was given to the browser."""
 

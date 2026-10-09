@@ -1,18 +1,25 @@
 # tests/test_protection.py
 """The protection lists (SQ3 revised, SQ5, D27): where FERB's shell may never read or write, what code always adds
 (FERB's own state), and which rules the escape hatch may lift (D31). FERB's fs tools never touch FERB's own state."""
+import asyncio
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
+from ferb.act.browser.tools import OWNER_BROWSER, BrowserAct, BrowserRecord
+from ferb.act.fs.files import FsEdit, FsList, FsRead, FsTrash, FsWrite
+from ferb.act.mac.tools import MacRecord
+from ferb.act.recording import RecordingInspect, RecordingStop
 from ferb.clock.clock import FakeClock
 from ferb.config import Config
 from ferb.core.ids import SequentialIds
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.daemon.main import Daemon
+from ferb.policy import protection
 from ferb.policy.protection import (DEFAULT_NEVER_READ, DEFAULT_NEVER_WRITE, DEFAULT_TERMINAL_APPS, EXTRA_NEVER_READ,
-                                    Protection)
+                                    BadProtection, Protection)
 from ferb.policy.rules import Kind
 from ferb.trace.compose import walk
 from tests.conftest import RunningDaemon, gateway_setup, gateway_tool_call
@@ -102,7 +109,7 @@ def test_a_store_reached_through_a_link_is_still_the_store(tmp_path: Path) -> No
 
 def test_a_path_spelled_in_another_case_is_the_same_path(tmp_path: Path) -> None:
     """Mac volumes ignore case by default: ~/.FERB/run is ~/.ferb/run and ~/.SSH is ~/.ssh, so the lists compare paths
-    the way the volume does (on a case-sensitive volume this only closes more)."""
+    the way the volume does (protection._key says what that means on a case-sensitive volume)."""
     p = _prot(tmp_path)
     home = tmp_path / "home"
     assert p.read_denied(home / ".FERB" / "Run" / "token-x") == "ferb_state"
@@ -111,6 +118,62 @@ def test_a_path_spelled_in_another_case_is_the_same_path(tmp_path: Path) -> None
     assert p.read_denied(home / "library" / "KEYCHAINS" / "login.keychain-db") == "read:~/Library/Keychains"
     assert p.write_denied(home / ".ZSHRC") == "write:~/.zshrc"
     assert p.fs_denied(home / ".FERB" / "ferb.db", Kind.READ) == "ferb_state"
+
+
+def test_an_entry_that_becomes_a_link_after_start_still_matches_as_typed(tmp_path: Path) -> None:
+    """A path is checked as typed and as resolved now, against each entry as written and as resolved at start."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (home / ".ssh").mkdir(parents=True)
+    (home / "elsewhere").mkdir()
+    p = Protection(home, ferb, ["~/.ssh"], [], [])
+    (home / ".ssh").rmdir()
+    (home / ".ssh").symlink_to(home / "elsewhere")                    # after start: ~/.ssh now points elsewhere
+    assert p.read_denied(home / ".ssh" / "id_ed25519") == "read:~/.ssh"
+    assert p.fs_denied(home / ".ssh" / "id_ed25519", "read") == "read:~/.ssh"
+
+
+def test_a_link_planted_as_the_workspace_never_opens_ferbs_state(tmp_path: Path) -> None:
+    """The workspace exception is the literal folder in FERB's home: with ~/.ferb/workspace -> ~/.ferb/run, the run
+    tokens stay FERB's state by either spelling, and the daemon's loader refuses that workspace outright."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "run").mkdir(parents=True)
+    (ferb / "run" / "token-x").write_text("t")
+    (ferb / "workspace").symlink_to(ferb / "run")
+    p = Protection(home, ferb, [], [], [])
+    assert p.workspace == ferb.resolve() / "workspace" and p.uploads == p.workspace / "uploads"
+    assert p.read_denied(ferb / "run" / "token-x") == "ferb_state"
+    assert p.read_denied(ferb / "workspace" / "token-x") == "ferb_state"
+    assert p.fs_denied(ferb / "workspace" / "token-x", "read") == "ferb_state"
+    problem = protection.workspace_problem(ferb)
+    assert problem is not None and "link" in problem and "won't start" in problem
+    with pytest.raises(BadProtection, match="link"):
+        protection.load(lambda section, key, default: default, home, ferb)
+
+
+def test_the_daemon_refuses_to_start_with_a_linked_workspace(home: Path) -> None:
+    """Before migrations and browsers: no database is opened, and the reason is in plain words."""
+    (home / "run").mkdir(parents=True)
+    (home / "workspace").symlink_to(home / "run")
+
+    async def start() -> None:
+        d = Daemon(home=home, watchers=False, distill=False, retention=False, notifications=False, snapshots=False,
+                   watch_owner_input=False)
+        await d.start()
+    with pytest.raises(BadProtection, match="workspace"):
+        asyncio.run(start())
+    assert not (home / "ferb.db").exists()
+
+
+def test_the_daemon_refuses_to_start_with_a_malformed_protection_list(home: Path) -> None:
+    Config(home).set("protection", "never_read", "~/.ssh")
+
+    async def start() -> None:
+        d = Daemon(home=home, watchers=False, distill=False, retention=False, notifications=False, snapshots=False,
+                   watch_owner_input=False)
+        await d.start()
+    with pytest.raises(BadProtection, match="never_read"):
+        asyncio.run(start())
+    assert not (home / "ferb.db").exists()
 
 
 def test_entries_for_the_profile_builder(tmp_path: Path) -> None:
@@ -141,6 +204,37 @@ def test_fs_tools_are_kept_out_of_the_never_read_stores_unless_the_owner_opens_t
         assert opened.fs_denied(ferb / "ferb.db", kind) == "ferb_state", kind
 
 
+def test_removing_a_folder_that_holds_a_never_read_store_is_refused(tmp_path: Path) -> None:
+    """Trashing ~/.config would hand over ~/.config/gh in the Trash: while the switch is false a removal of a folder
+    holding a never-read store is refused with that store's rule. Reading the folder itself (a listing) is fine."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    entries = ["~/.config/gh", "~/Library/Application Support/Google/Chrome"]
+    closed = Protection(home, ferb, entries, [], [])
+    opened = Protection(home, ferb, entries, [], [], fs_reads_never_read=True)
+    for access in ("remove", Kind.TRASH, Kind.DELETE_PERMANENT):
+        assert closed.fs_denied(home / ".config", access) == "read:~/.config/gh", access
+        assert (closed.fs_denied(home / "Library" / "Application Support", access)
+                == "read:~/Library/Application Support/Google/Chrome"), access
+        assert opened.fs_denied(home / ".config", access) is None, access
+    assert closed.fs_denied(home / ".config", "read") is None and closed.fs_denied(home / ".config", "write") is None
+    assert closed.fs_denied(home / ".config" / "other", "remove") is None
+
+
+def test_guarded_parents_are_every_folder_above_a_protected_path(tmp_path: Path) -> None:
+    """For the shell profile: moving any folder above an entry or above FERB's upload staging would carry protected
+    content to a path no rule names, so each such folder is listed (the root is not)."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ferb.mkdir(parents=True)
+    p = Protection(home, ferb, ["~/.config/gh"], ["~/Library/LaunchAgents"], [])
+    parents = p.guarded_parents()
+    real_home = home.resolve()
+    for folder in (real_home / ".config", real_home / "Library", real_home, real_home / ".ferb",
+                   real_home / ".ferb" / "workspace", real_home.parent):
+        assert folder in parents, folder
+    assert real_home / ".config" / "gh" not in parents and p.uploads not in parents and Path("/") not in parents
+    assert parents == sorted(set(parents))
+
+
 def test_trashing_a_folder_that_holds_ferbs_state_is_refused(tmp_path: Path) -> None:
     """Moving a folder moves FERB's state inside it: the home, ~/.ferb and the workspace (it holds upload staging)."""
     p = _prot(tmp_path)
@@ -164,6 +258,10 @@ def test_a_malformed_list_or_switch_is_refused_not_guessed(tmp_path: Path) -> No
         Protection(home, ferb, [], [], "com.apple.Terminal")     # type: ignore[arg-type]
     with pytest.raises(ValueError, match="fs_reads_never_read"):
         Protection(home, ferb, [], [], [], fs_reads_never_read="false")   # type: ignore[arg-type]
+    with pytest.raises(BadProtection, match="never_read"):                # a TOML inline table: never its keys
+        Protection(home, ferb, {"~/.ssh": True}, [], [])        # type: ignore[arg-type]
+    with pytest.raises(BadProtection, match="never_write"):
+        Protection(home, ferb, [], [""], [])
 
 
 def test_fs_tools_never_read_or_write_ferbs_own_state(daemon: RunningDaemon) -> None:
@@ -213,9 +311,9 @@ def test_a_refused_fs_call_leaves_only_a_refused_span(daemon: RunningDaemon) -> 
     assert _ledger_rows(daemon) == 0
 
 
-class _Hookless:
-    """An fs tool that names its file but gives FERB no way to resolve it (no real_path hook, no path argument)."""
-    name, description, scopes = "fs.hookless", "hookless read", {"fs:read"}
+class _Declares:
+    """A tool outside fs.* that declares the files it names: the declaration, not the name, brings the check."""
+    name, description, scopes = "probe.files", "reads a file", {"probe"}
     identities, risk, reversible = {Identity.OWNER, Identity.FERB}, RiskLevel.LOW, True
 
     class Input(BaseModel):
@@ -224,25 +322,135 @@ class _Hookless:
     def __init__(self) -> None:
         self.runs = 0
 
+    def file_paths(self, args: Any) -> list[tuple[str, str]]:
+        return [(args.where, "read")]
+
     def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec(Kind.READ, Target(path=args.where))
+        return ActionSpec(Kind.READ, Target(site="example.com"))
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         self.runs += 1
         return ToolResult({"text": Path(args.where).read_text()})
 
 
-def test_an_fs_tool_without_a_path_hook_is_checked_on_the_path_it_names(daemon: RunningDaemon) -> None:
-    tool = _Hookless()
-    grant, _ = gateway_setup(daemon, {"fs:read"}, None, [tool])         # type: ignore[list-item]
+def test_any_tool_that_declares_its_files_is_checked(daemon: RunningDaemon) -> None:
+    tool = _Declares()
+    grant, _ = gateway_setup(daemon, {"probe"}, None, [tool])           # type: ignore[list-item]
     home = daemon.daemon.home
     (home / "run").mkdir(exist_ok=True)
     (home / "run" / "token-abc").write_text("secret-token")
-    r = gateway_tool_call(daemon, grant, "fs.hookless", where=str(home / "run" / "token-abc"))
+    r = gateway_tool_call(daemon, grant, "probe.files", where=str(home / "run" / "token-abc"))
     assert r["is_error"] and "FERB's own" in r["content"]["error"] and tool.runs == 0
     (home / "workspace" / "notes.txt").write_text("fine")
-    r = gateway_tool_call(daemon, grant, "fs.hookless", where=str(home / "workspace" / "notes.txt"))
+    r = gateway_tool_call(daemon, grant, "probe.files", where=str(home / "workspace" / "notes.txt"))   # fine
     assert not r["is_error"] and tool.runs == 1
+
+
+def test_every_tool_that_names_files_declares_them(daemon: RunningDaemon) -> None:
+    """The check follows declarations, so a file tool that forgot one would go unchecked: every registered tool with
+    a files scope declares, and so do the upload and recording tools wherever they are registered."""
+    caps = daemon.daemon.registry.capabilities
+    undeclared = [n for n, c in caps.items() if set(c.scopes) & {"fs:read", "fs:write"} and not hasattr(c, "file_paths")]
+    assert undeclared == []
+    for cls in (BrowserAct, BrowserRecord, MacRecord, RecordingInspect, RecordingStop, FsList, FsRead, FsWrite, FsEdit,
+                FsTrash):
+        assert callable(getattr(cls, "file_paths", None)), cls
+
+
+class _NoBrowser:
+    """A browser driver the refused calls must never reach."""
+    def __init__(self) -> None:
+        self.used: list[str] = []
+
+    def tab_url(self, tab_id: str) -> str | None:
+        return None
+
+    def element_info(self, tab_id: str, element_id: str) -> None:
+        return None
+
+    def owned_by(self, tab_id: str, owner: str, borrow: bool = True) -> Any:
+        self.used.append("owned_by")
+        raise AssertionError("a refused call reached the browser")
+
+
+class _NoRecordings:
+    def __init__(self) -> None:
+        self.records: dict[str, Any] = {}
+        self.started: list[Path] = []
+
+    async def start(self, *args: Any) -> dict[str, Any]:
+        self.started.append(args[2])
+        raise AssertionError("a refused recording started")
+
+
+def test_uploads_and_recordings_are_checked_like_fs_tools(daemon: RunningDaemon, tmp_path: Path) -> None:
+    """An upload never reads FERB's own files (a run token, ferb.db) or, while the switch is false, a never-read store;
+    a recording is never inspected from a store nor written into FERB's home outside its workspace. All refused before
+    the browser, the staging folder or the recorder is touched."""
+    home, fake = daemon.daemon.home, tmp_path / "fakehome"
+    (home / "run").mkdir(exist_ok=True)
+    (home / "run" / "token-x").write_text("secret-token")
+    (fake / ".ssh").mkdir(parents=True)
+    (fake / ".ssh" / "id").write_text("PRIVATE-KEY-BYTES")
+    (fake / ".ssh" / "old.mp4").write_text("video")
+    driver, recordings = _NoBrowser(), _NoRecordings()
+    act, record = BrowserAct(driver, OWNER_BROWSER), BrowserRecord(driver, OWNER_BROWSER, recordings)
+    grant, _ = gateway_setup(daemon, {"browser:act", "browser:read", "fs:read", "fs:write"}, None,
+                             [act, record])                               # type: ignore[list-item]
+    daemon.daemon.gateway.roots.protection = Protection(fake, home, ["~/.ssh"], [], [])
+    for files in ([str(home / "run" / "token-x")], [str(home / "ferb.db")], [str(fake / ".ssh" / "id")]):
+        r = gateway_tool_call(daemon, grant, "browser.act", tab="t1", element="e1", action="upload", files=files)
+        assert r["is_error"] and ("FERB's own" in r["content"]["error"] or "~/.ssh" in r["content"]["error"]), files
+        assert "secret-token" not in str(r) and "PRIVATE-KEY-BYTES" not in str(r)
+    r = gateway_tool_call(daemon, grant, "recording.inspect", path=str(fake / ".ssh" / "old.mp4"))
+    assert r["is_error"] and "~/.ssh" in r["content"]["error"]
+    r = gateway_tool_call(daemon, grant, "browser.record", tab="t1", path=str(home / "run" / "task.mp4"))
+    assert r["is_error"] and "FERB's own" in r["content"]["error"]
+    assert driver.used == [] and recordings.started == [] and not (home / "workspace" / "uploads").exists()
+    assert not (home / "run" / "task.mp4").exists()
+
+
+def test_recording_stop_declares_the_video_it_publishes() -> None:
+    from ferb.act.recording import RecordingManager
+    manager = RecordingManager()
+    stop = RecordingStop(manager)
+    assert stop.file_paths(stop.Input(id="rec-x")) == []
+    manager.records["rec-x"] = type("R", (), {"path": Path("/somewhere/task.mp4")})()   # type: ignore[assignment]
+    assert stop.file_paths(stop.Input(id="rec-x")) == [("/somewhere/task.mp4", "write")]
+
+
+def _ctx(ws: Path, prot: Protection) -> ToolContext:
+    def closed(path: Path, access: str) -> str | None:
+        rule = prot.fs_denied(path, access)
+        return f"closed by {rule}" if rule else None
+    return ToolContext("t", "w", "r", Identity.OWNER, frozenset({"fs:read", "fs:write"}), "dev", None, str(ws), (), (),
+                       path_closed=closed)
+
+
+def test_fs_tools_check_what_they_really_opened(tmp_path: Path) -> None:
+    """The gateway checks a path before the call; between that check and the open a folder can become a link. Each fs
+    tool checks again the file macOS really opened (F_GETPATH): links planted here into FERB's run folder are refused
+    and nothing is read, written, edited, listed or trashed through them."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws, run = ferb / "workspace", ferb / "run"
+    ws.mkdir(parents=True)
+    run.mkdir()
+    (run / "token-x").write_text("secret-token")
+    prot = Protection(home, ferb, [], [], [])
+    ctx = _ctx(ws, prot)
+    (ws / "tok").symlink_to(run / "token-x")
+    (ws / "dir").symlink_to(run)
+
+    def go(tool: Any, **args: Any) -> ToolResult:
+        return asyncio.run(tool.run(tool.Input(**args), ctx))
+    for result in (go(FsRead(), path="tok"), go(FsList(), path="dir"), go(FsWrite(), path="dir/new.txt", content="x"),
+                   go(FsEdit(), path="tok", old_text="secret", new_text="public"), go(FsTrash(), path="tok")):
+        assert result.is_error and "closed by ferb_state" in result.content["error"], result.content
+        assert "secret-token" not in str(result.content)
+    assert (run / "token-x").read_text() == "secret-token" and not (run / "new.txt").exists()
+    assert sorted(p.name for p in run.iterdir()) == ["token-x"]
+    assert not go(FsWrite(), path="notes.txt", content="fine").is_error and (ws / "notes.txt").read_text() == "fine"
+    assert go(FsRead(), path="notes.txt").content["text"] == "fine"
 
 
 def test_fs_tools_and_a_never_read_store_follow_the_owners_switch(daemon: RunningDaemon, tmp_path: Path) -> None:

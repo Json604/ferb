@@ -200,3 +200,16 @@ def test_doctor_never_wakes_browser_or_calls_not_checked_signed_out(world):
     assert 'session not checked' in out.getvalue()
     assert 'not signed in' not in out.getvalue()
     assert not world['panes'] and not world['daemon'].automation_requests
+
+
+def test_doctor_shows_the_protection_lists_and_why_a_malformed_one_stops_ferb(world: dict[str, Any]) -> None:
+    """[protection] as the daemon reads it at start (rule 10): when it can't be enforced FERB doesn't start, and doctor
+    says why without needing the daemon."""
+    world["inst"].install()
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "✓ protection:" in out.getvalue() and "stay out of the never-read stores" in out.getvalue()
+    Config(world["home"]).set("protection", "never_read", "~/.ssh")
+    env, out = make_env(world, [])
+    assert S.doctor(env) == 1
+    assert "✗ protection: protection.never_read in config.toml must be a list of paths" in out.getvalue()

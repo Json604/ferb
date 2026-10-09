@@ -210,6 +210,20 @@ def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     return 0 if ok else 1
 
 
+def protection_check(home: Path) -> Check:
+    """[protection] and FERB's workspace as the daemon reads them at start (rule 10): when this fails, FERB doesn't
+    start, and this says why."""
+    from ferb.policy import protection
+    try:
+        p = protection.load(Config(home).get, Path.home(), home)
+    except FerbError as e:
+        return Check("protection", "fail", str(e), "fix [protection] in ~/.ferb/config.toml (or the workspace), then "
+                     "`ferb setup --update`")
+    files = "may read the never-read stores" if p.fs_reads_never_read else "stay out of the never-read stores"
+    return Check("protection", "ok", f"{len(p.reads)} never-read and {len(p.writes)} never-write entries; FERB's "
+                 f"tools that name files {files}")
+
+
 def doctor(env: Env) -> int:
     inst = env.inst
     checks: list[Check] = []
@@ -224,6 +238,7 @@ def doctor(env: Env) -> int:
         add(Check("config permissions", "ok", "owner-only"))
     except InsecureConfig as e:
         add(Check("config permissions", "fail", str(e), "chmod 600 ~/.ferb/config.toml; chmod 700 ~/.ferb"))
+    add(protection_check(inst.home))
     add(Check("interpreter", "ok" if inst.interpreter() else "fail", str(inst.interpreter() or "missing"),
               "run `ferb setup`"))
     add(Check("venv", "ok" if inst.venv_python.exists() else "fail", str(inst.venv), "run `ferb setup`"))

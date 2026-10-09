@@ -14,8 +14,10 @@ derived from them (ferb/policy/rules.py payload_hash, hashed_args).
 S1: before a call changes an existing file, a copy of the file it really writes and a record (ferb/act/fs/recovery.py);
 no copy, no change. A trash keeps where the item came from and went. A local APFS snapshot before a permanent delete
 (and when an agent asks, recovery.snapshot), best effort: a snapshot never stops a call.
-Rule 10: FERB's fs tools never read or change FERB's own state, nor (while protection.fs_reads_never_read is false) the
-never-read credential stores (ferb/policy/protection.py); refused before anything runs, leaving a tool.refused span."""
+Rule 10: a tool that names files declares them (`file_paths(args)`: each path and whether it reads, writes or removes
+it); none of them may be FERB's own state, nor (while protection.fs_reads_never_read is false) inside or holding a
+never-read store (ferb/policy/protection.py). Refused before anything runs, leaving a tool.refused span; the fs tools
+check again what they really opened (ToolContext.path_closed)."""
 
 import asyncio
 import base64
@@ -30,7 +32,7 @@ from pydantic import ValidationError
 
 from ferb.act import aftercheck
 from ferb.act.fs import recovery
-from ferb.act.fs.files import normalize_path, real_path as file_real_path
+from ferb.act.fs.files import normalize_path, owner_path, real_path as file_real_path
 from ferb.act.locks import ResourceLocks
 from ferb.act.mac.ax_browser import BROWSER_BUNDLES
 from ferb.act.mac.driver import UNTRUSTED_APPS
@@ -78,13 +80,14 @@ SAME_ACTION_RUNNING = "The same action is already running in this task; it was n
 RUNNING_NEXT = "Wait for its result, then check what happened before deciding anything else."
 RETRY_YES, RETRY_NO = "Yes", "No"
 NO_COPY = "{name} did not run: FERB couldn't keep a recovery copy of the file ({why}), so it left the file unchanged"
-# Rule 10 and OPEN QUESTION 6: what FERB's fs tools are told when the protection lists close a path to them.
-FS_FERB_STATE = ("{name} can't touch FERB's own files ({path}): FERB's records, settings, tokens, recovery copies and "
-                 "upload staging are closed to FERB's file tools; only the owner changes them (rule 10)")
-FS_NEVER_READ = ("{name} can't open {path}: it is inside {store}, where passwords, keys, sign-ins or private messages "
-                 "are kept. FERB's file tools stay out of these stores until FERB can reliably keep secrets out of what "
-                 "models see. A secret a task needs comes only through FERB's sealed secret path; the escape hatch "
-                 "does not open these stores to file tools")
+# Rule 10 and OPEN QUESTION 6: what a tool is told when the protection lists close a file it names.
+FS_FERB_STATE = ("{name} can't touch {path}: it is or holds FERB's own files (records, settings, tokens, recovery "
+                 "copies, upload staging), which FERB's tools never read or change; only the owner changes them "
+                 "(rule 10)")
+FS_NEVER_READ = ("{name} can't open or change {path}: it is inside or holds {store}, where passwords, keys, sign-ins or "
+                 "private messages are kept. FERB's tools stay out of these stores until FERB can reliably keep "
+                 "secrets out of what models see. A secret a task needs comes only through FERB's sealed secret path, "
+                 "and a file from one of these stores is the owner's to send; the escape hatch does not open them")
 RETRY_STALE = ("the action was tried again while the owner was being asked, so this answer is out of date; check what "
                "happened, then ask again with the newest retry_action")
 
@@ -447,11 +450,10 @@ class Gateway:
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
         real = self._real_path(cap, args, spec)
-        if name.startswith("fs."):                       # rule 10: before the span and the ledger, nothing ran
-            closed = self._fs_closed(name, spec, real)
-            if closed is not None:
-                self._refused(grant, rec, name, closed[0])
-                return reply({"error": closed[1]}, True, {origin.FERB})
+        closed = self._files_closed(cap, name, args)     # rule 10: before the span and the ledger, nothing ran
+        if closed is not None:
+            self._refused(grant, rec, name, closed[0])
+            return reply({"error": closed[1]}, True, {origin.FERB})
         action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity,
                                scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
                                request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
@@ -483,16 +485,22 @@ class Gateway:
         finally:
             self.observer.tool_call(grant, done=True)
 
-    def _fs_closed(self, name: str, spec: Any, real: Path | None) -> tuple[str, str] | None:
-        """(the trace's reason, the worker's error) when the protection lists close this fs call's path (rule 10,
-        OPEN QUESTION 6), else None. The path is the file the call really acts on; for a tool that gives no way to
-        tell it (no real_path hook, no path argument), the path it names, which the lists resolve the same way. A
-        call that names no path has none to check."""
-        protection = self.roots.protection
-        if protection is None or spec.target.path is None:
+    def _files_closed(self, cap: Any, name: str, args: Any) -> tuple[str, str] | None:
+        """(the trace's reason, the worker's error) when the protection lists close a file this call declares
+        (`file_paths`: each path, read / write / remove), else None (rule 10, OPEN QUESTION 6). Each path is checked as
+        the call would name it (~ expanded, a relative one the workspace's) and as the OS reaches it now."""
+        protection, declared = self.roots.protection, getattr(cap, "file_paths", None)
+        if protection is None or declared is None:
             return None
-        path = real if real is not None else Path(spec.target.path)
-        rule = protection.fs_denied(path, spec.kind)
+        for given, access in declared(args):
+            closed = self._closed(protection, name, owner_path(given, self.roots.workspace), access)
+            if closed is not None:
+                return closed
+        return None
+
+    @staticmethod
+    def _closed(protection: Protection, name: str, path: Path, access: str) -> tuple[str, str] | None:
+        rule = protection.fs_denied(path, access)
         if rule is None:
             return None
         if rule == FERB_STATE:
@@ -500,6 +508,18 @@ class Gateway:
         entry = protection.entry(rule)
         return (f"a never-read store ({rule})",
                 FS_NEVER_READ.format(name=name, path=recovery.short(path), store=entry.shown if entry else rule))
+
+    def _path_closed(self, name: str) -> Callable[[Path, str], str | None] | None:
+        """For a tool to check the file it really opened (macOS F_GETPATH) against the lists, closing the gap between
+        the check above and its open: the error to return, else None."""
+        protection = self.roots.protection
+        if protection is None:
+            return None
+
+        def check(path: Path, access: str) -> str | None:
+            closed = self._closed(protection, name, path, access)
+            return closed[1] if closed else None
+        return check
 
     def _refused(self, grant: RunGrant, rec: Any, name: str, reason: str) -> None:
         """A call refused before anything ran leaves a small span, so `ferb trace` shows it: a tool that doesn't
@@ -543,7 +563,7 @@ class Gateway:
                               scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
-                              observe_only=grant.observe_only)
+                              observe_only=grant.observe_only, path_closed=self._path_closed(name))
             if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
                 self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
         except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)

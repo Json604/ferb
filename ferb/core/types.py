@@ -5,7 +5,8 @@ Core execution data (see ARCHITECTURE.md). Pure data: no I/O, imports nothing fr
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any, Callable, Literal
 
 
 class Identity(Enum):
@@ -174,6 +175,10 @@ class RuntimeEvent:
 
 # ---------- tools ----------
 
+# What a call does to a file it names (a capability's `file_paths`): the protection lists check each one (rule 10).
+FileAccess = Literal["read", "write", "remove"]
+
+
 @dataclass(frozen=True)
 class ToolContext:
     task_id: str
@@ -188,6 +193,9 @@ class ToolContext:
     untrusted_roots: tuple[str, ...]
     intent_id: str | None = None             # ledger row of this call when consequential (drivers tag with it)
     observe_only: bool = False               # the final checker's call (V3, W4): its tools keep it to observing
+    # The protection lists' check of a file as the tool really opened it (macOS F_GETPATH) and what it does to it:
+    # the error to return when the lists close it, else None. None when the daemon has no lists (rule 10).
+    path_closed: Callable[[Path, str], str | None] | None = None
 
 
 @dataclass(frozen=True)

@@ -53,7 +53,8 @@ from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
 from ferb.trace import compose
 from ferb.paths import ferb_home, socket_path
-from ferb.policy.protection import DEFAULT_NEVER_READ, DEFAULT_NEVER_WRITE, DEFAULT_TERMINAL_APPS, Protection
+from ferb.policy import protection as protection_lists
+from ferb.policy.protection import Protection
 from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
 from ferb.sanitize.redact import Redactor
@@ -437,6 +438,8 @@ class Daemon:
         return {"push_to_talk": self._ptt}
 
     def _load_config(self) -> None:
+        if self.protection is None:     # [protection] and the workspace, once at start: before migrations and browsers
+            self.protection = protection_lists.load(self.config.get, Path.home(), self.home)
         self._ptt = bool(self.config.get("voice", "push_to_talk", False))
         if self._redact_override is None:
             domains, apps = set(self.config.get("privacy", "exclude_domains", [])), set(self.config.exclude_apps())
@@ -461,13 +464,9 @@ class Daemon:
         device = str(self.config.get("device", "id", "unknown-device"))
         workspace = self.home / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
-        # The protection lists (S2, SQ3, SQ5, D27): FERB's own state is always added by code (rule 10); the shell and
-        # FERB's fs tools share this one object.
-        self.protection = Protection(Path.home(), self.home,
-                                     self.config.get("protection", "never_read", DEFAULT_NEVER_READ),
-                                     self.config.get("protection", "never_write", DEFAULT_NEVER_WRITE),
-                                     self.config.get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
-                                     self.config.get("protection", "fs_reads_never_read", False))
+        # The protection lists (S2, SQ3, SQ5, D27), read in _load_config: FERB's own state is always added by code
+        # (rule 10); the shell and FERB's tools that name files share this one object.
+        assert self.protection is not None
         # FERB's downloads folder and its upload copies of outside content are always outside content (D35, MP2):
         # code adds them, config can't remove them.
         roots = FsRoots(str(workspace), tuple(self.config.get("fs", "owner_roots", [])),

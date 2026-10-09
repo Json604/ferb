@@ -12,10 +12,11 @@ from pydantic import BaseModel, Field, model_validator
 
 from ferb.act.browser.downloads import SETTLE_S
 from ferb.act.browser.snapshot import for_model
+from ferb.act.browser.uploads import source_path
 from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
-from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, Identity, PageElement, RiskLevel,
-                             SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
+from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
+                             RiskLevel, SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
 from ferb.policy.rules import Kind
 
 
@@ -413,6 +414,8 @@ class BrowserRecord(_Base):
         super().__init__(driver, family)
         self.recordings = recordings
     def _scopes(self) -> set[str]: return {self.family.read, 'fs:write'}
+    def file_paths(self, args: Any) -> list[tuple[str, FileAccess]]:
+        return [(args.path, "write")]                  # the video it will write (rule 10)
     def describe(self, args: Any) -> ActionSpec:
         return ActionSpec('write_file', Target(site=self._site(args), path=args.path))
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
@@ -483,6 +486,10 @@ class BrowserAct(_Base):
 
     def _scopes(self) -> set[str]:
         return {self.family.act}
+
+    def file_paths(self, args: BaseModel) -> list[tuple[str, FileAccess]]:
+        """The files an upload reads (rule 10): never FERB's own files or a never-read store's."""
+        return [(source_path(f), "read") for f in getattr(args, "files", None) or ()]
 
     def describe(self, args: BaseModel) -> ActionSpec:
         action, text = str(getattr(args, "action")), getattr(args, "text")

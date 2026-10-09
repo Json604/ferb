@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from ferb.act.browser.ext_protocol import (MIN_EXTENSION_VERSION, PROTOCOL_VERSION, Event, Hello, Op, Result, TabEvent,
                                            command, parse, version_ok)
 from ferb.act.browser.downloads import Downloads, TaskTab
-from ferb.act.browser.uploads import StagingFailed, Uploads, tab_key
+from ferb.act.browser.uploads import StagingFailed, Uploads, source_path, tab_key
 from ferb.act.browser.pairing import Binding, Pairings
 from ferb.act.browser.profiles import BrowserProfile, open_known_profile, running as browser_running
 from ferb.act.browser.resolver import Resolver
@@ -864,7 +864,7 @@ class _TabDriver:
 
     async def _upload(self, t: _Tab, frame: int, snap: int, local: int, files: tuple[str, ...],
                       intent_id: str) -> ActionResult:
-        paths = [os.path.realpath(os.path.expanduser(f)) for f in files]
+        paths = [source_path(f) for f in files]
         if not paths:
             raise Refused("upload needs at least one file path")
         staging = None

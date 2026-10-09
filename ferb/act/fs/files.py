@@ -1,16 +1,19 @@
 """Resolve literal paths and perform paged reads, atomic writes, edits and trash. Must not substitute files or cap deliverables.
 
 File list/read/write/edit/trash using normal OS access. Relative paths resolve in the workspace.
-Read provenance is recorded; it does not remove capabilities."""
+Read provenance is recorded; it does not remove capabilities. Each tool declares the file it names (`file_paths`) for the
+gateway's protection check (rule 10), and checks again the file it really opened (`ToolContext.path_closed`)."""
 
+import fcntl
 import os
-import tempfile
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from pydantic import BaseModel, Field
 
-from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.core.types import ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 
 READ_DEFAULT, READ_MAX, LIST_MAX = 256 * 1024, 2 * 1024 * 1024, 500
 
@@ -37,16 +40,54 @@ def identity(p: Path) -> dict:
             "mtime_ns": st.st_mtime_ns, "symlink": p.is_symlink()}
 
 
-def atomic_text(p: Path, text: str) -> None:
-    """Exclusive sibling temp preserves atomic replacement without touching a pre-existing scratch file."""
-    fd, name = tempfile.mkstemp(prefix=f".{p.name}.", suffix=".ferb-tmp", dir=p.parent)
-    temp = Path(name)
+def opened_path(fd: int) -> Path:
+    """What an open file or folder really is (macOS F_GETPATH): every link followed, the volume's own spelling."""
+    return Path(os.fsdecode(fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024)).split(b"\0", 1)[0]))
+
+
+def opened_closed(ctx: ToolContext, fd: int, access: FileAccess) -> str | None:
+    """The protection lists' answer for the file a tool really opened (rule 10): the error to return, else None."""
+    return ctx.path_closed(opened_path(fd), access) if ctx.path_closed is not None else None
+
+
+def _sibling_temp(folder: int, name: str) -> tuple[int, str]:
+    """A new temp file next to `name` inside the opened folder, never an existing file or link (0600)."""
+    for _ in range(100):
+        temp = f".{name}.{secrets.token_hex(4)}.ferb-tmp"
+        try:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+            return os.open(temp, flags, 0o600, dir_fd=folder), temp
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"no free temporary name next to {name}")
+
+
+def atomic_text(p: Path, text: str, closed: Callable[[Path], str | None] | None = None) -> None:
+    """Exclusive sibling temp preserves atomic replacement without touching a pre-existing scratch file. The temp is
+    made and renamed inside one opened folder; `closed` checks that folder as macOS opened it (the protection lists),
+    so a folder swapped for a link after the gateway's check can't move the write (raises PathRefused)."""
+    folder = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(text)
-        os.replace(temp, p)
+        refusal = closed(opened_path(folder) / p.name) if closed is not None else None
+        if refusal:
+            raise PathRefused(refusal)
+        fd, temp = _sibling_temp(folder, p.name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(text)
+            os.rename(temp, p.name, src_dir_fd=folder, dst_dir_fd=folder)     # replaces atomically (POSIX rename)
+        finally:
+            try:
+                os.unlink(temp, dir_fd=folder)
+            except FileNotFoundError:
+                pass
     finally:
-        temp.unlink(missing_ok=True)
+        os.close(folder)
+
+
+def _write_check(ctx: ToolContext) -> Callable[[Path], str | None] | None:
+    check = ctx.path_closed
+    return (lambda path: check(path, "write")) if check is not None else None
 
 
 def real_path(path: str, workspace: str) -> Path:
@@ -79,6 +120,11 @@ def _err(msg: str) -> ToolResult:
 class _Base:
     identities = {Identity.OWNER, Identity.FERB}
     target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
+    access: FileAccess = "read"
+
+    def file_paths(self, args: BaseModel) -> list[tuple[str, FileAccess]]:
+        """The file this call names and what it does to it, for the gateway's protection check (rule 10)."""
+        return [(str(getattr(args, "path")), self.access)]
 
     def describe_path(self, args: BaseModel) -> str:
         return str(Path(str(getattr(args, "path"))).expanduser())
@@ -112,7 +158,14 @@ class FsList(_Base):
             return _err(str(e))
         if not p.is_dir():
             return _err(f"{p} is not a folder")
-        children = sorted(p.iterdir())
+        folder = os.open(p, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            refusal = opened_closed(ctx, folder, self.access)
+            if refusal:
+                return _err(refusal)
+            children = [p / name for name in sorted(os.listdir(folder))]
+        finally:
+            os.close(folder)
         offset, limit = int(getattr(args, "offset")), int(getattr(args, "limit"))
         entries, errors = [], []
         for child in children[offset:offset + limit]:
@@ -149,6 +202,9 @@ class FsRead(_Base):
             return _err(f"{p} is not a file")
         offset, count = int(getattr(args, "offset")), int(getattr(args, "max_bytes"))
         with open(p, "rb") as stream:
+            refusal = opened_closed(ctx, stream.fileno(), self.access)
+            if refusal:
+                return _err(refusal)
             stream.seek(offset)
             data = stream.read(count)
             # Finish the current UTF-8 scalar instead of replacing halves across pages. At most three
@@ -181,6 +237,7 @@ class FsRead(_Base):
 class FsWrite(_Base):
     name, description = "fs.write", "Create or overwrite a text file."
     scopes, risk, reversible = {"fs:write"}, RiskLevel.MEDIUM, False
+    access = "write"
 
     class Input(BaseModel):
         path: str
@@ -202,13 +259,17 @@ class FsWrite(_Base):
         if p.exists() and not getattr(args, "overwrite"):
             return _err(f"{p} exists (set overwrite=true to replace it)")
         p.parent.mkdir(parents=True, exist_ok=True)
-        atomic_text(p, str(getattr(args, "content")))
+        try:
+            atomic_text(p, str(getattr(args, "content")), _write_check(ctx))
+        except PathRefused as e:
+            return _err(str(e))
         return ToolResult({**identity(p), "bytes": p.stat().st_size})
 
 
 class FsEdit(_Base):
     name, description = "fs.edit", "Replace one exact occurrence of old_text with new_text in a file."
     scopes, risk, reversible = {"fs:write"}, RiskLevel.MEDIUM, False
+    access = "write"
 
     class Input(BaseModel):
         path: str
@@ -227,18 +288,26 @@ class FsEdit(_Base):
             p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         except PathRefused as e:
             return _err(str(e))
-        text = p.read_text(encoding="utf-8")
+        with open(p, encoding="utf-8") as stream:
+            refusal = opened_closed(ctx, stream.fileno(), self.access)
+            if refusal:
+                return _err(refusal)
+            text = stream.read()
         old = str(getattr(args, "old_text"))
         n = text.count(old)
         if n != 1:
             return _err(f"old_text occurs {n} times; it must occur exactly once")
-        atomic_text(p, text.replace(old, str(getattr(args, "new_text")), 1))
+        try:
+            atomic_text(p, text.replace(old, str(getattr(args, "new_text")), 1), _write_check(ctx))
+        except PathRefused as e:
+            return _err(str(e))
         return ToolResult({"path": str(p), "replaced": 1}, read_sources=(_source(p, ctx),))
 
 
 class FsTrash(_Base):
     name, description = "fs.trash", "Move a file or folder to the Trash (recoverable)."
     scopes, risk, reversible = {"fs:write"}, RiskLevel.LOW, True
+    access = "remove"
 
     class Input(BaseModel):
         path: str
@@ -251,6 +320,10 @@ class FsTrash(_Base):
             p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         except PathRefused as e:
             return _err(str(e))
+        if ctx.path_closed is not None:              # the Trash takes a path, not an open file: resolve once more first
+            refusal = ctx.path_closed(real_path(str(p), ctx.workspace), self.access)
+            if refusal:
+                return _err(refusal)
         try:
             trashed_to = move_to_trash(p)
         except TrashRefused as e:
