@@ -304,3 +304,36 @@ async def test_a_task_run_while_paused_records_nothing_about_the_desktop_and_res
     assert [kind for _, kind, _ in records] == ["disturbance.paused", "disturbance.resumed", "disturbance.baseline",
                                                 "disturbance.change", "disturbance.summary"]
     assert "Safari came to the front" in context and "Google Chrome" not in context
+
+
+@pytest.mark.anyio
+async def test_a_pause_that_begins_during_a_read_drops_what_was_read():
+    """The trail drops at write time what arrives once paused (trail.py); a desktop read under way when `ferb pause`
+    begins is dropped the same way: no change, app name, processes or statement is recorded."""
+    state = {"frontmost_app": _app(1, "A")}
+    paused = {"on": False, "arm": False}
+    listed = []
+    records = []
+
+    def read() -> dict:
+        if paused["arm"]:
+            paused["on"] = True                           # `ferb pause` lands while the read runs
+        return dict(state)
+
+    def processes() -> list:
+        listed.append(1)
+        return []
+
+    sentinel = DisturbanceSentinel(read, lambda *r: records.append(r), interval_s=60, processes=processes,
+                                   now=lambda: datetime(2026, 10, 9, 9, 0, 0), paused=lambda: paused["on"])
+    await sentinel.start("tree")
+    paused["arm"] = True
+    state["frontmost_app"] = _app(2, "Google Chrome")
+    await sentinel.sample()
+    assert sentinel.context("tree") == ""
+    paused.update(on=False, arm=False)
+    await sentinel.finish("tree")
+    assert [kind for _, kind, _ in records] == ["disturbance.baseline", "disturbance.paused", "disturbance.resumed",
+                                                "disturbance.baseline", "disturbance.summary"]
+    unread = [d for _, kind, d in records if kind != "disturbance.baseline"]
+    assert listed == [] and "Google Chrome" not in json.dumps(unread)

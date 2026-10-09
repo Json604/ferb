@@ -756,8 +756,8 @@ class Supervisor(WorkerRuns):
 
     async def _end_task(self, tid: str, span_id: str) -> list[dict[str, Any]]:
         """One task's resource release, observed by the desktop sentinel as an on-screen FERB action: closing tabs and
-        ending processes can change the screen, so a desktop change meanwhile is near it (P26). Observation never
-        blocks or fails the cleanup."""
+        ending processes can change the screen, so a desktop change meanwhile is near it (P26). An observation failure
+        never stops or fails the cleanup; the cleanup may wait for one desktop read before and after it."""
         assert self.on_task_end is not None
         sentinel = self.disturbance
         if sentinel is not None:

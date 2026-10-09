@@ -6,7 +6,9 @@ content, pixels or keystrokes are collected. Public Space notifications report t
 Each action carries its capability's declared `on_screen` flag; an app coming forward or a Space change
 with no such action in flight or just ended is stated as that fact, with when the last one ended and the
 processes FERB started that were running (P26). Who did it stays the reader's conclusion (rule 6).
-While the owner has paused sensing (`ferb pause`), nothing about the desktop is read or recorded.
+While the owner has paused sensing (`ferb pause`), nothing about the desktop is recorded; a read already
+under way when the pause begins is dropped. Space switches may still be counted in memory meanwhile; the
+baseline taken after `ferb resume` discards them.
 """
 
 import asyncio
@@ -227,9 +229,13 @@ class DisturbanceSentinel:
                 sample_ms = (time.monotonic() - started) * 1000
                 owner = self.owner_input()
             except Exception as exc:
+                if self._held():                  # paused while reading: the sample never happened
+                    return
                 for task_id, observed in self.active.items():
                     observed.errors += 1
                     self.record(task_id, "disturbance.error", {"error": f"{type(exc).__name__}: {exc}"})
+                return
+            if self._held():                      # paused while reading: drop what was read, like the trail does
                 return
             self._recent = {key: action for key, action in self._recent.items()
                             if started - action["ended_monotonic"] <= self.interval_s * 2}
