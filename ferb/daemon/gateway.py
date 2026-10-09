@@ -13,7 +13,9 @@ target (a file as the file it really writes, as the fs lock and S1 key it), cont
 derived from them (ferb/policy/rules.py payload_hash, hashed_args).
 S1: before a call changes an existing file, a copy of the file it really writes and a record (ferb/act/fs/recovery.py);
 no copy, no change. A trash keeps where the item came from and went. A local APFS snapshot before a permanent delete
-(and when an agent asks, recovery.snapshot), best effort: a snapshot never stops a call."""
+(and when an agent asks, recovery.snapshot), best effort: a snapshot never stops a call.
+Rule 10: FERB's fs tools never read or change FERB's own state, nor (while protection.fs_reads_never_read is false) the
+never-read credential stores (ferb/policy/protection.py); refused before anything runs, leaving a tool.refused span."""
 
 import asyncio
 import base64
@@ -41,6 +43,7 @@ from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
 from ferb.orchestrator.tree import TaskTree
 from ferb.policy import provenance
+from ferb.policy.protection import FERB_STATE, Protection
 from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
@@ -75,6 +78,13 @@ SAME_ACTION_RUNNING = "The same action is already running in this task; it was n
 RUNNING_NEXT = "Wait for its result, then check what happened before deciding anything else."
 RETRY_YES, RETRY_NO = "Yes", "No"
 NO_COPY = "{name} did not run: FERB couldn't keep a recovery copy of the file ({why}), so it left the file unchanged"
+# Rule 10 and OPEN QUESTION 6: what FERB's fs tools are told when the protection lists close a path to them.
+FS_FERB_STATE = ("{name} can't touch FERB's own files ({path}): FERB's records, settings, tokens, recovery copies and "
+                 "upload staging are closed to FERB's file tools; only the owner changes them (rule 10)")
+FS_NEVER_READ = ("{name} can't open {path}: it is inside {store}, where passwords, keys, sign-ins or private messages "
+                 "are kept. FERB's file tools stay out of these stores until FERB can reliably keep secrets out of what "
+                 "models see. A secret a task needs comes only through FERB's sealed secret path; the escape hatch "
+                 "does not open these stores to file tools")
 RETRY_STALE = ("the action was tried again while the owner was being asked, so this answer is out of date; check what "
                "happened, then ask again with the newest retry_action")
 
@@ -266,6 +276,7 @@ class FsRoots:
     workspace: str
     owner_roots: tuple[str, ...]
     untrusted_roots: tuple[str, ...]
+    protection: Protection | None = None             # the daemon's lists (rule 10); None in tests that don't need them
 
 
 class Observer:
@@ -435,6 +446,12 @@ class Gateway:
         if spec.target.path is not None:
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
+        real = self._real_path(cap, args, spec)
+        if name.startswith("fs."):                       # rule 10: before the span and the ledger, nothing ran
+            closed = self._fs_closed(name, spec, real)
+            if closed is not None:
+                self._refused(grant, rec, name, closed[0])
+                return reply({"error": closed[1]}, True, {origin.FERB})
         action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity,
                                scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
                                request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
@@ -449,7 +466,6 @@ class Gateway:
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
-        real = self._real_path(cap, args, spec)
         if name.startswith("fs.") and real is not None:
             # Every spelling of one file shares a lock: the file the call really acts on (symlinks, then `..`), as
             # S1 and `ferb restore` key it. This identifies the requested path; it never searches for another file.
@@ -466,6 +482,24 @@ class Gateway:
                         await self.disturbance.after_action(span.id)
         finally:
             self.observer.tool_call(grant, done=True)
+
+    def _fs_closed(self, name: str, spec: Any, real: Path | None) -> tuple[str, str] | None:
+        """(the trace's reason, the worker's error) when the protection lists close this fs call's path (rule 10,
+        OPEN QUESTION 6), else None. The path is the file the call really acts on; for a tool that gives no way to
+        tell it (no real_path hook, no path argument), the path it names, which the lists resolve the same way. A
+        call that names no path has none to check."""
+        protection = self.roots.protection
+        if protection is None or spec.target.path is None:
+            return None
+        path = real if real is not None else Path(spec.target.path)
+        rule = protection.fs_denied(path, spec.kind)
+        if rule is None:
+            return None
+        if rule == FERB_STATE:
+            return "FERB's own state", FS_FERB_STATE.format(name=name, path=recovery.short(path))
+        entry = protection.entry(rule)
+        return (f"a never-read store ({rule})",
+                FS_NEVER_READ.format(name=name, path=recovery.short(path), store=entry.shown if entry else rule))
 
     def _refused(self, grant: RunGrant, rec: Any, name: str, reason: str) -> None:
         """A call refused before anything ran leaves a small span, so `ferb trace` shows it: a tool that doesn't

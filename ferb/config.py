@@ -111,6 +111,7 @@ class Config:
     def ensure_privacy_defaults(self) -> None:
         """Write the defaults into config.toml once, so the owner sees and edits them there; a value the owner set
         (an emptied list included) is never replaced."""
+        from ferb.policy.protection import DEFAULT_NEVER_READ, DEFAULT_NEVER_WRITE, DEFAULT_TERMINAL_APPS
         from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS
         for section, key, value in (("privacy", "exclude_apps", list(DEFAULT_EXCLUDE_APPS)),
                                     ("privacy", "exclude_domains", []),
@@ -121,6 +122,10 @@ class Config:
                                     ("retention", "evidence_days", 7), ("retention", "recovery_days", 7),
                                     ("browser", "download_max_mb", 512), ("browser", "download_task_max_files", 50),
                                     ("browser", "download_task_max_mb", 4096), ("browser", "download_total_mb", 20480),
-                                    ("browser", "download_min_free_gb", 10), ("browser", "task_max_tabs", 50)):
+                                    ("browser", "download_min_free_gb", 10), ("browser", "task_max_tabs", 50),
+                                    ("protection", "never_read", list(DEFAULT_NEVER_READ)),
+                                    ("protection", "never_write", list(DEFAULT_NEVER_WRITE)),
+                                    ("protection", "terminal_apps", list(DEFAULT_TERMINAL_APPS)),
+                                    ("protection", "fs_reads_never_read", False)):
             if self.get(section, key) is None:
                 self.set(section, key, value)

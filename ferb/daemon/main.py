@@ -53,6 +53,7 @@ from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
 from ferb.trace import compose
 from ferb.paths import ferb_home, socket_path
+from ferb.policy.protection import DEFAULT_NEVER_READ, DEFAULT_NEVER_WRITE, DEFAULT_TERMINAL_APPS, Protection
 from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
 from ferb.sanitize.redact import Redactor
@@ -127,6 +128,7 @@ class Daemon:
         add_recording(self.registry, self.recordings)
         self.tasks = TaskTree()
         self.gateway: Gateway | None = None
+        self.protection: Protection | None = None             # the [protection] lists, read once at start (rule 10)
         self._available_cache: dict[str, tuple[float, bool]] = {}
         self.supervisor: Supervisor | None = None
         self._proxy: ToolListProxy | None = None
@@ -459,10 +461,18 @@ class Daemon:
         device = str(self.config.get("device", "id", "unknown-device"))
         workspace = self.home / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
+        # The protection lists (S2, SQ3, SQ5, D27): FERB's own state is always added by code (rule 10); the shell and
+        # FERB's fs tools share this one object.
+        self.protection = Protection(Path.home(), self.home,
+                                     self.config.get("protection", "never_read", DEFAULT_NEVER_READ),
+                                     self.config.get("protection", "never_write", DEFAULT_NEVER_WRITE),
+                                     self.config.get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
+                                     self.config.get("protection", "fs_reads_never_read", False))
         # FERB's downloads folder and its upload copies of outside content are always outside content (D35, MP2):
         # code adds them, config can't remove them.
         roots = FsRoots(str(workspace), tuple(self.config.get("fs", "owner_roots", [])),
-                        downloads.untrusted_roots(self.config.get("fs", "untrusted_roots", ["~/Downloads"]), workspace))
+                        downloads.untrusted_roots(self.config.get("fs", "untrusted_roots", ["~/Downloads"]), workspace),
+                        protection=self.protection)
         assert self.ledger and self.spans and self.journal
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
