@@ -69,6 +69,7 @@ F0–F4 are built and signed off by the owner. F5 is split into F5a (containment
 never-read/never-write lists, the network proxy, the escape hatch, the D23 code-floor confirmations and the S4 sink
 rule, the worker permission model, plus the items F3 and F4 carried into F5) and F5b (secret classes and redaction,
 screenshot redaction, the start-of-task screenshot, Jev's destructive classifier in shadow, then Full Disk Access by
-default). The F5a plan is `docs/superpowers/plans/2026-10-10-f5a-containment.md`; the owner said to start executing
-it once it is made, with owner-only questions (limits, open decisions) asked first. Its ledger is
+default). The F5a plan is `docs/superpowers/plans/2026-10-10-f5a-containment.md` (committed 9891157). The owner answered its
+eight open questions "all recommended" (2026-10-09; recorded in its ledger). Task 1 is complete; Task 2 (the shell
+sandbox) is in progress. Its ledger is
 `.superpowers/sdd/2026-10-10-f5a-containment/progress.md`.
