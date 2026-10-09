@@ -743,7 +743,60 @@ approvals included; shell file changes, which get no per-file copy; and upload c
 `~/.ferb/workspace/uploads`, so when the shell sandbox lands it is denied that folder for reads and writes, or staging
 moves beside `~/.ferb/recovery` (F4 live fixes).
 
-## 12. Documentation and diagrams
+## 12. Containment and confirmations (F5a)
+
+**The protection lists** ([`policy/protection.py`](ferb/policy/protection.py), S2, SQ3 revised, SQ5, D27, rule 10).
+`[protection]` in `config.toml` names the never-read stores and the never-write places. Code always adds FERB's own
+state (`~/.ferb` except the workspace, plus `workspace/uploads`), which nothing lifts. FERB's tools that name files
+check every path they declare (`file_paths`) against the same lists at the gateway.
+
+**The shell sandbox** ([`act/shell/sandbox.py`](ferb/act/shell/sandbox.py)). Every command `shell.run` and
+`shell.start` start, and every program those commands start (a coding agent included), runs under one `sandbox-exec`
+profile built from the lists. `mac.applescript` runs `osascript` under the same profile, so `do shell script` meets the
+same rules.
+
+The profile:
+- denies reads and writes of the never-read stores, FERB's state and upload staging, with the workspace allowed back;
+- denies writes to the never-write places;
+- denies writes to every folder above a protected path, and to the workspace folder itself, as literals, so a rename
+  can't carry protected content to an unnamed path;
+- denies the Keychain service (`com.apple.SecurityServer`);
+- denies all network except the Mac's own addresses;
+- names the daemon socket explicitly.
+
+What was measured on this Mac (the Task 2 report has each run):
+- Rules match resolved paths, and on the case-insensitive volume every case and Unicode spelling.
+- Hardlinks and clones of a denied file are refused.
+- `security` fails at once with no prompt.
+- Trust evaluation still works (URLSession, Go).
+- Programs that list root certificates through the Keychain service (rustls-native-certs, e.g. Codex CLI) find none,
+  so the shell's environment sets `SSL_CERT_FILE` to Apple's `/etc/ssl/cert.pem`.
+
+`ShellManager.start` takes the command text. `ProcInfo` records `sandboxed` and `lifted`. The profile file
+(`~/.ferb/run/sandbox/*.sb`, 0600) stays until its process ends, because `sandbox-exec` reads it after starting;
+leftovers are swept at start.
+
+When `sandbox-exec` can't run, the shell tools and `mac.applescript` are not registered, the journal records
+`shell.unavailable`, and `ferb doctor` shows a failed `containment` check. They never run uncontained.
+
+`shell.rules` (an observation tool) lists the rules and which ones the owner can lift.
+
+Limits of the platform, stated to the agents in the shell tools' descriptions and in `shell.rules`, never enforced on
+their flags:
+- Nothing inside can start its own macOS sandbox (`sandbox_apply: Operation not permitted`). Codex CLI runs inside with
+  its own sandbox off: `--sandbox danger-full-access` keeps its approval setting, and the full bypass flag is only for
+  when the owner asked for it.
+- Setuid programs such as `sudo` cannot start under any profile.
+
+Residuals:
+- A server bound to `0.0.0.0` accepts connections from the LAN: Seatbelt's `localhost` means any of the Mac's own
+  addresses.
+- A hardlink made before FERB is a different path and isn't covered.
+- Apple Events from inside reach unsandboxed apps (Terminal, Finder) within FERB's Automation grants; Seatbelt can't
+  filter them.
+- `~/.docker` on the never-read list also hides `~/.docker/bin`.
+
+## 13. Documentation and diagrams
 
 The [offline walkthrough](docs/walkthrough/index.html) is a local teaching aid, not an executable agent or live trace.
 The [HLD Mermaid source](docs/diagrams/ferb-hld.mmd) maps responsibilities and the
@@ -751,7 +804,7 @@ The [HLD Mermaid source](docs/diagrams/ferb-hld.mmd) maps responsibilities and t
 them. Current diagrams and walkthrough describe 0.26. Source-reference checks flag broken current-doc paths and
 explicit qualified Python symbols. Historical changelog/audit evidence is intentionally exempt.
 
-## 13. Change rule
+## 14. Change rule
 
 Do not fix a failure by adding a keyword rule for that one failure. Expose platform facts, give the agent full evidence,
 and test the general boundary. A filename match does not prove identity; a topic match does not prove teaching depth;

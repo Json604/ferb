@@ -70,8 +70,8 @@ def test_the_running_processes_a_change_records_are_ferbs_with_commands_redacted
     shells = daemon.daemon.shells
     assert shells is not None
     secret = "sk-ant-abcdefghijklmnopqrstuvwx"
-    h = daemon.run(shells.start(["/bin/sh", "-c", f"sleep 30 # {secret}"], tmp_path, "tree1.worker", long_lived=True))
-    done = daemon.run(shells.start(["/bin/sh", "-c", "true"], tmp_path, "tree1.worker"))
+    h = daemon.run(shells.start(f"sleep 30 # {secret}", tmp_path, "tree1.worker", long_lived=True))
+    done = daemon.run(shells.start("true", tmp_path, "tree1.worker"))
     try:
         daemon.run(shells.wait(done, 10))
         procs = daemon.daemon._running_processes()

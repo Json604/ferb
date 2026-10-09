@@ -208,6 +208,10 @@ messaging and mail apps, and recordings' frames (full screenshot redaction arriv
 task's tab with a known host is kept as an image, unless the site is on your exclusion list.
 Secrets are redacted; OTPs use a sealed input path. Full trace output remains private data: share deliberately.
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
+FERB's shell and its AppleScript run inside a macOS sandbox built from `[protection]`. It can't read the credential
+stores or FERB's own files, can't write the never-write places, can't use the Keychain or reach the network beyond
+this Mac, and neither can anything it starts (a coding agent included). If the sandbox can't run, those tools are off
+and `ferb doctor` says why. `shell.rules` lists the rules.
 An oversized unfinished record may be replaced by an explicit redaction marker.
 
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -49,8 +50,7 @@ def test_shell_output_pages_from_the_start(tmp_path: Path) -> None:
 
     async def run() -> None:
         m = ShellManager(tmp_path, lambda s: s)
-        h = await m.start(["/bin/sh", "-c", "i=0; while [ $i -lt 50000 ]; do echo line$i; i=$((i+1)); done"],
-                          tmp_path, "t1")
+        h = await m.start("i=0; while [ $i -lt 50000 ]; do echo line$i; i=$((i+1)); done", tmp_path, "t1")
         await m.wait(h, 10)
         text, off, total = await m.read(h, 0, 100)
         assert text.startswith("line0") and off == 100 and total > 400000
@@ -195,7 +195,7 @@ def test_shell_log_and_pages_redact_split_secrets_before_persistence(tmp_path: P
         redactor.add_secret_value('test-private-secret')
         m = ShellManager(tmp_path, redactor.text, stream_factory=redactor.stream)
         code = "import os,time; os.write(1,b'first\\ntest-private-'); time.sleep(.1); os.write(1,'secret\\nlast café\\n'.encode())"
-        h = await m.start([sys.executable, '-c', code], tmp_path, 't')
+        h = await m.start(shlex.join([sys.executable, '-c', code]), tmp_path, 't')
         assert await m.wait(h, 10) == 0
         text, end, total = await m.read(h)
         assert 'test-private-' not in text and '[redacted]' in text and 'café' in text
@@ -222,10 +222,16 @@ def test_failed_shell_start_closes_pty_descriptors(tmp_path: Path, monkeypatch: 
         return pair
 
     monkeypatch.setattr(pty_proc.pty, 'openpty', openpty)
-    m = ShellManager(tmp_path, lambda text: text)
+    # The process that fails to start is the sandbox's launcher; its profile file goes too (F5a Task 2)
+    from ferb.act.shell import sandbox
+    from ferb.policy.protection import Protection
+    monkeypatch.setattr(sandbox, 'SANDBOX_EXEC', '/no/such/ferb-test-executable')
+    (tmp_path / 'h' / '.ferb' / 'workspace').mkdir(parents=True)
+    sb = sandbox.Sandbox(Protection(tmp_path / 'h', tmp_path / 'h' / '.ferb', [], [], []), tmp_path / 'profiles')
+    m = ShellManager(tmp_path, lambda text: text, sandbox=sb)
     with pytest.raises(FileNotFoundError):
-        asyncio.run(m.start(['/no/such/ferb-test-executable'], tmp_path, 't'))
-    assert not m.list()
+        asyncio.run(m.start('true', tmp_path, 't'))
+    assert not m.list() and not list((tmp_path / 'profiles').glob('*.sb'))
     for fd in opened:
         with pytest.raises(OSError):
             os.fstat(fd)
@@ -238,7 +244,8 @@ def test_shell_stream_shows_an_interactive_prompt_before_exit(tmp_path: Path) ->
     async def run() -> None:
         redactor = Redactor()
         manager = ShellManager(tmp_path, redactor.text, redactor.stream)
-        handle = await manager.start([sys.executable, '-c', "answer = input('Continue? '); print('received', answer)"],
+        handle = await manager.start(shlex.join([sys.executable, '-c',
+                                                 "answer = input('Continue? '); print('received', answer)"]),
                                      tmp_path, 'prompt')
         try:
             async with asyncio.timeout(3):
@@ -266,7 +273,8 @@ def test_shell_redacts_registered_multiline_values_after_pty_transport(tmp_path:
         redactor = Redactor()
         redactor.add_secret_value(secret)
         manager = ShellManager(tmp_path, redactor.text, redactor.stream)
-        handle = await manager.start([sys.executable, '-c', "import os; os.write(1,b'synthetic-first\\nsynthetic-second\\n')"],
+        handle = await manager.start(shlex.join([sys.executable, '-c',
+                                                 "import os; os.write(1,b'synthetic-first\\nsynthetic-second\\n')"]),
                                      tmp_path, 'multiline')
         assert await manager.wait(handle, 3) == 0
         output, _, _ = await manager.read(handle)
@@ -279,7 +287,7 @@ def test_shell_capture_failure_reports_error_and_finishes(tmp_path: Path, monkey
 
     async def run() -> None:
         manager = ShellManager(tmp_path, lambda text: text)
-        handle = await manager.start(['/bin/sh', '-c', 'echo captured'], tmp_path, 'capture')
+        handle = await manager.start('echo captured', tmp_path, 'capture')
         process = manager._get(handle)
         real_write = pty_proc.os.write
 

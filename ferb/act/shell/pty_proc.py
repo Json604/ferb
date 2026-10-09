@@ -18,8 +18,10 @@ from ferb.sanitize.redact import RedactionStream, Redactor
 class PtyProc:
     def __init__(self, argv: list[str], cwd: Path, env: dict[str, str], log: Path,
                  redact_text: Callable[[str], str],
-                 stream_factory: Callable[[], RedactionStream] | None = None) -> None:
+                 stream_factory: Callable[[], RedactionStream] | None = None,
+                 on_exit: Callable[[], None] | None = None) -> None:
         self.argv, self.cwd, self.env, self.log, self.redact_text = argv, cwd, env, log, redact_text
+        self.on_exit = on_exit                   # after the process ended and its output was drained
         self._redaction = (stream_factory or Redactor().stream)()
         self.total = 0
         self.proc: subprocess.Popen[bytes] | None = None
@@ -131,6 +133,8 @@ class PtyProc:
                 self._close_output()
             finally:
                 self._done.set()
+                if self.on_exit is not None:
+                    self.on_exit()
 
     def read(self, since: int = 0, limit: int | None = None) -> tuple[str, int, bool]:
         """Read full redacted history by byte offset. Returned offsets never split a UTF-8 character."""

@@ -224,6 +224,18 @@ def protection_check(home: Path) -> Check:
                  f"tools that name files {files}")
 
 
+def containment_check(c: dict[str, Any] | None) -> Check:
+    """FERB's shell sandbox as the running daemon sees it (S2, Q7): without it the shell and AppleScript tools are
+    left out, never run uncontained."""
+    if not c:
+        return Check("containment", "fail", "the daemon didn't report it", "run `ferb setup --update`")
+    if c.get("profile_ok") and c.get("shell"):
+        return Check("containment", "ok", "FERB's shell and AppleScript run inside its sandbox (sandbox-exec)")
+    why = c.get("reason") if not c.get("profile_ok") else c.get("shell_reason")
+    return Check("containment", "fail", f"FERB's shell is unavailable until sandbox-exec works: {why}",
+                 "restart the daemon after fixing it (`ferb setup --update`)")
+
+
 def doctor(env: Env) -> int:
     inst = env.inst
     checks: list[Check] = []
@@ -272,6 +284,7 @@ def doctor(env: Env) -> int:
                       f"grant it to {dedicated} (System Settings → Privacy & Security)" if level != "ok" else ""))
         for r in report["selftest"]:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
+        add(containment_check(report.get("containment")))
         voice = report.get("voice", {})
         if voice.get("push_to_talk"):
             perms = voice.get("permissions", {})

@@ -22,7 +22,7 @@ from tests.conftest import FakeCap, RunningDaemon, gateway_setup, gateway_tool_c
 # own browser). Anything else, including a capability added later and left unmarked, is unavailable to a checker.
 OBSERVATION = {
     "actions.search", "chat.history", "memory.read", "task.evidence", "trail.days", "trail.query",
-    "fs.list", "fs.read", "recording.inspect", "shell.list", "shell.read", "shell.wait",
+    "fs.list", "fs.read", "recording.inspect", "shell.list", "shell.read", "shell.rules", "shell.wait",
     "mac.apps", "mac.screenshot", "mac.snapshot",
     "browser.downloads", "browser.find", "browser.point", "browser.profiles", "browser.read", "browser.screenshot",
     "browser.scroll", "browser.snapshot", "browser.tabs", "browser.wait",
@@ -37,8 +37,8 @@ def _every_capability() -> Registry:
     add_recording(r, object())
     add_identity_browser(r, object(), recordings=object())  # type: ignore[arg-type]
     add_owner_browsers(r, object(), recordings=object())    # type: ignore[arg-type]
-    add_mac(r, object(), lambda: None, recordings=object())  # type: ignore[arg-type]
-    add_shell(r, object())                                  # type: ignore[arg-type]
+    add_mac(r, object(), lambda: None, recordings=object(), sandbox=object())  # type: ignore[arg-type]
+    add_shell(r, object(), object())                        # type: ignore[arg-type]
     add_trail(r, lambda: None)
     add_evidence(r, object(), lambda task_id: None)
     add_context_readers(r, object(), lambda task_id: None, lambda: None)

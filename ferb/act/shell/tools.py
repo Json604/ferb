@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field
 
 from ferb.act.shell import guard
 from ferb.act.shell.manager import ProcHandle, ShellManager
+from ferb.act.shell.sandbox import NESTED_SANDBOX
 from ferb.core.errors import Refused
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
+from ferb.policy.protection import Protection
 from ferb.policy.rules import Kind
 
 TAIL = 8000
@@ -55,7 +57,8 @@ class ShellStart(_Base):
                    "long commands, then shell.wait/read for actual progress and exit status. Run the command "
                    "directly, without nohup or trailing &: the id tracks this command, not detached children. "
                    "background=true keeps it alive after task completion (servers); it is not needed to work "
-                   "asynchronously during a task. Starting a process does not prove it is ready or successful.")
+                   "asynchronously during a task. Starting a process does not prove it is ready or successful. "
+                   "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + NESTED_SANDBOX)
     target_args = ("cwd",)                             # Target.path, normalized by the gateway (P19 hash)
     method_args = ("background", "timeout_s")          # how it runs, not what it does (P19 hash)
     ledger_key = "shell.run"                           # shell.start and shell.run run the same command: one action
@@ -74,8 +77,7 @@ class ShellStart(_Base):
         cmd = str(getattr(args, "command"))
         cwd = guard.working_directory(getattr(args, "cwd"), ctx)
         network = guard.fetches_network(cmd)
-        return await self.shells.start(["/bin/sh", "-c", cmd], cwd, ctx.task_id,
-                                       bool(getattr(args, "background")), network)
+        return await self.shells.start(cmd, cwd, ctx.task_id, bool(getattr(args, "background")), network)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = await self._start(args, ctx)
@@ -97,7 +99,8 @@ class ShellRun(ShellStart):
     name = "shell.run"
     description = ("Run a shell command (/bin/sh), waiting up to timeout_s. A live process returns its id; use "
                    "shell.wait to await its exit or shell.read for output. For immediate asynchronous start use "
-                   "shell.start, without nohup or trailing &. background=true survives task completion (servers).")
+                   "shell.start, without nohup or trailing &. background=true survives task completion (servers). "
+                   "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + NESTED_SANDBOX)
     origin = OUTPUT_ORIGIN
 
     class Input(ShellStart.Input):
@@ -208,3 +211,28 @@ class ShellList(_Base):
         return ToolResult({"processes": [{"id": p.id, "command": p.command, "running": p.running,
                                           "exit_code": p.exit_code, "background": p.long_lived}
                                          for p in self.shells.list() if p.owner_task == ctx.task_id]})
+
+
+class ShellRules(_Base):
+    name, description = ("shell.rules", "What FERB's sandbox keeps FERB's shell out of: each rule's id, what it covers "
+                         "and whether the owner can lift it for one command; the network and the escape hatch.")
+    risk, reversible = RiskLevel.LOW, True
+    observation = True                                 # only reads: the final checker may use it (V3, W4)
+    origin = "ferb"                                    # FERB's own configuration
+
+    def __init__(self, shells: ShellManager, protection: Protection) -> None:
+        super().__init__(shells)
+        self.protection = protection
+
+    class Input(BaseModel):
+        pass
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.READ)
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        return ToolResult({"rules": self.protection.rules(),
+                           "network": "through FERB's proxy (recorded); loopback allowed",
+                           "escape": "shell_run / shell_start with escape=<rule id> asks the owner to lift that one "
+                                     "rule for that one command",
+                           "own_sandbox": NESTED_SANDBOX})

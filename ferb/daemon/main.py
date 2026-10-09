@@ -32,6 +32,7 @@ from ferb.act.mac.driver import MacComputerDriver, profiles_dir
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ShellManager
+from ferb.act.shell.sandbox import SANDBOX_EXEC, Sandbox
 from ferb.registry import add_context_readers, add_recording, add_evidence, add_recovery, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
@@ -160,6 +161,8 @@ class Daemon:
         self.gui = GuiLock()
         self.mac: MacComputerDriver | None = None
         self.shells: ShellManager | None = None
+        self.sandbox: Sandbox | None = None                 # the shell's sandbox profile, built at start
+        self.containment: tuple[bool, str] = (False, "not checked yet")
         # Watchers + trail. Tests turn the real watchers off (the pipeline still runs).
         self.run_watchers = watchers
         self.trail: Trail | None = None
@@ -617,10 +620,20 @@ class Daemon:
                                      excluded=self.config.exclude_apps, web_password=self._web_password,
                                      profiles=Profiles(profiles_dir(self.home)))   # what landed per app, learned
         self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree
-        add_mac(self.registry, self.mac, self._device_profile, self.recordings)
+        # FERB's shell and AppleScript run only inside its sandbox, built from the protection lists (S2, D27, rule
+        # 10): when sandbox-exec can't run, their tools are left out and `ferb doctor` says why, never uncontained (Q7)
+        assert self.protection is not None
+        self.sandbox = Sandbox(self.protection, self.home / "run" / "sandbox", lambda: None, socket=self.server.path)
+        self.sandbox.sweep()
+        self.containment = self.sandbox.available()
+        contained = self.sandbox if self.containment[0] else None
+        add_mac(self.registry, self.mac, self._device_profile, self.recordings, contained)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,
-                                   stream_factory=getattr(self.redact, "stream", None))
-        add_shell(self.registry, self.shells)
+                                   stream_factory=getattr(self.redact, "stream", None), sandbox=self.sandbox)
+        if contained is not None:
+            add_shell(self.registry, self.shells, self.protection)
+        else:
+            self._journal().append("shell.unavailable", {"why": self.containment[1]})
         add_trail(self.registry, lambda: self.trail)
         add_evidence(self.registry, self.spans, self._inspection_parent,
                      lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None), self.evidence)
@@ -2162,6 +2175,12 @@ class Daemon:
                     "selftest": [{"name": r.name, "ok": r.ok, "detail": r.detail} for r in results]}
         out = await asyncio.to_thread(run)
         out["runtimes"] = await self._runtime_status()
+        ok, reason = await asyncio.to_thread(self.sandbox.available) if self.sandbox else (False, "not built")
+        out["containment"] = {"sandbox_exec": os.path.exists(SANDBOX_EXEC), "profile_ok": ok, "reason": reason,
+                              "shell": "shell.run" in self.registry.capabilities,
+                              "shell_reason": self.containment[1],
+                              "proxy": False,                          # FERB's egress proxy (F5a Task 3)
+                              "snapshots": self.take_snapshots}
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
                         "connected": self.voice is not None and self.voice.app is not None,
                         "permissions": self.voice.permissions if self.voice is not None else {}}

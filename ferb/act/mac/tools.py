@@ -425,9 +425,15 @@ class MacAppleScript(_Base):
     name = "mac.applescript"
     on_screen = True
     description = ("Run AppleScript statements inside one scriptable app (FERB wraps them in `tell application`; "
-                   "the body may use the operations needed for the requested task). Returns the script's result.")
+                   "the body may use the operations needed for the requested task). Returns the script's result. "
+                   "It runs inside FERB's sandbox, like the shell: `do shell script` and file reads meet the same "
+                   "rules (shell.rules).")
     scopes = {"applescript"}
     risk, reversible = RiskLevel.MEDIUM, False
+
+    def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None, sandbox: Any = None) -> None:
+        super().__init__(driver, device_profile)
+        self.sandbox = sandbox          # FERB's shell sandbox (ferb/act/shell/sandbox.py); None: never runs a script
 
     class Input(_App):
         script: str = Field(description="Statements for that app, e.g. `get name of every note`")
@@ -452,5 +458,8 @@ class MacAppleScript(_Base):
             return ToolResult({"code": "needs_permission", "permission": "Automation", "status": grant.value,
                                "bundle_id": a.bundle_id, "performed": False,
                                "detail": "No permission prompt was opened; an explicit setup permission step is required"}, is_error=True)
-        ok, out = await applescript.run(a.bundle_id, str(getattr(args, "script")), timeout=float(getattr(args, "timeout_s")))
+        if self.sandbox is None:
+            return _err("AppleScript runs only inside FERB's sandbox, which isn't available here (ferb doctor says why)")
+        ok, out = await applescript.run(a.bundle_id, str(getattr(args, "script")),
+                                        timeout=float(getattr(args, "timeout_s")), sandbox=self.sandbox)
         return ToolResult({"ok": ok, "result": out}, is_error=not ok, read_sources=_sources(a.bundle_id))

@@ -4,8 +4,10 @@ ShellManager: start / read / send / wait / kill / list, with task ownership and 
 
 Processes belong to the task that started them; a worker only sees its own task's. When the task ends its
 processes are killed unless started as long-lived (servers); `ferb stop` kills them all; `ferb ps` / `ferb kill`
-list and end them. Commands run through /bin/sh in a clean environment (no FERB tokens, no API keys)."""
+list and end them. Commands run through /bin/sh in a clean environment (no FERB tokens, no API keys), under FERB's
+sandbox (sandbox.py): the daemon never starts a command without it, and a process FERB starts can't leave it."""
 
+import dataclasses
 import os
 import secrets
 import time
@@ -14,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from ferb.act.shell.pty_proc import PtyProc
+from ferb.act.shell.sandbox import Sandbox
 from ferb.sanitize.redact import RedactionStream
 from ferb.core.errors import Refused
 
@@ -38,13 +41,16 @@ class ProcInfo:
     long_lived: bool
     network: bool = False                     # it fetches from the network: its output is untrusted
     capture_error: str | None = None
+    sandboxed: bool = False                   # it runs under FERB's sandbox profile
+    lifted: str | None = None                 # the one rule an approved escape lifted for this run (D31)
 
 
 class ShellManager:
     def __init__(self, log_dir: Path, redact_text: Callable[[str], str],
-                 stream_factory: Callable[[], RedactionStream] | None = None) -> None:
+                 stream_factory: Callable[[], RedactionStream] | None = None, sandbox: Sandbox | None = None) -> None:
         self.log_dir, self.redact_text = log_dir, redact_text
         self.stream_factory = stream_factory
+        self.sandbox = sandbox                    # None only in unit tests of the PTY plumbing; the daemon always sets it
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}
 
     def _env(self) -> dict[str, str]:
@@ -54,15 +60,30 @@ class ShellManager:
         system = env.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin").split(":")
         env["PATH"] = ":".join(dict.fromkeys([e for e in extras if os.path.isdir(e)] + system))
         env["TERM"] = "dumb"
+        if self.sandbox is not None:
+            env.update(self.sandbox.env())
         return env
 
-    async def start(self, cmd: list[str], cwd: Path, owner_task: str, long_lived: bool = False,
-                    network: bool = False) -> ProcHandle:
+    async def start(self, command: str, cwd: Path, owner_task: str, long_lived: bool = False,
+                    network: bool = False, *, lift: str | None = None) -> ProcHandle:
+        """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted)."""
         pid = "p-" + secrets.token_hex(4)
-        p = PtyProc(cmd, cwd, self._env(), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory)
-        await p.start()
-        self._procs[pid] = (p, ProcInfo(pid, owner_task, " ".join(cmd[2:]) if cmd[:2] == ["/bin/sh", "-c"]
-                                        else " ".join(cmd), str(cwd), time.time(), True, None, long_lived, network))
+        if self.sandbox is None:
+            if lift is not None:
+                raise Refused("no sandbox here to lift a rule from")
+            argv, profile = ["/bin/sh", "-c", command], None
+        else:
+            argv = self.sandbox.argv(command, lift)
+            profile = self.sandbox.profile_path(argv)
+        p = PtyProc(argv, cwd, self._env(), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory,
+                    on_exit=lambda: Sandbox.cleanup(profile))
+        try:
+            await p.start()
+        except BaseException:
+            Sandbox.cleanup(profile)
+            raise
+        self._procs[pid] = (p, ProcInfo(pid, owner_task, command, str(cwd), time.time(), True, None, long_lived,
+                                        network, sandboxed=self.sandbox is not None, lifted=lift))
         return ProcHandle(pid, owner_task)
 
     def _get(self, h: ProcHandle) -> PtyProc:
@@ -94,8 +115,8 @@ class ShellManager:
     def list(self) -> list[ProcInfo]:
         out = []
         for p, info in self._procs.values():
-            out.append(ProcInfo(info.id, info.owner_task, info.command, info.cwd, info.started,
-                                p.exit_code is None, p.exit_code, info.long_lived, info.network, p.capture_error))
+            out.append(dataclasses.replace(info, running=p.exit_code is None, exit_code=p.exit_code,
+                                           capture_error=p.capture_error))
         return out
 
     def info(self, h: ProcHandle) -> ProcInfo:

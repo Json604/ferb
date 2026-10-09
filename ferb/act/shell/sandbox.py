@@ -1,0 +1,146 @@
+"""Own the macOS sandbox profile FERB's shell and AppleScript run under (S2, SQ3 revised, SQ5, D27, D31). Must not
+interpret the command: the profile is built from the protection lists only, and the same profile runs every command.
+
+Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, E1-E7 and the carried experiments):
+- Everything is allowed except what the lists deny, and the last matching rule wins (E1): FERB's own home is denied in
+  full, the workspace allowed back after it, and upload staging denied again after that.
+- Rules match the path the kernel reaches, so links are followed and a rule must name the resolved path (a rule on
+  /tmp/x never matches; /private/tmp/x does). Entries are emitted as resolved at FERB's start, as written, and as
+  written resolved now. The workspace allow is the literal folder only: an allow must never widen. On the Mac's
+  case-insensitive volume a rule also matches every case and Unicode-normalization spelling, even of a path that
+  doesn't exist yet (measured).
+- A never-read entry is denied for reads and writes (a path nobody may read is a path nobody may write); a never-write
+  entry for writes. Hardlinking a denied file is refused too, so no new name for a protected file can be made; a
+  hardlink made before (outside FERB) is a different path and is not covered.
+- Renaming a folder above a protected path would carry it to a path no rule names, so each such folder, and the
+  workspace itself, is denied as a literal (the folder, not its contents): files can still be made inside them.
+- The Keychain's service (com.apple.SecurityServer) is unreachable, so `security` fails at once and no Keychain prompt
+  can appear (E4). Trust evaluation goes through trustd and still works (URLSession, Go: measured), but programs that
+  list root certificates through the Keychain service (rustls-native-certs, e.g. Codex CLI) find none, so the shell's
+  environment names Apple's certificate bundle (SSL_CERT_FILE) for them.
+- No network except this Mac's own addresses, where FERB's proxy listens (E2). Seatbelt's "localhost" means any of the
+  Mac's own addresses (its LAN address too): `(allow network* (local ip "localhost:*"))` lets every connection out
+  (measured), so outbound is allowed only by remote address, and listening only by local address. Unix sockets are
+  network too and stay denied; the daemon's socket is named again last (a file rule on its folder doesn't stop a
+  connect: measured, E3).
+- Inside it, nothing can apply another sandbox (any deny rule makes `sandbox_apply` fail: E5), and setuid programs
+  such as sudo cannot start (E6).
+
+An approved escape lifts exactly one listed path rule for one run (`lift`); FERB's own state and the network rule are
+never lifted, and `admin` (sudo) is no profile change at all, since sudo can't start under any profile (Task 6 runs
+that one command outside it)."""
+
+import os
+import secrets
+import subprocess
+from pathlib import Path
+from typing import Callable
+
+from ferb.policy.protection import ADMIN, FERB_STATE, NETWORK, Entry, Protection
+
+SANDBOX_EXEC = "/usr/bin/sandbox-exec"
+SECURITY_SERVER = "com.apple.SecurityServer"
+CERT_BUNDLE = "/etc/ssl/cert.pem"            # Apple's root certificates as a file (macOS ships it)
+# What a program that starts its own macOS sandbox meets inside FERB's (E5); shown to agents, never enforced on them
+NESTED_SANDBOX = ("A program can't start its own macOS sandbox inside FERB's shell (FERB's sandbox applies to it). "
+                  "Codex CLI needs its sandbox off: --sandbox danger-full-access (its own approval setting stays), or "
+                  "--dangerously-bypass-approvals-and-sandbox only when the owner asked for no approvals.")
+
+
+def _q(path: Path) -> str:
+    """A path as an SBPL string literal."""
+    return '"' + str(path).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _forms(path: Path) -> list[Path]:
+    """A path as written and as the kernel reaches it (rules match the resolved path)."""
+    return list(dict.fromkeys((path, Path(os.path.realpath(path)))))
+
+
+class Sandbox:
+    def __init__(self, protection: Protection, profiles_dir: Path,
+                 proxy_port: Callable[[], int | None] = lambda: None, *, socket: Path | None = None) -> None:
+        self.protection, self.profiles_dir, self.proxy_port, self.socket = protection, profiles_dir, proxy_port, socket
+
+    def profile(self, lift: str | None = None) -> str:
+        p = self.protection
+        if lift is not None:
+            if lift in (FERB_STATE, NETWORK):
+                raise ValueError(f"{lift} is never lifted")
+            if lift == ADMIN:
+                raise ValueError("admin is no profile change: sudo can't start under any sandbox profile")
+            if p.entry(lift) is None:
+                raise ValueError(f"no such rule: {lift}")
+        lines = ["(version 1)", "(allow default)"]
+        lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.ferb_home)]
+        # The workspace exactly as FERB made it, never where a link there points: an allow must not widen
+        lines.append(f"(allow file-read* file-write* (subpath {_q(p.workspace)}))")
+        lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.uploads)]
+        lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in self._paths(p.reads, lift)]
+        lines += [f"(deny file-write* (subpath {_q(f)}))" for f in self._paths(p.writes, lift)]
+        folders = [f for g in (*p.guarded_parents(), p.workspace) for f in _forms(g)]
+        lines += [f"(deny file-write* (literal {_q(f)}))" for f in dict.fromkeys(folders)]
+        lines += [f'(deny mach-lookup (global-name "{SECURITY_SERVER}"))',
+                  "(deny network*)",
+                  '(allow network-outbound (remote ip "localhost:*"))',
+                  '(allow network-bind network-inbound (local ip "localhost:*"))']
+        if self.socket is not None:
+            lines += [f"(deny network-outbound (remote unix-socket (path-literal {_q(s)})))" for s in _forms(self.socket)]
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _paths(entries: list[Entry], lift: str | None) -> list[Path]:
+        """Each entry as resolved at FERB's start, as written, and as written resolved now (it may be a link since)."""
+        return list(dict.fromkeys(f for e in entries if e.id != lift for f in (e.path, *_forms(e.typed))))
+
+    def wrap(self, argv: list[str], lift: str | None = None) -> list[str]:
+        """argv under the profile. The profile file stays until `cleanup` (after the process ends): sandbox-exec reads
+        it after it starts, so removing it as soon as Popen returns failed every run (measured)."""
+        text = self.profile(lift)
+        self.profiles_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = self.profiles_dir / f"{secrets.token_hex(8)}.sb"
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        return [SANDBOX_EXEC, "-f", str(path), *argv]
+
+    def argv(self, command: str, lift: str | None = None) -> list[str]:
+        return self.wrap(["/bin/sh", "-c", command], lift)
+
+    @staticmethod
+    def profile_path(argv: list[str]) -> Path | None:
+        """The profile file a wrapped argv uses."""
+        return Path(argv[2]) if argv[:2] == [SANDBOX_EXEC, "-f"] else None
+
+    @staticmethod
+    def cleanup(path: Path | None) -> None:
+        if path is not None:
+            path.unlink(missing_ok=True)
+
+    def sweep(self) -> None:
+        """Profiles left by a daemon that stopped while its commands ran (at start, before any command)."""
+        for old in self.profiles_dir.glob("*.sb"):
+            old.unlink(missing_ok=True)
+
+    @staticmethod
+    def env() -> dict[str, str]:
+        """For the contained process's environment: root certificates as a file (see the module docstring)."""
+        return {"SSL_CERT_FILE": CERT_BUNDLE} if os.path.isfile(CERT_BUNDLE) else {}
+
+    def available(self) -> tuple[bool, str]:
+        """Whether a command can run contained: the binary exists and this profile compiles and runs `exit 0`."""
+        if not os.path.exists(SANDBOX_EXEC):
+            return False, f"{SANDBOX_EXEC} is missing"
+        try:
+            argv = self.argv("exit 0")
+        except (OSError, ValueError) as e:
+            return False, f"the profile couldn't be written: {e}"
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError) as e:
+            return False, f"sandbox-exec couldn't run: {e}"
+        finally:
+            self.cleanup(self.profile_path(argv))
+        if r.returncode != 0:
+            return False, f"sandbox-exec failed (exit {r.returncode}): {r.stderr.strip()[:300]}"
+        return True, "ok"

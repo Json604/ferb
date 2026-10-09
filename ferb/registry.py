@@ -13,7 +13,7 @@ from ferb.act.mac.driver import MacComputerDriver
 from ferb.act.mac.tools import (MacRecord, MacApps, MacAct, MacAppleScript, MacClick, MacPointer, MacMenu, MacOpen, MacScreenshot,
                                 MacSnapshot)
 from ferb.act.shell.manager import ShellManager
-from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRun, ShellSend, ShellStart, ShellWait
+from ferb.act.shell.tools import ShellKill, ShellList, ShellRead, ShellRules, ShellRun, ShellSend, ShellStart, ShellWait
 from ferb.core.interfaces import Capability
 
 
@@ -98,14 +98,17 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, recordings: Any = No
         r.add(BrowserRecord(router, f, recordings))
 
 
-def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordings: Any = None) -> None:
-    """Native Mac tools for the installed device profile."""
+def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordings: Any = None,
+            sandbox: Any = None) -> None:
+    """Native Mac tools for the installed device profile. AppleScript runs under FERB's sandbox, so without one it is
+    left out (never run uncontained: its `do shell script` would be a shell outside the sandbox)."""
     r.add(MacApps(driver, device_profile))
     r.add(MacOpen(driver, device_profile))
     r.add(MacSnapshot(driver, device_profile))
     r.add(MacMenu(driver, device_profile))
     r.add(MacAct(driver, device_profile))
-    r.add(MacAppleScript(driver, device_profile))
+    if sandbox is not None:
+        r.add(MacAppleScript(driver, device_profile, sandbox))
     r.add(MacScreenshot(driver, device_profile))
     r.add(MacClick(driver, device_profile))
     r.add(MacPointer(driver, device_profile))
@@ -142,8 +145,8 @@ def add_time(r: Registry, timers: Callable[[], Any], now: Callable[[], Any], sle
     r.add(TimeSleepUntil(timers, now, sleep, limit))
 
 
-def add_shell(r: Registry, shells: ShellManager) -> None:
-    """Task-owned shell processes."""
+def add_shell(r: Registry, shells: ShellManager, protection: Any) -> None:
+    """Task-owned shell processes, under FERB's sandbox; shell.rules lists its boundaries."""
     r.add(ShellRun(shells))
     r.add(ShellStart(shells))
     r.add(ShellWait(shells))
@@ -151,6 +154,7 @@ def add_shell(r: Registry, shells: ShellManager) -> None:
     r.add(ShellSend(shells))
     r.add(ShellKill(shells))
     r.add(ShellList(shells))
+    r.add(ShellRules(shells, protection))
 
 
 def add_recovery(r: Registry, snapshots: Any) -> None:
