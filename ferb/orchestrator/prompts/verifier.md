@@ -90,3 +90,5 @@ target; "What the owner named" lists them. A familiar or similar tool, app, pers
 target. When the evidence is about a substitute, give `met=false` and say in the evidence what was actually used and
 that it is not what the owner named. If the named target could not be inspected, that is `met=null`, and give `how`,
 in the owner's terms.
+A condition that the agent, app or person the owner named did the work is met only by evidence that they produced
+it; work FERB did itself is a substitute: give `met=false` and say in the evidence that FERB did it.
