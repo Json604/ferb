@@ -102,6 +102,24 @@ Carried to F5 (not a live check): when the shell sandbox lands, deny `~/.ferb/wo
 reads and writes, or move staging beside `~/.ferb/recovery`; until then a shell command could change a staged copy
 before the browser reads it (the upload's `bytes_match` reports different bytes).
 
+F4 live results (2026-10-09, the owner watching):
+- Passed: F4 checks 5 and 6 (restore in place, and beside as "notes (before FERB).txt" after the owner's own edit),
+  7 (Trash and restore from the installed daemon under TCC) and 8 (a snapshot from the LaunchAgent with no prompt,
+  listed by `tmutil listlocalsnapshots /` and `ferb restore`). After the live fixes: re-check 6 (the limits and one
+  `config.upgraded` line, each change in full), 7 ("22:48:04 HeyClicky came to the front — no FERB on-screen action in
+  progress (the last ended 4.9 s earlier); running: sleep 60 (started by this task)") and 8 ("desktop not observed
+  (paused) until 22:51:29").
+- Failed, then fixed by the live fixes above: Kaggle task 79bc5bfa (FERB did the work the owner gave Codex Astra,
+  selected a final submission, and the after-cleanup review reworded the checked answer), the macOS Desktop prompt on
+  an upload, the 100 MB download cap the owner never chose, and desktop changes listed next to unrelated FERB calls
+  (task fbe968b0, where Codex Astra opened Chrome itself).
+- Not run at sign-off (the owner chose to skip the test-page checks): live-fix re-checks 1–5, and F4 checks 1–4 and
+  9–16 below. They stay pending.
+- Observed: shell tasks of 60 s and 90 s took 1m57s and 2m29s end to end: planning about 10 s, the worker's own model
+  turns about 16–26 s, the check about 25–32 s (three model calls through the Codex CLI).
+
+Owner sign-off: F4 accepted (2026-10-09, "i think we can sign off f4 and move").
+
 ## 0.27 F4 — pending live checks
 
 Run after the final review and `ferb setup --update`, which installs F4 and republishes the browser extension. Use
