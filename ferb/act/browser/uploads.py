@@ -12,11 +12,13 @@ borrowed tab, or one kept open for them): Chromium reads the file again when the
 until the browser says the tab closed, or until the next start-up, which removes every copy a restart left behind.
 
 FERB's shell can write the workspace, so each folder here is held by a handle opened without following a link
-(O_NOFOLLOW), from `uploads/` down; the copy is made into its folder's handle from the original's handle, and every
-removal goes through the handle of the folder it is in. A link swapped into a path can't redirect, replace, re-stamp or
-remove anything outside `uploads/`. A link in place of one of FERB's folders is refused when staging and removed, never
-followed, when cleaning; a link in place of `uploads/` itself (or, until the next start-up, `outside/`) is left alone and
-reported, with nothing under it touched. What a cleanup can't remove is reported after the rest is removed."""
+(O_NOFOLLOW), from `uploads/` down; the copy is made into its folder's handle from the original's handle, never through
+a link at its own name (anything already there refuses the copy), and must still be a regular file at the path given to
+the browser; every removal goes through the handle of the folder it is in. A link swapped into a path can't redirect,
+replace, re-stamp or remove anything outside `uploads/`. A link in place of one of FERB's folders is refused when
+staging and removed, never followed, when cleaning; a link in place of `uploads/` itself (or, until the next start-up,
+`outside/`) is left alone and reported, with nothing under it touched. What a cleanup can't remove is reported after
+the rest is removed; an entry a concurrent cleanup already removed is no failure."""
 
 import errno
 import os
@@ -108,17 +110,21 @@ def _remove(at: int, name: str, shown: Path, left: list[str]) -> int:
         left.append(f"{shown}: {e.strerror or e}")
         return 0
     failed: list[str] = []
-    shutil.rmtree(name, dir_fd=at,
-                  onexc=lambda fn, path, exc: failed.append(f"{shown.parent / path}: {getattr(exc, 'strerror', exc)}"))
+
+    def note(fn: Callable[..., object], path: str, exc: BaseException) -> None:
+        if not isinstance(exc, FileNotFoundError):              # gone already (a concurrent cleanup): not a failure
+            failed.append(f"{shown.parent / path}: {getattr(exc, 'strerror', exc)}")
+    shutil.rmtree(name, dir_fd=at, onexc=note)
     left.extend(failed)
     return 0 if failed else 1
 
 
 def _names(copy: Path, leaf_fd: int, name: str) -> bool:
-    """`copy`, resolved as the browser will, still names the file made in the held folder (no folder swapped meanwhile)."""
+    """`copy`, resolved as the browser will, still names the regular file made in the held folder (no folder swapped
+    meanwhile, no link put in the copy's place)."""
     try:
-        return os.path.samestat(os.stat(copy, follow_symlinks=False),
-                                os.stat(name, dir_fd=leaf_fd, follow_symlinks=False))
+        made = os.stat(name, dir_fd=leaf_fd, follow_symlinks=False)
+        return stat.S_ISREG(made.st_mode) and os.path.samestat(os.stat(copy, follow_symlinks=False), made)
     except OSError:
         return False
 
@@ -161,8 +167,9 @@ class Uploads:
 
     def stage_from(self, tree: str, src_fd: int, source: str, sha256: str, tab: str | None = None) -> str:
         """Copy the open file src_fd (`source`: its real path, whose identity was just read through this handle) to
-        <root>[/outside]/<tree>/<random>/<its name> and return the copy's path, which must still name the copy. The
-        copy must hash to `sha256`; otherwise it is removed and refused. `tab` (`tab_key`): the tab shown the copy,
+        <root>[/outside]/<tree>/<random>/<its name> and return the copy's path, which must still name the copy, a
+        regular file. Anything already at that name (a planted link) refuses the copy. The copy must hash to `sha256`;
+        otherwise it is removed and refused. `tab` (`tab_key`): the tab shown the copy,
         which keeps it past its tree while that tab is open. Blocking: callers on the event loop run it in a thread."""
         if not _tree_name(tree):
             raise StagingFailed("no task owns this tab, so FERB has nowhere to keep its copy")
@@ -184,7 +191,12 @@ class Uploads:
             try:
                 leaf_fd = _open(leaf, at, shown / leaf)
                 held.append(leaf_fd)
-                if recovery.copy_into(src_fd, leaf_fd, src.name) != sha256:
+                try:
+                    digest = recovery.copy_into(src_fd, leaf_fd, src.name)
+                except FileExistsError:
+                    raise StagingFailed(f"{copy} was already taken (a link or a file put there); nothing was "
+                                        "copied") from None
+                if digest != sha256:
                     raise StagingFailed("the file changed while FERB copied it; inspect it again")
                 if not _names(copy, leaf_fd, src.name):
                     raise StagingFailed(f"{copy} no longer names FERB's copy (one of its folders was replaced)")
@@ -203,11 +215,11 @@ class Uploads:
 
     def closed(self, tab: str) -> bool:
         """That tab is gone (FERB closed it, or the browser said it closed): the copies it showed need not stay. Those
-        of a tree still running go when it ends. True when a tree that already ended has copies waiting: the caller
+        of a tree still running go when it ends. True when it showed a copy of a tree that already ended: the caller
         runs `collect` (in a thread)."""
         with self._lock:
-            self._shown.pop(tab, None)
-            return bool(self._ended)
+            leaves = self._shown.pop(tab, set())
+            return any(leaf[-2] in self._ended for leaf in leaves)
 
     def forget_tree(self, tree: str) -> int:
         """The task tree ended: its copies go, except those a tab still open shows (they go when it closes, or at the

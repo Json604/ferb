@@ -56,12 +56,25 @@ try:
     _libc.clonefile.restype = ctypes.c_int
     _libc.renamex_np.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
     _libc.renamex_np.restype = ctypes.c_int
-    _libc.fclonefileat.argtypes = (ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32)
-    _libc.fclonefileat.restype = ctypes.c_int
-    _libc.fchflags.argtypes = (ctypes.c_int, ctypes.c_uint)
-    _libc.fchflags.restype = ctypes.c_int
 except (OSError, AttributeError):        # not macOS: no clonefile / renamex_np; the byte copy and rename still work
     _libc = None
+
+
+def _optional(name: str, *argtypes: Any) -> Any:
+    """A libc function upload staging uses, or None where this system lacks it: only that path falls back (a byte copy
+    for fclonefileat); S1's clonefile and renamex_np above are unaffected."""
+    try:
+        fn = getattr(ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True), name)
+    except (OSError, AttributeError):
+        return None
+    fn.argtypes, fn.restype = argtypes, ctypes.c_int
+    return fn
+
+
+_fclonefileat = _optional("fclonefileat", ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32)
+_fchflags = _optional("fchflags", ctypes.c_int, ctypes.c_uint)
+CLONE_NOFOLLOW = 0x0001                   # clonefile(2); for fclonefileat it also keeps a link at the destination
+                                          # name from being followed: EEXIST, not a clone at its target (tested)
 
 
 class NotRestorable(Exception):
@@ -158,10 +171,11 @@ _READ_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 def _fclone(src_fd: int, dir_fd: int, name: str) -> None:
     """fclonefileat(2): an APFS clone of the open file src_fd as `name` in the open folder dir_fd. Raises OSError where
-    the volume can't clone. Never replaces an entry."""
-    if _libc is None:
+    the volume can't clone, and EEXIST when anything is at `name` — a link included, never followed (CLONE_NOFOLLOW;
+    without it a dangling link there makes the clone at the link's target)."""
+    if _fclonefileat is None:
         raise OSError(errno.ENOTSUP, "fclonefileat is unavailable")
-    if _libc.fclonefileat(src_fd, dir_fd, os.fsencode(name), 0) != 0:
+    if _fclonefileat(src_fd, dir_fd, os.fsencode(name), CLONE_NOFOLLOW) != 0:
         code = ctypes.get_errno()
         raise OSError(code, os.strerror(code))
 
@@ -202,20 +216,25 @@ def sha256_fd(fd: int) -> str:
 
 def copy_into(src_fd: int, dir_fd: int, name: str) -> str:
     """A new copy of the open file src_fd as `name` in the open folder dir_fd — an APFS clone where the volume allows
-    it, else a byte copy — and its SHA-256, read back through the folder. Both ends are handles, so a link swapped into
-    a path meanwhile can't redirect, replace or re-stamp anything. A lock flag the copy inherited is cleared, so its
-    cleanup can delete it. Upload staging gives a browser this copy; S1 keeps its own (`_make_copy`)."""
+    it, else a byte copy — and its SHA-256, read back through the folder. The source and the folder are handles and
+    neither the clone (CLONE_NOFOLLOW) nor the byte copy (O_EXCL | O_NOFOLLOW) goes through a link at `name`: anything
+    already there raises FileExistsError and nothing is written, so a link swapped into a path can't redirect, replace
+    or re-stamp anything. A lock flag the copy inherited is cleared (raising when it can't be), so its cleanup can
+    delete it. Upload staging gives a browser this copy; S1 keeps its own (`_make_copy`)."""
     try:
         _fclone(src_fd, dir_fd, name)
     except OSError as e:
         if e.errno == errno.EEXIST:
-            raise
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), name) from None
         _byte_copy_fd(src_fd, dir_fd, name)
     fd = os.open(name, _READ_FILE, dir_fd=dir_fd)
     try:
         flags = os.fstat(fd).st_flags
-        if flags & _LOCKED and _libc is not None:
-            _libc.fchflags(fd, flags & ~_LOCKED)
+        if flags & _LOCKED:                     # no errno code: these must never read as FileExistsError (name taken)
+            if _fchflags is None:
+                raise OSError("the copy's inherited lock flag can't be cleared: fchflags is unavailable")
+            if _fchflags(fd, flags & ~_LOCKED) != 0:
+                raise OSError(f"the copy's inherited lock flag can't be cleared: {os.strerror(ctypes.get_errno())}")
         return sha256_fd(fd)
     finally:
         os.close(fd)

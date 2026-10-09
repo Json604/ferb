@@ -2,6 +2,7 @@
 run's "Brave Browser would like to access files in your Desktop folder", task 79bc5bfa). The copy keeps the original's
 name and origin label (MP2); the original is only read; copies go when the task tree ends."""
 import asyncio
+import ctypes
 import errno
 import hashlib
 import os
@@ -383,3 +384,120 @@ def test_a_cleanup_removes_what_it_can_and_names_what_it_couldnt(tmp_path: Path)
         assert not other.exists() and stuck.exists() and any(str(stuck) in x for x in left.value.left)
     finally:
         os.chflags(stuck, 0)
+
+
+# ---------- fix round 2: no link at the copy's own name; concurrent cleanups report only real failures ----------
+
+def test_a_link_planted_at_the_copys_name_before_the_clone_creates_nothing_outside(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dangling link at <leaf>/<name>: fclonefileat without CLONE_NOFOLLOW created the clone at its target."""
+    original = tmp_path / "cv.pdf"
+    original.write_bytes(b"%PDF the owner's cv")
+    victim = tmp_path / "Documents"
+    victim.mkdir()
+    root = tmp_path / "uploads"
+    real = recovery._fclone
+
+    def planting(src_fd: int, dir_fd: int, name: str) -> None:
+        [leaf] = os.listdir(root / "tree1")
+        (root / "tree1" / leaf / name).symlink_to(victim / "planted.pdf")      # dangling: names a file not yet there
+        real(src_fd, dir_fd, name)
+    monkeypatch.setattr(recovery, "_fclone", planting)
+    with pytest.raises(StagingFailed, match="already taken"):
+        Uploads(root, lambda: ()).stage("tree1", str(original), _sha(original))
+    assert os.listdir(victim) == [] and os.listdir(root / "tree1") == []
+    assert original.read_bytes() == b"%PDF the owner's cv"
+
+
+def test_a_link_swapped_in_for_the_copy_after_it_was_made_is_not_given_to_the_browser(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    original = tmp_path / "cv.pdf"
+    original.write_bytes(b"%PDF the owner's cv")
+    elsewhere = tmp_path / "elsewhere.pdf"
+    elsewhere.write_bytes(b"%PDF the owner's cv")
+    root = tmp_path / "uploads"
+    real = recovery.copy_into
+
+    def swapping(src_fd: int, dir_fd: int, name: str) -> str:
+        digest = real(src_fd, dir_fd, name)
+        os.unlink(name, dir_fd=dir_fd)
+        os.symlink(elsewhere, name, dir_fd=dir_fd)                  # same name, now a link to a file outside
+        return digest
+    monkeypatch.setattr(recovery, "copy_into", swapping)
+    with pytest.raises(StagingFailed, match="no longer names FERB's copy"):
+        Uploads(root, lambda: ()).stage("tree1", str(original), _sha(original))
+    assert os.listdir(root / "tree1") == [] and elsewhere.read_bytes() == b"%PDF the owner's cv"
+
+
+def test_closing_a_tab_asks_for_a_collect_only_when_it_showed_a_copy_of_an_ended_tree(tmp_path: Path) -> None:
+    src = tmp_path / "a.txt"
+    src.write_bytes(b"x")
+    ups = Uploads(tmp_path / "uploads", lambda: ())
+    ups.stage("tree1", str(src), _sha(src), tab="p#1")
+    ups.stage("tree2", str(src), _sha(src), tab="p#2")
+    ups.forget_tree("tree1")                                    # tab 1 still shows a copy of an ended tree
+    assert ups.closed("p#9") is False                           # a tab that showed nothing
+    assert ups.closed("p#2") is False                           # its tree is still running: its end removes the copy
+    assert ups.closed("p#1") is True and ups.collect() == 1
+
+
+def test_concurrent_cleanups_report_no_failure_that_didnt_happen(tmp_path: Path) -> None:
+    """Closing a window of several tabs runs several collects at once; one removing what another is removing is no
+    failure."""
+    src = tmp_path / "a.txt"
+    src.write_bytes(b"x")
+    root = tmp_path / "uploads"
+    for round_ in range(5):
+        ups = Uploads(root, lambda: ())
+        tabs = [f"p#{i}" for i in range(6)]
+        for tab in tabs:
+            for _ in range(4):
+                ups.stage("tree1", str(src), _sha(src), tab=tab)
+        ups.forget_tree("tree1")
+        for tab in tabs:
+            ups.closed(tab)
+        failures: list[BaseException] = []
+        start = threading.Barrier(6)
+
+        def collect() -> None:
+            start.wait()
+            try:
+                ups.collect()
+            except BaseException as e:                          # noqa: BLE001 - the test reports any failure
+                failures.append(e)
+        workers = [threading.Thread(target=collect) for _ in range(6)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+        assert failures == [] and not (root / "tree1").exists(), (round_, failures)
+
+
+def test_a_missing_staging_function_only_disables_its_own_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert recovery._optional("ferb_no_such_libc_function") is None
+    assert recovery._libc is not None and recovery._libc.clonefile and recovery._libc.renamex_np   # S1 unaffected
+    monkeypatch.setattr(recovery, "_fclonefileat", None)        # no fclonefileat: a byte copy, never a failure
+    src = tmp_path / "cv.pdf"
+    src.write_bytes(b"%PDF")
+    copy = Path(Uploads(tmp_path / "uploads", lambda: ()).stage("tree1", str(src), _sha(src)))
+    assert copy.read_bytes() == b"%PDF" and copy.stat().st_mtime_ns == src.stat().st_mtime_ns
+
+
+def test_a_lock_flag_the_clone_inherited_that_cant_be_cleared_refuses_the_copy(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    src = tmp_path / "cv.pdf"
+    src.write_bytes(b"%PDF")
+    os.chflags(src, stat.UF_IMMUTABLE)                          # a locked original: its clone inherits the lock
+    root = tmp_path / "uploads"
+    def failing(fd: int, flags: int) -> int:
+        ctypes.set_errno(errno.EEXIST)                          # an errno that must not read as "the name was taken"
+        return -1
+    monkeypatch.setattr(recovery, "_fchflags", failing)
+    try:
+        with pytest.raises(OSError, match="lock flag can't be cleared"):
+            Uploads(root, lambda: ()).stage("tree1", str(src), _sha(src))
+    finally:
+        os.chflags(src, 0)
+        for dirpath, _, names in os.walk(root):
+            for n in names:
+                os.chflags(os.path.join(dirpath, n), 0)
