@@ -80,6 +80,9 @@ development.
   - Named targets (D34): the checker gives `how` for an uninspectable named target; such a task ends not confirmed.
   - Docs: the daemon-down/restart, 30 s idle and borrowed-release hand-backs in the D35 residuals; both forms of the
     retry question; what `ferb restore` prints; which screenshots keep facts only.
+  - D6/D26 clarified (owner, 2026-10-09): one start-of-task screenshot of the working app's window goes to the model,
+    then screenshots only on the model's request, never per step; the model-bound part is built in F5 after
+    screenshot redaction (plan, decision registry, architecture).
 - Carried to F5: full screenshot redaction; the destructive-action and sink confirmations that build on S1; never-read
   lists covering `~/.ferb/run` and `~/.ferb/recovery`; FERB's shell reaching the daemon socket; shell and AppleScript
   file changes, which get no per-file copy.

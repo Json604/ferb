@@ -29,7 +29,7 @@ summary = "No system log (log stream) monitoring: too much noise"
 [D6]
 milestone = "F4"
 tests = ["tests/test_evidence_store.py"]
-note = "F4: still no continuous capture or text recognition. When a worker starts on a Mac app, FERB stores one picture of that app's window as evidence (not sent to the model); browsers excluded, messaging and mail apps facts only until F5. Not built: a screenshot sent automatically with each task turn; workers take screenshots with the tools when they choose."
+note = "Clarified 2026-10-09 (owner: 'at start of every task its sent, then on command of model'): at the start of each task the model gets one screenshot of the window of the app the task works on, taken when the worker first starts on it (D26; D29: that window only, never the desktop); after that, screenshots go to the model only when it asks (mac.screenshot, browser.screenshot); no per-step screenshots (D20). F4 built: no continuous capture or text recognition; the app-start picture, stored as evidence only (browsers excluded, messaging and mail apps facts only until F5); after-action accessibility reads. The model-bound part is built in F5, right after screenshot redaction (D8, D13, D28), so no unredacted pixels reach a hosted model (rule 14)."
 summary = "No continuous screen capture or text recognition; a screenshot goes with each task turn"
 
 [D7]
@@ -131,7 +131,7 @@ summary = "CLAUDE.md is rewritten once planning ends to match this plan"
 [D26]
 milestone = "F4"
 tests = ["tests/test_evidence_store.py"]
-note = "F4 built the app-window picture when a worker starts on an app (once per task, worker and app; masked secret fields; evidence only) and per-step after-action reads (V2). The per-turn perception screenshot is not built (see D6)."
+note = "Clarified 2026-10-09 (see D6): 'each task turn' means the start of each task, then screenshots only when the model asks; never per model step. F4 built the app-window picture when a worker starts on an app (once per task, worker and app; masked secret fields; evidence only) and per-step after-action reads (V2). Sending that start-of-task picture to the model is built in F5 after screenshot redaction (D8, D13, D28)."
 summary = "One screenshot per task turn; screenshot when a worker starts on an app"
 
 [D27]

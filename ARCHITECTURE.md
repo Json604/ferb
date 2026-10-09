@@ -527,9 +527,11 @@ stores it as `app_window` on an `evidence.app_window` span. That happens once pe
 call itself returned an image (kept or facts only), not for browsers, not without the screen scope or with `[mac] snapshot_image` off; a failure,
 or a capture over 10 s, is logged on the span and never fails the call. The picture is evidence only: it does not go to
 the model. The checker lists captures with `task.evidence kind=evidence` and reads one by `evidence_id` (facts and
-origin; never bytes or paths; its own task's only). Retention deletes the file before the row. Not built: a screenshot
-sent automatically with each task turn (D6, D26); workers take screenshots with the tools when they choose. Stored
-images carry only accessibility-known masking until F5's screenshot redaction (D13, D28). V8's input exists: an
+origin; never bytes or paths; its own task's only). Retention deletes the file before the row. D6/D26 as clarified
+2026-10-09: the model gets this start-of-task picture of the working app's window, then screenshots only when it asks
+(`mac.screenshot`, `browser.screenshot`), never one per model step; sending the picture to the model is built in F5,
+after screenshot redaction, so no unredacted pixels reach a hosted model. Stored images carry only
+accessibility-known masking until F5's screenshot redaction (D13, D28). V8's input exists: an
 episode's `verified` flag and the task's stored evidence; learning from it is F8.
 
 **Unknown outcomes are never retried by code (P19).** Before a consequential call runs, `Ledger.intend(...,
