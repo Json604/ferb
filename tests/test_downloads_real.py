@@ -4,9 +4,10 @@ touched and no window is shown. The lab profile's own download folder is a temp 
 itself is visible as a file there (headless Chrome can't show a Save dialog: the on-screen check is the owner's).
 
 Proves the chosen mechanism end to end: a download in a tab FERB drives (an attachment URL opened or navigated to, a
-<a download> link, a page-made blob link) becomes a workspace file with facts and never a browser download; an owner tab
-FERB doesn't drive downloads as before; the size ceiling refuses before bytes move; a detached script-made blob link,
-which nothing tab-scoped can intercept, is reported as not taken (the measured residual).
+<a download> link, a page-made blob link, a FileSaver-style save, a new-tab link, a window.open popup tab and popup
+window) becomes a workspace file with facts and never a browser download; popups are claimed (token, new tab, opener
+id) and loaded by the page on FERB's "ready", not the hook's fallback; an owner tab FERB doesn't drive downloads as
+before; the size ceiling refuses before bytes move.
 
     uv run pytest -m real tests/test_downloads_real.py -s
 """
@@ -35,12 +36,17 @@ PAGE = b"""<!doctype html><title>Downloads lab</title>
 <button onclick="exportAttached()">Export</button>
 <button onclick="exportDetached()">Export detached</button>
 <a target=_blank href="/attach.bin?name=newtab.bin">New tab file</a>
-<button onclick="window.open('/attach.bin?name=popup.bin')">Popup file</button>
-<button onclick="window.open('/attach.bin?name=popwin.bin', '_blank', 'popup,width=400,height=300')">Popup window file</button>
-<button onclick="window.open('/oauth', '_blank', 'popup,width=400,height=300')">Sign in</button>
+<button onclick="openPopup('/attach.bin?name=popup.bin')">Popup file</button>
+<button onclick="openPopup('/attach.bin?name=popwin.bin', 'popup,width=400,height=300')">Popup window file</button>
+<button onclick="openPopup('/oauth', 'popup,width=400,height=300')">Sign in</button>
 <p id=status>not signed in</p>
 <script>
 addEventListener('message', (e) => { if (e.data === 'signed-in') document.getElementById('status').textContent = 'signed in via popup'; });
+// The page can see when FERB says its popup is ready (a document event); it records how long after window.open that
+// came, so the lab can tell the ready path from the hook's 1.5 s fallback.
+window.__pop = [];
+document.addEventListener('ferb-popup-ready', () => { const p = window.__pop[window.__pop.length - 1]; if (p) p.ready = performance.now() - p.opened; });
+function openPopup(u, f) { window.__pop.push({url: u, opened: performance.now(), ready: null}); f ? window.open(u, '_blank', f) : window.open(u); }
 function exportAttached() {          // a page-made file through a connected link, revoked at once
   const u = URL.createObjectURL(new Blob(['a,b\\n1,2\\n'], {type: 'text/csv'}));
   const a = document.createElement('a'); a.href = u; a.download = 'export.csv';
@@ -168,6 +174,9 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
             await asyncio.sleep(2)
             out["oauth_popup"] = await opened(tab, 5)
             out["oauth"] = "signed in via popup" in (await driver.snapshot(tab)).text
+            out["popup_timing"] = chrome.evaluate(chrome.sw, f"chrome.scripting.executeScript({{target: {{tabId: "
+                                                  f"{driver._tabs[tab.tab_id].chrome_id}}}, world: 'MAIN', func: () => "
+                                                  "window.__pop}).then(r => r[0].result)")
             borrowed = await driver.attach(f"chrome:Default:{newtab_owner}", "lab-task")
             await driver.navigate(borrowed, f"{site}/attach.bin?name=fromnewtab.bin")   # through a blank page
             out["from_new_tab_page"] = await driver.downloads_for(borrowed, 30)
@@ -213,6 +222,10 @@ def test_downloads_in_a_task_tab_become_workspace_facts_and_never_a_browser_down
         [popwin] = out["in_popup_window"]
         assert popwin["state"] == "taken" and popwin["name"] == "popwin.bin"
         assert out["oauth"] is True and out["oauth_popup"]             # the OAuth-style popup still answered its opener
+        # every popup was loaded on FERB's "ready" (claimed, confirmed by its opener id, made the task's, the page told),
+        # well before the hook's 1.5 s fallback would have loaded it
+        assert [p["url"] for p in out["popup_timing"]] == ["/attach.bin?name=popup.bin", "/attach.bin?name=popwin.bin", "/oauth"]
+        assert all(p["ready"] is not None and 0 < p["ready"] < 1500 for p in out["popup_timing"]), out["popup_timing"]
     assert out["opened_url"] in ("about:blank", "")                    # the page never became the download
     assert mid == [], mid                                              # nothing of the task's reached the browser's flow
     assert set(end) - set(mid) == {"after.bin", "owner.bin"}           # the owner's own downloads: untouched

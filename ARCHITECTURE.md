@@ -174,14 +174,24 @@ OOPIFs with `Page.addScriptToEvaluateOnNewDocument`, removed on release) asks co
 FileSaver-style save link (never added to the page) itself while briefly connected, so the capture listener takes it,
 and opens `window.open(url)` (a non-empty http(s) URL, no target or `_blank`, without `noopener`; anything else is
 native) as `about:blank#ferb-<token>` (`crypto.getRandomValues`, so plain-http pages work). FERB adopts a new tab only
-when it opened it itself (`browser.open`, a routed link) or when its URL is exactly `about:blank#ferb-<token>` for a
-token a live task tab relayed (either may come first; 2 s each; any window, so popup windows with features count).
-Chrome's `openerTabId` names the window's active tab (measured), so it is never used: the owner's own new tabs are
-never FERB's. FERB never navigates a popup: once the daemon has made it the task's (within the tab cap, `attached` from
-its opener) it sends `popup_ready`, content.js fires `ferb-popup-ready`, and the hook sets the popup's location once
-(normal Referer and navigation); without it the hook does so after 1.5 s. A page faking `ferb-popup-ready` only loads
-its own popup early. Measured in the headless lab on a plain-http, non-localhost origin: a popup tab's and a popup
-window's downloads are taken, and an OAuth popup's `window.opener.postMessage` reaches its opener. Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
+when it opened it itself (`browser.open`, a routed link) or when all three hold: the tab is new (`chrome.tabs.onCreated`,
+and this is its first URL report, there or in its first `onUpdated`; a later navigation of any tab never counts), that
+URL is exactly `about:blank#ferb-<token>` for a token a live task tab relayed (either may come first; 2 s each; any
+window, so popup windows with features count; 20 relays per opener tab, 100 in all, one per token), and, once attached,
+the browser itself names that task tab as the opener: the popup's `Target.getTargetInfo` `openerId` equals the task
+tab's own `targetId` (measured for a popup tab, a popup window and a popup opened from a cross-site iframe, whose
+`openerId` is still the tab; a popup of another tab names that tab). No match: detached at once, never reported, and
+the hook loads it natively after 1.5 s. The allowlist admits `Target.getTargetInfo` with no params only (another
+target's is also refused by Chrome, "Not allowed") and returns just the two ids. Chrome's `openerTabId` names the
+window's active tab (measured), so it is never used. So a tab that existed before can't be claimed, even by navigating
+itself to the magic URL while a frame in a task tab relays the token, and a new popup of the owner's own page is let go
+of. FERB never navigates a popup: once the daemon has made it the task's (within the tab cap, `attached` from its
+opener) it sends `popup_ready`, content.js fires `ferb-popup-ready` (and answers, so the result says the page was told),
+and the hook sets the popup's location once, only if the popup is still exactly at its blank URL (a page that navigated
+or closed its popup meanwhile keeps its own choice); without the ready, the hook does the same after 1.5 s. A page
+faking `ferb-popup-ready` only loads its own popup early. Measured in the headless lab on a plain-http, non-localhost
+origin: a popup tab's and a popup window's downloads are taken on the ready path (the page saw `ferb-popup-ready` well
+under 1.5 s after `window.open`), and an OAuth popup's `window.opener.postMessage` reaches its opener. Ownership, not the extension, decides: [`downloads.py`](ferb/act/browser/downloads.py)
 takes a download only while `Hub.task_tab` finds a running task's tab, else it is released back to the browser
 untouched (`download_part {release}` → `Fetch.continueRequest`); the hello lists armed tabs and the daemon disarms any it
 doesn't hold (a failed release, a restart); an unpulled hold goes back to the browser after 30 s (in FERB's own profile it
@@ -207,7 +217,10 @@ script-made save before content.js is injected; and a page's own save picker (`s
 FERB drives it (the patched functions, the `ferb-armed` answer) and can opt itself out of capture by answering
 `ferb-armed` itself or cancelling its own clicks: no escalation, its downloads then follow the browser's own flow.
 `Browser/Page.setDownloadBehavior` and `Browser.cancelDownload` are refused to extensions, and the tab session's
-`Target.setAutoAttach` doesn't attach popups.
+`Target.setAutoAttach` doesn't attach popups. A hooked popup shows `about:blank#ferb-<token>` until its page loads it,
+so same-origin pages (the opener, its frames) can read that token from the popup's URL for that moment; the token
+buys nothing but a claim of that very popup, which they opened. If a page navigates its popup itself and FERB's ready
+arrives before that navigation commits, the popup still reads as blank and the hook loads the original URL over it.
 
 Dialogs are explicit pending observations and explicit accept/dismiss choices. Email uses observed browser primitives,
 not a fixed Gmail compose/send recipe. OTP inbox candidates have opaque task/account/origin-bound IDs and masked

@@ -502,6 +502,8 @@
   // worker says this tab isn't armed (a stale listener), the click goes back to the browser at once.
   let downloadsArmed = false;
   const heldDownloads = new Map();                 // id -> {blob, name, href}
+  const HELD_MAX = 20;                             // caught links held or being read; a flood past it is dropped
+  let saving = 0;                                  // caught links whose bytes are still being read
   try { chrome.runtime.sendMessage({ ferbArmed: true }, (on) => { downloadsArmed = on === true; }); } catch (_) { /* no worker */ }
   const linkOf = (e) => (e.composedPath ? e.composedPath() : [])
     .find((n) => n instanceof HTMLAnchorElement || (typeof HTMLAreaElement !== "undefined" && n instanceof HTMLAreaElement));
@@ -528,13 +530,16 @@
     const href = a ? String(a.href || "") : "";
     if (!a || !a.hasAttribute("download") || !/^(blob|data):/i.test(href)) return;
     e.preventDefault();
+    if (heldDownloads.size + saving >= HELD_MAX) return;   // a page's flood of saves: dropped, never the browser's
     const id = randomId(), name = a.getAttribute("download") || "";
+    saving++;
     fetch(href).then((r) => r.blob()).then((blob) => {   // started now: a page may revoke the blob right after the click
+      saving--;
       heldDownloads.set(id, { blob, name, href });
       chrome.runtime.sendMessage({ ferbDownload: { id, name, mime: blob.type || null, size: blob.size,
         source_url: /^data:/i.test(href) ? "data:" + (href.slice(5).split(/[;,]/)[0] || "") : href.slice(0, 4096) } },
         (kept) => { if (kept === "drop") heldDownloads.delete(id); else if (kept !== true) releaseDownload(id); });
-    }).catch(() => { /* nothing to take; the browser never started a download either */ });
+    }).catch(() => { saving--; /* nothing to take; the browser never started a download either */ });
   }
   function onNewTab(e) {                           // bubble phase: trusted clicks on links to a new tab
     if (!downloadsArmed || e.defaultPrevented || e.isTrusted !== true) return;
@@ -543,7 +548,8 @@
     if (!a || !href || a.hasAttribute("download") || !/^https?:/i.test(href) || !opensNewTab(a, e)) return;
     e.preventDefault();
     const target = a.getAttribute("target") || "_blank";
-    const background = e.type === "auxclick" || e.metaKey || e.ctrlKey;   // the owner's intent, if it isn't FERB's
+    // the owner's intent, if it isn't FERB's: cmd/ctrl or middle click opens behind, with shift in front (as the browser)
+    const background = (e.type === "auxclick" || e.metaKey === true || e.ctrlKey === true) && e.shiftKey !== true;
     chrome.runtime.sendMessage({ ferbOpen: { url: href, background } }, (opened) => { if (opened !== true) passOn(href, target); });
   }
   addEventListener("click", onSave, true);
@@ -553,18 +559,21 @@
   // window.open it opened blank for a URL.
   if (typeof document.addEventListener === "function") {
     document.addEventListener("ferb-armed", (e) => { if (downloadsArmed) e.preventDefault(); });
-    document.addEventListener("ferb-popup", (e) => {
-      if (!downloadsArmed || typeof e.detail !== "string") return;
+    document.addEventListener("ferb-popup", (e) => {     // page content: cut to shape before it leaves the page
+      if (!downloadsArmed || typeof e.detail !== "string" || e.detail.length > 16384) return;
       let p = null;
       try { p = JSON.parse(e.detail); } catch (_) { return; }
-      if (p && typeof p.token === "string" && typeof p.url === "string") chrome.runtime.sendMessage({ ferbPopup: p });
+      if (p && typeof p.token === "string" && /^[0-9a-f]{32}$/.test(p.token) && typeof p.url === "string")
+        chrome.runtime.sendMessage({ ferbPopup: { token: p.token, url: p.url.slice(0, 8192) } });
     });
   }
-  // The service worker claimed the hook's popup and the daemon made it the task's: the hook loads its URL now.
+  // The service worker claimed the hook's popup and the daemon made it the task's: the hook loads its URL now. The
+  // answer tells the worker the page was reached (the lab checks the ready path was taken, not the 1.5 s fallback).
   try {
-    chrome.runtime.onMessage.addListener((m) => {
+    chrome.runtime.onMessage.addListener((m, sender, reply) => {
       if (m && typeof m.ferbPopupReady === "string") {
         document.dispatchEvent(new CustomEvent("ferb-popup-ready", { detail: m.ferbPopupReady }));
+        if (typeof reply === "function") reply(true);
       }
     });
   } catch (_) { /* no worker */ }

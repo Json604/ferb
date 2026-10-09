@@ -414,8 +414,9 @@ _cancels: set["asyncio.Task[None]"] = set()
 
 
 async def _pass_through(br: Bridge, tab_id: int, url: str, active: bool = True) -> None:
-    """The owner's own new-tab click caught by a listener in a tab no task drives any more: opened as they asked (a
-    modifier or middle click: in the background), the tab disarmed."""
+    """The owner's own new-tab click caught by a listener in a tab no task drives any more: opened as they asked (cmd/ctrl
+    or middle click: in the background; with shift, or a plain target=_blank click: in front, as the browser would), the
+    tab disarmed."""
     try:
         await br.call("open_plain", {"tab_id": tab_id, "url": url, "active": active}, timeout=10)
     finally:
@@ -655,7 +656,8 @@ class _TabDriver:
             check_url(url)
             await self._open_in(br, url, owner, window_id=window_id, attached=opener.attached,
                                 registered=lambda ref: entry.update(tab=ref.tab_id),
-                                abandon=lambda: owner in self._released)
+                                # let go of (release) or ended without one (its record gone): never load it as the task's
+                                abandon=lambda: owner in self._released or not self.task_running(owner))
         except (Refused, DriverError) as e:
             entry.update(error=f"FERB couldn't open the link's new tab: {e}")
 

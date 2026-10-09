@@ -793,3 +793,30 @@ def test_a_startup_step_that_fails_doesnt_skip_the_other(monkeypatch: Any) -> No
             d.stop()
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+# ---------- fix round 4 ----------
+
+def test_a_tab_opened_while_its_task_ended_without_releasing_is_let_go_of_too(bd: Any) -> None:
+    """The task tree ends (its record is gone) while a routed link's tab is still opening: no release happened, so
+    `_released` never names the task; the new tab must still be let go of, never loaded as the ended task's."""
+    import asyncio
+    d, launched = bd
+    ext, g, tab, chrome_id = _task_tab(d, launched)
+    br = d.daemon.hub.bridges[("chrome", "Profile 1")]
+    ext.open_delay = 0.5
+
+    async def race() -> None:
+        opening = asyncio.ensure_future(d.daemon.router.open_from(br, chrome_id, f"{SITE}/late", None))
+        await asyncio.sleep(0.1)
+        ext.open_delay = 0.0
+        d.daemon.tasks.remove(g.task_id)                              # the tree ended; nobody called release
+        await opening
+    d.run(race(), timeout=20)
+    assert f"{SITE}/late" not in ext.tabs.values()
+    assert not any(t.owner == g.task_id and t.url == f"{SITE}/late" for t in d.daemon.router._tabs.values())
+
+
+def test_the_lab_chrome_never_uses_a_system_proxy() -> None:
+    from tests import chromelab
+    assert "--no-proxy-server" in chromelab.LAB_ARGS

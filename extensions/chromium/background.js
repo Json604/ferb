@@ -605,9 +605,13 @@ async function onPaused(src, params) {
 
 // content.js caught a blob/data download link; it keeps the bytes only if this tab is armed (true), else hands the click
 // back to the browser itself (false: a stale listener in a tab FERB no longer drives never eats the owner's click).
+// Bounded: a page's flood of saves past 20 held in its tab (100 in all) is dropped ("drop"), never the browser's.
+const PAGE_HOLDS_PER_TAB = 20, PAGE_HOLDS_MAX = 100;
 function pageDownload(tabId, frameId, d) {
   const t = TABS.get(tabId);
   if (!d || typeof d.id !== "string" || !t || !t.armed || !port) return profileIdentity === "ferb" ? "drop" : false;
+  const held = [...downloads.values()].filter((tr) => tr.page);
+  if (held.length >= PAGE_HOLDS_MAX || held.filter((tr) => tr.tabId === tabId).length >= PAGE_HOLDS_PER_TAB) return "drop";
   const tr = { id: "d-" + crypto.randomUUID().replace(/-/g, "").slice(0, 16), tabId, sessionId: null, requestId: null,
                stream: null, page: { frameId, ref: d.id }, offset: 0, timer: null };
   downloads.set(tr.id, tr);
@@ -629,17 +633,25 @@ function pageOpen(tabId, o) {
   return true;
 }
 
-// Popups (D35): FERB claims only a tab it can prove the page hook of a live task tab opened: its URL is exactly
-// about:blank#ferb-<token> and that task tab relayed the token (either may come first; each waits 2 s). The window
-// doesn't matter (a popup window with features counts). Nothing else is adopted: Chrome's openerTabId names the
-// window's active tab (measured), so the owner's own new tabs are never FERB's. FERB never navigates the popup: once it
-// is armed and the daemon has made it the task's (popup_ready), the opener's page is told and the hook loads the URL
-// itself, once; without that, the hook loads it after 1.5 s.
+// Popups (D35): FERB claims only a NEW tab it can prove the page hook of a live task tab opened: the tab appeared in
+// chrome.tabs.onCreated and its first URL report (there, or its first onUpdated url) is exactly about:blank#ferb-<token>
+// for a token that task tab relayed (either may come first; each waits 2 s); then, attached, the browser itself names
+// that task tab as the opener (Target.getTargetInfo: the popup's openerId is the opener tab's own targetId, measured
+// for a popup tab, a popup window with features and a popup opened from a cross-site iframe). So a tab that existed
+// before can't be claimed by navigating itself to that URL, and a new popup of some other tab (the owner's) at that URL
+// is let go of at once. Chrome's openerTabId names the window's active tab (measured), so it is never used. FERB never
+// navigates the popup: once it is armed and the daemon has made it the task's (popup_ready), the opener's page is told
+// and the hook loads the URL itself, once; without that, the hook loads it after 1.5 s. Bounded: 20 relays per opener
+// tab and 100 in all (oldest dropped), one relay per token.
 const POPUP_URL = /^about:blank#ferb-([0-9a-f]{32})$/;
-const popupRelays = new Map();       // token -> {opener, frameId, url, at}
-const popupTabs = new Map();         // token -> {tabId, at}: the tab appeared before the relay
+const POPUP_WINDOW_MS = 2000, RELAYS_PER_OPENER = 20, RELAYS_MAX = 100, NEW_TABS_MAX = 200;
+const popupRelays = new Map();       // token -> {opener, frameId, url, at}, oldest first
+const popupTabs = new Map();         // token -> {tabId, at}: the new tab appeared before the relay
+const newTabs = new Map();           // tabId -> {at}: created just now, its first URL not reported yet
+const relayedTokens = new Map();     // token -> {at}: relayed once already
 function prunePopups(now) {
-  for (const m of [popupRelays, popupTabs]) for (const [k, v] of m) if (v.at < now - 2000) m.delete(k);
+  for (const m of [popupRelays, popupTabs, newTabs, relayedTokens])
+    for (const [k, v] of m) if (v.at < now - POPUP_WINDOW_MS) m.delete(k);
 }
 function pageHookPopup(tabId, frameId, p) {
   const t = TABS.get(tabId);
@@ -647,12 +659,17 @@ function pageHookPopup(tabId, frameId, p) {
       !/^https?:/i.test(p.url) || !t || !t.armed || !port) return false;
   const now = Date.now();
   prunePopups(now);
+  if (relayedTokens.has(p.token)) return false;                      // the first relay for a token wins
+  relayedTokens.set(p.token, { at: now });
+  const mine = [...popupRelays].filter(([, r]) => r.opener === tabId);
+  if (mine.length >= RELAYS_PER_OPENER) popupRelays.delete(mine[0][0]);
+  if (popupRelays.size >= RELAYS_MAX) popupRelays.delete(popupRelays.keys().next().value);
   popupRelays.set(p.token, { opener: tabId, frameId, url: p.url.slice(0, 8192), at: now });
   const waiting = popupTabs.get(p.token);
   if (waiting) { popupTabs.delete(p.token); claimPopup(p.token, waiting.tabId); }
   return true;
 }
-function seenTab(tabId, url) {
+function popupCandidate(tabId, url) {              // a new tab's first URL
   const m = POPUP_URL.exec(String(url || ""));
   if (!m) return;
   const now = Date.now();
@@ -660,19 +677,51 @@ function seenTab(tabId, url) {
   if (popupRelays.has(m[1])) claimPopup(m[1], tabId);
   else if (!popupTabs.has(m[1])) popupTabs.set(m[1], { tabId, at: now });
 }
-chrome.tabs.onCreated.addListener((tab) => seenTab(tab.id, tab.pendingUrl || tab.url));
-chrome.tabs.onUpdated.addListener((id, info) => { if (info && info.url) seenTab(id, info.url); });
+function tabCreated(tab) {
+  const url = tab.pendingUrl || tab.url || "";
+  if (url) { popupCandidate(tab.id, url); return; }  // its first URL is known now
+  const now = Date.now();
+  prunePopups(now);
+  if (newTabs.size >= NEW_TABS_MAX) newTabs.delete(newTabs.keys().next().value);
+  newTabs.set(tab.id, { at: now });
+}
+function tabUpdated(tabId, url) {
+  const fresh = newTabs.get(tabId);
+  newTabs.delete(tabId);                             // only a new tab's first URL report; a later navigation never
+  if (fresh && fresh.at >= Date.now() - POPUP_WINDOW_MS) popupCandidate(tabId, url);
+}
+chrome.tabs.onCreated.addListener(tabCreated);
+chrome.tabs.onUpdated.addListener((id, info) => { if (info && info.url) tabUpdated(id, info.url); });
 async function claimPopup(token, tabId) {
   const relay = popupRelays.get(token);
   popupRelays.delete(token);
   const opener = relay ? TABS.get(relay.opener) : null;
   if (!relay || !opener || !opener.armed || !port || (TABS.get(tabId) || {}).armed) return;
+  const t = tabState(tabId);
   try {
-    const t = await arm(tabId);
+    if (!t.attached) {
+      await chrome.debugger.attach({ tabId }, "1.3");
+      t.attached = true; t.detached = null; t.ready = false; t.armed = false;
+    }
+    if (!(await openedBy(tabId, relay.opener))) {    // not that task tab's popup after all: let it be (the hook loads it)
+      await detach(tabId);
+      return;
+    }
+    await arm(tabId);
     t.popup = true;
     t.popupFor = { opener: relay.opener, frameId: relay.frameId, token };
     await send("event", { event: "popup", tab_id: tabId, opener_tab_id: relay.opener, url: maskUrl(relay.url) });
   } catch (e) { console.warn("FERB popup:", String(e.message || e)); }
+}
+// The browser's own word on who opened a tab: the popup's openerId must be the relaying task tab's own target id. Each
+// session answers for its own target only. Unanswerable (an older browser, a detached session): not confirmed.
+async function openedBy(tabId, openerTabId) {
+  try {
+    const own = await cdp(tabId, "Target.getTargetInfo", {});
+    const opener = await cdp(openerTabId, "Target.getTargetInfo", {});
+    const by = own.targetInfo && own.targetInfo.openerId, id = opener.targetInfo && opener.targetInfo.targetId;
+    return typeof by === "string" && by.length > 0 && by === id;
+  } catch (_) { return false; }
 }
 
 function idle(tr) {
@@ -951,12 +1000,13 @@ const commands = {
     return { opened: true, tab_id: tab.id, window_id: tab.windowId };
   },
   // The daemon made a claimed popup the task's: tell the opener's page, whose hook loads the URL (FERB never does).
+  // `told`: content.js in that frame answered, so the page was reached (else the hook's 1.5 s fallback loads it).
   async popup_ready({ tab_id }) {
     const t = TABS.get(tab_id), f = t && t.popupFor;
     if (!f) return { ready: false };
     t.popupFor = null;
-    await chrome.tabs.sendMessage(f.opener, { ferbPopupReady: f.token }, { frameId: f.frameId });
-    return { ready: true };
+    const told = await chrome.tabs.sendMessage(f.opener, { ferbPopupReady: f.token }, { frameId: f.frameId });
+    return { ready: true, told: told === true };
   },
   // The daemon holds no live task tab here (a failed release, a restart): stop holding its downloads, never close it.
   async disarm({ tab_id }) {

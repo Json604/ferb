@@ -49,12 +49,13 @@ are reported, still without a dialog. The files are FERB's working copies: after
 when the folder passes `browser.download_total_mb` (2048), they move to the Trash. While a task drives one of your
 tabs, downloads in that tab and in tabs opened from it go to FERB, not to your Downloads; tabs opened from your tab
 are released to you, never closed, when the task ends. Your downloads in other tabs, and in your tab once the task
-lets go of it, are never touched. FERB adopts only tabs it opened itself and popups its own page hook opened in a task
-tab; your own new tabs are never FERB's. What still reaches the browser itself (it may ask where to save): a download
-already held when you press Cancel on the "started debugging" bar, a new tab FERB didn't open (a popup opened with
-`noopener`, a form posted to a new tab, a script's click on a link), and pages' own save pickers
-(`showSaveFilePicker`); the task is told when FERB saw it. A page can tell FERB is driving it and can opt itself out
-of capture; its downloads then behave as usual.
+lets go of it, are never touched. FERB adopts only tabs it opened itself and new popups that the browser confirms a task
+tab opened (through FERB's own page hook); a tab that already existed is never claimed, and a new tab that your own
+page opened is let go of at once. What still reaches the browser itself (it may ask where to save): a download already
+held when you press Cancel on the "started debugging" bar, a new tab FERB didn't open (a popup opened with `noopener`,
+a form posted to a new tab, a script's click on a link), and pages' own save pickers (`showSaveFilePicker`); the task
+is told when FERB saw it. A page can tell FERB is driving it and can opt itself out of capture; its downloads then
+behave as usual. A popup a task page opens shows `about:blank#ferb-<token>` for a moment before the page loads it.
 
 Optional: `ferb setup --voice` builds the background microphone app. Hold Right Option to talk; release to send.
 `ferb chat --speak` speaks terminal replies. Pending questions accept free text, including corrections.

@@ -31,8 +31,9 @@ const _only = (p, keys) => Object.keys(p).length === keys.length && keys.every((
 // a save through a download link the page never added (FileSaver.js style), clicked while connected so content.js's
 // capture listener takes it; and window.open(url) for an http(s) URL in a new tab or window, opened as
 // about:blank#ferb-<token> (the page keeps its real window and opener) so FERB can claim exactly that tab and arm it;
-// the hook then loads the URL itself, once: when content.js says the popup is ready, or after 1.5 s. FERB never
-// navigates it. A page that fakes "ferb-popup-ready" only loads its own popup early. It never masks itself.
+// the hook then loads the URL itself, once: when content.js says the popup is ready, or after 1.5 s, and only while the
+// popup is still exactly at that blank URL (a page that navigated or closed its popup meanwhile keeps its own choice).
+// FERB never navigates it. A page that fakes "ferb-popup-ready" only loads its own popup early. It never masks itself.
 function ferbPageHook() {
   const MARK = Symbol.for("ferb.page-hook");
   if (window[MARK]) return;
@@ -67,13 +68,17 @@ function ferbPageHook() {
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
     const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-    const popup = open.call(window, "about:blank#ferb-" + token, "_blank", features);
+    const blank = "about:blank#ferb-" + token;
+    const popup = open.call(window, blank, "_blank", features);
     if (!popup) return popup;
     let loaded = false;
     const load = () => {
       if (loaded) return;
       loaded = true;
       document.removeEventListener("ferb-popup-ready", onReady);
+      let at = "";
+      try { if (popup.closed) return; at = String(popup.location.href); } catch (_) { return; }   // closed, or another origin's now
+      if (at !== blank) return;                                        // the page sent it somewhere itself: its URL stands
       try { popup.location.href = href; } catch (_) { /* closed meanwhile */ }
     };
     const onReady = (e) => { if (e.detail === token) load(); };
@@ -94,8 +99,10 @@ const CDP_ALLOW = {
   "Page.setInterceptFileChooserDialog": (p) => p.enabled === true && Object.keys(p).length === 1,
   "Emulation.setFocusEmulationEnabled": (p) => typeof p.enabled === "boolean",   // input lands only with it
   "Target.setAutoAttach": (p) => p.autoAttach === true && p.waitForDebuggerOnStart === false && p.flatten === true
-    && Object.keys(p).length === 3,                                         // OOPIFs through the tab session;
-                                                                            // the only Target.* call ever allowed
+    && Object.keys(p).length === 3,                                         // OOPIFs through the tab session
+  // Who opened a claimed popup (D35): this session's own target only (no targetId: another target's is refused by
+  // Chrome too, "Not allowed", measured); the return is cut to its own id and its opener's. No other Target.* call.
+  "Target.getTargetInfo": (p) => Object.keys(p).length === 0,
   "Emulation.setDeviceMetricsOverride": (p) => p.width === 1280 && p.height === 900 && p.deviceScaleFactor === 1
     && p.mobile === false && Object.keys(p).length === 4,                   // layout independent of the window
   // trusted input. Coordinates are CSS px of the top viewport.
@@ -163,6 +170,7 @@ const CDP_RETURN_FIELDS = {                 // filtered return fields (only thes
   "Fetch.takeResponseBodyAsStream": ["stream"],
   "IO.read": ["data", "base64Encoded", "eof"],
   "Page.addScriptToEvaluateOnNewDocument": ["identifier"],
+  "Target.getTargetInfo": { targetInfo: ["targetId", "openerId"] },   // never its URL or title
 };
 
 function cdpAllowed(method, params) {
@@ -174,8 +182,14 @@ function cdpAllowed(method, params) {
 function cdpFilter(method, result) {
   const keep = CDP_RETURN_FIELDS[method];
   if (!keep) return {};
-  const out = {};
-  for (const k of keep) if (result && k in result) out[k] = result[k];
+  const pick = (obj, keys) => {
+    const out = {};
+    for (const k of keys) if (obj && typeof obj === "object" && k in obj) out[k] = obj[k];
+    return out;
+  };
+  if (Array.isArray(keep)) return pick(result, keep);
+  const out = {};                                   // {field: [subfields]}: an object field cut to those keys
+  for (const k of Object.keys(keep)) if (result && k in result) out[k] = pick(result[k], keep[k]);
   return out;
 }
 

@@ -32,6 +32,10 @@ import pytest
 
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 HOST_NAME = "com.ferb.native_host"
+# Every lab Chrome: no first-run UI, no window, the unpacked extension debuggable, and never a system proxy (lab
+# traffic goes to the local servers and nowhere else).
+LAB_ARGS = ["--no-first-run", "--no-default-browser-check", "--no-startup-window", "--enable-unsafe-extension-debugging",
+            "--no-proxy-server"]
 
 
 class CdpError(Exception):
@@ -50,9 +54,7 @@ class ChromeLab:
             os.set_inheritable(3, True)
             os.set_inheritable(4, True)
 
-        args = [CHROME, "--remote-debugging-pipe", f"--user-data-dir={user_data_dir}", "--no-first-run",
-                "--no-default-browser-check", "--no-startup-window", "--enable-unsafe-extension-debugging",
-                *(extra_args or [])]
+        args = [CHROME, "--remote-debugging-pipe", f"--user-data-dir={user_data_dir}", *LAB_ARGS, *(extra_args or [])]
         self.proc = subprocess.Popen(args, preexec_fn=child_fds, close_fds=False, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.DEVNULL)
         os.close(to_chrome_r)
