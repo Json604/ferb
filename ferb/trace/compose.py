@@ -121,6 +121,10 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
     root: dict[str, Any] = next((n for n in forest if n["kind"] == "task"), {})
     result = outcome.get("result") or {}
     row: dict[str, Any] = next((t for t in outcome.get("tasks") or [] if t.get("id") == task_id), {})
+    checked = next((r["verification"] for r in reversed(outcome.get("outcome_records") or [])
+                    if isinstance(r.get("verification"), list)), None)
+    # What a check judged: the outcome's verification rows (they include FERB's report condition), else the plan's
+    checked_count = len(checked) if checked else len(conditions_text)
 
     steps: list[dict[str, Any]] = []
     retry_starts: list[str] = []
@@ -141,7 +145,7 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             if kind == "model.dispatch" and _json((n.get("output") or {}).get("text")).get("action") == "retry":
                 retry_starts.append(n["started_at"])
         elif role == "Checker":
-            mark, text = _checker(n, len(conditions_text))
+            mark, text = _checker(n, checked_count)
         else:
             mark, text = _worker(n)
         steps.append({"at": n["started_at"], "role": role, "seconds": _secs(n["started_at"], n.get("ended_at")),
@@ -210,8 +214,6 @@ def compose(trace: dict[str, Any]) -> dict[str, Any]:
             t["calls"] += 1
             t["errors"] += 1 if n.get("error") else 0
 
-    checked = next((r["verification"] for r in reversed(outcome.get("outcome_records") or [])
-                    if isinstance(r.get("verification"), list)), None)
     conditions = ([{"text": v.get("condition", ""), "met": v.get("met"), "evidence": v.get("evidence", "")}
                    for v in checked] if checked
                   else [{"text": t, "met": None, "evidence": ""} for t in conditions_text])

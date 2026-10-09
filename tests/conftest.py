@@ -308,15 +308,15 @@ def complete_report_verdict(script: "Script", context: str, final: str) -> str:
     doesn't answer it gets met=True for it, so those tests keep testing what they did. A test about the report
     condition answers it itself, or sets script.fill_report_verdict = False to leave it unanswered."""
     from ferb.orchestrator.supervisor import REPORT_CONDITION
-    found = re.search(r"^([0-9]+)\. " + re.escape(REPORT_CONDITION.text) + r"$", context, re.M)
-    if not script.fill_report_verdict or found is None:
+    found = re.findall(r"^([0-9]+)\. " + re.escape(REPORT_CONDITION.text) + r"$", context, re.M)
+    if not script.fill_report_verdict or not found:
         return final
     try:
         verdict = json.loads(final)
     except ValueError:
         return final
     results = verdict.get("results") if isinstance(verdict, dict) else None
-    index = int(found.group(1))
+    index = int(found[-1])                    # numbered last: a planner condition in the same words comes first
     if not isinstance(results, list) or any(isinstance(r, dict) and r.get("index") == index for r in results):
         return final
     results.append({"index": index, "met": True, "evidence": "Scripted: the report matches the records.", "how": None})

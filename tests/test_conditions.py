@@ -32,7 +32,8 @@ def test_the_verifier_may_say_how_the_owner_can_check_a_condition() -> None:
 
 
 def test_an_unconfirmed_condition_shows_how_to_check_it() -> None:
-    tree = SimpleNamespace(stop_reason="", verification=[1], owner_question=None)
+    planned = SimpleNamespace(success_conditions=[1, 2, 3])          # results 0-2 are the planner's conditions
+    tree = SimpleNamespace(stop_reason="", verification=[1], owner_question=None, spec=planned)
     results = [ConditionResult(0, "the email was sent", None, "verifier", "Sent wasn't readable",
                                how="Open Gmail and look in Sent."),
                ConditionResult(1, "the file exists", False, "verifier", "missing", how="ignored when false"),
