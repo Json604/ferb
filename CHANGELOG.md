@@ -10,6 +10,17 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0-dev — 2026-10-11 — F5 checkout, pending final validation/live checks
+
+- Executable-pinned local services through the authenticated proxy; trustd denied unless lifted for one exact command.
+- Exact-command escape grants, contained elevated execution with hidden passwords, identity-bound tools and clipboard attribution.
+- Contextual OTP/card classes, fail-closed on-device screenshot redaction, one initial app/tab image, hidden native/browser fills,
+  split OTP controls and optional target-bound Keychain handles through a locally signed helper.
+- Metadata-only disk sizes, concrete irreversible-bulk confirmations, destructive classification in forced shadow, alignment advice,
+  daily security facts, regression send switch and containment statistics. FDA setup waits for working containment.
+- No installed-daemon/browser changes or live claims. Python/JavaScript/Swift compilation checked; test execution deferred to the
+  combined final pass requested by the owner.
+
 ## 0.27.0-dev — 2026-10-09 — F4 live fixes
 
 From the owner's live acceptance run of F4 (tasks `79bc5bfa`, `fbe968b0`). Commits `6b7eb85` through this documentation

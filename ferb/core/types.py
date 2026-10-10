@@ -181,7 +181,16 @@ class RuntimeEvent:
 # ---------- tools ----------
 
 # What a call does to a file it names (a capability's `file_paths`): the protection lists check each one (rule 10).
-FileAccess = Literal["read", "write", "remove"]
+FileAccess = Literal["read", "write", "remove", "metadata"]
+
+
+@dataclass(frozen=True)
+class EscapeGrant:
+    rule: str
+    confirmation_id: str
+    command: str
+    cwd: str
+    secret: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -201,6 +210,7 @@ class ToolContext:
     # The protection lists' check of a file as the tool really opened it (macOS F_GETPATH) and what it does to it:
     # the error to return when the lists close it, else None. None when the daemon has no lists (rule 10).
     path_closed: Callable[[Path, str], str | None] | None = None
+    escape: EscapeGrant | None = None
 
 
 @dataclass(frozen=True)

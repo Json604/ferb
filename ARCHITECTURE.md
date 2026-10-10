@@ -746,7 +746,7 @@ approvals included; shell file changes, which get no per-file copy; and upload c
 `~/.ferb/workspace/uploads`, so when the shell sandbox lands it is denied that folder for reads and writes, or staging
 moves beside `~/.ferb/recovery` (F4 live fixes).
 
-## 12. Containment and confirmations (F5a)
+## 12. Containment, confirmations and secret capture (F5)
 
 **The protection lists** ([`policy/protection.py`](ferb/policy/protection.py), S2, SQ3 revised, SQ5, D27, rule 10).
 `[protection]` in `config.toml` names the never-read stores and the never-write places. Code always adds FERB's own
@@ -787,7 +787,7 @@ What was measured on this Mac (the Task 2 report has each run):
 - Rules match resolved paths, and on the case-insensitive volume every case and Unicode spelling.
 - Hardlinks and clones of a denied file are refused.
 - `security` fails at once with no prompt.
-- Trust evaluation still works (URLSession, Go).
+- Historical Task 2 profile allowed trust evaluation; T3b now denies trustd by default (live compatibility pending).
 - Programs that list root certificates through the Keychain service (rustls-native-certs, e.g. Codex CLI) find none,
   so the shell's environment sets `SSL_CERT_FILE` to Apple's `/etc/ssl/cert.pem`.
 
@@ -818,7 +818,7 @@ proxy (below) otherwise keeps the shell off every other local listener.
 the Mac. The daemon starts it on `127.0.0.1:<port>` with the shell, and closes it after the shell's processes at
 shutdown.
 - **Credentials.** Each shell process gets its own: `HTTP(S)_PROXY`/`ALL_PROXY` (and the lowercase twins) are
-  `http://<process id>:<token>@127.0.0.1:<port>`, with `NO_PROXY=localhost,127.0.0.1,::1` and `NODE_USE_ENV_PROXY=1`.
+  `http://<process id>:<token>@127.0.0.1:<port>`, with `NODE_USE_ENV_PROXY=1`; `NO_PROXY` is empty when local pins are configured, otherwise the loopback list.
   - A missing, wrong or forgotten credential gets 407, and nothing is forwarded.
   - The token lives in memory only, and the redactor scrubs it from output, logs and spans.
   - Another process can't read it: macOS returns no environment for another process through `KERN_PROCARGS2`, even
@@ -900,7 +900,7 @@ Residuals:
 - **trustd.** It fetches the AIA, OCSP and CRL URLs of any certificate a contained process asks it to evaluate. A
   crafted certificate makes trustd send a GET, with data in the URL, to any host, outside the proxy (measured with a
   local listener). Denying trustd would end TLS for Go programs such as `gh`, because Go on macOS has no file trust
-  store. This is for the owner to decide.
+  store. Owner decided to deny it by default; D31 can lift only `trustd` for one exact command.
 - **Listener timing.** The listener list is the one when a command starts. A server another program opens later is
   reachable from a long-running contained process until that process ends. For a `background=true` process, and for a
   detached (setsid) child of a foreground command, that window has no end. Polling to record those later connections
@@ -912,8 +912,10 @@ Residuals:
   resolver and trustd were measured. WebKit's networking process is unmeasured, because pyobjc WebKit isn't installed.
 - **Name resolution.** NSURLSession can't resolve `localhost` once the resolver service is denied, so Apple-framework
   clients reach a dev server by `127.0.0.1`. curl, Python, Node and Go resolve `localhost` from `/etc/hosts`.
-- **The owner's own local servers.** FERB's shell can't reach servers the owner runs: a dev server in their terminal,
-  Ollama, a local database. FERB's browser tools can still open localhost pages.
+- **Owner-approved local servers.** `[protection].local_ports` pins each port to an absolute executable. The
+  authenticated proxy verifies listener and connected peer before forwarding application bytes, then records actual
+  address, executable, count and bytes. Configured ports remain closed to direct shell connections. Unknown owner
+  snapshots fail closed; script/plugin execution by the pinned binary and the snapshot/exec race remain residuals.
 
 **Confirmations** ([`policy/confirm.py`](ferb/policy/confirm.py),
 [`policy/destinations.py`](ferb/policy/destinations.py), D23 floor, D33, S4, SQ1, SQ6, W2; migration `0026`). Before a
@@ -1009,6 +1011,47 @@ owner typed in lower case or in a script without capitals counts as named only i
 request ("don't email bob@x.com" included), and a URL host named only to read, is known from then on; an address in a
 free-text answer counts as the owner's even in a negative sentence (code doesn't read meaning, rule 6); a physical
 send-class kind's site is taken as a place, so a future Mac tool must declare its purpose rather than carry a send kind.
+
+### F5 completion paths (checkout only; final validation and owner install pending)
+
+D31 grants are immutable `EscapeGrant` values bound to exact command, resolved cwd, rule and confirmation row. The
+root question lock serializes ask/use; a grant is spent even when password entry or launch fails. The elevated path
+uses fixed sudo argv, then sandbox-exec and a fixed supervisor whose stdin is reopened from the task PTY before the
+command runs. The password travels only on sudo's input pipe; reference-counted redaction leases cover output through
+process exit. A supervisor trap kills its elevated group on TERM; descendants that deliberately create new sessions
+remain a process-cleanup residual. No unsandboxed command fallback exists.
+
+`Redactor.field` owns secure-field, Secure Input and concealed-clipboard handling; text scanning adds contextual OTPs
+and Luhn-valid payment cards to existing credential classes. `ImageRedactor` uses local Vision OCR and Quartz masking.
+The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
+masks AX rectangles before returning bytes; unknown field inventories fail closed. The first actual app/tab observation
+adds one initial image to its tool response, then only explicit screenshots return images. Browser snapshots retain their
+reference generation during that capture. OCR misses, screenshot timing races and unclassified private text remain risks.
+
+`browser.secret` seals hidden input to the command ID and HTTPS origin; `mac.secret` binds to the app PID and exact AX
+node and uses only AXValue. Optional owner-confirmed handles persist nonsecret target metadata in
+`owner-secret-handles.json`; values live in Keychain. Setup builds/signs `ferb-secrets` with the existing local
+certificate and writes its designated requirement; each call verifies that requirement. No unsigned fallback exists.
+Python production browser seal callbacks and Keychain access route through that helper; isolated transport tests retain
+an injectable crypto implementation. Developer ID distribution remains later work. Swift type-checking is not a live
+Keychain/signature test.
+
+Irreversible directory deletion is enumerated before its code question (count, bytes and exact paths); multi-recipient
+send operations similarly name recipients and content size. Opaque shell effects cannot be inferred by code: their
+snapshot/containment and shadow advice remain the boundaries. `fs.disk_usage` uses metadata-only directory traversal,
+never file-content reads or symlink traversal, and omits FERB state. New configurations permit FERB's file tools to read
+never-read stores through the redactor; an existing explicit false remains false. The shell keeps its deny list.
+
+Jev's `action.destructive` is forced shadow even if enabled in config. Its labelled seed set has no claimed measured
+accuracy or owner acceptance. `action.alignment` sees owner words and action metadata, logs advice and exposes active-task
+mismatches to the orchestrator; it cannot block or authorize. Daily summaries include code-built new destinations,
+confirmation answers, blocked flows and outside-source memory handles. `ferb stats` distinguishes observed shell latency
+from isolated sandbox overhead. CLI-only `test.mode` restricts send-class actions; it cannot constrain arbitrary GUI
+clicks/typing. Regression cleanup clears it even after an error.
+
+Full Disk Access is required in full setup only after doctor reports the shell profile and authenticated proxy available.
+This checkout has not changed TCC, FileVault, the installed daemon or any personal browser. FileVault setup and all live
+security/OCR/admin/pin checks remain owner acceptance items.
 
 ## 13. Documentation and diagrams
 

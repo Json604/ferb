@@ -37,6 +37,22 @@ def test_install_is_idempotent(inst: Installer) -> None:
     assert r.ran("uv", "pip", "install") == 2 and r.ran("launchctl", "kickstart", "-k") == 1
 
 
+def test_installed_secret_helper_requires_stable_certificate_identity(inst: Installer) -> None:
+    inst.install_secret_helper()
+    helper = inst.home / 'bin' / 'ferb-secrets'
+    assert helper.stat().st_mode & 0o777 == 0o700
+    assert 'certificate leaf' in helper.with_suffix('.requirement').read_text()
+    real = inst.run
+    def unsigned(cmd):
+        result = real(cmd)
+        if cmd[:3] == ['/usr/bin/codesign', '-d', '-r-']:
+            result.stdout = 'designated => identifier "com.ferb.secrets"\n'
+        return result
+    inst.run = unsigned
+    with pytest.raises(InstallError, match='stable certificate identity'):
+        inst.install_secret_helper()
+
+
 def test_venv_on_another_interpreter_is_rebuilt_on_ferbs_own(inst: Installer, tmp_path: Path) -> None:
     other = tmp_path / "other-python"
     other.write_text("")

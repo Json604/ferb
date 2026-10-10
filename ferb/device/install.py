@@ -199,6 +199,7 @@ class Installer:
             if not self.venv_python.exists():
                 raise InstallError("FERB isn't installed yet: run `ferb setup` first")
             self.install_ferb()
+            self.install_secret_helper()
             self.ensure_codex()
             self.write_native_host()
             self.restart() if self.loaded() else self.load()
@@ -206,6 +207,7 @@ class Installer:
         interpreter = self.ensure_interpreter()
         self.ensure_venv(interpreter)
         self.install_ferb()
+        self.install_secret_helper()
         self.ensure_codex()
         self.write_native_host()
         changed = self.write_plist()
@@ -213,6 +215,25 @@ class Installer:
             self.load()
         else:
             self.restart()
+
+    def install_secret_helper(self) -> None:
+        """Owner-invoked setup only. Stable local code-signing identity; no ad-hoc/unsigned fallback."""
+        binary = self.home / 'bin' / 'ferb-secrets'
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        source = Path(ferb.__file__).parent / 'identity' / 'secret_helper.swift'
+        self._ok(['xcrun', 'swiftc', '-O', '-o', str(binary), str(source), '-framework', 'Security',
+                  '-framework', 'CryptoKit'], 'building the secret helper')
+        self._ok(['/usr/bin/codesign', '--force', '--sign', 'FERB Local Code Signing', '--identifier',
+                  'com.ferb.secrets', str(binary)], 'signing the secret helper (create FERB Local Code Signing in Keychain Access if missing)')
+        shown = self.run(['/usr/bin/codesign', '-d', '-r-', str(binary)])
+        requirement = next((line.split('=>', 1)[1].strip() for line in
+                            ((shown.stdout or '') + (shown.stderr or '')).splitlines() if line.startswith('designated =>')), '')
+        if 'certificate leaf' not in requirement:
+            raise InstallError('the secret helper lacks a stable certificate identity')
+        binary.chmod(0o700)
+        dest = binary.with_suffix('.requirement')
+        dest.write_text(requirement + '\n')
+        dest.chmod(0o600)
 
     # ---------- native host ----------
 

@@ -174,15 +174,17 @@ def test_a_worker_starting_on_a_mac_app_keeps_one_picture_of_its_window(daemon: 
     shots, _ = _fake_mac(daemon, monkeypatch)
     _menus(daemon)
     g = grant_task(daemon, "a", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
-    for _ in range(2):
-        assert not gateway_call(daemon, g, "mac.menu", app="Notes")["is_error"]
+    first = gateway_call(daemon, g, "mac.menu", app="Notes")
+    second = gateway_call(daemon, g, "mac.menu", app="Notes")
+    assert not first["is_error"] and not second["is_error"]
+    assert base64.b64decode(first["image"]["data"]) == shots.jpeg and "image" not in second
     assert shots.captured == [110]                                  # once, and only Notes' own window (pid 11)
     rows = daemon.run(_list(daemon.daemon.evidence, "a"))
     assert [(r["kind"], r["origin"], r["has_image"]) for r in rows] == [("app_window", "private", True)]
     assert daemon.run(_read(daemon.daemon.evidence, rows[0]["id"]))[1] == shots.jpeg
     assert rows[0]["data"]["bundle_id"] == "com.apple.Notes"
-    span = daemon.run(_q(daemon, "SELECT output_json FROM spans WHERE kind = 'evidence.app_window'"))
-    assert json.loads(span) == {"evidence": rows[0]["id"]}
+    span = daemon.run(_q(daemon, "SELECT output_json FROM spans WHERE id = ?", rows[0]["span_id"]))
+    assert json.loads(span)["evidence"] == rows[0]["id"]
     assert daemon.daemon.mac._state["com.apple.Notes"].shot is None        # not a shot anyone can click on
     g2 = grant_task(daemon, "b", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
     gateway_call(daemon, g2, "mac.menu", app="Notes")
@@ -250,11 +252,10 @@ def test_a_failed_app_window_capture_is_logged_and_never_fails_the_call(daemon: 
     g = grant_task(daemon, "x", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
     r = gateway_call(daemon, g, "mac.menu", app="Notes")
     assert not r["is_error"] and r["content"]["menus"]
-    err = daemon.run(_q(daemon, "SELECT error FROM spans WHERE kind = 'evidence.app_window'"))
-    assert "didn't answer" in err
-    assert daemon.run(_q(daemon, "SELECT count(*) FROM evidence")) == 0
+    assert r["content"]["image_withheld"] == "initial window capture unavailable"
+    assert daemon.run(_q(daemon, "SELECT count(*) FROM evidence")) == 1
     gateway_call(daemon, g, "mac.menu", app="Notes")
-    assert daemon.run(_q(daemon, "SELECT count(*) FROM spans WHERE kind = 'evidence.app_window'")) == 1   # once
+    assert daemon.run(_q(daemon, "SELECT count(*) FROM evidence")) == 1   # once; facts only
 
 
 # ---------- fix round 1: what never gets pixels on disk, and store hardening ----------
@@ -268,7 +269,7 @@ def test_a_browser_window_a_hostless_page_or_a_recording_contact_sheet_keeps_fac
     daemon.daemon.redact.configure({"bank.example"}, set())
     g = grant_task(daemon, "b", Identity.OWNER, {"screen"}, {"use_app"})
     r = gateway_call(daemon, g, "mac.screenshot", app="Brave")
-    assert not r["is_error"] and "image" in r                         # the worker still sees it
+    assert not r["is_error"] and "image" not in r
     img = _solid_jpeg(16, 12)
     sheet = _ImageTool("recording.inspect", img, {"path": "/tmp/r.mp4", "duration_s": 3.0},
                        reads=(("recording", "rec-1"),))
@@ -283,9 +284,9 @@ def test_a_browser_window_a_hostless_page_or_a_recording_contact_sheet_keeps_fac
     assert not [p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]
 
 
-def test_messaging_and_mail_apps_keep_facts_only_until_f5(daemon: RunningDaemon,
+def test_messaging_and_mail_apps_use_f5_sanitizer(daemon: RunningDaemon,
                                                           monkeypatch: pytest.MonkeyPatch) -> None:
-    # Rule 14: one-time codes arrive in messages and mail, which accessibility masking can't see.
+    # OCR class masking is shared by mail and all other app-window pictures (fixture supplies empty OCR regions).
     shots, _ = _fake_mac(daemon, monkeypatch)
     _menus(daemon)
     daemon.daemon.mac.apps.apps.append(RunningApp("com.apple.mail", "Mail", 15, False))   # type: ignore[union-attr]
@@ -294,12 +295,11 @@ def test_messaging_and_mail_apps_keep_facts_only_until_f5(daemon: RunningDaemon,
     assert not r["is_error"] and "image" in r
     looker = grant_task(daemon, "l", Identity.OWNER, {"mac:read", "screen"}, "look at my mail")
     gateway_call(daemon, looker, "mac.menu", app="Mail")
-    assert shots.captured == [150]                                  # the worker's own screenshot only: no first look
+    assert shots.captured == [150, 150]
     rows = daemon.run(_list(daemon.daemon.evidence, "s")) + daemon.run(_list(daemon.daemon.evidence, "l"))
-    assert [(r["kind"], r["has_image"]) for r in rows] == [("screenshot", False), ("app_window", False)]
-    assert all("F5" in r["data"]["image_withheld"] for r in rows)
+    assert [(r["kind"], r["has_image"]) for r in rows] == [("screenshot", True), ("app_window", True)]
     assert {r["origin"] for r in rows} == {"external:email:com.apple.mail,private"}
-    assert not [p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]
+    assert len([p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]) == 2
 
 
 def test_a_first_look_waits_for_the_window_but_a_password_refusal_counts(daemon: RunningDaemon,
@@ -315,10 +315,10 @@ def test_a_first_look_waits_for_the_window_but_a_password_refusal_counts(daemon:
     assert [r["kind"] for r in daemon.run(_list(daemon.daemon.evidence, "w"))] == ["app_window"]
     daemon.daemon.mac.ax.secure = [True]                            # type: ignore[union-attr]
     p = grant_task(daemon, "p", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
-    gateway_call(daemon, p, "mac.menu", app="Notes")
-    gateway_call(daemon, p, "mac.menu", app="Notes")
-    errors = daemon.run(_all(daemon, "SELECT error FROM spans WHERE kind = 'evidence.app_window' AND task_id = 'p'"))
-    assert len(errors) == 1 and "password" in errors[0]             # refused once, and that was its first look
+    first = gateway_call(daemon, p, "mac.menu", app="Notes")
+    second = gateway_call(daemon, p, "mac.menu", app="Notes")
+    assert first["content"]["image_withheld"] == "initial window capture unavailable"
+    assert "image_withheld" not in second["content"]             # attempted only once
 
 
 def test_masking_for_a_first_look_runs_off_the_event_loop(daemon: RunningDaemon,
@@ -341,36 +341,30 @@ def test_masking_for_a_first_look_runs_off_the_event_loop(daemon: RunningDaemon,
     assert threads and daemon.thread.ident not in threads
 
 
-def test_the_first_look_runs_after_the_call_answers_and_outside_its_app_lock(daemon: RunningDaemon,
-                                                                            monkeypatch: pytest.MonkeyPatch) -> None:
-    """The picture of the app a worker starts on is taken after the call has answered, never inside the call's app
-    lock: a slow capture (up to 10 s) neither delays the worker's first mac.* call nor holds the app."""
+def test_the_first_look_is_in_the_call_reply_and_reserved_once(daemon: RunningDaemon,
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:
     import asyncio
     shots, _ = _fake_mac(daemon, monkeypatch)
     _menus(daemon)
     gateway = daemon.daemon.gateway
     real = gateway.app_window
-    gate: dict[str, asyncio.Event] = {}
-
-    async def make() -> None:
-        gate["open"] = asyncio.Event()
+    entered = __import__('threading').Event()
+    gate = {}
+    async def make():
+        gate['open'] = asyncio.Event()
     daemon.run(make())
-
-    async def slow(app: str, scopes: frozenset[str]) -> Any:
-        await gate["open"].wait()
-        assert real is not None
+    async def slow(app, scopes):
+        entered.set()
+        await gate['open'].wait()
         return await real(app, scopes)
     gateway.app_window = slow
-    g = grant_task(daemon, "a", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
-    r = daemon.run(gateway.call(g, "mac.menu", {"app": "Notes"}), timeout=5)    # answered while the capture waits
-    assert not r["is_error"] and r["content"]["menus"] and shots.captured == []
-    other = grant_task(daemon, "b", Identity.OWNER, {"mac:read"}, "look at my notes")
-    assert not daemon.run(gateway.call(other, "mac.menu", {"app": "Notes"}), timeout=5)["is_error"]   # not held
-    daemon.call_soon(gate["open"].set)
-    daemon.run(gateway.looks_settled(), timeout=5)
-    assert shots.captured == [110]
-    assert [x["kind"] for x in daemon.run(_list(daemon.daemon.evidence, "a"))] == ["app_window"]
-
+    g = grant_task(daemon, 'a', Identity.OWNER, {'mac:read', 'screen'}, 'look at my notes')
+    running = asyncio.run_coroutine_threadsafe(gateway.call(g, 'mac.menu', {'app': 'Notes'}), daemon.loop)
+    assert entered.wait(5) and not running.done()
+    daemon.call_soon(gate['open'].set)
+    result = running.result(timeout=5)
+    assert not result['is_error'] and 'image' in result and shots.captured == [110]
+    assert 'image' not in gateway_call(daemon, g, 'mac.menu', app='Notes')
 
 def test_a_tool_image_is_written_off_the_event_loop(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     import threading
@@ -434,24 +428,25 @@ def test_a_cancel_during_the_async_write_never_leaves_a_file_without_its_row(dae
     assert _files(daemon) == []                                       # nothing outlives retention
 
 
-def test_a_stopped_first_look_finishes_its_span_and_leaves_no_orphan(daemon: RunningDaemon,
-                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
-    import time as _time
-    shots, _ = _fake_mac(daemon, monkeypatch)
+def test_a_stopped_initial_image_write_finishes_its_call_and_leaves_no_orphan(daemon: RunningDaemon,
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import concurrent.futures
+    import time
+    _fake_mac(daemon, monkeypatch)
     _menus(daemon)
     started = _slow_writes(monkeypatch)
     gateway = daemon.daemon.gateway
-    g = grant_task(daemon, "s", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
-    assert not daemon.run(gateway.call(g, "mac.menu", {"app": "Notes"}), timeout=5)["is_error"]
-    assert started.wait(5)                                            # the picture is being written
-    daemon.call_soon(gateway.cancel_tasks, {"s"})                     # the owner's stop
-    daemon.run(gateway.looks_settled(), timeout=5)
-    _time.sleep(0.5)
-    span = daemon.run(_all(daemon, "SELECT ended_at || ' ' || COALESCE(error, '') FROM spans "
-                                   "WHERE kind = 'evidence.app_window'"))
-    assert len(span) == 1 and span[0].split(" ", 1)[1] == "cancelled"  # finished, with a cancelled outcome
-    assert (len(_files(daemon)), daemon.run(_q(daemon, "SELECT count(*) FROM evidence"))) in ((0, 0), (1, 1))
-
+    g = grant_task(daemon, 's', Identity.OWNER, {'mac:read', 'screen'}, 'look at my notes')
+    running = asyncio.run_coroutine_threadsafe(gateway.call(g, 'mac.menu', {'app': 'Notes'}), daemon.loop)
+    assert started.wait(5)
+    daemon.call_soon(gateway.cancel_tasks, {'s'})
+    with pytest.raises(concurrent.futures.CancelledError):
+        running.result(timeout=5)
+    time.sleep(0.5)
+    ended, output = daemon.run(_row(daemon, "SELECT ended_at, output_json FROM spans WHERE kind='tool.call'"))
+    assert ended is not None and json.loads(output)['evidence_error'] == 'cancelled'
+    assert (len(_files(daemon)), daemon.run(_q(daemon, 'SELECT count(*) FROM evidence'))) in ((0, 0), (1, 1))
 
 def test_a_stop_while_a_tool_image_is_written_still_finishes_the_call_span(daemon: RunningDaemon,
                                                                           monkeypatch: pytest.MonkeyPatch) -> None:
@@ -474,53 +469,28 @@ def test_a_stop_while_a_tool_image_is_written_still_finishes_the_call_span(daemo
     assert (len(_files(daemon)), daemon.run(_q(daemon, "SELECT count(*) FROM evidence"))) in ((0, 0), (1, 1))
 
 
-def test_the_task_ending_does_not_cancel_a_first_look(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A fast task can end while its first look is still being taken: the look finishes in the background (its own
-    10 s bound); only a stop or shutdown cancels it."""
-    import asyncio
+def test_task_end_forgets_its_initial_picture_marker(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
     shots, _ = _fake_mac(daemon, monkeypatch)
     _menus(daemon)
     gateway = daemon.daemon.gateway
-    real = gateway.app_window
-    gate: dict[str, asyncio.Event] = {}
+    g = grant_task(daemon, 'e', Identity.OWNER, {'mac:read', 'screen'}, 'look at my notes')
+    assert 'image' in gateway_call(daemon, g, 'mac.menu', app='Notes')
+    daemon.call_soon(gateway.forget_tasks, {'e'})
+    assert not any(k[0] == 'e' for k in gateway._looked)
+    assert [x['kind'] for x in daemon.run(_list(daemon.daemon.evidence, 'e'))] == ['app_window']
 
-    async def make() -> None:
-        gate["open"] = asyncio.Event()
-    daemon.run(make())
-
-    async def slow(app: str, scopes: frozenset[str]) -> Any:
-        await gate["open"].wait()
-        assert real is not None
-        return await real(app, scopes)
-    gateway.app_window = slow
-    g = grant_task(daemon, "e", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
-    assert not daemon.run(gateway.call(g, "mac.menu", {"app": "Notes"}), timeout=5)["is_error"]
-    daemon.call_soon(gateway.forget_tasks, {"e"})                     # the task ended
-    daemon.call_soon(gate["open"].set)
-    daemon.run(gateway.looks_settled(), timeout=5)
-    assert [x["kind"] for x in daemon.run(_list(daemon.daemon.evidence, "e"))] == ["app_window"]
-    assert ("e", "w-e") not in gateway._looked                        # nothing of the ended task is kept
-
-
-def test_a_first_look_failure_that_escapes_its_span_is_logged(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch,
-                                                              caplog: pytest.LogCaptureFixture) -> None:
-    import logging
+def test_an_initial_image_store_failure_does_not_fail_the_tool(daemon: RunningDaemon,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
     _fake_mac(daemon, monkeypatch)
     _menus(daemon)
-    spans = daemon.daemon.gateway.spans
-    real = spans.start
-
-    def start(kind: str, **kw: Any) -> Any:
-        if kind == "evidence.app_window":
-            raise RuntimeError("the span store is unavailable")
-        return real(kind, **kw)
-    monkeypatch.setattr(spans, "start", start)
-    with caplog.at_level(logging.WARNING):
-        r = gateway_call(daemon, grant_task(daemon, "l", Identity.OWNER, {"mac:read", "screen"}, "notes"), "mac.menu",
-                         app="Notes")
-    assert not r["is_error"]                                          # never the call's
-    assert any("first look failed: RuntimeError" in m for m in caplog.messages)
-
+    async def fail(*args, **kwargs):
+        raise RuntimeError('private store diagnostic')
+    monkeypatch.setattr(daemon.daemon.evidence, 'put_async', fail)
+    r = gateway_call(daemon, grant_task(daemon, 'l', Identity.OWNER, {'mac:read', 'screen'}, 'notes'),
+                     'mac.menu', app='Notes')
+    assert not r['is_error'] and 'image' in r
+    out = json.loads(daemon.run(_q(daemon, "SELECT output_json FROM spans WHERE kind='tool.call'")))
+    assert out['evidence_error'] == 'RuntimeError' and 'private store diagnostic' not in str(out)
 
 def test_a_store_error_in_the_trace_names_its_type_not_a_path(daemon: RunningDaemon,
                                                               monkeypatch: pytest.MonkeyPatch) -> None:
@@ -635,8 +605,8 @@ async def _age(daemon: RunningDaemon, at: str, eid: str | None = None) -> None:
         daemon.daemon.db.conn.execute("UPDATE evidence SET captured_at = ? WHERE id = ?", (at, eid))
 
 
-async def _q(daemon: RunningDaemon, sql: str) -> Any:
-    return daemon.daemon.db.conn.execute(sql).fetchone()[0]
+async def _q(daemon: RunningDaemon, sql: str, *values: Any) -> Any:
+    return daemon.daemon.db.conn.execute(sql, values).fetchone()[0]
 
 
 async def _row(daemon: RunningDaemon, sql: str) -> tuple[Any, ...]:

@@ -281,9 +281,13 @@ class MacComputerDriver:
                 raise NoTarget(f"{a.name} has no unique capture target; choose an exact window id from mac.snapshot")
             return w
 
+        secret_rects: list[tuple[float, float, float, float]] = []
         async def check(w: Any, fresh: bool) -> None:
-            if await self._secure(a, w.bounds, fresh):
-                raise Refused(PASSWORD_REFUSED)
+            secure = await self._secure(a, w.bounds, fresh)
+            boxes = self.secret_fields(a.bundle_id)
+            if secure is None or (secure and (not boxes or any(w <= 0 or h <= 0 for _, _, w, h in boxes))):
+                raise Refused("the window's secret-field inventory is incomplete; pixels withheld")
+            secret_rects.extend(boxes)
             if browser and self.web_password is not None and await self.web_password(browser, w.bounds):
                 raise Refused(PASSWORD_REFUSED)
 
@@ -302,6 +306,9 @@ class MacComputerDriver:
         await check(w, fresh=False)
         jpeg, width, height = await asyncio.to_thread(grab, w)
         await check(w, fresh=True)                            # appeared while capturing: the frame is dropped
+        if secret_rects:
+            from ferb.act.evidence.mask import mask_secret_fields, to_image_boxes
+            jpeg = await asyncio.to_thread(mask_secret_fields, jpeg, to_image_boxes(secret_rects, w.bounds, (width, height)))
         return a, w, jpeg, (width, height)
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:

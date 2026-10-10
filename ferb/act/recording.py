@@ -70,7 +70,10 @@ class _Recording:
 
 
 class RecordingManager:
-    def __init__(self, now: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, now: Callable[[], float] = time.monotonic, *, sanitize: Callable[[bytes], bytes] | None = None) -> None:
+        from ferb.sanitize.images import ImageRedactor
+        from ferb.sanitize.redact import Redactor
+        self.sanitize = sanitize or ImageRedactor(Redactor())
         self.now = now
         self.records: dict[str, _Recording] = {}
         self._starts = asyncio.Lock()
@@ -107,7 +110,7 @@ class RecordingManager:
             if any(r.target == target and r.result is None for r in self.records.values()):
                 raise Refused('this target already has an active recording')
             # Capture before allocating files; no video should exist if the target cannot be reached.
-            first = await capture()
+            first = await asyncio.to_thread(self.sanitize, await capture())
             began = self.now()
             path.parent.mkdir(parents=True, exist_ok=True)
             folder = Path(tempfile.mkdtemp(prefix='.ferb-recording-', dir=path.parent))
@@ -130,7 +133,7 @@ class RecordingManager:
             if r.halt.is_set():
                 return
             try:
-                image = await r.capture()
+                image = await asyncio.to_thread(self.sanitize, await r.capture())
                 if r.halt.is_set():
                     return
                 at = self.now() - r.started

@@ -141,6 +141,8 @@ SUMMARIES: dict[str, Callable[[dict[str, Any], dict[str, Any]], str]] = {
     "fs.trash": lambda a, c: f"moved to Trash: {c.get('path', a.get('path', ''))}",
     "shell.run": lambda a, c: _shell(c),
     "shell.wait": lambda a, c: _shell(c),
+    "shell.send": lambda a, c: 'sent: "' + clip(str(a.get("text", "")), 120) + '"',
+    "mac.clipboard": lambda a, c: f"wrote {c.get('characters', 0)} characters to clipboard",
     "owner.ask": lambda a, c: _ask(a, c),
 }
 

@@ -28,7 +28,7 @@ def test_saved_video_contains_target_frames_and_real_timing(tmp_path, colours):
         clock = [0.0]
         current = [colours[0]]
         async def capture(): return current[0]
-        m = RecordingManager(now=lambda: clock[0])
+        m = RecordingManager(now=lambda: clock[0], sanitize=lambda image: image)
         path = tmp_path / 'target.mp4'
         started = await m.start('task', {'kind':'tab', 'tab_id':7, 'profile':'FERB'}, path, capture, fps=1)
         clock[0] = 1; current[0] = colours[1]
@@ -61,7 +61,7 @@ def test_recording_failure_is_partial_and_cleanup_is_owned(tmp_path, colours):
         async def capture():
             if failed[0]: raise Refused('target closed')
             return colours[0]
-        m = RecordingManager()
+        m = RecordingManager(sanitize=lambda image: image)
         r = await m.start('first', {'kind':'window','window_id':110}, tmp_path/'partial.mp4', capture, fps=1)
         with pytest.raises(Refused, match='another task'):
             await m.stop(r['id'], 'second')
@@ -81,7 +81,7 @@ def test_recording_never_overwrites_and_first_failure_leaves_no_capture(tmp_path
     async def check():
         p = tmp_path/'existing.mp4'; p.write_bytes(b'owner video')
         async def capture(): raise AssertionError('should not capture')
-        m = RecordingManager()
+        m = RecordingManager(sanitize=lambda image: image)
         with pytest.raises(Refused, match='exists'):
             await m.start('task', {}, p, capture)
         assert p.read_bytes() == b'owner video'
@@ -232,7 +232,7 @@ def test_restarted_app_cannot_reuse_old_recording_selection(monkeypatch):
 def test_concurrent_recording_starts_cannot_claim_the_same_output(tmp_path,colours):
     from ferb.act.recording import RecordingManager
     async def check():
-        m=RecordingManager()
+        m=RecordingManager(sanitize=lambda image: image)
         async def capture():
             await asyncio.sleep(0)
             return colours[0]

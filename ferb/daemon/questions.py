@@ -43,7 +43,12 @@ class Approvals:
         if self._clock.monotonic() >= ap.expires_at:
             ap.state = "expired"
             raise ValueError(f"question {approval_id} expired")
-        text = (text or "").strip() or None
+        if ap.kind in {"owner_admin_password", "owner_secret"}:
+            if text and any(c in text for c in "\r\n\x00"):
+                raise ValueError("the hidden password must be one line")
+            text = text or None
+        else:
+            text = (text or "").strip() or None
         if text is not None and choice is None and ap.options:
             matches = [i for i, o in enumerate(ap.options, 1) if o.strip().casefold() == text.casefold()]
             choice = matches[0] if len(matches) == 1 else None

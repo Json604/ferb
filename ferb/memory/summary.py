@@ -152,7 +152,9 @@ def build(db: Database, day: str) -> DayEvidence:
         else:
             tasks.append({"status": d.get("status"), "summary": str(d.get("summary", ""))})
             ev.add("F", f"FERB ran a task ({d.get('status')}): {str(d.get('summary', ''))}", [("journal", j["id"])])
+    from ferb.policy.security_digest import build as security_digest
     ev.digest = {
+        "security": security_digest(db, day),
         "day": day,
         "hours": {f"{h:02d}": [k for k, _ in c.most_common()] for h, c in sorted(hourly.items())},
         "apps_min": {k: round(v / 60) for k, v in top_apps},

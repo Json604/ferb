@@ -523,6 +523,7 @@ class _Tab:
 
 
 class _TabDriver:
+    seal_value = staticmethod(seal)
     """Task-owned tabs with short aliases and generation-scoped element ids, over one or more bridges."""
     name = "ext"
     identity: Identity
@@ -1301,12 +1302,41 @@ class Router(_TabDriver):
             if key is None:
                 raise Refused("the browser is no longer paired")
             cid = ctx.intent_id or "f-" + secrets.token_hex(8)
-            sealed = seal(seal_key(key), value, cid, origin)
+            sealed = self.seal_value(seal_key(key), value, cid, origin)
             result = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap,
                                                  "el": local, "sealed": sealed, "origin": origin, "code_only": True}, timeout=15, cid=cid)
             return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
         finally:
             del value
+
+    async def owner_secret(self, el: ElementRef, ctx: ToolContext, *, handle: str | None = None,
+                           remember: str | None = None) -> ActionResult:
+        t, frame, snap, local, info = self._resolve(el)
+        self.owned_by(el.tab.tab_id, ctx.task_id)
+        if info.role not in {"textbox", "searchbox", "combobox"} and not info.input_type:
+            raise Refused("select an exact text field from a fresh snapshot")
+        ask = getattr(self, "ask_secret", None)
+        if ask is None:
+            raise Refused("hidden secret input is unavailable")
+        v = await t.bridge.call("frame_origin", {"tab_id": t.chrome_id, "frame_id": frame}, timeout=10)
+        origin = normalize_origin(str(v.get("origin") or ""))
+        if not origin.startswith("https://"):
+            raise Refused("secret input requires an HTTPS destination")
+        value = await ask(ctx, origin, handle=handle, remember=remember)
+        if not value:
+            return ActionResult(False, "secret input declined")
+        try:
+            self._resolve(el)
+            self.add_secret_value(value)
+            key = self.hub.pairings.key(t.bridge.binding.install_id)
+            if key is None:
+                raise Refused("the browser is no longer paired")
+            cid = ctx.intent_id or "f-" + secrets.token_hex(8)
+            result = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap,
+                "el": local, "sealed": self.seal_value(seal_key(key), value, cid, origin), "origin": origin}, timeout=15, cid=cid)
+            return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
+        finally:
+            self.release_secret(value)
 
     async def fill_secret(self, el: ElementRef, ref: SecretRef, intent_id: str = "") -> ActionResult:
         raise Refused("FERB's secrets are never used in the owner's profiles")
@@ -1415,7 +1445,7 @@ class FerbIdentity(_TabDriver):
         if key is None:
             raise Refused("FERB's identity profile isn't paired")
         cid = intent_id or "f-" + secrets.token_hex(8)
-        sealed = seal(seal_key(key), value, cid, origin)
+        sealed = self.seal_value(seal_key(key), value, cid, origin)
         v = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap, "el": local,
                                          "sealed": sealed, "origin": origin}, timeout=15, cid=cid)
         if v.get("detail") == "stale":

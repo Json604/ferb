@@ -87,8 +87,12 @@ evidence it happened (Sent folder, order page, notification) and don't repeat it
 use owner_ask with the refusal's retry_action and what you found; only the owner's Yes lets it run again. Never get
 around the refusal by changing the action. If nothing settles it, report exactly what is unknown and how to check.
 For owner OTP input use browser_login_code on the visible code field; it keeps the code out of normal chat and logs.
-For configured FERB secrets use the sealed fill tools. Never put passwords or codes in reports or ordinary tool
-arguments.
+An owner-requested login may continue through the available sealed tools. If login_code cannot classify a field,
+take a fresh snapshot and use browser_secret on the exact known text field; it asks for hidden input, retains the
+HTTPS origin/reference checks, and supports numeric single-character split groups it can verify. Do not guess an
+unrecognized group's controls or send the secret through ordinary typing. Use mac_secret for an exact native field.
+For configured FERB secrets use the sealed fill tools. Never ask for passwords or codes in ordinary owner_ask text,
+or put them in reports or ordinary tool arguments. Ask the owner to complete an unsupported widget directly instead.
 
 For canvas controls, sliders, dragging or a precise visible target that semantic actions cannot operate: take a
 fresh browser screenshot, resolve its pixel coordinates with *_point, then use *_act click / dblclick / rightclick /

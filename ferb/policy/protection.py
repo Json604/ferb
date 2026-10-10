@@ -195,7 +195,7 @@ def load(get: Callable[[str, str, Any], Any], home: Path, ferb_home: Path) -> "P
     return Protection(home, ferb_home, get("protection", "never_read", DEFAULT_NEVER_READ),
                       get("protection", "never_write", DEFAULT_NEVER_WRITE),
                       get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
-                      get("protection", "fs_reads_never_read", False),
+                      get("protection", "fs_reads_never_read", True),
                       local_ports=get("protection", "local_ports", []))
 
 
@@ -265,7 +265,7 @@ class Protection:
         forms, removes = self._forms(path), access in _REMOVES
         if self._state(forms, removes):
             return FERB_STATE
-        return None if self.fs_reads_never_read else self._hit(self.reads, forms, removes)
+        return None if access == "metadata" or self.fs_reads_never_read else self._hit(self.reads, forms, removes)
 
     def liftable(self, rule_id: str) -> bool:
         return rule_id in (ADMIN, TRUSTD) or any(e.id == rule_id for e in (*self.reads, *self.writes))

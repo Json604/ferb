@@ -157,7 +157,8 @@ class Daemon:
         self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
         self.identity_browser: IdentityDriver | None = None    # the extension in Chrome's FERB profile
         from ferb.act.recording import RecordingManager
-        self.recordings = RecordingManager()
+        from ferb.sanitize.images import ImageRedactor
+        self.recordings = RecordingManager(sanitize=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
         self.registry = build_registry()
         add_recording(self.registry, self.recordings)
         self.tasks = TaskTree()
@@ -296,6 +297,7 @@ class Daemon:
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
                          ("chat.answer", self._chat_answer),
+                         ("test.mode", self._test_mode),
                          ("identity.check", self._identity_check), ("browsers.list", self._browsers_list),
                          ("browsers.pair", self._browsers_pair), ("browsers.installed", self._browsers_installed), ("browsers.unpair", self._browsers_unpair),
                          ("identity.pair", self._identity_pair), ("ps.list", self._ps_list),
@@ -559,6 +561,8 @@ class Daemon:
     def use_identity_browser(self, driver: IdentityDriver) -> None:
         """Attach FERB's own browser: registers the browser.* tools; its tabs close with their task and on stop."""
         self.identity_browser = driver
+        from ferb.identity.helper import seal as helper_seal
+        driver.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         add_identity_browser(self.registry, driver, self.recordings)
 
     async def _task_end(self, task_id: str) -> list[dict[str, Any]]:
@@ -681,10 +685,16 @@ class Daemon:
         if contained is None:                                   # no shell, so no proxy for it
             self.proxy.close()
             self.proxy = None
-        add_mac(self.registry, self.mac, self._device_profile, self.recordings, contained)
+        self.mac.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
+        self.mac.release_secret = lambda value: self.gateway.release_secret(value)
+        add_mac(self.registry, self.mac, self._device_profile, self.recordings, contained, self.protection)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,
                                    stream_factory=getattr(self.redact, "stream", None), sandbox=self.sandbox,
-                                   proxy=self.proxy, on_network=self._shell_network)
+                                   proxy=self.proxy, on_network=self._shell_network,
+                                   redactor=self.redact if isinstance(self.redact, Redactor) else None,
+                                   on_escape=lambda task, grant: self._journal().append("escape.used", {
+                                       "task_id": task, "rule": grant.rule, "command": grant.command,
+                                       "cwd": grant.cwd, "confirmation": grant.confirmation_id}))
         if contained is not None:
             add_shell(self.registry, self.shells, self.protection)
         else:
@@ -1472,10 +1482,29 @@ class Daemon:
         self._wire_jev(self.jev)
 
     def _wire_jev(self, jev: Any) -> None:
+        if self.gateway is not None:
+            self.gateway.shadow_action = self._destructive_shadow if jev is not None else None
         if self.distiller is not None:
             self.distiller.jev = jev
         if self.trail is not None:
             self.trail.tag = self._jev_tag if jev is not None else (lambda e: None)
+
+    async def _destructive_shadow(self, facts: dict[str, Any], ref: str) -> None:
+        from ferb.decide.decider import Ask
+        if self.jev is None:
+            return
+        baseline = "destructive" if facts.get("kind") in {"pay", "delete_permanent", "account_security", "send", "post"} else "uncertain"
+        try:
+            await self.jev.ask(self.redact(facts), [Ask("action.destructive", baseline, ref)])
+            metadata = {key: facts.get(key) for key in ('tool', 'kind', 'target', 'owner_words')}
+            got = await self.jev.advice(self.redact(metadata), [Ask('action.alignment', 'uncertain', ref)])
+            if got.get('action.alignment') == 'mismatch':
+                self._journal().append('security.alignment', {'task_id': facts.get('task_id'), 'ref': ref,
+                                                              'metadata': metadata, 'advice': 'mismatch'})
+                self._publish('security.alignment', {'task_id': facts.get('task_id'), 'ref': ref,
+                                                     'advice': 'mismatch; orchestrator should inspect the request and action'})
+        except Exception:
+            pass  # shadow advice never changes the concrete action path
 
     def _jev_tag(self, e: Any) -> None:
         """Trail step 4: the row is already past exclusions and redaction, and stored."""
@@ -1543,6 +1572,8 @@ class Daemon:
         q = str(params["question"])
         if q not in QUESTIONS:
             raise FerbError(f"unknown question {q}")
+        if q == "action.destructive" and params.get("on", True):
+            raise FerbError("destructive classification is shadow-only until owner-reviewed accuracy is accepted")
         enabled = set(self.config.get("jev", "enabled", [])) & QUESTIONS.keys()
         if params.get("on", True):
             if self.jev is None:
@@ -1586,6 +1617,11 @@ class Daemon:
         profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
                      'connection': self._profile_state(p),
                      'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in self._profiles()]
+        if self.db is not None:
+            rows = self.db.conn.execute("SELECT data_json FROM journal WHERE kind='security.alignment' "
+                "AND json_extract(data_json, '$.task_id') IN (SELECT id FROM tasks WHERE status='running') ORDER BY seq").fetchall()
+            if rows:
+                live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([json.loads(r[0]) for r in rows])
         stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
         return {"stable": stable, "live": live}
 
@@ -1767,7 +1803,14 @@ class Daemon:
         except OSError as e:
             self._journal().append("browser.uploads_startup_failed", {"error": f"{type(e).__name__}: {e}",
                                                                       "left": list(getattr(e, "left", []))})
+        from ferb.identity.helper import seal as helper_seal
+        self.router.seal_value = lambda key, value, command, origin: helper_seal(self.home, key, value, command, origin)
         self.router.ask_code = lambda ctx, origin: self.gateway.ask_login_code(ctx, origin)
+        self.router.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
+        self.router.release_secret = lambda value: self.gateway.release_secret(value)
+        if self.mac is not None:
+            self.mac.ask_secret = self.router.ask_secret
+            self.mac.release_secret = lambda value: self.gateway.release_secret(value)
         self.router.add_secret_value = self._add_secret_value
         add_owner_browsers(self.registry, self.router, self.recordings)
         pairings = self.pairings
@@ -2078,11 +2121,40 @@ class Daemon:
 
     async def _chat_answer(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The owner's free-text answer to a worker's question (owner.ask); empty text declines."""
-        text = str(params.get("text") or "").strip()
+        text = str(params.get("text") or "")
         ap = self.state.approvals.get(str(params["approval_id"]))
+        if ap is not None and ap.kind in {"owner_admin_password", "owner_secret"}:
+            if any(c in text for c in "\r\n\x00"):
+                raise FerbError("the hidden password must be one line")
+            if not isinstance(self.redact, Redactor):
+                raise FerbError("hidden input redaction is unavailable")
+            self.redact.retain_secret(text)
+            try:
+                return self._resolve_approval(ap.id, bool(text), None, text or None)
+            except BaseException:
+                self.redact.release_secret(text)
+                raise
+        text = text.strip()
+        if ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor):
+            safe = self.redact.field(text, label=ap.reason)
+            if safe != text:
+                self.redact.add_secret_value(text)
+                text = safe
         if ap is not None and ap.kind == "owner_login_code" and text:
             self._add_secret_value(text)
         return self._resolve_approval(str(params["approval_id"]), bool(text), None, text or None)
+
+    async def _test_mode(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        if self.gateway is None:
+            raise FerbError("the tool gateway is not ready")
+        allowed = params.get("allow_send", [])
+        if not isinstance(allowed, list) or not all(isinstance(x, str) and x.strip() for x in allowed):
+            raise FerbError("allow_send must be a list of exact recipient addresses")
+        self.gateway.test_send_allowlist = None if params.get("off") is True else set(allowed)
+        record = {"enabled": self.gateway.test_send_allowlist is not None,
+                  "allow_send": sorted(self.gateway.test_send_allowlist or ())}
+        self._journal().append("test.mode", record)
+        return record
 
     def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None,
                           text: str | None = None) -> dict[str, Any]:

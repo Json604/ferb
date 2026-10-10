@@ -44,7 +44,7 @@ class FakeClient:
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid,
                     "containment": {"sandbox_exec": True, "profile_ok": True, "reason": "ok", "shell": True,
-                                    "shell_reason": "ok", "proxy": False, "snapshots": False}}
+                                    "shell_reason": "ok", "proxy": True, "proxy_alive": True, "snapshots": False}}
         if method == "jev.stats":
             return {"configured": False, "stats": []}
         if method == "sense.status":
@@ -160,10 +160,10 @@ def test_doctor_reports_and_fails_on_missing_required_permission(world: dict[str
     assert "✗ permission accessibility: denied" in text and "✓ agent loaded" in text
     ok_lines = [l for l in text.splitlines() if l.startswith("✓")]
     assert ok_lines and not any("→" in l for l in ok_lines)            # hints only on problems
-    assert "permission full_disk_access (optional)" in text
+    assert "✗ permission full_disk_access: denied" in text
     assert "✓ browser chrome/FERB: FERB's own profile: paired, not open right now" in text   # not a warning
     assert "✓ containment: FERB's shell and AppleScript run inside its sandbox (sandbox-exec)" in text
-    world["daemon"].perms.update(accessibility="granted", screen_recording="granted")
+    world["daemon"].perms.update(accessibility="granted", screen_recording="granted", full_disk_access="granted")
     S.device_id(__import__("ferb.config", fromlist=["Config"]).Config(world["home"]))
     from ferb.device.profile import ProfileStore
     from ferb.config import Config

@@ -42,7 +42,7 @@ The task (kind "task"):
 - worker_type: choose an available execution environment from the supplied worker catalog; "default" uses the
   configured worker runtime. Workers have the setup-installed action registry and both read and act capabilities.
   A worker reports capability gaps to you; you choose a different type or corrected approach before asking the owner.
-- identity: the preferred account context, not a permission class. Default ordinary web work to FERB's profile;
+- identity: the account context and a code-enforced tool boundary. Shell, Mac and file tools are shared; browser tools are account-specific. Default ordinary web work to FERB's profile;
   use an owner's named browser/account when requested naturally ("scaler Gmail" is meaningful without magic words).
   Mixed file/browser/coding work can use the registry across the necessary environments. Keep the owner's account
   selections; do not route ordinary web work to personal profiles just because they are connected.

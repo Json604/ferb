@@ -424,3 +424,42 @@ foreground action with approximate duration and now / idle / skip options.
 For each result append: date, checkout/installed version, exact task ID, content verdict, disturbance verdict, unavailable
 fields, cleanup outcome and any corrective instruction. Record the pass/fail itself with `ferb verdict TASK pass|fail
 --note TEXT`; the export then shows it as `owner_verdict`. This checklist keeps the detailed record.
+
+## F5 checkout — 2026-10-11, pending combined validation and installation
+
+No F5 code was installed, no daemon/browser restarted, no real tests/sudo/Keychain/OCR captures performed during this
+build. Python compileall, JavaScript syntax checks and Swift type-checking passed; pytest/mypy and the combined review
+are deferred until F5–F10 code lands, per the owner's build cadence. The existing installed F4 runtime and historical
+database remain untouched. Checkout implementation does not constitute owner sign-off.
+
+After the final combined review, owner setup must build the signed helper (local certificate `FERB Local Code Signing`),
+update the extension to 0.15.0/protocol 11, and report profile/proxy availability before offering Full Disk Access.
+FileVault remains an owner-controlled setup step; its current state was not probed or changed in this build.
+
+Pending checks:
+
+- Run catalog P0 cases from `ferb/eval/sets/security_p0.toml`, at least five owner-supervised Codex runs per case and
+  benign twins, exact send allowlist, request-logger canaries, task IDs and verdicts. No third-party sends implied.
+- Test local-service pin success, replaced executable refusal, unknown socket owner refusal, recorded actual peer,
+  direct-port refusal, contained local dev server, proxy-unaware client failure facts; check the macOS netstat/libproc path.
+- Verify default trustd refusal and a single exact-command trustd lift with Go TLS. The approved lift allows certificate
+  fetches outside the proxy. Listener start-time gaps, process snapshot/exec races and service forwarding remain residuals.
+- Verify read/write lifts separately, overlapping protected paths, immutable FERB state and upload staging. Verify admin
+  success, wrong/cancelled password, NOPASSWD stdin isolation, TERM-ignoring child cleanup and exact grant/cwd binding.
+  Detached sessions remain a cleanup residual; do not claim arbitrary elevated tree termination.
+- Verify shell/clipboard actions for both identities, account-tool identity refusals, checker intersection, terminal-app
+  input refusal before prompts, and clipboard change-count attribution after F7 integration. Menus/System Events remain
+  platform residuals; a GUI send without declared purpose has no semantic code classifier.
+- Verify tokens/OTPs/cards in text and screenshots, Secure Input, password fields, excluded apps and concealed clipboard;
+  recording frames must be redacted before disk. Check unreadable OCR failure/misses honestly: secret classes do not
+  cover all private text. Verify one initial working-window image and no per-step snapshot images.
+- Repeat the actual Zomato split-code login using hidden input. Historical trace showed six unnamed textboxes; it did
+  not retain DOM maxlength/inputmode attributes. The regression assumes one-character numeric DOM controls and is not
+  proof that the current Zomato UI has those attributes. Codes typed in ordinary code-related questions must be scrubbed.
+  No historical secret-bearing rows were modified by this build.
+- Verify native/browser hidden fills, origin/PID/element changes during the prompt, Keychain handle target binding,
+  signed-helper verification/failure, and no values in process argv, model context, spans, logs or DB. Hidden secret
+  outputs remain memory-only; screen readers/app internals and owner-privileged malware are outside this guarantee.
+- Review `destructive.toml` labels with the owner, measure catches/false alarms, keep classification in forced shadow;
+  verify alignment advice reaches the orchestrator without granting or refusing an action. Inspect disk metadata totals,
+  irreversible bulk count/bytes/paths, daily security digest and stats against actual task traces.

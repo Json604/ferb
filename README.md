@@ -201,12 +201,16 @@ memory removes its corresponding daily-log copies too. This is single-device con
 
 Sensing records app/window/tab metadata and configured folder events, not keystrokes, clipboard or continuous
 screenshots. Exclusions and pause apply before storage. Task tools can explicitly capture windows for the model.
-Those images, and one picture of an app's window when a worker starts on it, are kept in `~/.ferb/evidence` so the
-check can look again. A secret field the accessibility tree shows is blacked out, or the image is kept as facts only.
-Always facts only: `mac.screenshot` of a browser app's window (it shows your own tabs), a page with no known host,
-messaging and mail apps, and recordings' frames (full screenshot redaction arrives with F5). A `browser.screenshot` of a
-task's tab with a known host is kept as an image, unless the site is on your exclusion list.
-Secrets are redacted; OTPs use a sealed input path. Full trace output remains private data: share deliberately.
+The first successful observation of the app or task-owned browser tab supplies one working-window picture to the
+model; later pictures require an explicit screenshot request. AX password rectangles and on-device Vision OCR mask
+classified secrets before images reach a model, evidence file or recording. If redaction is unavailable, pixels are
+withheld. Browser app windows remain excluded: use the exact task tab. OCR can miss unreadable/obscured text; this is
+class-based redaction, not a guarantee that all private text is removed.
+`browser.secret` and `mac.secret` ask through hidden CLI input and fill only the exact origin/app and element.
+They can offer to remember a specific item in Keychain; the prompt names the handle and bound destination. Models
+receive only handles and fill facts. Login codes, including recognized split numeric boxes, use sealed browser fills.
+A code accidentally entered in an ordinary code-related question is redacted before the answer is recorded.
+Full trace output remains private data: share deliberately.
 Shell output is redacted incrementally before being written to owner-only logs; paging can reach the whole log.
 FERB's shell and its AppleScript run inside a macOS sandbox built from `[protection]`. It can't read the credential
 stores or FERB's own files, can't write the never-write places, can't use the Keychain, can't open apps or URLs or
@@ -217,8 +221,11 @@ Its only way to the internet is FERB's egress proxy, which records each host, po
 the page, path or query). Output from a command that reached a site is labelled with that site. Programs that ignore
 the proxy settings get no network, and `ssh` doesn't work.
 
-On this Mac, the shell reaches only servers it started itself (a dev server, say), not servers other programs run.
-That includes your own dev server or local database: FERB's browser can still open localhost pages.
+Existing local listeners are blocked by default. To approve one, add an entry such as
+`local_ports = [{port = 11434, executable = "/absolute/path/to/server"}]` under `[protection]`. Each connection goes
+through the authenticated proxy, which checks the listening and connected process executable and records the actual
+address/executable. HTTP proxy clients can use normal localhost URLs; proxy-unaware protocols need a proxy-capable
+client. Raw direct access to configured ports stays blocked. Servers started inside FERB's containment still work.
 
 `mac.applescript` runs under a second profile with the same file, network and Keychain rules but keeps Apple Events,
 so a script you have it run can drive apps you have authorized FERB to automate (Finder, for example).
@@ -226,8 +233,21 @@ so a script you have it run can drive apps you have authorized FERB to automate 
 Known gaps:
 - A server the shell starts on `0.0.0.0` is reachable from the LAN.
 - A hardlink made before FERB is a separate name.
-- macOS's certificate service can be made to fetch a URL a command chooses, outside the proxy. Closing this would
-  break Go tools like `gh`, so it is a decision for you; see ARCHITECTURE §12.
+- Local executable pins trust that executable's scripts/plugins. OS process snapshots have an exec race; an approved
+  local service may itself fetch outside FERB's proxy.
+- Certificate service `trustd` is denied by default. A Go TLS command may request the exact-command `trustd` escape;
+  approving it permits certificate URL fetches outside the proxy for that process tree.
+
+`shell.run`/`shell.start` may name one `escape` rule from `shell.rules`. FERB shows the exact command and working
+folder and asks once for that launch; a No is final for that command in the task. `admin` uses hidden password input,
+then starts the exact command inside the same sandbox under sudo. Read lifts do not lift writes; write lifts do not
+lift file contents. FERB state, its proxy requirement and terminal-app input restrictions are never lifted.
+Both worker identities can use shell, Mac and clipboard tools; account-bearing tools remain identity-bound, and
+checkers remain observation-only. `shell.send` records input as FERB's; `mac.clipboard` records the actual change.
+
+`fs.disk_usage` reports metadata sizes without opening file contents. `ferb stats` reports shell startup-to-output/exit
+latency, destinations/refusals, confirmation counts and escapes. Daily summaries include a security digest. Test
+regressions enable a send allowlist (`ferb regress SET --allow-send EXACT_RECIPIENT`) and clear it afterward.
 
 If the sandbox can't run, those tools are off and `ferb doctor` says why. `shell.rules` lists the rules.
 Before each shell command FERB takes a local disk snapshot (at most one per 15 minutes; a recent one is reused). If

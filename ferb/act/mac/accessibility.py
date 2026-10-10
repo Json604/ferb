@@ -547,7 +547,10 @@ def cancel(el: Any) -> bool:
 
 def set_value(el: Any, text: str) -> bool:
     import ApplicationServices as AX
-    return bool(AX.AXUIElementSetAttributeValue(el, "AXValue", text) == 0)
+    code = AX.AXUIElementSetAttributeValue(el, "AXValue", text)
+    if code == AX_CANNOT_COMPLETE:
+        raise NoAnswer("AXValue", code)
+    return bool(code == 0)
 
 
 def settable(el: Any, attr: str) -> bool:

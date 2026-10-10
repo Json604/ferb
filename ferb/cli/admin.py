@@ -579,6 +579,7 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
     """How FERB is really doing (audit 2026-10-02): task outcomes, the top tool-error reasons, model runs. Read
     straight from the database, read-only, so it works whether or not the daemon runs."""
     import sqlite3
+    import math
     from datetime import timedelta, timezone
     from pathlib import Path as _P
     db = _P(str(home)) / "ferb.db"
@@ -608,6 +609,36 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
                                    "error IS NOT NULL AND started_at >= ? GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
                                    (since,)):
             print(f"  {n:>4}  {reason}", file=out)
+        values = [float(r[0]) for r in c.execute(
+            "SELECT json_extract(output_json, '$.sandbox_ms') FROM spans WHERE kind='tool.call' AND started_at >= ? "
+            "AND json_extract(output_json, '$.sandbox_ms') IS NOT NULL", (since,))]
+        if values:
+            import statistics
+            values.sort()
+            print(f"Contained shell start to first output/exit: n={len(values)}, "
+                  f"median={statistics.median(values):.1f} ms, p95={values[max(0, math.ceil(len(values)*.95)-1)]:.1f} ms "
+                  "(includes command startup; not an isolated sandbox overhead)", file=out)
+        prompts = c.execute("SELECT COUNT(*) FROM spans WHERE kind='tool.call' AND started_at >= ? "
+                            "AND json_extract(input_json, '$.ferb_question') = 1", (since,)).fetchone()[0]
+        print(f"Code confirmation prompts: {prompts}", file=out)
+        tables = {row[0] for row in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if 'confirmations' in tables:
+            answers = dict(c.execute("SELECT granted, COUNT(*) FROM confirmations WHERE at >= ? GROUP BY granted", (since,)))
+            print(f"Confirmation answers: Yes {answers.get(1, 0)}, No {answers.get(0, 0)}", file=out)
+        latest = {}
+        shell_calls = 0
+        for raw_in, raw_out in c.execute("SELECT input_json, output_json FROM spans WHERE kind='tool.call' "
+                                         "AND started_at >= ? ORDER BY rowid", (since,)):
+            inp, result = json.loads(raw_in or '{}'), json.loads(raw_out or '{}')
+            if str(inp.get('tool', '')).startswith('shell.'):
+                shell_calls += 1
+            if result.get('id') and isinstance(result.get('network'), dict):
+                latest[result['id']] = result['network']
+        destinations = {(d['host'], d['port']) for net in latest.values() for d in net.get('destinations', [])}
+        refused = sum(r.get('count', 0) for net in latest.values() for r in net.get('refused', []))
+        escapes = c.execute("SELECT COUNT(*) FROM journal WHERE kind='escape.used' AND at >= ?", (since,)).fetchone()[0]
+        print(f"Containment: shell calls {shell_calls}, observed destinations {len(destinations)}, "
+              f"refused connections {refused}, escapes used {escapes}", file=out)
         runs = c.execute("SELECT kind, COUNT(*), ROUND(AVG((julianday(ended_at) - julianday(started_at)) * 86400), 1) "
                          "FROM spans WHERE kind IN ('model.turn', 'worker') AND started_at >= ? GROUP BY kind",
                          (since,)).fetchall()
@@ -618,13 +649,22 @@ def stats(home: Any, out: TextIO, days: int = 7) -> int:
     return 0
 
 
-def regress(client: Client, connect: Callable[[], Client], set_path: Any, home: Any, out: TextIO) -> int:
+def regress(client: Client, connect: Callable[[], Client], set_path: Any, home: Any, out: TextIO,
+            *, allow_send: list[str] | None = None) -> int:
     """Run a regression set; print the `ferb verdict` line per task. Never decides pass or fail."""
     from datetime import datetime
 
     from ferb.eval.regress import load_set, run_set
     tasks = load_set(set_path)
-    rows = run_set(client, tasks, out, connect=connect)
+    client.call("test.mode", {"allow_send": allow_send or []})
+    try:
+        rows = run_set(client, tasks, out, connect=connect)
+    finally:
+        cleanup = connect()
+        try:
+            cleanup.call("test.mode", {"off": True})
+        finally:
+            cleanup.close()
     expect = {t.id: t.expect for t in tasks}
     print("\nYour verdicts (acceptance is your word):", file=out)
     for r in rows:

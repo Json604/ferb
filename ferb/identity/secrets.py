@@ -59,9 +59,17 @@ class KeychainSecretStore:
         code, out = await self._find(ref, reveal=True)
         if code != 0:
             raise SecretUnavailable(ref.key)             # never include output: keep secrets out of messages
-        return out.removesuffix("\n")
+        return out.removesuffix("\n") if self._keychain else out
 
     async def _find(self, ref: SecretRef, reveal: bool) -> tuple[int, str]:
+        if not self._keychain:
+            from ferb.identity.helper import request
+            try:
+                out = await asyncio.to_thread(request, {'operation': 'lookup' if reveal else 'present',
+                                                        'service': SERVICE, 'account': ref.key})
+                return (0, str(out.get('value', ''))) if reveal or out.get('present') else (1, '')
+            except Exception:
+                return 1, ''
         cmd = ["security", "find-generic-password", "-s", SERVICE, "-a", ref.key, *(["-w"] if reveal else [])]
         proc = await asyncio.create_subprocess_exec(*cmd, *self._keychain, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.DEVNULL)

@@ -49,7 +49,7 @@ def _err(msg: str) -> ToolResult:
 
 
 class _Base:
-    identities = {Identity.OWNER}
+    identities = {Identity.OWNER, Identity.FERB}
     scopes = {"shell"}
     risk, reversible = RiskLevel.MEDIUM, False
     # True: it can change what is on the owner's screen (bring an app or window forward, switch the Space, move
@@ -80,13 +80,15 @@ class ShellStart(_Base):
                    "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + NO_APPS + " "
                    + NETWORK_FACT + " " + NESTED_SANDBOX)
     target_args = ("cwd",)                             # Target.path, normalized by the gateway (P19 hash)
-    method_args = ("background", "timeout_s")          # how it runs, not what it does (P19 hash)
+    method_args = ("background", "timeout_s", "escape")
     ledger_key = "shell.run"                           # shell.start and shell.run run the same command: one action
 
     class Input(BaseModel):
         command: str
         cwd: str | None = Field(default=None, description="Working folder (default: FERB's workspace)")
         background: bool = False
+        escape: str | None = Field(default=None, description="One rule id from shell.rules to lift for this exact "
+                                  "command once; FERB asks the owner. FERB state and network are never lifted.")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         cmd = str(getattr(args, "command"))
@@ -96,7 +98,11 @@ class ShellStart(_Base):
     async def _start(self, args: BaseModel, ctx: ToolContext) -> ProcHandle:
         cmd = str(getattr(args, "command"))
         cwd = guard.working_directory(getattr(args, "cwd"), ctx)
-        return await self.shells.start(cmd, cwd, ctx.task_id, bool(getattr(args, "background")))
+        lift = getattr(args, "escape", None)
+        if lift and (ctx.escape is None or ctx.escape.rule != lift):
+            raise Refused("this command has no owner-approved escape grant")
+        return await self.shells.start(cmd, cwd, ctx.task_id, bool(getattr(args, "background")),
+                                       lift=lift, escape=ctx.escape)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = await self._start(args, ctx)
@@ -109,12 +115,13 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
     network = shells.network(h)
     out = {"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
            "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error,
-           "network": network,
+           "network": network, "sandbox_ms": info.sandbox_ms,
            "retrieval": "shell.read with since=offset until more=false" if offset < total else None}
     if (nxt := _refused_next(network)) is not None:      # S4: only for a refused destination, never a bare null
         out["next"] = nxt
     return ToolResult(out, is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
-                      read_sources=_sources(network))
+                      read_sources=(_sources(network) or (("origin", OUTPUT_ORIGIN),)) + (("file", info.read_path),)
+                      if info.read_path else _sources(network))
 
 
 class ShellRun(ShellStart):
@@ -141,11 +148,13 @@ class ShellRun(ShellStart):
 
         info = self.shells.info(h)
         out["capture_error"] = info.capture_error
+        out["sandbox_ms"] = info.sandbox_ms
         out["network"] = network = self.shells.network(h)
         if (nxt := _refused_next(network)) is not None:      # S4: a refused destination needs the owner, not a retry
             out["next"] = nxt
         return ToolResult(out, is_error=code not in (None, 0) or bool(info.capture_error),
-                          read_sources=_sources(network))
+                          read_sources=(_sources(network) or (("origin", OUTPUT_ORIGIN),)) + (("file", info.read_path),)
+                          if info.read_path else _sources(network))
 
 
 class ShellWait(_Base):

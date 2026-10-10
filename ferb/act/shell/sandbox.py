@@ -37,8 +37,7 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   workspace (git, node, a POSIX `cd`, venv failed without it: measured).
 
 An approved escape lifts exactly one listed path rule for one run (`lift`); FERB's own state and the network rule are
-never lifted, and `admin` (sudo) is no profile change at all, since sudo can't start under any profile (Task 6 runs
-that one command outside it)."""
+never lifted, and `admin` (sudo) is no profile change at all, since sudo can't start under any profile: Task 6 elevates the launcher, then enters the same sandbox before the exact command."""
 
 import os
 import secrets
@@ -117,8 +116,20 @@ class Sandbox:
         lines += [f"(allow file-read-metadata (literal {_q(f)}))" for f in _forms(p.ferb_home)]
         lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.uploads)]
         lines += [f"(allow file-read-metadata (literal {_q(f)}))" for f in _forms(p.uploads)]
-        lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in self._paths(p.reads, lift)]
+        lines += [f"(deny file-read* (subpath {_q(f)}))" for f in self._paths(p.reads, lift)]
+        lines += [f"(deny file-write* (subpath {_q(f)}))" for f in self._paths(p.reads, None)]
+        lifted = p.entry(lift) if lift else None
+        if lifted is not None and lifted.id.startswith("write:"):
+            lines += [f"(allow file-write* file-read-metadata (subpath {_q(f)}))"
+                      for f in self._paths([lifted], None)]
         lines += [f"(deny file-write* (subpath {_q(f)}))" for f in self._paths(p.writes, lift)]
+        # Never let a broad owner-added path rule's lift reopen immutable FERB state or override another owner's
+        # workspace deny. Exclude the workspace in the state deny instead of broadly allowing it back last.
+        lines += [f"(deny file-read* file-write* (require-all (subpath {_q(f)}) "
+                  f"(require-not (subpath {_q(p.workspace)}))))" for f in _forms(p.ferb_home)]
+        lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.uploads)]
+        lines += [f"(allow file-read-metadata (literal {_q(f)}))" for root in (p.ferb_home, p.uploads)
+                  for f in _forms(root)]
         # An existing folder is denied as a literal. A missing one may still be made (a first install creates
         # ~/.cargo), but once made it can't be removed or renamed, and it can't be made as a link
         guarded = list(dict.fromkeys((*p.guarded_parents(), p.workspace)))

@@ -141,7 +141,7 @@ def _browser_checker(daemon: RunningDaemon, family: Family, *verbs: type) -> tup
     r = Router(hub, resolver=SimpleNamespace(), profiles=lambda: [])   # type: ignore[arg-type]
     r.inspection_parent = d._inspection_parent
     caps = [verb(r, family) for verb in verbs]
-    worker, _ = gateway_setup(daemon, {family.read}, None, caps)
+    worker, _ = gateway_setup(daemon, {family.read}, None, caps, identity=family.identity)
     rec = d.tasks.get(worker.task_id)
     check = replace(rec.task, id=f"{worker.task_id}.verify", parent_id=worker.task_id, role="verifier")
 
@@ -196,7 +196,7 @@ def test_the_checker_never_opens_a_window_that_may_switch_spaces(daemon: Running
             return "https://a.example/"
 
     cap = BrowserOpen(Driver(), FERB_BROWSER)                # type: ignore[arg-type]
-    worker, _ = gateway_setup(daemon, {FERB_BROWSER.read}, None, [cap])
+    worker, _ = gateway_setup(daemon, {FERB_BROWSER.read}, None, [cap], identity=Identity.FERB)
     checker = daemon.run(_observe(daemon, worker))
     assert not gateway_tool_call(daemon, checker, "ferb_browser.open", url="https://a.example/",
                                  allow_foreground=True)["is_error"]

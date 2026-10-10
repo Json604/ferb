@@ -137,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     stp.add_argument("--days", type=int, default=7)
     sub.add_parser("baseline", help="capture current metrics to ~/.ferb/baselines for milestone comparison")
     rg = sub.add_parser("regress", help="run a regression task set through the daemon; you give the verdicts")
+    rg.add_argument("--allow-send", action="append", default=[], help="exact recipient allowed in test-mode send actions")
     rg.add_argument("set_file", nargs="?", default=None, help="task set TOML (default: the built-in smoke set)")
     xp = sub.add_parser("uninstall", help="remove the LaunchAgent; --purge also deletes ~/.ferb")
     xp.add_argument("--purge", action="store_true")
@@ -242,7 +243,8 @@ def main(argv: list[str] | None = None) -> int:
                 if not set_path.is_file():
                     print(f"ferb: no such regression set: {set_path}", file=sys.stderr)
                     return 2
-                return admin.regress(client, lambda: Client(socket_path()), set_path, ferb_home(), sys.stdout)
+                return admin.regress(client, lambda: Client(socket_path()), set_path, ferb_home(), sys.stdout,
+                                     allow_send=args.allow_send)
             if args.cmd == "stop":
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":

@@ -24,7 +24,9 @@ from typing import Any, Callable
 from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.pty_proc import PtyProc
 from ferb.act.shell.sandbox import Sandbox
-from ferb.sanitize.redact import RedactionStream
+from ferb.sanitize.redact import RedactionStream, Redactor
+from ferb.core.types import EscapeGrant
+from ferb.policy.protection import ADMIN
 from ferb.core.errors import Refused
 
 CLEAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL", "TMPDIR")
@@ -63,18 +65,23 @@ class ProcInfo:
     capture_error: str | None = None
     sandboxed: bool = False                   # it runs under FERB's sandbox profile
     lifted: str | None = None                 # the one rule an approved escape lifted for this run (D31)
+    read_path: str | None = None
+    sandbox_ms: float | None = None
 
 
 class ShellManager:
     def __init__(self, log_dir: Path, redact_text: Callable[[str], str],
                  stream_factory: Callable[[], RedactionStream] | None = None, sandbox: Sandbox | None = None,
                  proxy: EgressProxy | None = None,
-                 on_network: Callable[[ProcInfo, dict[str, Any]], None] | None = None) -> None:
+                 on_network: Callable[[ProcInfo, dict[str, Any]], None] | None = None,
+                 redactor: Redactor | None = None,
+                 on_escape: Callable[[str, EscapeGrant], None] | None = None) -> None:
         self.log_dir, self.redact_text = log_dir, redact_text
         self.stream_factory = stream_factory
         self.sandbox = sandbox                    # None only in unit tests of the PTY plumbing; the daemon always sets it
         self.proxy = proxy                        # FERB's egress proxy (None: no network beyond this Mac)
         self.on_network = on_network              # a finished process's final network record (reported when its last
+        self.redactor, self.on_escape = redactor, on_escape
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}   # connection closes, so a setsid child's late bytes count)
         if proxy is not None:
             proxy.on_report = self._report
@@ -86,28 +93,45 @@ class ShellManager:
         return env
 
     async def start(self, command: str, cwd: Path, owner_task: str, long_lived: bool = False,
-                    *, lift: str | None = None) -> ProcHandle:
+                    *, lift: str | None = None, escape: EscapeGrant | None = None) -> ProcHandle:
         """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted)."""
         pid = "p-" + secrets.token_hex(4)
+        if escape is not None:
+            if escape.command != command or escape.cwd != str(cwd.resolve()) or escape.rule != lift:
+                raise Refused("the escape grant does not cover this exact command and working folder")
+        if lift == ADMIN and (escape is None or not escape.secret or self.redactor is None):
+            raise Refused("admin requires the approved command's hidden password")
         if self.sandbox is None:
             if lift is not None:
                 raise Refused("no sandbox here to lift a rule from")
             argv, profile = ["/bin/sh", "-c", command], None
         else:
             # Building the profile runs netstat and sandbox_check (listeners.py): off the event loop
-            argv = await asyncio.to_thread(self.sandbox.argv, command, lift)
+            argv = await asyncio.to_thread(self.sandbox.argv, command, None if lift == ADMIN else lift)
             profile = self.sandbox.profile_path(argv)
+        secret = escape.secret if escape is not None else None
+        if secret and self.redactor is not None:
+            self.redactor.retain_secret(secret)
+        def finished() -> None:
+            Sandbox.cleanup(profile)
+            if secret and self.redactor is not None:
+                self.redactor.release_secret(secret)
         p = PtyProc(argv, cwd, self._env(pid), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory,
-                    on_exit=lambda: Sandbox.cleanup(profile))
+                    on_exit=finished, admin_secret=secret if lift == ADMIN else None)
         try:
             await p.start()
         except BaseException:
-            Sandbox.cleanup(profile)
+            finished()
             if self.proxy is not None:
                 self.proxy.forget(pid)
             raise
+        entry = self.sandbox.protection.entry(lift) if self.sandbox is not None and lift else None
         self._procs[pid] = (p, ProcInfo(pid, owner_task, command, str(cwd), time.time(), True, None, long_lived,
-                                        sandboxed=self.sandbox is not None, lifted=lift))
+                                      sandboxed=self.sandbox is not None, lifted=lift,
+                                      read_path=str(entry.path) if entry and entry.id.startswith("read:") else None,
+                                      sandbox_ms=None))
+        if escape is not None and self.on_escape is not None:
+            self.on_escape(owner_task, escape)
         return ProcHandle(pid, owner_task)
 
     def _get(self, h: ProcHandle) -> PtyProc:
@@ -148,7 +172,7 @@ class ShellManager:
         out = []
         for p, info in self._procs.values():
             out.append(dataclasses.replace(info, running=p.exit_code is None, exit_code=p.exit_code,
-                                           capture_error=p.capture_error,
+                                           capture_error=p.capture_error, sandbox_ms=p.ready_ms if info.sandboxed else None,
                                            network=bool(self._facts(info.id)["destinations"])))
         return out
 

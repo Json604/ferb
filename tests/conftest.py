@@ -81,7 +81,10 @@ def home() -> Iterator[Path]:
 
 
 @pytest.fixture
-def daemon(home: Path) -> Iterator[RunningDaemon]:
+def daemon(home: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[RunningDaemon]:
+    # Offline tool fixtures supply synthetic image bytes. OCR has its own injected-region regressions; this
+    # fixture never invokes platform recognition against fake pictures or silently depends on installed Vision.
+    monkeypatch.setattr('ferb.sanitize.images.recognize_text', lambda _image: [])
     d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
     d.daemon._permissions = lambda: {"accessibility": True, "screen": True}   # type: ignore[method-assign]
     egress.install(getattr(d.daemon, "proxy", None))   # the proxy resolves tests' local origin name (support/egress)
@@ -246,6 +249,10 @@ class FakeRunner:
             vpy.parent.mkdir(parents=True, exist_ok=True)
             vpy.unlink(missing_ok=True)
             vpy.symlink_to(cmd[cmd.index("--python") + 1])
+        elif cmd[:2] == ['xcrun', 'swiftc']:
+            Path(cmd[cmd.index('-o') + 1]).write_bytes(b'fake helper binary')
+        elif cmd[:3] == ['/usr/bin/codesign', '-d', '-r-']:
+            out = 'designated => identifier "com.ferb.secrets" and certificate leaf = H"fake-test-certificate"\n'
         elif cmd[:2] == ["launchctl", "bootstrap"]:
             self.loaded = True
         elif cmd[:2] == ["launchctl", "bootout"]:

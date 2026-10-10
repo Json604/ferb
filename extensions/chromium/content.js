@@ -129,8 +129,24 @@
     return labelText(String(s || ""));
   }
 
+  function codeGroup(el) {
+    // Split-code controls often have no names/autocomplete (the owner's Zomato login). Bind a contiguous group
+    // by the nearest containing element whose visible text inputs are all single-character numeric controls.
+    const digit = n => n.tagName === "INPUT" && n.maxLength === 1 && visible(n) && !n.disabled && !n.readOnly &&
+      (["tel", "number"].includes(n.type) || ["numeric", "decimal"].includes(n.inputMode) ||
+       /[0-9]|\\d/.test(n.pattern || ""));
+    if (!digit(el)) return [];
+    for (let group = el.parentElement; group; group = group.parentElement) {
+      const inputs = Array.from(group.querySelectorAll("input")).filter(n => visible(n) && n.type !== "hidden");
+      if (inputs.length > 1) return inputs.every(digit) ? inputs : [];
+      if (group === el.form || group.tagName === "BODY") break;
+    }
+    return [];
+  }
   const isSecret = (el) => el.tagName === "INPUT" && ((el.type || "").toLowerCase() === "password"
-    || /one-time-code/.test(el.autocomplete || "") || SECRET_NAME.test((el.name || "") + " " + (el.id || "")));
+    || /one-time-code/.test(el.autocomplete || "") || SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el))
+    || codeGroup(el).length > 1);
+
 
   function formKind(el) {
     const f = el.form || (el.closest && el.closest("form"));
@@ -638,6 +654,18 @@
     if (error) return { ok: false, detail: error };
     if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return { ok: false, detail: "not_a_text_field" };
     if (codeOnly && (!isSecret(el) || el.type === "password")) return {ok: false, detail: "code_field_changed"};
+    const group = codeGroup(el);
+    if (group.length) {
+      if (!/^\d+$/.test(value) || value.length !== group.length) return {ok: false, detail: "code_length_mismatch"};
+      // Revalidate all references before any mutation. Do not choose another group after a rerender.
+      if (!group.every(n => n.isConnected && n.ownerDocument === el.ownerDocument)) return {ok:false, detail:"code_group_changed"};
+      for (let i = 0; i < group.length; i++) {
+        if (!group[i].isConnected) return {ok:false, detail:"code_group_changed_after_partial_fill"};
+        setValue(group[i], value[i]);
+      }
+      const ok = group.every((n, i) => n.value === value[i]);
+      return {ok, detail: ok ? "filled_split_code" : "field_rejected_value"};
+    }
     setValue(el, value);
     return { ok: el.value === value, detail: el.value === value ? "filled" : "field_rejected_value" };
   }

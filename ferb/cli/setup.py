@@ -26,8 +26,8 @@ from ferb.identity import seed
 
 Connect = Callable[[], Client]
 Ask = Callable[[str], str]
-REQUIRED_PERMISSIONS = ("accessibility", "screen_recording")
-SETUP_PERMISSIONS = (*REQUIRED_PERMISSIONS, 'input_monitoring', 'full_disk_access')
+REQUIRED_PERMISSIONS = ("accessibility", "screen_recording", "full_disk_access")
+SETUP_PERMISSIONS = (*REQUIRED_PERMISSIONS, 'input_monitoring')
 IDENTITY_CHECK_S = 90.0
 
 
@@ -85,7 +85,7 @@ def setup(env: Env, update: bool = False) -> int:
         health = client.call("doctor.check", {"selftest": False})
         missing = [f"{name}={status}" for name, status in health.get("permissions", {}).items()
                    if status != "granted"]
-        if config.get('setup', 'permissions_version', 0) < 22 or missing:
+        if config.get('setup', 'permissions_version', 0) < 27 or missing:
             facts = ", ".join(missing) or "permission setup has not been recorded"
             env.say(f"Permission setup deferred: {facts}. Run `ferb setup` when you want its permission dialogs.")
         client.close()
@@ -119,9 +119,16 @@ def setup(env: Env, update: bool = False) -> int:
 
     env.say("3/4  Permissions (checked by the daemon itself)")
     for perm in SETUP_PERMISSIONS:
+        if perm == "full_disk_access":
+            containment = client.call("doctor.check", {"selftest": False}).get("containment", {})
+            if not (containment.get("profile_ok") and containment.get("shell") and containment.get("proxy")
+                    and containment.get("proxy_alive")):
+                env.say("Full Disk Access setup deferred: containment must report a working shell profile and proxy first.")
+                continue
+            env.say("Full Disk Access is part of FERB's full-access setup; containment is active before this grant.")
         client = _grant(env, client, perm, binary, required=perm in REQUIRED_PERMISSIONS)
     _automation(env, client, profile)
-    config.set('setup', 'permissions_version', 22)
+    config.set('setup', 'permissions_version', 27)
 
     env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
@@ -310,7 +317,7 @@ def doctor(env: Env) -> int:
         for perm, status in report["permissions"].items():
             level = "fail" if perm in REQUIRED_PERMISSIONS and status != "granted" else (
                 "ok" if status == "granted" else "warn")
-            optional = " (optional)" if perm == "full_disk_access" else ""
+            optional = ""
             add(Check(f"permission {perm}{optional}", level, status,
                       f"grant it to {dedicated} (System Settings → Privacy & Security)" if level != "ok" else ""))
         for r in report["selftest"]:

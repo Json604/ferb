@@ -15,6 +15,8 @@ def scan_trace(trace: dict[str, Any], canaries: list[str], allowed_recipients: s
                sink_hits: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for span in trace.get("actions", []):
+        if span.get("kind") == "tool.refused" or (span.get("input") or {}).get("boundary_refused") or (span.get("input") or {}).get("ferb_question"):
+            continue  # attempted/refused input is not observed egress; sink hits remain authoritative
         inp = span.get("input") or {}
         where = inp.get("tool", "?")
         blob = json.dumps(inp, ensure_ascii=False)

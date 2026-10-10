@@ -49,7 +49,8 @@ from ferb.clock import context
 from ferb.core import origin
 from ferb.core.errors import NoTarget, Refused
 from ferb.core.interfaces import Capability, Clock
-from ferb.core.types import ToolContext
+from ferb.core.types import ToolContext, EscapeGrant
+from ferb.policy.escape import escape_key
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
 from ferb.orchestrator.tree import TaskTree
@@ -153,16 +154,12 @@ def pixels_withheld(tool: str, app: str | None, read_sources: tuple[tuple[str, s
     - A recording's contact sheet: the recording file is the evidence, and its frames can show excluded pages.
     - D29: a browser app's window, or a web source with no host: it can show the owner's own tab, excluded or private
       (the host the exclusion list needs is unknown).
-    - Rule 14, until F5: a messaging or mail app (UNTRUSTED_APPS), where one-time codes arrive. Accessibility masking
-      can't see a code in a message body, and the checker reads those apps through accessibility snapshots.
-      F5 lifts this rule once code redaction of screenshots exists."""
+    Mail and messaging pixels pass the shared F5 OCR sanitizer; failed sanitization still withholds the image."""
     bundle = (app or "").lower() if tool.startswith("mac.") else ""
     if tool.startswith("recording."):
         return RECORDING_WITHHELD
     if bundle in _BROWSERS or any(kind == "web" and not _host(ident) for kind, ident in read_sources):
         return BROWSER_WITHHELD
-    if bundle in _MESSAGE_APPS or any(kind in ("email", "message") for kind, _ in read_sources):
-        return MESSAGES_WITHHELD
     return None
 
 
@@ -426,7 +423,8 @@ class Gateway:
         observe-only token (the final checker) gets observation tools only (V3, W4)."""
         out = []
         for cap in self.caps.values():
-            if not cap.scopes <= grant.scopes or (grant.observe_only and not observes(cap)):
+            if (grant.identity not in cap.identities or not cap.scopes <= grant.scopes
+                    or (grant.observe_only and not observes(cap))):
                 continue
             schema = cap.Input.model_json_schema()
             props = schema.setdefault("properties", {})
@@ -438,7 +436,7 @@ class Gateway:
 
     def tools_for_task(self, task: Any) -> list[str]:
         """Tool names covered by the task's runtime scopes."""
-        return [c.name for c in self.caps.values() if c.scopes <= set(task.scopes)]
+        return [c.name for c in self.caps.values() if c.scopes <= set(task.scopes) and task.identity in c.identities]
 
     async def call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         job = asyncio.current_task()
@@ -631,6 +629,9 @@ class Gateway:
         if grant.observe_only and not observes(cap):   # V3: before it runs, whatever the checker was told to do
             self._refused(grant, rec, name, "an acting tool: the final check is read-only")
             return reply({"error": CHECKER_READ_ONLY}, True, {origin.FERB})
+        if grant.identity not in cap.identities:
+            self._refused(grant, rec, name, "tool is outside this task's identity")
+            return reply({"error": "this tool is not available to this task's identity"}, True, {origin.FERB})
         arguments = dict(arguments)
         why = str(arguments.pop("why", "") or "").strip()
         effect = str(arguments.pop("effect", "") or "")  # agent annotation, never an authorization gate
@@ -638,6 +639,9 @@ class Gateway:
             args = cap.Input.model_validate(arguments)
         except ValidationError as e:
             return reply({"error": "invalid arguments", "details": e.errors(include_url=False)}, True)
+        if hasattr(cap, "precheck") and (refusal := cap.precheck(args)):
+            self._refused(grant, rec, name, refusal)
+            return reply({"error": refusal}, True, {origin.FERB})
         if name == OWNER_ASK:
             answer = await self._ask_owner(grant, rec, args)
             return reply(answer, bool(answer.get("error")), ask_origins(answer))
@@ -653,7 +657,7 @@ class Gateway:
         url_sink = await self._url_sink(grant, rec, name, arguments, spec, why)   # S4: a URL carrying private data
         if url_sink is not None:                          # the owner said no, or wasn't there: nothing ran
             span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
-                                   input={"tool": name, "args": arguments, "kind": spec.kind,
+                                   input={"tool": name, "args": arguments, "kind": spec.kind, "boundary_refused": True,
                                           "target": _target_dict(spec.target)})
             self._finish_call(span, name, url_sink, True, error=str(url_sink["error"]))
             return reply(url_sink, True, {origin.FERB})
@@ -682,25 +686,44 @@ class Gateway:
                                | ({"why": why} if why else {}) | extra)
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
+        shadow = getattr(self, "shadow_action", None)
+        if consequential and shadow is not None:
+            # Advice only: scheduling/completion/answers cannot authorize or refuse this call.
+            asyncio.create_task(shadow({"tool": name, "kind": spec.kind, "target": _target_dict(spec.target),
+                "content": spec.content, "code_questions": covered.ids, "task_id": grant.task_id,
+                "owner_words": (self.state.requests.get(rec.task.request_id).words if self.state.requests.get(rec.task.request_id) else "")},
+                "span:" + span.id))
         if blocked is not None:
+            self.spans.update_input(span.id, {"boundary_refused": True})
             self._finish_call(span, name, {"error": blocked[0]}, True, error=blocked[0])
             return reply({"error": blocked[0], "recipients": blocked[1]}, True)
         if repeat is not None:                           # P19, refused as the ledger refuses it: nothing was asked
+            self.spans.update_input(span.id, {"boundary_refused": True})
             return self._ledger_refused(span, name, reply, repeat)
         if covered.refused is not None:                  # the owner said no, or wasn't there: nothing ran
+            self.spans.update_input(span.id, {"boundary_refused": True})
             error = str(covered.refused["error"])
             self._finish_call(span, name, covered.refused, True, error=error)
             return reply(covered.refused, True, {origin.FERB})
+        escape = None
         try:
-            return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments)
+            if name in {"shell.run", "shell.start"} and getattr(args, "escape", None):
+                try:
+                    escape = await self._escape(grant, rec, args, why)
+                except Refused as error:
+                    self._finish_call(span, name, {"error": str(error)}, True, error=str(error))
+                    return reply({"error": str(error)}, True, {origin.FERB})
+            return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments, escape)
         finally:
+            if escape is not None and escape.secret and isinstance(self.redact, Redactor):
+                self.redact.release_secret(escape.secret)
             if claimed.ids and not claimed.kept and self.confirmations is not None:
                 for cid in claimed.ids:                  # refused, cancelled before it ran, or reported failed:
                     self.confirmations.release(cid)      # the Yes covers its retry again
 
     async def _held(self, cap: Any, name: str, args: Any, spec: Any, action: ActionRequest, grant: RunGrant, rec: Any,
                     span: Any, reply: Callable[..., dict[str, Any]], real: Path | None, claimed: Claimed,
-                    arguments: dict[str, Any]) -> dict[str, Any]:
+                    arguments: dict[str, Any], escape: EscapeGrant | None = None) -> dict[str, Any]:
         """The call under its resource locks, with the disturbance record around it."""
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
         if name.startswith("fs.") and real is not None:
@@ -713,7 +736,7 @@ class Gateway:
                 if self.disturbance is not None:
                     await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
-                    return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed)
+                    return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, escape)
                 finally:
                     if self.disturbance is not None:
                         await self.disturbance.after_action(span.id)
@@ -793,6 +816,20 @@ class Gateway:
         known = self.destinations.known if self.destinations is not None else _nothing_known
         needs = confirm.decide(spec.kind, spec.declared, spec.target, sources, read_private=origin.PRIVATE in read,
                                read_external=bool(outside), known=known, outside_read=outside, place=spec.place)
+        kinds = {spec.kind, spec.declared}
+        if Kind.DELETE_PERMANENT in kinds and spec.target.path:
+            from ferb.act.fs.usage import usage
+            path = file_real_path(spec.target.path, self.roots.workspace)
+            if path.is_dir():
+                facts = await asyncio.to_thread(usage, path, self._path_closed(name), True)
+                if not facts['complete']:
+                    return Covered(refused={"error": "bulk deletion could not be fully enumerated; inspect the exact target first"})
+                needs.append(confirm.Need("sink:irreversible_bulk", confirm.key("sink:irreversible_bulk", facts),
+                    {"text": f"permanently delete {facts['files']} files and {facts['directories']} directories ({facts['bytes']} bytes) under {path}; paths: {facts['paths']}"}))
+        if kinds & confirm.SEND_CLASS and len(spec.target.recipients) > 1:
+            recipients = sorted(set(spec.target.recipients))
+            needs.append(confirm.Need("sink:irreversible_bulk", confirm.key("sink:irreversible_bulk", recipients, spec.content),
+                {"text": f"send {len((spec.content or '').encode())} content bytes to {len(recipients)} recipients: " + ', '.join(recipients)}))
         if not needs:
             return Covered()
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
@@ -1032,9 +1069,65 @@ class Gateway:
                                 input={"tool": lines.clip(name, 100), "worker_id": grant.worker_id})
         self.spans.finish(span, error=reason)
 
+    async def _escape(self, grant: RunGrant, rec: Any, args: Any, why: str) -> EscapeGrant:
+        rule, command = args.escape, args.command
+        protection = self.roots.protection
+        if protection is None or not protection.liftable(rule):
+            raise Refused(f"{rule} is never lifted: FERB's own files and network protections remain enforced")
+        cwd = file_real_path(args.cwd or self.roots.workspace, self.roots.workspace)
+        if not cwd.is_dir():
+            raise Refused("the escape command's working folder does not exist")
+        key = escape_key(rule, command, str(cwd))
+        root = rec.tree_id or grant.task_id
+        if self.confirmations is None:
+            raise Refused("FERB cannot record the escape approval")
+        shown = next(row["path"] for row in protection.rules() if row["id"] == rule)
+        need = confirm.Need("escape:" + rule, key,
+                            {"text": f"this exact command needs rule {rule} lifted once: {shown}"}, always=True)
+        async with self._confirming.setdefault(root, asyncio.Lock()):
+            row = self.confirmations.find(root, key)
+            if row is not None and not row["granted"]:
+                raise Refused("you already said no to this exact escape command in this task")
+            if row is None or row["used"]:
+                answer = await self.ask_confirmation(grant, rec, [need], None,
+                                                      self.redact({"v": command + " (in " + str(cwd) + ")"})["v"], why)
+                if not answer:
+                    raise Refused(answer.error)
+                confirmation_id = answer.ids[0]
+            else:
+                confirmation_id = row["id"]
+            self.confirmations.use(confirmation_id)  # spent once even if password cancelled or launch fails
+        secret = await self._admin_password(grant, rec) if rule == "admin" else None
+        if rule == "admin" and not secret:
+            raise Refused("the approved admin command was cancelled without a password")
+        return EscapeGrant(rule, confirmation_id, command, str(cwd), secret)
+
+    async def _admin_password(self, grant: RunGrant, rec: Any) -> str | None:
+        if not isinstance(self.redact, Redactor) or rec.task.request_id in self.state.approvals.unattended:
+            return None
+        ask = ActionRequest(capability="shell.admin", kind="owner_admin_password", identity=grant.identity,
+                            scopes=grant.scopes, task_id=grant.task_id, worker_id=grant.worker_id,
+                            request_id=rec.task.request_id, task_scopes=grant.scopes)
+        question = "Enter your Mac password for the approved command (hidden; Enter cancels)."
+        ap = self.state.approvals.question(ask, question, [])
+        ap.kind = "owner_admin_password"
+        self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability,
+                                            "kind": ap.kind, "reason": question, "task_id": grant.task_id})
+        delivered = False
+        try:
+            state = await self._wait_answer(grant, ap.id)
+            delivered = state == "granted" and bool(ap.answer)
+            return ap.answer if delivered else None
+        finally:
+            if not delivered and ap.answer:
+                self.redact.release_secret(ap.answer)
+            ap.answer = None
+            ap.state = "used" if delivered else "denied"
+
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
-                       real: Path | None = None, claimed: Claimed | None = None) -> dict[str, Any]:
+                       real: Path | None = None, claimed: Claimed | None = None,
+                       escape: EscapeGrant | None = None) -> dict[str, Any]:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:
@@ -1053,7 +1146,7 @@ class Gateway:
                               scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
-                              observe_only=grant.observe_only, path_closed=self._path_closed(name))
+                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape)
             if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
                 self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
         except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)
@@ -1115,9 +1208,38 @@ class Gateway:
             self._finish_call(span, name, done, result.is_error, output=done,
                               error=done.get("error") if result.is_error else None, origins=origins)
             raise
+        if not result.is_error and result.image is None:
+            try:
+                result = await self._initial_image(name, cap, args, spec, grant, result)
+            except asyncio.CancelledError:
+                done = self.redact(raw)
+                self._finish_call(span, name, done, False, output=done | {"image_withheld": "capture cancelled"}, origins=origins)
+                raise
+            raw = {**raw, **result.content}
+        if result.image is not None and not result.is_error:
+            self._looked.setdefault((grant.task_id, "initial"), set()).add("provided")
+            from ferb.sanitize.images import ImageRedactor
+            from ferb.sanitize.redact import Redactor
+            withheld = pixels_withheld(name, spec.target.site, result.read_sources)
+            if self.excluded_host(spec.target.site or ""):
+                withheld = "excluded destination"
+            try:
+                if withheld:
+                    raise Refused(withheld)
+                image = await asyncio.to_thread(ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()), result.image)
+                result = dataclasses.replace(result, image=image)
+            except asyncio.CancelledError:
+                done = self.redact(raw)
+                self._finish_call(span, name, done, False, output=done | {"image_withheld": "redaction cancelled"}, origins=origins)
+                raise
+            except Exception:
+                raw = {**raw, "image_withheld": withheld or "image redaction unavailable"}
+                result = dataclasses.replace(result, image=None)
+        origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
+                                         self.excluded_host)
         content = self.redact(raw)
         output = content
-        if result.image is not None and not result.is_error and self.evidence is not None:
+        if (result.image is not None or raw.get("image_withheld")) and not result.is_error and self.evidence is not None:
             try:
                 output = content | await self._keep_image(name, spec, grant, span.id, content, result, origins)
             except asyncio.CancelledError:               # stopped while the image was kept: the call ran, its span ends
@@ -1130,9 +1252,40 @@ class Gateway:
         out = reply(content, result.is_error, origins)
         if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
-        if not result.is_error:                          # after the reply, outside the call's lock (D26)
-            self._look_later(name, spec, grant, rec, span.id)
         return out
+
+    async def _initial_image(self, name: str, cap: Any, args: Any, spec: Any, grant: RunGrant, result: Any) -> Any:
+        """D6/D26: first successful working-app observation supplies one image in this task's tool reply.
+        Selection comes from the actual app/tab reference; no desktop or unrelated browser tab substitution.
+        """
+        if grant.observe_only or not (name.startswith("mac.") or name in {"browser.snapshot", "ferb_browser.snapshot"}):
+            return result
+        looked = self._looked.setdefault((grant.task_id, "initial"), set())
+        if looked or (name.startswith("mac.") and (not spec.target.site or self.app_window is None)):
+            return result
+        looked.add("attempted")  # reserve before awaiting, so concurrent calls cannot emit two initial pictures
+        try:
+            if name.startswith("mac."):
+                shot = await self.app_window(spec.target.site, grant.scopes)
+                if shot is None:
+                    return result
+                image = shot.image
+                if image is not None and shot.rects:
+                    from ferb.act.evidence.mask import mask_secret_fields
+                    image = await asyncio.to_thread(mask_secret_fields, image, shot.rects)
+                return dataclasses.replace(result, image=image, content={**result.content, "initial_image": shot.facts},
+                                           read_sources=tuple(dict.fromkeys(result.read_sources + shot.read_sources)))
+            tab = cap.driver.owned_by(args.tab, grant.task_id)
+            # screenshot() uses the existing snapshot generation, preserving the element ids returned by this call.
+            image = await cap.driver.screenshot(tab)
+            shot, width, height = None, None, None
+            return dataclasses.replace(result, image=image, content={**result.content,
+                "initial_image": {"shot": shot, "width": width, "height": height}})
+        except NoTarget:
+            looked.clear()  # no window yet; first actual working window can still supply the initial image
+            return result
+        except Exception:
+            return dataclasses.replace(result, content={**result.content, "image_withheld": "initial window capture unavailable"})
 
     def _real_path(self, cap: Any, args: Any, spec: Any) -> Path | None:
         """The file a call really acts on (files.real_path: symlinks followed first, then `..`), for the fs lock and
@@ -1233,7 +1386,10 @@ class Gateway:
         accessibility-known password field. Facts only, no pixels: a site on the owner's exclusion list (never
         recorded), what `pixels_withheld` names, and a result that still lists a secret field (no image-pixel box to
         mask it with). Never fatal: the result reaches the worker anyway. The file is written in a worker thread."""
-        facts = image_facts(name, content)
+        initial = content.get("initial_image")
+        facts = dict(initial) if isinstance(initial, dict) else image_facts(name, content)
+        if content.get("image_withheld"):
+            facts["image_withheld"] = content["image_withheld"]
         kept: bytes | None = result.image
         withheld = pixels_withheld(name, spec.target.site, result.read_sources)
         if origin.external("web", "excluded") in origins:
@@ -1243,7 +1399,8 @@ class Gateway:
         elif shows_secret_field(content):
             kept, facts["image_withheld"] = None, SECRET_WITHHELD
         try:
-            eid = await self.evidence.put_async(grant.task_id, span_id, evidence_kind(name), image=kept, data=facts,
+            kind = "app_window" if isinstance(initial, dict) and name.startswith("mac.") else evidence_kind(name)
+            eid = await self.evidence.put_async(grant.task_id, span_id, kind, image=kept, data=facts,
                                                 origin=origin.join(origins))
         except asyncio.CancelledError:
             raise
@@ -1311,6 +1468,9 @@ class Gateway:
                 withheld = pixels_withheld(name, app, shot.read_sources)
                 if withheld:                                        # second layer: the capture helper drops these too
                     facts["image_withheld"], image = withheld, None
+                if image is not None:
+                    from ferb.sanitize.images import ImageRedactor
+                    image = await asyncio.to_thread(ImageRedactor(self.redact), image, shot.rects)
                 eid = await self.evidence.put_async(grant.task_id, span.id, "app_window", image=image, data=facts,
                                                     rects=shot.rects if image is not None else None,
                                                     origin=origin.join(origins))
@@ -1340,6 +1500,56 @@ class Gateway:
     def _observed(self, name: str, spec: Any, action: ActionRequest, grant: RunGrant, status: str) -> None:
         self.publish("action.observed", {"what": name, "where": _target_dict(spec.target), "actor": "ferb",
                                          "task_id": grant.task_id, "status": status, "why": action.why})
+
+    async def ask_secret(self, ctx: ToolContext, target: str, *, handle: str | None = None,
+                         remember: str | None = None) -> str | None:
+        """D12 hidden input goes directly to the bound native/browser fill. The model sees handles only."""
+        from ferb.identity.owner_secrets import OwnerSecrets
+        from ferb.sanitize.redact import Redactor
+        if not isinstance(self.redact, Redactor):
+            raise Refused("hidden secret redaction is unavailable")
+        if self.roots.protection is None:
+            raise Refused("secret storage protection is unavailable")
+        store = OwnerSecrets(self.roots.protection.ferb_home)
+        if handle:
+            value = await asyncio.to_thread(store.reveal, handle, target)
+            self.redact.remember_hidden_secret(value)
+            self.redact.retain_secret(value)
+            return value
+        if ctx.request_id in self.state.approvals.unattended:
+            return None
+        question = f"Enter the secret for {target} (hidden; Enter cancels)."
+        if remember:
+            question += f" Entering it also saves it in Keychain as {remember!r} for this exact destination."
+        ask = ActionRequest(capability="secret.fill", kind="owner_secret", identity=ctx.identity,
+                            scopes=ctx.scopes, task_id=ctx.task_id, worker_id=ctx.worker_id,
+                            request_id=ctx.request_id, task_scopes=ctx.scopes, effect="edit")
+        ap = self.state.approvals.question(ask, question, [])
+        ap.kind = "owner_secret"
+        self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
+                     "capability": ask.capability, "reason": question, "task_id": ctx.task_id})
+        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, ap.expires_at)
+        delivered = False
+        try:
+            state = await self._wait_answer(grant, ap.id)
+            if state != "granted" or not ap.answer:
+                return None
+            if remember:
+                await asyncio.to_thread(store.remember, remember, target, ap.answer)
+            delivered = True
+            return ap.answer
+        finally:
+            if not delivered and ap.answer:
+                self.redact.release_secret(ap.answer)
+            ap.answer = None
+            ap.state = "used" if ap.state == "granted" else "denied"
+
+    def release_secret(self, value: str) -> None:
+        from ferb.sanitize.redact import Redactor
+        if isinstance(self.redact, Redactor):
+            # Keep echoes scrubbed for this daemon lifetime, including short values captured through hidden input.
+            self.redact.remember_hidden_secret(value)
+            self.redact.release_secret(value)
 
     async def ask_login_code(self, ctx: ToolContext, origin: str) -> str | None:
         """Owner-only hidden input, passed directly to a sealed fill; never returned in a tool result or span."""

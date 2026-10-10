@@ -47,6 +47,19 @@ def secret_param(name: str) -> bool:
     flat = "".join(ch for ch in k if ch.isalnum())
     return (k in SECRET_QUERY or any(w in k or w.replace("_", "") in flat for w in SECRET_QUERY_WORDS)
             or flat.endswith("sig") or flat in {"xamzcredential", "xgoogcredential"})
+OTP_LABEL = re.compile(r"(?i)(?:one[ -]?time|verification|authentication|security|login|sign[ -]?in|access|2fa|otp)[ -]*(?:code|password|pin)?")
+OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b[^\d\n]{0,40})(\d(?:[ -]?\d){3,7})(?!\d)")
+CARD = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
+
+
+def payment_card(value: str) -> bool:
+    digits = [int(c) for c in value if c.isdigit() and c.isascii()]
+    if not 13 <= len(digits) <= 19 or len(set(digits)) == 1:
+        return False
+    return sum((d * 2 - 9 if d * 2 > 9 else d * 2) if i % 2 else d
+               for i, d in enumerate(reversed(digits))) % 10 == 0
+
+
 INPUT_TEXT_FIELDS = {"text", "unmodifiedText", "key", "code"}
 
 
@@ -66,6 +79,26 @@ class Redactor:
     def __init__(self, exclude_domains: set[str] | None = None, exclude_apps: set[str] | None = None) -> None:
         self.configure(exclude_domains, exclude_apps)
         self._values: set[str] = set()      # exact secret values; memory only, never persisted
+        self._temporary: dict[str, int] = {}  # short/space-sensitive hidden inputs, reference-counted leases
+
+    def retain_secret(self, value: str) -> None:
+        if value:
+            self._temporary[value] = self._temporary.get(value, 0) + 1
+
+    def remember_hidden_secret(self, value: str) -> None:
+        """An explicitly hidden value is a secret even when shorter than pattern-derived credentials."""
+        if value:
+            self._values.add(value)
+
+    def release_secret(self, value: str) -> None:
+        count = self._temporary.get(value, 0)
+        if count <= 1:
+            self._temporary.pop(value, None)
+        else:
+            self._temporary[value] = count - 1
+
+    def secret_values(self) -> set[str]:
+        return self._values | self._temporary.keys()
 
     def configure(self, exclude_domains: set[str] | None = None, exclude_apps: set[str] | None = None) -> None:
         """Change the exclusions in place: the journal, spans and gateway hold this instance, so it must stay one."""
@@ -86,6 +119,15 @@ class Redactor:
     def text(self, s: str) -> str:
         """For exception messages and any free text."""
         return self._str(s)
+
+    def field(self, text: str, *, role: str = "", label: str = "", secure_input: bool = False,
+              concealed: bool = False) -> str:
+        """Capture boundary for AX/DOM/clipboard fields; metadata never grants action permission."""
+        if secure_input or concealed or "secure" in role.casefold() or role.casefold() == "password":
+            return REDACTED if text else text
+        if OTP_LABEL.search(label) and re.fullmatch(r"[\d -]+", text.strip()):
+            return REDACTED if text else text
+        return self._str(text)
 
     def excluded_host(self, host: str) -> bool:
         """A host on the owner's exclusion list (a domain covers its subdomains)."""
@@ -121,17 +163,21 @@ class Redactor:
             elif input_event and ks == "params" and isinstance(v, dict):
                 out[k] = {pk: (REDACTED if pk in INPUT_TEXT_FIELDS else self._walk(pv)) for pk, pv in v.items()}
             else:
-                out[k] = self._walk(v, ks)
+                out[k] = (self.field(v, role=str(d.get("role", d.get("type", ""))),
+                                     label=str(d.get("label", d.get("name", d.get("autocomplete", "")))))
+                          if ks in {"value", "text", "content"} and isinstance(v, str) else self._walk(v, ks))
         return out
 
     def _str(self, s: str) -> str:
         if self.exclude_apps and s.lower() in self.exclude_apps:
             return EXCLUDED
-        for v in sorted(self._values, key=len, reverse=True):
+        for v in sorted(self.secret_values(), key=len, reverse=True):
             if v in s:
                 s = s.replace(v, REDACTED)
         for p in SECRET_PATTERNS:
             s = p.sub(REDACTED, s)
+        s = CARD.sub(lambda m: REDACTED if payment_card(m.group()) else m.group(), s)
+        s = OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
         return URL.sub(lambda m: self._url(m.group(0)), s)
 
     def _url(self, url: str) -> str:
@@ -195,7 +241,17 @@ class RedactionStream:
         bearer = self.BEARER_TAIL.search(self.pending)
         if bearer:
             cut = min(cut, bearer.start())
-        for value in self.redactor._values:
+        # Contextual codes and grouped card numbers may straddle whitespace. Keep the current line from their
+        # class introducer/first digit until a line ending, so a later chunk cannot reveal a partial secret.
+        line_start = self.pending.rfind("\n") + 1
+        tail = self.pending[line_start:]
+        contextual = OTP_LABEL.search(tail)
+        numeric = re.search(r"(?<!\d)\d[\d -]*$", tail)
+        if contextual:
+            cut = min(cut, line_start + contextual.start())
+        if numeric:
+            cut = min(cut, line_start + numeric.start())
+        for value in self.redactor.secret_values():
             start = self.pending.find(value)
             while start >= 0:
                 if start < cut < start + len(value):
@@ -229,7 +285,7 @@ class RedactionStream:
         cut = self._safe_cut()
         out = self.redactor.text(self.pending[:cut])
         self.pending = self.pending[cut:]
-        bound = max(self.MAX_PENDING, max((len(v) for v in self.redactor._values), default=0) + 1)
+        bound = max(self.MAX_PENDING, max((len(v) for v in self.redactor.secret_values()), default=0) + 1)
         if len(self.pending) > bound:
             opening = self._unfinished_key()
             if opening is not None:

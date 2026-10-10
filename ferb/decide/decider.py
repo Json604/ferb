@@ -112,7 +112,7 @@ class ShadowDecider:
 
     async def ask(self, state: Any, asks: list[Ask]) -> dict[str, str]:
         """Record every ask; return {key: Jev's answer} only for enabled questions where Jev is stricter."""
-        on = self.enabled()
+        on = self.enabled() - {"action.destructive"}  # CQ2: cannot be enabled by configuration
         live = [a for a in asks if base_id(a.key) in on]
         shadow = [a for a in asks if base_id(a.key) not in on]
         sampled = [a for a in shadow if self.rng() < a.question.shadow_sample]
@@ -130,6 +130,11 @@ class ShadowDecider:
             if v is not None and a.question.is_stricter(v, a.baseline):
                 out[a.key] = v
         return out
+
+    async def advice(self, state: Any, asks: list[Ask]) -> dict[str, str]:
+        """Recorded non-enforcing advice; only the orchestrator may interpret it."""
+        answers = await self._call(state, asks, self.enabled_timeout_s, set())
+        return answers
 
     def mark_effect(self, key: str, ref: str | None, effect: str) -> None:
         self.db.conn.execute(

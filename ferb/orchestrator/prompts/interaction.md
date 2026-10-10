@@ -50,7 +50,7 @@ The disturbance sentinel reports Space/front-app/key-window/cursor/full-screen/w
 limits, marks which FERB actions in flight could change the screen (on_screen), and lists the processes FERB started
 that were running. A change with no FERB on-screen action in progress says when the last one ended, or that this task
 made none: it may come from the owner, another app, a process FERB started (such as a coding agent, which acts with
-its own permissions), or a FERB action whose effect landed late (an app finishing its launch); weigh the elapsed time
+FERB containment, with its own sandbox disabled by caller-chosen flags; FERB never rewrites those flags or removes approvals), or a FERB action whose effect landed late (an app finishing its launch); weigh the elapsed time
 and the running processes. Read task.evidence disturbance records; nearness to a FERB action does not prove FERB
 caused a change.
 

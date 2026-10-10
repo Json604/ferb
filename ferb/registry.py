@@ -36,6 +36,8 @@ def build() -> Registry:
     # capabilities — one line each
     r.add(FsList())
     r.add(FsRead())
+    from ferb.act.fs.usage import FsDiskUsage
+    r.add(FsDiskUsage())
     r.add(FsWrite())
     r.add(FsEdit())
     r.add(FsTrash())
@@ -94,12 +96,14 @@ def add_owner_browsers(r: Registry, router: IdentityDriver, recordings: Any = No
     r.add(BrowserTabs(router, f))                      # the owner's open tabs (owner decision, 2026-09-30)
     r.add(BrowserUseTab(router, f))
     r.add(BrowserLoginCode(router, f))
+    from ferb.act.browser.tools import BrowserSecret
+    r.add(BrowserSecret(router, f))
     if recordings is not None:
         r.add(BrowserRecord(router, f, recordings))
 
 
 def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordings: Any = None,
-            sandbox: Any = None) -> None:
+            sandbox: Any = None, protection: Any = None) -> None:
     """Native Mac tools for the installed device profile. AppleScript runs under FERB's sandbox, so without one it is
     left out (never run uncontained: its `do shell script` would be a shell outside the sandbox)."""
     r.add(MacApps(driver, device_profile))
@@ -107,6 +111,8 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordi
     r.add(MacSnapshot(driver, device_profile))
     r.add(MacMenu(driver, device_profile))
     r.add(MacAct(driver, device_profile))
+    from ferb.act.mac.tools import MacSecret
+    r.add(MacSecret(driver, device_profile))
     if sandbox is not None:
         r.add(MacAppleScript(driver, device_profile, sandbox))
     r.add(MacScreenshot(driver, device_profile))
@@ -114,6 +120,11 @@ def add_mac(r: Registry, driver: MacComputerDriver, device_profile: Any, recordi
     r.add(MacPointer(driver, device_profile))
     if recordings is not None:
         r.add(MacRecord(driver, recordings))
+    for cap in r.capabilities.values():
+        if cap.name.startswith("mac."):
+            cap.protection = protection  # type: ignore[attr-defined]
+    from ferb.act.mac.clipboard import MacClipboard
+    r.add(MacClipboard())
 
 
 def add_trail(r: Registry, trail: Callable[[], Any]) -> None:

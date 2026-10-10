@@ -477,7 +477,7 @@ def test_config_gets_the_protection_defaults_once(daemon: RunningDaemon) -> None
     assert cfg.get("protection", "never_read") == list(DEFAULT_NEVER_READ)
     assert cfg.get("protection", "never_write") == list(DEFAULT_NEVER_WRITE)
     assert cfg.get("protection", "terminal_apps") == list(DEFAULT_TERMINAL_APPS)
-    assert cfg.get("protection", "fs_reads_never_read") is False
+    assert cfg.get("protection", "fs_reads_never_read") is True
     cfg.set("protection", "never_read", ["~/mine"])
     cfg.set("protection", "fs_reads_never_read", True)
     cfg.ensure_privacy_defaults()

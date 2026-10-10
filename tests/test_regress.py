@@ -156,3 +156,20 @@ def test_cli_regress_chat_answer_is_not_a_missing_task(tmp_path: Path) -> None:
     assert "c: answered in chat — no task to give a verdict on" in text and "no task started" not in text
     rows = json.loads(next((tmp_path / "regression").glob("*.json")).read_text())
     assert [r["verdict_possible"] for r in rows] == [False, True]
+
+
+def test_regress_send_allowlist_is_cleared_after_error(tmp_path: Path, monkeypatch: Any) -> None:
+    import io
+    import pytest
+    from ferb.cli.admin import regress
+    import ferb.eval.regress as runner
+    p = tmp_path / 'set.toml'
+    p.write_text('[[task]]\nid="one"\nprompt="one"\nsurface="owner"\nexpect="no egress"\n')
+    client, cleanup = _FakeClient(), _FakeClient()
+    def fail(*args, **kwargs):
+        raise RuntimeError('stream failed')
+    monkeypatch.setattr(runner, 'run_set', fail)
+    with pytest.raises(RuntimeError):
+        regress(client, lambda: cleanup, p, tmp_path, io.StringIO(), allow_send=['owner@example.test'])
+    assert ('test.mode', {'allow_send': ['owner@example.test']}) in client.calls
+    assert ('test.mode', {'off': True}) in cleanup.calls and cleanup.closed

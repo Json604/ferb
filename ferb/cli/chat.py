@@ -139,7 +139,7 @@ def question(d: dict[str, Any]) -> str:
 
 
 def _question(d: dict[str, Any]) -> str:
-    if d.get("kind") == "owner_login_code":
+    if d.get("kind") in {"owner_login_code", "owner_admin_password", "owner_secret"}:
         return f"   ? {d.get('reason', '')} "
     if d.get("kind") == "owner_question" and d.get("capability") == "ferb.confirm" and d.get("options"):
         # FERB's own check (D33): skipping it is a No, final for the task
@@ -226,14 +226,16 @@ class Chat:
 
     def answer_approval(self, d: dict[str, Any]) -> None:
         self.speaker.say(question(d))
-        if d.get("kind") == "owner_login_code":
+        if d.get("kind") in {"owner_login_code", "owner_admin_password", "owner_secret"}:
             import getpass
             # Never let getpass fall back to echoing a code through a pipe or chat history.
             import warnings
             with warnings.catch_warnings():
                 warnings.simplefilter("error", getpass.GetPassWarning)
                 try:
-                    reply = getpass.getpass(question(d)).strip() if sys.stdin.isatty() else ""
+                    reply = getpass.getpass(question(d)) if sys.stdin.isatty() else ""
+                    if d.get("kind") not in {"owner_admin_password", "owner_secret"}:
+                        reply = reply.strip()
                 except (getpass.GetPassWarning, EOFError):
                     reply = ""
         else:

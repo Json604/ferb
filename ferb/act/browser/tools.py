@@ -538,7 +538,8 @@ class BrowserLoginCode(_Base):
     on_screen = True
     blurb = ("Ask the owner for a login verification code using hidden CLI input and fill this exact code field. "
              "The owner sees the destination origin. The code never reaches you. Use only for the login the owner "
-             "requested, after the code field is visible. Passwords use a separate sign-in by the owner.")
+             "requested, after the code field is visible. For passwords or an exact text field whose code "
+             "classification is unavailable, use browser.secret with hidden owner input.")
     risk, reversible = RiskLevel.MEDIUM, False
 
     class Input(_Tab):
@@ -555,6 +556,25 @@ class BrowserLoginCode(_Base):
         ref = self.driver.element_ref(tab, str(getattr(args, "element")))
         r = await self.driver.owner_code(ref, ctx)  # type: ignore[attr-defined]
         return ToolResult({"ok": r.ok, "detail": r.detail, "next": "take a fresh snapshot to verify login"}, is_error=not r.ok)
+
+
+class BrowserSecret(BrowserLoginCode):
+    verb = "secret"
+    blurb = ("Fill an exact field from hidden owner input or an owner-saved Keychain handle. Any secret type, "
+             "including recognized numeric split OTP boxes. Use for a known exact field when login_code cannot "
+             "classify it. The model never receives the value. remember proposes a handle; the "
+             "hidden owner prompt explicitly asks to save it for this HTTPS origin.")
+
+    class Input(_Tab):
+        element: str
+        secret: str | None = None
+        remember: str | None = None
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        tab = self.driver.owned_by(args.tab, ctx.task_id)
+        ref = self.driver.element_ref(tab, args.element)
+        r = await self.driver.owner_secret(ref, ctx, handle=args.secret, remember=args.remember)
+        return ToolResult({"ok": r.ok, "detail": r.detail, "handle": args.remember or args.secret}, is_error=not r.ok)
 
 
 def act_kind(action: str, text: str | None, el: PageElement | None) -> str:

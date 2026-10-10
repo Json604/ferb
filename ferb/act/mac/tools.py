@@ -3,6 +3,7 @@
 Native Mac capabilities. Agents choose actions; kinds/contact/effect values describe trace metadata.
 Drivers retain actual window/element/coordinate validity, background mechanics and privacy handling."""
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Collection, Literal
 
@@ -34,7 +35,8 @@ def _sources(bundle_id: str) -> tuple[tuple[str, str], ...]:
 
 
 class _Base:
-    identities = {Identity.OWNER}
+    identities = {Identity.OWNER, Identity.FERB}
+    protection: Any = None
     risk, reversible = RiskLevel.LOW, True
     # True: it can change what is on the owner's screen (bring an app or window forward, switch the Space, move
     # the cursor, open a dialog); desktop changes near it may be FERB's (P26)
@@ -46,6 +48,8 @@ class _Base:
 
     async def run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         try:
+            if error := self.precheck(args):
+                raise Refused(error)
             return await self._run(args, ctx)
         except (Refused, StaleRef) as e:
             return _err(str(e))
@@ -54,6 +58,13 @@ class _Base:
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         raise NotImplementedError
+
+    def precheck(self, args: BaseModel) -> str | None:
+        typing = self.name == "mac.act" and getattr(args, "action", None) in {"type", "key", "set_value", "edit"}
+        if self.protection is not None and (typing or self.name in {"mac.applescript", "mac.secret"}):
+            if self._bundle(args).casefold() in self.protection.terminal_apps:
+                return "FERB never types or runs scripts into terminal apps; use FERB's own shell"
+        return None
 
     def _bundle(self, args: BaseModel) -> str:
         a = self.driver.apps.find(str(getattr(args, "app")))
@@ -187,28 +198,13 @@ class MacSnapshot(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a, out = await self.driver.snapshot(str(getattr(args, "app")), getattr(args, "window", None),
                                             getattr(args, "subtree", None), getattr(args, "offset", 0))
-        image = None
-        if not getattr(args, "subtree", None) and "screen" in ctx.scopes and self.driver.snapshot_images() and not is_browser(a.bundle_id):
-            try:                       # the same rules as mac.screenshot: excluded apps and password fields refuse
-                _, shot, image = await self.driver.screenshot(f"pid:{a.pid}", self.driver.marks(a.bundle_id), window=getattr(args, "window", None))
-                marks = self.driver.marks(a.bundle_id)
-                visible = [r for _, r in marks if r[2] > 0 and r[3] > 0 and r[0] + r[2] > shot.bounds[0]
-                           and r[1] + r[3] > shot.bounds[1] and r[0] < shot.bounds[0] + shot.bounds[2]
-                           and r[1] < shot.bounds[1] + shot.bounds[3]]
-                out["image_facts"] = {"width": shot.size[0], "height": shot.size[1], "max_edge": 1568,
-                                      "marks_drawn": min(200, len(visible)), "marks_omitted": max(0, len(visible)-200),
-                                      "retrieval": "mac.screenshot with window and native_resolution=true for native pixels; all nodes are in paged AX data"}
-                out["shot"] = shot.id                          # usable with mac_click too
-                out["image"] = "attached: numbers on the image are the element ids' last part (12 = …e12)"
-            except (Refused, StaleRef) as e:
-                out["image"] = f"none ({e})"
-        return ToolResult(out, read_sources=_sources(a.bundle_id), image=image)
+        return ToolResult(out, read_sources=_sources(a.bundle_id))
 
 
 @dataclass(frozen=True)
 class AppWindow:
     """FERB's own picture of the window of an app a worker started on (D26), for the evidence store."""
-    image: bytes | None                                # None: facts only (a messaging or mail app, until F5)
+    image: bytes | None                                # None: facts only when a capture cannot safely supply pixels
     rects: list[Box]                         # the secret fields its tree shows, image pixels: masked when stored
     facts: dict[str, Any]
     read_sources: tuple[tuple[str, str], ...]
@@ -224,10 +220,6 @@ async def app_window(driver: MacComputerDriver, app: str, scopes: Collection[str
     a = driver.app(app)
     if is_browser(a.bundle_id):
         return None
-    if a.bundle_id in UNTRUSTED_APPS:      # rule 14 until F5's code redaction: a one-time code can be in a message
-        return AppWindow(None, [], {"app": a.name, "bundle_id": a.bundle_id, "image_withheld": "a messaging or mail "
-                                    "app, where one-time codes arrive: facts only until F5's screenshot redaction"},
-                         _sources(a.bundle_id))           # nothing is captured
     a, shot, jpeg = await driver.window_image(f"pid:{a.pid}")
     return AppWindow(jpeg, to_image_boxes(driver.secret_fields(a.bundle_id), shot.bounds, shot.size),
                      {"app": a.name, "bundle_id": a.bundle_id, "window_id": shot.window, "width": shot.size[0],
@@ -489,3 +481,39 @@ class MacAppleScript(_Base):
                                         timeout=float(getattr(args, "timeout_s")), sandbox=self.sandbox,
                                         cwd=ctx.workspace)
         return ToolResult({"ok": ok, "result": out}, is_error=not ok, read_sources=_sources(a.bundle_id))
+
+
+class MacSecret(_Base):
+    name = "mac.secret"
+    scopes = {"mac:act"}
+    risk, reversible = RiskLevel.MEDIUM, False
+    on_screen = False
+    description = ("Fill an exact native AX field using hidden owner input or an owner-saved Keychain handle. "
+                   "No foreground typing fallback. remember asks the owner to save this item for this app.")
+
+    class Input(_App):
+        element: str
+        secret: str | None = None
+        remember: str | None = None
+
+    def describe(self, args: BaseModel) -> ActionSpec:
+        return ActionSpec(Kind.FILL_FORM, Target(site=self._bundle(args)))
+
+    async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
+        a = self.driver.app(args.app)
+        node = self.driver.node(a.bundle_id, args.element)
+        ask = getattr(self.driver, "ask_secret", None)
+        if ask is None:
+            raise Refused("hidden secret input is unavailable")
+        value = await ask(ctx, "app:" + a.bundle_id, handle=args.secret, remember=args.remember)
+        if not value:
+            return ToolResult({"ok": False, "detail": "secret input declined"}, is_error=True)
+        try:
+            current = self.driver.app(args.app)
+            if current.pid != a.pid or self.driver.node(a.bundle_id, args.element) is not node:
+                raise StaleRef("the native secret destination changed while waiting")
+            accepted = await asyncio.to_thread(self.driver.ax.set_value, node.ref, value)
+            return ToolResult({"ok": bool(accepted), "detail": "AX secret fill accepted" if accepted else "AX secret fill refused",
+                               "handle": args.remember or args.secret}, is_error=not accepted)
+        finally:
+            self.driver.release_secret(value)
