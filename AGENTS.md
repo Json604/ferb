@@ -63,16 +63,43 @@ it; everything below adds to it. Where this file and `CLAUDE.md` differ, ask the
   `review-package PLAN BASE HEAD` writes the commit list, stat and diff for a reviewer.
 - **Live results and pending checks:** `docs/OWNER_ACCEPTANCE.md`.
 
-## Where things stood on 2026-10-09
+## Where things stood on 2026-10-10 (handoff point)
 
-F0–F4 are built and signed off by the owner. F5 is split into F5a (containment and confirmations: the shell sandbox,
-never-read/never-write lists, the network proxy, the escape hatch, the D23 code-floor confirmations and the S4 sink
-rule, the worker permission model, plus the items F3 and F4 carried into F5) and F5b (secret classes and redaction,
-screenshot redaction, the start-of-task screenshot, Jev's destructive classifier in shadow, then Full Disk Access by
-default). The F5a plan is `docs/superpowers/plans/2026-10-10-f5a-containment.md` (committed 9891157). The owner answered its
-eight open questions "all recommended" (2026-10-09; recorded in its ledger). Tasks 1-2 are complete (the owner also confirmed
-2026-10-10 that agents FERB starts run inside its sandbox with their own sandbox off); Task 3 (the egress proxy) is
-complete except two owner decisions still open (an allow list for the owner's own local servers; blocking macOS's
-certificate service, liftable per command by the escape hatch) — when answered, apply them as a small follow-up.
-Task 4 (confirmations and the sink rule) is complete; Task 5 (sinks that are not sends) is in progress. Its ledger is
-`.superpowers/sdd/2026-10-10-f5a-containment/progress.md`.
+**Done and signed off:** F0–F4 (owner sign-off recorded in `docs/OWNER_ACCEPTANCE.md`).
+
+**In progress: F5a, containment and confirmations.** Plan `docs/superpowers/plans/2026-10-10-f5a-containment.md`;
+ledger `.superpowers/sdd/2026-10-10-f5a-containment/progress.md` (read it first: every ruling, residual and parked item).
+F5 was split: F5a (this plan) and F5b (secret classes and redaction, screenshot redaction, the start-of-task screenshot
+to the model, Jev's destructive classifier in shadow, then Full Disk Access by default), planned after F5a.
+
+| Task | State |
+|---|---|
+| 1 Protection lists, `file_paths` gate | complete (ac5dbfd, b24eeb3, d439801) |
+| 2 Shell sandbox (sandbox-exec) | complete (10453cd, 66a1dcd, b2d41ef) |
+| 3 Egress proxy | complete (96cf41d, 4bfd429, 4b27714), plus a small follow-up "T3b" once the owner answers Q1–Q2 below |
+| 4 Code-floor confirmations, sink rule, known destinations | complete (19318d3, 8aee147, eaa9000, 3ec05d4) |
+| 5 Sinks that are not sends (shell destinations, URLs) | fix round 2 committed (3c4d125); its re-review was running at handoff: if the ledger has no verdict for `b1f9e3f..3c4d125`, re-run that scoped re-review first. Owner answers Q3–Q4 below still to apply. |
+| 6 Escape hatch (D31) | not started |
+| 7 Worker permission model (W1, W2, W4, D36) | not started |
+| 8 Security suite (offline replays, live P0 set, test-mode send switch, overhead in `ferb stats`) | not started |
+| 9 Docs, registry, "0.27 F5a — pending live checks" | not started; must also record the owner decisions and residuals listed in the ledger |
+
+**Owner decisions:** the owner's answers to the four questions below are recorded in the ledger once given. If the
+ledger has none, ask the owner these exactly (each has a recommendation):
+1. Local servers (dev server, Ollama): FERB's shell can't reach programs already listening on the Mac; add a
+   `[protection]` list of local ports the owner allows, each pinned to the listening program's executable, connections
+   recorded. → T3b.
+2. macOS's certificate service (trustd) can fetch a URL planted in a certificate outside the proxy: deny it in the
+   shell profile by default, liftable per exact command by the escape hatch (Task 6); Go tools (gh, docker, kubectl)
+   then need that one approval. → T3b (+ Task 6 rule id).
+3. Shell egress after outside content (Task 5 review finding C1): code can't tell what a shell command read, so once a
+   tree has read outside content, a shell connection to a host neither known nor named is refused, then asked once per
+   host (Yes remembered for later tasks; No final for the tree). → Task 5 round 3.
+4. Records labelled both outside and private (owner-browser pages, Mail/Messages) count as the owner's data for the
+   URL sink (already built that way in 3c4d125; a one-line switch if the owner says otherwise). → Task 5.
+
+**Process notes:** the earlier owner answers ("all recommended" to F5a's eight questions; agents FERB starts run inside
+the sandbox with their own sandbox off) are in the ledger. Residuals for owner acceptance accumulate in the ledger and
+go into Task 9's live-check list. Five `test_orchestrated_control` tests fail only when the tiktoken o200k_base cache is
+absent (pre-existing, parked for the final review). The installed daemon still runs F4 + live fixes; nothing of F5a is
+installed until the owner runs `ferb setup --update` after F5a's final review.
