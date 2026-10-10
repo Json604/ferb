@@ -63,6 +63,7 @@ class Learning:
             return None
         out = dict(r)
         out['body'] = json.loads(out.pop('body_json'))
+        out['origins'] = json.loads(out.pop('origins_json'))
         out['confirmed'] = bool(out['confirmed'])
         out['sources'] = [s[0] for s in self.db.conn.execute(
             'SELECT source_ref FROM learning_sources WHERE node_id=? ORDER BY source_ref', (node_id,))]
@@ -78,33 +79,43 @@ class Learning:
         return [self.get(r[0]) for r in self.db.conn.execute(sql + ' ORDER BY recorded_at,id', args)]  # type: ignore[misc]
 
     def _source_origin(self, ref: str) -> str:
+        return origin.least_trusted(self._source_origins(ref))
+
+    def _source_origins(self, ref: str) -> set[str]:
         node = self.get(ref)
         if node:
-            return node['origin']
+            return set(node['origins'])
         family, sep, ident = ref.partition(':')
         if not sep:
             raise LearningRefused(f'unknown source {ref}')
         if family == 'memory':
             r = self.db.conn.execute('SELECT origin FROM memory_items WHERE id=?', (ident,)).fetchone()
             if r:
-                return memory_origin(r[0])
+                labels = {memory_origin(r[0])}
+                for source in self.db.conn.execute('SELECT kind,source_id FROM memory_sources WHERE item_id=?', (ident,)):
+                    try:
+                        labels.update(self._source_origins(source[0] + ':' + source[1]))
+                    except LearningRefused:
+                        # A retained fact may outlive its raw event. Never infer it lost privacy.
+                        labels.update({origin.PRIVATE, origin.external('unlabeled')})
+                return labels
         elif family == 'episode':
             r = self.db.conn.execute('SELECT origins FROM episodes WHERE task_id=?', (ident,)).fetchone()
             if r:
-                return origin.least_trusted(origin.split(r[0]) | {origin.FERB})
+                return origin.split(r[0]) | {origin.FERB}
         elif family == 'trail':
             r = self.db.conn.execute('SELECT actor,source FROM trail WHERE id=?', (ident,)).fetchone()
             if r:
                 from ferb.sense.tools import trail_sources
-                return origin.least_trusted(origin.from_read_source(k, v) for k, v in trail_sources({r['source']}))
+                return {origin.from_read_source(k, v) for k, v in trail_sources({r['source']})}
         elif family == 'journal':
             r = self.db.conn.execute('SELECT origin FROM journal WHERE id=?', (ident,)).fetchone()
             if r:
-                return origin.least_trusted(origin.recorded(r[0], True))
-        retained = self.db.conn.execute('SELECT n.origin FROM learning_sources s JOIN learning_nodes n '
-            'ON n.id=s.node_id WHERE s.source_ref=? ORDER BY n.recorded_at DESC LIMIT 1', (ref,)).fetchone()
+                return origin.recorded(r[0], True)
+        retained = self.db.conn.execute('SELECT n.origins_json FROM learning_sources s JOIN learning_nodes n '
+            'ON n.id=s.node_id WHERE s.source_ref=? ORDER BY n.recorded_at DESC', (ref,)).fetchall()
         if retained:
-            return retained[0]
+            return {label for row in retained for label in json.loads(row[0])}
         raise LearningRefused(f'source is missing: {ref}')
 
     def put(self, kind: str, key: str, body: dict[str, Any], sources: Iterable[str], *,
@@ -117,10 +128,11 @@ class Learning:
         body = json.loads(self.redact(encoded(body)))
         key = self.redact(key)
         refs = sorted(set(sources))
-        labels = [self._source_origin(s) for s in refs]
+        labels = {label for s in refs for label in self._source_origins(s)}
         # An explicit owner statement is a new statement, still citing the old proposal as history.
-        inherited = origin.OWNER if owner else origin.least_trusted([origin_label, *labels])
-        node_id = 'm-' + digest([kind, key, body, refs, inherited, made_by])
+        labels = {origin.OWNER} if owner else labels | origin.split(origin_label)
+        inherited = origin.least_trusted(labels)
+        node_id = 'm-' + digest([kind, key, body, refs, sorted(labels), made_by])
         logical_id = 'key-' + digest([kind, key])
         if self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id IN (?,?)', (node_id, logical_id)).fetchone():
             raise LearningRefused('this content was forgotten')
@@ -138,10 +150,10 @@ class Learning:
             if prev:
                 self.db.conn.execute('UPDATE learning_nodes SET valid_to=? WHERE id=?', (now, prev[0]))
             self.db.conn.execute('INSERT INTO learning_nodes '
-                '(id,kind,key,body_json,origin,made_by,recorded_at,valid_from,supersedes,batch_id,state,confirmed) '
-                'VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                '(id,kind,key,body_json,origin,made_by,recorded_at,valid_from,supersedes,batch_id,state,confirmed,origins_json) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 (node_id, kind, key, encoded(body), inherited, made_by, now, now, prev[0] if prev else None,
-                 batch, state, int(owner)))
+                 batch, state, int(owner), encoded(sorted(labels))))
             self.db.conn.executemany('INSERT INTO learning_sources VALUES (?,?)', [(node_id, r) for r in refs])
             text = key + ' ' + encoded(body)
             self.db.conn.execute('INSERT INTO learning_fts VALUES (?,?)', (node_id, text))

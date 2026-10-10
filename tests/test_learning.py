@@ -183,3 +183,14 @@ def test_recalled_context_lineage_is_forgotten_and_cannot_reappear_from_old_trac
     assert captured['id'] in learning.forget([source['id']])
     with pytest.raises(LearningRefused):
         learning.capture_episode('recalled-task')
+
+
+def test_derived_external_content_keeps_private_label_for_sink_checks(learning):
+    source = learning.put('episode', 'mail-read', {'text': 'Private correspondence'}, [],
+                          origin_label='external:mail,private', made_by='code:evidence-card/1')
+    lesson = learning.put('lesson', 'mail', {'text': 'Summary of private correspondence'}, [source['id']],
+                          made_by='model:test')
+    assert lesson['origin'] == 'external:mail'
+    assert {'external:mail', 'private', 'inferred'} == set(lesson['origins'])
+    with pytest.raises(Exception, match='versioned'):
+        learning.db.conn.execute("UPDATE learning_nodes SET origins_json='[]' WHERE id=?", (lesson['id'],))

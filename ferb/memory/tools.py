@@ -33,9 +33,9 @@ class LearningRead(_PagedFacts):
             node = learning.get(args.item_id)
             if node is None:
                 return ToolResult({'error': 'unknown memory ID'}, is_error=True)
-            return self.page(node, args.offset, args.max_chars, {node['origin']})
+            return self.page(node, args.offset, args.max_chars, set(node['origins']))
         found = learning.search(args.query, kind=args.kind, app=args.app, person=args.person,
                                  since=args.since, until=args.until)
-        candidates = [{k: n[k] for k in ('id','kind','key','state','origin','recorded_at','sources')} for n in found]
+        candidates = [{k: n[k] for k in ('id','kind','key','state','origin','origins','recorded_at','sources')} for n in found]
         return self.page({'candidates': candidates, 'total': len(candidates)}, args.offset, args.max_chars,
-                         {n['origin'] for n in found})
+                         {label for n in found for label in n['origins']})
