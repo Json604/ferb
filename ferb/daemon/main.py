@@ -1105,7 +1105,7 @@ class Daemon:
             model = await asyncio.to_thread(embeddings.LocalMLX, root, data)
             if action == "evaluate":
                 cases = json.loads(Path(str(params["dataset"])).read_text())
-                return embeddings.evaluate(l, model, cases.get("cases", []) if isinstance(cases, dict) else cases)
+                return await embeddings.evaluate_async(l, model, cases.get("cases", []) if isinstance(cases, dict) else cases)
             if action == "adopt":
                 embeddings.adopt(l, model, str(params["evaluation"]))
                 config = self.home / "memory-embedding.json"

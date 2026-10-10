@@ -88,9 +88,9 @@ class Consolidator:
                                   (p['id'], status, l.now(), error))
             self.rollups()
             if l.embedder is not None:
-                from ferb.memory.embeddings import index
+                from ferb.memory.embeddings import index_async
                 try:
-                    index(l, l.embedder)
+                    await index_async(l, l.embedder)
                 except Exception as e:
                     l.publish('memory.embedding_unavailable', {'error': l.redact(str(e))})
             return {'status': 'done', 'sources': results}

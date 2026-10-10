@@ -39,3 +39,15 @@ def test_paired_memory_report_never_calls_missing_owner_verdict_a_pass():
     r=paired_results([{'id':'q'}],rows,rows)
     assert r['acceptance']=='pending'
     assert r['with']['owner_passes']==0
+
+
+def test_local_model_identity_covers_preprocessing(monkeypatch,tmp_path):
+    import sys,types
+    from ferb.memory import embeddings
+    monkeypatch.setattr(embeddings,'verify',lambda root,data:None)
+    stub=types.ModuleType('mlx_embeddings.utils');stub.load=lambda *a,**k:(None,None)
+    monkeypatch.setitem(sys.modules,'mlx_embeddings.utils',stub)
+    data={'repository':'Qwen/model','revision':'a'*40,'dimensions':256,'files':{},'query_prefix':'query: '}
+    first=embeddings.LocalMLX(tmp_path,data)
+    second=embeddings.LocalMLX(tmp_path,data|{'query_prefix':'different: '})
+    assert first.name != second.name

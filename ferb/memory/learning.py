@@ -171,14 +171,25 @@ class Learning:
             args = inp.get('args') or {}
             if isinstance(args.get('bundle_id'), str):
                 used_apps.add(args['bundle_id'])
+            target = inp.get('target') or {}
+            if str(inp.get('tool', '')).startswith('mac.'):
+                site = target.get('site')
+                if site and site in (apps or {}):
+                    used_apps.add(site)
+                elif args.get('app') in (apps or {}):
+                    used_apps.add(args['app'])
+                else:
+                    result_app = json.loads(r['output_json']) if r['output_json'] else {}
+                    bid = result_app.get('bundle_id') if isinstance(result_app, dict) else None
+                    used_apps.add(str(bid) if bid else 'unresolved-mac-app')
             if str(inp.get('tool', '')).startswith(('browser.', 'ferb_browser.')):
                 # The retained trace may not identify a resolved browser bundle. Preserve the actual captured
                 # browser inventory conservatively, never invent which browser version ran a historic action.
-                used_apps.update(k for k in (apps or {}) if k in
-                    ('com.google.Chrome', 'com.brave.Browser', 'com.apple.Safari', 'com.microsoft.edgemac'))
+                browsers = {k for k in (apps or {}) if k in
+                    ('com.google.Chrome', 'com.brave.Browser', 'com.apple.Safari', 'com.microsoft.edgemac')}
+                used_apps.update(browsers or {'unresolved-browser'})
             arg_sources = inp.get('arg_sources')
             # No provenance on historical actions is unknown, not evidence of a safe destination.
-            labels = {o for values in (arg_sources or {}).values() for o in values}
             outside = inp.get('kind') not in ('read', 'search', 'mailbox_read') and (arg_sources is None or any(origin.OWNER not in values and
                        any(origin.rank(o) >= origin.OUTSIDE_RANK for o in values)
                        for values in arg_sources.values()))

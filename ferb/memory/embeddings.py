@@ -5,6 +5,7 @@ until the owner-history evaluation beats keyword search; failures leave keyword 
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import array
 import sqlite3
@@ -83,7 +84,7 @@ class LocalMLX:
         self.model, self.tokenizer = load(str(root), tokenizer_config={'local_files_only': True,
                                                                        'trust_remote_code': False})
         self.dimensions = data['dimensions']
-        self.name = data['repository'] + '@' + data['revision'] + ':' + str(self.dimensions)
+        self.name = data['repository'] + '@' + data['revision'] + ':' + str(self.dimensions) + ':' + digest(data)
         self.query_prefix = str(data.get('query_prefix', ''))
 
     def encode(self, text: str, *, query: bool = False) -> list[int]:
@@ -146,7 +147,7 @@ def ranked(db: Any, model: Any, query: str) -> list[str]:
                                                     (model.name,)), key=lambda r: (-score(r[1]), r[0]))]
 
 
-def evaluate(learning: Any, model: Any, cases: list[dict[str, Any]]) -> dict[str, Any]:
+def evaluate(learning: Any, model: Any, cases: list[dict[str, Any]], *, prepare: bool = True) -> dict[str, Any]:
     """Paired reciprocal-rank measurement, grounded in recorded owner requests and owner-labelled relevant IDs.
 
     No fixed minimum corpus size is invented; the report exposes n and the plan calls for ~50–100 owner queries.
@@ -161,7 +162,8 @@ def evaluate(learning: Any, model: Any, cases: list[dict[str, Any]]) -> dict[str
             raise LearningRefused('query must match its real episode request and have relevance labels')
         if any(learning.get(i) is None for i in case['relevant']):
             raise LearningRefused('label references missing memory')
-    index(learning, model)
+    if prepare:
+        index(learning, model)
     previous = learning.embedder
     rows = []
     try:
@@ -171,8 +173,8 @@ def evaluate(learning: Any, model: Any, cases: list[dict[str, Any]]) -> dict[str
                 learning.embedder = embedder
                 hits = learning.search(case['query'])
                 # Hold out the query task itself to avoid measuring identity lookup as helpful memory.
-                hits = [h for h in hits if h['body'].get('task_id') != case['task_id'] and
-                        'episode:' + case['task_id'] not in h['sources']]
+                held_out = learning.descendants(['episode:' + case['task_id']])
+                hits = [h for h in hits if h['id'] not in held_out and h['body'].get('task_id') != case['task_id']]
                 pos = next((n + 1 for n, hit in enumerate(hits) if hit['id'] in case['relevant']), None)
                 result[name] = 1 / pos if pos else 0.0
             rows.append(result)
@@ -195,3 +197,36 @@ def adopt(learning: Any, model: Any, evaluation_id: str) -> None:
     learning.db.conn.execute('UPDATE learning_embedding_evals SET adopted=0')
     learning.db.conn.execute('UPDATE learning_embedding_evals SET adopted=1 WHERE id=?', (evaluation_id,))
     learning.embedder = model
+
+
+async def index_async(learning: Any, model: Any) -> int:
+    """Keep inference off the daemon thread; only the owner loop touches SQLite."""
+    count = 0
+    for node in learning.items():
+        text = node['key'] + ' ' + encoded(node['body'])
+        sha = digest(text)
+        old = learning.db.conn.execute('SELECT text_hash FROM learning_vectors WHERE node_id=? AND model=?',
+                                       (node['id'], model.name)).fetchone()
+        if old and old[0] == sha:
+            continue
+        vector = await asyncio.to_thread(model.encode, text)
+        if learning.get(node['id']) is None:
+            continue  # owner may forget evidence during inference
+        learning.db.conn.execute('INSERT OR REPLACE INTO learning_vectors VALUES (?,?,?,?,?)',
+            (node['id'], model.name, array.array('b', vector).tobytes(), node['recorded_at'][:7], sha))
+        count += 1
+    return count
+
+
+async def evaluate_async(learning: Any, model: Any, cases: list[dict[str, Any]]) -> dict[str, Any]:
+    await index_async(learning, model)
+    vectors = {}
+    for case in cases:
+        vectors[case['query']] = await asyncio.to_thread(model.encode, case['query'], query=True)
+    class PreparedQueries:
+        name = model.name
+        def encode(self, text: str, *, query: bool = False) -> list[int]:
+            if not query:
+                raise ValueError('evaluation corpus must be prepared before scoring')
+            return vectors[text]
+    return evaluate(learning, PreparedQueries(), cases, prepare=False)
