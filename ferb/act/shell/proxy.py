@@ -15,8 +15,8 @@ bodies, headers, paths or query strings (rule 14).
   client bytes are inspected inline. Non-TLS is forwarded with no delay. A TLS ClientHello's SNI (a hostname, a
   destination fact like the CONNECT host, never content) is recorded; once the tree has read outside content (and,
   failing closed, whenever FERB can't tell) the hello is held until reassembled (up to SNI_MAX, no timeout) and a
-  connection is refused whose SNI names a host the owner hasn't named and FERB doesn't know, or that has no readable
-  SNI to a named host (domain fronting, S4). Residuals: an ECH outer name goes through refuse-then-ask like any other
+  connection is refused whose SNI names a host the owner hasn't named, FERB doesn't know and this tree's shell hadn't
+  reached before that first outside read, or that has no readable SNI to a named host (domain fronting, S4). Residuals: an ECH outer name goes through refuse-then-ask like any other
   host; fronting with a matching SNI and a Host header inside TLS stays undetectable. A plain http:// request is
   forwarded byte for byte on its own connection, closed after the response, so each request is gated and recorded for
   its own host.

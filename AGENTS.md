@@ -99,7 +99,8 @@ apply them as described:
 4. Records labelled both outside and private (owner-browser pages, Mail/Messages) count as the owner's data for the
    URL sink (already built that way in 3c4d125; a one-line switch if the owner says otherwise). → Task 5.
 
-**Process notes:** the earlier owner answers ("all recommended" to F5a's eight questions; agents FERB starts run inside
+**Process notes:** From 2026-10-10 the owner's Opus/Sonnet weekly pool is exhausted; all agent dispatches run on
+Fable (its own weekly pool) until the pool resets Thursday. the earlier owner answers ("all recommended" to F5a's eight questions; agents FERB starts run inside
 the sandbox with their own sandbox off) are in the ledger. Residuals for owner acceptance accumulate in the ledger and
 go into Task 9's live-check list. Five `test_orchestrated_control` tests fail only when the tiktoken o200k_base cache is
 absent (pre-existing, parked for the final review). The installed daemon still runs F4 + live fixes; nothing of F5a is

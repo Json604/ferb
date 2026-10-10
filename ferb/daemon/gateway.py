@@ -399,6 +399,9 @@ class Gateway:
         self.proc_task: Callable[[str], str | None] = lambda proc_id: None
         self.proc_command: Callable[[str], str | None] = lambda proc_id: None
         self._refused_hosts: dict[str, dict[str, str]] = {}   # root tree -> {refused host: the command that tried it}
+        # root tree -> the hosts its shell reached before the tree first read outside content: they stay allowed for
+        # the rest of the tree (owner, 2026-10-10). Decided by connection order, never by a list of hosts.
+        self._reached_hosts: dict[str, set[str]] = {}
         self.route_question: Any = None
         self.disturbance: Any = None
         self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
@@ -459,9 +462,12 @@ class Gateway:
         (a No carries across the tree and between shell and browser). Otherwise allowed when the owner named the host
         (a URL host in the request's words or an answer, D33), or the task tree hasn't read outside content yet (owner,
         Q3, 2026-10-10: code can't tell what a shell command read, so after any outside content — the request's outside
-        parts or any outside tool result, a shell command's own output included — a new host needs the owner). Else
-        refused and recorded under this tree, so `owner.ask allow_destination` can act on it (a worker can't invent a
-        host nothing tried). Loopback never reaches here."""
+        parts or any outside tool result, a shell command's own output included — a new host needs the owner), or
+        this tree's shell reached the host before the tree first read outside content (owner, 2026-10-10: a site the
+        task was already talking to — a registry, an agent's own API — stays allowed for the rest of the tree, by the
+        order of the connection and the first outside read, never by a list of hosts). Else refused and recorded under
+        this tree, so `owner.ask allow_destination` can act on it (a worker can't invent a host nothing tried).
+        Loopback never reaches here."""
         norm = KnownDestinations.normalize("host", host)
         if self.destinations is not None and self.destinations.known("host", host):
             return True, ""
@@ -475,9 +481,14 @@ class Gateway:
                 return (True, "") if row["granted"] else (False, DEST_REFUSED_NO)
         if self._host_named(norm, root):
             return True, ""
+        live = self.tasks.get(root) is not None          # N4: never re-create a tree's sets after it ended
         if not self._outside_read(root):
+            if live:
+                self._reached_hosts.setdefault(root, set()).add(norm)   # reached before the first outside read
             return True, ""
-        if self.tasks.get(root) is not None:             # N4: don't re-create _refused_hosts for a tree that ended
+        if norm in self._reached_hosts.get(root, ()):
+            return True, ""
+        if live:
             self._refused_hosts.setdefault(root, {})[norm] = self.proc_command(proc_id) or ""
         return False, DEST_REFUSED_NEW
 
@@ -531,6 +542,7 @@ class Gateway:
             self._outside.pop(task_id, None)
             self._confirming.pop(task_id, None)
             self._refused_hosts.pop(task_id, None)
+            self._reached_hosts.pop(task_id, None)
         for key in [k for k in self._looked if k[0] in task_ids]:
             del self._looked[key]
 
