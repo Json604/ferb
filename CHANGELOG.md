@@ -30,6 +30,13 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   daily security facts, regression send switch and containment statistics. FDA setup waits for working containment.
 - No installed-daemon/browser changes or live claims. Python/JavaScript/Swift compilation checked; test execution deferred to the
   combined final pass requested by the owner.
+## 0.27.0-dev — 2026-10-11 — F9 conversations, pending combined/live checks
+
+- Added researched conversation proposals, explicit account/contact/topic/terms approvals, checked turn loops,
+  durable incoming-reply waits, owner interference pause, evidence-backed hand-over and action receipts.
+- Added owner chat/CLI controls, quote-checked notification rules and display-acknowledged ordinary activity notices.
+  Notification triage remains shadow. Gateway checks and P19 remain in effect; GUI account/contact proof still needs
+  fresh inspection. No native or outward-facing live run is claimed here.
 
 ## 0.27.0-dev — 2026-10-11 — F7 perception, pending combined checks
 

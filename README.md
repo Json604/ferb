@@ -199,6 +199,36 @@ against the key you add; `ferb runtimes` labels each runtime's billing.
 
 Use `ferb COMMAND --help` for options.
 
+### Delegated conversations (F9 implementation; live acceptance pending)
+
+Ask FERB to research opportunities and continue selected conversations. Research produces concrete contact routes;
+FERB shows the exact account, app/site, thread, contacts, topic and hand-over condition for approval, including
+platform automation terms. Proposed standing sends are shown separately. Replies stay within that task, with
+ordinary confirmation, private-data and unknown-outcome checks. A checked turn sleeps while waiting for a matching
+reply and resumes across daemon restarts. The owner can take over in chat or with:
+
+```sh
+ferb conversations list
+ferb conversations show CONVERSATION_ID
+ferb conversations pause CONVERSATION_ID
+ferb conversations takeover CONVERSATION_ID
+ferb conversations resume CONVERSATION_ID
+ferb notifications rules
+ferb notifications unmute RULE_ID
+ferb notifications label EVENT_ID --expected yes --note "This was useful"
+```
+
+Owner typing in the approved app/window pauses further input. If a source lacks a window ID, the pause covers the
+app; an already-sent input cannot be recalled. The gateway pins identity and target app/site, checks concrete
+account/recipient fields when supplied, and blocks untargeted input/shell in conversation turns. Generic GUI controls
+still require fresh account/contact reads and a checker: their metadata alone cannot prove the selected account.
+Incoming text never changes the approved task. A lead is handed over with evidence and action receipts; an unknown
+send stays unknown until observed or its retry is explicitly approved.
+
+Ordinary activity can produce a sourced owner notice; it cannot create a task. Notification triage remains in
+shadow pending measured owner acceptance. Chat can save an owner-quoted app/chat/topic mute; `ferb notifications`
+shows rules and labelled measurements. Notice receipts are marked delivered after the CLI displays them.
+
 ## Privacy and debugging
 
 `~/.ferb/config.toml` holds configuration. `ferb.db` contains tasks, traces, reminders and memory.

@@ -203,6 +203,7 @@ class Daemon:
         self.trail: Trail | None = None
         self.sense: Sense | None = None
         self.perception: Any = None
+        self.attention_notices: Any = None
         self.attribution = Attribution()
         self.watch_problems: list[str] = []
         self._excl: tuple[float, Exclusions] | None = None
@@ -306,6 +307,11 @@ class Daemon:
                          ("identity.pair", self._identity_pair), ("ps.list", self._ps_list),
                          ("ps.kill", self._ps_kill)):
             self.server.unary[name] = fn
+        self.server.unary['conversations.list'] = self._conversations_list
+        self.server.unary['conversations.change'] = self._conversations_change
+        self.server.unary['notifications.rules'] = self._notification_rules
+        self.server.unary['notifications.label'] = self._notification_label
+        self.server.unary['attention.ack'] = self._attention_ack
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
         self.server.streams['ps.attach'] = self._ps_attach
@@ -561,6 +567,12 @@ class Daemon:
                             lambda: self.memory)
         self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
+        from ferb.orchestrator.conversation_tools import ConversationRead
+        from ferb.orchestrator.attention import AttentionNotices
+        self.registry.add(ConversationRead(self.supervisor.conversations, self.tasks.tree_of))
+        self.attention_notices = AttentionNotices(self.db, self.clock, self.redact)
+        self.supervisor.notification_rule = self._notification_rule_from_chat
+        self.supervisor.on_conversation_resume = self._resume_conversation_plans
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
 
@@ -1508,7 +1520,90 @@ class Daemon:
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
         return {"results": [{"task_id": r["task_id"], "status": r["status"], "goal": r["goal"], "answer": r["answer"]}
                             for r in rows], "running": running, "approvals": pending,
-                "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None}
+                "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None,
+                "notices": self.attention_notices.list() if self.attention_notices else [],
+                "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else []}
+
+    def _resume_conversation_plans(self) -> None:
+        if self.supervisor is not None:
+            job = asyncio.create_task(self.supervisor.resume_plans())
+            self._runs.add(job)
+            job.add_done_callback(self._runs.discard)
+
+    async def _conversations_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.supervisor is not None
+        ident = params.get('id')
+        return self.supervisor.conversations.digest(ident) if ident else {'conversations': self.supervisor.conversations.list()}
+
+    async def _conversations_change(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.supervisor is not None
+        self.supervisor.change_conversation(str(params['id']), str(params['action']), str(params['owner_words']))
+        self._journal().append('conversation.owner_change', self.redact(params), origin='owner')
+        return {'conversation': self.supervisor.conversations.get(str(params['id']))}
+
+    def _notification_rule_from_chat(self, rule: Any, owner_words: str) -> str:
+        if self.perception is None:
+            return 'Notification perception is unavailable.'
+        try:
+            ident = self.perception.policy.add(rule.app, rule.conversation, rule.topic, rule.quote, owner_words,
+                                               rule.until_at, rule.exceptions)
+            self._journal().append('notification.owner_rule', {'id': ident, **rule.model_dump()}, origin='owner')
+            return 'Saved your notification rule for ' + (rule.conversation or rule.app) + '.'
+        except ValueError as exc:
+            return str(exc)
+
+    async def _notification_rules(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        if self.perception is None or self.db is None:
+            raise ValueError('Notification perception is unavailable')
+        if params.get('remove'):
+            self.db.conn.execute('DELETE FROM notification_rules WHERE id=?', (str(params['remove']),))
+        return {'rules': [dict(r) for r in self.db.conn.execute('SELECT * FROM notification_rules ORDER BY created_at')],
+                'measurements': self.perception.policy.measurements()}
+
+    async def _notification_label(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        if self.perception is None:
+            raise ValueError('Notification perception is unavailable')
+        self.perception.policy.label(str(params['event_id']), str(params['expected']), str(params['owner_quote']))
+        return self.perception.policy.measurements()
+
+    async def _attention_ack(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        if self.attention_notices is None:
+            raise ValueError('Owner notices are unavailable')
+        notice = self.attention_notices.acknowledge(str(params['id']))
+        if notice['delivered_at'] is None and self.perception is not None and self.db is not None:
+            for ref in json.loads(notice['source_refs_json']):
+                row = self.db.conn.execute('SELECT source,data_json FROM trail WHERE id=?', (ref.removeprefix('trail:'),)).fetchone()
+                if row and row['source'] == 'notification':
+                    data = json.loads(row['data_json'])
+                    self.perception.policy.told(data.get('bundle_id', ''), data.get('conversation', ''),
+                                               ref.removeprefix('trail:'), notice['text'])
+        return {'ok': True}
+
+    async def _consider_attention(self, event: dict[str, Any]) -> None:
+        if self.supervisor is None or self.db is None or self.attention_notices is None:
+            return
+        try:
+            rows, refs = [], []
+            for ref in event.get('source_refs', []):
+                if not isinstance(ref, str) or not ref.startswith('trail:'):
+                    continue
+                row = self.db.conn.execute('SELECT * FROM trail WHERE id=?', (ref[6:],)).fetchone()
+                if row is None or row['source'] == 'notification':
+                    continue                 # notification decisions remain hard shadow, including mixed batches
+                rows.append({'id': row['id'], 'source': row['source'], 'data': json.loads(row['data_json']),
+                             'origin': 'external:observation'})
+                refs.append(ref)
+            if not rows:
+                return
+            result = await self.supervisor.attention(refs, rows, self.attention_notices.list(pending=False))
+            if result.get('tell') is not True or not str(result.get('text', '')).strip():
+                return
+            notice = self.attention_notices.add('batch:' + str(event['batch_id']), result['source_refs'], str(result['text']))
+            if notice['delivered_at'] is None:
+                self._publish('attention.notice', notice)
+                await self._notify('FERB noticed', notice['text'])
+        except Exception as exc:
+            self._journal().append('attention.failed', {'batch_id': event.get('batch_id'), 'error': type(exc).__name__})
 
     async def _chat_attach(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Chat is open again: approvals for running tasks are asked there, not by notification."""
@@ -2219,6 +2314,12 @@ class Daemon:
             self.daily_activity.record(self.redact(dict(data, what=data.get('what', data.get('source', topic)),
                                                         where=data.get('where', data.get('data', {})),
                                                         device_id=self.config.get('device', 'id', 'unknown-device'))))
+        if topic == 'trail.event' and self.supervisor is not None:
+            self.supervisor.conversations.observe(self.redact(data))
+        if topic == 'perception.attention' and not self._shutting_down:
+            job = asyncio.create_task(self._consider_attention(self.redact(data)))
+            self._runs.add(job)
+            job.add_done_callback(self._runs.discard)
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)

@@ -80,7 +80,8 @@ class PlanExecutor:
         good = all(r.get('status') == 'done' for r in results) and not missing
         result = {'status': 'done' if good else 'blocked', 'summary': step.goal if good else
                   f'Cannot reduce yet: missing or duplicate evidence notes for {missing}',
-                  'input_notes': notes, 'batches': results}
+                  'input_notes': notes, 'batches': results,
+                  'conversation_proposals': [proposal for result in results for proposal in result.get('conversation_proposals', [])]}
         self.store.finish(task_id, step.id, result)
         return result
 

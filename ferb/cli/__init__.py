@@ -18,6 +18,9 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="ferb")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    from ferb.cli.conversations import register
+    register(sub)
+
     lp = sub.add_parser("logs", help="live stream from the daemon's bus")
     for flag in LOG_FLAGS:
         lp.add_argument(f"--{flag}", action="store_true")
@@ -305,6 +308,9 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.stop(client, sys.stdout)
             if args.cmd == "resume-tasks":
                 return admin.resume(client, sys.stdout)
+            if args.cmd in ('conversations', 'notifications'):
+                from ferb.cli.conversations import run
+                return run(client, args, sys.stdout)
             if args.cmd == "memory":
                 return admin.memory(client, args, input, sys.stdout)
             if args.cmd == "schedules":

@@ -151,7 +151,7 @@ summary = "Screenshots and recordings cover only the app FERB is working on"
 
 [D30]
 milestone = "F6"
-tests = ["tests/test_task_plans.py", "tests/test_f6_standing.py"]
+tests = ["tests/test_task_plans.py", "tests/test_f6_standing.py", "tests/test_delegated_conversations.py"]
 summary = "Task loop: plan step types do / map / reduce / wait / ask / converse"
 
 [D31]
@@ -172,7 +172,7 @@ summary = "Raw evidence is append-only, redacted at capture, and the source of t
 
 [MP2]
 milestone = "F3"
-tests = ["tests/test_origins.py", "tests/test_tool_origins.py", "tests/test_upload_staging.py", "tests/test_learning.py"]
+tests = ["tests/test_origins.py", "tests/test_tool_origins.py", "tests/test_upload_staging.py", "tests/test_learning.py", "tests/test_delegated_conversations.py"]
 note = "F4 live fixes: a browser upload reads FERB's own copy; a copy of outside content is kept under workspace/uploads/outside, an untrusted fs root code adds, so it keeps the original's label."
 summary = "Trust follows origin, permanently"
 
@@ -244,7 +244,7 @@ summary = "Episodic, semantic and procedural memory, searchable by content and t
 
 [P11]
 milestone = "F7"
-tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py"]
+tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py", "tests/test_delegated_conversations.py"]
 summary = "Notification triage with owner rules and already-told records; scope mutes applied by code"
 
 [P12]
@@ -254,7 +254,7 @@ summary = "New-software watch: signer, notarization, source, permissions, login 
 
 [P14]
 milestone = "F7"
-tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py"]
+tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py", "tests/test_delegated_conversations.py"]
 summary = "One Jev call per notification with conversation-scoped state within its budget"
 
 [P15]
@@ -280,7 +280,7 @@ summary = "Keystroke capture rules: Secure Input, field role, ~0.5 s hold, OTP r
 
 [P19]
 milestone = "F4"
-tests = ["tests/test_unknown_retry.py"]
+tests = ["tests/test_unknown_retry.py", "tests/test_delegated_conversations.py"]
 note = "Code refuses within one task tree; a continuation in a new tree is not refused by code (its orchestrator sees the earlier rows under 'Uncertain prior actions'). A reworded message is another action (rule 6)."
 summary = "Never retry a consequential action with an unknown outcome without the owner"
 
@@ -365,7 +365,7 @@ summary = "Origin labels on every record; consequential arguments matched agains
 
 [S4]
 milestone = "F5"
-tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py"]
+tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py", "tests/test_delegated_conversations.py"]
 summary = "Sink rule: the narrow cases where FERB must confirm"
 
 [S5]

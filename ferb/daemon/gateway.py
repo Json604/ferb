@@ -391,6 +391,7 @@ class Gateway:
         self._in_flight: dict[asyncio.Task[Any], str] = {}
         self._cancelled_tasks: set[str] = set()
         self.observer: Observer = Observer()
+        self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution
         # S4: the shell process's task and command, for a per-task sink decision on a destination (set by the daemon)
         self.proc_task: Callable[[str], str | None] = lambda proc_id: None
@@ -646,6 +647,10 @@ class Gateway:
             answer = await self._ask_owner(grant, rec, args)
             return reply(answer, bool(answer.get("error")), ask_origins(answer))
         spec = cap.describe(args)
+        conversation_refusal = self.conversation_guard(grant, name, cap, spec)
+        if conversation_refusal:
+            self._refused(grant, rec, name, conversation_refusal)
+            return reply({'error': conversation_refusal}, True, {origin.FERB})
         if spec.target.path is not None:
             spec = dataclasses.replace(spec, target=dataclasses.replace(
                 spec.target, path=normalize_path(spec.target.path, self.roots.workspace)))
@@ -1182,6 +1187,12 @@ class Gateway:
         kept_out = ({"recoverable": kept} if kept else {}) | snap or None   # an unknown outcome keeps the copy
         if claimed is not None:
             claimed.kept = True                          # SQ1: the attempt starts; only a known non-outcome frees it
+        conversation_refusal = self.conversation_guard(grant, name, cap, spec)
+        if conversation_refusal:
+            if intent_id:
+                self.ledger.mark(intent_id, 'failed', ['conversation paused before input'])
+            self._finish_call(span, name, {'error': conversation_refusal}, True, error=conversation_refusal)
+            return reply({'error': conversation_refusal}, True, {origin.FERB})
         try:
             result = await cap.run(args, ctx)
         except asyncio.CancelledError:

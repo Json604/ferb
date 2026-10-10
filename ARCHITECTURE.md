@@ -1072,6 +1072,35 @@ clicks/typing. Regression cleanup clears it even after an error.
 Full Disk Access is required in full setup only after doctor reports the shell profile and authenticated proxy available.
 This checkout has not changed TCC, FileVault, the installed daemon or any personal browser. FileVault setup and all live
 security/OCR/admin/pin checks remain owner acceptance items.
+## Delegated conversations (F9)
+
+`orchestrator/conversations.py` owns immutable scope/approval, durable incoming-event cursors, numbered turns,
+owner pause/takeover and hand-over evidence. Migration 0033 stores these separately from owner chat continuity.
+`plans.Step.conversation` is a concrete scope; a dependent converse step may instead consume researched
+`conversation_proposals`. Every proposed contact scope waits for its own displayed owner approval. Topic and
+lead judgments belong to agents, never a content keyword gate.
+
+`Supervisor._conversation_steps` starts one ordinary checked worker per turn, then `ConversationRunner` waits
+without a model session. Matching passive `trail.event` observations wake only the exact app/thread; missing
+account metadata is a hint requiring a fresh account/thread read. Owner typed-text attribution pauses the pinned
+window, or the whole app when the source cannot distinguish a window. `conversation.read` goes through the gateway
+before incoming context is used so S4 sees the actual external/private source, including every continuation page.
+Events retain `external:conversation`; they cannot grant scope, resume work, or become owner words.
+
+The gateway calls `conversation_guard` before confirmation and immediately before driver input. A bound worker's
+identity and physical target app/site must match; concrete account/recipient/contact fields are checked too.
+Untargeted mutations, including shell, are refused in that worker. GUI metadata does not prove selected account or
+contact: fresh inspection, the regular floor/sink rule and read-only checker remain necessary. P19 ledger identity
+stays the same task tree across turns/restarts. Hand-over makes the final synthesizer read-only. Input already in
+flight may have happened; cancellation never fabricates a failed-send receipt.
+
+Owner-only conversation/notification RPCs expose exact scope, actions and receipts. `conversation_changes` and
+notification rules in chat are quote-checked against actual owner text. A changed destination/topic needs a new
+approved scope. Resume reopens only that saved converse step, leaving prior completed research/actions intact.
+`attention.py` persists ordinary activity notices, and CLI `attention.ack` records actual display. Incoming
+notification triage remains shadow; ordinary attention invokes an observation-only model with no tools and cannot
+create tasks. A requested ongoing conversation can still wake from its directly scoped incoming notification,
+without relying on a triage verdict. Notification `told` receipts are written only after display acknowledgment.
 
 ## 13. Documentation and diagrams
 

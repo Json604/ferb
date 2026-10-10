@@ -42,6 +42,12 @@ CONDITION_SCHEMA = _obj({
                    "text": _nullable("string"), "url_contains": _nullable("string"), "site": _nullable("string"),
                    "expected": _nullable("string"), "tool": _nullable("string")}),
 })
+CONVERSATION_SCHEMA = _obj({
+    "identity": {"type": "string", "enum": ["owner", "ferb"]},
+    "account": {"type": "string"}, "site": {"type": "string"}, "app": {"type": "string"},
+    "thread": {"type": "string"}, "recipients": _strings(), "topic": {"type": "string"},
+    "handover_when": {"type": "string"}, "window_id": _nullable("string"),
+})
 STEP_SCHEMA = _obj({
     "id": {"type": "string"}, "kind": {"type": "string", "enum": ["do", "map", "reduce", "wait", "ask", "converse"]},
     "goal": {"type": "string"}, "depends_on": _strings(), "inputs": _strings(),
@@ -49,6 +55,7 @@ STEP_SCHEMA = _obj({
     "conditions": _strings(), "until": _nullable("string"), "event": _nullable("string"),
     "event_match": {"type": "array", "items": _obj({"field": {"type": "string"}, "value": {"type": "string"}})},
     "question": {"type": "string"}, "options": _strings(),
+    "conversation": {"anyOf": [{"type": "null"}, CONVERSATION_SCHEMA]},
 })
 PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_paths": _strings(),
                     "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
@@ -95,12 +102,19 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
     "schedule_changes": {"type": "array", "items": SCHEDULE_CHANGE_SCHEMA},
     "reminder_cancels": {"type": "array", "items": REMINDER_CHANGE_SCHEMA},
+    "conversation_changes": {"type": "array", "items": _obj({"id": {"type": "string"},
+        "action": {"type": "string", "enum": ["pause", "resume", "takeover", "close"]}, "quote": {"type": "string"}})},
+    "notification_rules": {"type": "array", "items": _obj({"app": {"type": "string"},
+        "conversation": _nullable("string"), "topic": _nullable("string"), "until_at": _nullable("string"),
+        "exceptions": _strings(), "quote": {"type": "string"}})},
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({
     "status": {"type": "string", "enum": ["done", "failed", "needs_user", "blocked"]},
     "summary": {"type": "string"}, "artifacts": _strings(), "evidence": _strings(),
     "answer": {"type": "string"},
+    "conversation_action": {"type": ["string", "null"], "enum": ["wait", "handover", "finished", "blocked", None]},
+    "conversation_proposals": {"type": "array", "items": CONVERSATION_SCHEMA},
     "input_notes": {"type": "array", "items": _obj({"input": {"type": "string"},
                       "note": {"type": "string"}, "evidence": _strings()})},
 })
@@ -199,6 +213,8 @@ class SupervisorOutcome(BaseModel):
     schedule: "ScheduleRequest | None" = None
     schedule_changes: list["ScheduleChange"] = []
     reminder_cancels: list["ReminderCancel"] = []
+    conversation_changes: list["ConversationChange"] = []
+    notification_rules: list["NotificationRule"] = []
 
     @model_validator(mode="after")
     def complete_action_plan(self) -> "SupervisorOutcome":
@@ -239,6 +255,21 @@ class TimerRequest(BaseModel):
     quote: str
 
 
+class ConversationChange(BaseModel):
+    id: str
+    action: Literal['pause', 'resume', 'takeover', 'close']
+    quote: str
+
+
+class NotificationRule(BaseModel):
+    app: str
+    conversation: str | None = None
+    topic: str | None = None
+    until_at: str | None = None
+    exceptions: list[str] = []
+    quote: str
+
+
 SupervisorOutcome.model_rebuild()
 
 
@@ -249,6 +280,8 @@ class WorkerOutcome(BaseModel):
     evidence: list[str]
     answer: str = ''
     input_notes: list[dict[str, Any]] = []
+    conversation_action: Literal['wait', 'handover', 'finished', 'blocked'] | None = None
+    conversation_proposals: list[dict[str, Any]] = []
 
 
 class DispatchOutcome(BaseModel):

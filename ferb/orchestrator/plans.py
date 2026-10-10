@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ferb.orchestrator.conversations import ConversationScope
+
 
 class EventMatch(BaseModel):
     field: str
@@ -25,6 +27,7 @@ class Step(BaseModel):
     until: str | None = None
     event: str | None = None
     event_match: list[EventMatch] = Field(default_factory=list)
+    conversation: ConversationScope | None = None
     question: str = ''
     options: list[str] = Field(default_factory=list)
 
@@ -88,6 +91,8 @@ def problems(plan: Plan, facts: list[dict[str, Any]], *, context_tokens: int) ->
                     raise ValueError('missing timezone')
             except ValueError:
                 errors.append(f'{step.id}: wait time must be an ISO timestamp with timezone')
+        if step.kind == 'converse' and step.conversation is None and not step.depends_on:
+            errors.append(f'{step.id}: converse needs an exact account, app/site, thread, recipients, topic and hand-over condition')
         if step.kind == 'ask' and not step.question.strip():
             errors.append(f'{step.id}: ask needs an owner-facing question')
     outstanding = {key: set(step.depends_on) & set(ids) for key, step in by_id.items()}

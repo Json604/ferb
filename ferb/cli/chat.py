@@ -266,6 +266,9 @@ class Chat:
             self.say('ferb> Here are things I learned that need your confirmation:')
             for proposal in digest.get('proposals', []):
                 self.say(f"   {proposal['text']} — /memory confirm {proposal['id']}")
+        for notice in st.get('notices', []):
+            self.say('ferb> ' + notice['text'])
+            self.call('attention.ack', {'id': notice['id']})
         for d in st.get("approvals", []):
             self.answer_approval(d)
         for q in st.get("questions", []):                    # asked while you were away (a scheduled run)
