@@ -26,6 +26,8 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 - Exact-command escape grants, contained elevated execution with hidden passwords, identity-bound tools and clipboard attribution.
 - Contextual OTP/card classes, fail-closed on-device screenshot redaction, one initial app/tab image, hidden native/browser fills,
   split OTP controls and optional target-bound Keychain handles through a locally signed helper.
+- Hidden login codes, saved secrets and administrator passwords never start voice capture or enter its transcript events;
+  ordinary spoken answers share chat's contextual secret redaction before approval resolution and event publication.
 - Metadata-only disk sizes, concrete irreversible-bulk confirmations, destructive classification in forced shadow, alignment advice,
   daily security facts, regression send switch and containment statistics. FDA setup waits for working containment.
 - No installed-daemon/browser changes or live claims. Python/JavaScript/Swift compilation checked; test execution deferred to the

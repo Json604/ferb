@@ -185,14 +185,45 @@ def test_voice_preserves_the_complete_owner_answer(words):
     assert answers == [("ap1", True, None, words)] and turns == []
 
 
-def test_voice_does_not_publish_or_route_a_spoken_login_code():
+@pytest.mark.parametrize('kind', ['owner_login_code', 'owner_secret', 'owner_admin_password'])
+def test_voice_does_not_publish_or_route_hidden_input(kind):
     from types import SimpleNamespace
     answers, published = [], []
-    ap = SimpleNamespace(id="otp", kind="owner_login_code", options=())
+    ap = SimpleNamespace(id="hidden", kind=kind, options=())
     voice, speaker, _ = _voice([ap], answers)
     voice.publish = lambda *args: published.append(args)
     assert asyncio.run(voice.transcript("123456")) == {"handled": "secure_input_required"}
     assert not answers and "123456" not in repr(published) and "123456" not in repr(speaker.said)
+
+
+@pytest.mark.parametrize('kind', ['owner_login_code', 'owner_secret', 'owner_admin_password'])
+def test_hidden_question_does_not_start_voice_capture(kind):
+    from types import SimpleNamespace
+    voice, _, _ = _voice([SimpleNamespace(id='hidden', kind=kind, options=())])
+    q = voice.attach([{'uid': 'builtin', 'name': 'Mac microphone', 'transport': 'bltn'}], {})
+    voice.on_key(RIGHT_OPTION, True, 0.0)
+    voice.on_key(RIGHT_OPTION, False, 1.0)
+    assert q.empty() and not voice.listening
+
+
+def test_spoken_otp_in_ordinary_question_is_redacted_before_event_and_resolution(daemon, monkeypatch):
+    from ferb.core.types import Identity
+    from ferb.policy.rules import ActionRequest
+    from ferb.sanitize.redact import REDACTED
+    published = []
+    monkeypatch.setattr(daemon.daemon.bus, 'publish', lambda topic, data: published.append((topic, data)))
+
+    async def answer():
+        action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
+        ap = daemon.daemon.state.approvals.question(action, 'Enter the OTP in the Zomato modal.', ['Done', 'Cancel'])
+        result = await daemon.daemon.voice.transcript('314159')
+        return result, ap.answer
+
+    result, answer = daemon.run(answer())
+    assert result == {'handled': 'answer'} and answer == REDACTED
+    assert ('voice.heard', {'text': REDACTED}) in published
+    assert '314159' not in repr(published)
+    assert daemon.daemon.redact.text('echo 314159') == 'echo ' + REDACTED
 
 
 def test_a_voice_request_is_a_chat_turn_and_the_reply_is_spoken(daemon: RunningDaemon) -> None:

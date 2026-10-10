@@ -2440,26 +2440,6 @@ class Daemon:
     async def _chat_answer(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """The owner's free-text answer to a worker's question (owner.ask); empty text declines."""
         text = str(params.get("text") or "")
-        ap = self.state.approvals.get(str(params["approval_id"]))
-        if ap is not None and ap.kind in {"owner_admin_password", "owner_secret"}:
-            if any(c in text for c in "\r\n\x00"):
-                raise FerbError("the hidden password must be one line")
-            if not isinstance(self.redact, Redactor):
-                raise FerbError("hidden input redaction is unavailable")
-            self.redact.retain_secret(text)
-            try:
-                return self._resolve_approval(ap.id, bool(text), None, text or None)
-            except BaseException:
-                self.redact.release_secret(text)
-                raise
-        text = text.strip()
-        if ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor):
-            safe = self.redact.field(text, label=ap.reason)
-            if safe != text:
-                self.redact.add_secret_value(text)
-                text = safe
-        if ap is not None and ap.kind == "owner_login_code" and text:
-            self._add_secret_value(text)
         return self._resolve_approval(str(params["approval_id"]), bool(text), None, text or None)
 
     async def _test_mode(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -2480,7 +2460,32 @@ class Daemon:
     def _resolve_approval(self, approval_id: str, granted: bool, choice: int | None = None,
                           text: str | None = None) -> dict[str, Any]:
         """The owner's answer to a question, typed (`ferb chat`) or spoken (push-to-talk)."""
-        ap = self.state.approvals.resolve(approval_id, granted, choice, text)
+        ap = self.state.approvals.get(approval_id)
+        retained = None
+        if text is not None and granted:
+            if ap is not None and ap.kind in {"owner_admin_password", "owner_secret"}:
+                if any(c in text for c in "\r\n\x00"):
+                    raise FerbError("the hidden password must be one line")
+                if not isinstance(self.redact, Redactor):
+                    raise FerbError("hidden input redaction is unavailable")
+                self.redact.retain_secret(text)
+                retained = text
+            else:
+                text = text.strip()
+                granted = bool(text)
+                if ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor):
+                    safe = self.redact.field(text, label=ap.reason)
+                    if safe != text:
+                        self.redact.remember_hidden_secret(text)
+                        text = safe
+                if ap is not None and ap.kind == "owner_login_code" and text:
+                    self._add_secret_value(text)
+        try:
+            ap = self.state.approvals.resolve(approval_id, granted, choice, text)
+        except BaseException:
+            if retained is not None and isinstance(self.redact, Redactor):
+                self.redact.release_secret(retained)
+            raise
         self._journal().append("approval.resolved", {"approval_id": ap.id, "state": ap.state,
                                                      "capability": ap.capability})
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})

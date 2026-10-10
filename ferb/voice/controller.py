@@ -5,7 +5,7 @@ comes back as a transcript and runs as a chat turn in the "voice" session; FERB'
 
 FERB.app is the only part that opens a microphone; this side decides which one (never a Bluetooth headset's), when to
 start, send or discard, and what to do with the words. Responses to questions are forwarded in full so the agent
-can interpret choices and corrections. Login codes use chat's hidden input, never the voice event stream."""
+can interpret choices and corrections. Secrets use chat's hidden input, never the voice event stream."""
 
 import asyncio
 import time
@@ -14,6 +14,8 @@ from typing import Any, AsyncIterator, Callable
 from ferb.voice.mic import InputDevice, choose
 from ferb.voice.push_to_talk import MIN_HOLD_S, TalkKey
 from ferb.voice.speak import spoken
+
+HIDDEN_QUESTIONS = frozenset({'owner_login_code', 'owner_secret', 'owner_admin_password'})
 
 class Voice:
     def __init__(self, run_turn: Callable[[str], AsyncIterator[dict[str, Any]]], pending: Callable[[], list[Any]],
@@ -62,6 +64,9 @@ class Voice:
         act = self.key.key(keycode, down, time.monotonic() if t is None else t)
         if act == "start":
             self.speaker.stop()                                  # the owner talks: FERB stops speaking
+            if any(getattr(q, 'kind', '') in HIDDEN_QUESTIONS for q in self.pending()):
+                self._say("Enter the secret in ferb chat's hidden prompt.")
+                return act
             if self.app is None:
                 self.launch_app()
                 self.journal.append("voice.unavailable", {"why": "FERB.app isn't connected"})
@@ -99,8 +104,8 @@ class Voice:
 
     async def transcript(self, text: str) -> dict[str, Any]:
         pending = self.pending()
-        if any(getattr(q, 'kind', '') == 'owner_login_code' for q in pending):
-            self._say("Enter the login code in ferb chat's hidden prompt.")
+        if any(getattr(q, 'kind', '') in HIDDEN_QUESTIONS for q in pending):
+            self._say("Enter the secret in ferb chat's hidden prompt.")
             return {"handled": "secure_input_required"}
         if len(pending) > 1:
             questions = [{"id": q.id, "question": getattr(q, "question", ""),
@@ -108,14 +113,17 @@ class Voice:
             self._say("Several questions are waiting. Select the intended question in ferb chat before answering.")
             self.publish("voice.question_selection_required", {"questions": questions})
             return {"handled": "question_selection_required", "questions": questions}
-        self.publish("voice.heard", {"text": text})
         if not text.strip():
             self._say("I didn't catch that.")
             return {"handled": "empty"}
         if pending:
+            # The shared owner-answer resolver registers contextual secrets before any transcript event can
+            # escape through the daemon's redacting publisher. Hidden questions were refused above.
             self.answer(pending[0].id, True, None, text)
+            self.publish("voice.heard", {"text": text})
             self._say("Got it.")
             return {"handled": "answer"}
+        self.publish("voice.heard", {"text": text})
         asyncio.get_running_loop().create_task(self._turn(text))
         return {"handled": "request"}
 
