@@ -159,6 +159,16 @@ class ShellManager:
     def handle(self, proc_id: str, owner_task: str) -> ProcHandle:
         return ProcHandle(proc_id, owner_task)
 
+    def owner_of(self, proc_id: str) -> str | None:
+        """The task that started this process (the gateway's per-task sink decisions, S4); None if it's unknown."""
+        hit = self._procs.get(proc_id)
+        return hit[1].owner_task if hit is not None else None
+
+    def command_of(self, proc_id: str) -> str | None:
+        """The command text this process ran (FERB names it to the owner when a destination needs approval)."""
+        hit = self._procs.get(proc_id)
+        return hit[1].command if hit is not None else None
+
     async def kill_id(self, proc_id: str) -> bool:
         hit = self._procs.get(proc_id)
         if hit is None:

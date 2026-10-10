@@ -21,8 +21,10 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
+from urllib.parse import unquote, urlsplit
 
 from ferb.core.types import Target
+from ferb.policy import provenance
 from ferb.policy.destinations import destination_of
 from ferb.policy.rules import Kind
 
@@ -123,6 +125,30 @@ def shown_origins(labels: Iterable[str]) -> str:
     return "; ".join(items[:SHOWN_ORIGINS]) + f"; and {len(items) - SHOWN_ORIGINS} more"
 
 
+def url_carries_private(url: str, private: list[provenance.Text], owner: provenance.Text) -> list[str]:
+    """The sink rule for navigation (S4, SQ6, carried item 8): the whole query values and path segments of `url`
+    (percent-decoded, at least MIN_LEN characters) that are a token of some private tool result and not a token of the
+    owner's own words or answers. A shape and provenance check, never a meaning (rule 6): FERB never reads what the
+    value means, only where it came from. In order, without repeats."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return []
+    pieces: list[str] = [unquote(seg) for seg in parts.path.split("/")]
+    for pair in parts.query.split("&"):
+        name, _, value = pair.partition("=")
+        pieces += [unquote(name), unquote(value)]
+    out: list[str] = []
+    for piece in pieces:
+        p = piece.strip()
+        token = p.lower()                       # Text.tokens are lower(), as provenance.tokens makes them
+        if len(p) < provenance.MIN_LEN or token in owner.tokens:
+            continue
+        if any(token in t.tokens for t in private) and p not in out:
+            out.append(p)
+    return out
+
+
 def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[str, list[str]], *,
            read_private: bool, read_external: bool, known: Known, outside_read: Iterable[str] = (),
            place: str | None = None) -> list[Need]:
@@ -198,6 +224,9 @@ def _part(n: Need) -> str:
     if n.rule == "sink:new_destination":
         return (f"this sends to {v['destination']}, a place you haven't named, after this task read your own data and "
                 f"outside content ({v['read']})")
+    if n.rule == "sink:private_url":
+        return (f"this would open {v['destination']}, a place you haven't named, with your own data in the address "
+                f"({v['value']}), after this task read outside content")
     if n.rule == "sink:outside_value" and v["what"] == "typed":
         return f"this types {v['value']}, which came from outside content ({v['origin']}), not from you"
     if n.rule == "sink:outside_value":

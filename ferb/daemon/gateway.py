@@ -344,11 +344,14 @@ def origin_line(origins: set[str]) -> str:
 
 @dataclass
 class OutsideTexts:
-    """A task tree's outside content, prepared once for argument matching (S3). Each consequential call reads and
-    prepares only tool results it hasn't seen: those after `floor`, minus `seen`."""
+    """A task tree's tool-result content, prepared once for argument and URL matching (S3, S4). Each call reads and
+    prepares only tool results it hasn't seen: those after `floor`, minus `seen`. One reader, two filters: outside
+    content (external origins, for the sink rule and provenance) and the owner's own data (`private`, for the URL
+    sink's carried-value check)."""
     floor: int = 0                   # every tool call at or below this rowid had finished when last read
     seen: set[int] = field(default_factory=set)       # finished calls above the floor, already prepared
     texts: list[tuple[str, provenance.Text]] = field(default_factory=list)   # (external origin, prepared text)
+    private: list[provenance.Text] = field(default_factory=list)   # results the owner's own data (origin.PRIVATE)
     pasted: list[tuple[str, provenance.Text]] | None = None    # the request's pasted parts, prepared once (MP2)
 
 
@@ -388,6 +391,10 @@ class Gateway:
         self._cancelled_tasks: set[str] = set()
         self.observer: Observer = Observer()
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution
+        # S4: the shell process's task and command, for a per-task sink decision on a destination (set by the daemon)
+        self.proc_task: Callable[[str], str | None] = lambda proc_id: None
+        self.proc_command: Callable[[str], str | None] = lambda proc_id: None
+        self._refused_hosts: dict[str, dict[str, str]] = {}   # root tree -> {refused host: the command that tried it}
         self.route_question: Any = None
         self.disturbance: Any = None
         self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
@@ -441,10 +448,32 @@ class Gateway:
         return any(tid in task_ids and not job.done() for job, tid in self._in_flight.items())
 
     async def destination_allowed(self, proc_id: str, host: str, port: int) -> tuple[bool, str]:
-        """Whether a shell process may connect to host:port through FERB's egress proxy, and FERB's reason if not.
-        Asked by the proxy before it resolves the name (S4: Task 5 decides; until then every destination is allowed,
-        and the proxy records it)."""
-        return True, ""
+        """S4: whether a shell process may connect to host:port through FERB's egress proxy, and FERB's reason if not.
+        Asked by the proxy (on the loop) before it resolves the name, so a refused name never reaches a DNS server.
+        Allowed when the host is a destination FERB already knows (SQ6), is in the request's own words or an answer the
+        owner gave (D33), or the task tree hasn't read both the owner's own data and outside content (the trifecta
+        doesn't hold). Otherwise refused and recorded under this tree, so `owner.ask allow_destination` can act on it
+        (a worker can't invent a host nothing tried). Loopback never reaches the proxy, so it never reaches here."""
+        norm = KnownDestinations.normalize("host", host)
+        if self.destinations is not None and self.destinations.known("host", host):
+            return True, ""
+        task_id = self.proc_task(proc_id)
+        rec = self.tasks.get(task_id) if task_id is not None else None
+        root = (rec.tree_id or task_id) if (rec is not None and task_id is not None) else task_id
+        if root is None:                                 # a process FERB no longer tracks: fail closed
+            return False, "FERB couldn't tell which task this command belongs to"
+        request = self.state.requests.get(rec.task.request_id) if rec is not None else None
+        words = request.words if request is not None else ""
+        named = provenance.sources(host, words, [], kind="structured",
+                                   answer_text="\n".join(self.spans.owner_answers(root)))
+        if confirm.OWNER_SOURCES & set(named):
+            return True, ""
+        read = self.spans.tool_origins(root)
+        read_external = any(origin.is_external(o) for o in read | self.spans.request_origins(root))
+        if not (origin.PRIVATE in read and read_external):
+            return True, ""
+        self._refused_hosts.setdefault(root, {})[norm] = self.proc_command(proc_id) or ""
+        return False, "a place you haven't named, after this task read your own data and outside content"
 
     def cancel_tasks(self, task_ids: set[str]) -> None:
         self._cancelled_tasks.update(task_ids)
@@ -472,6 +501,7 @@ class Gateway:
         for task_id in task_ids:
             self._outside.pop(task_id, None)
             self._confirming.pop(task_id, None)
+            self._refused_hosts.pop(task_id, None)
         for key in [k for k in self._looked if k[0] in task_ids]:
             del self._looked[key]
 
@@ -491,9 +521,10 @@ class Gateway:
             spec.target, provenance.prepare(request.words), self._outside_texts(root) + known.pasted,
             provenance.prepare("\n".join(self.spans.owner_answers(root))))
 
-    def _outside_texts(self, root: str) -> list[tuple[str, provenance.Text]]:
-        """The tree's external tool results so far, prepared; only results not seen before are read and prepared.
-        A call still running holds the floor below it, so its result is picked up once it finishes."""
+    def _read_texts(self, root: str) -> OutsideTexts:
+        """The tree's tool results so far, prepared; only results not seen before are read and prepared. A call still
+        running holds the floor below it, so its result is picked up once it finishes. Each result's prepared text is
+        kept under outside content (its external origins) and/or the owner's own data (origin.PRIVATE)."""
         known = self._outside.setdefault(root, OutsideTexts())
         running = self.spans.first_open_tool_call(root, known.floor)
         for rowid, origins, text in self.spans.tool_outputs(root, known.floor):
@@ -501,12 +532,22 @@ class Gateway:
                 continue
             known.seen.add(rowid)
             external = sorted(o for o in origins if origin.is_external(o))
-            if external:
+            if external or origin.PRIVATE in origins:
                 prepared = provenance.prepare(text)
                 known.texts += [(o, prepared) for o in external]
+                if origin.PRIVATE in origins:
+                    known.private.append(prepared)
         known.floor = running - 1 if running is not None else max(known.seen, default=known.floor)
         known.seen = {r for r in known.seen if r > known.floor}
-        return known.texts
+        return known
+
+    def _outside_texts(self, root: str) -> list[tuple[str, provenance.Text]]:
+        """The tree's external tool results so far, prepared (S3)."""
+        return self._read_texts(root).texts
+
+    def _private_texts(self, root: str) -> list[provenance.Text]:
+        """The tree's results that are the owner's own data, prepared (S4: the URL sink's carried-value check)."""
+        return self._read_texts(root).private
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         rec = self.tasks.get(grant.task_id)
@@ -550,6 +591,13 @@ class Gateway:
         if closed is not None:
             self._refused(grant, rec, name, closed[0])
             return reply({"error": closed[1]}, True, {origin.FERB})
+        url_sink = await self._url_sink(grant, rec, name, arguments, spec, why)   # S4: a URL carrying private data
+        if url_sink is not None:                          # the owner said no, or wasn't there: nothing ran
+            span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
+                                   input={"tool": name, "args": arguments, "kind": spec.kind,
+                                          "target": _target_dict(spec.target)})
+            self._finish_call(span, name, url_sink, True, error=str(url_sink["error"]))
+            return reply(url_sink, True, {origin.FERB})
         action = ActionRequest(capability=name, kind=spec.kind, identity=grant.identity,
                                scopes=frozenset(cap.scopes), task_id=grant.task_id, worker_id=grant.worker_id,
                                request_id=rec.task.request_id, task_scopes=grant.scopes, target=spec.target,
@@ -734,11 +782,63 @@ class Gateway:
                 out.spent = []
             return out
 
+    async def _url_sink(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any,
+                        why: str) -> dict[str, Any] | None:
+        """S4, SQ6, carried item 8: a browser open/navigate (reversible, so it bypasses the consequential path) whose
+        URL carries a value from the owner's own data to a host the owner hasn't named, after the task read outside
+        content. FERB asks once per tree; the reply when it must not run, else None. A destination the owner named or
+        FERB already knows, or a URL with no private value, never asks (Q8, 2026-10-09: navigation asks only when the
+        URL carries the owner's own data)."""
+        url = str(arguments.get("url") or "")
+        host = spec.target.site or ""
+        if spec.kind not in (Kind.NAVIGATE, Kind.OPEN_TAB) or not host or not url:
+            return None
+        root = rec.tree_id or grant.task_id
+        read = self.spans.tool_origins(root)
+        if not any(origin.is_external(o) for o in read | self.spans.request_origins(root)):
+            return None                                  # no outside content read: not a sink
+        if self.destinations is not None and self.destinations.known("host", host):
+            return None
+        request = self.state.requests.get(rec.task.request_id)
+        words = request.words if request is not None else ""
+        answers = "\n".join(self.spans.owner_answers(root))
+        if confirm.OWNER_SOURCES & set(provenance.sources(host, words, [], kind="structured", answer_text=answers)):
+            return None                                  # the owner named this host
+        values = confirm.url_carries_private(url, self._private_texts(root), provenance.prepare(words + "\n" + answers))
+        if not values:
+            return None
+        need = confirm.Need("sink:private_url", f"sink:private_url|{host}",
+                            {"destination": host, "value": values[0]}, destinations=(("host", host),))
+        call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})
+        if self.confirmations is None:                   # never run unasked
+            return {"error": NOT_RECORDED.format(line=self._ferb_line([need], call, why))}
+        row = self.confirmations.find(root, need.key)    # ask once per tree; the answer carries across retries
+        if row is not None:
+            if row["granted"]:
+                return None
+            return {"error": ALREADY_NO.format(line=self._ferb_line([need], call, why)), "next": OWNER_DECIDED_NEXT}
+        answer = await self.ask_confirmation(grant, rec, [need], None, call, why)
+        if answer:
+            return None
+        return {"error": answer.error} | ({"next": answer.next} if answer.next else {})
+
     def _ferb_line(self, needs: list[confirm.Need], call: str, why: str) -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
         their own, P19's rule), no terminal control characters, the reason quoted and clipped, redacted."""
         text = confirm.line(needs, " ".join(printable(call).split()),
                             quoted(self.redact({"w": why})["w"]) if why.strip() else "")   # redacted, then clipped
+        return " ".join(printable(self.redact({"q": text})["q"]).split())
+
+    def _destination_line(self, host: str, command: str, question: str) -> str:
+        """FERB's own question when a command reached a place the owner hasn't named (S4): first and labelled, the host,
+        the command and the task's reason (quoted), one paragraph, redacted then clipped. The task's words can't open a
+        paragraph of their own or pass for FERB's line (as P19's retry_line)."""
+        cmd = lines.clip(" ".join(printable(self.redact({"c": command})["c"]).split()), REASON_CHARS)
+        text = (f"FERB: a command of this task tried to reach {host}, a place you haven't named, after reading your own "
+                f"data and outside content. The command: {cmd}.")
+        if question.strip():
+            text += f' What the task says: "{quoted(self.redact({"q": question})["q"])}".'
+        text += f" Let it reach {host}, now and in later tasks?"
         return " ".join(printable(self.redact({"q": text})["q"]).split())
 
     async def ask_confirmation(self, grant: RunGrant, rec: Any, needs: list[confirm.Need], span: Any, call: str,
@@ -1177,9 +1277,17 @@ class Gateway:
         options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
         retry = str(getattr(args, "retry_action", "") or "").strip()
         allow = str(getattr(args, "allow_destination", "") or "").strip()
-        if allow and not retry:                      # S4: only a host a command of this tree was refused (Task 5)
-            return {"error": NO_SUCH_REFUSAL.format(host=allow)}
-        if retry:                                    # P19: only the owner decides; the orchestrator is not asked
+        allow_host: tuple[str, str] | None = None
+        if allow and not retry:                      # S4: only a host a command of this tree was refused (so a worker
+            root = rec.tree_id or grant.task_id      # can't invent one); FERB asks directly, never the orchestrator
+            norm = KnownDestinations.normalize("host", allow)
+            tried = self._refused_hosts.get(root, {})
+            if norm not in tried:
+                return {"error": NO_SUCH_REFUSAL.format(host=allow)}
+            allow_host = (allow, norm)
+            question = self._destination_line(allow, tried[norm], question)
+            options = [RETRY_YES, RETRY_NO]
+        elif retry:                                  # P19: only the owner decides; the orchestrator is not asked
             found = self._retry_row(grant, rec, retry)
             if isinstance(found, str):
                 return {"error": found}
@@ -1206,12 +1314,14 @@ class Gateway:
                 return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
             question = decision['question'] or question
         given_options = options
-        if not retry:                                # D33: only FERB's own checks read as FERB's; a task's is labelled
+        ferb_own = bool(retry or allow_host)         # FERB's own labelled question, not a task's
+        if not ferb_own:                             # D33: only FERB's own checks read as FERB's; a task's is labelled
             question = confirm.task_question(printable(question))
             options = [confirm.from_task(" ".join(printable(o).split())) for o in options]
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": OWNER_ASK, "args": {"question": question, "options": options}
-                                       | ({"retry_action": retry} if retry else {})})
+                                       | ({"retry_action": retry} if retry else {})}
+                                       | ({"ferb_question": True} if allow_host else {}))
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
@@ -1243,6 +1353,13 @@ class Gateway:
         if retry:                                    # the owner's own pick of FERB's Yes, never the worker's word
             given |= (self._settle_retry(retry, span.id, asked_about) if ap.choice == RETRY_YES
                       else {"retry_approved": False})
+        elif allow_host and ap.choice == RETRY_YES:  # S4, SQ6: the destination is known now and in later tasks
+            orig, norm = allow_host
+            if self.destinations is not None:
+                self.destinations.record("host", orig, "confirmed", request_id=rec.task.request_id, span_id=span.id)
+            if self.confirmations is not None:       # keyed by tree, so a re-run of the command doesn't re-ask (rule 9)
+                self.confirmations.record(rec.tree_id or grant.task_id, "destination", f"destination|{norm}", True,
+                                          span.id)
         self._finish_call(span, OWNER_ASK, given, False, output=given, origins=ask_origins(given))
         return given
 

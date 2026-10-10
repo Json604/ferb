@@ -21,6 +21,18 @@ TAIL = 8000
 OUTPUT_ORIGIN = "external:unlabeled"
 
 
+def _refused_next(network: dict[str, Any]) -> str | None:
+    """S4: when FERB refused a destination this command reached (a place the owner hasn't named, after the task read
+    the owner's own data and outside content), what the worker should do: ask the owner for that one host, then run the
+    command again. Nothing refused: None."""
+    refused = network.get("refused") or []
+    if not refused:
+        return None
+    host = refused[0]["host"]
+    return (f"That place needs the owner: call owner_ask with allow_destination={host} and say why the command "
+            f"needs it; after Yes, run the command again.")
+
+
 def _sources(network: dict[str, Any]) -> tuple[tuple[str, str], ...]:
     """One web source per host the command reached through FERB's proxy (none: the unlabeled origin stays). An IPv6
     literal is bracketed so the URL parses (https://[2001:db8::1])."""
@@ -94,7 +106,7 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
     network = shells.network(h)
     return ToolResult({"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
                        "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error,
-                       "network": network,
+                       "network": network, "next": _refused_next(network),
                        "retrieval": "shell.read with since=offset until more=false" if offset < total else None},
                       is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
                       read_sources=_sources(network))
@@ -125,6 +137,8 @@ class ShellRun(ShellStart):
         info = self.shells.info(h)
         out["capture_error"] = info.capture_error
         out["network"] = network = self.shells.network(h)
+        if (nxt := _refused_next(network)) is not None:      # S4: a refused destination needs the owner, not a retry
+            out["next"] = nxt
         return ToolResult(out, is_error=code not in (None, 0) or bool(info.capture_error),
                           read_sources=_sources(network))
 
