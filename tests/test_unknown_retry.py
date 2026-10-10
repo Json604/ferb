@@ -836,6 +836,7 @@ def test_a_target_of_several_fields_reads_as_one_short_target(ferb_yes: FerbAnsw
     """One readable target, but every consequential identifier stays: all recipients, the amount and the account; the
     site (and a contact beside recipients) go."""
     ferb_yes.expect("floor:new_recipient")   # FERB's own question(s) on the way (F5a floor)
+    ferb_yes.expect("sink:irreversible_bulk")  # the declared send names three recipients
     from ferb.core.types import ActionSpec, Target
 
     class Mail(FakeCap):
