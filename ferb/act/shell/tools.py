@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ferb.act.shell import guard
 from ferb.act.shell.manager import ProcHandle, ShellManager
+from ferb.act.shell.proxy import DEST_REFUSED_NEW, DEST_REFUSED_NO
 from ferb.act.shell.sandbox import NESTED_SANDBOX, NETWORK_FACT, NO_APPS
 from ferb.core.errors import Refused
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
@@ -22,15 +23,17 @@ OUTPUT_ORIGIN = "external:unlabeled"
 
 
 def _refused_next(network: dict[str, Any]) -> str | None:
-    """S4: when FERB refused a destination this command reached (a place the owner hasn't named, after the task read
-    the owner's own data and outside content), what the worker should do: ask the owner for that one host, then run the
-    command again. Nothing refused: None."""
-    refused = network.get("refused") or []
-    if not refused:
-        return None
-    host = refused[0]["host"]
-    return (f"That place needs the owner: call owner_ask with allow_destination={host} and say why the command "
-            f"needs it; after Yes, run the command again.")
+    """S4: what the worker should do about a destination FERB refused, for this rule only (other refusals — this Mac's
+    own address, a name that won't resolve — get no hint). A place the owner hasn't named: ask the owner for that one
+    host, then run again. A place the owner already said no to: don't try another way. Names the right host."""
+    for r in network.get("refused") or []:
+        if r["why"] == DEST_REFUSED_NEW:
+            return (f"That place needs the owner: call owner_ask with allow_destination={r['host']} and say why the "
+                    f"command needs it; after Yes, run the command again.")
+        if r["why"] == DEST_REFUSED_NO:
+            return (f"The owner said no to reaching {r['host']} in this task; don't try another way. Report that it "
+                    f"wasn't done.")
+    return None
 
 
 def _sources(network: dict[str, Any]) -> tuple[tuple[str, str], ...]:
@@ -104,11 +107,13 @@ async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> Too
     text, offset, total = await shells.read(h, since, TAIL)
     info = shells.info(h)
     network = shells.network(h)
-    return ToolResult({"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
-                       "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error,
-                       "network": network, "next": _refused_next(network),
-                       "retrieval": "shell.read with since=offset until more=false" if offset < total else None},
-                      is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
+    out = {"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
+           "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error,
+           "network": network,
+           "retrieval": "shell.read with since=offset until more=false" if offset < total else None}
+    if (nxt := _refused_next(network)) is not None:      # S4: only for a refused destination, never a bare null
+        out["next"] = nxt
+    return ToolResult(out, is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
                       read_sources=_sources(network))
 
 

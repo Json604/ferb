@@ -11,7 +11,7 @@ import shutil
 import socket
 import time
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -799,3 +799,79 @@ def test_the_daemon_clamps_its_open_file_limit(daemon: RunningDaemon) -> None:
     per_proc = int(subprocess.run(["sysctl", "-n", "kern.maxfilesperproc"], capture_output=True, text=True).stdout)
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     assert soft == (per_proc if hard == resource.RLIM_INFINITY else min(hard, per_proc))
+
+
+def _tls_server() -> tuple[int, Callable[[], None]]:
+    """A local TLS server with a throwaway self-signed cert (no third parties): accepts a handshake, records the SNI
+    the client presented, and closes. Returns its port and a stop callback."""
+    import ssl
+    import subprocess
+    import tempfile
+    d = tempfile.mkdtemp()
+    cert, key = f"{d}/c.pem", f"{d}/k.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", key, "-out", cert, "-days", "1",
+                    "-nodes", "-subj", "/CN=real.test", "-addext", "subjectAltName=DNS:real.test,DNS:cdn.test"],
+                   check=True, capture_output=True)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(cert, key)
+    srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0)); srv.listen(5)
+    port = srv.getsockname()[1]
+    stop = threading.Event()
+
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            try:
+                ctx.wrap_socket(c, server_side=True).close()
+            except OSError:
+                pass
+    threading.Thread(target=serve, daemon=True).start()
+    return port, lambda: (stop.set(), srv.close())
+
+
+def _connect_with_sni(proxy_port: int, auth: dict[str, str], connect_host: str, port: int, sni: str) -> bool:
+    """CONNECT connect_host:port through the proxy, then a TLS handshake presenting `sni`. True when the handshake
+    completed (the proxy forwarded it), False when the proxy dropped the tunnel (a fronting refusal)."""
+    import ssl
+    raw = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
+    raw.sendall(f"CONNECT {connect_host}:{port} HTTP/1.1\r\nHost: {connect_host}:{port}\r\n"
+                f"Proxy-Authorization: {auth['Proxy-Authorization']}\r\n\r\n".encode())
+    status = b""
+    while b"\r\n\r\n" not in status:
+        b = raw.recv(1)
+        if not b:
+            return False
+        status += b
+    assert b" 200 " in status.split(b"\r\n", 1)[0], status
+    cctx = ssl.create_default_context(); cctx.check_hostname = False; cctx.verify_mode = ssl.CERT_NONE
+    try:
+        cctx.wrap_socket(raw, server_hostname=sni).close()
+        return True
+    except (ssl.SSLError, OSError):
+        return False
+
+
+def test_a_fronting_sni_to_an_unnamed_host_is_refused_and_the_sni_is_recorded() -> None:
+    """S4, fronting: the CONNECT host is allowed but the TLS SNI names a different host the owner hasn't named. The
+    proxy peeks the ClientHello, refuses, and records the SNI as a destination fact. A matching SNI is forwarded and
+    recorded beside the CONNECT host."""
+    port, stop = _tls_server()
+    def allow(proc: str, host: str, port_: int) -> tuple[bool, str]:
+        return (False, "a place you haven't named") if host == "secret.internal" else (True, "")
+    p = _proxy(allow)
+    p.resolve = lambda host, port_: [(socket.AF_INET, ("127.0.0.1", port))]   # every name -> the local TLS server
+    try:
+        auth = _auth(p, "p-sni")
+        assert _connect_with_sni(p.port, auth, "cdn.test", port, "secret.internal") is False   # fronting: dropped
+        f = p.facts("p-sni")
+        assert any(r["host"] == "secret.internal" for r in f["refused"])
+        assert _connect_with_sni(p.port, auth, "cdn.test", port, "cdn.test") is True            # matching SNI: forwarded
+        hosts = {d["host"] for d in f2["destinations"]} if (f2 := p.facts("p-sni")) else set()
+        assert "cdn.test" in hosts and not any(r["host"] == "cdn.test" for r in p.facts("p-sni")["refused"])
+    finally:
+        p.close()
+        stop()

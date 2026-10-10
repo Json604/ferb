@@ -16,12 +16,14 @@ account-security changes ask anyway (SQ1).
   answers) asks, unless the recipient is a destination FERB already knows.
 FERB's question (`line`) comes first and is labelled, in the owner's terms (P27): the concrete action, then the call."""
 
+import base64
+import binascii
 import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote_plus, urlsplit
 
 from ferb.core.types import Target
 from ferb.policy import provenance
@@ -31,6 +33,7 @@ from ferb.policy.rules import Kind
 ALWAYS = {Kind.PAY: "floor:pay", Kind.ACCOUNT_SECURITY: "floor:account_security"}
 SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.CALL})
 OWNER_SOURCES = frozenset({"owner_words", "owner_answer"})
+SINK_DESTINATION = "sink:destination"     # the shared rule/key for a host: one Yes/No covers it, shell and browser
 SHOWN_ORIGINS = 3                         # outside sources named in one question; the rest are counted
 FROM_TASK = "(from the task) "            # a task's text that reads like FERB's own (D33)
 TASK_QUESTION = "Question from the task: "
@@ -125,26 +128,96 @@ def shown_origins(labels: Iterable[str]) -> str:
     return "; ".join(items[:SHOWN_ORIGINS]) + f"; and {len(items) - SHOWN_ORIGINS} more"
 
 
-def url_carries_private(url: str, private: list[provenance.Text], owner: provenance.Text) -> list[str]:
-    """The sink rule for navigation (S4, SQ6, carried item 8): the whole query values and path segments of `url`
-    (percent-decoded, at least MIN_LEN characters) that are a token of some private tool result and not a token of the
-    owner's own words or answers. A shape and provenance check, never a meaning (rule 6): FERB never reads what the
-    value means, only where it came from. In order, without repeats."""
+def destination_key(host: str) -> str:
+    """The shared confirmation key for one host (SQ6): a Yes or No to this host covers it for the whole tree, whether
+    FERB reached it from a shell command or a browser URL. `host` is already normalized."""
+    return key(SINK_DESTINATION, host)
+
+
+_FINE = re.compile(r'[\s=:"\',;/&?#@<>()\[\]{}|~`!*+]+')   # splits a value out of JSON, .env, query/path/fragment text
+_B64 = re.compile(r"[A-Za-z0-9+/_-]{8,}={0,2}")
+_HEX = re.compile(r"(?:[0-9a-fA-F]{2}){4,}")
+
+
+def _fine_tokens(text: str) -> set[str]:
+    """A text's tokens for the URL check: split on whitespace and the punctuation that frames a value in JSON, a .env
+    line, a query string or a fragment, so an embedded value is a whole token. Lowercased; nothing under MIN_LEN."""
+    return {t for t in _FINE.split(text.lower()) if len(t) >= provenance.MIN_LEN}
+
+
+def _decodings(piece: str) -> set[str]:
+    """Shape-only decodings of a URL piece that could hide a value: base64 and hex. Never a meaning (rule 6); only
+    printable ASCII results are kept, lowercased."""
+    out: set[str] = set()
     try:
-        parts = urlsplit(url)
-    except ValueError:
-        return []
-    pieces: list[str] = [unquote(seg) for seg in parts.path.split("/")]
+        if _B64.fullmatch(piece) and len(piece) % 4 != 1:
+            raw = base64.b64decode(piece + "=" * (-len(piece) % 4), altchars=b"-_", validate=False)
+            dec = raw.decode("ascii")
+            if dec.isprintable():
+                out.add(dec.lower())
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        pass
+    try:
+        if _HEX.fullmatch(piece) and len(piece) % 2 == 0:
+            dec = bytes.fromhex(piece).decode("ascii")
+            if dec.isprintable():
+                out.add(dec.lower())
+    except (ValueError, UnicodeDecodeError):
+        pass
+    return out
+
+
+def _url_pieces(url: str) -> list[str]:
+    """The pieces of a URL a value could ride in: userinfo, each host label and the whole host, each path segment
+    (percent-decoded) with its `;` parameters and file extension stripped, each query name and value, and the
+    fragment whole and split. Percent-decoded with `unquote_plus`."""
+    parts = urlsplit(url)
+    pieces: list[str] = []
+    if parts.username:
+        pieces.append(unquote_plus(parts.username))
+    if parts.password:
+        pieces.append(unquote_plus(parts.password))
+    host = parts.hostname or ""
+    pieces += [host, *host.split(".")]
+    for seg in parts.path.split("/"):
+        seg = unquote_plus(seg)
+        main = seg.split(";", 1)[0]
+        pieces += [seg, main]
+        if "." in main:
+            pieces.append(main.rsplit(".", 1)[0])              # extension stripped: VALUE.png -> VALUE
+        for param in seg.split(";")[1:]:
+            pieces += [unquote_plus(p) for kv in param.split("=") for p in (kv,)]
     for pair in parts.query.split("&"):
-        name, _, value = pair.partition("=")
-        pieces += [unquote(name), unquote(value)]
+        pieces += [unquote_plus(kv) for kv in pair.split("=")]
+    frag = unquote_plus(parts.fragment)
+    pieces.append(frag)
+    for pair in frag.split("&"):                               # #k=VALUE and #VALUE
+        pieces += [p for p in pair.split("=")]
+    return pieces
+
+
+def url_carries_private(url: str, private: list[provenance.Text], outside: list[provenance.Text],
+                        owner: provenance.Text) -> list[str]:
+    """The sink rule for navigation (S4, SQ6, carried item 8, Q8): the pieces of `url` (userinfo, host labels, path
+    segments with `;`-params and extensions stripped, query values, fragment; percent-decoded, base64/hex-decoded when
+    they have that shape) that are a token of the owner's own data (private tool results) and are NOT a token of the
+    owner's words/answers and NOT a token of outside content the tree read. A value in outside content is public, not
+    the owner's own (I3: owner-browser snapshots are `owner_account`, so public pages would otherwise count as
+    private). A shape-and-provenance check, never a meaning (rule 6). In order, without repeats; at least MIN_LEN."""
+    if not private:
+        return []
+    priv: set[str] = set().union(*(_fine_tokens(t.folded) for t in private))
+    pub: set[str] = set(owner.tokens) | set().union(*(_fine_tokens(t.folded) for t in outside)) if outside \
+        else set(owner.tokens)
     out: list[str] = []
-    for piece in pieces:
+    for piece in _url_pieces(url):
         p = piece.strip()
-        token = p.lower()                       # Text.tokens are lower(), as provenance.tokens makes them
-        if len(p) < provenance.MIN_LEN or token in owner.tokens:
+        if len(p) < provenance.MIN_LEN:
             continue
-        if any(token in t.tokens for t in private) and p not in out:
+        forms = {p.lower()} | _decodings(p)
+        if forms & pub:                                       # the owner typed it, or it is public: not the owner's own
+            continue
+        if forms & priv and p not in out:
             out.append(p)
     return out
 
@@ -225,8 +298,15 @@ def _part(n: Need) -> str:
         return (f"this sends to {v['destination']}, a place you haven't named, after this task read your own data and "
                 f"outside content ({v['read']})")
     if n.rule == "sink:private_url":
+        read = f" ({v['read']})" if v.get("read") else ""
         return (f"this would open {v['destination']}, a place you haven't named, with your own data in the address "
-                f"({v['value']}), after this task read outside content")
+                f"({v['value']}), after this task read outside content{read}; saying yes lets FERB reach "
+                f"{v['destination']} from the browser and from shell commands, now and in later tasks")
+    if n.rule == "sink:shell_destination":
+        read = f" ({v['read']})" if v.get("read") else ""
+        return (f"a command of this task tried to reach {v['destination']}, a place you haven't named, after this task "
+                f"read your own data and outside content{read}; saying yes lets FERB reach {v['destination']} from "
+                f"shell commands and the browser, now and in later tasks")
     if n.rule == "sink:outside_value" and v["what"] == "typed":
         return f"this types {v['value']}, which came from outside content ({v['origin']}), not from you"
     if n.rule == "sink:outside_value":

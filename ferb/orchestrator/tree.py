@@ -59,6 +59,18 @@ class TaskTree:
     def get(self, task_id: str) -> TaskRecord | None:
         return self._tasks.get(task_id)
 
+    def tree_of(self, task_id: str) -> str | None:
+        """The root of a task's tree (S4: a per-tree sink decision). From the live record if present, else the
+        persisted `tasks.tree_id`, so a background process judged after its tree ended still gets the full tree; None
+        when the task is unknown."""
+        rec = self._tasks.get(task_id)
+        if rec is not None:
+            return rec.tree_id or task_id
+        if self.db is None:
+            return None
+        row = self.db.conn.execute("SELECT tree_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return row["tree_id"] if row is not None else None
+
     def set_span(self, task_id: str, span_id: str) -> None:
         self._tasks[task_id].span_id = span_id
 
