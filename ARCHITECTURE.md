@@ -193,7 +193,7 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.14.0 / protocol 10** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
+Extension **0.15.1 / protocol 12** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Local uploads use `DOM.setFileInputFiles` on the identified input, including supported iframe/OOPIF routes. Canonical
@@ -744,7 +744,7 @@ pins the sentences).
 
 **Downloads (D35).** Section 7 has the mechanism. In short: a download in a live task's tab becomes facts (`path`,
 `name`, `bytes`, `sha256`, `mime`, `source_url`, origin `external:download`) in `~/.ferb/workspace/downloads/` and in
-the `downloads` table (migration 0025); `browser.downloads` is an observation tool; extension 0.14.0, protocol 10. The
+the `downloads` table (migration 0025); `browser.downloads` is an observation tool; extension 0.15.1, protocol 12. The
 owner's limits of 2026-10-09: 512 MB per download, 50 files and 4096 MB per task tree, 50 new tabs per task tree, a
 20480 MB folder (only past it do the oldest go to the Trash), a 10 GB free-disk floor (as macOS shows it; space macOS can purge doesn't count), no time-based clearing; the
 page-hold caps (20 held saves per tab, 100 in all) are a separate guard and unchanged. [`config.py`](ferb/config.py)
@@ -1067,7 +1067,7 @@ accuracy or owner acceptance. `action.alignment` sees owner words and action met
 mismatches to the orchestrator; it cannot block or authorize. Daily summaries include code-built new destinations,
 confirmation answers, blocked flows and outside-source memory handles. `ferb stats` distinguishes observed shell latency
 from isolated sandbox overhead. CLI-only `test.mode` restricts send-class actions; it cannot constrain arbitrary GUI
-clicks/typing. Regression cleanup clears it even after an error.
+clicks/typing. The owner setting persists across restart. Regression cleanup restores the prior setting even after an error.
 
 Full Disk Access is required in full setup only after doctor reports the shell profile and authenticated proxy available.
 This checkout has not changed TCC, FileVault, the installed daemon or any personal browser. FileVault setup and all live

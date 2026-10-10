@@ -23,7 +23,7 @@ Setup installs a dedicated interpreter, environment, runtime and LaunchAgent und
 permissions and reports missing grants. `ferb setup --update` installs the current checkout and restarts the daemon;
 run it when existing work can be interrupted. The development environment and installed daemon are separate.
 
-Chrome and Brave need FERB extension **0.14.0** (protocol 10); downloads without a Save dialog need it. After pulling
+Chrome and Brave need FERB extension **0.15.1** (protocol 12); downloads without a Save dialog need it. After pulling
 it, run `ferb setup --update` to republish the managed bundle; a managed install reloads it when idle, and an older one
 is refused with a reload notice. Prepare its managed folder with `ferb browsers extension install`;
 `ferb browsers extension path` prints the path. Enable Developer mode in the browser's extensions page and Load
@@ -342,7 +342,7 @@ An unsupported or lost capture route returns a concrete error/partial result.
 
 These are silent sampled videos: 2 captures/second by default, configurable from 0.2–10. They are useful for task
 replays, not high-frame-rate video or audio recording. They need `ffmpeg` and `ffprobe` installed; FERB searches PATH
-and the usual Homebrew/user binary folders. Browser capture requires extension 0.14.0 / protocol 10; native capture
+and the usual Homebrew/user binary folders. Browser capture requires extension 0.15.1 / protocol 12; native capture
 requires macOS Screen Recording access and the target window to remain capturable.
 
 `recording.stop` finalizes the MP4 plus a JSON receipt of the target and capture times/errors. `recording.inspect`
@@ -432,6 +432,10 @@ aggregate improvement does not stand in for owner acceptance. With/without-memor
 
 For owner-supervised live checks, `ferb test-mode on` refuses all declared send actions; add repeated
 `--allow-send EXACT_RECIPIENT` only for owner-controlled destinations. `ferb test-mode` inspects the active setting
-and `ferb test-mode off` disables it. `ferb regress --allow-send EXACT_RECIPIENT` temporarily sets this gate and
+and `ferb test-mode off` disables it. Manual mode persists across daemon restart. `ferb regress --allow-send EXACT_RECIPIENT` temporarily sets this gate and
 restores the prior manual setting afterward. This gate covers send-class tools and declared GUI purposes; it is not
 a semantic classifier for arbitrary GUI input or shell programs.
+
+The [baseline comparison report](docs/0.27_BASELINE_COMPARISON.md) preserves the saved F0 measurements and
+marks the new installed-run results unavailable until owner acceptance. `ferb release-checklist` includes
+the complete prepared procedures from the 38-case security catalogue alongside the target-task checks.

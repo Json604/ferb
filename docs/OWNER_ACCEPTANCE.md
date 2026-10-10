@@ -604,3 +604,18 @@ Residuals to observe: generic GUI primitives cannot mechanically prove selected 
 AX attribution and notification schemas vary; sources without window IDs pause the whole approved app; input already
 in flight cannot be recalled; absent OS notifications require explicit inspection/timed wait chosen in the task,
 not an invented polling quota. Topic and lead judgments are model decisions reviewed by the ordinary checker.
+
+### F10 release integration record — 2026-10-11
+
+The checkout is `0.27.0.dev1`, extension `0.15.1` / protocol `12`. Earlier subsection statements about deferred
+validation describe their build snapshots; the final integrated result will be recorded here when it completes.
+Actual source/history exposure retains origin and forget lineage; rereading paged evidence preserves its source IDs.
+Manual test-mode restrictions persist across restart, and a regression run restores the prior mode.
+
+An existing unmarked `tests/test_launchd_real.py` was inadvertently selected during the initial default suite.
+It passed its temporary, unique-label LaunchAgent lifecycle and cleanup; no temporary LaunchAgent artifact remained.
+The installed FERB service was not changed. The test is now explicitly `real`, and collection additionally excludes
+unmarked real-surface files from the default suite. No owner task/model/send acceptance was performed.
+
+Read `0.27_BASELINE_COMPARISON.md` and its JSON for the actual saved F0 baseline. New after/delta values remain null
+until owner installation and matched target runs; no live improvement or owner verdict is inferred from unit tests.
