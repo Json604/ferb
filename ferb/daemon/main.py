@@ -959,7 +959,7 @@ class Daemon:
             self.supervisor.remember = self._remember
             self.supervisor.procedure_context = self._learning_context
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
-            self.supervisor.identity_context = lambda: self.learning.identity()
+            self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome
         if self.run_distill:
@@ -983,7 +983,11 @@ class Daemon:
             return
         node = next((n for n in self.learning.items("episode") if n["key"] == task_id), None)
         if node:
-            self.learning.receipt(procedure_id, node["id"])
+            from ferb.memory.learning import LearningRefused
+            try:
+                self.learning.receipt(procedure_id, node["id"])
+            except LearningRefused:
+                self._journal().append("memory.receipt_unavailable", {"procedure_id": procedure_id, "task_id": task_id})
 
     def _refresh_learning_verdict(self, task_id: str) -> None:
         if not self.learning:
@@ -997,6 +1001,12 @@ class Daemon:
                 self.db.conn.execute("UPDATE learning_receipts SET successful=0 WHERE episode_id=?", (node["id"],))
         for procedure in self.learning.items("procedure"):
             self.learning.procedure(procedure["id"], self._app_versions())
+
+    def _learning_identity(self) -> str:
+        if not self.learning:
+            return ""
+        self.learning.sync_facts(self.memory)
+        return self.learning.identity()
 
     def _learning_context(self, words: str) -> str:
         if not self.learning:
