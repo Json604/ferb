@@ -78,7 +78,7 @@ to the model, Jev's destructive classifier in shadow, then Full Disk Access by d
 | 2 Shell sandbox (sandbox-exec) | complete (10453cd, 66a1dcd, b2d41ef) |
 | 3 Egress proxy | complete (96cf41d, 4bfd429, 4b27714), plus a small follow-up "T3b" once the owner answers Q1–Q2 below |
 | 4 Code-floor confirmations, sink rule, known destinations | complete (19318d3, 8aee147, eaa9000, 3ec05d4) |
-| 5 Sinks that are not sends (shell destinations, URLs) | fix round 3 (the last with the same implementer) dispatched from 3c4d125: a Critical leading-backslash URL bypass, owner Q3, minors (see ledger). If the ledger shows no `fix round 3 —` commit line, start it as round 4 with a fresh implementer on the strongest model, from the ledger's round-3 ruling. Then a scoped re-review. |
+| 5 Sinks that are not sends (shell destinations, URLs) | fix round 3 committed and pushed (54cffba): one browser-compatible URL parser, owner Q3 built, minors. Its scoped re-review was dispatched; if the ledger has no verdict for `3c4d125..54cffba`, re-run it. Open point for that review: after a task's first shell command every new host asks once, including Codex's own API host (judge whether a FERB-run Codex session survives the refusal). |
 | 6 Escape hatch (D31) | not started |
 | 7 Worker permission model (W1, W2, W4, D36) | not started |
 | 8 Security suite (offline replays, live P0 set, test-mode send switch, overhead in `ferb stats`) | not started |
