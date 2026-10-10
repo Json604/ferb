@@ -820,3 +820,11 @@ Phase 4 of `docs/REWORK_PLAN.md`, as designed in `docs/DESIGN_ONE_WORKER.md`.
 | 0.0.3 | 2: sanitize, policy engine, ledger, `ferb stop` | `e862b3f` |
 | 0.0.2 | 1: core, store, bus, clock, daemon, auth, journal, logs, trace | `33bcd0a`, `1e8041d` |
 | 0.0.1 | Spikes 1–4, 6, 8, 10, 12–14 | `8d5802d` … `c4b0b07` |
+
+## 0.27 F8 — checkout implementation, pending end checks and owner acceptance
+
+- Added versioned derived memory, evidence cards, source-cascading forget, consolidation audit/rollback, scoped
+  lessons, evidence-grounded procedure templates, learned/suspect/quarantined states and owner-only identity.
+- Added before-plan candidates, read-only full memory retrieval, daily pending identity digest and a local dashboard.
+- Added pinned local embedding preparation and owner-history retrieval evaluation; adoption remains off until
+  measured improvement. Added paired with/without-memory report support without manufactured verdicts.

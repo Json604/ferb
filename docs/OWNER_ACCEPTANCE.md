@@ -529,3 +529,13 @@ After the combined review, the owner installs and records observations here:
 
 Record evidence IDs, dates, unexpected native prompts and the owner's verdict for each item. Notification triage
 must not act before owner-labelled measurement and an explicit later decision to enable it.
+### F8 continuation — pending owner live checks (2026-10-11)
+
+No F8 installation or live acceptance was performed by the continuation agents. After the combined end check and
+owner installation: inspect `ferb memory dashboard`; compare a real repeated task with/without memory; verify three
+successes/two slot values and current app versions, then an app update and failure fallback; exercise an
+outside-derived action procedure vs an outside-read-only task; confirm/edit a digest proposal; forget a source and
+inspect every dependent summary/vector; roll back a batch; label ~50–100 actual Hinglish/temporal/person queries
+from `memory eval-export`, compare embedding candidates and adopt only a measured improvement. Preserve the actual
+trace IDs, timings/costs and `ferb verdict` results in the paired evaluation. Retrieval scores alone are not task
+acceptance. No embedding model/weights has been selected, downloaded or claimed helpful in this implementation pass.

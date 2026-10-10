@@ -8,7 +8,7 @@ summary = "Python stays; work on astra/0.27-upgrade"
 
 [D2]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Similarity search runs before FERB plans, giving it similar past tasks"
 
 [D3]
@@ -74,7 +74,7 @@ summary = "Retention: raw events 30 days; typed text and clipboard 7 days; daily
 
 [D15]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "FERB gets its own local-only memory system designed for years of use"
 
 [D16]
@@ -90,12 +90,12 @@ summary = "Security designed now; tests built from real documented scenarios"
 
 [D18]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Procedures are text with tool-call templates and expect lines"
 
 [D19]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Inferred memory is stored as inferred, unconfirmed, used as labeled hints"
 
 [D20]
@@ -167,38 +167,38 @@ summary = "Universal model runtimes: one model interface defined by FERB"
 
 [MP1]
 milestone = "F3"
-tests = ["tests/test_origins.py", "tests/test_episodes.py"]
+tests = ["tests/test_origins.py", "tests/test_episodes.py", "tests/test_learning.py"]
 summary = "Raw evidence is append-only, redacted at capture, and the source of truth"
 
 [MP2]
 milestone = "F3"
-tests = ["tests/test_origins.py", "tests/test_tool_origins.py", "tests/test_upload_staging.py"]
+tests = ["tests/test_origins.py", "tests/test_tool_origins.py", "tests/test_upload_staging.py", "tests/test_learning.py"]
 note = "F4 live fixes: a browser upload reads FERB's own copy; a copy of outside content is kept under workspace/uploads/outside, an untrusted fs root code adds, so it keeps the original's label."
 summary = "Trust follows origin, permanently"
 
 [MP3]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Facts are invalidated, never overwritten"
 
 [MP4]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Agents on tasks do not rewrite memory; an offline sleep consolidator does"
 
 [MP5]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Learn only from verified outcomes; failure lessons are scoped and evidenced"
 
 [MP6]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py", "tests/test_memory_embeddings.py"]
 summary = "Code finds candidates; agents decide relevance"
 
 [MP7]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py", "tests/test_memory_embeddings.py"]
 summary = "Memory must prove it helps via an evaluation set from the owner's history"
 
 [P1]
@@ -239,7 +239,7 @@ summary = "Setup/doctor check FileVault; redaction keeps secrets out; database e
 
 [P10]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Episodic, semantic and procedural memory, searchable by content and time"
 
 [P11]
@@ -270,7 +270,7 @@ summary = "Verification design V1-V8"
 
 [P17]
 milestone = "F8"
-tests = []
+tests = ["tests/test_memory_dashboard.py"]
 summary = "Local memory dashboard with origin, evidence, confirm/edit/forget"
 
 [P18]
@@ -380,7 +380,7 @@ summary = "Alignment check: Jev flags request/action mismatches to the orchestra
 
 [S7]
 milestone = "F8"
-tests = []
+tests = ["tests/test_learning.py"]
 summary = "Memory: origin-bound authority, quarantine of outside-sourced procedure steps, cascade deletion"
 
 [S8]

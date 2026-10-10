@@ -353,3 +353,33 @@ silently approve focus, block actions or restore an old foreground app.
 ```sh
 uv run python scripts/check_doc_sources.py
 ```
+
+### Memory and learning (F8 checkout; owner live acceptance pending)
+
+`ferb memory dashboard` prints a private localhost link; leave that terminal open while reviewing memories.
+It shows identity, facts, entity summaries, past tasks, procedures, lessons and rollups, with source IDs and history.
+Confirm a pending identity proposal or procedure explicitly, edit a fact, forget a memory and its derived records,
+or roll back a consolidation batch. The link carries a temporary bearer token in its fragment; it is not a public site.
+
+`ferb memory search 'query' [--app BUNDLE_ID] [--person NAME]` searches derived evidence; `memory.learned` gives
+workers the same read-only records, with full paged bodies. Inferred facts are labelled unconfirmed hints. Only owner
+statements or confirmed identity proposals enter always-loaded identity (`ferb memory identity 'rule' --key NAME`).
+A pending identity digest is shown in chat at most once per day; `/memory confirm ID` records an explicit confirmation.
+
+The sleep service runs incrementally when no task is active (`ferb memory consolidate` also requests a pass).
+Procedures contain text tool templates and expect lines, cite verified episodes, and become learned after three
+verified successes across two slot values, with the latest on current captured app versions. They still require
+step checks and final verification. Outside-derived action/destination steps are quarantined until confirmed;
+reading an outside page alone does not quarantine a procedure. App version changes and consecutive failures mark
+procedures suspect. Old episodes without captured app versions cannot establish the current-version requirement.
+
+Keyword and Unicode title search work immediately. Optional local embeddings require the `memory` package extra.
+`ferb memory eval-export` exports real historical queries for owner relevance labels; no labels are invented.
+`ferb memory embeddings prepare --manifest FILE` downloads public model artifacts pinned by a full repository
+commit and every file's SHA256. The JSON manifest declares `repository`, `revision`, `files` (path to SHA256),
+`dimensions` (256 or 512) and an optional model-specific `query_prefix`. It contains no private text.
+`evaluate --manifest FILE --dataset FILE` compares keyword and hybrid reciprocal rank on those labelled queries;
+`adopt --manifest FILE --evaluation ID` only enables a model whose measured hybrid score improved. The model loads
+from verified local files, with remote model code disabled. No model is selected or downloaded by default before
+that evaluation. `status` exposes adoption and reports. Real task with/without-memory acceptance remains separate
+from retrieval scores; the paired report helper preserves actual trace IDs and missing owner verdicts.

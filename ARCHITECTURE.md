@@ -1086,3 +1086,29 @@ explicit qualified Python symbols. Historical changelog/audit evidence is intent
 Do not fix a failure by adding a keyword rule for that one failure. Expose platform facts, give the agent full evidence,
 and test the general boundary. A filename match does not prove identity; a topic match does not prove teaching depth;
 a delivered event does not prove completion; silence in an old trace does not prove zero desktop disturbance.
+
+### F8 derived memory and learning
+
+`memory/learning.py` adds immutable, deterministic derived records over existing permanent episodes and versioned
+facts. `learning_sources` is the transitive source graph; automatic retention keeps evidence cards, while explicit
+owner forgetting erases dependent records, FTS entries and vectors. Source-origin labels remain permanent.
+Only the owner RPC can write identity or confirm a proposal; task capabilities are read-only. Content is versioned
+with valid/recorded time; state and success receipts are derived metadata. Consolidation batches can be invalidated
+without resurrecting deleted data. The existing database filename stays unchanged for installed-data compatibility.
+
+`memory/consolidate.py` uses a no-tool runtime during idle periods, validates cited verified episodes and actual
+instantiated tool arguments, creates scoped failure/success lessons and pending identity proposals, and records
+per-source job completion. Code rollups cite their child cards. Task completion captures app versions; old episodes
+retain explicit unknown versions. F6's callbacks retrieve candidates before planning, load the selected procedure,
+keep owner-only identity in context and record procedure outcomes; none bypass gateway confirmations or checks.
+
+`memory/embeddings.py` implements optional pinned local MLX inference and int8 vectors, indexed by model/month.
+Keyword/trigram search always works; hybrid ranking is enabled only by an exact-model owner-history comparison.
+A Python cosine path is available when the optional SQLite extension is unavailable. Model preparation downloads
+public artifacts only; all embedding inference is local. Model selection and measured memory benefit are pending
+owner-history evaluation, not implied by compilation. `eval/memory.py` exports history and compares paired run facts.
+
+`memory/dashboard.py` serves static local assets on an ephemeral 127.0.0.1 port. An ephemeral fragment token is copied
+to an Authorization header and removed from browser history; exact Host and Origin, no CORS, no request logs, CSP,
+no external assets and DOM textContent protect the owner controls. Each request uses a fresh owner-authenticated
+Unix-socket RPC; SQLite stays on the daemon's thread. Workers never receive the dashboard token or write RPC.

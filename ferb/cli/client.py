@@ -51,7 +51,7 @@ class Client:
         msg: dict[str, Any] = json.loads(line)
         return msg
 
-    def set_timeout(self, seconds: float) -> None:
+    def set_timeout(self, seconds: float | None) -> None:
         """For calls known to take long (e.g. waking FERB's browser profile)."""
         self._sock.settimeout(seconds)
 

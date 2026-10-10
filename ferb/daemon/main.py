@@ -209,6 +209,8 @@ class Daemon:
         # Memory. Tests turn the daily distillation loop off (it calls a model).
         self.run_distill = distill
         self.memory: Any = None
+        self.learning: Any = None
+        self.consolidator: Any = None
         self.distiller: Any = None
         self._distill_task: asyncio.Task[None] | None = None
         self.run_retention = retention
@@ -285,7 +287,7 @@ class Daemon:
                          ("task.stop", self._task_stop),
                          ("reminders.list", self._reminders_list), ("reminders.cancel", self._reminders_cancel),
                          ("reminders.unseen", self._reminders_unseen),
-                         ("memory.list", self._memory_list), ("memory.show", self._memory_show),
+                         ("memory.learning", self._memory_learning), ("memory.list", self._memory_list), ("memory.show", self._memory_show),
                          ("memory.add", self._memory_add), ("memory.confirm", self._memory_confirm),
                          ("memory.edit", self._memory_edit), ("memory.retract", self._memory_retract),
                          ("memory.forget", self._memory_forget), ("memory.distill", self._memory_distill),
@@ -934,7 +936,15 @@ class Daemon:
         assert self.db is not None and self.journal is not None
         self.memory = Memory(self.db, self.clock, self.ids, self._publish, on_change=self._export_memory,
                              redact=self._redact_text)
-        self.memory.on_forget = lambda plan: self.daily_activity.forget_sources(set(plan.trail))
+        from ferb.memory.learning import Learning
+        from ferb.memory.consolidate import Consolidator
+        from ferb.memory.tools import LearningRead
+        self.learning = Learning(self.db, self.clock, self._publish, self._redact_text)
+        self.consolidator = Consolidator(self.learning, self.memory, self._make_runtime,
+            idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
+            usage=self._record_distill_usage)
+        self.registry.add(LearningRead(lambda: self.learning))
+        self.memory.on_forget = self._forget_learning_sources
         journal = self.journal
         self.memory.rebuild_summary = lambda day: summary.rebuild(self.db, journal, day)
         self.distiller = Distiller(self.db, self.journal, self.memory, self._make_runtime, self.clock,
@@ -947,10 +957,139 @@ class Daemon:
             self.supervisor.availability = self._availability
             self.supervisor.recall = lambda words: context_block(self.memory, words)
             self.supervisor.remember = self._remember
+            self.supervisor.procedure_context = self._learning_context
+            self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
+            self.supervisor.identity_context = lambda: self.learning.identity()
+            self.supervisor.on_episode = self._capture_learning_episode
+            self.supervisor.procedure_outcome = self._procedure_outcome
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
         if self.run_retention:
             self._retention_task = asyncio.get_running_loop().create_task(self._retention_loop())
+
+    def _app_versions(self) -> dict[str, str]:
+        profile = self._device_profile()
+        return {a.bundle_id: a.version for a in profile.apps} if profile else {}
+
+    def _capture_learning_episode(self, task_id: str) -> None:
+        try:
+            if self.learning is not None:
+                self.learning.capture_episode(task_id, self._app_versions())
+        except Exception as e:
+            self._journal().append("memory.episode_failed", {"task_id": task_id, "error": self._redact_text(str(e))})
+
+    def _procedure_outcome(self, procedure_id: str, task_id: str) -> None:
+        if self.learning is None:
+            return
+        node = next((n for n in self.learning.items("episode") if n["key"] == task_id), None)
+        if node:
+            self.learning.receipt(procedure_id, node["id"])
+
+    def _refresh_learning_verdict(self, task_id: str) -> None:
+        if not self.learning:
+            return
+        for node in self.learning.items("episode", history=True):
+            if node["key"] != task_id:
+                continue
+            row = self.db.conn.execute("SELECT verdict FROM owner_verdicts WHERE task_id=? ORDER BY seq DESC LIMIT 1",
+                                       (task_id,)).fetchone()
+            if row and row[0] == "fail":
+                self.db.conn.execute("UPDATE learning_receipts SET successful=0 WHERE episode_id=?", (node["id"],))
+        for procedure in self.learning.items("procedure"):
+            self.learning.procedure(procedure["id"], self._app_versions())
+
+    def _learning_context(self, words: str) -> str:
+        if not self.learning:
+            return ""
+        self.learning.sync_facts(self.memory)
+        return self.learning.candidates(words)
+
+    def _forget_learning_sources(self, plan: Any) -> None:
+        self.daily_activity.forget_sources(set(plan.trail))
+        if self.learning:
+            refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
+                    ["trail:" + s for s in plan.trail])
+            self.learning.forget(refs)
+
+    async def _memory_learning(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        from ferb.memory.learning import LearningRefused
+        l = self.learning
+        if l is None:
+            raise LearningRefused("learning store unavailable")
+        op, ident = params.get("op", "inventory"), str(params.get("id", ""))
+        if op == "inventory":
+            l.sync_facts(self.memory)
+            return {"items": l.items(history=bool(params.get("history")))}
+        if op == "search":
+            return {"items": l.search(str(params.get("query", "")), **{
+                k: str(params[k]) for k in ("kind", "app", "person", "since", "until") if params.get(k)})}
+        if op == "get":
+            node = l.get(ident)
+            return {"item": node, "history": [n for n in l.items(history=True)
+                    if node and n["kind"] == node["kind"] and n["key"] == node["key"]]}
+        if op == "confirm":
+            return {"item": l.confirm(ident)}
+        if op == "edit":
+            node = l.get(ident)
+            if node and node["kind"] == "fact":
+                item_id = node["body"]["id"]
+                await self._memory_edit(session, {"id": item_id, "content": str(params.get("text", ""))})
+                l.sync_facts(self.memory)
+                return {"items": l.search(node["key"])}
+            return {"item": l.edit(ident, str(params.get("text", "")))}
+        if op == "retire":
+            l.db.conn.execute("UPDATE learning_nodes SET state='retired' WHERE id=?", (ident,))
+            return {"item": l.get(ident)}
+        if op == "forget":
+            node = l.get(ident)
+            if node and node["kind"] == "fact":
+                item_id = node["body"]["id"]
+                if params.get("confirm"):
+                    self.memory.forget(item_id)
+                    return {"deleted": [ident]}
+                plan = self.memory.plan_forget(item_id)
+                return {"descendants": sorted(l.descendants(["memory:" + s for s in plan.items])),
+                        "will_delete": plan.describe(self.db)}
+            doomed = sorted(l.descendants([ident]))
+            if params.get("confirm"):
+                return {"deleted": l.forget([ident])}
+            return {"descendants": doomed}
+        if op == "rollback":
+            return {"invalidated": l.rollback(str(params.get("batch", "")))}
+        if op == "digest":
+            return {"digest": l.digest()}
+        if op == "identity":
+            return {"item": l.put("identity", str(params.get("key", "owner")), {"text": str(params["text"])}, [],
+                    origin_label="owner", made_by="owner:identity/1", owner=True, state="active")}
+        if op == "consolidate":
+            return await self.consolidator.catch_up()
+        if op == "eval_export":
+            from ferb.eval.memory import history_queries
+            return history_queries(l)
+        if op == "embedding":
+            from ferb.memory import embeddings
+            action = str(params.get("action", "status"))
+            if action == "status":
+                return {"active": getattr(l.embedder, "name", None), "evaluations": [dict(r) for r in
+                    self.db.conn.execute("SELECT * FROM learning_embedding_evals ORDER BY at")]}
+            manifest_path = Path(str(params["manifest"]))
+            data = embeddings.manifest(manifest_path)
+            root = self.home / "models" / "embeddings" / embeddings.digest(data)
+            await asyncio.to_thread(embeddings.download, root, data)
+            if action == "prepare":
+                return {"ready": True, "path": str(root), "active": False}
+            model = await asyncio.to_thread(embeddings.LocalMLX, root, data)
+            if action == "evaluate":
+                cases = json.loads(Path(str(params["dataset"])).read_text())
+                return embeddings.evaluate(l, model, cases.get("cases", []) if isinstance(cases, dict) else cases)
+            if action == "adopt":
+                embeddings.adopt(l, model, str(params["evaluation"]))
+                config = self.home / "memory-embedding.json"
+                config.write_text(json.dumps({"manifest": data, "root": str(root), "model": model.name}))
+                config.chmod(0o600)
+                return {"active": model.name}
+            raise LearningRefused("unknown embedding action")
+        raise LearningRefused("unknown learning operation")
 
     def _purge_records(self) -> dict[str, int]:
         """D21: spans of tasks that ended more than trace_days ago (once their episode exists) and loose spans;
@@ -1096,11 +1235,28 @@ class Daemon:
             try:
                 assert self.distiller is not None
                 await self.distiller.catch_up()
+                if self.consolidator is not None:
+                    await self.consolidator.catch_up()
+                if self.learning is not None:
+                    await self._restore_memory_embedding()
             except asyncio.CancelledError:
                 raise
             except Exception as e:                             # never takes the daemon down; tried again next hour
                 self._journal().append("memory.distill_failed", {"error": f"{type(e).__name__}: {e}"})
             await asyncio.sleep(3600)
+
+    async def _restore_memory_embedding(self) -> None:
+        if self.learning.embedder is not None:
+            return
+        config = self.home / "memory-embedding.json"
+        if not config.is_file():
+            return
+        from ferb.memory.embeddings import LocalMLX
+        value = json.loads(config.read_text())
+        adopted = self.db.conn.execute("SELECT 1 FROM learning_embedding_evals WHERE model=? AND adopted=1",
+                                       (value["model"],)).fetchone()
+        if adopted:
+            self.learning.embedder = await asyncio.to_thread(LocalMLX, Path(value["root"]), value["manifest"])
 
     def _export_memory(self) -> None:
         from ferb.memory.export import export
@@ -1326,7 +1482,8 @@ class Daemon:
                     "options": list(ap.options)} for ap in self.state.approvals.pending()]
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
         return {"results": [{"task_id": r["task_id"], "status": r["status"], "goal": r["goal"], "answer": r["answer"]}
-                            for r in rows], "running": running, "approvals": pending}
+                            for r in rows], "running": running, "approvals": pending,
+                "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None}
 
     async def _chat_attach(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Chat is open again: approvals for running tasks are asked there, not by notification."""
@@ -2337,6 +2494,9 @@ class Daemon:
              self.clock.now().isoformat()))
         self.db.conn.commit()
         self._journal().append("owner.verdict", {"task_id": task_id, "verdict": verdict})
+        if self.learning is not None:
+            self.learning.capture_episode(task_id)
+            self._refresh_learning_verdict(task_id)
         return {"task_id": task_id, "verdict": verdict}
 
     async def _stop_engage(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

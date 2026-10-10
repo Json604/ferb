@@ -270,7 +270,7 @@ def _item_line(i: dict[str, Any]) -> str:
     if i["status"] == "proposed" and i["origin"] == "observed":
         extra = f" — seen on {i['evidence_days']} of 3 days"
     elif i["status"] == "proposed":
-        extra = f" — `ferb memory confirm {i['id']}` to use it"
+        extra = f" — unconfirmed hint; `ferb memory confirm {i['id']}` to confirm"
     until = f" (until {i['valid_to'][:10]})" if i.get("valid_to") else ""
     return (f"  {i['id']}  [{i['kind']} · {i['subject']} · {i['key']}] {i['content']}  "
             f"({ORIGIN[i['origin']]}, {i['status']}{until}){extra}")
@@ -278,7 +278,34 @@ def _item_line(i: dict[str, Any]) -> str:
 
 def memory(client: Client, args: Any, ask: Any, out: TextIO) -> int:
     c = args.mcmd
-    if c == "list":
+    if c in ("embeddings", "eval-export"):
+        import json
+        params = {"op": "embedding" if c == "embeddings" else "eval_export"}
+        params.update({k: getattr(args, k) for k in ("action", "manifest", "dataset", "evaluation")
+                       if getattr(args, k, None) is not None})
+        client.set_timeout(None)
+        print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
+        return 0
+    if c in ("digest", "consolidate", "search", "identity", "rollback"):
+        import json
+        params = {"op": c}
+        params.update({k: getattr(args, k) for k in ("query", "kind", "app", "person", "text", "key", "batch")
+                       if getattr(args, k, None) is not None})
+        client.set_timeout(None) if c == "consolidate" else None
+        print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
+    elif c in ("confirm", "edit", "forget") and args.id.startswith("m-"):
+        import json
+        params = {"op": c, "id": args.id}
+        if c == "edit":
+            params["text"] = args.content
+        if c == "forget":
+            plan = client.call("memory.learning", params)
+            print(json.dumps(plan, ensure_ascii=False, indent=2), file=out)
+            if not args.yes and ask("Permanently forget these memories? [y/N] ").strip().lower() not in ("y", "yes"):
+                return 1
+            params["confirm"] = True
+        print(json.dumps(client.call("memory.learning", params), ensure_ascii=False, indent=2), file=out)
+    elif c == "list":
         status = "all" if args.all else "proposed" if args.proposed else "active"
         items = client.call("memory.list", {"status": status})["items"]
         print("\n".join(_item_line(i) for i in items) or "  (nothing)", file=out)

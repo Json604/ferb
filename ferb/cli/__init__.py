@@ -65,6 +65,25 @@ def main(argv: list[str] | None = None) -> int:
     mf.add_argument("id")
     mf.add_argument("--keep-sources", action="store_true")
     mf.add_argument("--yes", action="store_true")
+    msub.add_parser("dashboard", help="open the token-protected local memory dashboard link")
+    msub.add_parser("eval-export", help="export actual owner-history queries for relevance labels")
+    emb = msub.add_parser("embeddings", help="local model prepare/evaluate/adopt/status")
+    emb.add_argument("action", choices=("status", "prepare", "evaluate", "adopt"))
+    emb.add_argument("--manifest")
+    emb.add_argument("--dataset")
+    emb.add_argument("--evaluation")
+    msub.add_parser("digest", help="pending identity suggestions, at most once a day")
+    msub.add_parser("consolidate", help="run incremental learning while no task is running")
+    msr = msub.add_parser("search", help="find episodes, procedures, lessons and facts")
+    msr.add_argument("query")
+    msr.add_argument("--kind")
+    msr.add_argument("--app")
+    msr.add_argument("--person")
+    mid = msub.add_parser("identity", help="state an owner rule for always-loaded identity")
+    mid.add_argument("text")
+    mid.add_argument("--key", default="owner")
+    mrb = msub.add_parser("rollback", help="invalidate a sleep-learning batch while preserving history")
+    mrb.add_argument("batch")
     dcp = sub.add_parser("decide", help="Jev's answers next to FERB's own decisions (shadow mode)")
     dsub = dcp.add_subparsers(dest="dcmd", required=True)
     dsub.add_parser("stats", help="observation and memory checks: flag rate, examples and errors")
@@ -223,6 +242,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "device":
         from ferb.cli.admin import device
         return device(ferb_home(), args.action, lambda: Client(socket_path()), sys.stdout)
+
+    if args.cmd == "memory" and args.mcmd == "dashboard":
+        from ferb.memory.dashboard import Dashboard
+        def memory_call(params):
+            c = Client(socket_path())
+            try:
+                return c.call("memory.learning", params)
+            finally:
+                c.close()
+        dashboard = Dashboard(memory_call)
+        print("Memory dashboard (keep this terminal open): " + dashboard.url)
+        try:
+            dashboard.serve()
+        except KeyboardInterrupt:
+            return 0
+        return 0
 
     try:
         client = Client(socket_path())

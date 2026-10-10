@@ -51,3 +51,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+### Optional F8 local memory dependencies
+
+The `memory` extra can install MLX-Embeddings (Prince Canuma, GPL-3.0, https://github.com/Blaizzy/mlx-embeddings)
+and sqlite-vec (Alex Garcia, MIT/Apache-2.0, https://github.com/asg017/sqlite-vec). Their implementations are dependencies,
+not copied into FERB. Adapter interfaces were checked against their primary documentation and source. Model weights
+are separately selected and pinned after owner-history evaluation; retain the selected model's own license/notice
+when distributing its manifest. No weights are bundled here.
