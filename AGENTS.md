@@ -72,5 +72,7 @@ screenshot redaction, the start-of-task screenshot, Jev's destructive classifier
 default). The F5a plan is `docs/superpowers/plans/2026-10-10-f5a-containment.md` (committed 9891157). The owner answered its
 eight open questions "all recommended" (2026-10-09; recorded in its ledger). Tasks 1-2 are complete (the owner also confirmed
 2026-10-10 that agents FERB starts run inside its sandbox with their own sandbox off); Task 3 (the egress proxy) is
-in progress. Its ledger is
+complete except two owner decisions still open (an allow list for the owner's own local servers; blocking macOS's
+certificate service, liftable per command by the escape hatch) — when answered, apply them as a small follow-up.
+Task 4 (confirmations and the sink rule) is in progress. Its ledger is
 `.superpowers/sdd/2026-10-10-f5a-containment/progress.md`.
