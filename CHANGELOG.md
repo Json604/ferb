@@ -18,7 +18,8 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   Retrieved memories are budgeted individually in rank order, with origins and full retrieval routes retained.
 - Adds a packaged owner acceptance catalogue covering every target category and all 38 documented security cases,
   plus saved-baseline comparison that preserves denominators and missing measurements without inventing verdicts.
-- Release validation counts are recorded after the one combined end check; owner F0–F4 results remain historical.
+- Final checkout validation: 1,792 default tests passed; core typing, syntax, migration integrity and wheel-resource
+  checks passed. Live checks remain excluded, and owner F0–F4 results remain historical.
 
 ## 0.27.0-dev — 2026-10-11 — F5 checkout, pending final validation/live checks
 

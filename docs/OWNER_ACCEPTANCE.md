@@ -608,7 +608,7 @@ not an invented polling quota. Topic and lead judgments are model decisions revi
 ### F10 release integration record — 2026-10-11
 
 The checkout is `0.27.0.dev1`, extension `0.15.1` / protocol `12`. Earlier subsection statements about deferred
-validation describe their build snapshots; the final integrated result will be recorded here when it completes.
+validation describe their build snapshots; the final integrated checkout results are recorded below.
 Actual source/history exposure retains origin and forget lineage; rereading paged evidence preserves its source IDs.
 Manual test-mode restrictions persist across restart, and a regression run restores the prior mode.
 
@@ -635,3 +635,19 @@ restrictions (`ferb/act/shell/tools.py`, `ferb/daemon/gateway.py::_escape`, `fer
 installation, observe the chosen app script separately and record any Standard Additions blocker and exact-command
 approval; no actual owner app was addressed by the probe, and generic syntax errors are not classified as trustd
 failures.
+
+Final checkout validation (2026-10-11, production commit `0b68038`): **1,792 passed**, zero failures/errors.
+The exact default collection was split into six disjoint file shards; all six exited successfully. Collection
+excluded 75 live tests (two Keychain probes were deselected inside the selected files). The slowest shard took
+210.97 seconds. Core mypy passed for nine files; Python compilation, three JavaScript syntax checks, Swift source
+type-checking and full-range diff checks passed. All 84 plan IDs have registry milestone/test-file coverage.
+Fresh and upgrade-from-version-26 databases reach schema 34, pass integrity checks, have matching schemas and
+apply no migration twice. The rebuilt wheel has 294 entries, including the signed-helper source, extension,
+31 migrations, memory dashboard, prompts, 20 owner target checks and all 38 documented security procedures.
+
+These are checkout checks, including isolated native containment probes; they are not owner task acceptance.
+The combined review fixed context origin/deletion-lineage gaps, same-plan continuation, native secret geometry,
+voice/OTP handling and integration events. Retained context evidence can be reread only within its authorized task
+tree. The installed daemon remains unchanged; installation, live security runs, target verdicts and measured
+post-installation baseline comparisons remain pending. Earlier interrupted discovery runs and temporary native
+fixture activity are disclosed above; their counts are superseded by the clean final run.
