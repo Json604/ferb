@@ -469,8 +469,6 @@ class Gateway:
         this tree, so `owner.ask allow_destination` can act on it (a worker can't invent a host nothing tried).
         Loopback never reaches here."""
         norm = KnownDestinations.normalize("host", host)
-        if self.destinations is not None and self.destinations.known("host", host):
-            return True, ""
         task_id = self.proc_task(proc_id)
         root = self.tasks.tree_of(task_id) if task_id is not None else None
         if root is None:                                 # a process FERB no longer tracks: fail closed
@@ -479,6 +477,8 @@ class Gateway:
             row = self.confirmations.find(root, confirm.destination_key(norm))
             if row is not None:
                 return (True, "") if row["granted"] else (False, DEST_REFUSED_NO)
+        if self.destinations is not None and self.destinations.known("host", host):
+            return True, ""
         if self._host_named(norm, root):
             return True, ""
         live = self.tasks.get(root) is not None          # N4: never re-create a tree's sets after it ended
@@ -853,6 +853,14 @@ class Gateway:
             return {"error": "this address names no site FERB can check, so it didn't run",
                     "next": "Use a plain http(s) address with a site name."}
         root = rec.tree_id or grant.task_id
+        if self.confirmations is not None:
+            row = self.confirmations.find(root, confirm.destination_key(host))
+            if row is not None:
+                if row["granted"]:
+                    return None
+                # A tree's No applies to this host, even if another tree later makes it known or this URL no longer
+                # carries private data. A change in sink shape cannot turn a final refusal into permission.
+                return {"error": ALREADY_NO.format(line=self.redact(f"reaching {host}")), "next": OWNER_DECIDED_NEXT}
         read = self.spans.tool_origins(root)
         outside_labels = sorted(o for o in read | self.spans.request_origins(root) if origin.is_external(o))
         if not outside_labels:

