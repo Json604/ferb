@@ -142,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("mcp", help="(used by runtimes) the stdio MCP shim; needs FERB_RUN_TOKEN")
     sp = sub.add_parser("setup", help="install FERB's interpreter, venv and LaunchAgent; permissions; self-test")
     sp.add_argument("--update", action="store_true", help="only reinstall FERB into its venv and restart the agent")
+    sp.add_argument("--persona", action="store_true", help="review local app-use evidence without reinstalling or permission dialogs")
     sp.add_argument("--identity", action="store_true",
                     help="choose FERB's identity profile in your Chrome (it must hold only FERB's account)")
     sp.add_argument("--profile", help="with --identity: the Chrome profile's name, if several hold FERB's account")
@@ -251,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
                 return setup_cmd.codex_login(env)
             if args.cmd == "setup" and args.identity:
                 return setup_cmd.identity_setup(env, args.profile)
+            if args.cmd == "setup" and args.persona:
+                return setup_cmd.persona_setup(env)
             if args.cmd == "setup":
                 return setup_cmd.setup(env, update=args.update)
             if args.cmd == "doctor":

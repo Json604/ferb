@@ -717,3 +717,80 @@ changes. After installing, owner checks remain: a normal conversational answer v
 typing a second message stays usable; task results retain verification; interruption leaves no false completion;
 the same behavior appears in the native transcript. Concise meal-comparison/account-clarification replies should
 retain the requested facts and question while dropping repeated task summaries.
+
+### Startup profile review and native dictation repair — 2026-10-11
+
+This entry supersedes the earlier microphone-off preview description. The current native frontend implements
+real AVAudioEngine/Apple Speech dictation, transcript review and the authenticated daemon bridge. Following the
+owner's explicit request to run the app, the controller opened the rebuilt bundle with `/usr/bin/open` as
+PID **12724**; no prior FERBNotch process was found. This launch is not a microphone acceptance result. The new backend has not been
+installed. Earlier installation records above retain their original scope.
+
+Read-only installed-data inspection found no `setup.persona_reviewed` or `setup.persona` value and zero
+`setup-persona` memory/identity records. The saved device inventory contained 114 apps, dated
+2026-10-01T00:35:28Z; ProfileStore preserves the prior timestamp when inventory is unchanged, so this date alone
+does not establish the last attempted scan. Activity through approximately 03:43 IST contained 6,127 owner
+app-focus records across 41 distinct apps; 76 FERB-attributed events were excluded. A two-app `mdls` probe returned
+5,137 recorded uses for Code and 10,628 for Brave. A complete current usage scan was not claimed or saved as a
+confirmed persona by these probes.
+
+Unreviewed installations now discover local app-use evidence when chat attaches or setup runs, then present one
+shared, durable review. Installed apps alone do not establish occupation or interests. Spotlight use counts and
+dates are labelled separately from the fallback of owner-attributed focus events; excluded apps are omitted from
+the proposal. Confirmation or an owner-written edit enters stable identity through owner-stated memory. Skip is
+remembered without saving a profile or repeating the prompt; `ferb setup --persona` explicitly requests a new
+review. Proposals and edits are redacted before persistence and presentation (`ferb/daemon/persona.py:40`,
+`ferb/daemon/main.py:1655`, `ferb/memory/learning.py:535`).
+
+The scan now owns one asynchronous, batched `mdls` process, maps returned metadata to app file identities rather
+than response order, and kills/drains/reaps that exact child on shutdown. This fixes the reviewed shutdown risk
+from cancelling a `to_thread` wait while its sequential subprocess scan continued. Closed service and daemon
+shutdown guards prevent another scan from starting (`ferb/device/persona.py:51`, `ferb/daemon/persona.py:104`,
+`ferb/daemon/main.py:1661`). All 31 focused persona/setup checks passed, including cancellation during process
+creation, blocked-process shutdown, missing/reordered metadata, redaction, skip and stable-identity inclusion.
+
+Three native FERBNotch crash reports record failures at **03:27:48, 03:32:42 and 03:35:31 IST** on 2026-10-11.
+Each records a swallowed Objective-C exception shortly before a later Swift executor/SwiftUI crash. The unified
+log for PID 90584 at **03:35:23.850** identifies the original audio failure: hardware input was **16 kHz**, while
+tap installation requested **44.1 kHz** during audio-configuration recovery. The latest crashed binary UUID
+`A9B05C5D-258A-3847-AC91-9C91044C9062` matched the previously packaged app. These were native dictation failures,
+not daemon or text-to-speech failures; changing the shortcut callback alone had not resolved them.
+
+The frontend now reads the current hardware input format and contains AVFAudio Objective-C exceptions in a
+dedicated Objective-C boundary before they can unwind Swift tasks. Tap installation, preparation/start,
+stop/removal and reset use that boundary; audio callbacks do not inherit MainActor isolation
+(`../ferb-UI/mac/FERBNotch/Sources/AudioCapture/AudioCapture.m:9`,
+`../ferb-UI/mac/FERBNotch/Sources/FERBNotch/Microphone.swift:94`). The complete native suite passed **68 tests**;
+the app build and strict code-signature verification passed. The repaired bundle UUID is
+`C7C14E14-1EF6-3F44-8FC1-17FDD17DB258`. Exception regressions use Objective-C fixtures, not the owner's microphone.
+
+After installation, owner acceptance remains pending for startup review/evidence, confirm/edit/skip across
+reconnects, responsive shutdown during discovery, actual dictation with the chosen microphone, device/sample-rate
+changes, and Stop/Cancel/hold-release during permission prompts and recording. Check that subsequent shortcut and
+button interactions remain stable and no new native crash appears. No audio/model task was run for this repair;
+passing offline checks do not establish live transcription or device-switch success. The combined backend end
+check is in progress; its final count and commit will be recorded separately.
+
+
+### Owner-authorized activation — 2026-10-11
+
+The owner explicitly requested “update everything, and run the updated app.” The controller ran
+`uv run --no-sync ferb setup --update` from this checkout. The replacement daemon is PID 18243;
+`doctor.check` reports code hash `39a6e9089b6a2e1f`, matching the checkout, and all four macOS permissions
+(accessibility, screen recording, input monitoring and Full Disk Access) are granted. No task was running
+before the restart. This supersedes the preceding not-installed status for these fixes.
+
+The rebuilt native app was quit and reopened from `ferb-UI/mac/FERBNotch/build/FERB Notch.app` as PID 18904.
+The first reopen raced the old app's exit (Launch Services -600); retry after exit succeeded. The binary UUID
+remains `C7C14E14-1EF6-3F44-8FC1-17FDD17DB258`. The new daemon reports `setup.persona.state=scanning`;
+profile confirmation remains the owner's decision. Actual microphone/device-switch and model-streaming
+acceptance still remain pending; opening the app does not establish them.
+
+
+Final combined offline validation: **1,891 backend tests passed** in six disjoint file shards using the
+repository default test selection; 75 explicitly live tests were deselected. Core plus persona-module mypy
+passed (11 source files), Python compilation and `git diff --check` passed. The final native suite passed
+**68 tests**, followed by a successful packaged build and strict signature verification. Independent scoped
+reviews found no open Important issue. The initial combined run exposed a static bus-topic audit collision
+with the reply helper name `_publish`; renaming it to `_emit_text` fixed the collision without weakening the
+audit, and this complete rerun passed. Live audio/model and profile confirmation results are separate.

@@ -105,12 +105,14 @@ in shadow until measured with you; now-playing and two-app Accessibility accepta
 The native notch frontend in the separate `ferb-UI` checkout uses the same local daemon socket as the CLI.
 Its integration covers task progress, identified questions and approvals, hidden secret input, stop, selected file
 sources and actual task artifacts. See the [RPC contract](docs/RPC.md) for attachment capability negotiation and
-reconnect behavior. Native-notch microphone capture remains a disclosed preview; the separate voice app is optional.
+reconnect behavior. Native dictation uses the microphone button or right Command + Option and places the transcript
+in the composer for review. The separate voice app is optional. Live microphone/device-switch acceptance remains pending.
 
 ```sh
 ferb chat                         # resumes the last conversation
 ferb chat --new                    # separate conversation
 ferb chat --resume ID
+ferb setup --persona               # review/refresh your local app-use profile; no reinstall or permission dialogs
 ferb trace                        # latest task: the story, about 10-20 lines
 ferb trace TASK --steps            # one line per tool call
 ferb trace TASK --full             # complete recorded inputs, results and decisions
@@ -140,6 +142,11 @@ Conversational replies appear progressively as a provisional draft in chat and t
 replaces that draft; a failed or disconnected stream is marked interrupted. You can keep typing in terminal chat
 while the draft grows. Action confirmations and task results still wait for execution and verification. Secret
 redaction applies across fragments, and only the final reply is spoken by `--speak`.
+
+On first opening chat or the app, missing setup discovery runs in the background. FERB reads local app-use metadata
+and shows the proposed profile with its evidence. Save it, edit it in your own words, or skip; nothing becomes a
+personal preference without your confirmation. Updates also offer the missing review. Confirmed preferences shape
+later answers; installed apps alone do not establish your occupation or interests.
 
 A task ends in one of three results, each its own status:
 - **done**: every condition was checked and confirmed. `ferb trace` heads the story `done ✓ verified`.

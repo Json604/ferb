@@ -51,6 +51,7 @@ class RunningDaemon:
         kwargs.setdefault("retention", False)           # tests purge explicitly, never on a timer
         kwargs.setdefault("notifications", False)       # no macOS notifications from tests
         kwargs.setdefault("snapshots", False)           # never a real APFS snapshot (tmutil) from tests
+        kwargs.setdefault("persona_scan", None)         # never scan the owner's apps from disposable daemons
         return Daemon(home=home, **kwargs)
 
     def run(self, coro: Any, timeout: float = 10) -> Any:

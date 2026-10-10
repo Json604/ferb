@@ -39,6 +39,7 @@ browser bridge pages large observations; client RPC and extension protocol versi
 | `chat.send` | `{session_id, text, input_paths?: [path,...]}` | Stream of `chat.send.event` notifications, then `{ended:true}` |
 | `chat.status` | `{peek?: bool}` | `results`, `running`, `approvals`; fetching unseen results marks them shown unless `peek:true` |
 | `chat.answer` | `{approval_id, text}` | Answers that exact pending question; empty text declines |
+| `setup.persona` | `{refresh?: bool, status?: bool}` | CLI-owner role only; local discovery state (`scanning`, `pending`, `reviewed`, `failed`) and pending profile approval |
 | `chat.approve` | `{approval_id, granted, choice?: integer}` | Explicit yes/no or 1-based option on that exact question |
 | `task.stop` | `{task_ids:[root_id,...]}` | Stops those trees; omitted/empty IDs explicitly means all running trees |
 | `stop.engage` | `{}` | Persistent global stop, revokes run tokens and invokes stop hooks |
@@ -101,6 +102,14 @@ A secret question is marked `owner_login_code`, `owner_secret` or `owner_admin_p
 question ID. Do not put it into chat history, telemetry, screenshots or speech. The daemon redacts before persistence
 and fills only the origin/task-bound secret destination. Account and OTP candidate identity are explicit facts;
 “latest message” is not proof that a code belongs to a login.
+
+First `chat.attach` starts a missing setup profile scan asynchronously. The shared `setup.persona` owner question
+uses the existing approval channel with a concise reason, concrete proposal and full `evidence` list. Clients should
+offer that evidence for review; it is not a task completion. Save, an explicit free-text edit, or Skip resolves the
+question through `chat.approve`/`chat.answer`. Timeout does not confirm it. Reconnect reuses collected evidence;
+confirmed or skipped profiles do not prompt again unless the owner explicitly requests refresh. `chat.status`
+includes the discovery state and enriched approval. Unconfirmed metadata stays local; confirmed text enters the
+owner's ordinary preference memory and stable identity context.
 
 ## Outcomes, observations and errors
 

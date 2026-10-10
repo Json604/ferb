@@ -1,26 +1,129 @@
 """Local app-use evidence for a setup persona. Installed software never establishes an owner's occupation."""
+import asyncio
+import os
 import plistlib
 import subprocess
 from typing import Any, Callable
 
 
 def app_usage(apps: list[Any], run: Callable[..., Any] = subprocess.run) -> list[dict[str, Any]]:
+    """Synchronous caller compatibility; production discovery uses the cancellable async collector."""
+    if not apps:
+        return []
+    try:
+        result = run(_usage_command(apps), capture_output=True)
+        return _usage_rows(apps, result.stdout)
+    except OSError:
+        return _usage_rows(apps, b'')
+
+
+def _usage_command(apps: list[Any]) -> list[str]:
+    return ['/usr/bin/mdls', '-plist', '-', '-name', 'kMDItemPath', '-name', 'kMDItemUseCount',
+            '-name', 'kMDItemLastUsedDate', *[a.path for a in apps]]
+
+
+def _path_identity(path: str) -> Any:
+    try:
+        st = os.stat(path)
+        return st.st_dev, st.st_ino  # /Applications and /System/Volumes/Data/Applications are firmlink aliases
+    except OSError:
+        return os.path.abspath(path)
+
+
+def _usage_rows(apps: list[Any], raw: bytes) -> list[dict[str, Any]]:
+    try:
+        data = plistlib.loads(raw)
+    except (ValueError, plistlib.InvalidFileException):
+        data = []
+    records = data if isinstance(data, list) else [data] if isinstance(data, dict) else []
+    by_path = {_path_identity(row['kMDItemPath']): row for row in records
+               if isinstance(row, dict) and isinstance(row.get('kMDItemPath'), str)}
     rows = []
     for app in apps:
-        try:
-            result = run(["/usr/bin/mdls", "-plist", "-", "-name", "kMDItemUseCount", "-name", "kMDItemLastUsedDate", app.path], capture_output=True)
-            data = plistlib.loads(result.stdout) if result.returncode == 0 else {}
-            count = data.get("kMDItemUseCount")
-            rows.append({"bundle_id": app.bundle_id, "app": app.name, "uses": count if isinstance(count, int) else None,
-                         "last_used": str(data.get("kMDItemLastUsedDate") or "unknown")})
-        except (OSError, ValueError, plistlib.InvalidFileException):
-            rows.append({"bundle_id": app.bundle_id, "app": app.name, "uses": None, "last_used": "unknown"})
-    return sorted(rows, key=lambda r: -(r["uses"] or 0))
+        record = by_path.get(_path_identity(app.path), {})
+        count = record.get('kMDItemUseCount')
+        rows.append({'bundle_id': app.bundle_id, 'app': app.name,
+                     'uses': count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None,
+                     'last_used': str(record.get('kMDItemLastUsedDate') or 'unknown')})
+    return sorted(rows, key=lambda r: -(r['uses'] or 0))
+
+
+async def app_usage_async(apps: list[Any], spawn: Callable[..., Any] = asyncio.create_subprocess_exec) -> list[dict[str, Any]]:
+    if not apps:
+        return []
+    process = None
+    spawning = asyncio.create_task(spawn(*_usage_command(apps), stdout=asyncio.subprocess.PIPE,
+                                       stderr=asyncio.subprocess.PIPE))
+    try:
+        process = await asyncio.shield(spawning)
+        output, _ = await process.communicate()
+        return _usage_rows(apps, output)
+    except asyncio.CancelledError:
+        # Creation itself may be cancelled after the OS child exists but before its handle is returned.
+        if process is None:
+            try:
+                process = await spawning
+            except OSError:
+                pass
+        if process is not None:
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+            await process.communicate()  # drain pipes and reap this exact owned process before shutdown returns
+        raise
+    except OSError:
+        return _usage_rows(apps, b'')
 
 
 def usage_summary(rows: list[dict[str, Any]]) -> str:
-    used = [r for r in rows if isinstance(r.get("uses"), int) and r["uses"] > 0]
-    return "Apps you use: " + ", ".join(f"{r['app']} ({r['uses']} recorded uses)" for r in used) if used else "App-use history is unavailable; tell me how you use this Mac."
+    used = [r for r in rows if (r.get('uses') or r.get('focus_events') or 0) > 0]
+    return "Apps you use: " + ", ".join(
+        f"{r['app']} ({r['focus_events']} recorded focus events)" if r.get('uses') is None else
+        f"{r['app']} ({r['uses']} recorded uses)" for r in used
+    ) if used else "App-use history is unavailable; tell me how you use this Mac."
+
+
+def with_activity(rows: list[dict[str, Any]], activity: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Owner-attributed focus events are a fallback, never a Spotlight launch count."""
+    focused = {r['bundle_id']: r for r in activity}
+    result = []
+    for row in rows:
+        item = dict(row)
+        if item.get('uses') is None and item.get('bundle_id') in focused:
+            item.update(focus_events=focused[item['bundle_id']]['focus_events'], source='owner_activity',
+                        last_used=focused[item['bundle_id']]['last_used'])
+        else:
+            item['source'] = 'spotlight'
+        result.append(item)
+    return result
+
+
+def persona_proposal(rows: list[dict[str, Any]], scanned_at: str) -> dict[str, Any]:
+    used = sum((r.get('uses') or r.get('focus_events') or 0) > 0 for r in rows)
+    evidence = [f'Local scan: {scanned_at}']
+    for row in rows:
+        count = (f"{row['focus_events']} owner focus events" if row.get('focus_events') else
+                 f"{row['uses']} Spotlight uses" if row.get('uses') is not None else 'use count unavailable')
+        evidence.append(f"{row['app']}: {count}; last used {row.get('last_used', 'unknown')}.")
+    reason = (f'I found recorded use for {used} of {len(rows)} apps on this Mac. '
+              'Save this app-use profile, edit how you use this Mac below, or skip? '
+              'App usage alone does not establish your job or interests.') if used else (
+              'App-use history is unavailable. Tell me how you use this Mac, or skip for now.')
+    return {'scanned_at': scanned_at, 'summary': usage_summary(rows), 'reason': reason,
+            'used_apps': used, 'apps': len(rows), 'evidence': evidence}
+
+
+async def discover_persona(home: Any, device_id: str, activity: list[dict[str, Any]],
+                           excluded: frozenset[str]) -> dict[str, Any]:
+    """Refresh bundle inventory and read metadata only; never launch an app or call a model."""
+    from ferb.device.profile import ProfileStore
+    from ferb.device.scan import scan
+    profile = scan(device_id)
+    ProfileStore(home).save(profile, 'setup persona scan')
+    rows = await app_usage_async([a for a in profile.apps if a.bundle_id not in excluded])
+    return persona_proposal(with_activity(rows, activity), profile.scanned_at)
 
 
 def confirm_persona(proposal: str, answer: str) -> str | None:

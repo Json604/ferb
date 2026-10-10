@@ -37,6 +37,8 @@ class FakeClient:
         self.d.calls.append((method, params))
         if method == "ping":
             return {"pid": self.d.pid}
+        if method == 'setup.persona':
+            return {'state': 'reviewed'}
         if method == "doctor.check":
             st = [] if params and params.get("selftest") is False else [
                 {"name": "ax_read", "ok": True, "detail": "ok"},
@@ -245,3 +247,45 @@ def test_doctor_shows_the_protection_lists_and_why_a_malformed_one_stops_ferb(wo
     env, out = make_env(world, [])
     assert S.doctor(env) == 1
     assert "✗ protection: protection.never_read in config.toml must be a list of paths" in out.getvalue()
+
+
+def test_update_reviews_missing_profile_once_without_repeating_permission_flow(world):
+    world['inst'].install()
+    env, out = make_env(world, [])
+    calls, answers = [], iter(['evidence', 'I code and make music'])
+    class ReviewClient(FakeClient):
+        reviewed = False
+        def call(self, method, params=None):
+            calls.append((method, params))
+            if method == 'setup.persona':
+                return {'state': 'reviewed'} if self.reviewed else {'state': 'pending', 'approval': {
+                    'approval_id': 'profile', 'reason': 'I found recorded use for 2 apps.',
+                    'evidence': ['Code: 3733 Spotlight uses; last used 2026-10-10.']}}
+            if method == 'chat.answer':
+                self.reviewed = True
+                return {'state': 'granted'}
+            return super().call(method, params)
+    client = ReviewClient(world['daemon'])
+    env.connect = lambda: client
+    env.ask = lambda _: next(answers)
+    assert S.setup(env, update=True) == 0
+    assert ('chat.answer', {'approval_id': 'profile', 'text': 'I code and make music'}) in calls
+    assert '3733 Spotlight uses' in out.getvalue()
+    assert world['panes'] == [] and world['daemon'].automation_requests == []
+    assert S.setup(env, update=True) == 0  # already reviewed; no second question
+
+
+def test_persona_only_review_does_not_install_restart_or_confirm_empty_input(world):
+    env, out = make_env(world, [])
+    calls = []
+    class Client:
+        def call(self, method, params):
+            calls.append((method, params))
+            return {'state': 'pending', 'approval': {'approval_id': 'profile', 'reason': 'Review local use.'}}
+        def close(self): pass
+    env.connect = Client
+    env.ask = lambda _: ''
+    assert S.persona_setup(env) == 0
+    assert calls == [('setup.persona', {'refresh': True})]
+    assert world['runner'].ran('uv', 'python', 'install') == 0
+    assert 'still pending' in out.getvalue() and world['panes'] == []

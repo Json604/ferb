@@ -76,7 +76,7 @@ class ReplyDraft:
         self.visible = False
         self.closed = False
 
-    def _publish(self, text: str, *, final: bool = False) -> None:
+    def _emit_text(self, text: str, *, final: bool = False) -> None:
         safe = self.redaction.feed(text.encode('utf-8'), final=final).decode('utf-8')
         guarded = self.lines.feed(safe, final=final)
         if guarded:
@@ -95,7 +95,7 @@ class ReplyDraft:
         try:
             decoded = self._read()
             if not self.closed:
-                self._publish(decoded)
+                self._emit_text(decoded)
         except (ValueError, TypeError):
             self.abort()
 
@@ -172,7 +172,7 @@ class ReplyDraft:
         if not matches:
             self.abort()
             return
-        self._publish('', final=True)
+        self._emit_text('', final=True)
         self.closed = True
 
     def abort(self) -> None:

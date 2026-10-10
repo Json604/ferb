@@ -65,6 +65,7 @@ from ferb.sanitize.redact import Redactor
 from ferb.store import retention
 from ferb.store.db import Database
 from ferb.store.spans import SpanStore
+from ferb.device.persona import discover_persona
 
 Redact = Callable[[Any], Any]
 
@@ -134,11 +135,14 @@ class Daemon:
     def __init__(self, home: Path | None = None, clock: Clock | None = None, ids: IdSource | None = None,
                  redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
-                 notifications: bool = True, retention: bool = True, snapshots: bool = True) -> None:
+                 notifications: bool = True, retention: bool = True, snapshots: bool = True,
+                 persona_scan: Callable[..., Any] | None = discover_persona) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
         self.config = Config(self.home)
+        self.persona_scan = persona_scan
+        self.persona: Any = None
         self._redact_override = redact
         self.redact: Redact = redact or Redactor()
         from ferb.sense.daily import DailyActivity
@@ -285,6 +289,7 @@ class Daemon:
         for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
                          ("schedules.list", self._schedules_list), ("schedules.change", self._schedules_change),
                          ("chat.status", self._chat_status), ("chat.attach", self._chat_attach),
+                         ("setup.persona", self._setup_persona),
                          ("task.stop", self._task_stop),
                          ("reminders.list", self._reminders_list), ("reminders.cancel", self._reminders_cancel),
                          ("reminders.unseen", self._reminders_unseen),
@@ -334,6 +339,8 @@ class Daemon:
 
     async def shutdown(self) -> None:
         self._shutting_down = True
+        if self.persona is not None:
+            await self.persona.close()
         current = asyncio.current_task()
 
         async def drain(jobs: set[asyncio.Task[Any]], family: str) -> None:
@@ -1529,6 +1536,7 @@ class Daemon:
         if not params.get('peek'):
             for r in rows:
                 self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
+        persona = self.persona.status() if self.persona is not None else {'state': 'not_started'}
         approvals = self.state.approvals.pending()
         request_trees: dict[str, set[str]] = {}
         for request_id in {ap.request_id for ap in approvals}:
@@ -1538,6 +1546,9 @@ class Daemon:
                     "task_id": next(iter(request_trees[ap.request_id]))
                         if len(request_trees.get(ap.request_id, ())) == 1 else None,
                     "options": list(ap.options)} for ap in approvals]
+        if persona.get('approval'):
+            pending = [persona['approval'] if p['approval_id'] == persona['approval']['approval_id'] else p
+                       for p in pending]
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
         results = []
         for row in rows:
@@ -1546,6 +1557,7 @@ class Daemon:
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
                             'verification': recorded.get('verification', [])})
         return {"results": results, "running": running, "approvals": self.redact(pending),
+                "persona": {'state': persona['state'], **({'error': persona['error']} if persona.get('error') else {})},
                 "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None,
                 "notices": self.attention_notices.list() if self.attention_notices else [],
                 "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else []}
@@ -1637,7 +1649,41 @@ class Daemon:
             self._attached_trees.add(t)
         assert self.supervisor is not None
         conversation = self.supervisor.continuity.attach(bool(params.get("new")), params.get("resume"))
+        self._prepare_persona()
         return {"ok": True, "session_id": conversation, "capabilities": ["input_paths"]}
+
+    def _remember_persona(self, content: str) -> None:
+        content = self._redact_text(content)
+        entry = self._journal().append('memory.added', {'content': content})
+        self.memory.propose('preference', 'owner', 'setup-persona', content, 'owner_stated',
+                            [('journal', entry.id)], 1.0)
+
+    def _prepare_persona(self, refresh: bool = False) -> dict[str, Any]:
+        if self._shutting_down:
+            return {'state': 'closed'}
+        from ferb.daemon.persona import PersonaReview
+        if self.persona is None:
+            self.persona = PersonaReview(self.config, self.state.approvals, self.clock, None,
+                remember=self._remember_persona, publish=self._publish,
+                record=lambda kind, data: self._journal().append(kind, data), redact=self.redact)
+        if self.persona_scan is not None:
+            # Snapshot only owner-attributed app names/counts on the database thread; no window titles/content.
+            activity = [dict(r) for r in self.db.conn.execute(
+                "SELECT json_extract(data_json,'$.bundle_id') AS bundle_id, "
+                "json_extract(data_json,'$.app') AS app, COUNT(*) AS focus_events, MAX(at) AS last_used "
+                "FROM trail WHERE source='app_focus' AND actor='owner' GROUP BY bundle_id")]
+            device = self.config.get('device', 'id')
+            if not device:
+                device = self.ids.new_id()
+                self.config.set('device', 'id', device)
+            excluded = self.config.exclude_apps()
+            self.persona.collect = lambda: self.persona_scan(self.home, device, activity, excluded)
+        return self.persona.start(refresh=refresh)
+
+    async def _setup_persona(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        if params.get('status') and self.persona is not None:
+            return self.persona.status()
+        return self._prepare_persona(refresh=params.get('refresh') is True)
 
     async def _task_stop(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Ctrl-C in ferb chat: stop the request's task, recorded as stopped by the owner."""
@@ -2506,6 +2552,12 @@ class Daemon:
                     self._add_secret_value(text)
         try:
             ap = self.state.approvals.resolve(approval_id, granted, choice, text)
+            if ap.capability == 'setup.persona' and self.persona is not None:
+                try:
+                    self.persona.resolve(ap)
+                except Exception:
+                    ap.state, ap.choice, ap.answer = 'pending', None, None
+                    raise
         except BaseException:
             if retained is not None and isinstance(self.redact, Redactor):
                 self.redact.release_secret(retained)

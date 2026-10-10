@@ -407,8 +407,16 @@ of code redaction. `notification.attention` cannot be enabled; its owner-labelle
 `perception.attention` is an ordinary-activity proposal with source references, never an owner instruction. No task
 authorization or target-routing rule depends on Jev.
 
-`device/persona.py` reads local Spotlight use counts/last-used dates during full setup and asks once for confirmation,
-an edit or a skip. Only a confirmed summary or the owner's edit is recorded as an owner-stated preference.
+`device/persona.py` refreshes bundle inventory and reads local Spotlight use counts/last-used dates; owner-attributed
+app-focus counts are an explicitly labelled fallback where Spotlight is unavailable. Installed-only software never
+establishes an occupation. One asynchronous `mdls` batch reads the metadata; plist-array entries are matched to apps
+by file identity, including firmlink aliases. Cancellation kills, drains and reaps that owned process, including
+cancellation during process creation. `daemon/persona.py` owns asynchronous discovery, redacted pending evidence and one shared
+review across full setup, updates, `setup --persona`, CLI chat and native startup. `chat.attach` starts missing
+discovery without blocking conversation. The existing approval channel shows the proposal/evidence and accepts
+Save, an owner edit or Skip; reconnect and approval expiry reuse the pending evidence. Confirmed/skipped state is
+durable. Only confirmed text becomes an owner-stated `setup-persona` preference, and `Learning.sync_facts` puts it
+in the stable identity context used by `Supervisor._system`.
 
 ## 9. Model runtimes (F2, D32)
 

@@ -93,6 +93,7 @@ def setup(env: Env, update: bool = False) -> int:
         if not missing:
             config.set('setup', 'permissions_version', max(27, config.get('setup', 'permissions_version', 0)))
             env.say("All macOS permissions are granted (checked by the running daemon).")
+        _review_persona(env, client)
         client.close()
         env.say("Done.")
         return 0
@@ -137,13 +138,60 @@ def setup(env: Env, update: bool = False) -> int:
 
     env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
-    setup_persona(env, config, profile, client, usage=env.persona_usage)
+    _review_persona(env, client)
     client.close()
 
     env.say("     FERB uses the installed action registry without per-action permission prompts.")
     env.say("     Connect the accounts/profiles you want available; macOS permissions and logins still apply.")
     env.say("Setup complete." if ok else "Setup finished with problems — `ferb doctor` shows what to fix.")
     return 0 if ok else 1
+
+
+def persona_setup(env: Env) -> int:
+    """Review local app-use evidence without installing, restarting or opening permissions."""
+    client = env.connect()
+    try:
+        return _review_persona(env, client, refresh=True)
+    finally:
+        client.close()
+
+
+def _review_persona(env: Env, client: Any, *, refresh: bool = False) -> int:
+    from ferb.cli.chat import printable
+    result = client.call('setup.persona', {'refresh': refresh})
+    if result['state'] == 'scanning':
+        env.say('Getting to know this Mac from local app-use metadata…')
+    while result['state'] == 'scanning':
+        env.sleep(0.1)
+        result = client.call('setup.persona', {'status': True})
+    if result['state'] == 'failed':
+        env.say('App-use scan failed: ' + printable(result.get('error', 'unknown error')))
+        env.say('Retry with `ferb setup --persona`. Your profile was not confirmed.')
+        return 1
+    if result['state'] != 'pending':
+        return 0
+    approval = result['approval']
+    env.say(printable(approval['reason']))
+    if approval.get('proposal'):
+        env.say(printable(approval['proposal']))
+    while True:
+        try:
+            answer = env.ask('Does that describe you? yes, edit in your own words, evidence, or skip: ').strip()
+        except EOFError:
+            env.say('Profile review is still pending; open FERB or run `ferb setup --persona`.')
+            return 0
+        if answer.lower() != 'evidence':
+            break
+        for line in approval.get('evidence', []):
+            env.say('  ' + printable(line))
+    if not answer:
+        env.say('Profile review is still pending; no memory was saved.')
+    elif answer.lower() in {'skip', 'no'}:
+        client.call('chat.approve', {'approval_id': approval['approval_id'], 'granted': False})
+    else:
+        client.call('chat.answer', {'approval_id': approval['approval_id'], 'text': answer})
+        env.say('Saved your confirmed profile.')
+    return 0
 
 
 def _status(client: Client, perm: str) -> str:

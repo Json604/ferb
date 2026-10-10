@@ -329,7 +329,7 @@ summary = "Rules for everything FERB says to the owner"
 
 [P28]
 milestone = "F7"
-tests = ["tests/test_perception_software.py", "tests/test_setup_flow.py"]
+tests = ["tests/test_perception_software.py", "tests/test_setup_flow.py", "tests/test_setup_persona.py"]
 summary = "Setup persona from apps actually used, confirmed by the owner"
 
 [P29]

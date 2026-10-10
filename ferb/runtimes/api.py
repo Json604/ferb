@@ -10,7 +10,6 @@ errors. Provider-hosted tools are never enabled."""
 import asyncio
 import json
 import secrets
-from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Protocol
 
