@@ -452,7 +452,8 @@ class Supervisor(WorkerRuns):
         self.continuity.save_pending(session_id, "", "")
         request_id = self.ids.new_id()
         entry = self.journal.append("chat.message", {"session_id": session_id, "request_id": request_id,
-                                                     "text": m.for_model, "untrusted_parts": len(m.untrusted),
+                                                     "text": m.for_model,
+                                                     "untrusted_parts": len(m.untrusted) + bool(paths),
                                                      "input_paths": paths})
         recalled = self.recall(words)
         env = self.environment(words)

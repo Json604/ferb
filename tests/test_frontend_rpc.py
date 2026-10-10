@@ -68,6 +68,24 @@ def test_attachments_survive_clarification_and_become_plan_inventory(daemon):
     assert daemon.run(stored()).plan.input_paths == [str(source)]
 
 
+@pytest.mark.parametrize('carry', ['immediate', 'clarification', 'history'])
+def test_attachment_filename_data_keeps_external_origin_through_context(daemon, carry):
+    planned = sup('task', 'Inspecting.', task('Inspect source metadata'))
+    decisions = [planned] if carry == 'immediate' else [
+        sup('clarify' if carry == 'clarification' else 'reply', 'Which comparison?' if carry == 'clarification' else 'Noted.'),
+        planned]
+    install(daemon, decisions, {'worker': done('Source metadata inspected.')})
+    events = send(daemon, 'Inspect this source', ['downloaded-filename.txt'])
+    if carry != 'immediate':
+        events = send(daemon, 'Compare its approach', [])
+    task_id = outcome(events)['task_id']
+    async def origins():
+        spans = daemon.daemon.spans
+        return spans.request_origins(task_id) | spans.exposure_origins(task_id), daemon.daemon.gateway._outside_read(task_id)
+    labels, outside = daemon.run(origins())
+    assert 'external:paste' in labels and outside
+
+
 def test_attaching_ferb_state_does_not_bypass_file_protection(daemon):
     source = str(daemon.daemon.home / 'config.toml')
     reads = []
