@@ -3,6 +3,8 @@ and a real daemon). Pairing as identity FERB needs exactly FERB's account (test 
 secrets and codes travel sealed (21.21: never on the wire in clear, not replayable under another command or
 origin); the origin is checked before the Keychain is read (21.4); a filled value is nowhere FERB writes (21.5);
 FERB's tools exist only once the profile is paired, and never reach owner profiles (21.3).
+The offline fixture injects its secret lookup and real Python AES-GCM sealing; it never creates a Keychain or
+executes the installed signing helper. Helper identity and pipe transport have separate adapter tests.
 """
 
 import base64
@@ -32,7 +34,7 @@ SITE = "https://login.example.com"
 
 
 @pytest.fixture
-def fd(daemon: RunningDaemon, keychain: Path) -> Iterator[tuple[RunningDaemon, list[list[str]], list[str]]]:
+def fd(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[RunningDaemon, list[list[str]], list[str]]]:
     d = daemon.daemon
     launched: list[list[str]] = []
     d.browser_data_dirs = {"chrome": chrome_data(d.home.parent)}
@@ -44,7 +46,17 @@ def fd(daemon: RunningDaemon, keychain: Path) -> Iterator[tuple[RunningDaemon, l
     d.config.set("identity", "profile", "Profile 22")
     d.config.set("mailbox", "address", "ferb@gmail.com")
     specs = {REF.key: SecretSpec(REF, [SITE], "test account")}
-    store = KeychainSecretStore(lambda: specs, keychain)
+    store = KeychainSecretStore(lambda: specs)
+    async def find(ref, reveal):
+        assert ref == REF
+        return 0, PASSWORD if reveal else ''
+    monkeypatch.setattr(store, '_find', find)
+    def no_installed_helper(*args, **kwargs):
+        raise AssertionError('offline identity tests must not execute the installed secret helper')
+    monkeypatch.setattr('ferb.identity.helper.request', no_installed_helper)
+    # Pairing re-registers the driver and rebinds seal_value from this adapter; inject at that exact boundary.
+    monkeypatch.setattr('ferb.identity.helper.seal', lambda home, key, value, command, origin:
+                        seal(key, value, command, origin))
     scrubbed: list[str] = []
     fi = d.ferb_identity
     assert fi is not None
