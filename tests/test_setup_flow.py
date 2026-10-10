@@ -91,6 +91,8 @@ def make_env(world: dict[str, Any], answers: list[str], daemon_up: bool = True) 
     answers = list(answers)
 
     def ask(prompt: str) -> str:
+        if "Does that describe you?" in prompt:
+            return "skip"
         a = answers.pop(0)
         if "Press Enter" in prompt and a == "":                      # the owner grants in System Settings
             for perm in ("accessibility", "full_disk_access", "input_monitoring"):
@@ -110,7 +112,7 @@ def make_env(world: dict[str, Any], answers: list[str], daemon_up: bool = True) 
             raise NotRunning("not running")
         return d.client()
     env = S.Env(world["inst"], connect, ask, out, open_pane=world["panes"].append, sleep=lambda s: None,  # type: ignore[arg-type]
-                running_apps=lambda: {"com.google.Chrome", "com.brave.Browser", "com.apple.Notes"})
+                running_apps=lambda: {"com.google.Chrome", "com.brave.Browser", "com.apple.Notes"}, persona_usage=lambda apps: [])
     return env, out
 
 

@@ -22,6 +22,7 @@ from ferb.device import permissions
 from ferb.device.install import MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, code_hash, repo_root
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
+from ferb.device.persona import app_usage, setup_persona
 from ferb.identity import seed
 
 Connect = Callable[[], Client]
@@ -40,6 +41,7 @@ class Env:
     open_pane: Callable[[str], None] = permissions.open_pane
     sleep: Callable[[float], None] = time.sleep
     running_apps: Callable[[], set[str]] = lambda: _running_bundle_ids()
+    persona_usage: Callable[[list[Any]], list[dict[str, Any]]] = app_usage
 
     def say(self, line: str = "") -> None:
         print(line, file=self.out, flush=True)
@@ -132,6 +134,7 @@ def setup(env: Env, update: bool = False) -> int:
 
     env.say("4/4  Self-test through the daemon")
     ok = _print_selftest(env, client.call("doctor.check"))
+    setup_persona(env, config, profile, client, usage=env.persona_usage)
     client.close()
 
     env.say("     FERB uses the installed action registry without per-action permission prompts.")

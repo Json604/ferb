@@ -3,7 +3,7 @@
   answer acts (block, ask, exposed, redaction, dropped, stopped, a suggestion); it's never consulted for an action
   FERB already blocked, and a lower risk never lowers anything.
 - Enabling: 200 answered samples at >= 95% agreement where FERB has real logic; elsewhere the owner decides.
-- Trail data reaches Jev only after exclusions and redaction; shadow trail questions are sampled 1 in 10.
+- Trail data reaches Jev only after exclusions and redaction; durable trail batches have receipts and do not sample away events.
 - Jev down / slow / rate-limited / wrong-shaped / without a key: FERB's own decision stands and nothing fails.
 - One request per state (batched), model pinned to jev-1.13.0; the key never lands in config, the DB or logs.
 """
@@ -117,45 +117,36 @@ def settle(d: RunningDaemon) -> None:
 
 # ---------- enabling ----------
 
-def test_only_live_observation_questions_can_be_enabled():
-    assert set(QUESTIONS) == {'memory.worth_keeping', 'trail.relevance', 'trail.sensitive'}
+def test_attention_remains_shadow_and_sensitive_classifier_is_retired():
+    assert "trail.sensitive" not in QUESTIONS
+    assert {"memory.worth_keeping", "trail.relevance", "trail.attention", "notification.attention"} <= set(QUESTIONS)
+    assert QUESTIONS["notification.attention"].shadow_only
 
 
-# ---------- trail: after exclusions and redaction, sampled ----------
-
-def test_trail_reaches_jev_only_after_exclusions_and_redaction_and_is_sampled(jd: Any) -> None:
+def test_trail_reaches_jev_only_after_exclusions_redaction_and_batching(jd: Any) -> None:
     d, fake = jd
-
     async def rec(o: Observation) -> Any:
         return d.daemon.trail.record(o)
     d.run(rec(Observation("app_focus", {"app": "Passwords", "bundle_id": "com.apple.Passwords"})))
     d.run(rec(Observation("window", {"app": "Terminal", "bundle_id": "com.apple.Terminal",
                                      "title": "export T=sk-ant-abcdefghijklmnopqrstuvwxyz0123"})))
-    d.run(asyncio.sleep(0.05))
-    settle(d)
+    assert not fake.requests
+    d.run(d.daemon.perception.batches.flush("test"))
     sent = json.dumps([r["body"]["state"] for r in fake.requests])
     assert "Passwords" not in sent and "sk-ant-abcdefghijklmnop" not in sent and "Terminal" in sent
     fake.requests.clear()
-    d.daemon.jev.rng = lambda: 0.5                                         # above 1 in 10: not sampled
-    d.run(rec(Observation("window", {"app": "Notes", "bundle_id": "com.apple.Notes", "title": "Groceries"})))
-    d.run(asyncio.sleep(0.05))
-    settle(d)
-    assert fake.requests == [] and rows(d, "trail.sensitive")[-1]["error"] == "not sampled"
+    d.run(d.daemon.perception.batches.flush("test"))
+    assert not fake.requests
 
 
-def test_a_sensitive_row_gets_extra_redaction_when_enabled(jd: Any) -> None:
+def test_notification_shadow_cannot_be_enabled_through_config(jd: Any) -> None:
     d, fake = jd
-    enable(d, "trail.sensitive")
-    fake.answers = {"trail.relevance": "note", "trail.sensitive": 0.95}
-
-    async def go() -> Any:
-        e = d.daemon.trail.record(Observation("window", {"app": "Safari", "bundle_id": "com.apple.Notes",
-                                                         "title": "Clinic results — HIV test"}))
-        await asyncio.sleep(0.1)
-        return d.daemon.db.conn.execute("SELECT data_json, sensitive FROM trail WHERE id = ?", (e.id,)).fetchone()
-    row = d.run(go())
-    assert row["sensitive"] == 1 and "HIV" not in row["data_json"] and "[sensitive]" in row["data_json"]
-    assert "HIV" not in d.daemon.daily_activity.path.read_text()
+    enable(d, "notification.attention")
+    fake.answers = {"notification.attention": 0.95}
+    assert d.run(d.daemon.jev.ask({"notification": "self message"}, [Ask("notification.attention", "no", "test")])) == {}
+    settle(d)
+    row = rows(d, "notification.attention")[-1]
+    assert row["jev"] == "yes" and row["mode"] == "shadow" and row["effect"] is None
 
 
 # ---------- Jev unavailable: FERB's own decision, nothing fails ----------
@@ -163,7 +154,7 @@ def test_a_sensitive_row_gets_extra_redaction_when_enabled(jd: Any) -> None:
 @pytest.mark.parametrize("trouble", ["down", "slow", "garbage", "http500", "no_key"])
 def test_unavailable_jev_never_fails_a_task(jd: Any, trouble: str) -> None:
     d, fake = jd
-    enable(d, "trail.sensitive")
+    enable(d, "memory.worth_keeping")
     if trouble == "down":
         fake.fail = ConnectionError("refused")
     elif trouble == "slow":
@@ -177,14 +168,14 @@ def test_unavailable_jev_never_fails_a_task(jd: Any, trouble: str) -> None:
             return None
         d.daemon.jev.client.key = none
     t0 = time.monotonic()
-    assert d.run(d.daemon.jev.ask({'title': 'a normal page'}, [Ask('trail.sensitive', 'no', 'test')])) == {}
+    assert d.run(d.daemon.jev.ask({'title': 'a normal page'}, [Ask('memory.worth_keeping', 'yes', 'test')])) == {}
     assert time.monotonic() - t0 < 2.5
     assert rows(d) and all(x['error'] and x['jev'] is None for x in rows(d))
 
 
 def test_rate_limits_retry_with_backoff() -> None:
     fake, waits = FakeJev(), []
-    fake.answers = {"trail.sensitive": 0.1}
+    fake.answers = {"memory.worth_keeping": 0.1}
     fake.status = [429, 529]
 
     async def key() -> str:
@@ -193,7 +184,7 @@ def test_rate_limits_retry_with_backoff() -> None:
     async def sleep(s: float) -> None:
         waits.append(s)
     c = JevClient(key, post=fake.post, sleep=sleep)
-    q = QUESTIONS["trail.sensitive"].api()
+    q = QUESTIONS["memory.worth_keeping"].api()
     out = asyncio.run(c.ask({"x": 1}, {"q0": q}))
     assert out["answers"]["q0"]["noul"] == 0.1 and waits == [0.5, 1.0]
     assert fake.requests[0]["headers"]["Authorization"] == f"Bearer {KEY}"
@@ -215,8 +206,8 @@ def test_shadow_calls_never_slow_a_task(jd: Any) -> None:
 def test_the_key_stays_out_of_config_database_and_logs(jd: Any) -> None:
     d, fake = jd
     d.daemon.jev.client.key = _const(KEY)
-    fake.answers = {"trail.sensitive": 0.1}
-    d.run(d.daemon.jev.ask({"title": "normal page"}, [Ask("trail.sensitive", "no", "test")]))
+    fake.answers = {"memory.worth_keeping": 0.1}
+    d.run(d.daemon.jev.ask({"title": "normal page"}, [Ask("memory.worth_keeping", "yes", "test")]))
     settle(d)
 
     async def ckpt() -> None:
@@ -248,3 +239,19 @@ def test_memory_proposals_jev_rejects_are_dropped_when_enabled(jd: Any) -> None:
     d.daemon.distiller.make_runtime = lambda *a, **k: rt
     r = d.run(d.daemon.distiller.run_day(day), timeout=20)
     assert r["proposed"] == 0 and "not worth keeping" in r["refused"][0]
+
+
+def test_jev_guard_counts_questions_and_does_not_reintroduce_character_cap(jd: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ferb.decide.decider as module
+    d, _ = jd
+    measured = []
+    def count(text):
+        measured.append(text)
+        return 1000
+    monkeypatch.setattr(module, 'count_tokens', count)
+    state = {'text': 'x' * 50000}
+    assert d.daemon.jev._state(state, {'q': {'instructions': 'required rules'}}) == state
+    assert 'required rules' in measured[-1]
+    monkeypatch.setattr(module, 'count_tokens', lambda text: 32000)
+    with pytest.raises(JevUnavailable, match='no partial state'):
+        d.daemon.jev._state(state)

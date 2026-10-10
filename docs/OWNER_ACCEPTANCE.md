@@ -486,3 +486,46 @@ not yet run; the controller owns the final integrated suite and review. Nothing 
   across runtimes, and symlink/parent-path reads are refused.
 
 See `docs/F6_TASK_LOOP.md` for behavior and interfaces. No live behavior is claimed verified by this build.
+## 0.27 F7 perception — pending owner acceptance
+
+Implementation and offline regression fixtures were prepared on 2026-10-11. Per the owner's build instruction,
+pytest/mypy and fresh review are deferred to the combined F5–F10 checks. No F7 native source was run against the
+owner's desktop during implementation. The WhatsApp/VS Code AX examples are synthetic offline callback replays,
+not captured or measured live results. The daemon is not installed or restarted by this work.
+
+After the combined review, the owner installs and records observations here:
+
+- **Two-app Accessibility prototype first (D4):** WhatsApp self-chat/compose and VS Code editor/search. Record which
+  application/window/focus/value notifications actually fire, unsupported AX codes, callback rate, observer detach
+  after app quit, and foreground/focus before and after. Inspect `sense.status.failed` and attached/unsupported trail
+  facts. Acceptance requires both real apps; an offline callback replay cannot accept this gate.
+- **Field capture (D7/P4/P18):** type harmless text into those surfaces, then an owner-controlled password field,
+  masked custom control and OTP-labelled field. Exercise Secure Input turning on during the 0.5s hold, focus changes,
+  pause/resume and FERB-marked native input. Verify redacted per-field text and actor in Trail/FTS/activity; verify
+  raw secrets/keys never appear. Unknown AX roles intentionally produce no captured text. Measure unsupported
+  field behavior rather than claiming blanket coverage of Electron/browser controls.
+- **Clipboard (D11/CQ3):** owner copies harmless text, a test concealed/transient item and a synthetic secret. Verify
+  changed pasteboard counts, redaction, 7-day content expiry and exact FERB write attribution. On macOS 26 record
+  whether pasteboard access prompts or alerts appear; this behavior has not been measured. No automated live copy
+  or paste is authorized by this checklist alone.
+- **Notifications and DND (P11/P14):** from an owner-controlled second surface, message the owner's WhatsApp self-chat
+  with DND on/off. Record the Notification Center schema, thread identifier availability, delivery delay, duplicates
+  after daemon restart and errors without FDA. Use scope mute, topic exception and repeated-message examples; verify
+  current notification/rules remain present when old history is omitted with refs. Label yes/no against actual
+  Jev decisions and inspect `sense.status.perception.notification_triage`; it remains shadow with zero sends/actions.
+- **Batching (D10/P1):** record burst splitting by app, full retrieval by `trail.query(event_id=...)`, a large clipboard
+  excerpt, notification priority and restart recovery of an in-flight batch. Record actual latency and provider
+  token usage against the local estimate. `sense.batch_age_s` defaults to 60s and is reported in status; the controller
+  adopted P1's example as configurable scheduling, not a data-loss limit.
+- **New software (P12):** inspect an owner-chosen installation without launching it; compare signer/assessment,
+  provenance, entitlements, user/system TCC, exact-identifier/path login items and launch jobs to macOS records.
+  Associations do not prove the installer created an outside-bundle job; record this unresolved attribution case.
+  FERB may judge these observed facts through the later proactive consumer; this source never labels intent.
+- **Setup persona (P28):** on the owner's chosen full-setup run, verify Spotlight usage counts/dates, edit or skip the
+  one-time summary, and inspect the resulting owner-stated memory. A list of installed apps alone must not invent
+  an occupation. No setup re-run was performed here.
+- **Now playing (D4, if feasible):** owner-observed platform feasibility probe is still pending. Status explicitly
+  reports this; no now-playing adapter or fabricated events are claimed.
+
+Record evidence IDs, dates, unexpected native prompts and the owner's verdict for each item. Notification triage
+must not act before owner-labelled measurement and an explicit later decision to enable it.

@@ -13,7 +13,7 @@ it does not switch a local source to Drive, resolve a contact by first match or 
 The harness consists of daemon RPC, gateway, stores, ownership, locks, sentinel, recording and stop. The approach
 consists of prompts, planning, dispatch, success-condition generation and checker judgment. All prompts are versioned
 files loaded through `ferb/core/prompts.py`. `Supervisor._approach` is the single selection seam for a later verified
-override with default fallback. No learning loop or additional Jev decision families are implemented.
+override with default fallback. Notification and ordinary-activity attention questions are recorded in shadow; they do not authorize tasks.
 
 <!-- source: ferb/orchestrator/supervisor.py#Supervisor._approach -->
 <!-- source: ferb/core/prompts.py#load_prompt -->
@@ -346,8 +346,28 @@ there is no hidden 09:00 default or one-year horizon. Schedule recipients remain
 never replaces “me” with the first remembered email address. Recurrence, late runs and prior failures are facts for
 the next planner. A failed run does not silently pause a schedule.
 
-The Jev question registry, typed client and shadow/effect recording remain extension seams with tests. Oversized
-state is explicitly unavailable rather than partial JSON. No task authorization or target-routing rule depends on Jev.
+F7 composes passive sources in `sense/perception.py`: workspace lifecycle and per-app AX observers, the existing
+listen-only keyboard tap with per-field text aggregation, general-pasteboard change counts, read-only Notification
+Center SQLite, and installed-software security facts. Native metadata and text are redacted before crossing the
+callback/thread boundary. Secure Input, unknown/secure AX roles and concealed/transient pasteboard types drop
+capture before release. Held input is cleared on pause. Exact successful `mac.clipboard` change counts mark FERB's
+writes; a frontmost app is context, not proof of the clipboard writer. Typed/clipboard content expires after seven
+days in Trail, its FTS index and the activity copy, while source IDs remain; this automatic expiry does not retract
+derived memory. Native schemas and two-app subscriptions await owner acceptance.
+
+Migration 0032 adds durable batch receipts, external notification IDs, owner-quoted rules, told receipts and owner
+measurement labels. `sense/batches.py` sends roughly 10k estimated tokens per app group, interrupts for a notification,
+and otherwise flushes when its oldest event reaches `sense.batch_age_s` (default 60s, status reports the configured
+value). Oversize ordinary events have labeled excerpts and `trail:<id>` retrieval references; full redacted content
+stays in Trail. Notification context keeps the current notification, quoted rules and told receipts; only oldest
+conversation history may be omitted, with counts and retrieval references. A 32k estimated-token guard includes
+questions; over-limit requests are recorded unavailable without partial JSON. `trail.sensitive` is retired in favor
+of code redaction. `notification.attention` cannot be enabled; its owner-labelled confusion counts remain shadow.
+`perception.attention` is an ordinary-activity proposal with source references, never an owner instruction. No task
+authorization or target-routing rule depends on Jev.
+
+`device/persona.py` reads local Spotlight use counts/last-used dates during full setup and asks once for confirmation,
+an edit or a skip. Only a confirmed summary or the owner's edit is recorded as an owner-stated preference.
 
 ## 9. Model runtimes (F2, D32)
 

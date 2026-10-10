@@ -5,9 +5,9 @@ The activity trail: one path for every observation, in a fixed order.
 1. paused -> nothing; excluded (sense/exclusions.py) -> dropped completely; then redaction (sanitize/);
 2. id + actor (owner / ferb / unknown, from `Attribution`): the table refuses a row without an actor;
 3. persist to the append-only `trail` table, then publish `trail.event`;
-4. only then the tagging hook (Jev `trail.relevance` / `trail.sensitive`, when configured).
+4. only then the durable Jev batching hook (when configured; shadow decisions do not create tasks).
 
-Metadata only: watchers never report keystrokes, clipboard or screen content.
+F7 adds redacted per-field typed text and clipboard content; raw key events and screen pixels are never recorded.
 
 Retention: raw rows are kept 30 days, and a day may be purged only once the journal holds its
 permanent daily summary. `purge` refuses any day that is not summarized."""
@@ -126,11 +126,13 @@ class Trail:
 
     def query(self, *, since: str, source: str | None = None, actor: str | None = None,
               host: str | None = None, limit: int = 100, before_seq: int | None = None,
-              text: str | None = None) -> dict[str, Any]:
+              text: str | None = None, event_id: str | None = None) -> dict[str, Any]:
         """Filter before paging; ordering is chronology, never an instruction to choose the newest candidate."""
         if limit < 1:
             raise ValueError('limit must be positive')
         query, params = 'SELECT * FROM trail WHERE at >= ?', [since]
+        if event_id is not None:
+            query, params = 'SELECT * FROM trail WHERE id = ?', [event_id]
         for column, value in (('source', source), ('actor', actor)):
             if value is not None:
                 query += f' AND {column} = ?'

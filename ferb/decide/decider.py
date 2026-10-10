@@ -21,13 +21,14 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ferb.core.interfaces import Clock, IdSource
+from ferb.core.context import count_tokens, token_method
 from ferb.decide.questions import QUESTIONS, Question, base_id
 from ferb.store.db import Database
 
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
 JEV_MODEL = "jev-1.13.0"
 KEY_ACCOUNT = "jev/api_key"                      # Keychain: service "ferb", this account
-MAX_STATE_CHARS = 12000
+JEV_CONTEXT_TOKENS = 32000             # D10/P1 in docs/0.27_PLAN.md; includes state, questions and framing
 
 
 class JevUnavailable(Exception):
@@ -112,7 +113,7 @@ class ShadowDecider:
 
     async def ask(self, state: Any, asks: list[Ask]) -> dict[str, str]:
         """Record every ask; return {key: Jev's answer} only for enabled questions where Jev is stricter."""
-        on = self.enabled() - {"action.destructive"}  # CQ2: cannot be enabled by configuration
+        on = {name for name in self.enabled() if name in QUESTIONS and not QUESTIONS[name].shadow_only}
         live = [a for a in asks if base_id(a.key) in on]
         shadow = [a for a in asks if base_id(a.key) not in on]
         sampled = [a for a in shadow if self.rng() < a.question.shadow_sample]
@@ -136,6 +137,10 @@ class ShadowDecider:
         answers = await self._call(state, asks, self.enabled_timeout_s, set())
         return answers
 
+    async def shadow(self, state: Any, asks: list[Ask]) -> dict[str, str]:
+        """A durable caller awaits its recorded shadow decisions without enabling any downstream action."""
+        return await self._call(state, asks, 30.0, set())
+
     def mark_effect(self, key: str, ref: str | None, effect: str) -> None:
         self.db.conn.execute(
             "UPDATE decisions SET effect = ? WHERE seq = (SELECT MAX(seq) FROM decisions WHERE question = ? AND "
@@ -148,7 +153,7 @@ class ShadowDecider:
         questions = {n: (a.question.api() | ({"criteria": a.criteria} if a.criteria else {})) for n, a in names.items()}
         started = time.monotonic()
         try:
-            wire = self._state(state)
+            wire = self._state(state, questions)
             if self.client is None:
                 raise JevUnavailable("Jev isn't set up")
             data = await asyncio.wait_for(self.client.ask(wire, questions, timeout), timeout)
@@ -175,11 +180,13 @@ class ShadowDecider:
             self._record(a, v, conf, ms, None, mode)
         return out
 
-    def _state(self, state: Any) -> Any:
+    def _state(self, state: Any, questions: dict[str, Any] | None = None) -> Any:
         s = self.redact(state)                                    # once more, whatever the caller did
-        text = json.dumps(s, ensure_ascii=False, default=str)
-        if len(text) > MAX_STATE_CHARS:
-            raise JevUnavailable(f"state exceeds {MAX_STATE_CHARS} characters; no partial state was sent")
+        text = json.dumps({"state": s, "questions": questions or {}}, ensure_ascii=False, default=str)
+        # Keep the documented context ceiling; the normal 10k event budget supplies ample framing headroom.
+        # This is explicitly an estimate of the provider's tokenizer, never an exact Jev token claim.
+        if count_tokens(text) >= JEV_CONTEXT_TOKENS:
+            raise JevUnavailable(f"request reaches Jev's {JEV_CONTEXT_TOKENS} token context ({token_method()}); no partial state was sent")
         return s
 
     def _record(self, a: Ask, jev: str | None, conf: Any, ms: int | None, error: str | None, mode: str) -> None:
@@ -237,7 +244,7 @@ class ShadowDecider:
             out.append({"question": q.id, "asked": int(r["asked"] or 0), "answered": answered,
                         "flag_rate": (int(r["differ"] or 0) / answered) if answered else None,
                         "acted": int(r["acted"] or 0), "avg_ms": round(r["ms"]) if r["ms"] else None,
-                        "enabled": q.id in self.enabled(), "effect": q.effect})
+                        "enabled": q.id in self.enabled() and not q.shadow_only, "effect": q.effect})
         return out
 
     def flagged_refs(self, question: str, n: int = 5) -> list[str]:

@@ -1,6 +1,7 @@
-"""Observe recent owner input through a listen-only tap. Must not suppress, replay or record keystroke content.
+"""Observe recent owner input through a listen-only tap. Must not suppress or replay input.
 
-The marked FERB events are ignored. Recent activity is a fact for yielding, never a saved focus target."""
+Marked FERB events do not count as owner activity or push-to-talk; field capture receives their FERB mark.
+Recent activity is a fact for yielding, never a saved focus target."""
 
 import threading
 import time
@@ -23,6 +24,8 @@ class OwnerInput:
         # Push-to-talk: the owner's key events (keycode, down) go here; called on the tap's thread, so it must
         # only hand off (the daemon schedules onto its loop). Never sees FERB's own marked events.
         self.on_key: Callable[[int, bool], None] | None = None
+        # F7 capture owns Secure Input/field checks, aggregation and redaction before anything is emitted.
+        self.on_text: Callable[[Any, bool], None] | None = None
 
     def owner_event(self) -> None:
         self.last_owner = self.now()
@@ -51,7 +54,13 @@ class OwnerInput:
                 if tap and self.running:                          # the system turned it off: back on (not if stopping)
                     Quartz.CGEventTapEnable(tap[0], True)
                 return event
-            if Quartz.CGEventGetIntegerValueField(event, Quartz.kCGEventSourceUserData) != FERB_EVENT_MARK:
+            marked = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGEventSourceUserData) == FERB_EVENT_MARK
+            if self.on_text is not None and etype == Quartz.kCGEventKeyDown:
+                try:
+                    self.on_text(event, marked)
+                except Exception:
+                    pass                           # capture must never disturb input delivery
+            if not marked:
                 self.owner_event()
                 if self.on_key is not None and etype in (Quartz.kCGEventFlagsChanged, Quartz.kCGEventKeyDown):
                     code = int(Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode))

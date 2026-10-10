@@ -20,6 +20,14 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   daily security facts, regression send switch and containment statistics. FDA setup waits for working containment.
 - No installed-daemon/browser changes or live claims. Python/JavaScript/Swift compilation checked; test execution deferred to the
   combined final pass requested by the owner.
+## 0.27.0-dev — 2026-10-11 — F7 perception, pending combined checks
+
+- Added passive workspace/AX, per-field text, changed clipboard, Notification Center and installed-software sources.
+  Capture guards/redaction precede event delivery; typed/clipboard content expires after seven days.
+- Added durable Jev batches, retrievable excerpts, owner-quoted notification scope rules, told receipts and shadow
+  measurements. The model-based sensitive-text classifier is removed; task authority stays with owner instructions.
+- Full setup can show local app-use evidence once for confirmation/edit. New native adapters are unverified on the
+  owner's desktop; offline regression tests are authored, with execution deferred to the combined F5–F10 checks.
 
 ## 0.27.0-dev — 2026-10-09 — F4 live fixes
 

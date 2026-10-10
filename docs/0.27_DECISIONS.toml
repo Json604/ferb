@@ -18,12 +18,12 @@ summary = "Chat is never blocked by a loader"
 
 [D4]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_capture.py", "tests/test_perception_notifications.py"]
 summary = "Log every event on the Mac through system-wide sources, not per-app watchers"
 
 [D5]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_capture.py"]
 summary = "No system log (log stream) monitoring: too much noise"
 
 [D6]
@@ -34,7 +34,7 @@ summary = "No continuous screen capture or text recognition; a screenshot goes w
 
 [D7]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_capture.py"]
 summary = "Keystrokes recorded with content, stored as text typed per field"
 
 [D8]
@@ -49,12 +49,12 @@ summary = "Raw events kept N days; daily summaries kept forever, structured and 
 
 [D10]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_batches.py", "tests/test_decide.py"]
 summary = "Jev filters batches of events to decide whether FERB should see them"
 
 [D11]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_capture.py", "tests/test_perception_retention.py"]
 summary = "The clipboard is recorded through the same code redaction"
 
 [D12]
@@ -203,12 +203,12 @@ summary = "Memory must prove it helps via an evaluation set from the owner's his
 
 [P1]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py"]
 summary = "Jev batcher: send at ~10k tokens, a time limit or an interrupting event; split bursts, never cut"
 
 [P2]
 milestone = "F5"
-tests = ["tests/test_jev.py"]
+tests = ["tests/test_jev.py", "tests/test_decide.py"]
 summary = "Drop Jev's trail.sensitive question once code redaction covers the secret classes"
 
 [P3]
@@ -218,7 +218,7 @@ summary = "Context layers 1-6 (identity, situation, recent activity, memory, req
 
 [P4]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_capture.py"]
 note = "F4 live fixes (2026-10-09) built one part early: each FERB tool call in a desktop record carries its capability's declared on_screen flag, and FERB's own cleanup is recorded as an on-screen action (task.cleanup); tested in tests/test_desktop_attribution.py. Typed text per field and the password defenses remain F7."
 summary = "FERB's own input recorded as FERB's; Secure Input and field role guard password fields"
 
@@ -244,17 +244,17 @@ summary = "Episodic, semantic and procedural memory, searchable by content and t
 
 [P11]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py"]
 summary = "Notification triage with owner rules and already-told records; scope mutes applied by code"
 
 [P12]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_software.py"]
 summary = "New-software watch: signer, notarization, source, permissions, login items; FERB judges and warns"
 
 [P14]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_batches.py", "tests/test_perception_retention.py"]
 summary = "One Jev call per notification with conversation-scoped state within its budget"
 
 [P15]
@@ -275,7 +275,7 @@ summary = "Local memory dashboard with origin, evidence, confirm/edit/forget"
 
 [P18]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_capture.py"]
 summary = "Keystroke capture rules: Secure Input, field role, ~0.5 s hold, OTP redaction"
 
 [P19]
@@ -329,7 +329,7 @@ summary = "Rules for everything FERB says to the owner"
 
 [P28]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_software.py", "tests/test_setup_flow.py"]
 summary = "Setup persona from apps actually used, confirmed by the owner"
 
 [P29]

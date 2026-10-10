@@ -91,6 +91,11 @@ Optional: `ferb setup --voice` builds the background microphone app. Hold Right 
 `ferb chat --speak` speaks terminal replies. Pending questions accept free text, including corrections.
 `ferb setup --jev` configures optional memory/activity enrichment; it does not decide task permissions.
 
+F7 development adds passive app/Accessibility events, redacted typed fields and clipboard text (seven-day content
+retention), notification observation under Full Disk Access, and installed-software facts. Notification triage stays
+in shadow until measured with you; now-playing and two-app Accessibility acceptance are still pending. See the
+[F7 checklist](docs/OWNER_ACCEPTANCE.md#027-f7-perception--pending-owner-acceptance) before treating these as live-proven.
+
 ## Everyday use
 
 ```sh

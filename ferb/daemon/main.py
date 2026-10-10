@@ -202,6 +202,7 @@ class Daemon:
         self.run_watchers = watchers
         self.trail: Trail | None = None
         self.sense: Sense | None = None
+        self.perception: Any = None
         self.attribution = Attribution()
         self.watch_problems: list[str] = []
         self._excl: tuple[float, Exclusions] | None = None
@@ -821,14 +822,20 @@ class Daemon:
             self.hub.owned = lambda br, tab_id: self._tab_task(br, tab_id) is not None
         if self.supervisor is not None:
             self.supervisor.signals = self.signals
-        watchers: list[Any] = []
+        from ferb.sense.perception import Perception
+        self.perception = Perception(self)
+        self.perception.bind_clipboard()
+        self.trail.tag = self.perception.notify
+        self.perception.purge_text()
+        watchers: list[Any] = [self.perception]
         if self.run_watchers:
-            watchers = [AppFocusWatcher(), WindowTitleWatcher(lambda: bool(self.config.get("sense", "window_titles",
+            watchers += [AppFocusWatcher(), WindowTitleWatcher(lambda: bool(self.config.get("sense", "window_titles",
                                                                                            True))),
                         IdleWatcher(lambda: self.owner_input.last_owner_wall, lambda: self.owner_input.running,
                                     float(self.config.get("sense", "idle_after_s", 120))),
                         FilesWatcher(self._watch_folders), AppInstallsWatcher(self._app_changed),
                         ScriptedTabsWatcher(self._automation_granted, self._any_extension_connected)]
+            watchers += self.perception.native_watchers()
         self.sense = Sense(self.home, self.trail, watchers, self.owner_input if self.watch_owner_input else None,
                            on_pause=self._on_pause, on_fail=self._watcher_failed)
         await self.sense.start()
@@ -914,7 +921,8 @@ class Daemon:
         s = self.sense
         return {"paused": bool(s and s.paused), "watchers": s.running if s else [],
                 "failed": dict(s.failed) if s else {},
-                "owner_input": self.owner_input.running, "folder_problems": self.watch_problems}
+                "owner_input": self.owner_input.running, "folder_problems": self.watch_problems,
+                "perception": self.perception.status() if self.perception is not None else {}}
 
     # ---------- memory ----------
 
@@ -1022,6 +1030,8 @@ class Daemon:
         if spans or decisions or evidence or copies or plan.left:
             self._journal_purged(plan, spans, decisions, evidence, copies, plan.left)
         trashed = self._purge_downloads()
+        if self.perception is not None:
+            self.perception.purge_text()
         return {"spans": spans, "decisions": decisions, "evidence": evidence, "recovery": copies, "downloads": trashed}
 
     def _purge_downloads(self) -> int:
@@ -1502,8 +1512,9 @@ class Daemon:
             self.gateway.shadow_action = self._destructive_shadow if jev is not None else None
         if self.distiller is not None:
             self.distiller.jev = jev
-        if self.trail is not None:
-            self.trail.tag = self._jev_tag if jev is not None else (lambda e: None)
+        if self.trail is not None and self.perception is not None:
+            self.trail.tag = self.perception.notify
+            self.perception.batches.wake.set()
 
     async def _destructive_shadow(self, facts: dict[str, Any], ref: str) -> None:
         from ferb.decide.decider import Ask
@@ -1522,30 +1533,6 @@ class Daemon:
         except Exception:
             pass  # shadow advice never changes the concrete action path
 
-    def _jev_tag(self, e: Any) -> None:
-        """Trail step 4: the row is already past exclusions and redaction, and stored."""
-        asyncio.get_running_loop().create_task(self._jev_tag_async(e))
-
-    async def _jev_tag_async(self, e: Any) -> None:
-        from ferb.decide.decider import Ask
-        if self.jev is None:
-            return
-        ref = f"trail:{e.id}"
-        try:
-            got = await self.jev.ask({"source": e.source, "actor": e.actor, "data": e.data},
-                                     [Ask("trail.relevance", "note", ref), Ask("trail.sensitive", "no", ref)])
-        except Exception:
-            return                                                      # tagging never affects the trail
-        assert self.db is not None
-        if "trail.relevance" in got:
-            self.db.conn.execute("UPDATE trail SET relevance = ? WHERE id = ?", (got["trail.relevance"], e.id))
-        if got.get("trail.sensitive") == "yes":
-            keep = {"source", "browser", "profile", "host", "app", "bundle_id", "change", "state", "is_dir"}
-            data = {k: (v if k in keep else "[sensitive]") for k, v in e.data.items()}
-            self.db.conn.execute("UPDATE trail SET data_json = ?, sensitive = 1 WHERE id = ?",
-                                 (json.dumps(data), e.id))
-            self.daily_activity.redact_source(e.id, data)
-            self.jev.mark_effect("trail.sensitive", ref, "extra redaction")
 
     async def _jev_stats(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if self.jev is None:
@@ -1588,8 +1575,8 @@ class Daemon:
         q = str(params["question"])
         if q not in QUESTIONS:
             raise FerbError(f"unknown question {q}")
-        if q == "action.destructive" and params.get("on", True):
-            raise FerbError("destructive classification is shadow-only until owner-reviewed accuracy is accepted")
+        if QUESTIONS[q].shadow_only and params.get("on", True):
+            raise FerbError(f"{q} is measured in shadow; it cannot act before owner-reviewed measurement")
         enabled = set(self.config.get("jev", "enabled", [])) & QUESTIONS.keys()
         if params.get("on", True):
             if self.jev is None:

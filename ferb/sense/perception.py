@@ -1,0 +1,96 @@
+"""F7 wiring: native sources feed Trail; durable Jev decisions remain observations, never owner authority."""
+import json
+from datetime import timedelta
+from typing import Any
+
+from ferb.sense.batches import EventBatcher
+from ferb.sense.capture import mark_clipboard_write
+from ferb.sense.notifications import NotificationPolicy
+from ferb.sense.trail import Observation
+
+
+class Perception:
+    source = "jev_batches"
+
+    def __init__(self, daemon: Any) -> None:
+        self.daemon = daemon
+        self.policy = NotificationPolicy(daemon.db, daemon.clock, daemon.ids, daemon.redact)
+        self.batches = EventBatcher(daemon.db, daemon.clock, daemon.ids, lambda: daemon.jev,
+                                    self.policy, daemon._publish,
+                                    oldest_seconds=lambda: float(daemon.config.get("sense", "batch_age_s", 60.0)))
+
+    def notify(self, event: Any) -> None:
+        self.batches.notify(event)
+
+    async def run(self, emit: Any, stop: Any) -> None:
+        await self.batches.run(stop)
+
+    def native_watchers(self) -> list[Any]:
+        from ferb.sense.watchers.accessibility import AccessibilityWatcher
+        from ferb.sense.watchers.clipboard import ClipboardWatcher
+        from ferb.sense.watchers.notifications import DATABASE, NotificationDatabase, NotificationWatcher
+        from ferb.sense.watchers.software import SoftwareWatcher
+        from ferb.sense.watchers.text_input import TextInputWatcher
+        from ferb.sense.watchers.workspace import WorkspaceWatcher
+        d = self.daemon
+        excluded = lambda bundle, name: d._exclusions().app(bundle, name)
+        return [WorkspaceWatcher(d.redact, excluded), AccessibilityWatcher(d.redact, excluded),
+                ClipboardWatcher(d.redact, excluded), TextInputWatcher(d.owner_input, d.redact, excluded),
+                NotificationWatcher(NotificationDatabase(DATABASE, d.redact, excluded), self.seen, self.notification),
+                SoftwareWatcher(self.installed, d.redact)]
+
+    def seen(self, external_id: str) -> bool:
+        return self.daemon.db.conn.execute("SELECT 1 FROM perception_seen WHERE source='notification' AND external_id=?",
+                                           (external_id,)).fetchone() is not None
+
+    def notification(self, observation: Observation) -> None:
+        d = self.daemon
+        if d.sense is not None and d.sense.paused:
+            return
+        external_id = str(observation.data["external_id"])
+        if self.seen(external_id):
+            return
+        # Record first. If the daemon dies before receipt, the durable trail row itself prevents a duplicate.
+        previous = d.db.conn.execute("SELECT id FROM trail WHERE source='notification' AND json_extract(data_json,'$.external_id')=?",
+                                     (external_id,)).fetchone()
+        event = d.trail.record(observation) if previous is None else None
+        event_id = previous["id"] if previous else event.id if event is not None else None
+        if event_id is not None:
+            d.db.conn.execute("INSERT OR IGNORE INTO perception_seen VALUES('notification',?,?)", (external_id, event_id))
+
+    def installed(self) -> list[tuple[str, str]]:
+        rows = self.daemon.db.conn.execute("SELECT data_json FROM trail WHERE source='app_install' ORDER BY seq")
+        apps = {}
+        for row in rows:
+            data = json.loads(row["data_json"])
+            if data.get("change") == "removed":
+                apps = {bundle: path for bundle, path in apps.items() if path != data.get("path")}
+            elif data.get("change") == "installed" and data.get("bundle_id") and data.get("path"):
+                apps[str(data["bundle_id"])] = str(data["path"])
+        return list(apps.items())
+
+    def bind_clipboard(self) -> None:
+        cap = self.daemon.registry.capabilities.get("mac.clipboard")
+        if cap is not None:
+            cap.on_write = mark_clipboard_write
+
+    def purge_text(self) -> int:
+        """D14/P8: typed/clipboard text expires at seven days even without a daily summary. Keep source IDs."""
+        d = self.daemon
+        cutoff = (d.clock.now() - timedelta(days=7)).isoformat()
+        rows = d.db.conn.execute("SELECT id,data_json FROM trail WHERE source IN ('typed_text','clipboard') AND at < ? AND json_extract(data_json,'$.content_expired') IS NULL", (cutoff,)).fetchall()
+        for row in rows:
+            data = json.loads(row["data_json"])
+            kept = {k: data[k] for k in ("bundle_id", "app", "pid", "window_id", "field_id", "role", "change_count") if k in data}
+            kept["content_expired"] = True
+            d.db.conn.execute("UPDATE trail SET data_json=? WHERE id=?", (json.dumps(kept), row["id"]))
+            d.daily_activity.redact_source(row["id"], kept)
+        return len(rows)
+
+    def status(self) -> dict[str, Any]:
+        d = self.daemon
+        states = {r["state"]: r["n"] for r in d.db.conn.execute("SELECT state,COUNT(*) n FROM perception_batches GROUP BY state")}
+        return {"batches": states, "unsent_events": self.batches.pending_count(),
+                "batch_age_s": self.batches.oldest_seconds(),
+                "notification_triage": self.policy.measurements(),
+                "now_playing": {"status": "pending_owner_probe", "detail": "MediaRemote access after macOS 15.4 is unverified; no fabricated playback events."}}
