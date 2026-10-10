@@ -78,13 +78,14 @@ to the model, Jev's destructive classifier in shadow, then Full Disk Access by d
 | 2 Shell sandbox (sandbox-exec) | complete (10453cd, 66a1dcd, b2d41ef) |
 | 3 Egress proxy | complete (96cf41d, 4bfd429, 4b27714), plus a small follow-up "T3b" once the owner answers Q1–Q2 below |
 | 4 Code-floor confirmations, sink rule, known destinations | complete (19318d3, 8aee147, eaa9000, 3ec05d4) |
-| 5 Sinks that are not sends (shell destinations, URLs) | fix round 3 committed and pushed (54cffba): one browser-compatible URL parser, owner Q3 built, minors. Its scoped re-review was dispatched; if the ledger has no verdict for `3c4d125..54cffba`, re-run it. Open point for that review: after a task's first shell command every new host asks once, including Codex's own API host (judge whether a FERB-run Codex session survives the refusal). |
+| 5 Sinks that are not sends (shell destinations, URLs) | rounds 1–3 pushed (54cffba). Fix round 4 (fresh implementer, strongest model) dispatched from `.superpowers/sdd/2026-10-10-f5a-containment/task-5-round4-brief.md`: browser-matching IDNA (a `meßenger.com` look-alike bypass), punycode labels, numeric IPv4, named hosts via the new parser, and the owner's 2026-10-10 answer (a host the tree reached before it first read outside content stays allowed). If the ledger shows no `fix round 4 —` commit, re-dispatch from that brief; then a scoped re-review. |
 | 6 Escape hatch (D31) | not started |
 | 7 Worker permission model (W1, W2, W4, D36) | not started |
 | 8 Security suite (offline replays, live P0 set, test-mode send switch, overhead in `ferb stats`) | not started |
 | 9 Docs, registry, "0.27 F5a — pending live checks" | not started; must also record the owner decisions and residuals listed in the ledger |
 
-**Owner decisions:** the owner answered all four questions below "recommended" on 2026-10-10 (recorded in the ledger);
+**Owner decisions:** the owner answered all four questions below "recommended" on 2026-10-10 (recorded in the ledger),
+plus a fifth (keep hosts the tree reached before its first outside read allowed for that tree — in the round-4 brief);
 apply them as described:
 1. Local servers (dev server, Ollama): FERB's shell can't reach programs already listening on the Mac; add a
    `[protection]` list of local ports the owner allows, each pinned to the listening program's executable, connections
