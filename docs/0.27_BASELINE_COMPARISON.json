@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "acceptance": "not inferred from aggregate metrics",
+  "caveat": "Snapshots may cover different task mixes and retained traces. All-time counts overlap; their difference is not a matched release experiment. Percent deltas are percentage points.",
+  "captured_at": {
+    "before": "2026-10-07T09:02:08+00:00",
+    "after": null
+  },
+  "denominators": {
+    "before": {
+      "requests": 145,
+      "owner_verdicts": 0
+    },
+    "after": {
+      "requests": null,
+      "owner_verdicts": null
+    }
+  },
+  "model_runs": {
+    "before": {
+      "model.turn": {
+        "n": 412,
+        "avg_s": 11.9
+      },
+      "worker": {
+        "n": 282,
+        "avg_s": 97.5
+      }
+    },
+    "after": null
+  },
+  "metrics": {
+    "done_pct": {
+      "before": 37.93,
+      "after": null,
+      "delta": null
+    },
+    "verified_pct": {
+      "before": 34.48,
+      "after": null,
+      "delta": null
+    },
+    "unverified_pct": {
+      "before": null,
+      "after": null,
+      "delta": null
+    },
+    "failed_pct": {
+      "before": null,
+      "after": null,
+      "delta": null
+    },
+    "owner_pass_pct": {
+      "before": null,
+      "after": null,
+      "delta": null
+    },
+    "avg_task_s": {
+      "before": 194.7,
+      "after": null,
+      "delta": null
+    },
+    "tool_calls": {
+      "before": 4430,
+      "after": null,
+      "delta": null
+    },
+    "tool_errors": {
+      "before": 363,
+      "after": null,
+      "delta": null
+    },
+    "owner_questions": {
+      "before": 77,
+      "after": null,
+      "delta": null
+    },
+    "cache_pct": {
+      "before": 90,
+      "after": null,
+      "delta": null
+    },
+    "avg_trace_bytes": {
+      "before": 4043,
+      "after": null,
+      "delta": null
+    }
+  },
+  "before_source": "/Users/kartikey/.ferb/baselines/2026-10-07T09:02:08+00:00.json",
+  "after_status": "Not available: integrated prerelease has not been installed or live-tested."
+}

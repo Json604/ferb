@@ -54,3 +54,16 @@ def test_catalog_30_test_switch_is_not_a_worker_rpc():
     from ferb.daemon.auth import Role, allowed
     # The CLI-only switch restricts sends; it is not an escape or worker approval bypass.
     assert allowed(Role.CLI, 'test.mode') and not allowed(Role.MCP_SHIM, 'test.mode')
+
+
+def test_manual_test_mode_status_is_read_only_and_send_gate_is_exact(daemon):
+    from ferb.cli.client import Client
+    client = Client(daemon.sock)
+    try:
+        assert client.call('test.mode', {'status': True}) == {'enabled': False, 'allow_send': []}
+        assert client.call('test.mode', {'allow_send': ['owner@controlled.test']}) == {
+            'enabled': True, 'allow_send': ['owner@controlled.test']}
+        assert client.call('test.mode', {'status': True})['allow_send'] == ['owner@controlled.test']
+        assert client.call('test.mode', {'off': True}) == {'enabled': False, 'allow_send': []}
+    finally:
+        client.close()
