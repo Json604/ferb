@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from ferb.act.shell.manager import ShellManager
-from ferb.act.shell.sandbox import APP_SERVICES, CERT_BUNDLE, SANDBOX_EXEC, SECURITY_SERVER, Sandbox
+from ferb.act.shell.sandbox import APP_SERVICES, CERT_BUNDLE, NETWORK_SERVICES, SANDBOX_EXEC, SECURITY_SERVER, Sandbox
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
@@ -151,18 +151,19 @@ def test_direct_network_is_denied_inside_the_sandbox(daemon: RunningDaemon) -> N
                 "nc -v -z -w 2 192.0.2.1 443"):
         r = call(daemon, g, "shell.run", command=cmd + " 2>&1; echo rc=$?")
         assert "rc=0" not in r["content"]["output"] and "Operation not permitted" in r["content"]["output"], cmd
-    r = call(daemon, g, "shell.run", command="curl -sS --max-time 3 http://192.0.2.1/ 2>&1; echo rc=$?")
+    # Direct, ignoring the proxy variables (through FERB's proxy is test_egress_proxy's)
+    r = call(daemon, g, "shell.run", command="curl -sS --noproxy '*' --max-time 3 http://192.0.2.1/ 2>&1; echo rc=$?")
     assert "rc=7" in r["content"]["output"]
     r = call(daemon, g, "shell.run", command="dig +short +time=1 +tries=1 @192.0.2.1 example.invalid; echo rc=$?")
     assert "rc=0" not in r["content"]["output"]
     srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
     port = srv.getsockname()[1]
     threading.Thread(target=lambda: srv.accept(), daemon=True).start()
-    r = call(daemon, g, "shell.run", command=f"python3 -c 'import socket; socket.create_connection((\"127.0.0.1\", {port}), 2)'; echo rc=$?")
-    assert "rc=0" in r["content"]["output"]                                           # loopback stays open
+    r = call(daemon, g, "shell.run", command=f"python3 -c 'import socket; socket.create_connection((\"127.0.0.1\", {port}), 2)' 2>&1; echo rc=$?")
+    assert "rc=0" not in r["content"]["output"] and "Operation not permitted" in r["content"]["output"]   # not FERB's
     r = call(daemon, g, "shell.run", command="python3 -c 'import socket; s=socket.socket(); s.bind((\"127.0.0.1\", 0)); "
-                                             "s.listen(1); print(\"listening\")'")
-    assert not r["is_error"] and "listening" in r["content"]["output"]                 # a dev server can listen
+                                             "s.listen(1); socket.create_connection(s.getsockname(), 2); print(\"reached\")'")
+    assert not r["is_error"] and "reached" in r["content"]["output"]                   # a dev server of its own: yes
 
 
 def test_the_shell_names_apples_certificate_bundle(daemon: RunningDaemon) -> None:
@@ -185,8 +186,12 @@ def test_shell_rules_lists_the_boundaries_and_what_is_liftable(daemon: RunningDa
     assert "danger-full-access" in r["content"]["own_sandbox"]
     assert "can't open apps" in r["content"]["apps"]
     assert "escape" not in r["content"]                                       # Task 6 adds it
-    # The proxy isn't running this task, so the network line says loopback only, derived from proxy_port()
-    assert r["content"]["network"] == "no network beyond this Mac (loopback only); FERB's proxy is not running"
+    # Derived from proxy_port(): the proxy runs (F5a Task 3), so the line names it and what it records
+    port = daemon.daemon.proxy.port                                           # type: ignore[union-attr]
+    assert r["content"]["network"].startswith(f"only through FERB's proxy on 127.0.0.1:{port}, which records")
+    daemon.daemon.sandbox.proxy_port = lambda: None                          # type: ignore[union-attr]
+    r = call(daemon, g, "shell.rules")
+    assert r["content"]["network"].startswith("no network beyond this Mac; FERB's proxy is not running")
 
 
 def test_shell_tools_say_a_programs_own_sandbox_cant_start_inside(daemon: RunningDaemon) -> None:
@@ -284,7 +289,7 @@ def test_the_apps_profile_differs_only_by_the_app_rules_and_keeps_every_other_de
     """mac.applescript's profile keeps Apple Events and app launches; the shell's denies them. Nothing else differs."""
     home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
     (ferb / "workspace").mkdir(parents=True)
-    sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p")
+    sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", listeners=lambda: {9999})   # fixed: comparable
     shell_only = set(sb.profile().splitlines()) - set(sb.profile(apps=True).splitlines())
     assert shell_only == {"(deny lsopen)", *(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES)}
     assert not set(sb.profile(apps=True).splitlines()) - set(sb.profile().splitlines())   # apps adds nothing
@@ -325,12 +330,16 @@ def test_each_denied_mach_service_fails_to_look_up(tmp_path: Path) -> None:
     appleevents = "com.apple.coreservices.appleevents"
     assert appleevents in APP_SERVICES                           # a raw send needs this service; the shell denies it
     denied = [SECURITY_SERVER, "com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb", appleevents]
-    shell = lookups(sb, [*denied, "com.apple.trustd.agent"])
-    assert all(shell[name] != 0 for name in denied), shell       # every deny blocks the lookup
+    shell = lookups(sb, [*denied, *NETWORK_SERVICES, "com.apple.trustd.agent"])
+    assert all(shell[name] != 0 for name in [*denied, *NETWORK_SERVICES]), shell   # every deny blocks the lookup
     assert shell["com.apple.trustd.agent"] == 0                  # trust still reachable (TLS works)
-    apps = lookups(sb, denied, apps=True)
+    apps = lookups(sb, [*denied, *NETWORK_SERVICES], apps=True)
     assert apps[SECURITY_SERVER] != 0                            # the Keychain service stays denied
     assert all(apps[name] == 0 for name in denied if name != SECURITY_SERVER)   # app services back for AppleScript
+    # No network around FERB's proxy for either profile: background URL sessions (nsurlsessiond reached a server the
+    # sandbox denies: F5a Task 3) and mDNSResponder's resolver service (DNS for any name)
+    assert "com.apple.nsurlsessiond" in NETWORK_SERVICES and "com.apple.dnssd.service" in NETWORK_SERVICES
+    assert all(apps[name] != 0 for name in NETWORK_SERVICES), apps
 
 
 def test_without_a_working_sandbox_the_shell_and_applescript_are_left_out(home: Path,

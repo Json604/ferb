@@ -361,6 +361,12 @@ class Gateway:
     def in_flight(self, task_ids: set[str]) -> bool:
         return any(tid in task_ids and not job.done() for job, tid in self._in_flight.items())
 
+    async def destination_allowed(self, proc_id: str, host: str, port: int) -> tuple[bool, str]:
+        """Whether a shell process may connect to host:port through FERB's egress proxy, and FERB's reason if not.
+        Asked by the proxy before it resolves the name (S4: Task 5 decides; until then every destination is allowed,
+        and the proxy records it)."""
+        return True, ""
+
     def cancel_tasks(self, task_ids: set[str]) -> None:
         self._cancelled_tasks.update(task_ids)
         for job, tid in list(self._in_flight.items()):

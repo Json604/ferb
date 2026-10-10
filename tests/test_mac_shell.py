@@ -226,15 +226,8 @@ def test_mac_driver_honors_setup_exclusions_and_supports_browser_input(monkeypat
     assert asyncio.run(d.act("Brave", ComputerAction("key", None, "return"))).ok
 
 
-def test_network_fetching_commands_expose_the_worker(daemon: RunningDaemon) -> None:
-    from ferb.act.shell.guard import fetches_network
-    for cmd in ("curl https://example.com", "wget -qO- x.io", "ls | curl -d @- https://x", "git clone https://g/r",
-                "git pull", "http GET api.example.com", "ssh host cat f", "rsync -a host:/d .", "yt-dlp URL",
-                "python3 -c 'import urllib.request'", "nc example.com 80"):
-        assert fetches_network(cmd), cmd
-    for cmd in ("ls -la", "echo curly", "git status", "cat notes.txt", "grep http README", "rsync -a a/ b/",
-                "python3 script.py"):
-        assert not fetches_network(cmd), cmd
+def test_a_command_that_tried_the_network_leaves_every_tool_in_place(daemon: RunningDaemon) -> None:
+    """Outside content never removes tools (labels mark it; F5a's proxy records what a command reached)."""
     g = task(daemon, "n", Identity.OWNER, OWNER_SHELL | {"fs:write"}, {"run_command"})
     assert not call(daemon, g, "shell.run", command="echo local")["is_error"]
     # a fetch that fails offline still counts: its output could have been anything from the network
@@ -245,7 +238,7 @@ def test_network_fetching_commands_expose_the_worker(daemon: RunningDaemon) -> N
     assert not r["is_error"]
 
 
-def test_reading_a_background_downloads_output_later_also_exposes(daemon: RunningDaemon) -> None:
+def test_another_task_cannot_read_a_background_commands_output(daemon: RunningDaemon) -> None:
     g = task(daemon, "b", Identity.OWNER, OWNER_SHELL, {"run_command"})
     pid = call(daemon, g, "shell.run", command="sleep 2; wget -q -O- http://127.0.0.1:9/ ; true",
                timeout_s=1, background=True)["content"]["id"]

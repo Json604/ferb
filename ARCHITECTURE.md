@@ -768,7 +768,9 @@ The profile:
   (`com.apple.coreservices.launchservicesd`, `com.apple.lsd.mapdb`) and the Apple Events service
   (`com.apple.coreservices.appleevents`), so the
   shell can't put an app on the owner's screen; FERB's browser and Mac tools do that;
-- denies all network except the Mac's own addresses;
+- denies the system services that would reach the network for a contained process: background URL sessions
+  (`com.apple.nsurlsessiond`) and mDNSResponder's resolver (`com.apple.dnssd.service`);
+- denies all network except FERB's egress proxy and the servers started inside FERB's sandbox (below);
 - names the daemon socket explicitly.
 
 `mac.applescript` runs under a second profile (`profile(apps=True)`) with the same file, network and Keychain rules but
@@ -803,8 +805,61 @@ their flags:
 
 The loopback tool-list proxy for the Claude runtime
 ([`runtimes/proxy.py`](ferb/runtimes/proxy.py)) forwards only for a run id that is live and carries that run's random
-secret (`/run/<id>/<secret>/…`); anything else gets 403, so a shell command that reaches loopback can't use it to leave
-the Mac. Task 3's egress proxy decides how wide loopback stays.
+secret (`/run/<id>/<secret>/…`); anything else gets 403. The shell can't reach it at all now (below).
+
+**The egress proxy** ([`act/shell/proxy.py`](ferb/act/shell/proxy.py), S2, D28, S3). It is the shell's only way off
+the Mac. The daemon starts it on `127.0.0.1:<port>` with the shell, and closes it after the shell's processes at
+shutdown.
+- **Credentials.** Each shell process gets its own: `HTTP(S)_PROXY`/`ALL_PROXY` (and the lowercase twins) are
+  `http://<process id>:<token>@127.0.0.1:<port>`, with `NO_PROXY=localhost,127.0.0.1,::1` and `NODE_USE_ENV_PROXY=1`.
+  - A missing, wrong or forgotten credential gets 407, and nothing is forwarded.
+  - The token lives in memory only, and the redactor scrubs it from output, logs and spans.
+  - Another process can't read it: macOS returns no environment for another process through `KERN_PROCARGS2`, even
+    unsandboxed; `ps` is setuid, so it can't start inside; `task_for_pid` fails.
+- **Asked before resolving.** Before resolving a name, the proxy asks `Gateway.destination_allowed(proc, host, port)`.
+  Task 3 answers yes for every host; Task 5 decides. A refusal is 403 and is recorded under `refused`.
+- **Connecting.** The proxy resolves names itself, because the sandbox has no DNS. It connects only to an address it
+  checked, and refuses this Mac's own addresses: loopback, `0.0.0.0`, and any address an interface holds.
+  - CONNECT tunnels any port as opaque bytes.
+  - Plain `http://` is forwarded byte for byte, one request per connection, so each request is gated and recorded for
+    its own host.
+- **The record.** Per process: host, port, `bytes_out`, `bytes_in` and connections. It never holds a path, query,
+  header or body. Byte counts are recorded, never capped. An owner-excluded host shows as `excluded`.
+- **Where the record goes.**
+  - `shell.run`, `shell.wait` and `shell.read` return it as `network`.
+  - The output is labelled `external:web:<host>` for each host the command reached. A command that reached none keeps
+    `external:unlabeled`: what it read on disk can't be known.
+  - When the task ends, each finished process's record is journaled (`shell.network`) and the proxy forgets it.
+  - `ferb ps` shows `network` as a fact.
+- **Removed.** The command-word heuristic (`guard.fetches_network`, `network_annotation`, `external:web:shell`) is
+  gone.
+
+**How wide loopback stays** ([`act/shell/listeners.py`](ferb/act/shell/listeners.py)). A contained command reaches:
+- FERB's proxy;
+- servers started inside FERB's sandbox, such as a dev server it started, or a test suite's own server.
+
+It never reaches a server another program runs on this Mac. Such a server could relay off the Mac unrecorded (a local
+proxy or VPN helper, an `ssh -L` tunnel, a DNS forwarder, a browser debugging port), or run code outside the sandbox
+(a notebook server, an agent gateway).
+
+How it works:
+- When each command starts, `netstat -anv` lists every listening TCP socket and unconnected UDP socket, with its
+  process. This takes about 3 ms.
+- `sandbox_check` tells which processes run under FERB's profile. FERB's profile is the one that denies FERB's `run`
+  folder and allows its workspace; unsandboxed programs are allowed both, and other sandboxes deny both.
+- Every other port gets `(deny network-outbound (remote ip "localhost:<port>"))`.
+- If the listing fails, every local server is out, and the proxy stays reachable.
+
+Seatbelt ignores a port-specific deny after an unfiltered `(deny network-outbound)` or `(deny network*)` (measured).
+So outbound is denied by filters instead: every remote IP, every unix socket, every kernel control. Each socket kind
+Task 2 refused stays refused, and a test pins it.
+
+What was measured (the Task 3 report has each run):
+- Through the proxy: curl (http, https), Python `urllib`, git (`ls-remote` over https, a clone over http), Node
+  `fetch`, Go and Codex CLI all work.
+- With no network: Node with `NODE_USE_ENV_PROXY=0`, Python `http.client`, `nc`, `ssh`, and NSURLSession (it ignores
+  the proxy variables) all fail closed.
+- Profile build: about 7 ms with the owner's lists.
 
 Residuals:
 - A server bound to `0.0.0.0` accepts connections from the LAN: Seatbelt's `localhost` means any of the Mac's own
@@ -815,6 +870,18 @@ Residuals:
   the Apple Events service, so no program in FERB's shell can send them (each denied service is pinned by a
   `bootstrap_look_up` test).
 - `~/.docker` on the never-read list also hides `~/.docker/bin`.
+- **trustd.** It fetches the AIA, OCSP and CRL URLs of any certificate a contained process asks it to evaluate. A
+  crafted certificate makes trustd send a GET, with data in the URL, to any host, outside the proxy (measured with a
+  local listener). Denying trustd would end TLS for Go programs such as `gh`, because Go on macOS has no file trust
+  store. This is for the owner to decide.
+- **Listener timing.** The listener list is the one when a command starts. A server another program opens later is
+  reachable from a long-running contained process (a coding agent, a server) until that process ends.
+- **Other system services.** Other services that fetch for their callers aren't enumerated: only nsurlsessiond, the
+  resolver and trustd were measured. WebKit's networking process is unmeasured, because pyobjc WebKit isn't installed.
+- **Name resolution.** NSURLSession can't resolve `localhost` once the resolver service is denied, so Apple-framework
+  clients reach a dev server by `127.0.0.1`. curl, Python, Node and Go resolve `localhost` from `/etc/hosts`.
+- **The owner's own local servers.** FERB's shell can't reach servers the owner runs: a dev server in their terminal,
+  Ollama, a local database. FERB's browser tools can still open localhost pages.
 
 ## 13. Documentation and diagrams
 

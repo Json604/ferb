@@ -57,9 +57,7 @@ def from_read_source(kind: str, ident: str) -> str:
         return PRIVATE
     if kind == "download":
         return external("download")
-    if kind == "web":
-        if ident.startswith("shell:"):                 # a shell command that fetched over the network
-            return external("web", "shell")
+    if kind == "web":                                  # a page, or a host a shell command reached (F5a proxy)
         try:
             host = urlsplit(ident).hostname if "://" in ident else None
         except ValueError:                             # a malformed URL from outside content must not break labeling

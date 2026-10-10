@@ -26,6 +26,7 @@ from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.targets import Request, Targets
 from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.runtimes.codex_exec import CodexRuntime
+from tests.support import egress
 
 pytest_plugins = ["tests.browserkit"]           # browser fixtures: local pages, temporary keychain
 
@@ -82,6 +83,7 @@ def home() -> Iterator[Path]:
 def daemon(home: Path) -> Iterator[RunningDaemon]:
     d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
     d.daemon._permissions = lambda: {"accessibility": True, "screen": True}   # type: ignore[method-assign]
+    egress.install(getattr(d.daemon, "proxy", None))   # the proxy resolves tests' local origin name (support/egress)
     sup = d.daemon.supervisor                   # offline: fake tools count as usable (test_availability tests the real)
     if sup is not None:
         sup.availability = sup._default_availability

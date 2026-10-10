@@ -2,27 +2,28 @@
 
 Task-owned shell processes: start, wait, read, send and kill without detached launcher guesses."""
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from ferb.act.shell import guard
 from ferb.act.shell.manager import ProcHandle, ShellManager
-from ferb.act.shell.sandbox import NESTED_SANDBOX, NO_APPS
+from ferb.act.shell.sandbox import NESTED_SANDBOX, NETWORK_FACT, NO_APPS
 from ferb.core.errors import Refused
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.protection import Protection
 from ferb.policy.rules import Kind
 
 TAIL = 8000
-# What a command read can't be known by code: fetches_network misses `gh`, `npm view` and scripts, and a local read
-# may be a downloaded file. So command output is unlabeled outside content (S3); detected network use reports
-# external:web:shell instead (_untrusted). F5's proxy (real network use) and sandbox path lists (real file reads) will
-# provide facts that can narrow this label.
+# What a command read on disk can't be known by code (a local read may be a downloaded file), so command output is
+# unlabeled outside content (S3). What it reached over the network is a fact: FERB's egress proxy records each host
+# (proxy.py), and a command that reached hosts is labelled external:web:<host> for each. Nothing narrows it further.
 OUTPUT_ORIGIN = "external:unlabeled"
 
 
-def _untrusted(network: bool, command: str) -> tuple[tuple[str, str], ...]:
-    """Network-fetching commands bring in untrusted content: annotate its source for the agent."""
-    return (("web", f"shell: {command}"),) if network else ()
+def _sources(network: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """One web source per host the command reached through FERB's proxy (none: the unlabeled origin stays)."""
+    return tuple(dict.fromkeys(("web", f"https://{d['host']}") for d in network["destinations"]))
 
 
 def _err(msg: str) -> ToolResult:
@@ -59,7 +60,7 @@ class ShellStart(_Base):
                    "background=true keeps it alive after task completion (servers); it is not needed to work "
                    "asynchronously during a task. Starting a process does not prove it is ready or successful. "
                    "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + NO_APPS + " "
-                   + NESTED_SANDBOX)
+                   + NETWORK_FACT + " " + NESTED_SANDBOX)
     target_args = ("cwd",)                             # Target.path, normalized by the gateway (P19 hash)
     method_args = ("background", "timeout_s")          # how it runs, not what it does (P19 hash)
     ledger_key = "shell.run"                           # shell.start and shell.run run the same command: one action
@@ -77,8 +78,7 @@ class ShellStart(_Base):
     async def _start(self, args: BaseModel, ctx: ToolContext) -> ProcHandle:
         cmd = str(getattr(args, "command"))
         cwd = guard.working_directory(getattr(args, "cwd"), ctx)
-        network = guard.fetches_network(cmd)
-        return await self.shells.start(cmd, cwd, ctx.task_id, bool(getattr(args, "background")), network)
+        return await self.shells.start(cmd, cwd, ctx.task_id, bool(getattr(args, "background")))
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         h = await self._start(args, ctx)
@@ -88,12 +88,13 @@ class ShellStart(_Base):
 async def _output(shells: ShellManager, h: ProcHandle, *, since: int = 0) -> ToolResult:
     text, offset, total = await shells.read(h, since, TAIL)
     info = shells.info(h)
+    network = shells.network(h)
     return ToolResult({"id": h.id, "output": text, "offset": offset, "total": total, "more": offset < total,
                        "running": info.running, "exit_code": info.exit_code, "capture_error": info.capture_error,
-                       "network_annotation": {"inferred": info.network, "certainty": "heuristic_only"},
+                       "network": network,
                        "retrieval": "shell.read with since=offset until more=false" if offset < total else None},
                       is_error=info.exit_code not in (None, 0) or bool(info.capture_error),
-                      read_sources=_untrusted(info.network, info.command))
+                      read_sources=_sources(network))
 
 
 class ShellRun(ShellStart):
@@ -102,7 +103,7 @@ class ShellRun(ShellStart):
                    "shell.wait to await its exit or shell.read for output. For immediate asynchronous start use "
                    "shell.start, without nohup or trailing &. background=true survives task completion (servers). "
                    "Commands run inside FERB's sandbox (shell.rules lists what it keeps out). " + NO_APPS + " "
-                   + NESTED_SANDBOX)
+                   + NETWORK_FACT + " " + NESTED_SANDBOX)
     origin = OUTPUT_ORIGIN
 
     class Input(ShellStart.Input):
@@ -120,8 +121,9 @@ class ShellRun(ShellStart):
 
         info = self.shells.info(h)
         out["capture_error"] = info.capture_error
+        out["network"] = network = self.shells.network(h)
         return ToolResult(out, is_error=code not in (None, 0) or bool(info.capture_error),
-                          read_sources=_untrusted(info.network, info.command))
+                          read_sources=_sources(network))
 
 
 class ShellWait(_Base):
@@ -234,7 +236,10 @@ class ShellRules(_Base):
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         port = self.shells.sandbox.proxy_port() if self.shells.sandbox is not None else None
-        network = ("no network beyond this Mac (loopback only); FERB's proxy is not running" if port is None else
-                   f"through FERB's proxy on 127.0.0.1:{port} (recorded); loopback allowed")
+        local = ("this Mac's own servers only if started inside FERB's shell (other programs' servers, as they were "
+                 "when the command started, are out of reach)")
+        network = (f"no network beyond this Mac; FERB's proxy is not running; {local}" if port is None else
+                   f"only through FERB's proxy on 127.0.0.1:{port}, which records each host, port and byte count "
+                   f"(clients that ignore HTTPS_PROXY/HTTP_PROXY get no network; no ssh); {local}")
         return ToolResult({"rules": self.protection.rules(), "network": network, "apps": NO_APPS,
                            "own_sandbox": NESTED_SANDBOX})

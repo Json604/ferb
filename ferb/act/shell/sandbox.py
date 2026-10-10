@@ -18,11 +18,15 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   can appear (E4). Trust evaluation goes through trustd and still works (URLSession, Go: measured), but programs that
   list root certificates through the Keychain service (rustls-native-certs, e.g. Codex CLI) find none, so the shell's
   environment names Apple's certificate bundle (SSL_CERT_FILE) for them.
-- No network except this Mac's own addresses, where FERB's proxy listens (E2). Seatbelt's "localhost" means any of the
+- No network except this Mac's own addresses (E2), and of those only FERB's proxy and servers started inside FERB's
+  sandbox (F5a Task 3): every port another program listens on when the command starts is denied (listeners.py), so
+  the proxy, which records every destination, is the only way off the Mac. Seatbelt's "localhost" means any of the
   Mac's own addresses (its LAN address too): `(allow network* (local ip "localhost:*"))` lets every connection out
-  (measured), so outbound is allowed only by remote address, and listening only by local address. Unix sockets are
-  network too and stay denied; the daemon's socket is named again last (a file rule on its folder doesn't stop a
-  connect: measured, E3).
+  (measured), so outbound is allowed only by remote address, and listening only by local address. A port-specific
+  deny is ignored when an unfiltered `(deny network-outbound)` (or `network*`) comes before it (measured), so
+  outbound is denied by filters instead: every remote IP, every unix socket and every kernel control, each as
+  Task 2's `(deny network*)` refused them. The daemon's socket is named again last (a file rule on its folder
+  doesn't stop a connect: measured, E3).
 - Inside it, nothing can apply another sandbox (any deny rule makes `sandbox_apply` fail: E5), and setuid programs
   such as sudo cannot start (E6).
 - The shell can't start launchd jobs, open apps or URLs, or send Apple Events to other apps: `job-creation`,
@@ -41,6 +45,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
+from ferb.act.shell.listeners import outside_ports
 from ferb.policy.protection import ADMIN, FERB_STATE, NETWORK, Entry, Protection
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
@@ -53,6 +58,15 @@ NESTED_SANDBOX = ("A program can't start its own macOS sandbox inside FERB's she
 # What the shell profile keeps out beyond files and network (measured, F5a Task 2 fix round 1); shown to agents
 NO_APPS = ("FERB's shell can't open apps or URLs on the owner's screen, send Apple Events to other apps, or start "
            "background jobs (launchd); FERB's browser and Mac tools (mac.applescript included) do that.")
+# What the network rules and FERB's proxy mean for a command (F5a Task 3, measured); shown to agents
+NETWORK_FACT = ("Network goes only through FERB's proxy (HTTPS_PROXY/HTTP_PROXY are set; programs that ignore them, "
+                "and ssh, get no network); each host reached is recorded and labels the output. On this Mac, only "
+                "servers started in FERB's shell are reachable (localhost), not other programs' servers.")
+# System services that would reach the network for a contained process, outside its network rules and FERB's proxy:
+# background URL sessions (nsurlsessiond: a download from inside reached a server the sandbox denies, measured F5a
+# Task 3) and mDNSResponder's resolver service (the proxy resolves names; the sandbox has no DNS). Denied to both
+# profiles (AppleScriptObjC can make a URL session too)
+NETWORK_SERVICES = ("com.apple.nsurlsessiond", "com.apple.nsurlsessiond-launchondemand", "com.apple.dnssd.service")
 # Denied to the shell profile only (mac.applescript's keeps them): app lookup and the Apple Events service
 APP_SERVICES = ("com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb", "com.apple.coreservices.appleevents")
 
@@ -69,8 +83,11 @@ def _forms(path: Path) -> list[Path]:
 
 class Sandbox:
     def __init__(self, protection: Protection, profiles_dir: Path,
-                 proxy_port: Callable[[], int | None] = lambda: None, *, socket: Path | None = None) -> None:
+                 proxy_port: Callable[[], int | None] = lambda: None, *, socket: Path | None = None,
+                 listeners: Callable[[], set[int] | None] | None = None) -> None:
         self.protection, self.profiles_dir, self.proxy_port, self.socket = protection, profiles_dir, proxy_port, socket
+        # Ports other programs listen on, read when each command starts (None: unknown, so every local server is out)
+        self.listeners = listeners or (lambda: outside_ports(protection.ferb_home, protection.workspace))
 
     def profile(self, lift: str | None = None, *, apps: bool = False) -> str:
         """The shell's profile; `apps=True` is mac.applescript's: the same file, network and Keychain rules, but Apple
@@ -103,17 +120,33 @@ class Sandbox:
         for f in dict.fromkeys(missing):
             lines += [f"(deny file-write-unlink (literal {_q(f)}))",
                       f"(deny file-write-create (require-all (literal {_q(f)}) (vnode-type SYMLINK)))"]
-        lines += [f'(deny mach-lookup (global-name "{SECURITY_SERVER}"))',
-                  "(deny job-creation)",
-                  "(deny network*)",
-                  '(allow network-outbound (remote ip "localhost:*"))',
-                  '(allow network-bind network-inbound (local ip "localhost:*"))']
+        lines += [f'(deny mach-lookup (global-name "{SECURITY_SERVER}"))', "(deny job-creation)"]
+        lines += [f'(deny mach-lookup (global-name "{name}"))' for name in NETWORK_SERVICES]
+        lines += self._network()
         if not apps:
             lines.append("(deny lsopen)")
             lines += [f'(deny mach-lookup (global-name "{name}"))' for name in APP_SERVICES]
         if self.socket is not None:
             lines += [f"(deny network-outbound (remote unix-socket (path-literal {_q(s)})))" for s in _forms(self.socket)]
         return "\n".join(lines) + "\n"
+
+    def _network(self) -> list[str]:
+        """Listening on this Mac's addresses; connecting only to them, minus every port another program listens on
+        now; FERB's proxy last, so nothing above can close it."""
+        proxy, outside = self.proxy_port(), self.listeners()
+        lines = ["(deny network-inbound)", "(deny network-bind)",
+                 '(allow network-bind network-inbound (local ip "localhost:*"))',
+                 '(deny network-outbound (remote ip "*:*"))',
+                 "(deny network-outbound (remote unix-socket))",
+                 '(deny network-outbound (control-name-prefix ""))',
+                 '(allow network-outbound (remote ip "localhost:*"))']
+        if outside is None:
+            lines.append('(deny network-outbound (remote ip "localhost:*"))')
+        else:
+            lines += [f'(deny network-outbound (remote ip "localhost:{port}"))' for port in sorted(outside - {proxy})]
+        if proxy is not None:
+            lines.append(f'(allow network-outbound (remote tcp "localhost:{proxy}"))')
+        return lines
 
     @staticmethod
     def _paths(entries: list[Entry], lift: str | None) -> list[Path]:
