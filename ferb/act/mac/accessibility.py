@@ -65,6 +65,9 @@ class AxTree:
     has_web: bool = False
     truncated_by: str = ""             # "elements", "depth", "elements, depth"
     secure: bool | None = False        # a password field somewhere in it; None: couldn't tell (walk cut short)
+    # Collected by the complete walk, independently of the page of nodes exposed to the model. None denotes a
+    # synthetic/legacy tree whose node list is its only inventory; production walks always initialize this list.
+    secret_rects: list[tuple[float, float, float, float]] | None = None
     headings: list[str] = field(default_factory=list)
     windows: list[dict[str, Any]] = field(default_factory=list)
     containers: list[str] = field(default_factory=list)     # what else was included: sheet / menu / dialog / popover
@@ -339,9 +342,14 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | 
         return
     bucket.append(el)
     role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
+    if tree.secret_rects is None:
+        tree.secret_rects = []
     secret = "AXSecureTextField" in (role, subrole)
     if secret:
         tree.secure = True
+        x, y = _point(_attr(el, 'AXPosition'), AX.kAXValueCGPointType)
+        w, h = _point(_attr(el, 'AXSize'), AX.kAXValueCGSizeType)
+        tree.secret_rects.append((x, y, w, h))
     children = _attr(el, "AXChildren") or []
     if role == "AXWebArea":
         tree.has_web = True

@@ -123,6 +123,20 @@ def test_window_recording_drops_frame_if_password_appears_during_capture(monkeyp
     asyncio.run(check())
 
 
+@pytest.mark.parametrize('unknown_after_capture', [False, True])
+def test_window_recording_withholds_unknown_secret_inventory(monkeypatch, unknown_after_capture):
+    from tests.mackit import vision
+    d, ax, shots, *_ = vision(monkeypatch)
+    async def check():
+        _, shot, _ = await d.screenshot('Notes')
+        _, capture = d.recording_source('Notes', shot.id)
+        ax.secure = [False, None] if unknown_after_capture else [None]
+        with pytest.raises(Refused, match='inventory'):
+            await capture()
+        assert len(shots.captured) == (2 if unknown_after_capture else 1)
+    asyncio.run(check())
+
+
 def test_extension_record_frame_preserves_action_references_and_never_activates():
     out = worker('''(async () => {
       attach = async id => tabState(id);

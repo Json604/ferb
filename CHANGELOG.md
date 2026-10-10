@@ -28,6 +28,8 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   split OTP controls and optional target-bound Keychain handles through a locally signed helper.
 - Hidden login codes, saved secrets and administrator passwords never start voice capture or enter its transcript events;
   ordinary spoken answers share chat's contextual secret redaction before approval resolution and event publication.
+- Native screenshots collect secret boxes across every AX snapshot page; depth-truncated inventories withhold pixels even
+  when another secret field was found. Recordings also withhold frames when the native inventory is unknown.
 - Metadata-only disk sizes, concrete irreversible-bulk confirmations, destructive classification in forced shadow, alignment advice,
   daily security facts, regression send switch and containment statistics. FDA setup waits for working containment.
 - No installed-daemon/browser changes or live claims. Python/JavaScript/Swift compilation checked; test execution deferred to the

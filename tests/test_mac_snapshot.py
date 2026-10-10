@@ -120,11 +120,25 @@ def test_truncation_says_why_and_the_password_scan_goes_on_past_the_element_cap(
     t = walk(many)
     assert len(t.nodes) == 5 and t.truncated and t.truncated_by == "elements"
     assert t.secure is True                                             # seen beyond the cap
+    assert t.secret_rects == [(1.0, 2.0, 30.0, 10.0)]  # masking inventory is independent of snapshot pagination
     monkeypatch.setattr(ax, "MAX_DEPTH", 2)
     deep = El("AXWindow", children=[El("AXGroup", children=[El("AXGroup", children=[
         El("AXGroup", children=[El("AXButton", {"AXTitle": "deep"}, acts=["AXPress"])])])])])
     t = walk(deep)
     assert t.nodes and t.truncated_by == "depth"  # retained containers support subtree retrieval
+
+
+def test_all_secret_boxes_survive_paging_with_a_secret_on_each_side(monkeypatch):
+    fake_ax(monkeypatch)
+    monkeypatch.setattr(ax, 'MAX_ELEMENTS', 2)
+    root = El('AXWindow', children=[
+        El('AXTextField', {'AXPosition': (1.0, 2.0)}, subrole='AXSecureTextField'),
+        El('AXTextField', {'AXPosition': (40.0, 2.0)}, subrole='AXSecureTextField')])
+    first = walk(root)
+    later = ax.AxTree(offset=2)
+    ax._walk(root, later, [], 0, None, [0])
+    assert len(first.nodes) == 2 and len(later.nodes) == 1
+    assert first.secret_rects == later.secret_rects == [(1.0, 2.0, 30.0, 10.0), (40.0, 2.0, 30.0, 10.0)]
 
 
 def test_the_profile_is_seeded_from_a_probe_and_learns_from_outcomes(tmp_path: Path) -> None:

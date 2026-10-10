@@ -228,20 +228,20 @@ class MacComputerDriver:
             st.tree_unread = False
             f = await asyncio.to_thread(self.ax.frame, st.tree.window)
             if f is not None and _same(f, bounds):
-                return st.tree.secure
+                return None if 'depth' in st.tree.truncated_by else st.tree.secure
         win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, bounds)
         if win is None:
             return None
         tree = await self._walk(a, win)
-        return tree.secure
+        return None if 'depth' in tree.truncated_by else tree.secure
 
     async def screenshot(self, name_or_bundle: str,
                          marks: list[tuple[str, tuple[float, float, float, float]]] | None = None,
                          window: str | None = None, native_resolution: bool = False
                          ) -> tuple[Any, Shot, bytes]:
         """The app's front window only, in memory. A password field the Accessibility tree shows (or, for a browser,
-        the extension reports in the tab on screen), before or after the capture, drops the frame; when neither can
-        tell, the capture goes ahead. The capture becomes the app's latest shot (mac.click / pointer / record)."""
+        the extension reports in the tab on screen), before or after capture, is masked only with complete geometry.
+        Unknown inventory withholds the frame. The capture becomes the app's latest shot (mac.click / pointer / record)."""
         a, w, jpeg, size = await self._capture(name_or_bundle, marks, window, native_resolution)
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
@@ -260,7 +260,11 @@ class MacComputerDriver:
         """Screen-point boxes of the password fields in the latest walk of this app (after a capture: of the captured
         window), for masking a stored picture."""
         st = self._state.get(bundle_id)
-        return [n.rect for n in st.tree.nodes if n.secret] if st is not None and st.tree is not None else []
+        if st is None or st.tree is None:
+            return []
+        if st.tree.secret_rects is not None:
+            return list(st.tree.secret_rects)
+        return [n.rect for n in st.tree.nodes if n.secret]
 
     async def _capture(self, name_or_bundle: str, marks: list[tuple[str, tuple[float, float, float, float]]] | None,
                        window: str | None, native_resolution: bool) -> tuple[Any, Any, bytes, tuple[int, int]]:
@@ -324,7 +328,10 @@ class MacComputerDriver:
             w = await asyncio.to_thread(self.shots.window, shot.window)
             if w is None or w.pid != a.pid or self.app(a.bundle_id).pid != a.pid:
                 raise Refused('recording window closed or changed owner')
-            if await self._secure(a, w.bounds, fresh=True):
+            secure = await self._secure(a, w.bounds, fresh=True)
+            if secure is None:
+                raise Refused("the window's secret-field inventory is incomplete; recording pixels withheld")
+            if secure:
                 raise Refused(PASSWORD_REFUSED)
             if browser and self.web_password and await self.web_password(browser, w.bounds):
                 raise Refused(PASSWORD_REFUSED)

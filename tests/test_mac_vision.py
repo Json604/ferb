@@ -1,6 +1,6 @@
 """Build step 9, offline: screenshot + click on fake window / capture layers. Only apps on [privacy] exclude_apps
 are refused (default: password managers; the owner may edit or empty it); a password field the Accessibility tree
-shows, before or after capture, drops the frame; when the tree can't tell, the capture goes ahead. Clicks map image
+shows is masked only with complete geometry; unknown inventories withhold pixels. Clicks map image
 pixels to the window, refuse a stale shot / moved window / something on top (checked before each event), and yield
 to the owner. The image reaches the model and FERB's evidence store (V1, ~/.ferb/evidence, 7 days) and nothing else:
 not spans, journal, logs or any other file.
@@ -48,19 +48,30 @@ def test_only_excluded_apps_are_refused_and_the_list_is_the_owners(monkeypatch: 
     assert c.exclude_apps() == frozenset()                               # an emptied list stays empty
 
 
-def test_a_detectable_password_field_drops_the_frame_and_unknown_is_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_password_without_geometry_or_unknown_inventory_withholds_pixels(monkeypatch: pytest.MonkeyPatch) -> None:
     d, ax, shots, *_ = vision(monkeypatch)
     ax.secure = [True]
-    with pytest.raises(Refused, match="password"):
+    with pytest.raises(Refused, match="secret-field inventory"):
         asyncio.run(d.screenshot("Notes"))
     assert shots.captured == []                                          # seen before: never captured
     ax.secure = [False, True]
-    with pytest.raises(Refused, match="password"):
+    with pytest.raises(Refused, match="secret-field inventory"):
         asyncio.run(d.screenshot("Notes"))                               # appeared during capture: dropped
     assert d._state["com.apple.Notes"].shot is None                      # no shot recorded to click on
     ax.secure = [None, None]
-    _, shot, jpeg = asyncio.run(d.screenshot("Notes"))                   # the tree can't tell: allowed
-    assert jpeg == shots.jpeg and shot.id == "shot1" and shot.size == IMG
+    with pytest.raises(Refused, match="secret-field inventory"):
+        asyncio.run(d.screenshot("Notes"))
+
+
+def test_known_secret_does_not_make_depth_truncated_inventory_complete(monkeypatch):
+    from ferb.act.mac.accessibility import AxNode
+    d, ax, shots, *_ = vision(monkeypatch)
+    ax.tree = AxTree(nodes=[AxNode(None, 'textbox', '', 'filled', (1, 2, 30, 10), True, True)],
+                     secure=True, truncated=True, truncated_by='depth')
+    monkeypatch.setattr(ax, 'read_tree', lambda *args: ax.tree)
+    with pytest.raises(Refused, match='secret-field inventory'):
+        asyncio.run(d.screenshot('Notes'))
+    assert not shots.captured
 
 
 def test_a_browser_tab_the_extension_reports_with_a_password_field_drops_the_frame(
@@ -248,7 +259,7 @@ def _tree_with_controls(ax: Any) -> None:
                      title="Chat")
 
 
-def test_a_snapshot_with_the_screen_scope_carries_a_marked_image(daemon: RunningDaemon,
+def test_first_snapshot_with_screen_scope_carries_target_image_without_replacing_refs(daemon: RunningDaemon,
                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     shots, _ = _fake_mac(daemon, monkeypatch)
     _tree_with_controls(daemon.daemon.mac.ax)                                   # type: ignore[union-attr]
@@ -256,9 +267,11 @@ def test_a_snapshot_with_the_screen_scope_carries_a_marked_image(daemon: Running
     r = call(daemon, g, "mac.snapshot", app="Notes")
     assert not r["is_error"] and base64.b64decode(r["image"]["data"]) == shots.jpeg
     ids = [e["id"] for e in r["content"]["elements"]]
-    assert shots.marks == [(i.split("e", 1)[1], rect) for i, rect in
-                           zip(ids, [(120.0, 70.0, 60.0, 20.0), (200.0, 100.0, 30.0, 30.0)])]
-    assert r["content"]["shot"] == "shot1" and r["content"]["image"].startswith("attached")
+    assert len(ids) == 2 and shots.marks is None
+    assert r['content']['initial_image']['window_id'] == 110
+    assert daemon.daemon.mac._state['com.apple.Notes'].shot is None
+    assert all(daemon.daemon.mac.node('com.apple.Notes', eid) for eid in ids)
+    assert 'image' not in call(daemon, g, 'mac.snapshot', app='Notes')
     daemon.run(_checkpoint(daemon))
     kept = _evidence_files(daemon)
     assert [p.read_bytes() for p in kept] == [shots.jpeg]                      # the evidence store holds it (V1)
@@ -288,6 +301,6 @@ def test_a_password_field_still_means_no_image_but_the_tree_comes_back(daemon: R
     ax.secure = [True, True]                    # the field is still there when FERB looks for its evidence (D26)
     g = task(daemon, "s", Identity.OWNER, {"mac:read", "screen"}, {"use_app"})
     r = call(daemon, g, "mac.snapshot", app="Notes")
-    assert not r["is_error"] and "image" not in r and "password" in r["content"]["image"]
+    assert not r["is_error"] and "image" not in r and r['content']['image_withheld']
     assert len(r["content"]["elements"]) == 2 and shots.captured == []
     assert _evidence_files(daemon) == []
