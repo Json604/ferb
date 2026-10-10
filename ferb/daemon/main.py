@@ -536,6 +536,11 @@ class Daemon:
         self.registry.add(SkillsRead(skills))
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
+        test_mode = self.config.get('test_mode', 'state', {})
+        if isinstance(test_mode, dict) and test_mode.get('enabled') is True:
+            allowed = test_mode.get('allow_send', [])
+            self.gateway.test_send_allowlist = (set(allowed) if isinstance(allowed, list) and
+                all(isinstance(item, str) and item.strip() for item in allowed) else set())
         self.gateway.disturbance = self.disturbance
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
@@ -2452,9 +2457,10 @@ class Daemon:
         allowed = params.get("allow_send", [])
         if not isinstance(allowed, list) or not all(isinstance(x, str) and x.strip() for x in allowed):
             raise FerbError("allow_send must be a list of exact recipient addresses")
-        self.gateway.test_send_allowlist = None if params.get("off") is True else set(allowed)
-        record = {"enabled": self.gateway.test_send_allowlist is not None,
-                  "allow_send": sorted(self.gateway.test_send_allowlist or ())}
+        next_allowlist = None if params.get("off") is True else set(allowed)
+        record = {"enabled": next_allowlist is not None, "allow_send": sorted(next_allowlist or ())}
+        self.config.set('test_mode', 'state', record)  # one atomic config write before the running state changes
+        self.gateway.test_send_allowlist = next_allowlist
         self._journal().append("test.mode", record)
         return record
 

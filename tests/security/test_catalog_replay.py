@@ -67,3 +67,25 @@ def test_manual_test_mode_status_is_read_only_and_send_gate_is_exact(daemon):
         assert client.call('test.mode', {'off': True}) == {'enabled': False, 'allow_send': []}
     finally:
         client.close()
+
+
+def test_manual_test_mode_survives_daemon_restart(home):
+    from tests.conftest import RunningDaemon
+    from ferb.cli.client import Client
+    first = RunningDaemon(home, watch_owner_input=False)
+    client = Client(first.sock)
+    try:
+        client.call('test.mode', {'allow_send': ['owner@controlled.test']})
+    finally:
+        client.close()
+        first.stop()
+    second = RunningDaemon(home, watch_owner_input=False)
+    client = Client(second.sock)
+    try:
+        assert client.call('test.mode', {'status': True}) == {
+            'enabled': True, 'allow_send': ['owner@controlled.test']}
+        client.call('test.mode', {'off': True})
+        assert second.daemon.config.get('test_mode', 'state') == {'enabled': False, 'allow_send': []}
+    finally:
+        client.close()
+        second.stop()

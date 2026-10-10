@@ -107,7 +107,9 @@ def test_distillation_persists_full_narrative_and_all_proposals(daemon):
     assert result["proposed"] == 45
 
 
-def test_jev_oversized_state_is_explicit_unavailability_never_partial_json():
+def test_jev_oversized_state_is_explicit_unavailability_never_partial_json(monkeypatch):
     decider = ShadowDecider(None, FakeClock(), SequentialIds(), None, lambda value: value)
+    from ferb.decide.decider import JEV_CONTEXT_TOKENS
+    monkeypatch.setattr('ferb.decide.decider.count_tokens', len)
     with pytest.raises(JevUnavailable, match="state"):
-        decider._state({"complete_evidence": "x" * 13000})
+        decider._state({"complete_evidence": "x" * JEV_CONTEXT_TOKENS})

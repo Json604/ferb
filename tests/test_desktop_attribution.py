@@ -59,7 +59,7 @@ def test_agents_are_told_what_a_change_with_no_ferb_on_screen_action_means() -> 
     text = " ".join(path.read_text().split())
     assert ("A change with no FERB on-screen action in progress says when the last one ended, or that this task made "
             "none: it may come from the owner, another app, a process FERB started (such as a coding agent, which acts "
-            "with its own permissions), or a FERB action whose effect landed late (an app finishing its launch); "
+            "with FERB containment, with its own sandbox disabled by caller-chosen flags; FERB never rewrites those flags or removes approvals), or a FERB action whose effect landed late (an app finishing its launch); "
             "weigh the elapsed time and the running processes.") in text
     assert "nearness to a FERB action does not prove FERB caused a change." in text
 

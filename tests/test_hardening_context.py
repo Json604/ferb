@@ -230,11 +230,11 @@ def test_cleanup_success_without_any_inspection_is_not_reported_done(daemon):
     assert 'Everything is complete.' not in result['answer']
 
 
-def test_omitted_planner_environment_is_saved_as_fetchable_task_evidence(daemon):
+def test_optional_planner_environment_is_saved_as_fetchable_task_evidence(daemon):
     source = 'Unique device fact ' * 500 + ' IMPORTANT INVENTORY TAIL'
     supervisor = daemon.daemon.supervisor
     supervisor.context_budget_tokens = 300
-    supervisor.environment = lambda _: {'stable': source}
+    supervisor.environment = lambda _: {'live': source}  # P3 stable identity/device layer is protected now
     install(daemon, [sup('task', 'Inspecting', task())], {'worker': done('Inspected')})
     result = outcome(chat(daemon, 'Inspect the available devices.'))
     async def inspect():

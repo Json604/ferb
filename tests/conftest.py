@@ -515,3 +515,10 @@ async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[
     finally:
         await rt.cancel(run)
     return out
+
+
+def pytest_collection_modifyitems(items):
+    """A real-surface file must never silently join the default offline suite if its marker was omitted."""
+    for item in items:
+        if '_real' in item.path.stem and not any(item.get_closest_marker(name) for name in ('real', 'real_claude', 'real_api')):
+            item.add_marker(pytest.mark.real)

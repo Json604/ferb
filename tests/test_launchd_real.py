@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.real  # Native installation/restart requires an explicit owner-run live check.
+
 from ferb.cli.client import Client
 from ferb.core.errors import NotRunning
 from ferb.device.install import MARKER, Installer
