@@ -124,11 +124,13 @@ def _shell(c: dict[str, Any]) -> str:
     return text + (" · output capture failed" if c.get("capture_error") else "")
 
 
-def _ask(c: dict[str, Any]) -> str:
+def _ask(a: dict[str, Any], c: dict[str, Any]) -> str:
+    """A worker's question, or FERB's own (its args name what it confirms, D33)."""
+    ferb = " (FERB's question)" if a.get("confirm") else ""
     if c.get("declined") or "answer" not in c:
-        return "no answer"
+        return "no answer" + ferb
     who = "the orchestrator answered" if c.get("answered_by") == "orchestrator" else "you answered"
-    return f'{who}: "{clip(c["answer"], 100)}"'
+    return f'{who}: "{clip(c["answer"], 100)}"{ferb}'
 
 
 SUMMARIES: dict[str, Callable[[dict[str, Any], dict[str, Any]], str]] = {
@@ -139,7 +141,7 @@ SUMMARIES: dict[str, Callable[[dict[str, Any], dict[str, Any]], str]] = {
     "fs.trash": lambda a, c: f"moved to Trash: {c.get('path', a.get('path', ''))}",
     "shell.run": lambda a, c: _shell(c),
     "shell.wait": lambda a, c: _shell(c),
-    "owner.ask": lambda a, c: _ask(c),
+    "owner.ask": lambda a, c: _ask(a, c),
 }
 
 

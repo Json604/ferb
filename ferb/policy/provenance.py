@@ -5,8 +5,12 @@ owner's words or of outside content (case-insensitive; a site also matches the h
 matches its ~ form). A contact or recipient without @ is, by shape: a phone number (digits, spaces and + - ( ) .,
 at least 6 digits), matched when its digits equal the digits of a phone-like run in the text, exactly; a value with
 no whitespace, matched as a whole token; or a multi-word name, matched as a whole phrase with word boundaries by
-Unicode category so Hindi words stay whole. Amounts match a token that is wholly a number (one leading currency
-symbol allowed), by value.
+Unicode category so Hindi words stay whole, or when every word the text uses for it is a whole word of it (OPEN
+QUESTION 4, owner 2026-10-09: "Rahul" names "Rahul Verma"; "Rahul Verma" doesn't name "Rahul Attacker"). Where the
+text's name for it ends is told by shape only (`_named_by_words`). Amounts match a token that is wholly a number (one
+leading currency symbol allowed), by value.
+`destination_shape` tells a typed value that is wholly an email address, a phone number or a URL (a shape, never a
+meaning): the browser and Mac typing tools record such a value as the call's recipient.
 A value in the request's words (what the owner typed) is "owner_words"; one in the owner's owner.ask answers is
 "owner_answer" (a chosen option is model-written text the owner picked, so it never counts as their typed words); a
 value in both is both.
@@ -37,18 +41,34 @@ def _word(ch: str) -> bool:
     return cat[0] in "LNM" or cat == "Co"
 
 
-def _tokens(text: str) -> list[str]:
+def _strip(raw: str) -> tuple[bool, str, bool]:
+    """A whitespace-delimited token without its leading and trailing punctuation: (had leading, token, had trailing)."""
+    tok, lead, trail = raw, False, False
+    while tok and (tok[0] in _LEAD or tok[-1] in _TRAIL):
+        if tok[0] in _LEAD:
+            tok, lead = tok[1:], True
+        else:
+            tok, trail = tok[:-1], True
+    return lead, tok, trail
+
+
+def tokens(text: str) -> list[str]:
+    """The text's whole tokens, lowercased, without leading and trailing punctuation."""
     out = []
     for raw in text.lower().split():                     # lower(), not casefold(): strasse.de is not straße.de
-        tok = raw
-        while tok and (tok[0] in _LEAD or tok[-1] in _TRAIL):
-            tok = tok[1:] if tok[0] in _LEAD else tok[:-1]
+        tok = _strip(raw)[1]
         if tok:
             out.append(tok)
     return out
 
 
-def _host(token: str) -> str:
+def phone_runs(text: str) -> list[str]:
+    """The digits of each phone-like run in the text with at least MIN_PHONE_DIGITS digits, in order."""
+    return [d for m in _PHONE_RUN.finditer(text) if len(d := _digits(m.group(0))) >= MIN_PHONE_DIGITS]
+
+
+def host_of(token: str) -> str:
+    """The lowercased host of a token that is a URL (has ://), else ""."""
     if "://" not in token:
         return ""
     try:
@@ -74,6 +94,28 @@ def _digits(text: str) -> str:
 
 
 @dataclass(frozen=True)
+class Word:
+    """One word of a text, for telling where a name in it ends (`_named_by_words`): shapes only."""
+    folded: str
+    capital: bool             # typed with a capital first letter
+    sentence_start: bool      # the first word of the text or of a line, or after . ! or ?
+    tight: bool               # joined to the word before it with nothing but spaces (no punctuation, same line)
+
+
+def _words(text: str) -> tuple[Word, ...]:
+    out: list[Word] = []
+    for line in text.splitlines():
+        prev = ""                                      # the raw token before, "" at a line's start
+        joined = False                                 # the token before ended without punctuation
+        for raw in line.split():
+            lead, tok, trail = _strip(raw)
+            if tok:
+                out.append(Word(tok.casefold(), tok[0].isupper(), not prev or prev[-1] in ".!?", joined and not lead))
+            prev, joined = raw, bool(tok) and not trail
+    return tuple(out)
+
+
+@dataclass(frozen=True)
 class Text:
     """One text, folded and tokenized once (`prepare`); every target is matched against it."""
     folded: str
@@ -82,14 +124,15 @@ class Text:
     hosts: frozenset[str]
     amounts: tuple[float, ...]
     phones: frozenset[str]
+    words: tuple[Word, ...] = ()
 
 
 def prepare(text: str) -> Text:
-    toks = _tokens(text)
+    toks = tokens(text)
     return Text(text.casefold(), frozenset(toks), frozenset(_norm_path(t) for t in toks),
-                 frozenset(h for t in toks if (h := _host(t))),
+                 frozenset(h for t in toks if (h := host_of(t))),
                  tuple(n for t in toks if (n := _token_amount(t)) is not None),
-                 frozenset(_digits(m.group(0)) for m in _PHONE_RUN.finditer(text)))
+                 frozenset(_digits(m.group(0)) for m in _PHONE_RUN.finditer(text)), _words(text))
 
 
 def _contains(folded: str, needle: str) -> bool:
@@ -118,11 +161,60 @@ def _matches(kind: str, value: str, aliases: tuple[str, ...], text: Text) -> boo
     needles = [v.lower() for v in (value, *aliases) if len(v.strip()) >= MIN_LEN]
     if kind == "name" and not any(c.isspace() for c in value):
         kind = "token"
-    if kind == "name":                                   # a multi-word name: whole phrase
-        return any(_contains(text.folded, n.casefold()) for n in needles)
+    if kind == "name":                                   # a multi-word name: whole phrase, or by the words used for it
+        return any(_contains(text.folded, n.casefold()) for n in needles) or _named_by_words(value, text.words)
     if any(n in text.tokens or (kind == "structured" and _norm_path(n) in text.paths) for n in needles):
         return True
     return kind == "structured" and any(n in text.hosts for n in needles)
+
+
+def _named_by_words(value: str, words: tuple[Word, ...]) -> bool:
+    """A multi-word name is named in the text when every word the text uses for it is a whole word of it, and one of
+    those words has at least MIN_LEN characters (OPEN QUESTION 4). The text's name for it is the run of words joined to
+    a word of the value (punctuation and line breaks end it), told by shape: from a word typed with a capital, the run
+    takes in joined words that are words of the value or capitalized (not a sentence's first word, which any word may
+    be); from a word typed in lower case, or in a script without capitals, FERB can't see where the name ends, so the
+    run takes in every joined word, and the value is named only when they are all its words. So "message Rahul"
+    names "Rahul Verma"; "message Rahul Verma" doesn't name "Rahul Attacker"; "message asmit jainson" doesn't name
+    "Asmit Jain", and neither does "message asmit" (lower case): that errs toward asking."""
+    wanted = {t.casefold() for raw in value.split() if (t := _strip(raw)[1])}
+    for i, word in enumerate(words):
+        if word.folded not in wanted:
+            continue
+        lo = hi = i
+        while lo > 0 and words[lo].tight and _joins(words[lo - 1], wanted, word.capital):
+            lo -= 1
+        while hi + 1 < len(words) and words[hi + 1].tight and _joins(words[hi + 1], wanted, word.capital):
+            hi += 1
+        run = [w.folded for w in words[lo:hi + 1]]
+        if all(w in wanted for w in run) and any(len(w) >= MIN_LEN for w in run):
+            return True
+    return False
+
+
+def _joins(other: Word, wanted: set[str], capital: bool) -> bool:
+    """Whether a word joined to a run belongs to the text's name for the value (`_named_by_words`)."""
+    return other.folded in wanted or not capital or (other.capital and not other.sentence_start)
+
+
+_EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+
+
+def destination_shape(text: str) -> str | None:
+    """The shape of a typed value: "email", "phone" or "url" when the whole value (spaces around it aside) is one
+    email address, one phone-like number (digits, spaces and + - ( ) ., at least MIN_PHONE_DIGITS digits) or one
+    scheme:// URL with a host; else None. A shape, never a meaning (rule 6)."""
+    value = text.strip()
+    if not value:
+        return None
+    if not any(c.isspace() for c in value):
+        if _EMAIL.fullmatch(value):
+            return "email"
+        if host_of(value):
+            return "url"
+    if _PHONE_VALUE.fullmatch(value) and len(_digits(value)) >= MIN_PHONE_DIGITS:
+        return "phone"
+    return None
 
 
 def sources(value: str, owner_text: str, external_texts: list[tuple[str, str]], aliases: tuple[str, ...] = (),

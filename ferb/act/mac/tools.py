@@ -16,6 +16,7 @@ from ferb.act.mac.input import Yielded
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.contacts import Contact
+from ferb.policy.provenance import destination_shape
 from ferb.policy.rules import Kind
 
 
@@ -255,7 +256,13 @@ class MacAct(_Base):
                                        "may move the owner's cursor/Space. Leave false for background tasks")
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        return ActionSpec(self._kind(args), Target(site=self._bundle(args)), content=getattr(args, "text"))
+        """Typed text that is wholly an email address, a phone number or a URL (a shape, never a meaning) is recorded
+        as the call's recipient, so where it came from is checked like a send's (S4 b)."""
+        text = getattr(args, "text")
+        typed = getattr(args, "action") in ("type", "set_value") and isinstance(text, str) and \
+            destination_shape(text) is not None
+        return ActionSpec(self._kind(args), Target(site=self._bundle(args), recipients=(text.strip(),) if typed else ()),
+                          content=text)
 
     def _kind(self, args: BaseModel) -> str:
         """Mechanical input only; labels and keystrokes do not establish intent or outcomes."""
@@ -343,6 +350,9 @@ class MacClick(_Base):
     risk, reversible = RiskLevel.MEDIUM, False
     origin = "ferb"                                    # delivery facts written by FERB; no app text comes back
     method_args = ("mechanism", "allow_foreground")    # how input is delivered, not what it does (P19 hash)
+    # Target fields filled from the agent's own notes (the contact it says the click is for): checked by the code
+    # floor, but not part of what the call is (P19 hash), like the notes themselves.
+    noted_targets = ("contact",)
     # Parked: a click here and mac.pointer action=click at the same point are one action in effect, but their
     # argument shapes differ, so they hash apart (no shared ledger_key).
 
@@ -359,9 +369,11 @@ class MacClick(_Base):
                                        "and may move the owner's cursor/Space. Leave false for background tasks")
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        """Record the agent's declared purpose; never infer it from app or UI words."""
-        kind = {"call": Kind.CALL, "send": Kind.SEND}.get(getattr(args, "purpose") or "", Kind.MAC_INPUT)
-        return ActionSpec(kind, Target(site=self._bundle(args)))
+        """The physical kind is mechanical input; the agent's declared purpose (call / send) and contact are recorded
+        beside it and can only add a confirmation, never remove one (W2). Never inferred from app or UI words."""
+        contact = getattr(args, "contact")
+        return ActionSpec(Kind.MAC_INPUT, Target(site=self._bundle(args), contact=contact.selected if contact else None),
+                          declared={"call": Kind.CALL, "send": Kind.SEND}.get(getattr(args, "purpose") or ""))
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
@@ -409,7 +421,8 @@ class MacPointer(MacClick):
         spec = super().describe(args)
         kind = Kind.READ if getattr(args, "action") == "hover" else spec.kind
         return ActionSpec(kind, spec.target, content=str(args.model_dump(
-            exclude={"contact", "purpose", "app", "mechanism", "allow_foreground"})))   # notes, target, method: not content
+            exclude={"contact", "purpose", "app", "mechanism", "allow_foreground"})),   # notes, target, method: not content
+            declared=spec.declared)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app = str(getattr(args, "app"))

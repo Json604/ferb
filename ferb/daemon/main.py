@@ -56,6 +56,7 @@ from ferb.orchestrator.stop import StopControl
 from ferb.trace import compose
 from ferb.paths import ferb_home, socket_path
 from ferb.policy import protection as protection_lists
+from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.protection import Protection
 from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
@@ -510,13 +511,15 @@ class Daemon:
         roots = FsRoots(str(workspace), tuple(self.config.get("fs", "owner_roots", [])),
                         downloads.untrusted_roots(self.config.get("fs", "untrusted_roots", ["~/Downloads"]), workspace),
                         protection=self.protection)
-        assert self.ledger and self.spans and self.journal
+        assert self.ledger and self.spans and self.journal and self.db
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.disturbance = self.disturbance
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
         self.gateway.snapshots = self.snapshots
+        self.gateway.confirmations = Confirmations(self.db, self.clock, self.ids)     # D33, S4 (F5a)
+        self.gateway.destinations = KnownDestinations(self.db, self.clock, self.ids)  # SQ6
         self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
@@ -2255,7 +2258,9 @@ class Daemon:
                               "proxy": self.proxy is not None, "proxy_alive": bool(probe.get("alive")),
                               "proxy_restarted": bool(probe.get("restarted")),
                               "proxy_last_error": probe.get("last_error"),
-                              "snapshots": self.take_snapshots}
+                              "snapshots": self.take_snapshots,
+                              # OPEN QUESTION 3: shell commands run without a snapshot when one can't be taken
+                              "snapshot_failure": self.snapshots.last_failure() if self.snapshots else None}
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
                         "connected": self.voice is not None and self.voice.app is not None,
                         "permissions": self.voice.permissions if self.voice is not None else {}}

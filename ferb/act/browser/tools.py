@@ -4,6 +4,7 @@ Agents choose accounts, sources, authorization and verification. Drivers enforce
 Sealed fills retain origin binding. Action kinds are descriptive metadata, never inferred owner permission.
 A download a task tab starts is a file in FERB's workspace reported as facts (`downloads`), never a dialog (D35)."""
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
@@ -17,6 +18,7 @@ from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
                              RiskLevel, SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
+from ferb.policy.provenance import destination_shape
 from ferb.policy.rules import Kind
 
 
@@ -493,12 +495,17 @@ class BrowserAct(_Base):
         return [(f, "read") for f in getattr(args, "files", None) or ()]
 
     def describe(self, args: BaseModel) -> ActionSpec:
+        """Typed text that is wholly an email address, a phone number or a URL (a shape, never a meaning) is recorded
+        as the call's recipient, so where it came from is checked like a send's (S4 b)."""
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
         content = text if action in ("type", "select") else None
         if action in {"click", "dblclick", "rightclick", "hover", "drag"}:
             content = f"{action}:{getattr(args, 'element')}:{getattr(args, 'end_element', '')}"
-        return self._spec(kind, args, content=content)
+        spec = self._spec(kind, args, content=content)
+        if action == "type" and isinstance(text, str) and destination_shape(text) is not None:
+            spec = dataclasses.replace(spec, target=dataclasses.replace(spec.target, recipients=(text.strip(),)))
+        return spec
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         ref = self.driver.owned_by(str(getattr(args, "tab")), ctx.task_id)

@@ -74,3 +74,11 @@ def test_scan_checks_contact_destinations() -> None:
     assert scan_trace(_egress("send", contact="+15550000"), [], allowed_recipients={"+15550000"}) == []
     called = scan_trace(_egress("call", contact="+15559999"), [], allowed_recipients={"+15550000"})
     assert [f["detail"] for f in called] == ["+15559999"]
+
+
+def test_scan_reads_a_declared_purpose_too() -> None:                  # F5a carried item 7: mac.click says send
+    declared = _trace_with({"tool": "mac.click", "kind": "mac_input", "declared": "send",
+                            "target": {"contact": "Mallory"}})
+    assert [f["detail"] for f in scan_trace(declared, [], allowed_recipients={"Rahul"})] == ["Mallory"]
+    plain = _trace_with({"tool": "mac.click", "kind": "mac_input", "target": {"contact": "Mallory"}})
+    assert scan_trace(plain, [], allowed_recipients={"Rahul"}) == []

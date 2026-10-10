@@ -124,10 +124,13 @@ class Target:
 
 @dataclass(frozen=True)
 class ActionSpec:
-    """Capability.describe(args): what the call does, recorded for tracing and result inspection."""
+    """Capability.describe(args): what the call does, recorded for tracing and result inspection. `kind` is the
+    physical operation the capability derives from its arguments; `declared` a kind the agent's stated purpose adds
+    (a click it says sends or calls). A declared kind can only add a confirmation, never remove one (W2)."""
     kind: str
     target: Target = Target()
     content: str | None = None
+    declared: str | None = None
 
 
 # ---------- runtimes ----------

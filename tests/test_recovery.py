@@ -25,6 +25,7 @@ from ferb.cli.client import Client, RpcError
 from ferb.core.types import ActionSpec, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
 from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
+from tests.support.confirm import FerbAnswers
 
 
 # ---------- helpers ----------
@@ -471,20 +472,25 @@ def test_at_most_one_snapshot_per_fifteen_minutes_across_tasks(daemon: RunningDa
     assert len(_snapshot_rows(daemon)) == 2
 
 
-def test_shell_and_trash_calls_take_no_snapshot(daemon: RunningDaemon, trash: Path) -> None:
+def test_a_shell_call_takes_a_snapshot_first_and_trash_and_writes_take_none(daemon: RunningDaemon, trash: Path) -> None:
+    """F5a (carried item 6): code can't tell a shell delete from a build (rule 6), so a shell command gets a snapshot
+    first; a trash and a write are recoverable by themselves (S1) and take none."""
     fake = _Snapshots()
     _snaps(daemon, fake)
     shell = _Ordered("shell.fake", Kind.RUN_SHELL, fake.order)
     grant, _ = gateway_setup(daemon, {"probe", "fs:write"}, gateway_request("tidy"), [shell])
-    gateway_tool_call(daemon, grant, "shell.fake", text="rm -r build")
+    out = gateway_tool_call(daemon, grant, "shell.fake", text="rm -r build")
     f = _ws(daemon) / "t.txt"
     f.write_text("x")
     gateway_tool_call(daemon, grant, "fs.trash", path=str(f))
     _write(daemon, grant, _ws(daemon) / "w.txt", "x")
-    assert fake.order == ["shell.fake"] and _snapshot_rows(daemon) == []   # agents ask; trash and writes are covered
+    assert fake.order == ["snapshot", "shell.fake"] and len(_snapshot_rows(daemon)) == 1
+    assert out["content"]["recovery_snapshot"]["record"] == _snapshot_rows(daemon)[0]["id"]
+    [span] = _spans(daemon, "recovery.snapshot")
+    assert span["error"] is None
 
 
-def test_a_permanent_delete_takes_a_snapshot_first(daemon: RunningDaemon) -> None:
+def test_a_permanent_delete_takes_a_snapshot_first(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     fake = _Snapshots()
     _snaps(daemon, fake)
     gone = _Ordered("fs.fake_delete", Kind.DELETE_PERMANENT, fake.order)
@@ -496,7 +502,7 @@ def test_a_permanent_delete_takes_a_snapshot_first(daemon: RunningDaemon) -> Non
     assert len(_snapshot_rows(daemon)) == 1
 
 
-def test_a_failed_snapshot_never_refuses_a_call_and_counts_toward_the_rate_limit(daemon: RunningDaemon) -> None:
+def test_a_failed_snapshot_never_refuses_a_call_and_counts_toward_the_rate_limit(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     for fail in ("boom", "none"):
         fake = _Snapshots(fail=fail)
         _snaps(daemon, fake)

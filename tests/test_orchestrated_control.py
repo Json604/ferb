@@ -5,6 +5,7 @@ from tests.conftest import GatewayCap as FakeCap, gateway_tool_call as call, gat
 from tests.conftest import chat, cond, done, install, outcome, sup, task
 import json
 import pytest
+from tests.support.confirm import FerbAnswers
 
 
 @pytest.mark.parametrize('owner_words', [
@@ -179,7 +180,7 @@ def test_planner_text_never_overrides_a_valid_action_plan(daemon):
     assert outcome(chat(daemon, 'Read the source'))['status'] == 'done'
 
 
-def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(daemon):
+def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(ferb_yes: FerbAnswers, daemon):
     read = FakeCap('fake.read', 'read', {'browser:read'}, reads=(('web', 'https://example.com'),))
     send = FakeCap('fake.send', 'send', {'browser:act'}, site='example.com')
     shell = FakeCap('fake.shell', 'run_shell', {'shell'})
@@ -191,7 +192,7 @@ def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(
     assert not daemon.daemon.state.approvals.pending()
 
 
-def test_driver_exception_details_reach_recovery_and_the_record(daemon):
+def test_driver_exception_details_reach_recovery_and_the_record(ferb_yes: FerbAnswers, daemon):
     cap = FakeCap('fake.send', 'send', {'browser:act'})
     async def fail(args, ctx):
         raise ConnectionError('profile scaler transport disconnected after dispatch')
@@ -258,7 +259,7 @@ def test_scaler_gmail_keeps_setup_tools_and_orchestrator_switches_worker(daemon)
     assert {'browser:read', 'browser:act', 'shell'} <= seen[0]
 
 
-def test_recovery_preserves_artifacts_and_reports_uncertain_actions(daemon):
+def test_recovery_preserves_artifacts_and_reports_uncertain_actions(ferb_yes: FerbAnswers, daemon):
     from tests.conftest import tool
     cap = FakeCap('fake.send', 'send', {'browser:act'})
     async def lost_ack(args, ctx):

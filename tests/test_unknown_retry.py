@@ -17,6 +17,7 @@ from ferb.orchestrator.tree import TaskRecord
 from ferb.daemon.gateway import hashed_args
 from ferb.store.db import Database
 from tests.conftest import Answers, FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
+from tests.support.confirm import FerbAnswers
 
 APPROVED = "owner approved retry after inspection"
 
@@ -74,7 +75,7 @@ def _second_worker(d: RunningDaemon, scopes: set[str]) -> Any:
 
 # ---------- the refusal ----------
 
-def test_an_unknown_consequential_action_is_not_retried_without_the_owner(daemon: RunningDaemon) -> None:
+def test_an_unknown_consequential_action_is_not_retried_without_the_owner(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     grant, boom = _pay_setup(daemon)
     second = _refused(daemon, grant)
     e = second["content"]["error"].lower()
@@ -100,7 +101,7 @@ def test_a_reversible_action_is_not_blocked(daemon: RunningDaemon) -> None:
     assert read.calls == 2 and _rows(daemon, "probe.read") == []
 
 
-def test_a_different_target_is_allowed(daemon: RunningDaemon) -> None:
+def test_a_different_target_is_allowed(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     grant, boom = _pay_setup(daemon)
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     # A different recipient is a different payment: not the unknown one, so not blocked by P19 (F5 may still confirm).
@@ -109,7 +110,7 @@ def test_a_different_target_is_allowed(daemon: RunningDaemon) -> None:
     assert boom.calls == 2
 
 
-def test_a_changed_annotation_is_still_the_same_action(daemon: RunningDaemon) -> None:
+def test_a_changed_annotation_is_still_the_same_action(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """`effect` and `why` are the agent's notes, never a gate: changing them doesn't make it a new action."""
     grant, boom = _pay_setup(daemon)
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
@@ -118,7 +119,7 @@ def test_a_changed_annotation_is_still_the_same_action(daemon: RunningDaemon) ->
     assert again["is_error"] and again["content"].get("retry_action") and boom.calls == 1
 
 
-def test_a_retry_from_another_worker_in_the_same_tree_is_refused(daemon: RunningDaemon) -> None:
+def test_a_retry_from_another_worker_in_the_same_tree_is_refused(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     grant, boom = _pay_setup(daemon)
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     later = _second_worker(daemon, {"probe"})
@@ -126,7 +127,7 @@ def test_a_retry_from_another_worker_in_the_same_tree_is_refused(daemon: Running
     assert again["is_error"] and again["content"].get("retry_action") and boom.calls == 1
 
 
-def test_an_identical_action_still_running_in_the_tree_is_refused(daemon: RunningDaemon) -> None:
+def test_an_identical_action_still_running_in_the_tree_is_refused(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     pay = FakeCap("probe.pay", "pay", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay z@y.com $5"), [pay])
     first = gateway_tool_call(daemon, grant, "probe.pay", to="z@y.com", text="pay $5")     # done: the hash to copy
@@ -257,7 +258,7 @@ def test_another_spelling_of_the_same_file_is_the_same_action(daemon: RunningDae
 
 
 @pytest.mark.parametrize("tool,point", [("mac.click", {}), ("mac.pointer", {"action": "click"})])
-def test_a_reworded_purpose_or_contact_is_still_the_same_click(daemon: RunningDaemon, tool: str,
+def test_a_reworded_purpose_or_contact_is_still_the_same_click(ferb_yes: FerbAnswers, daemon: RunningDaemon, tool: str,
                                                                 point: dict[str, Any]) -> None:
     """purpose and contact are the agent's notes about a click; the kind describe() derives from purpose is left out
     of the hash too, so neither gets an unknown send past the refusal."""
@@ -284,7 +285,7 @@ def test_the_hash_leaves_out_the_kind_and_binds_the_target_contact() -> None:
     assert payload_hash(req(Kind.SEND, "Asha"), click) != payload_hash(req(Kind.SEND, "Ravi"), click)
 
 
-def test_no_second_approval_while_the_approved_retry_is_running(daemon: RunningDaemon) -> None:
+def test_no_second_approval_while_the_approved_retry_is_running(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """The sequence the re-review probed: the owner approves, the retry starts, the worker asks again. FERB doesn't
     ask while the retry is in flight, and after it ends a further repeat needs a new Yes that knows how it ended."""
     import asyncio
@@ -342,7 +343,7 @@ def test_no_second_approval_while_the_approved_retry_is_running(daemon: RunningD
     assert "could make it happen up to 3 times" in line                # the unknown one, the done one, this one
 
 
-def test_the_question_counts_every_attempt_that_may_have_happened(daemon: RunningDaemon) -> None:
+def test_the_question_counts_every_attempt_that_may_have_happened(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     _ask(daemon, grant, Answers(daemon, choice=1), question="Pay again?", retry_action=ref)
@@ -486,7 +487,7 @@ def test_a_path_with_a_nul_is_refused_cleanly(daemon: RunningDaemon) -> None:
     assert _rows(daemon, "fs.write") == []                        # nothing intended, nothing to block a retry
 
 
-def test_a_yes_to_an_out_of_date_question_approves_nothing(daemon: RunningDaemon) -> None:
+def test_a_yes_to_an_out_of_date_question_approves_nothing(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """Two questions about one action can be open at once; if the action was tried again in between, a Yes to the
     older question answers something that's no longer the case."""
     import asyncio
@@ -563,7 +564,7 @@ def test_an_approval_keeps_the_row_unknown_and_allows_one_new_attempt(tmp_path: 
 
 # ---------- the owner's approval ----------
 
-def test_the_owners_yes_lets_it_run_again(daemon: RunningDaemon) -> None:
+def test_the_owners_yes_lets_it_run_again(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     owner = Answers(daemon, choice=1)
@@ -578,7 +579,7 @@ def test_the_owners_yes_lets_it_run_again(daemon: RunningDaemon) -> None:
     assert "probe.pay to x@y.com" in ferb_text and "could make it happen twice" in ferb_text
     assert "probe.pay to=x@y.com text=pay $5 → ConnectionError: lost the acknowledgement" in ferb_text  # that call
     # Approved, not settled: nobody observed the outcome, so the row stays unknown and says who approved what.
-    ask_span = _spans(daemon, "owner.ask")[0]
+    ask_span = _spans(daemon, "owner.ask")[-1]                    # the retry question (FERB's pay question came first)
     row = _rows(daemon, "probe.pay")[0]
     assert (row["state"], row["reconciled"], row["retry_approved"], row["retried_by"]) == \
         ("unknown", 0, ask_span["id"], None)
@@ -598,7 +599,7 @@ def test_the_owners_yes_lets_it_run_again(daemon: RunningDaemon) -> None:
     assert fourth["content"].get("retry_action") == retried["id"] and boom.calls == 2
 
 
-def test_one_approval_allows_one_retry(daemon: RunningDaemon) -> None:
+def test_one_approval_allows_one_retry(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """Even when the approved retry ends known (here it failed), a further repeat needs the owner again: the earlier
     attempt is still unknown and its approval is used up."""
     class Flaky(FakeCap):
@@ -627,7 +628,7 @@ def test_one_approval_allows_one_retry(daemon: RunningDaemon) -> None:
     assert pay.calls == 3
 
 
-def test_a_worker_cannot_approve_its_own_retry(daemon: RunningDaemon) -> None:
+def test_a_worker_cannot_approve_its_own_retry(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     pay = dict(to="x@y.com", text="pay $5")
@@ -685,7 +686,7 @@ def test_a_worker_cannot_approve_its_own_retry(daemon: RunningDaemon) -> None:
     still_refused()
 
 
-def test_an_attempt_settled_while_the_owner_was_asked_is_reported(daemon: RunningDaemon) -> None:
+def test_an_attempt_settled_while_the_owner_was_asked_is_reported(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """The browser extension can report the earlier attempt after reconnecting while the question is open: the
     owner's Yes then doesn't settle it again, and the worker is told what happened."""
     import asyncio
@@ -793,7 +794,7 @@ def test_an_ax_press_the_app_didnt_answer_is_unknown_and_not_repeated(
     assert ax.calls.count("press") == (1 if repeat_refused else 2)
 
 
-def test_control_characters_in_the_retry_question_are_stripped(daemon: RunningDaemon) -> None:
+def test_control_characters_in_the_retry_question_are_stripped(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     grant, _ = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     owner = Answers(daemon, choice=2)
@@ -817,7 +818,7 @@ def test_the_question_names_the_tool_the_worker_really_called_not_the_shared_key
     assert len(ran) == 1
 
 
-def test_a_target_of_several_fields_reads_as_one_short_target(daemon: RunningDaemon) -> None:
+def test_a_target_of_several_fields_reads_as_one_short_target(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """One readable target, but every consequential identifier stays: all recipients, the amount and the account; the
     site (and a contact beside recipients) go."""
     from ferb.core.types import ActionSpec, Target

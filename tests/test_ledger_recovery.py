@@ -8,9 +8,10 @@ from ferb.orchestrator.ledger import Ledger
 from ferb.policy.rules import Kind
 from ferb.store.db import Database
 from tests.conftest import FakeCap, RunningDaemon, gateway_setup, gateway_tool_call
+from tests.support.confirm import FerbAnswers
 
 
-def test_unresolved_unknown_rows_are_listed_for_recovery(daemon: RunningDaemon) -> None:
+def test_unresolved_unknown_rows_are_listed_for_recovery(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     boom = FakeCap("probe.send", "send", {"probe"}, boom=True)   # raises after "sending": outcome unknown
     grant, _ = gateway_setup(daemon, {"probe"}, None, [boom])
     r = gateway_tool_call(daemon, grant, "probe.send", to="x@y.com")

@@ -230,6 +230,20 @@ Known gaps:
   break Go tools like `gh`, so it is a decision for you; see ARCHITECTURE §12.
 
 If the sandbox can't run, those tools are off and `ferb doctor` says why. `shell.rules` lists the rules.
+Before each shell command FERB takes a local disk snapshot (at most one per 15 minutes; a recent one is reused). If
+none can be taken the command still runs, and `ferb doctor` shows the last failure.
+
+FERB itself asks you, in chat, before some steps run. Its question starts with `FERB:`, names the exact step and offers
+Yes or No:
+- a payment or a change to a password, sign-in or recovery setting: always;
+- a permanent delete of something you didn't name, or a message or call to someone you didn't name ("Rahul" names
+  "Rahul Verma"; typed in lower case, only the full name counts);
+- sending to a place you haven't named after the task read your own files and outside content;
+- a recipient or amount that only outside content (a page, an email, a message) supplied.
+
+You're asked once per task: your answer carries across its retries, and a No stops that step for the task. A recipient
+or place you named, chose in an answer, or said Yes to is known from then on and isn't asked about again. A scheduled
+run doesn't take such a step, since nobody is at chat to answer.
 An oversized unfinished record may be replaced by an explicit redaction marker.
 
 Retention (`[retention]` in `config.toml`): `trace_days` (default 30) is how long a finished task's detailed trace is kept,

@@ -178,7 +178,8 @@ def test_native_ui_words_never_decide_action_meaning():
     assert menu.describe(menu.Input(app='Some app', path='File > Send')).kind == Kind.MAC_INPUT
     click = MacClick(driver)
     click._bundle = lambda args: 'some.app'
-    assert click.describe(click.Input(app='Some app', shot='s1', x=1, y=2, purpose='send')).kind == Kind.SEND
+    spec = click.describe(click.Input(app='Some app', shot='s1', x=1, y=2, purpose='send'))
+    assert spec.kind == Kind.MAC_INPUT and spec.declared == Kind.SEND     # the purpose is declared beside the kind (W2)
 
 
 def test_large_native_snapshot_has_retrievable_pages(monkeypatch):

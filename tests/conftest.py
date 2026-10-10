@@ -27,6 +27,7 @@ from ferb.policy.targets import Request, Targets
 from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.runtimes.codex_exec import CodexRuntime
 from tests.support import egress
+from tests.support.confirm import FerbAnswers
 
 pytest_plugins = ["tests.browserkit"]           # browser fixtures: local pages, temporary keychain
 
@@ -89,6 +90,14 @@ def daemon(home: Path) -> Iterator[RunningDaemon]:
         sup.availability = sup._default_availability
     yield d
     d.stop()
+
+
+@pytest.fixture
+def ferb_yes(daemon: RunningDaemon) -> Iterator[FerbAnswers]:
+    """FERB's own questions (the code floor, the sink rule) answered Yes as they come, for tests about something the
+    call passes through on the way (provenance, P19, recovery). `.asked` lists them."""
+    with FerbAnswers(daemon) as answers:
+        yield answers
 
 
 def real_codex_login() -> Path | None:

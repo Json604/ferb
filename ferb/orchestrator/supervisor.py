@@ -367,7 +367,8 @@ class Supervisor(WorkerRuns):
                 words = prior_request.words + "\n" + words
                 authority = prior_request.words + "\n" + authority
                 payload = prior_request.payload + "\n\nOwner follow-up:\n" + payload
-                self._env[request_id] = {**self.environment(words), "words": words, "payload": payload}
+                self._env[request_id] = {**self.environment(words), "words": words, "payload": payload,
+                                         "message_origin": self._env[request_id].get("message_origin", set())}
                 # A new attempt gets fresh scoped authority; durable context never restores approval grants.
         # Quotes are checked against what the owner typed (never against pasted text)
         receipts = self.remember(out.remember, typed, entry.id)
@@ -641,11 +642,20 @@ class Supervisor(WorkerRuns):
         if not request.payload:
             request = Request(request.request_id, request.words, request.targets, payload=message or request.words)
             self.state.requests.record(request)
+        # The request's own origins (the message, its pasted parts, what a clarify or retry carries), apart from the
+        # planner's blocks and memory: the sink rule's "outside content was read" counts these (S4, F5a).
+        asked = self._env.get(request_id, {}).get("message_origin") or {origins_.external("unlabeled")}
+        request_origins = set(asked) | (self.spans.request_origins(prior_task) if prior_task else set())
         root_span = self.spans.start("task", task_id=tree_id, device_id=self.device_id,
                                      input={"goal": spec.goal, "identity": spec.identity,
                                             "targets": spec.targets.model_dump(), "request_id": request_id,
                                             "request": request.payload, "authority_words": request.words,
+                                            "request_origins": sorted(request_origins),
                                             "task_spec": spec.model_dump(), "intake_receipts": tree.intake_receipts})
+        known = getattr(self.gateway, "destinations", None)
+        if known is not None:                        # SQ6: what the owner named is a known destination from now on
+            for kind, value in known.from_words(request.words):
+                known.record(kind, value, "named", request_id=request_id)
         # The worker sees the whole request payload in a protected block: derived labels inherit its origins (MP2).
         self.spans.set_origin(root_span.id, origins_.join(origins or {origins_.external("unlabeled")}))
         self.tasks.add(TaskRecord(root, now, root_span.id, tree_id))

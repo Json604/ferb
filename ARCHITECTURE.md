@@ -110,9 +110,10 @@ intended, executing, done, failed and unknown delivery. A delivered event is not
 Code refuses a consequential call identical to one in the same task tree whose outcome is unknown or still running;
 only the owner's Yes allows one more attempt (P19, section 11).
 Each `tool.call` span records the action `kind` and its non-empty `target` fields, so exported traces can be scanned
-offline. `Gateway.test_send_allowlist` is for tests only: when set, send-class actions to unlisted or unidentifiable
-recipients are refused before the ledger; it is None (inert) in normal running. GUI typing into a messaging app is
-kind `mac_input`, not send-class, so the allowlist does not cover it.
+offline. `Gateway.test_send_allowlist` is for tests only: when set, send-class actions (by kind or declared purpose)
+to unlisted or unidentifiable recipients are refused before FERB asks anything and before the ledger; it is None
+(inert) in normal running. GUI typing into a messaging app is kind `mac_input`, not send-class, so the allowlist does
+not cover it. Before a consequential call runs, code may ask the owner itself (section 12, "Confirmations").
 
 Ordinary `owner.ask` first goes to the orchestrator with context. If what/who/which remains ambiguous, the owner gets
 candidates and their evidence. Before a hard-to-undo action, preparation and target confirmation are concrete; an
@@ -687,8 +688,10 @@ new task tree is not refused by code: its orchestrator sees the earlier tree's r
   path, the Trash path (a real `.Trash` or `.Trashes` ancestor is required) and the item's device and inode. The record
   stays while that very item is still in the Trash, at most 90 days (`TRASH_RECORD_MAX_DAYS`); the item itself always
   stays in the owner's Trash.
-- Snapshots. Only when an agent asks (`recovery.snapshot`, input `before`: kind `snapshot`, reversible, no ledger row,
-  not an observation tool) or before a `DELETE_PERMANENT` call (no capability has that kind yet), on a
+- Snapshots. When an agent asks (`recovery.snapshot`, input `before`: kind `snapshot`, reversible, no ledger row,
+  not an observation tool), before a `DELETE_PERMANENT` call (no capability has that kind yet) and, since F5a, before
+  every `RUN_SHELL` call (`shell.run`, `shell.start`, `shell.send`: code can't tell a shell delete from a build,
+  rule 6; the result says `recovery_snapshot {snapshot, record, reused}` or `snapshot_error`), on a
   `recovery.snapshot` span: `tmutil localsnapshot`, measured 2026-10-09 from a terminal with no admin rights and no
   prompt (0.43 s). At most one attempt per 15 minutes across all tasks, a failed one included; a recent snapshot is
   reused. Each is a `recovery` row (kind `snapshot`, original `/`, `saved_to` the snapshot's name, reason the redacted
@@ -911,6 +914,69 @@ Residuals:
   clients reach a dev server by `127.0.0.1`. curl, Python, Node and Go resolve `localhost` from `/etc/hosts`.
 - **The owner's own local servers.** FERB's shell can't reach servers the owner runs: a dev server in their terminal,
   Ollama, a local database. FERB's browser tools can still open localhost pages.
+
+**Confirmations** ([`policy/confirm.py`](ferb/policy/confirm.py),
+[`policy/destinations.py`](ferb/policy/destinations.py), D23 floor, D33, S4, SQ6, W2; migration `0026`). Before a
+consequential call runs, and before any call whose agent declared a purpose, the gateway decides from facts whether
+the owner must answer first (`confirm.decide`):
+- **What is checked.** The physical kind the capability derives, plus `ActionSpec.declared`: a kind the agent's stated
+  purpose adds (`mac.click`/`mac.pointer` `purpose` send/call: physical kind `mac_input`, `declared` send/call,
+  `Target.contact` the contact it names). A declaration can only add a question; `why` and `effect` are never read.
+  `noted_targets` keeps the declared contact out of P19's hash. Typed text that is wholly an email address, a phone
+  number or a URL (`provenance.destination_shape`, a shape) is the call's recipient on `mac.act` type/set_value and
+  `browser.act` type.
+- **The floor.** A payment and an account-security change always ask, and their Yes covers one run that worked (a
+  second payment asks again; a failed one's retry doesn't). A permanent delete of a path the owner didn't name, and a
+  send-class call (send, reply, post, mailbox send, submit, call) to a recipient or contact the owner didn't name, ask.
+- **Already authorized** (D33) is provenance: the value is in the owner's words for this request or in their answer in
+  this task (`owner_words`, `owner_answer`), or it is a known destination. A multi-word shown name counts as named when
+  every word the owner used for it is a whole word of it (OPEN QUESTION 4: "Rahul" names "Rahul Verma"; "Rahul Verma"
+  doesn't name "Rahul Attacker"). Where the owner's name ends is told by shape: from a capitalized word, the run of
+  joined words that are capitalized (not a sentence's first word) or words of the value; from a lower-case word (or a
+  script without capitals), every joined word, so then only the whole name counts. Which of several matches is meant
+  stays the agents' question (D34).
+- **The sink rule.** (a) A send-class call to a place with no recipient (a post, a submit) asks when the task tree has
+  read the owner's own data (`private` among its tool results' origins) and outside content (an `external:*` origin in
+  its tool results or in the request's own origins: pasted text, a clarify's earlier messages, a scheduled request's
+  turn), and the owner hasn't named the place. The supervisor records the request's own origins on the root span
+  (`input.request_origins`, `SpanStore.request_origins`); planner blocks and memory are not in them. (b) A recipient,
+  contact or amount that came only from outside content asks, unless it is a known destination.
+- **Known destinations** (`known_destinations`): the emails, URL hosts and phone numbers in the owner's words of each
+  request (`named`, recorded by `run_tree`), destinations in the owner's answers to `owner.ask` (`answered`), and each
+  destination of a Yes to FERB's question (`confirmed`). Never "new" again in a later task. Values are normalized,
+  never message content.
+- **Asking.** FERB asks before the call's span starts and before any lock is held, never through the orchestrator:
+  an `owner.ask` span with `ferb_question: true`, `args.confirm` = the `{rule, key}` it covers, options Yes/No, the
+  approval journaled as `ferb.confirm`. Its question is one paragraph, control characters stripped, redacted:
+  - `FERB: this pays <amount> to <recipients> on <site> from <account>.`
+  - `FERB: this changes account security (a password, sign-in or recovery setting) on <site>.`
+  - `FERB: this permanently deletes <path> (not the Trash; FERB keeps no copy).`
+  - `FERB: this sends to <recipients>, whom you didn't name in this request.` (`this calls …` for a call)
+  - `FERB: this task has read your own data and outside content (<origins>); this step would send to <place>, a place
+    you haven't named.`
+  - `FERB: the recipient <value> comes from outside content (<origin>), not from you.` (or `the amount …`)
+  - Several apply: joined with `;`. Then `The step: <tool and arguments>.`, `What the worker says: <why>` when given,
+    and `Go ahead?`.
+- **Answers.** One row per need in `confirmations`, keyed by the task tree and the exact values, so the answer carries
+  across that tree's retries and workers (rule 9). Yes runs the call (its span's `confirmations` lists the rows). No,
+  or a skipped question, refuses it (`the owner said no to this: …`, and later `the owner already said no to this in
+  this task: …`, with `next` telling the worker not to try another way). An expired question records nothing. A
+  scheduled run refuses (`… This needs you, and nobody is at chat (a scheduled run); not done.`). One question at a
+  time per tree. A call the ledger will refuse anyway (P19) isn't asked about. The test-mode allowlist refuses before
+  any question.
+- **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result
+  says `snapshot_error`, and `ferb doctor` shows the last failure (OPEN QUESTION 3).
+- **For Task 5.** `owner.ask` declares `allow_destination`; until shell destinations can be refused, every value is
+  refused with "no command of this task tried to reach … and was refused".
+
+What reaches it today: no capability yet has the kind pay, account_security, delete_permanent or a send-class kind of
+its own, so the floor fires for `mac.click`/`mac.pointer` with a declared send or call, and the sink rule (b) for a
+typed address, number or URL only outside content supplied. A browser form posted by a click or Enter is `click` /
+`fill_form`, which sink (a) doesn't cover (Task 5 covers URLs and shell destinations).
+Residuals: the floor has no hook for a GUI send by a plain click with no declared purpose (W3, F5b's Jev); a name the
+owner typed in lower case or in a script without capitals counts as named only in full; a destination named in any
+request ("don't email bob@x.com" included) is known from then on (code doesn't read meaning, rule 6); a typed date or
+number with at least six digits has a phone's shape.
 
 ## 13. Documentation and diagrams
 

@@ -244,6 +244,23 @@ def containment_check(c: dict[str, Any] | None) -> Check:
                  "restart the daemon after fixing it (`ferb setup --update`)")
 
 
+def snapshot_check(c: dict[str, Any] | None) -> Check:
+    """S1 snapshots before shell work and permanent deletes (OPEN QUESTION 3: when one can't be taken the command
+    still runs, and this says so)."""
+    if not c:
+        return Check("snapshots", "warn", "the daemon didn't report them", "run `ferb setup --update`")
+    failure = c.get("snapshot_failure")
+    if failure is None and c.get("snapshots") is False:
+        failure = {"why": "snapshots are turned off for this FERB"}
+    if failure:
+        when = f" at {failure['at']}" if failure.get("at") else ""
+        return Check("snapshots", "warn", f"the last snapshot attempt failed{when} ({failure.get('why')}); shell "
+                     "commands since then ran without a recovery snapshot", "check that Time Machine local snapshots "
+                     "work (`tmutil localsnapshot`)")
+    return Check("snapshots", "ok", "a local snapshot comes before shell work and permanent deletes (one per 15 "
+                 "minutes, reused)")
+
+
 def doctor(env: Env) -> int:
     inst = env.inst
     checks: list[Check] = []
@@ -293,6 +310,7 @@ def doctor(env: Env) -> int:
         for r in report["selftest"]:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
         add(containment_check(report.get("containment")))
+        add(snapshot_check(report.get("containment")))
         voice = report.get("voice", {})
         if voice.get("push_to_talk"):
             perms = voice.get("permissions", {})

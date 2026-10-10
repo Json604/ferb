@@ -89,6 +89,21 @@ class SpanStore:
                                      (origin.external("unlabeled"), *params))
         return {o for r in rows for o in origin.split(r["origin"])}
 
+    def request_origins(self, root_id: str) -> set[str]:
+        """The origins of the request itself (S3): the owner's message and what it carried (pasted text, the earlier
+        messages a clarify continues, a scheduled request's turn, the request a retry continues), as the supervisor
+        recorded them on the tree's root task span (`input.request_origins`). Planner blocks and memory are not in it.
+        A root recorded without them (before F5a) gives the root's own origin, everything its planning turn saw:
+        fail-closed."""
+        row = self._db.conn.execute("SELECT input_json, origin FROM spans WHERE kind = 'task' AND task_id = ? "
+                                    "ORDER BY rowid LIMIT 1", (root_id,)).fetchone()
+        if row is None:
+            return set()
+        recorded = json.loads(row["input_json"]).get("request_origins")
+        if isinstance(recorded, list):
+            return {str(o) for o in recorded if o}
+        return origin.split(row["origin"])
+
     def task_origins(self, root_id: str) -> set[str]:
         """Every origin recorded on this task tree's request (its root task span), tool results and context
         sources: what its models were shown. Labels derived from the task's work (worker reports, answers) inherit

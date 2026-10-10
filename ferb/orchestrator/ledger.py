@@ -76,6 +76,15 @@ class Ledger:
             raise
         return intent
 
+    def refuses(self, task_id: str, capability: str, payload_hash: str) -> bool:
+        """Whether `intend` would refuse this action now (P19), read only: FERB doesn't ask the owner about a call the
+        ledger will refuse anyway. `intend` checks again, atomically."""
+        try:
+            self._check_repeat(task_id, capability, payload_hash)
+        except DuplicateUnresolved:
+            return True
+        return False
+
     def _check_repeat(self, task_id: str, capability: str, payload_hash: str) -> str | None:
         """Refuse a repeat of an action the tree may already have done (P19): an identical attempt still in flight, or
         one whose outcome is unknown, unless the owner approved one more attempt on the latest unknown one and no
