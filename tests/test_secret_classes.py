@@ -1,5 +1,6 @@
 """P5 secret classes at capture; ordinary private text remains usable."""
 from ferb.sanitize.redact import REDACTED, Redactor
+import pytest
 
 
 def test_otp_fields_secure_input_and_concealed_clipboard() -> None:
@@ -26,6 +27,41 @@ def test_split_stream_card_and_otp_remain_secret() -> None:
     s = r.stream()
     out = s.feed(b'Your verification code is 123') + s.feed(b'456.\nCard 4111 1111 ') + s.feed(b'1111 1111\n', final=True)
     assert b'123456' not in out and b'4111 1111' not in out
+
+
+@pytest.mark.parametrize('label,value', [
+    ('Which phone number should I use for login?', '2025550143'),
+    ('Which accessibility option should I use?', '1'),
+    ('Which security setting should I select?', '2'),
+    ('Which account should get access?', '3'),
+])
+def test_nonsecret_numeric_answers_remain_available(label, value):
+    assert Redactor().field(value, label=label) == value
+
+
+@pytest.mark.parametrize('label', ['OTP', 'TOTP', '2FA', 'verification code', 'authentication code',
+                                  'security code', 'login code', 'sign-in code', 'access code',
+                                  'one-time-code', 'one time password', 'verification_code'])
+def test_explicit_code_labels_still_hide_codes(label):
+    assert Redactor().field('314159', label=label) == REDACTED
+
+
+def test_stream_keeps_code_context_across_the_label_boundary():
+    stream = Redactor().stream()
+    out = stream.feed(b'Your verification ') + stream.feed(b'code is 314') + stream.feed(b'159.\n', final=True)
+    assert b'314159' not in out and b'[redacted]' in out
+
+
+def test_ordinary_login_phone_answer_is_not_registered_as_secret(daemon):
+    from ferb.core.types import Identity
+    from ferb.policy.rules import ActionRequest
+    async def answer():
+        action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
+        ap = daemon.daemon.state.approvals.question(action, 'Which phone number should I use for login?', [])
+        await daemon.daemon._chat_answer(None, {'approval_id': ap.id, 'text': '2025550143'})
+        return ap.answer, daemon.daemon.redact.text('phone 2025550143')
+    answer, echo = daemon.run(answer())
+    assert answer == '2025550143' and echo == 'phone 2025550143'
 
 
 def test_ordinary_owner_answer_to_otp_question_is_scrubbed_before_resolution(daemon) -> None:

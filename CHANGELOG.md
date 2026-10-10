@@ -32,6 +32,8 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   when another secret field was found. Recordings also withhold frames when the native inventory is unknown.
 - Secret fills whose controls change after input began retain an unknown outcome and cannot be blindly retried;
   extension 0.15.1/protocol 12 preserves that outcome through reconnects and the action ledger.
+- Contextual OTP redaction recognizes explicit code labels; ordinary login phone numbers and numeric accessibility or
+  account choices remain usable. Streaming still retains an incomplete code introducer across output chunks.
 - Metadata-only disk sizes, concrete irreversible-bulk confirmations, destructive classification in forced shadow, alignment advice,
   daily security facts, regression send switch and containment statistics. FDA setup waits for working containment.
 - No installed-daemon/browser changes or live claims. Python/JavaScript/Swift compilation checked; test execution deferred to the

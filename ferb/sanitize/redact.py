@@ -47,7 +47,12 @@ def secret_param(name: str) -> bool:
     flat = "".join(ch for ch in k if ch.isalnum())
     return (k in SECRET_QUERY or any(w in k or w.replace("_", "") in flat for w in SECRET_QUERY_WORDS)
             or flat.endswith("sig") or flat in {"xamzcredential", "xgoogcredential"})
-OTP_LABEL = re.compile(r"(?i)(?:one[ -]?time|verification|authentication|security|login|sign[ -]?in|access|2fa|otp)[ -]*(?:code|password|pin)?")
+# Explicit credential-field metadata, never broad login/security/access language in an ordinary owner question.
+OTP_LABEL = re.compile(r"(?i)\b(?:otp|totp|2fa|one[ _-]?time(?:[ _-]+(?:code|password|pin))?|"
+                       r"(?:verification|authentication|security|login|sign[ _-]?in|access)[ _-]+(?:code|pin))\b")
+# Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
+# text is still redacted by the narrow credential patterns, so 'login phone number' remains ordinary text.
+OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
 OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b[^\d\n]{0,40})(\d(?:[ -]?\d){3,7})(?!\d)")
 CARD = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
 
@@ -245,7 +250,7 @@ class RedactionStream:
         # class introducer/first digit until a line ending, so a later chunk cannot reveal a partial secret.
         line_start = self.pending.rfind("\n") + 1
         tail = self.pending[line_start:]
-        contextual = OTP_LABEL.search(tail)
+        contextual = OTP_CONTEXT_START.search(tail)
         numeric = re.search(r"(?<!\d)\d[\d -]*$", tail)
         if contextual:
             cut = min(cut, line_start + contextual.start())
