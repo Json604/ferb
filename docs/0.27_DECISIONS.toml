@@ -120,7 +120,7 @@ summary = "Every consequential action is classified by Jev (destructive / ...)"
 
 [D24]
 milestone = "F6"
-tests = []
+tests = ["tests/test_task_plans.py"]
 summary = "Big jobs show plan with time and cost estimate and wait for go-ahead"
 
 [D25]
@@ -151,7 +151,7 @@ summary = "Screenshots and recordings cover only the app FERB is working on"
 
 [D30]
 milestone = "F6"
-tests = []
+tests = ["tests/test_task_plans.py", "tests/test_f6_standing.py"]
 summary = "Task loop: plan step types do / map / reduce / wait / ask / converse"
 
 [D31]
@@ -213,7 +213,7 @@ summary = "Drop Jev's trail.sensitive question once code redaction covers the se
 
 [P3]
 milestone = "F6"
-tests = []
+tests = ["tests/test_f6_context.py"]
 summary = "Context layers 1-6 (identity, situation, recent activity, memory, request, task state), stable first"
 
 [P4]
@@ -259,7 +259,7 @@ summary = "One Jev call per notification with conversation-scoped state within i
 
 [P15]
 milestone = "F6"
-tests = []
+tests = ["tests/test_task_plans.py"]
 summary = "Large-input fan-out: inventory, map/reduce, feasibility validation, coverage checked by code"
 
 [P16]
@@ -292,12 +292,12 @@ note = "F1 made the orchestrator context append-only (device facts first, histor
 
 [P21]
 milestone = "F6"
-tests = []
+tests = ["tests/test_owner_skills.py"]
 summary = "Owner-maintained skills directory, loaded by FERB for every runtime"
 
 [P22]
 milestone = "F6"
-tests = []
+tests = ["tests/test_shell_attach.py"]
 summary = "ferb attach: watch and take over FERB's own terminal session"
 
 [P23]
@@ -312,7 +312,7 @@ summary = "Disk-usage tool inside FERB returning sizes only, never contents"
 
 [P25]
 milestone = "F6"
-tests = []
+tests = ["tests/test_f6_chat.py"]
 summary = "Neutral acknowledgment list, picked at random without repeats"
 
 [P26]
@@ -323,7 +323,7 @@ summary = "Three trace levels built by code: story, steps, full/json, with token
 
 [P27]
 milestone = "F6"
-tests = ["tests/test_prompt_contract.py"]
+tests = ["tests/test_f6_context.py"]
 note = "F4 live fixes pinned rule 2 (you/your) in the shared prompt; F6 owns the rest."
 summary = "Rules for everything FERB says to the owner"
 
@@ -334,17 +334,17 @@ summary = "Setup persona from apps actually used, confirmed by the owner"
 
 [P29]
 milestone = "F6"
-tests = []
+tests = ["tests/test_f6_chat.py"]
 summary = "Always-on chat with routing, status line and keys"
 
 [P30]
 milestone = "F6"
-tests = []
+tests = ["tests/test_f6_context.py"]
 summary = "Answer shape: outcome first, only what the owner needs, unverified items, pending next step"
 
 [P31]
 milestone = "F6"
-tests = []
+tests = ["tests/test_f6_context.py"]
 summary = "Worker writes the owner answer in the same output; checker verdict decides the first line"
 
 [S1]

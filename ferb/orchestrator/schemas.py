@@ -12,6 +12,7 @@ from pydantic import BaseModel, model_validator
 
 from ferb.clock.when import WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
+from ferb.orchestrator.plans import Plan
 
 CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value"]
 
@@ -34,18 +35,35 @@ def _obj(props: dict[str, Any]) -> dict[str, Any]:
 TARGETS_SCHEMA = _obj({"apps": _strings(), "sites": _strings(), "paths": _strings(), "recipients": _strings()})
 CONDITION_SCHEMA = _obj({
     "text": {"type": "string"},
+    "owner_text": {"type": "string"},
     "layer": {"type": "string", "enum": ["outcome", "intake", "artifact", "external"]},
     # a code-checkable form when the condition allows one (verified without a model); kind "none" otherwise
     "check": _obj({"kind": {"type": "string", "enum": CHECK_KINDS}, "path": _nullable("string"),
                    "text": _nullable("string"), "url_contains": _nullable("string"), "site": _nullable("string"),
                    "expected": _nullable("string"), "tool": _nullable("string")}),
 })
+STEP_SCHEMA = _obj({
+    "id": {"type": "string"}, "kind": {"type": "string", "enum": ["do", "map", "reduce", "wait", "ask", "converse"]},
+    "goal": {"type": "string"}, "depends_on": _strings(), "inputs": _strings(),
+    "batches": {"type": "array", "items": _strings()}, "worker_type": {"type": "string"},
+    "conditions": _strings(), "until": _nullable("string"), "event": _nullable("string"),
+    "event_match": {"type": "array", "items": _obj({"field": {"type": "string"}, "value": {"type": "string"}})},
+    "question": {"type": "string"}, "options": _strings(),
+})
+PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_paths": _strings(),
+                    "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
+                    "cost_estimate": {"type": "string"}, "standing_sends": {"type": "array", "items": _obj({
+                        "capability": {"type": "string"}, "identity": {"type": "string", "enum": ["owner", "ferb"]},
+                        "account": _nullable("string"), "site": _nullable("string"), "recipients": _strings(),
+                        "content": _nullable("string")})}})
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
     "worker_type": {"type": "string"},
     "targets": TARGETS_SCHEMA,
     "success_conditions": {"type": "array", "items": CONDITION_SCHEMA, "minItems": 1},
+    "plan": {"anyOf": [{"type": "null"}, PLAN_SCHEMA]},
+    "procedure_id": _nullable("string"),
 })
 
 REMEMBER_SCHEMA = _obj({
@@ -67,6 +85,8 @@ REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "stri
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
     "text": {"type": "string"},
+    "answer_question": {"anyOf": [{"type": "null"}, _obj({"approval_id": {"type": "string"},
+                         "quote": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
                   "action": {"type": "string", "enum": ["stop", "retry", "continue"]}})]},
@@ -80,6 +100,9 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
 WORKER_SCHEMA: dict[str, Any] = _obj({
     "status": {"type": "string", "enum": ["done", "failed", "needs_user", "blocked"]},
     "summary": {"type": "string"}, "artifacts": _strings(), "evidence": _strings(),
+    "answer": {"type": "string"},
+    "input_notes": {"type": "array", "items": _obj({"input": {"type": "string"},
+                      "note": {"type": "string"}, "evidence": _strings()})},
 })
 
 DISPATCH_SCHEMA = _obj({
@@ -136,6 +159,7 @@ class Check(BaseModel):
 
 class Condition(BaseModel):
     text: str
+    owner_text: str = ''
     check: Check
     layer: Literal["outcome", "intake", "artifact", "external"] = "outcome"
 
@@ -146,6 +170,8 @@ class TaskSpec(BaseModel):
     worker_type: str = 'default'
     targets: TargetsSpec = TargetsSpec()
     success_conditions: list[Condition] = []
+    plan: Plan | None = None
+    procedure_id: str | None = None
 
 
 class Remember(BaseModel):
@@ -166,6 +192,7 @@ class SupervisorOutcome(BaseModel):
     control: TaskControl | None = None
     kind: Literal["reply", "clarify", "task"]
     text: str
+    answer_question: dict[str, str] | None = None
     task: TaskSpec | None = None
     remember: list[Remember] = []
     timers: list["TimerRequest"] = []
@@ -220,6 +247,8 @@ class WorkerOutcome(BaseModel):
     summary: str
     artifacts: list[str]
     evidence: list[str]
+    answer: str = ''
+    input_notes: list[dict[str, Any]] = []
 
 
 class DispatchOutcome(BaseModel):

@@ -64,6 +64,7 @@ class ContextBlock:
     reference: str
     protected: bool = False
     cache: bool = False      # repeats across this role's calls; the cacheable prefix ends after the last leading one (P20)
+    priority: int = 0        # optional layer allocation; original presentation order is preserved
 
 
 def assemble_parts(blocks: list[ContextBlock], *, budget_tokens: int = DEFAULT_BUDGET_TOKENS,
@@ -90,7 +91,7 @@ The budget is a context allocation, not a task/output/token-spend limit.
                   "omitted_blocks": len(active) - len(kept)}
         return parts + ["Context budget: " + json.dumps(report)]
 
-    for index, block in enumerate(active):
+    for index, block in sorted(enumerate(active), key=lambda pair: -pair[1].priority):
         if block.protected:
             continue
         kept.add(index)

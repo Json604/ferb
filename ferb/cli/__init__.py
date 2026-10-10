@@ -106,6 +106,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("ps", help="background processes FERB started")
     kp = sub.add_parser("kill", help="stop one of FERB's background processes")
     kp.add_argument("id")
+    ap = sub.add_parser('attach', help='watch an existing FERB process; optionally take over its input')
+    ap.add_argument('id')
+    ap.add_argument('--take', action='store_true', help='pause worker input until you detach with Ctrl-]')
 
     cp = sub.add_parser("chat", help="talk to FERB")
     cp.add_argument("--verbose", action="store_true", help="also show plans, steps, tools and checks")
@@ -269,6 +272,9 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.ps(client, sys.stdout)
             if args.cmd == "kill":
                 return admin.kill(client, args.id, sys.stdout)
+            if args.cmd == 'attach':
+                from ferb.cli.attach import attach
+                return attach(lambda: Client(socket_path()), args.id, args.take)
             if args.cmd == "browsers":
                 return admin.browsers(client, args.bcmd, getattr(args, "profile", None), getattr(args, "browser", None),
                                       sys.stdout)

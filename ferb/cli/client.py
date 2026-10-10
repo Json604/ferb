@@ -82,3 +82,10 @@ class Client:
     def close(self) -> None:
         self._file.close()
         self._sock.close()
+
+    def interrupt(self) -> None:
+        """Wake an attached stream reader so its owning thread can close cleanly."""
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass

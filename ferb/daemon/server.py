@@ -230,8 +230,9 @@ class Server:
                       writer: asyncio.StreamWriter) -> None:
         """Send notifications until the stream ends or the client disconnects (client EOF ends it)."""
         async def pump() -> None:
-            async for item in self.streams[req.method](session, req.params):
-                await self._send(writer, {"jsonrpc": "2.0", "method": f"{req.method}.event", "params": item})
+            async with contextlib.aclosing(self.streams[req.method](session, req.params)) as stream:
+                async for item in stream:
+                    await self._send(writer, {"jsonrpc": "2.0", "method": f"{req.method}.event", "params": item})
 
         task = asyncio.create_task(pump())
         eof = asyncio.create_task(reader.read(1))
@@ -247,6 +248,8 @@ class Server:
                 await self._send(writer, _error(req.id, FAILED, f"{type(exc).__name__}: {exc}"))
         else:
             task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     async def _send(self, writer: asyncio.StreamWriter, msg: dict[str, Any]) -> None:
         writer.write(json.dumps(msg).encode() + b"\n")

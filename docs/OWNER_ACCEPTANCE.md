@@ -463,3 +463,26 @@ Pending checks:
 - Review `destructive.toml` labels with the owner, measure catches/false alarms, keep classification in forced shadow;
   verify alignment advice reaches the orchestrator without granting or refusing an action. Inspect disk metadata totals,
   irreversible bulk count/bytes/paths, daily security digest and stats against actual task traces.
+
+## 0.27 F6 — pending final integrated checks and owner acceptance (2026-10-11)
+
+Build validation was compile-only under the owner's expanded through-F10 instruction. New tests are authored but
+not yet run; the controller owns the final integrated suite and review. Nothing was installed or restarted.
+
+- Ask for a ranking of the owner's coding-session files: check the inventory and batch repair, complete evidence
+  notes, dependent reduction, final artifact inspection, and the concrete big-job estimate/Yes before fan-out.
+- While it works, keep typing: conversation, an answer, an unrelated task, and a correction. Confirm ordering,
+  unambiguous routing, `/tasks`, `/stop`, empty-line Escape and double Ctrl-C without losing work.
+- Restart only during the owner's acceptance session: a completed step must stay complete; an event/time wait must
+  resume; an unknown external action must retain its existing retry check. Explicit stop must not auto-resume.
+- Approve a displayed standing send scope on owner-controlled surfaces. Check exact recipients/account/site/tool,
+  explicit any-body wording if selected, a final message digest, and an out-of-scope call asking normally. Payment,
+  account-security, external/private provenance and uncertain-action checks still apply.
+- Queue a private question while text is partially entered. It must wait for Enter on an empty line; hidden input
+  must preserve password spaces and leave no secret in chat history or normal output. F5 owns the secret transport.
+- Watch an interactive FERB process with `ferb attach ID`; use `--take`, confirm worker input is refused while
+  attached, then detach with Ctrl-] or close the client and confirm input returns. No owner Terminal typing.
+- Add an owner-written skills folder and confirm metadata appears without loading the body, explicit reads work
+  across runtimes, and symlink/parent-path reads are refused.
+
+See `docs/F6_TASK_LOOP.md` for behavior and interfaces. No live behavior is claimed verified by this build.

@@ -261,6 +261,11 @@ class Chat:
             self.say(f"ferb> (while you were away) {r['answer']}")
         for r in st.get("running", []):
             self.say(f"ferb> Still working on: {r['goal']}")
+        digest = st.get('memory_digest')
+        if digest:
+            self.say('ferb> Here are things I learned that need your confirmation:')
+            for proposal in digest.get('proposals', []):
+                self.say(f"   {proposal['text']} — /memory confirm {proposal['id']}")
         for d in st.get("approvals", []):
             self.answer_approval(d)
         for q in st.get("questions", []):                    # asked while you were away (a scheduled run)
@@ -322,6 +327,7 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False, speaker: Any =
     from prompt_toolkit.patch_stdout import patch_stdout
 
     pastes: list[str] = []
+    interrupts = [0]
     kb = KeyBindings()
 
     @kb.add(Keys.BracketedPaste)
@@ -343,30 +349,42 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False, speaker: Any =
         if event.current_buffer.text:
             event.current_buffer.reset()
             pastes.clear()
+            interrupts[0] = 0
+        elif interrupts[0] == 0:
+            interrupts[0] = 1
+            chat.say('Press Ctrl-C again to close chat. Tasks keep running.')
         else:
             event.app.exit(exception=EOFError)
+
+    @kb.add('escape')
+    def _(event: Any) -> None:
+        if not event.current_buffer.text:
+            threading.Thread(target=chat.stop_latest, daemon=True).start()
 
     session: PromptSession[str] = PromptSession(history=InMemoryHistory(), key_bindings=kb, multiline=True)
 
     def ask(q: str) -> str:
         return session.prompt(q, multiline=False, key_bindings=None)
 
-    chat = Chat(connect, sys.stdout, ask, verbose, spinner_out=sys.__stdout__,   # the loader draws on the terminal
-                speaker=speaker, new=new, resume=resume)
+    from ferb.cli.live_chat import LiveChat
+    chat = LiveChat(connect, sys.stdout, ask, verbose, speaker=speaker, new=new, resume=resume)
     with patch_stdout():
-        chat.say("FERB — Ctrl-D or /quit to leave (tasks keep running). Option-Enter for a new line.")
+        chat.say("FERB — type any time. /tasks lists work; Esc stops the latest task. /quit leaves tasks running.")
         chat.opening()
         threading.Thread(target=_live_reminders, args=(connect, sys.stdout), daemon=True).start()
         while True:
             pastes.clear()
             try:
-                text = session.prompt("you> ")
+                text = session.prompt("you> ", bottom_toolbar=chat.toolbar, refresh_interval=0.1)
             except (EOFError, KeyboardInterrupt):
                 return 0
             if text.strip() in ("/quit", "/exit"):
                 return 0
+            interrupts[0] = 0
             if text.strip():
-                chat.turn(prepare(text, list(pastes), ask) if pasted_is_data() else text)
+                chat.submit(prepare(text, list(pastes), ask) if pasted_is_data() else text)
+            else:
+                chat.enter_secret()
 
 
 def reminders(connect: Callable[[], Client], out: TextIO) -> None:

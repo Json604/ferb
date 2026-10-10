@@ -305,6 +305,8 @@ class Daemon:
             self.server.unary[name] = fn
         self.server.streams["logs.subscribe"] = self._logs
         self.server.streams["chat.send"] = self._chat_send
+        self.server.streams['ps.attach'] = self._ps_attach
+        self.server.unary['ps.send'] = self._ps_send
         self._build_voice()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         self.journal.append("daemon.started", {"pid": os.getpid()})
@@ -316,6 +318,10 @@ class Daemon:
             self.stop_control.engaged = True
             self.journal.append("stop.still_engaged", {})
         self._macos_task = asyncio.create_task(self._macos_events())
+        if self.supervisor and not self.state.stopped:
+            resumed = asyncio.create_task(self.supervisor.resume_plans())
+            self._turns.add(resumed)
+            resumed.add_done_callback(self._turns.discard)
 
     async def shutdown(self) -> None:
         self._shutting_down = True
@@ -337,6 +343,7 @@ class Daemon:
                                 self._held_task)
                      if job is not None}, "producers")
         if self.supervisor:
+            self.supervisor.suspend_plans()
             self.supervisor.cancel_all()
         await drain(self._turns | self._runs, "task turns")
         if self.gateway is not None:                         # first looks still being taken (D26)
@@ -515,6 +522,9 @@ class Daemon:
                         downloads.untrusted_roots(self.config.get("fs", "untrusted_roots", ["~/Downloads"]), workspace),
                         protection=self.protection)
         assert self.ledger and self.spans and self.journal and self.db
+        from ferb.orchestrator.skills import Skills, SkillsRead
+        skills = Skills(self.home / 'skills')
+        self.registry.add(SkillsRead(skills))
         self.gateway = Gateway(self.registry.capabilities, self.state, self.ledger, self.spans, self.tasks,
                                self.clock, self.redact, self._publish, roots, device)
         self.gateway.disturbance = self.disturbance
@@ -534,6 +544,10 @@ class Daemon:
                                      on_task_end=self._task_end, facts=self._facts,
                                      checks=Checks(self._urls_of, self.spans), roots=roots)
         self.supervisor.browser_context = self._browser_context
+        self.supervisor.skills_catalog = skills.catalog
+        from ferb.orchestrator.context_layers import recent_activity
+        self.supervisor.recent_activity = lambda: recent_activity(self.db, self.clock.now())
+        self.supervisor.on_resumed_outcome = lambda event: self._task_result(event, shown=False)
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self._tree_finished
         self.supervisor.disturbance_context = self.disturbance.context
@@ -1251,6 +1265,7 @@ class Daemon:
                                                     str(ev.get("goal", "")), answer, int(shown)))
         if not shown and ev.get("status") != "cancelled":
             await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", answer)
+        self._publish('task.result', {**ev, 'shown': shown})
 
     def _approval_notice(self, data: dict[str, Any]) -> None:
         """An approval is waiting and no chat is open for that task: tell the owner (notification)."""
@@ -1294,8 +1309,9 @@ class Daemon:
         running, and questions waiting for the owner."""
         assert self.db is not None
         rows = self.db.conn.execute("SELECT * FROM task_results WHERE shown = 0 ORDER BY at").fetchall()
-        for r in rows:
-            self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
+        if not params.get('peek'):
+            for r in rows:
+                self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
                     "options": list(ap.options)} for ap in self.state.approvals.pending()]
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
@@ -1765,6 +1781,33 @@ class Daemon:
         assert self.shells
         return {"killed": await self.shells.kill_id(str(params.get("id", "")))}
 
+    async def _ps_attach(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        """Owner-only stream. Connection lifetime owns input; disconnect releases it even after a CLI crash."""
+        assert self.shells
+        proc_id = str(params.get('id', ''))
+        task = self.shells.owner_of(proc_id)
+        if task is None:
+            raise FerbError('That process is not available.')
+        handle = self.shells.handle(proc_id, task)
+        lease = self.shells.take_input(proc_id) if params.get('take') else ''
+        offset = max(0, int(params.get('since', 0)))
+        try:
+            yield {'lease': lease, 'id': proc_id}
+            while True:
+                text, offset, _ = await self.shells.read(handle, offset)
+                info = self.shells.info(handle)
+                yield {'text': text, 'offset': offset, 'running': info.running, 'exit_code': info.exit_code}
+                if not info.running:
+                    return
+                await asyncio.sleep(0.1)
+        finally:
+            self.shells.release_input(proc_id, lease)
+
+    async def _ps_send(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        assert self.shells
+        self.shells.owner_send(str(params.get('id', '')), str(params.get('lease', '')), str(params.get('text', '')))
+        return {'sent': True}
+
     # ---------- owner browsers ----------
 
     def _profiles(self) -> list[browser_profiles.BrowserProfile]:
@@ -2001,6 +2044,8 @@ class Daemon:
         return "\n".join(lines)
 
     def _publish(self, topic: str, data: dict[str, Any]) -> None:
+        if self.supervisor:
+            self.supervisor.notify_plan_event(topic, self.redact(data))
         if topic in ('trail.event', 'action.observed'):
             self.daily_activity.record(self.redact(dict(data, what=data.get('what', data.get('source', topic)),
                                                         where=data.get('where', data.get('data', {})),
@@ -2201,7 +2246,7 @@ class Daemon:
         async def bus_events() -> None:
             async for ev in sub:
                 tid = ev.data.get("task_id")
-                if tid in my_tasks or (ev.topic.startswith("action.") and not tid):
+                if tid in my_tasks or self.tasks.tree_of(str(tid)) in my_tasks or (ev.topic.startswith("action.") and not tid):
                     await queue.put({"type": "event", "topic": ev.topic, "data": self.redact(ev.data)})
 
         t1, t2 = asyncio.create_task(turn()), asyncio.create_task(bus_events())

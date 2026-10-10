@@ -83,6 +83,7 @@ class ShellManager:
         self.on_network = on_network              # a finished process's final network record (reported when its last
         self.redactor, self.on_escape = redactor, on_escape
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}   # connection closes, so a setsid child's late bytes count)
+        self._owner_input: dict[str, str] = {}
         if proxy is not None:
             proxy.on_report = self._report
 
@@ -147,7 +148,27 @@ class ShellManager:
         return text, offset, p.total
 
     async def send(self, h: ProcHandle, data: str) -> None:
+        if h.id in self._owner_input:
+            raise Refused('You have taken over this process. Worker input is paused until you detach.')
         self._get(h).send(data)
+
+    def take_input(self, proc_id: str) -> str:
+        if proc_id not in self._procs or self._procs[proc_id][0].exit_code is not None:
+            raise Refused('That process is not running.')
+        if proc_id in self._owner_input:
+            raise Refused('Another attachment already owns input to this process.')
+        lease = secrets.token_urlsafe(32)
+        self._owner_input[proc_id] = lease
+        return lease
+
+    def owner_send(self, proc_id: str, lease: str, data: str) -> None:
+        if not lease or not secrets.compare_digest(self._owner_input.get(proc_id, ''), lease):
+            raise Refused('This attachment does not own process input.')
+        self._procs[proc_id][0].send(data)
+
+    def release_input(self, proc_id: str, lease: str) -> None:
+        if lease and secrets.compare_digest(self._owner_input.get(proc_id, ''), lease):
+            self._owner_input.pop(proc_id, None)
 
     async def tail(self, h: ProcHandle, limit: int) -> tuple[str, int, int]:
         p = self._get(h)

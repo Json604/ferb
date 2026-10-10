@@ -842,6 +842,14 @@ class Gateway:
             try:
                 for need in needs:
                     row = confirmations.find(root, need.key)
+                    standing = getattr(self, 'standing', None)
+                    if (row is None and need.rule in ('floor:new_recipient', 'sink:new_destination') and
+                        standing is not None and standing.covers(root, name, grant.identity.value, spec)):
+                        recorded = self.spans.start('standing.covered', task_id=grant.task_id,
+                            parent_id=rec.span_id, input={'tool': name, 'target': _target_dict(spec.target),
+                                                         'rule': need.rule, 'content': spec.content})
+                        self.spans.finish(recorded, output={'standing_task': root})
+                        continue
                     if row is not None and row["granted"] and row["used"] and need.always:
                         approved = self._approved_retry_rows(grant, ident) if approved is None else approved
                         again = next((cid for cid in approved if confirmations.covers(cid, need.key)), None)
