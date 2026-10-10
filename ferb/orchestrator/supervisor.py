@@ -493,6 +493,7 @@ class Supervisor(WorkerRuns):
                                     payload=prior_request.payload + "\n\nOwner follow-up:\n" + payload)
                 self.state.requests.record(continued)
                 made = turn_origins | self.spans.task_origins(control.task_id)
+                self._env[request_id]['message_origin'] |= self.spans.request_origins(control.task_id)
                 try:
                     async for event in self.run_tree(prior_spec, out.text, request_id, continued.payload,
                             conversation_id=session.id, origins=made, resume_id=control.task_id):

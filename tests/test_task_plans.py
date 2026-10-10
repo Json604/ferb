@@ -132,7 +132,7 @@ def test_independent_steps_run_together_and_missing_map_notes_block_reduce(tmp_p
 def test_explicit_reopen_preserves_done_steps_notes_and_wait_cursor(tmp_path):
     db = Database(tmp_path / 'state.db'); db.migrate()
     store = PlanStore(db, lambda x: x)
-    plan = Plan(steps=[Step(id='read', goal='Read'), Step(id='send', goal='Send', depends_on=['read'])])
+    plan = Plan(steps=[Step(id='read', kind='do', goal='Read'), Step(id='send', kind='do', goal='Send', depends_on=['read'])])
     store.create('tree', plan, {'words': 'original'}, 'chat')
     store.finish('tree', 'read', {'status': 'done', 'summary': 'saved notes'})
     store.finish('tree', 'send', {'status': 'blocked', 'event_cursor': 7, 'summary': 'unknown delivery'})
@@ -145,3 +145,21 @@ def test_explicit_reopen_preserves_done_steps_notes_and_wait_cursor(tmp_path):
     assert states['send']['output']['summary'] == 'unknown delivery'
     assert store.load('tree')['status'] == 'running'
     db.close()
+
+
+def test_chat_continue_reuses_saved_plan_tree_and_does_not_repeat_completed_step(daemon):
+    import json
+    from tests.conftest import chat, done, install, outcome, sup, task
+    spec = task('Read session then verify report')
+    spec['plan'] = Plan(steps=[Step(id='read', kind='do', goal='Read the session')]).model_dump()
+    first_script = install(daemon, [sup('task', 'Reading.', spec)],
+                           {'step.read': done('Read once.'), 'worker': done('Report checked.')})
+    first = outcome(chat(daemon, 'Read session then verify report'))
+    continuation = json.dumps({'kind': 'reply', 'text': 'Continuing the saved plan.',
+                              'control': {'task_id': first['task_id'], 'action': 'continue'}})
+    second_script = install(daemon, [continuation], {'worker': done('Report checked again.')})
+    second = outcome(chat(daemon, 'Continue that saved plan'))
+    assert second['task_id'] == first['task_id']
+    assert second['verified']
+    assert sum(role == 'step.read' for _, role, _, _ in first_script.contexts) == 1
+    assert not any(role == 'step.read' for _, role, _, _ in second_script.contexts)
