@@ -157,7 +157,9 @@ def main(argv: list[str] | None = None) -> int:
     wp.add_argument("--dry-run", action="store_true", help="list the steps and exit")
     stp = sub.add_parser("stats", help="how FERB is doing: task outcomes, tool errors, model runs (from the database)")
     stp.add_argument("--days", type=int, default=7)
-    sub.add_parser("baseline", help="capture current metrics to ~/.ferb/baselines for milestone comparison")
+    bp = sub.add_parser("baseline", help="capture metrics or compare two saved baseline JSON files")
+    bp.add_argument('--compare', nargs=2, metavar=('BEFORE', 'AFTER'), help='read-only saved-snapshot comparison')
+    sub.add_parser("release-checklist", help="print owner-supervised release checks as JSON; never runs them")
     rg = sub.add_parser("regress", help="run a regression task set through the daemon; you give the verdicts")
     rg.add_argument("--allow-send", action="append", default=[], help="exact recipient allowed in test-mode send actions")
     rg.add_argument("set_file", nargs="?", default=None, help="task set TOML (default: the built-in smoke set)")
@@ -172,7 +174,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "stats":
         return admin.stats(ferb_home(), sys.stdout, args.days)
+    if args.cmd == "release-checklist":
+        import json
+        from ferb.eval.release import checklist
+        print(json.dumps(checklist(), ensure_ascii=False, indent=2))
+        return 0
     if args.cmd == "baseline":
+        if args.compare:
+            import json
+            from pathlib import Path
+            from ferb.eval.comparison import compare_baselines
+            try:
+                before, after = (json.loads(Path(p).read_text()) for p in args.compare)
+                print(json.dumps(compare_baselines(before, after), indent=2))
+                return 0
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                print(f"ferb: cannot compare baselines: {exc}", file=sys.stderr)
+                return 1
         return admin.baseline(ferb_home(), sys.stdout)
     if args.cmd == "watch":
         from ferb.device.watch import main as watch_main
