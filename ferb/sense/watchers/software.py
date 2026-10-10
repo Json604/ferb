@@ -19,11 +19,15 @@ class SoftwareWatcher:
         previous: dict[str, str] = {}
         while not stop.is_set():
             for bundle, path in self.installed():
+                if stop.is_set():
+                    break
                 if path not in previous:
                     facts = await asyncio.to_thread(lambda: self.redact(app_security_facts(Path(path), bundle)))
+                    current = {key: facts[key] for key in ("privacy", "launch_jobs", "login_items")}
                     emit(Observation(self.source, facts, {"actor": "unknown"}))
-                current = await asyncio.to_thread(lambda: self.redact({"privacy": privacy_facts(bundle, Path(path)),
-                        "launch_jobs": associated_jobs(Path(path)), "login_items": login_items(Path(path), bundle)}))
+                else:
+                    current = await asyncio.to_thread(lambda: self.redact({"privacy": privacy_facts(bundle, Path(path)),
+                            "launch_jobs": associated_jobs(Path(path)), "login_items": login_items(Path(path), bundle)}))
                 fingerprint = json.dumps(current, sort_keys=True)
                 if path in previous and previous[path] != fingerprint:
                     emit(Observation(self.source, self.redact({"bundle_id": bundle, "path": path,

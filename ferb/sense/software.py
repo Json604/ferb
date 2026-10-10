@@ -39,17 +39,19 @@ def associated_jobs(path: Path, folders: list[Path] | None = None) -> list[dict[
     return jobs
 
 
-def login_items(path: Path, bundle_id: str, run: Callable[..., Any] = subprocess.run) -> dict[str, Any]:
-    """Read the OS background-task inventory; match whole record identifiers, never guess installer causation."""
-    try:
-        result = run(["/usr/bin/sfltool", "dumpbtm"], capture_output=True)
-    except OSError as error:
-        return {"status": "unavailable", "error": type(error).__name__}
-    if result.returncode:
-        return {"status": "unavailable", "exit_code": result.returncode}
+def login_items(path: Path, bundle_id: str, *, inventory: bytes | None = None) -> dict[str, Any]:
+    """Match an already-collected BTM inventory without ever starting an authorization-capable utility.
+
+    macOS exposes no supported noninteractive all-app BTM reader here. `sfltool dumpbtm` can open an admin
+    prompt, including after prior approval; passive observation must not invoke it or infer an empty inventory.
+    Explicitly supplied inventory bytes retain the existing exact-identifier/path parser.
+    """
+    if inventory is None:
+        return {"status": "unavailable", "reason": "no_supported_noninteractive_source",
+                "detail": "Background-task inventory was not read; passive observation does not request administrator authorization"}
     records: list[dict[str, str]] = []
     current: dict[str, str] = {}
-    for line in result.stdout.decode(errors="replace").splitlines():
+    for line in inventory.decode(errors="replace").splitlines():
         key, sep, value = line.strip().partition(":")
         if key == "UUID" and current:
             records.append(current)
@@ -117,4 +119,4 @@ def app_security_facts(path: Path, bundle_id: str, *, run: Callable[..., Any] = 
             attributes[name] = None
     return {"bundle_id": bundle_id, "path": str(path), "signature": signature, "assessment": assessment,
             "entitlements": entitlements, "download": attributes, "privacy": privacy(bundle_id, path),
-            "launch_jobs": jobs(path), "login_items": login_items(path, bundle_id, run)}
+            "launch_jobs": jobs(path), "login_items": login_items(path, bundle_id)}

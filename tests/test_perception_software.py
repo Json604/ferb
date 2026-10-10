@@ -41,7 +41,7 @@ UUID: two
 Identifier: owner.tool.lookalike
 Parent Identifier: other
 '''
-    facts = login_items(tmp_path / 'OwnerTool.app', 'owner.tool', run=lambda *a, **k: SimpleNamespace(returncode=0, stdout=dump))
+    facts = login_items(tmp_path / 'OwnerTool.app', 'owner.tool', inventory=dump)
     assert [item['UUID'] for item in facts['items']] == ['one']
 
 
@@ -69,3 +69,47 @@ def test_macos_binary_xattr_uses_argument_vector(monkeypatch, tmp_path):
     path = tmp_path / 'Owner tool.app'
     assert software.read_xattr(path, 'com.apple.metadata:kMDItemWhereFroms') == b'bplist\x00\n'
     assert calls == [['/usr/bin/xattr', '-px', 'com.apple.metadata:kMDItemWhereFroms', str(path)]]
+
+
+def test_passive_software_facts_never_launch_an_authorization_tool(tmp_path: Path) -> None:
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
+    facts = app_security_facts(tmp_path / 'OwnerTool.app', 'owner.tool', run=run,
+                               xattr=lambda *args: b'', privacy=lambda *args: {'status': 'read', 'grants': []},
+                               jobs=lambda *args: [{'label': 'owner.helper'}])
+    assert all(command[0] != '/usr/bin/sfltool' for command in calls)
+    assert facts['login_items']['status'] == 'unavailable'
+    assert facts['login_items']['reason'] == 'no_supported_noninteractive_source'
+    assert facts['privacy']['status'] == 'read'
+    assert facts['launch_jobs'] == [{'label': 'owner.helper'}]
+    assert len(calls) == 3  # signature, Gatekeeper assessment and entitlements still run
+
+
+def test_software_watcher_reuses_initial_persistence_facts(monkeypatch, tmp_path: Path) -> None:
+    import asyncio
+    from ferb.sense.watchers import software
+    facts = {'bundle_id': 'owner.tool', 'path': str(tmp_path / 'OwnerTool.app'),
+             'privacy': {'status': 'read'}, 'launch_jobs': [], 'login_items': {'status': 'unavailable'}}
+    probes = []
+    def initial(*args):
+        probes.append('initial')
+        return facts
+    def duplicate(*args):
+        raise AssertionError('initial persistence facts must not be read twice')
+    monkeypatch.setattr(software, 'app_security_facts', initial)
+    monkeypatch.setattr(software, 'privacy_facts', duplicate)
+    monkeypatch.setattr(software, 'associated_jobs', duplicate)
+    monkeypatch.setattr(software, 'login_items', duplicate)
+    async def run():
+        stop = asyncio.Event()
+        observations = []
+        def emit(observation):
+            observations.append(observation)
+            stop.set()
+        watcher = software.SoftwareWatcher(lambda: [('owner.tool', facts['path'])], lambda value: value)
+        await watcher.run(emit, stop)
+        assert [observation.data for observation in observations] == [facts]
+    asyncio.run(run())
+    assert probes == ['initial']
