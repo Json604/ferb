@@ -93,13 +93,18 @@ class Learning:
             if r:
                 return origin.least_trusted(origin.split(r[0]) | {origin.FERB})
         elif family == 'trail':
-            r = self.db.conn.execute('SELECT actor FROM trail WHERE id=?', (ident,)).fetchone()
+            r = self.db.conn.execute('SELECT actor,source FROM trail WHERE id=?', (ident,)).fetchone()
             if r:
-                return origin.PRIVATE if r[0] == 'owner' else origin.FERB
+                from ferb.sense.tools import trail_sources
+                return origin.least_trusted(origin.from_read_source(k, v) for k, v in trail_sources({r['source']}))
         elif family == 'journal':
             r = self.db.conn.execute('SELECT origin FROM journal WHERE id=?', (ident,)).fetchone()
             if r:
                 return origin.least_trusted(origin.recorded(r[0], True))
+        retained = self.db.conn.execute('SELECT n.origin FROM learning_sources s JOIN learning_nodes n '
+            'ON n.id=s.node_id WHERE s.source_ref=? ORDER BY n.recorded_at DESC LIMIT 1', (ref,)).fetchone()
+        if retained:
+            return retained[0]
         raise LearningRefused(f'source is missing: {ref}')
 
     def put(self, kind: str, key: str, body: dict[str, Any], sources: Iterable[str], *,
@@ -116,7 +121,8 @@ class Learning:
         # An explicit owner statement is a new statement, still citing the old proposal as history.
         inherited = origin.OWNER if owner else origin.least_trusted([origin_label, *labels])
         node_id = 'm-' + digest([kind, key, body, refs, inherited, made_by])
-        if self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id=?', (node_id,)).fetchone():
+        logical_id = 'key-' + digest([kind, key])
+        if self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id IN (?,?)', (node_id, logical_id)).fetchone():
             raise LearningRefused('this content was forgotten')
         old = self.get(node_id)
         if old:
@@ -158,6 +164,7 @@ class Learning:
                                     "AND (task_id=? OR task_id LIKE ? ESCAPE '\\') ORDER BY started_at,id",
                                     (task_id, task_id.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '.%'))
         actions = []
+        source_refs = {'episode:' + task_id}
         used_apps: set[str] = set()
         for r in rows:
             inp = json.loads(r['input_json'])
@@ -170,6 +177,7 @@ class Learning:
             outside = inp.get('kind') not in ('read', 'search', 'mailbox_read') and (arg_sources is None or any(origin.OWNER not in values and
                        any(origin.rank(o) >= origin.OUTSIDE_RANK for o in values)
                        for values in arg_sources.values()))
+            source_refs.update(self._action_sources(inp, json.loads(r['output_json']) if r['output_json'] else {}))
             actions.append({'id': r['id'], 'tool': inp.get('tool'), 'args': args,
                             'kind': inp.get('kind'), 'outside_action': outside,
                             'arg_sources': arg_sources, 'error': r['error'],
@@ -190,8 +198,42 @@ class Learning:
             body['app_versions_captured'] = old['body'].get('app_versions_captured', False)
             if not actions:
                 body['actions'] = old['body'].get('actions', [])
-        return self.put('episode', task_id, body, ['episode:' + task_id], made_by='code:evidence-card/1',
+            # Retained cards keep lineage even when their raw rows have reached retention.
+            source_refs.update(old['sources'])
+        return self.put('episode', task_id, body, source_refs, made_by='code:evidence-card/1',
                         origin_label=origin.FERB, state='active')
+
+    def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
+        tool, args = inp.get('tool'), inp.get('args') or {}
+        refs: set[str] = set()
+        if tool == 'memory.read' and args.get('item_id'):
+            refs.add('memory:' + str(args['item_id']))
+        if tool == 'memory.learned' and args.get('item_id'):
+            refs.add(str(args['item_id']))
+        if tool == 'trail.query':
+            if args.get('event_id'):
+                refs.add('trail:' + str(args['event_id']))
+            if isinstance(result, dict):
+                refs.update('trail:' + str(e['id']) for e in result.get('events', []) if e.get('id'))
+        if tool == 'trail.days' and isinstance(result, dict):
+            refs.update('journal:' + str(d['id']) for d in result.get('days', []) if d.get('id'))
+        if tool in ('memory.read', 'memory.learned') and isinstance(result, dict):
+            try:
+                full = json.loads(result.get('text', ''))
+                if isinstance(full, dict):
+                    records = full.get('items', full.get('candidates', []))
+                    refs.update(('memory:' if tool == 'memory.read' else '') + str(e['id'])
+                                for e in records if isinstance(e, dict) and e.get('id'))
+            except (ValueError, TypeError):
+                pass  # a paged fragment has only its explicit input item ID
+        valid = set()
+        for ref in refs:
+            try:
+                self._source_origin(ref)
+                valid.add(ref)
+            except LearningRefused:
+                continue
+        return valid
 
     def propose_procedure(self, proposal: dict[str, Any], batch: str, made_by: str) -> dict[str, Any]:
         examples = proposal.get('examples') or []
@@ -339,9 +381,20 @@ class Learning:
         return found
 
     def forget(self, refs: Iterable[str]) -> list[str]:
-        doomed = self.descendants(refs)
+        requested = list(refs)
+        versions = set(requested)
+        logical = []
+        for ref in requested:
+            node = self.get(ref)
+            if node:
+                logical.append('key-' + digest([node['kind'], node['key']]))
+                versions.update(r[0] for r in self.db.conn.execute('SELECT id FROM learning_nodes WHERE kind=? AND key=?',
+                                                                  (node['kind'], node['key'])))
+        doomed = self.descendants(versions)
         self.db.conn.execute('SAVEPOINT learning_forget')
         try:
+            for ident in logical:
+                self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, self.now()))
             for ident in doomed:
                 self.db.conn.execute('INSERT OR IGNORE INTO learning_forgotten VALUES (?,?)', (ident, self.now()))
                 self.db.conn.execute('DELETE FROM learning_jobs WHERE source_ref=?', (ident,))
