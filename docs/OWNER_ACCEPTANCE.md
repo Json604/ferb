@@ -665,4 +665,34 @@ The repair removes the interactive inventory command from passive collection, ex
 unavailable, preserves other software facts, and avoids duplicate startup probes. Update setup now acknowledges
 the daemon's complete current grants and advances its permission marker; absent status values remain unknown.
 Both software regressions and both setup regressions failed before their fixes; all 18 affected tests pass.
-Installation and restored-monitoring evidence will be appended after the repair is applied.
+The owner-authorized repair (`40af3ad`, including `93fff69`) was installed from an isolated checkout without
+rebuilding the signed secrets helper. The daemon restarted as PID 43841; all four grants remained granted and
+the setup marker advanced to 27. The agent resumed only the perception pause it had introduced. Subsequent
+`sense.status` showed software monitoring active, and five persisted software observations (02:40:02–02:40:11 IST)
+reported `no_supported_noninteractive_source` for background-task inventory. No `sfltool` process remained in the
+post-restart process listing. This verifies the repaired collector ran; it is not owner acceptance of other F7 features.
+The same status read exposed an Accessibility watcher subscription `TypeError`. The callback was missing the
+PyObjC retained-callback bridge. `6c354bc` adds that bridge while retaining the callback for each observer's lifetime;
+two injected regressions failed before the fix, and 28 affected checks passed afterward.
+
+### Native frontend integration and final repair check — 2026-10-11
+
+At production commit `6c354bc`, the complete default suite passed **1,812 tests**, with 75 live tests excluded.
+Six disjoint file shards each passed 302 tests (153 selected files total); Python compilation, core mypy (nine
+files) and diff checks passed. The native frontend passed **44 Swift tests** and built an ad-hoc signed app.
+Scoped fresh review closed attachment/paste provenance, exact option selection and callback lifetime findings.
+
+The completed backend was installed from the isolated checkout and restarted as PID **56315**, after verifying
+there were no running tasks. Installed code hash **a57fad0b971f1ac2** matches that checkout. All four macOS grants
+remain granted. `sense.status` reports monitoring active with no failed watchers; a subsequent read found 72 recent
+Accessibility subscription `attached` records. This establishes startup/subscription, not two-app action acceptance.
+No `sfltool` process was present. The signed secrets helper was unchanged and was not rebuilt.
+
+The native frontend's actual Swift transport authenticated to the installed daemon, received `input_paths`
+capability support and read status with zero running tasks/pending prompts. No model request was submitted. The
+built notch app was relaunched in the background as PID **56549**, with an open Unix socket. The frontend now renders
+real task progress, scoped ordinary/hidden questions, answers and artifact paths; explicit Stop targets the backend
+task ID. Voice remains a microphone-off preview. No owner task, OTP success or visual acceptance is claimed.
+Frontend changes remain uncommitted in its existing dirty `native-quiet-notch` checkout to preserve the owner's
+work. Its README and `docs/plans/2026-10-11-daemon-connection.md` describe the implemented integration and shipping
+limitations. Public signing/notarization and broader owner acceptance remain pending.

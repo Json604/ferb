@@ -47,6 +47,12 @@ ownership boundary; do not add wrappers to preserve dead behavior.
 `Supervisor.send` preserves the current message, including pasted text marked as external data. The planner receives
 full request text, memory, retrievable chat/activity and installed environment facts. Its task specification has
 outcome conditions, worker type and chosen identity. Intake memory writes produce receipts before the worker starts.
+Native clients may pass selected files as `chat.send.input_paths` after `chat.attach` advertises that capability.
+Paths are normalized, retained through clarification and merged into plan inputs subject to existing protection
+checks. They are source metadata wrapped as untrusted data, never extra owner words or destructive authority.
+Final redacted answers, verification and artifacts persist in task/root-span outcomes; `trace.get` supplies them
+after reconnect. `chat.status` includes pending questions' root task IDs when unambiguous, and accepts `peek` to
+avoid consuming unseen results while polling. The daemon remains the execution and security boundary for all clients.
 The planner-context snapshot attached to a task holds the non-protected blocks only; the capped chat history and
 resumable attempts (protected since F1) are not in it, and workers fetch history with `chat.history` (revisited in F6).
 
@@ -354,6 +360,8 @@ capture before release. Held input is cleared on pause. Exact successful `mac.cl
 writes; a frontmost app is context, not proof of the clipboard writer. Typed/clipboard content expires after seven
 days in Trail, its FTS index and the activity copy, while source IDs remain; this automatic expiry does not retract
 derived memory. Native schemas and two-app subscriptions await owner acceptance.
+AX observer callbacks use PyObjC's explicit retained-callback bridge and remain strongly referenced until their
+run-loop sources are removed; subscription failures expose redacted error details through `sense.status.failed`.
 Passive software inspection never invokes `sfltool dumpbtm`: on the owner's Mac it opens an administrator prompt
 even for a read. Background-task inventory is explicitly unavailable without a supported noninteractive source;
 signature, Gatekeeper, entitlements, download metadata, readable TCC grants and associated LaunchAgent files remain

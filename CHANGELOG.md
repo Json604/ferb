@@ -16,14 +16,23 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   repeated administrator dialogs. Its background-task inventory is explicitly unavailable; other software facts
   remain. Updates recognize already-granted macOS permissions instead of reporting an obsolete setup marker as
   deferred, while missing or unknown permissions still require the owner's normal setup flow.
+- Native frontend contract: advertise attachment support, preserve selected source paths through clarification
+  without granting them owner authority, associate pending questions with root tasks, and retain redacted final
+  answers, verification and artifacts for reconnect through status/trace reads.
+- Bridge and retain the Accessibility observer callback with PyObjC's required callback ABI; report sanitized
+  startup error details instead of only the exception class.
 - Integrates the remaining containment, task loop, perception, memory and delegated-conversation milestones.
-  Nothing from this pass is installed or live-accepted by the build agents.
+  The owner installed the prerelease; the later authorized prompt repair was installed by the agent. Live milestone
+  acceptance remains separate from checkout validation.
 - Explicit same-plan continuation preserves completed steps and uncertain effects in the same task tree.
   Retrieved memories are budgeted individually in rank order, with origins and full retrieval routes retained.
 - Adds a packaged owner acceptance catalogue covering every target category and all 38 documented security cases,
   plus saved-baseline comparison that preserves denominators and missing measurements without inventing verdicts.
 - Final checkout validation: 1,792 default tests passed; core typing, syntax, migration integrity and wheel-resource
   checks passed. Live checks remain excluded, and owner F0–F4 results remain historical.
+- After update repairs/native client integration: 1,812 default tests and 44 frontend Swift tests passed. The
+  completed backend is installed, all four grants verify, and passive watchers report no startup failures. The
+  native app was built/relaunched and its socket contract verified without submitting a model task.
 
 ## 0.27.0-dev — 2026-10-11 — F5 checkout, pending final validation/live checks
 

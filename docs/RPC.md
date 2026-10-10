@@ -35,9 +35,9 @@ browser bridge pages large observations; client RPC and extension protocol versi
 | Method | Parameters | Result / behavior |
 |---|---|---|
 | `ping` | `{}` | PID, role, timestamp, explicit stop state |
-| `chat.attach` | `{new?: bool, resume?: conversation_id}` | `{ok, session_id}`; resume/new conversation; marks running tasks attached |
-| `chat.send` | `{session_id, text}` | Stream of `chat.send.event` notifications, then `{ended:true}` |
-| `chat.status` | `{}` | `results`, `running`, `approvals`; fetching unseen results marks them shown |
+| `chat.attach` | `{new?: bool, resume?: conversation_id}` | `{ok, session_id, capabilities:["input_paths"]}`; resume/new conversation; marks running tasks attached |
+| `chat.send` | `{session_id, text, input_paths?: [path,...]}` | Stream of `chat.send.event` notifications, then `{ended:true}` |
+| `chat.status` | `{peek?: bool}` | `results`, `running`, `approvals`; fetching unseen results marks them shown unless `peek:true` |
 | `chat.answer` | `{approval_id, text}` | Answers that exact pending question; empty text declines |
 | `chat.approve` | `{approval_id, granted, choice?: integer}` | Explicit yes/no or 1-based option on that exact question |
 | `task.stop` | `{task_ids:[root_id,...]}` | Stops those trees; omitted/empty IDs explicitly means all running trees |
@@ -57,6 +57,18 @@ it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through sub
 `stop_reason`, and resource outcomes. Display the supplied `answer` verbatim: rebuilding a cheerful summary can hide
 failed conditions.
 
+Attachment-aware clients require `input_paths` in the attachment capabilities before sending selected files; an old
+daemon must not silently discard them. Paths are filesystem source metadata, not extra owner instructions or
+permission to send/delete the file. Existing read protection still applies. Paths persist through clarification;
+the planner's eventual plan receives them as input sources. Secret-bearing filenames are refused before transport
+into planning or persistence. Pasted outside text must retain the CLI's external-data delimiters unless the owner
+explicitly identifies it as their own request.
+
+Status results include `artifacts`, `verified` and `verification`; pending approvals include their `task_id` root
+when the request maps to one tree, otherwise null. Clients must not guess a task identity from display text.
+The full final answer and artifact list also persist as `trace.get.outcome.result` for known-task reconnect, even
+if another client already marked the result shown. Older historical tasks may lack these fields.
+
 A streaming request occupies its connection. Use a second authenticated connection for question replies, stop,
 status or trace reads. The stream ends with a response carrying its request ID. Events are notifications, without
 that ID, using `<method>.event` and `params`. A client disconnect ends its subscription, while an already-started
@@ -70,7 +82,7 @@ An ordinary question has an `approval_id`, reason/question and options. Keep ful
 duplicate labels must not become a first-match selection. Pending questions expire after 600 seconds; timeout is
 not consent. Scheduled unattended work cannot wait indefinitely for an answer and reports what remains unresolved.
 
-A login-code question is marked `owner_login_code`. Collect it with hidden input and send it only through its
+A secret question is marked `owner_login_code`, `owner_secret` or `owner_admin_password`. Collect it with hidden input and send it only through its
 question ID. Do not put it into chat history, telemetry, screenshots or speech. The daemon redacts before persistence
 and fills only the origin/task-bound secret destination. Account and OTP candidate identity are explicit facts;
 “latest message” is not proof that a code belongs to a login.

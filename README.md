@@ -4,9 +4,10 @@ FERB is a personal assistant for macOS. Talk to it with `ferb chat`; its orchest
 questions from context and changes approach when needed. Agents interpret your request and decide what actions it
 authorizes. They prepare a concrete hard-to-undo action, confirm its identity, and carry that confirmation across retries.
 
-Checkout version **0.27.0.dev1**, on `astra_resume` ([plan](docs/0.27_PLAN.md)). F5–F10 are a prerelease pending
-combined checkout validation and owner live acceptance. The running installation remains separate; this work does
-not install or restart it. Earlier F0–F4 owner verdicts remain in the acceptance record.
+Checkout version **0.27.0.dev1**, on `astra_resume` ([plan](docs/0.27_PLAN.md)). F5–F10 passed combined checkout
+validation; owner live acceptance remains pending. The running installation is separate from this checkout;
+the owner installed the prerelease and authorized the subsequent update repair. Earlier F0–F4 owner verdicts
+remain in the acceptance record.
 The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) explains the implementation and limits.
 
 ## Setup
@@ -100,6 +101,11 @@ in shadow until measured with you; now-playing and two-app Accessibility accepta
 [F7 checklist](docs/OWNER_ACCEPTANCE.md#027-f7-perception--pending-owner-acceptance) before treating these as live-proven.
 
 ## Everyday use
+
+The native notch frontend in the separate `ferb-UI` checkout uses the same local daemon socket as the CLI.
+Its integration covers task progress, identified questions and approvals, hidden secret input, stop, selected file
+sources and actual task artifacts. See the [RPC contract](docs/RPC.md) for attachment capability negotiation and
+reconnect behavior. Native-notch microphone capture remains a disclosed preview; the separate voice app is optional.
 
 ```sh
 ferb chat                         # resumes the last conversation
