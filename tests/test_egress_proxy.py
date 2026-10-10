@@ -856,22 +856,124 @@ def _connect_with_sni(proxy_port: int, auth: dict[str, str], connect_host: str, 
 
 
 def test_a_fronting_sni_to_an_unnamed_host_is_refused_and_the_sni_is_recorded() -> None:
-    """S4, fronting: the CONNECT host is allowed but the TLS SNI names a different host the owner hasn't named. The
-    proxy peeks the ClientHello, refuses, and records the SNI as a destination fact. A matching SNI is forwarded and
-    recorded beside the CONNECT host."""
+    """S4, fronting: the CONNECT host is allowed but the TLS SNI names a different host the owner hasn't named. After
+    the trifecta (inspect_sni true) the proxy reads the ClientHello, refuses, and records the SNI as a destination
+    fact. A matching SNI is forwarded and recorded beside the CONNECT host."""
     port, stop = _tls_server()
     def allow(proc: str, host: str, port_: int) -> tuple[bool, str]:
         return (False, "a place you haven't named") if host == "secret.internal" else (True, "")
-    p = _proxy(allow)
+    p = _proxy(allow, inspect_sni=lambda proc, host, port_: True)
     p.resolve = lambda host, port_: [(socket.AF_INET, ("127.0.0.1", port))]   # every name -> the local TLS server
     try:
         auth = _auth(p, "p-sni")
         assert _connect_with_sni(p.port, auth, "cdn.test", port, "secret.internal") is False   # fronting: dropped
-        f = p.facts("p-sni")
-        assert any(r["host"] == "secret.internal" for r in f["refused"])
+        assert any(r["host"] == "secret.internal" for r in p.facts("p-sni")["refused"])
         assert _connect_with_sni(p.port, auth, "cdn.test", port, "cdn.test") is True            # matching SNI: forwarded
-        hosts = {d["host"] for d in f2["destinations"]} if (f2 := p.facts("p-sni")) else set()
+        hosts = {d["host"] for d in p.facts("p-sni")["destinations"]}
         assert "cdn.test" in hosts and not any(r["host"] == "cdn.test" for r in p.facts("p-sni")["refused"])
+    finally:
+        p.close()
+        stop()
+
+
+def _client_hello(sni: str) -> bytes:
+    import ssl
+    cctx = ssl.create_default_context(); cctx.check_hostname = False; cctx.verify_mode = ssl.CERT_NONE
+    inbio, outbio = ssl.MemoryBIO(), ssl.MemoryBIO()
+    obj = cctx.wrap_bio(inbio, outbio, server_hostname=sni)
+    try:
+        obj.do_handshake()
+    except ssl.SSLWantReadError:
+        pass
+    return outbio.read()
+
+
+def _connect(proxy_port: int, auth: dict[str, str], connect_host: str, port: int) -> socket.socket:
+    raw = socket.create_connection(("127.0.0.1", proxy_port), timeout=5)
+    raw.sendall(f"CONNECT {connect_host}:{port} HTTP/1.1\r\nHost: {connect_host}:{port}\r\n"
+                f"Proxy-Authorization: {auth['Proxy-Authorization']}\r\n\r\n".encode())
+    status = b""
+    while b"\r\n\r\n" not in status:
+        status += raw.recv(1)
+    assert b" 200 " in status.split(b"\r\n", 1)[0], status
+    return raw
+
+
+def _refused(raw: socket.socket) -> bool:
+    """After sending a mismatched hello, the proxy drops the tunnel: a read returns EOF, not a ServerHello."""
+    raw.settimeout(5)
+    try:
+        return raw.recv(16) == b""
+    except OSError:
+        return True
+
+
+def test_a_dribbled_or_split_client_hello_is_still_checked() -> None:
+    """A fronting hello sent one byte at a time, or re-framed across two TLS records, is reassembled and refused; the
+    hold waits for the bytes (no timeout) rather than failing open."""
+    port, stop = _tls_server()
+    p = _proxy(lambda proc, host, port_: (host != "secret.internal", "a place you haven't named"),
+               inspect_sni=lambda *a: True)
+    p.resolve = lambda host, port_: [(socket.AF_INET, ("127.0.0.1", port))]
+    hello = _client_hello("secret.internal")
+    try:
+        auth = _auth(p, "p-drib")
+        raw = _connect(p.port, auth, "cdn.test", port)                    # dribbled, a byte at a time
+        for b in hello:
+            raw.sendall(bytes([b])); time.sleep(0.002)
+        assert _refused(raw); raw.close()
+        payload = hello[5:]; mid = len(payload) // 2                       # split across two TLS records
+        two = (b"\x16\x03\x03" + len(payload[:mid]).to_bytes(2, "big") + payload[:mid] +
+               b"\x16\x03\x03" + len(payload[mid:]).to_bytes(2, "big") + payload[mid:])
+        raw2 = _connect(p.port, auth, "cdn.test", port)
+        raw2.sendall(two)
+        assert _refused(raw2); raw2.close()
+        assert any(r["host"] == "secret.internal" for r in p.facts("p-drib")["refused"])
+    finally:
+        p.close()
+        stop()
+
+
+def _greeter() -> tuple[int, Callable[[], None]]:
+    """A plain TCP server that greets first (server-first protocol), then echoes."""
+    srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0)); srv.listen(5)
+    port = srv.getsockname()[1]
+    stop = threading.Event()
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            try:
+                c.sendall(b"GREETING\n")
+                while data := c.recv(1024):
+                    c.sendall(data)
+            except OSError:
+                pass
+    threading.Thread(target=serve, daemon=True).start()
+    return port, lambda: (stop.set(), srv.close())
+
+
+def test_a_server_first_protocol_and_a_short_client_message_are_not_held() -> None:
+    """Both directions start at once: a server-first greeting arrives without waiting for the client, and a short
+    non-TLS client message round-trips with no added delay (the old pre-pump peek added ~1.5 s)."""
+    port, stop = _greeter()
+    p = _proxy(lambda *a: (True, ""), inspect_sni=lambda *a: True)
+    p.resolve = lambda host, port_: [(socket.AF_INET, ("127.0.0.1", port))]
+    try:
+        auth = _auth(p, "p-sf")
+        raw = _connect(p.port, auth, "svc.test", port)
+        raw.settimeout(5)
+        start = time.monotonic()
+        assert raw.recv(16).startswith(b"GREETING")                       # arrives before the client speaks
+        assert time.monotonic() - start < 1.0
+        start = time.monotonic()
+        raw.sendall(b"PING\n")                                            # non-TLS: forwarded at once
+        assert raw.recv(16).startswith(b"PING")
+        assert time.monotonic() - start < 1.0
+        raw.close()
     finally:
         p.close()
         stop()

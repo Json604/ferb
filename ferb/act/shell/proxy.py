@@ -56,7 +56,8 @@ CHUNK = 65536
 # matching these exact strings, so a sink refusal names the right host and a final No isn't offered as "ask again").
 DEST_REFUSED_NEW = "a place you haven't named, after this task read your own data and outside content"
 DEST_REFUSED_NO = "you said no to this place in this task"
-SNI_PEEK_TIMEOUT = 1.5                                      # seconds to wait for a TLS ClientHello before pumping as-is
+DEST_SNI_NONE = "a TLS connection whose server name FERB couldn't read, after reading your own data and outside content"
+SNI_MAX = 16 * 1024                                         # the most of a client's ClientHello FERB reassembles (S4)
 UNAUTH_TIMEOUT = 10.0                                       # seconds from accept until a connection must authenticate
 #                                                            (an absolute deadline: dripping bytes doesn't extend it)
 MAX_UNAUTH = 1024                                           # connections not yet authenticated held at once; past it the
@@ -115,17 +116,26 @@ def _hang_up(conn: socket.socket) -> None:
         pass
 
 
-def parse_sni(head: bytes) -> str | None:
-    """The SNI host from the first bytes of a TLS ClientHello record, lowercased; None when `head` is not a TLS
-    handshake / ClientHello, "" when it is one without an SNI. A shape parse of a hostname (a destination fact), never
-    content: it reads no application data (rule 14)."""
-    if len(head) < 5 or head[0] != 0x16:              # not a TLS handshake record
+def parse_sni(buf: bytes) -> str | None:
+    """The SNI host from a client's first bytes, reassembling the ClientHello across one or more TLS handshake records
+    (a hello can be fragmented): None while more bytes are needed, "" when the ClientHello is complete but has no SNI,
+    else the lowercased host. A shape parse of a hostname (a destination fact), never application data (rule 14)."""
+    hs = bytearray()                                  # the handshake-message bytes, concatenated across records
+    i = 0
+    while i + 5 <= len(buf) and buf[i] == 0x16:       # a TLS handshake record
+        rec_len = int.from_bytes(buf[i + 3:i + 5], "big")
+        if i + 5 + rec_len > len(buf):
+            return None                               # the record is not fully here yet
+        hs += buf[i + 5:i + 5 + rec_len]
+        i += 5 + rec_len
+    if len(hs) < 4 or hs[0] != 0x01:                  # not (yet) a ClientHello handshake message
         return None
-    body = head[5:5 + int.from_bytes(head[3:5], "big")]
-    if len(body) < 4 or body[0] != 0x01:              # not a ClientHello
-        return None
+    msg_len = int.from_bytes(hs[1:4], "big")
+    if len(hs) < 4 + msg_len:
+        return None                                   # the ClientHello is not fully received yet
+    body = hs[4:4 + msg_len]
     try:
-        p = 4 + 2 + 32                                # handshake header, client_version, random
+        p = 2 + 32                                    # client_version, random
         p += 1 + body[p]                             # session id
         p += 2 + int.from_bytes(body[p:p + 2], "big")   # cipher suites
         p += 1 + body[p]                             # compression methods
@@ -156,8 +166,11 @@ def _literal(host: str) -> bool:
 
 class EgressProxy:
     def __init__(self, allow: Allow, *, resolve: Resolve = addresses, redactor: Secrets | None = None,
-                 excluded: Callable[[str], bool] | None = None, on_report: Report | None = None) -> None:
+                 excluded: Callable[[str], bool] | None = None, on_report: Report | None = None,
+                 inspect_sni: Callable[[str, str, int], bool] | None = None) -> None:
         self.allow, self.resolve, self.redactor = allow, resolve, redactor
+        # S4: whether to hold a CONNECT's TLS ClientHello to enforce the SNI (True only after the trifecta); default off
+        self.inspect_sni = inspect_sni or (lambda proc, host, port: False)
         self.excluded = excluded or (lambda host: False)    # the owner's exclusion list: such a host is never shown
         self.on_report = on_report                          # a process is fully done: its final record (host/bytes)
         self._tokens: dict[str, str] = {}                   # proc id -> token, while FERB tracks the process
@@ -271,14 +284,10 @@ class EgressProxy:
                 try:
                     self.send_response(200, "Connection established")
                     self.end_headers()
-                    sni, pre = proxy._peek_client_hello(self.connection)
-                    if sni and sni.rstrip(".") != host:  # S4: domain fronting — the TLS SNI names a different host
-                        ok, why = proxy.allow(proc, sni, port)
-                        if not ok:
-                            proxy._note(proc, sni, port, refused=why or "FERB refused this destination")
-                            return
-                        proxy._record_sni(proc, sni, port)   # an allowed differing SNI is a destination fact too
-                    proxy._pump(self.connection, upstream, proc, host, port, pre)
+                    # S4 fronting: both directions start at once (server-first bytes flow immediately); the first client
+                    # bytes are inspected inline (non-TLS forwarded with no delay; a TLS SNI checked after the trifecta)
+                    proxy._pump(self.connection, upstream, proc, host, port,
+                                sni_check=lambda: proxy.inspect_sni(proc, host, port))
                 finally:
                     upstream.close()
                     proxy._closed(proc)
@@ -587,34 +596,6 @@ class EgressProxy:
         self._count(proc, host, port, key, len(data))
         sock.sendall(data)
 
-    def _peek_client_hello(self, conn: socket.socket, timeout: float = SNI_PEEK_TIMEOUT) -> tuple[str | None, bytes]:
-        """Read the first client bytes after a CONNECT's 200 and, if they are a TLS ClientHello, return
-        (SNI, the bytes read); else (None, the bytes read). Bounded by `timeout` (a protocol where the server speaks
-        first yields no SNI) and by one record's length, so it reads no application data."""
-        conn.settimeout(timeout)
-        buf = b""
-        try:
-            while len(buf) < 5:
-                chunk = conn.recv(CHUNK)
-                if not chunk:
-                    break
-                buf += chunk
-            if len(buf) >= 5 and buf[0] == 0x16:
-                need = 5 + int.from_bytes(buf[3:5], "big")
-                while len(buf) < need and len(buf) < 16384:
-                    chunk = conn.recv(CHUNK)
-                    if not chunk:
-                        break
-                    buf += chunk
-        except OSError:
-            pass
-        finally:
-            try:
-                conn.settimeout(None)
-            except OSError:
-                pass
-        return (parse_sni(buf) if buf[:1] == b"\x16" else None), buf
-
     def _record_sni(self, proc: str, sni: str, port: int) -> None:
         """Record a differing SNI as a destination fact (a hostname like the CONNECT host), no bytes of its own."""
         with self._lock:
@@ -622,28 +603,84 @@ class EgressProxy:
             if f is not None:
                 f["destinations"].setdefault((sni, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
 
-    def _pump(self, client: socket.socket, upstream: socket.socket, proc: str, host: str, port: int,
-              pre: bytes = b"") -> None:
-        if pre:                                          # bytes peeked for the SNI, forwarded first and counted
+    def _sni_gate(self, chunk: bytes, client: socket.socket, proc: str, host: str, port: int,
+                  sni_check: Callable[[], bool]) -> bytes | None:
+        """Inspect the first client bytes of a CONNECT (S4 fronting). Not TLS (SMTP/IMAP/FTP/MySQL/SSH): forwarded at
+        once. TLS before the trifecta: forwarded at once, the SNI recorded best-effort. TLS after the trifecta: the
+        ClientHello is held (across records, up to SNI_MAX, no timeout) and the SNI checked — forwarded if it matches
+        the CONNECT host or is known/named, refused if it names an unknown host or no SNI can be read. Returns the bytes
+        to forward, or None to refuse."""
+        if chunk[:1] != b"\x16":                         # not a TLS handshake: forward immediately
+            return chunk
+        if not sni_check():                              # before the trifecta: never hold; record best-effort
+            sni = parse_sni(chunk)
+            if sni and sni.rstrip(".") != host:
+                self._record_sni(proc, sni, port)
+            return chunk
+        buf = bytearray(chunk)
+        sni = parse_sni(bytes(buf))
+        while sni is None and len(buf) < SNI_MAX:        # reassemble a dribbled / split-record hello; no timeout
             try:
-                self._send(upstream, pre, proc, host, port, "bytes_out")
+                more = client.recv(CHUNK)
             except OSError:
-                pass
+                break
+            if not more:
+                break
+            buf += more
+            sni = parse_sni(bytes(buf))
+        if not sni:                                      # no server name read within the bound: fail closed
+            self._note(proc, host, port, refused=DEST_SNI_NONE)
+            return None
+        if sni.rstrip(".") != host:
+            ok, why = self.allow(proc, sni, port)
+            if not ok:
+                self._note(proc, sni, port, refused=why or "FERB refused this destination")
+                return None
+            self._record_sni(proc, sni, port)
+        return bytes(buf)
 
-        def copy(src: socket.socket, dst: socket.socket, key: str) -> None:
+    def _pump(self, client: socket.socket, upstream: socket.socket, proc: str, host: str, port: int,
+              sni_check: Callable[[], bool] | None = None) -> None:
+        def u2c() -> None:                               # server -> client, started at once (server-first bytes flow)
             try:
-                while chunk := src.recv(CHUNK):
-                    self._send(dst, chunk, proc, host, port, key)
+                while chunk := upstream.recv(CHUNK):
+                    self._send(client, chunk, proc, host, port, "bytes_in")
             except OSError:
                 pass
             finally:
                 try:
-                    dst.shutdown(socket.SHUT_WR)
+                    client.shutdown(socket.SHUT_WR)
                 except OSError:
                     pass
-        t = threading.Thread(target=copy, args=(upstream, client, "bytes_in"), daemon=True)
+        t = threading.Thread(target=u2c, daemon=True)
         t.start()
-        copy(client, upstream, "bytes_out")
+        first = True
+        try:
+            while True:
+                try:
+                    chunk = client.recv(CHUNK)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                if first and sni_check is not None:
+                    first = False
+                    gated = self._sni_gate(chunk, client, proc, host, port, sni_check)
+                    if gated is None:                    # a fronting refusal: nothing forwarded, both sides torn down
+                        _hang_up(upstream)
+                        break
+                    chunk = gated
+                else:
+                    first = False
+                try:
+                    self._send(upstream, chunk, proc, host, port, "bytes_out")
+                except OSError:
+                    break
+        finally:
+            try:
+                upstream.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
         t.join()
         upstream.close()
 

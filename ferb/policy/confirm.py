@@ -137,48 +137,66 @@ def destination_key(host: str) -> str:
 _FINE = re.compile(r'[\s=:"\',;/&?#@<>()\[\]{}|~`!*+]+')   # splits a value out of JSON, .env, query/path/fragment text
 _B64 = re.compile(r"[A-Za-z0-9+/_-]{8,}={0,2}")
 _HEX = re.compile(r"(?:[0-9a-fA-F]{2}){4,}")
+_TRAIL = ".,;:!?)]}>\"'"                                   # trailing punctuation on a URL piece (hunter2xyz. , 998.)
+# A small built-in table of two-level public suffixes, so the registrable domain is found (data, never an intent list).
+_TWO_LEVEL = frozenset({"co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk", "com.au", "net.au", "org.au", "edu.au",
+                        "gov.au", "co.nz", "org.nz", "govt.nz", "co.za", "org.za", "co.in", "net.in", "org.in",
+                        "co.jp", "or.jp", "ne.jp", "com.br", "com.cn", "net.cn", "org.cn", "gov.cn", "co.kr",
+                        "com.mx", "com.sg", "com.hk", "com.tw", "co.il", "com.tr", "co.id", "com.ua"})
 
 
 def _fine_tokens(text: str) -> set[str]:
-    """A text's tokens for the URL check: split on whitespace and the punctuation that frames a value in JSON, a .env
-    line, a query string or a fragment, so an embedded value is a whole token. Lowercased; nothing under MIN_LEN."""
+    """A text's fine tokens: split on whitespace and the punctuation that frames a value in JSON, a .env line, a query
+    string or a fragment, so an embedded value is a whole token. Lowercased; nothing under MIN_LEN."""
     return {t for t in _FINE.split(text.lower()) if len(t) >= provenance.MIN_LEN}
 
 
+def _toks(t: provenance.Text) -> set[str]:
+    """A read text's tokens for the URL check: the coarse tokens (whole emails, hosts, paths) and the fine tokens
+    (values embedded in JSON/.env/query punctuation), combined (N2)."""
+    return set(t.tokens) | _fine_tokens(t.folded)
+
+
 def _decodings(piece: str) -> set[str]:
-    """Shape-only decodings of a URL piece that could hide a value: base64 and hex. Never a meaning (rule 6); only
-    printable ASCII results are kept, lowercased."""
+    """Shape-only decodings of a URL piece that could hide a value: base64 and hex. The decoded text is split the same
+    way, so `KEY=value` or a JSON blob yields its values (N2). Never a meaning (rule 6); printable ASCII only."""
     out: set[str] = set()
-    try:
-        if _B64.fullmatch(piece) and len(piece) % 4 != 1:
-            raw = base64.b64decode(piece + "=" * (-len(piece) % 4), altchars=b"-_", validate=False)
-            dec = raw.decode("ascii")
-            if dec.isprintable():
-                out.add(dec.lower())
-    except (binascii.Error, ValueError, UnicodeDecodeError):
-        pass
-    try:
-        if _HEX.fullmatch(piece) and len(piece) % 2 == 0:
-            dec = bytes.fromhex(piece).decode("ascii")
-            if dec.isprintable():
-                out.add(dec.lower())
-    except (ValueError, UnicodeDecodeError):
-        pass
+    for pat, dec_fn in ((_B64, lambda s: base64.b64decode(s + "=" * (-len(s) % 4), altchars=b"-_", validate=False)),
+                        (_HEX, bytes.fromhex)):
+        if not pat.fullmatch(piece):
+            continue
+        try:
+            dec = dec_fn(piece).decode("ascii")
+        except (binascii.Error, ValueError, UnicodeDecodeError):
+            continue
+        if dec.isprintable():
+            out.add(dec.lower())
+            out |= _fine_tokens(dec)
     return out
 
 
+def _value_labels(host: str) -> list[str]:
+    """The host labels left of the site's registrable domain — where a value rides in `VALUE.attacker.com` (N3). The
+    registrable domain (the label plus its public suffix) is not a value, so `github.com` and `stripe.com` yield
+    nothing. A two-level suffix (co.uk, com.au…) is taken from a small built-in table."""
+    labels = host.split(".")
+    if len(labels) < 3:
+        return []
+    reg = 3 if ".".join(labels[-2:]) in _TWO_LEVEL else 2
+    return labels[:-reg]
+
+
 def _url_pieces(url: str) -> list[str]:
-    """The pieces of a URL a value could ride in: userinfo, each host label and the whole host, each path segment
-    (percent-decoded) with its `;` parameters and file extension stripped, each query name and value, and the
-    fragment whole and split. Percent-decoded with `unquote_plus`."""
-    parts = urlsplit(url)
+    """The pieces of a URL a value could ride in: userinfo, the host labels left of the registrable domain, each path
+    segment (percent-decoded) with its `;` parameters and file extension stripped, each query name and value, and the
+    fragment whole and split. `\\` is treated as `/` first (browsers do), and pieces are `unquote_plus`-decoded."""
+    parts = urlsplit(url.replace("\\", "/"))
     pieces: list[str] = []
     if parts.username:
         pieces.append(unquote_plus(parts.username))
     if parts.password:
         pieces.append(unquote_plus(parts.password))
-    host = parts.hostname or ""
-    pieces += [host, *host.split(".")]
+    pieces += _value_labels(parts.hostname or "")
     for seg in parts.path.split("/"):
         seg = unquote_plus(seg)
         main = seg.split(";", 1)[0]
@@ -186,40 +204,66 @@ def _url_pieces(url: str) -> list[str]:
         if "." in main:
             pieces.append(main.rsplit(".", 1)[0])              # extension stripped: VALUE.png -> VALUE
         for param in seg.split(";")[1:]:
-            pieces += [unquote_plus(p) for kv in param.split("=") for p in (kv,)]
+            pieces += [unquote_plus(kv) for kv in param.split("=")]
     for pair in parts.query.split("&"):
         pieces += [unquote_plus(kv) for kv in pair.split("=")]
     frag = unquote_plus(parts.fragment)
     pieces.append(frag)
     for pair in frag.split("&"):                               # #k=VALUE and #VALUE
-        pieces += [p for p in pair.split("=")]
+        pieces += pair.split("=")
     return pieces
 
 
-def url_carries_private(url: str, private: list[provenance.Text], outside: list[provenance.Text],
-                        owner: provenance.Text) -> list[str]:
-    """The sink rule for navigation (S4, SQ6, carried item 8, Q8): the pieces of `url` (userinfo, host labels, path
-    segments with `;`-params and extensions stripped, query values, fragment; percent-decoded, base64/hex-decoded when
-    they have that shape) that are a token of the owner's own data (private tool results) and are NOT a token of the
-    owner's words/answers and NOT a token of outside content the tree read. A value in outside content is public, not
-    the owner's own (I3: owner-browser snapshots are `owner_account`, so public pages would otherwise count as
-    private). A shape-and-provenance check, never a meaning (rule 6). In order, without repeats; at least MIN_LEN."""
+def _variants(piece: str) -> set[str]:
+    """A URL piece's forms to match: itself and its trailing-punctuation-stripped form, lowercased, plus base64/hex
+    decodings (N2)."""
+    forms: set[str] = set()
+    for base in (piece.strip(), piece.strip().rstrip(_TRAIL)):
+        if len(base) >= provenance.MIN_LEN:
+            forms.add(base.lower())
+            forms |= _decodings(base)
+    return forms
+
+
+def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
+                        outside: list[tuple[int, provenance.Text]], owner: provenance.Text) -> list[str]:
+    """The sink rule for navigation (S4, SQ6, carried item 8, Q8, N1): the pieces of `url` that are a token of the
+    owner's own data (a private tool result) and are not the owner's typed words and were not already public. `private`
+    and `outside` are (span order, prepared text) in read order; a value is public only if it appeared in an
+    outside-only result read *before* that value was first read privately (laundering by later echo doesn't count), and
+    a record labelled both outside and private counts as private, never making a value public (that split is the
+    caller's). A URL seen verbatim in outside-only content read before the private value first appeared is a followed
+    link: nothing asked. Shape and provenance only, never a meaning (rule 6)."""
     if not private:
         return []
-    priv: set[str] = set().union(*(_fine_tokens(t.folded) for t in private))
-    pub: set[str] = set(owner.tokens) | set().union(*(_fine_tokens(t.folded) for t in outside)) if outside \
-        else set(owner.tokens)
-    out: list[str] = []
+    first_private: dict[str, int] = {}
+    for order, t in private:
+        for tok in _toks(t):
+            if order < first_private.get(tok, order + 1):
+                first_private[tok] = order
+    owner_toks = _toks(owner)
+    outside_toks = [(order, _toks(t)) for order, t in outside]
+
+    def laundered(tok: str) -> bool:                          # public before it was first read privately
+        fp = first_private[tok]
+        return any(tok in toks for order, toks in outside_toks if order < fp)
+
+    hits: list[tuple[str, int]] = []
     for piece in _url_pieces(url):
-        p = piece.strip()
-        if len(p) < provenance.MIN_LEN:
+        value = piece.strip()
+        forms = _variants(piece)
+        if not forms or forms & owner_toks:
             continue
-        forms = {p.lower()} | _decodings(p)
-        if forms & pub:                                       # the owner typed it, or it is public: not the owner's own
-            continue
-        if forms & priv and p not in out:
-            out.append(p)
-    return out
+        matched = {m for m in forms & set(first_private) if not laundered(m)}
+        if matched and value and value not in [v for v, _ in hits]:
+            hits.append((value, min(first_private[m] for m in matched)))
+    if not hits:
+        return []
+    earliest = min(order for _, order in hits)
+    seen_url = {url.casefold(), url.replace("\\", "/").casefold()}
+    if any(order < earliest and any(u in t.folded for u in seen_url) for order, t in outside):
+        return []                                             # a followed link, read before the private value
+    return [v for v, _ in hits]
 
 
 def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[str, list[str]], *,
@@ -318,7 +362,7 @@ def line(needs: list[Need], call: str, why: str) -> str:
     """FERB's own words, first and labelled (P27: second person, the concrete action), then the call, the reason the
     task gave (quoted) and the question. The gateway collapses whitespace, strips control characters, maps the
     reason's double quotes to single ones and clips what goes in."""
-    text = "FERB: " + "; ".join(_part(n) for n in needs) + f". The step: {call}."
+    text = "FERB: " + "; ".join(_part(n) for n in needs) + (f". The step: {call}." if call else ".")
     if why:
         text += f' Reason given: "{why}".'
     return text + " Go ahead?"

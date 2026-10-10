@@ -89,7 +89,9 @@ def _download_sources(found: list[dict[str, Any]]) -> tuple[tuple[str, str], ...
 
 
 def _host(url: str | None) -> str | None:
-    return urlsplit(url).hostname if url else None
+    # Parse special-scheme hosts the way browsers do: `\` is `/`, so https://attacker.example\@good.example/ has host
+    # attacker.example (the sink and the navigation agree on where the request goes).
+    return urlsplit(url.replace("\\", "/")).hostname if url else None
 
 
 class _Base:

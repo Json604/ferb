@@ -353,6 +353,9 @@ class OutsideTexts:
     seen: set[int] = field(default_factory=set)       # finished calls above the floor, already prepared
     texts: list[tuple[str, provenance.Text]] = field(default_factory=list)   # (external origin, prepared text)
     private: list[provenance.Text] = field(default_factory=list)   # results the owner's own data (origin.PRIVATE)
+    # (span order, is_private, is_outside_only, prepared text) in read order, for the URL sink's N1 span-order rule:
+    # a record labelled both outside and private counts as private (never outside-only).
+    results: list[tuple[int, bool, bool, provenance.Text]] = field(default_factory=list)
     pasted: list[tuple[str, provenance.Text]] | None = None    # the request's pasted parts, prepared once (MP2)
 
 
@@ -470,12 +473,24 @@ class Gateway:
                 return (True, "") if row["granted"] else (False, DEST_REFUSED_NO)
         if self._host_named(norm, root):
             return True, ""
-        read = self.spans.tool_origins(root)
-        read_external = any(origin.is_external(o) for o in read | self.spans.request_origins(root))
-        if not (origin.PRIVATE in read and read_external):
+        if not self._trifecta_holds(root):
             return True, ""
-        self._refused_hosts.setdefault(root, {})[norm] = self.proc_command(proc_id) or ""
+        if self.tasks.get(root) is not None:             # N4: don't re-create _refused_hosts for a tree that ended
+            self._refused_hosts.setdefault(root, {})[norm] = self.proc_command(proc_id) or ""
         return False, DEST_REFUSED_NEW
+
+    def _trifecta_holds(self, root: str) -> bool:
+        """Whether this tree has read both the owner's own data and outside content (its own tool results and the
+        request's own origins). Private data read by the shell is left out until the owner decides (C1)."""
+        read = self.spans.tool_origins(root)
+        return origin.PRIVATE in read and any(origin.is_external(o) for o in read | self.spans.request_origins(root))
+
+    async def trifecta_holds(self, proc_id: str) -> bool:
+        """For the proxy (on the loop): whether to hold a CONNECT's TLS ClientHello to enforce the SNI (S4). True only
+        after the trifecta; before it, the proxy records the SNI best-effort and never holds."""
+        task_id = self.proc_task(proc_id)
+        root = self.tasks.tree_of(task_id) if task_id is not None else None
+        return root is not None and self._trifecta_holds(root)
 
     def _host_named(self, host_norm: str, root: str) -> bool:
         """Whether the owner named this host (M4): a URL host in the request's own words or in an answer the owner gave
@@ -544,11 +559,14 @@ class Gateway:
                 continue
             known.seen.add(rowid)
             external = sorted(o for o in origins if origin.is_external(o))
-            if external or origin.PRIVATE in origins:
+            is_private = origin.PRIVATE in origins
+            if external or is_private:
                 prepared = provenance.prepare(text)
                 known.texts += [(o, prepared) for o in external]
-                if origin.PRIVATE in origins:
+                if is_private:
                     known.private.append(prepared)
+                # N1(b): a record labelled both outside and private counts as private, never outside-only
+                known.results.append((rowid, is_private, bool(external) and not is_private, prepared))
         known.floor = running - 1 if running is not None else max(known.seen, default=known.floor)
         known.seen = {r for r in known.seen if r > known.floor}
         return known
@@ -557,16 +575,13 @@ class Gateway:
         """The tree's external tool results so far, prepared (S3)."""
         return self._read_texts(root).texts
 
-    def _private_texts(self, root: str) -> list[provenance.Text]:
-        """The tree's results that are the owner's own data, prepared (S4: the URL sink's carried-value check)."""
-        return self._read_texts(root).private
-
-    def _outside_prepared(self, root: str) -> list[provenance.Text]:
-        """The tree's external tool results, prepared, each once (S4: the URL sink excludes public values)."""
-        seen: dict[int, provenance.Text] = {}
-        for _, text in self._read_texts(root).texts:
-            seen.setdefault(id(text), text)
-        return list(seen.values())
+    def _sink_texts(self, root: str) -> tuple[list[tuple[int, provenance.Text]], list[tuple[int, provenance.Text]]]:
+        """(the owner's own data, outside-only content), each as (span order, prepared text) in read order, for the URL
+        sink's N1 span-order rule (a value is public only if it was outside-only before it was first read privately)."""
+        results = self._read_texts(root).results
+        private = [(rowid, t) for rowid, is_private, _, t in results if is_private]
+        outside_only = [(rowid, t) for rowid, _, outside_only, t in results if outside_only]
+        return private, outside_only
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         rec = self.tasks.get(grant.task_id)
@@ -822,13 +837,11 @@ class Gateway:
             return None
         if self._host_named(host, root):
             return None                                  # the owner named this host
-        private, outside = self._private_texts(root), self._outside_prepared(root)
-        if any(url.casefold() in t.folded for t in private + outside):
-            return None                                  # a link the tree read, not a value FERB put in the address
         request = self.state.requests.get(rec.task.request_id)
         words = request.words if request is not None else ""
         owner_text = provenance.prepare(words + "\n" + "\n".join(self.spans.owner_answers(root)))
-        values = confirm.url_carries_private(url, private, outside, owner_text)
+        private, outside_only = self._sink_texts(root)   # N1: span-ordered; a followed link read first asks nothing
+        values = confirm.url_carries_private(url, private, outside_only, owner_text)
         if not values:
             return None
         need = confirm.Need("sink:private_url", confirm.destination_key(host),

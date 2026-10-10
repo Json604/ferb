@@ -668,7 +668,8 @@ class Daemon:
         # every destination is asked about (the gateway) and recorded with its byte counts (F5a Task 3)
         self._loop = asyncio.get_running_loop()
         self.proxy = EgressProxy(self._allow_destination, redactor=self.redact if isinstance(self.redact, Redactor)
-                                 else None, excluded=getattr(self.redact, "excluded_host", None))
+                                 else None, excluded=getattr(self.redact, "excluded_host", None),
+                                 inspect_sni=self._sni_enforce)
         self.sandbox = Sandbox(self.protection, self.home / "run" / "sandbox",
                                lambda: self.proxy.port if self.proxy is not None else None, socket=self.server.path)
         self.sandbox.sweep()
@@ -699,6 +700,16 @@ class Daemon:
             return fut.result(10)
         except Exception:
             return False, "FERB could not check this destination"
+
+    def _sni_enforce(self, proc: str, host: str, port: int) -> bool:
+        """On a proxy thread (S4 fronting): whether to hold a CONNECT's TLS ClientHello and enforce the SNI — only after
+        the trifecta. Anything that stops the gateway answering means no hold (the CONNECT host was already allowed)."""
+        try:
+            assert self.gateway is not None and self._loop is not None
+            fut = asyncio.run_coroutine_threadsafe(self.gateway.trifecta_holds(proc), self._loop)
+            return bool(fut.result(10))
+        except Exception:
+            return False
 
     def _shell_network(self, info: ProcInfo, facts: dict[str, Any]) -> None:
         """A finished shell process's final network record (ferb trace / journal). The proxy may report it from a
