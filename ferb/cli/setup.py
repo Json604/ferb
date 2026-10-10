@@ -230,7 +230,15 @@ def containment_check(c: dict[str, Any] | None) -> Check:
     if not c:
         return Check("containment", "fail", "the daemon didn't report it", "run `ferb setup --update`")
     if c.get("profile_ok") and c.get("shell"):
-        return Check("containment", "ok", "FERB's shell and AppleScript run inside its sandbox (sandbox-exec)")
+        detail = "FERB's shell and AppleScript run inside its sandbox (sandbox-exec)"
+        if c.get("proxy") and not c.get("proxy_alive", True):
+            return Check("containment", "fail", detail + "; FERB's egress proxy didn't answer, so the shell has no "
+                         f"network (last error: {c.get('proxy_last_error') or 'none'})",
+                         "restart the daemon (`ferb setup --update`)")
+        if c.get("proxy_restarted"):
+            detail += ("; FERB's egress proxy had stopped and was restarted "
+                       f"(last error: {c.get('proxy_last_error') or 'none'})")
+        return Check("containment", "ok", detail)
     why = c.get("reason") if not c.get("profile_ok") else c.get("shell_reason")
     return Check("containment", "fail", f"FERB's shell is unavailable until sandbox-exec works: {why}",
                  "restart the daemon after fixing it (`ferb setup --update`)")

@@ -28,7 +28,8 @@ async def run(bundle_id: str, body: str, timeout: float = 30.0, sandbox: Any = N
     env = None
     if sandbox is not None:
         from ferb.act.shell.manager import clean_env
-        argv, env = sandbox.wrap(argv, apps=True), clean_env(sandbox)       # the shell's clean environment
+        # Building the profile runs netstat and sandbox_check: off the event loop. The shell's clean environment
+        argv, env = await asyncio.to_thread(sandbox.wrap, argv, apps=True), clean_env(sandbox)
     try:
         proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE,
                                                     stderr=asyncio.subprocess.PIPE, cwd=cwd, env=env)

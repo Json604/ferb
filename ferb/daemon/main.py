@@ -89,15 +89,32 @@ RESTORE_LIST = 100                                # `ferb restore` lists the new
 
 
 def _raise_file_limit() -> None:
-    """Raise the open-file soft limit toward the hard limit, so the egress proxy's per-connection descriptors (and
-    everything else FERB holds open) don't hit EMFILE. Best effort; a failure never stops the daemon."""
+    """Set the open-file soft limit to the hard limit clamped to kern.maxfilesperproc, so the egress proxy's
+    per-connection descriptors (and everything else FERB holds open) don't hit EMFILE, and children still see a finite
+    OPEN_MAX. Best effort; a failure never stops the daemon."""
     try:
         import resource
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        if soft < hard:
-            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+        target = hard if hard != resource.RLIM_INFINITY else soft
+        per_proc = _sysctl_int(b"kern.maxfilesperproc")
+        if per_proc:                                          # finite, so children see a finite OPEN_MAX
+            target = min(target, per_proc) if hard != resource.RLIM_INFINITY else per_proc
+        if target != soft:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
     except (OSError, ValueError, ImportError):
         pass
+
+
+def _sysctl_int(name: bytes) -> int | None:
+    import ctypes
+    try:
+        value, size = ctypes.c_int(0), ctypes.c_size_t(ctypes.sizeof(ctypes.c_int))
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        if libc.sysctlbyname(name, ctypes.byref(value), ctypes.byref(size), None, 0) != 0:
+            return None
+        return int(value.value) or None
+    except OSError:
+        return None
 
 
 class _PurgePlan(NamedTuple):
@@ -684,10 +701,14 @@ class Daemon:
 
         def write() -> None:
             self._journal().append("shell.network", record)
-        if self._loop is not None and self._loop.is_running():
+        try:
+            on_loop = asyncio.get_running_loop() is self._loop
+        except RuntimeError:                                  # a proxy thread
+            on_loop = False
+        if on_loop or self._loop is None or not self._loop.is_running():
+            write()                                           # at shutdown too: before the database closes
+        else:
             self._loop.call_soon_threadsafe(write)
-        else:                                                 # no loop (unit test): write inline
-            write()
 
     # ---------- watchers + trail ----------
 
@@ -2225,13 +2246,15 @@ class Daemon:
         out = await asyncio.to_thread(run)
         out["runtimes"] = await self._runtime_status()
         ok, reason = await asyncio.to_thread(self.sandbox.available) if self.sandbox else (False, "not built")
-        # The proxy's liveness check (expect 407): it also restarts a dead serving thread; a down proxy means the
-        # shell has no network and fails closed (F5a Task 3 fix 1)
-        proxy_ok = bool(self.proxy is not None and await asyncio.to_thread(self.proxy.probe))
+        # The proxy's liveness check (expect 407): it also restarts a dead serving thread, and says so; a down proxy
+        # means the shell has no network and fails closed (F5a Task 3 fix rounds 1-2)
+        probe = await asyncio.to_thread(self.proxy.probe) if self.proxy is not None else {}
         out["containment"] = {"sandbox_exec": os.path.exists(SANDBOX_EXEC), "profile_ok": ok, "reason": reason,
                               "shell": "shell.run" in self.registry.capabilities,
                               "shell_reason": self.containment[1],
-                              "proxy": self.proxy is not None, "proxy_alive": proxy_ok,
+                              "proxy": self.proxy is not None, "proxy_alive": bool(probe.get("alive")),
+                              "proxy_restarted": bool(probe.get("restarted")),
+                              "proxy_last_error": probe.get("last_error"),
                               "snapshots": self.take_snapshots}
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
                         "connected": self.voice is not None and self.voice.app is not None,

@@ -30,7 +30,9 @@ import http.server
 import ipaddress
 import secrets
 import socket
+import sys
 import threading
+import time
 from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit
 
@@ -38,16 +40,18 @@ Allow = Callable[[str, str, int], tuple[bool, str]]
 Address = tuple[int, tuple[Any, ...]]                       # (family, sockaddr) as getaddrinfo gives it
 Resolve = Callable[[str, int], list[Address]]
 Report = Callable[[str, dict[str, Any]], None]
+ENDED = "this command has ended; its proxy credential no longer opens connections"
 OWN = "this Mac's own address: a command reaches this Mac's servers directly, and only ones started in FERB's shell"
 # Not forwarded: they describe this hop, not the request (RFC 9110 7.6.1), or carry FERB's credential. Upgrade and
 # Connection are kept for an upgrade request (a WebSocket handshake), handled apart.
 HOP = {"proxy-authorization", "proxy-connection", "connection", "keep-alive", "te", "trailer", "upgrade", "expect",
        "proxy-authenticate"}
 CHUNK = 65536
-UNAUTH_TIMEOUT = 10.0                                       # seconds an unauthenticated/incomplete request head may idle
-MAX_UNAUTH = 1024                                           # connections not yet authenticated held at once (not a cap
-#                                                            on legitimate use: an authenticated tunnel leaves this set
-#                                                            at once, so only idle/stalled heads ever occupy it)
+UNAUTH_TIMEOUT = 10.0                                       # seconds from accept until a connection must authenticate
+#                                                            (an absolute deadline: dripping bytes doesn't extend it)
+MAX_UNAUTH = 1024                                           # connections not yet authenticated held at once; past it the
+#                                                            oldest is closed, so a flood never locks out a new client
+#                                                            (an authenticated tunnel leaves this set at once)
 MAX_HEAD = 256 * 1024                                       # a response head larger than this is malformed: 502
 
 
@@ -93,6 +97,14 @@ def addresses(host: str, port: int) -> list[Address]:
     return found
 
 
+def _hang_up(conn: socket.socket) -> None:
+    """Close a connection from another thread: shutdown wakes the handler blocked reading it."""
+    try:
+        conn.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
 def _literal(host: str) -> bool:
     try:
         ipaddress.ip_address(host.split("%", 1)[0])
@@ -111,42 +123,26 @@ class EgressProxy:
         self._facts: dict[str, dict[str, Any]] = {}
         self._active: dict[str, int] = {}                   # open connections per process (a tunnel may outlive it)
         self._ending: set[str] = set()                      # forgotten, waiting for its last connection to close
-        self._unauth = 0                                    # connections not yet authenticated (bounded)
+        self._pending: dict[socket.socket, float] = {}      # not yet authenticated: socket -> its absolute deadline
         self._lock = threading.Lock()
+        self._wake = threading.Condition(self._lock)        # the reaper sleeps until the earliest deadline
+        self._shut = False                                  # close() was called: nothing restarts serving
         proxy = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
             rbufsize = 0                                     # unbuffered: a tunnel's first bytes stay on the socket
-            _counted = False                                 # this connection is in the unauthenticated count
 
             def setup(self) -> None:
                 super().setup()
-                self.connection.settimeout(UNAUTH_TIMEOUT)   # an unauthenticated/stalled head can't hold a slot forever
-                with proxy._lock:
-                    proxy._unauth += 1
-                    self._counted = True
-                    self._over = proxy._unauth > MAX_UNAUTH
-
-            def handle(self) -> None:
-                if self._over:                               # too many unauthenticated connections: drop this one at once
-                    self._uncount()
-                    return
-                super().handle()
+                proxy._admit(self.connection)                # pending until it authenticates, with a deadline
 
             def finish(self) -> None:
-                self._uncount()
+                proxy._settled(self.connection)
                 super().finish()
 
-            def _uncount(self) -> None:
-                if self._counted:
-                    self._counted = False
-                    with proxy._lock:
-                        proxy._unauth -= 1
-
             def _authenticated(self) -> None:
-                self._uncount()                              # leaves the unauthenticated set; no idle timeout from here
-                self.connection.settimeout(None)
+                proxy._settled(self.connection)              # leaves the pending set: no deadline, no idle timeout
 
             def _who(self) -> str | None:
                 scheme, _, raw = self.headers.get("Proxy-Authorization", "").partition(" ")
@@ -196,17 +192,24 @@ class EgressProxy:
                     self._reply(403, f"FERB: {e}")
                     return None
                 for family, sockaddr in where:
+                    if not proxy._live(proc):                # forgotten while allow/DNS ran: the task has ended
+                        self._reply(403, f"FERB: {ENDED}")
+                        return None
                     upstream = None
                     try:
                         upstream = socket.socket(family, socket.SOCK_STREAM)
                         upstream.settimeout(30)
                         upstream.connect(sockaddr)
                         upstream.settimeout(None)
-                        proxy._opened(proc, host, port)
-                        return proc, upstream
                     except OSError:
                         if upstream is not None:
                             upstream.close()
+                        continue
+                    if not proxy._opened(proc, host, port):  # forgotten during the connect: refuse, record nothing
+                        upstream.close()
+                        self._reply(403, f"FERB: {ENDED}")
+                        return None
+                    return proc, upstream
                 self._reply(502, "FERB: couldn't connect to the destination")
                 return None
 
@@ -250,10 +253,10 @@ class EgressProxy:
                 proc, upstream = opened
                 host = host.lower()
                 target = (url.path or "/") + (f"?{url.query}" if url.query else "")
-                drop = HOP - {"upgrade", "connection"} if upgrading else HOP
-                head = [f"{self.command} {target} HTTP/1.1", f"Host: {url.netloc.rpartition('@')[2]}"]
-                if not upgrading:
-                    head.append("Connection: close")
+                drop = HOP - {"upgrade"} if upgrading else HOP
+                # An upgrade asks for the switch but closes if refused, so a non-101 reply frees both sockets
+                head = [f"{self.command} {target} HTTP/1.1", f"Host: {url.netloc.rpartition('@')[2]}",
+                        "Connection: Upgrade, close" if upgrading else "Connection: close"]
                 head += [f"{k}: {v}" for k, v in self.headers.items() if k.lower() not in drop | {"host"}]
                 try:
                     proxy._send(upstream, ("\r\n".join(head) + "\r\n\r\n").encode(), proc, host, port, "bytes_out")
@@ -345,8 +348,8 @@ class EgressProxy:
             daemon_threads = True
 
             def handle_error(self, request: Any, client_address: Any) -> None:
-                import sys
-                exc = sys.exc_info()[1]                       # the type only (rule 14): request bytes are never logged
+                # Kept, never logged with request bytes (rule 14): only the type, which `ferb doctor` shows
+                exc = sys.exc_info()[1]
                 proxy._last_error = type(exc).__name__ if exc else "?"
 
             def get_request(self) -> Any:
@@ -354,40 +357,72 @@ class EgressProxy:
                     return self.socket.accept()
                 except OSError as e:
                     if e.errno == errno.EMFILE:              # out of descriptors: don't spin a hot accept loop
-                        import time
                         time.sleep(0.05)
                     raise
 
         self._last_error: str | None = None
-        self._Handler = Handler
         self._srv = Server(("127.0.0.1", 0), Handler)
         self._thread: threading.Thread | None = None
+        self._restarts = 0
+        threading.Thread(target=self._reap, daemon=True).start()
         self.ensure_serving()
 
     @property
     def port(self) -> int:
         return int(self._srv.server_port)
 
-    def ensure_serving(self) -> None:
-        """Start the serving thread, or restart it if it died (doctor calls this). While it is down the shell has no
-        network at all, so it fails closed."""
+    def ensure_serving(self) -> bool:
+        """Start the serving thread, or restart it if it died; True when it restarted a dead one. Never after close().
+        While it is down the shell has no network at all, so it fails closed."""
         with self._lock:
-            if self._thread is not None and self._thread.is_alive():
-                return
+            if self._shut or (self._thread is not None and self._thread.is_alive()):
+                return False
+            restarted = self._thread is not None
+            self._restarts += restarted
             self._thread = threading.Thread(target=self._srv.serve_forever, daemon=True)
             self._thread.start()
+        return restarted
 
-    def probe(self) -> bool:
-        """A liveness check: an unauthenticated request must get 407. Restarts a dead serving thread first."""
-        self.ensure_serving()
-        try:
-            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
-            c.request("GET", "http://127.0.0.1/")
-            ok = c.getresponse().status == 407
-            c.close()
-            return ok
-        except OSError:
-            return False
+    def probe(self) -> dict[str, Any]:
+        """`ferb doctor`'s liveness check: an unauthenticated request must get 407. A dead serving thread is restarted
+        first (and said so); the last handler error's type is included."""
+        restarted = self.ensure_serving()
+        alive = False
+        if not self._shut:
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+                c.request("GET", "http://127.0.0.1/")
+                alive = c.getresponse().status == 407
+                c.close()
+            except OSError:
+                alive = False
+        return {"alive": alive, "restarted": restarted, "restarts": self._restarts, "last_error": self._last_error}
+
+    def _admit(self, conn: socket.socket) -> None:
+        """A new connection: pending until it authenticates, by an absolute deadline. Past MAX_UNAUTH the oldest
+        pending connection is closed, so a flood (even one dripping bytes) never locks out a new client."""
+        with self._wake:
+            self._pending[conn] = time.monotonic() + UNAUTH_TIMEOUT
+            while len(self._pending) > MAX_UNAUTH:
+                oldest = min(self._pending, key=self._pending.__getitem__)
+                self._pending.pop(oldest)
+                _hang_up(oldest)
+            self._wake.notify()
+
+    def _settled(self, conn: socket.socket) -> None:
+        """Authenticated, or done: out of the pending set (an authenticated tunnel has no deadline or idle timeout)."""
+        with self._wake:
+            self._pending.pop(conn, None)
+
+    def _reap(self) -> None:
+        """Close each pending connection at its deadline; sleeps until the earliest one (no idle wakeups)."""
+        with self._wake:
+            while not self._shut:
+                now = time.monotonic()
+                for conn in [c for c, due in self._pending.items() if due <= now]:
+                    self._pending.pop(conn)
+                    _hang_up(conn)
+                self._wake.wait(min(self._pending.values()) - now if self._pending else None)
 
     def credentials(self, proc_id: str) -> str:
         """This process's token (made on first use, until `forget`)."""
@@ -433,6 +468,10 @@ class EgressProxy:
         return {"destinations": [{"host": h, "port": p, **v} for (h, p), v in dests.items()],
                 "refused": [{"host": h, "port": p, "why": w, "count": c} for (h, p, w), c in refused.items()]}
 
+    def _live(self, proc: str) -> bool:
+        with self._lock:
+            return proc in self._tokens
+
     def forget(self, proc_id: str) -> None:
         """The process is done with: its credential stops working at once. Its record is kept and reported only once
         its last connection closes (a setsid child may still be streaming through a tunnel), so late bytes still
@@ -459,12 +498,17 @@ class EgressProxy:
         self._active.pop(proc_id, None)
         return final
 
-    def _opened(self, proc: str, host: str, port: int) -> None:
+    def _opened(self, proc: str, host: str, port: int) -> bool:
+        """Record a new connection; False when the credential was revoked meanwhile (the connection is refused: a
+        connection that passed the credential check before `forget` must not re-create a record nobody reports)."""
         with self._lock:
+            if proc not in self._tokens:
+                return False
             f = self._facts.setdefault(proc, {"destinations": {}, "refused": {}})
             d = f["destinations"].setdefault((host, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
             d["connections"] += 1
             self._active[proc] = self._active.get(proc, 0) + 1
+            return True
 
     def _closed(self, proc: str) -> None:
         """A connection ended. If the process was forgotten and this was its last connection, report it now (with the
@@ -514,8 +558,25 @@ class EgressProxy:
         upstream.close()
 
     def close(self) -> None:
-        """Stop serving. The serving loop notices within its 0.5 s poll; nothing waits for that (daemon stops and
-        tests would)."""
+        """Stop serving, for good (nothing restarts it). Every record still held (a forgotten process whose tunnel is
+        still open, or one never forgotten) is reported first with its bytes so far, marked `still_open` when a
+        connection is still open. The serving loop notices within its 0.5 s poll; nothing waits for that."""
+        with self._wake:
+            if self._shut:
+                return
+            self._shut = True
+            self._wake.notify()
+            left = [(proc, self._active.get(proc, 0) > 0) for proc in self._facts]
+            reports = [(proc, self._take(proc) | {"still_open": open_}) for proc, open_ in left]
+            tokens = list(self._tokens.values())
+            self._tokens.clear()
+        for token in tokens:
+            if self.redactor is not None:
+                self.redactor.forget_secret_value(token)
+        if self.on_report is not None:
+            for proc, record in reports:
+                self.on_report(proc, record)
+
         def stop() -> None:
             self._srv.shutdown()
             self._srv.server_close()

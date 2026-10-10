@@ -469,12 +469,13 @@ def test_the_kernel_smb_and_nfs_clients_cannot_leave_the_sandbox(tmp_path: Path)
         for apps in (False, True):
             assert "(deny file-mount)" in sb.profile(apps=apps)
             assert '(deny file-read* file-write* file-ioctl (regex #"^/dev/nsmb"))' in sb.profile(apps=apps)
-        before = len(hits)
-        run_under(sb, ["/bin/sh", "-c", f"smbutil view -N //127.0.0.1:{port} 2>&1"], timeout=25)
-        run_under(sb, ["/bin/sh", "-c", f"mount_nfs -o soft,timeo=5,retrans=1 127.0.0.1:/x {ferb}/workspace/mnt 2>&1"],
-                  timeout=25)
-        time.sleep(1.5)
-        assert len(hits) == before                                            # no SMB/NFS connection reached the server
+        # Without the denies, smbutil reached this listener once and NFSv4 over TCP four times (measured)
+        for cmd in (f"smbutil view -N //127.0.0.1:{port}",
+                    f"mount_nfs -o vers=4,tcp,port={port},soft,timeo=5,retrans=1 127.0.0.1:/x {ferb}/workspace/mnt"):
+            before = len(hits)
+            run_under(sb, ["/bin/sh", "-c", cmd + " 2>&1"], timeout=25)
+            time.sleep(1.5)
+            assert len(hits) == before, cmd                                   # no SMB/NFS connection reached the server
     finally:
         srv.close()
 
@@ -615,3 +616,186 @@ def test_an_unauthenticated_connection_is_closed_after_the_timeout(monkeypatch: 
         s.close()
     finally:
         p.close()
+
+
+# ---------- fix round 2 ----------
+
+def test_a_record_still_open_at_shutdown_is_reported(daemon: RunningDaemon) -> None:
+    """A setsid child's tunnel is still open when FERB stops: kill_all and the proxy's close report the record with the
+    bytes so far, marked still_open (it was parked waiting for the tunnel to close)."""
+    got = {"n": 0}
+    conns: list[socket.socket] = []
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen()
+    port = srv.getsockname()[1]
+    def serve() -> None:
+        c, _ = srv.accept(); conns.append(c)
+        while got["n"] < 1000 and (chunk := c.recv(4096)):
+            got["n"] += len(chunk)
+    threading.Thread(target=serve, daemon=True).start()
+    (daemon.daemon.home / "workspace" / "child.py").write_text(SETSID_CHILD.replace("PORT", str(port)))
+    g = task(daemon, "z", Identity.OWNER, SHELL)
+    try:
+        r = call(daemon, g, "shell.run", command="python3 child.py")
+        assert not r["is_error"], r
+        for _ in range(100):
+            if got["n"] >= 1000:
+                break
+            time.sleep(0.05)
+        assert got["n"] == 1000
+        daemon.run(daemon.daemon.shells.end_task("z"))                        # the shell exited; the child's tunnel lives
+        assert not daemon.run(_journal(daemon, "shell.network"))              # parked, not reported yet
+        daemon.run(daemon.daemon.shells.kill_all())                           # the shutdown order: kill_all, then close
+        daemon.daemon.proxy.close()                                           # type: ignore[union-attr]
+        entries = daemon.run(_journal(daemon, "shell.network"))
+        assert len(entries) == 1 and entries[0]["task_id"] == "z" and entries[0]["still_open"] is True
+        assert entries[0]["destinations"][0]["bytes_out"] == 1000
+    finally:
+        for c in conns:
+            c.close()                                                         # the tunnel ends; the child exits
+        srv.close()
+
+
+SETSID_CHILD = """
+import base64, os, socket, sys, urllib.parse
+if os.fork():
+    sys.exit(0)
+os.setsid()
+null = os.open("/dev/null", os.O_RDWR)
+for fd in (0, 1, 2):
+    os.dup2(null, fd)
+proxy = urllib.parse.urlsplit(os.environ["HTTPS_PROXY"])
+s = socket.create_connection((proxy.hostname, proxy.port))
+auth = base64.b64encode(f"{proxy.username}:{proxy.password}".encode()).decode()
+s.sendall(f"CONNECT localtest.ferb:PORT HTTP/1.1\\r\\nProxy-Authorization: Basic {auth}\\r\\n\\r\\n".encode())
+s.recv(100)
+s.sendall(b"x" * 1000)
+s.settimeout(60)
+try:
+    s.recv(1)                     # until the far end closes the tunnel
+except OSError:
+    pass
+"""
+
+
+def test_a_connection_that_passed_the_check_before_forget_is_refused_after(origin: int) -> None:
+    """forget-vs-open race: a request already past the credential check when the process is forgotten (allow is slow:
+    it waits on the daemon loop) is refused, so no record is re-created that nobody would report."""
+    entered, release = threading.Event(), threading.Event()
+    def slow_allow(proc: str, host: str, port: int) -> tuple[bool, str]:
+        entered.set(); release.wait(5)
+        return True, ""
+    reports: list[tuple[str, dict[str, Any]]] = []
+    p = _proxy(slow_allow)
+    p.on_report = lambda proc, facts: reports.append((proc, facts))
+    result: dict[str, Any] = {}
+    def request() -> None:
+        c = http.client.HTTPConnection("127.0.0.1", p.port, timeout=10)
+        c.request("GET", f"http://{TEST_HOST}:{origin}/x", headers=_auth(p, "p-race"))
+        resp = c.getresponse()
+        result["status"], result["body"] = resp.status, resp.read()
+    try:
+        t = threading.Thread(target=request); t.start()
+        assert entered.wait(5)
+        p.forget("p-race")                                                    # the task ends while allow is waiting
+        release.set(); t.join(10)
+        assert result["status"] == 403 and b"has ended" in result["body"]
+        assert _Origin.seen == []                                             # nothing reached the destination
+        assert p.facts("p-race") == {"destinations": [], "refused": []}       # no record re-created
+        assert [proc for proc, _ in reports] == ["p-race"]                    # reported once, at forget
+    finally:
+        p.close()
+
+
+def test_the_pre_auth_deadline_is_absolute_and_a_flood_never_locks_out_a_client(
+        monkeypatch: pytest.MonkeyPatch, origin: int) -> None:
+    """Dripping bytes doesn't extend the deadline; past MAX_UNAUTH the oldest pending connection is closed, so a new
+    client still gets in at once."""
+    import ferb.act.shell.proxy as proxy_mod
+    monkeypatch.setattr(proxy_mod, "UNAUTH_TIMEOUT", 0.6)
+    monkeypatch.setattr(proxy_mod, "MAX_UNAUTH", 5)
+    p = _proxy()
+    drips: list[socket.socket] = []
+    try:
+        for _ in range(8):
+            s = socket.create_connection(("127.0.0.1", p.port), timeout=5); drips.append(s)
+        c = http.client.HTTPConnection("127.0.0.1", p.port, timeout=5)        # a new client, past the bound
+        c.request("GET", f"http://{TEST_HOST}:{origin}/x", headers=_auth(p, "p-flood"))
+        assert c.getresponse().read() == b"hello"
+        c.close()
+        assert len(p._pending) <= 5
+        drip = drips[-1]
+        start, closed = time.time(), False
+        for byte in b"GET http://x/ HTTP/1.1\r\n" * 4:                       # one byte every 0.05 s, never a full head
+            try:
+                drip.sendall(bytes([byte]))
+            except OSError:
+                closed = True
+                break
+            time.sleep(0.05)
+            if time.time() - start > 3:
+                break
+        if not closed:
+            drip.settimeout(2)
+            closed = drip.recv(100) == b""
+        assert closed and time.time() - start < 3                             # closed by the deadline despite the drip
+    finally:
+        for s in drips:
+            s.close()
+        p.close()
+
+
+def test_a_refused_upgrade_asks_the_server_to_close() -> None:
+    """An upgrade request goes upstream as `Connection: Upgrade, close`, so a non-101 reply frees both sockets."""
+    seen: dict[str, bytes] = {}
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen()
+    port = srv.getsockname()[1]
+    def serve() -> None:
+        c, _ = srv.accept()
+        head = b""
+        while b"\r\n\r\n" not in head:
+            head += c.recv(4096)
+        seen["head"] = head
+        c.sendall(b"HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\n\r\n")
+        if b"close" in head.lower():                                          # a compliant server closes when asked
+            c.close()
+    threading.Thread(target=serve, daemon=True).start()
+    p = _proxy(resolve=lambda h, pt: [(socket.AF_INET, ("127.0.0.1", port))])
+    try:
+        raw = socket.create_connection(("127.0.0.1", p.port), timeout=5)
+        auth = _auth(p, "p-up")["Proxy-Authorization"]
+        raw.sendall(f"GET http://{TEST_HOST}:{port}/ws HTTP/1.1\r\nHost: {TEST_HOST}:{port}\r\nUpgrade: websocket\r\n"
+                    f"Connection: Upgrade\r\nProxy-Authorization: {auth}\r\n\r\n".encode())
+        data = b""
+        while chunk := raw.recv(4096):                                        # ends: the proxy closes after the reply
+            data += chunk
+        assert b"426" in data
+        assert b"Connection: Upgrade, close" in seen["head"] and b"Upgrade: websocket" in seen["head"]
+        raw.close()
+    finally:
+        srv.close()
+        p.close()
+
+
+def test_doctor_restarts_a_dead_proxy_and_close_is_final(origin: int) -> None:
+    p = _proxy()
+    try:
+        p._srv.shutdown()                                                     # the serving thread stops
+        assert p._thread is not None
+        p._thread.join(5)
+        report = p.probe()
+        assert report["alive"] and report["restarted"] and report["restarts"] == 1   # doctor says it restarted
+        p.close()
+        p._thread.join(5)                                                     # the serving loop has stopped for good
+        after = p.probe()
+        assert not after["alive"] and not after["restarted"] and after["restarts"] == 1   # close is final
+    finally:
+        p.close()
+
+
+def test_the_daemon_clamps_its_open_file_limit(daemon: RunningDaemon) -> None:
+    """Raised toward the hard limit at start, clamped to kern.maxfilesperproc so children see a finite OPEN_MAX."""
+    import resource
+    import subprocess
+    per_proc = int(subprocess.run(["sysctl", "-n", "kern.maxfilesperproc"], capture_output=True, text=True).stdout)
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    assert soft == (per_proc if hard == resource.RLIM_INFINITY else min(hard, per_proc))

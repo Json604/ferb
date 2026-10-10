@@ -832,20 +832,29 @@ shutdown.
   body. Byte counts are recorded, never capped. Refusals are aggregated by (host, port, why) with a count. An
   owner-excluded host shows as `excluded`.
 - **Where the record goes.**
-  - `shell.run`, `shell.wait` and `shell.read` return it as `network`; an IPv6 host is bracketed in the label
-    (`external:web:[2001:db8::1]`).
+  - `shell.run`, `shell.wait` and `shell.read` return it as `network`. An IPv6 host is bracketed in the read source
+    (`https://[2001:db8::1]`), so it parses; the label is then `external:web:2001:db8::1`.
   - The output is labelled `external:web:<host>` for each host the command reached. A command that reached none keeps
     `external:unlabeled`: what it read on disk can't be known.
   - When the task ends, each finished process's credential is revoked (`forget`), but its record is kept and journaled
     (`shell.network`) only once its last connection closes, so a setsid child still streaming through a tunnel after
-    its shell exits has its late bytes counted. The connection is never killed.
+    its shell exits has its late bytes counted. The connection is never killed. A connection that passed the
+    credential check before `forget` but connects after it is refused (403, "this command has ended"), so no record
+    is re-created that nobody would report. At shutdown, `kill_all` then the proxy's `close()` report every record
+    still held, with its bytes so far and `still_open: true` when a tunnel is still open.
   - `ferb ps` shows `network` as a fact.
-- **Abuse bounds, no owner-visible limit.** An unauthenticated or stalled request head times out (10 s); the number of
-  not-yet-authenticated connections is bounded (an authenticated tunnel leaves that set at once and has no idle
-  timeout, so streaming stays up); a malformed request is a 400, and a response head over 256 KiB a 502; the daemon
-  raises its open-file limit at start and handles `EMFILE` without a hot loop. `ferb doctor` probes the proxy (expects
-  407) and restarts a dead serving thread; while it is down the shell has no network and fails closed. The server's
-  `handle_error` logs the exception type only, never request bytes (rule 14).
+- **Abuse bounds, no owner-visible limit.**
+  - A connection must authenticate within 10 s of being accepted: an absolute deadline, so dripping bytes doesn't
+    extend it. A reaper thread sleeps until the earliest deadline.
+  - At most 1024 connections may be pending authentication; past that the oldest is closed, so a flood never locks
+    out a new client. An authenticated tunnel leaves the set at once and has no idle timeout, so streaming stays up.
+  - A malformed request is a 400; a response head over 256 KiB is a 502. A refused WebSocket upgrade goes upstream as
+    `Connection: Upgrade, close`, so a non-101 reply frees both sockets.
+  - The daemon sets its open-file soft limit to the hard limit clamped to `kern.maxfilesperproc` (children see a
+    finite `OPEN_MAX`), and handles `EMFILE` without a hot loop.
+  - `ferb doctor` probes the proxy (expects 407), restarts a dead serving thread and says it did, and shows the last
+    handler error's type. Nothing restarts serving after `close()`. While the proxy is down the shell has no network
+    and fails closed. The server's `handle_error` keeps only the exception type, never request bytes (rule 14).
 - **Removed.** The command-word heuristic (`guard.fetches_network`, `network_annotation`, `external:web:shell`) is
   gone.
 
@@ -890,8 +899,9 @@ Residuals:
   local listener). Denying trustd would end TLS for Go programs such as `gh`, because Go on macOS has no file trust
   store. This is for the owner to decide.
 - **Listener timing.** The listener list is the one when a command starts. A server another program opens later is
-  reachable from a long-running contained process until that process ends; for a `background=true` process that window
-  has no end. Polling to record those later connections is parked, not built.
+  reachable from a long-running contained process until that process ends. For a `background=true` process, and for a
+  detached (setsid) child of a foreground command, that window has no end. Polling to record those later connections
+  is parked, not built.
 - **Domain fronting.** The recorded host is the CONNECT host (or the plain-HTTP URL host). Inside a TLS tunnel a client
   can send a different SNI or `Host` to a shared CDN, so the recorded host may not be the site actually served. This
   matters for Task 5's per-destination gating.
