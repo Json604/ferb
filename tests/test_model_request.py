@@ -30,11 +30,12 @@ def test_model_request_context_joins_parts() -> None:
     assert ModelRequest("sys", ("a", "b"), 1).context == "a\n\nb"
 
 
-def test_supervisor_request_marks_device_facts_and_history_cacheable(daemon) -> None:
+def test_supervisor_request_caches_stable_identity_before_changing_layers(daemon) -> None:
     script = install(daemon, [sup("reply", "first"), sup("reply", "second")])
     chat(daemon, "an earlier message")
     chat(daemon, "the new message")
     request = [r for _, key, r in script.requests if key == "supervisor"][-1]
-    assert request.parts[0].startswith("This Mac: ") and request.parts[1].startswith("Conversation so far")
-    assert request.cacheable == 2
+    assert request.parts[0].startswith("Layer 1 — stable device and capabilities:\nThis Mac: ")
+    assert any(part.startswith("Layer 5 — conversation:\nConversation so far") for part in request.parts)
+    assert request.cacheable == 1
     assert request.system                                 # FERB's instructions travel separately from the context

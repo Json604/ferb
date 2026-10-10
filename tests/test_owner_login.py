@@ -6,6 +6,19 @@ from tests.chromelab import SHOP, _ready
 from tests.browserkit import bd, call  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def offline_sealed_transport(monkeypatch):
+    """Exercise real sealing and fake-extension origin checks without an installed signing helper."""
+    from ferb.identity.seal import seal
+
+    def refuse_installed_helper(*args, **kwargs):
+        raise AssertionError("offline login tests must not execute the installed secret helper")
+
+    monkeypatch.setattr("ferb.identity.helper.request", refuse_installed_helper)
+    monkeypatch.setattr("ferb.identity.helper.seal", lambda home, key, value, command, origin:
+                        seal(key, value, command, origin))
+
+
 @pytest.mark.parametrize("redirect", [False, True])
 def test_owner_code_is_prompted_sealed_and_absent_from_model_and_logs(bd, monkeypatch, redirect) -> None:
     import tests.fake_extension as fake

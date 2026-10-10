@@ -213,11 +213,13 @@ def test_driver_exception_details_reach_recovery_and_the_record(daemon):
     assert any('scaler transport disconnected' in e for e in evidence)
 
 
-def test_registry_browser_family_is_not_withheld_by_task_identity(daemon):
+def test_registry_browser_family_preserves_explicit_task_identity(daemon):
     cap = FakeCap('ferb_browser.probe', 'read', {'identity:browse'})
     cap.identities = {Identity.FERB}
     grant, _ = setup(daemon, {'identity:browse'}, request('research this'), [cap], Identity.OWNER)
-    assert not call(daemon, grant, cap.name)['is_error']
+    assert call(daemon, grant, cap.name)['is_error'] and cap.calls == 0
+    grant, _ = setup(daemon, {'identity:browse'}, request('research this'), [cap], Identity.FERB)
+    assert not call(daemon, grant, cap.name)['is_error'] and cap.calls == 1
 
 
 def test_setup_files_and_shell_are_not_restricted_by_request_wording(daemon, tmp_path):
@@ -331,16 +333,17 @@ def test_repeated_calls_do_not_have_a_hard_action_limit(daemon):
         for _ in range(1005):
             assert not tool(daemon.sock, token, cap.name)['is_error']
         return done('All 1005 actions complete.')
-    install(daemon, [sup('task','Working',task())], {'worker':worker})
+    install(daemon, [sup('task','Working',task(identity='owner'))], {'worker':worker})
     assert outcome(chat(daemon, 'Read all 1005 entries'))['status'] == 'done'
     assert cap.calls == 1005
 
 
-def test_worker_runtimes_have_no_task_duration_or_turn_cap(daemon):
+def test_worker_runtimes_have_no_task_duration_or_turn_cap(daemon, monkeypatch):
     from ferb.runtimes.claude_sdk import ClaudeRuntime
     assert 'max_turns' not in __import__('inspect').signature(ClaudeRuntime).parameters
     (daemon.daemon.home / 'codex-home').mkdir(exist_ok=True)
     (daemon.daemon.home / 'codex-home' / 'auth.json').write_text('{}')      # signed in for FERB
+    monkeypatch.setattr('ferb.runtimes.codex_exec.codex_binary', lambda *_: daemon.daemon.home / 'fake-codex')
     rt = daemon.daemon._make_runtime('worker:codex', mode='worker', tool_names=[], schema={})
     assert rt.timeout_s is None
 

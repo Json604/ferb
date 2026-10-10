@@ -16,15 +16,17 @@ def test_budget_report_comes_last() -> None:
     assert out.rsplit("\n\n", 1)[1].startswith("Context budget: ")
 
 
-def test_supervisor_puts_device_facts_then_history_first_and_the_owner_message_last(daemon) -> None:
+def test_supervisor_orders_labeled_layers_with_identity_first_and_task_state_last(daemon) -> None:
     script = install(daemon, [sup("reply", "first"), sup("reply", "second")])
     chat(daemon, "an earlier message")
     chat(daemon, "the new message")
     ctx = [c for _, k, c, _ in script.contexts if k == "supervisor"][-1]
     body = ctx.rsplit("\n\nContext budget: ", 1)[0]
-    assert body.startswith("This Mac: ")                       # installed apps: the same on every turn
-    assert body.index("This Mac: ") < body.index("Conversation so far") < body.index("Owner's new message")
-    assert body.rstrip().endswith("Owner's new message:\nthe new message")
+    assert body.startswith("Layer 1 — stable device and capabilities:\nThis Mac: ")
+    assert body.index("Layer 1 —") < body.index("Layer 2 —") < body.index("Layer 3 —")
+    assert body.index("Layer 3 —") < body.index("Layer 5 —") < body.index("Layer 6 —")
+    assert "Layer 5 — owner's complete new message:\nthe new message" in body
+    assert body.index("Conversation so far") < body.index("owner's complete new message")
 
 
 def test_history_only_grows_at_the_end_as_the_conversation_continues(daemon: RunningDaemon) -> None:

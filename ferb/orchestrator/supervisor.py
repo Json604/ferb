@@ -589,9 +589,10 @@ class Supervisor(WorkerRuns):
         activity_refs = self.relevant_source_refs(message)
         latest, latest_origin = self.recent_activity()
         if latest:
-            activity, activity_origin = latest, latest_origin
+            activity = latest + ('\n' + activity if activity else '')
+            activity_origin = origins_.join(origins_.split(activity_origin) | origins_.split(latest_origin))
             from ferb.orchestrator.context_layers import recent_activity_refs
-            activity_refs = recent_activity_refs(latest)
+            activity_refs = sorted(set(activity_refs) | set(recent_activity_refs(latest)))
         env = self._env.get(request_id, {})
         # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
         # state; memory, activity and history carry their stored labels; resumable goals are planner-written.

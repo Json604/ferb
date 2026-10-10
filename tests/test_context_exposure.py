@@ -66,3 +66,22 @@ def test_activity_then_displayed_history_preserves_forget_edges(daemon):
         learning.forget(['trail:' + source])
         assert learning.get(a['id']) is None and learning.get(b['id']) is None
     daemon.run(check())
+
+
+def test_recent_and_relevant_activity_both_keep_labels_and_source_refs(daemon):
+    import json
+    from tests.conftest import chat, done, install, sup, task
+    supervisor = daemon.daemon.supervisor
+    supervisor.relevant_context = lambda _: ('Recorded matching action', 'private')
+    supervisor.relevant_source_refs = lambda _: ['trail:matching']
+    supervisor.recent_activity = lambda: (json.dumps({'apps': [], 'source_refs': ['trail:recent']}), 'external:clipboard')
+    script = install(daemon, [sup('task', 'Read the context.', task('Compare activity'))], {'worker': done('Compared.')})
+    chat(daemon, 'Compare activity')
+    assert 'Recorded matching action' in script.contexts[0][2]
+    async def exposure():
+        return [dict(row) for row in daemon.daemon.db.conn.execute(
+            "SELECT input_json,origin FROM spans WHERE kind='context.exposure'")]
+    rows = daemon.run(exposure())
+    matched = [row for row in rows if 'trail:matching' in row['input_json']]
+    assert matched and any('trail:recent' in row['input_json'] for row in matched)
+    assert any('private' in row['origin'] and 'external:clipboard' in row['origin'] for row in matched)
