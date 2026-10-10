@@ -29,10 +29,13 @@ from ferb.core.types import Target
 
 MIN_LEN = 3
 MIN_PHONE_DIGITS = 6
+DESTINATION_PHONE_DIGITS = 8      # a phone number as a destination's shape (typed, or in the owner's words): shorter
+                                  # runs are codes, and dates are left out
 _LEAD, _TRAIL = "\"'([{<", "\"')]}>,;:!?."
 _AMOUNT = re.compile(r"(\d+(?:\.\d+)?|\d{1,3}(?:,\d{3})+(?:\.\d+)?)")
 _PHONE_VALUE = re.compile(r"[\d\s\-+().]+")
 _PHONE_RUN = re.compile(r"[+\d][\d\s\-().]{4,}\d")
+_DATE = re.compile(r"\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{2,4}")
 _STRUCTURED = ("account", "site", "path")
 
 
@@ -63,8 +66,14 @@ def tokens(text: str) -> list[str]:
 
 
 def phone_runs(text: str) -> list[str]:
-    """The digits of each phone-like run in the text with at least MIN_PHONE_DIGITS digits, in order."""
-    return [d for m in _PHONE_RUN.finditer(text) if len(d := _digits(m.group(0))) >= MIN_PHONE_DIGITS]
+    """The digits of each run in the text that has a phone number's destination shape (`_phone_shape`), in order."""
+    return [_digits(m.group(0)) for m in _PHONE_RUN.finditer(text) if _phone_shape(m.group(0))]
+
+
+def _phone_shape(value: str) -> bool:
+    """Digits, spaces and + - ( ) . only, at least DESTINATION_PHONE_DIGITS digits, and not a date's shape."""
+    v = value.strip()
+    return bool(_PHONE_VALUE.fullmatch(v)) and len(_digits(v)) >= DESTINATION_PHONE_DIGITS and not _DATE.fullmatch(v)
 
 
 def host_of(token: str) -> str:
@@ -201,9 +210,9 @@ _EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 
 def destination_shape(text: str) -> str | None:
-    """The shape of a typed value: "email", "phone" or "url" when the whole value (spaces around it aside) is one
-    email address, one phone-like number (digits, spaces and + - ( ) ., at least MIN_PHONE_DIGITS digits) or one
-    scheme:// URL with a host; else None. A shape, never a meaning (rule 6)."""
+    """The shape of a value: "email", "phone" or "url" when the whole value (spaces around it aside) is one email
+    address, one phone number (digits, spaces and + - ( ) ., at least DESTINATION_PHONE_DIGITS digits, not a date) or
+    one scheme:// URL with a host; else None. A shape, never a meaning (rule 6)."""
     value = text.strip()
     if not value:
         return None
@@ -212,9 +221,17 @@ def destination_shape(text: str) -> str | None:
             return "email"
         if host_of(value):
             return "url"
-    if _PHONE_VALUE.fullmatch(value) and len(_digits(value)) >= MIN_PHONE_DIGITS:
-        return "phone"
-    return None
+    return "phone" if _phone_shape(value) else None
+
+
+def typed_destination(text: str) -> str | None:
+    """The destination a typed text is, without the punctuation around it ("<a@x.com>", "a@x.com,", "+91 98765
+    43210;"): the value when it has a destination's shape, else None. A phone number keeps its own parentheses."""
+    value = text.strip()
+    if _phone_shape(value):
+        return value
+    stripped = _strip(value)[1]
+    return stripped if stripped and destination_shape(stripped) else None
 
 
 def sources(value: str, owner_text: str, external_texts: list[tuple[str, str]], aliases: tuple[str, ...] = (),

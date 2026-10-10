@@ -518,8 +518,8 @@ class Daemon:
         self.gateway.evidence = self.evidence
         self.gateway.recovery = self._recovery()
         self.gateway.snapshots = self.snapshots
-        self.gateway.confirmations = Confirmations(self.db, self.clock, self.ids)     # D33, S4 (F5a)
-        self.gateway.destinations = KnownDestinations(self.db, self.clock, self.ids)  # SQ6
+        self.gateway.confirmations = Confirmations(self.db, self.clock, self.ids, self.redact)     # D33, S4 (F5a)
+        self.gateway.destinations = KnownDestinations(self.db, self.clock, self.ids, self.redact)  # SQ6
         self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
@@ -2258,7 +2258,7 @@ class Daemon:
                               "proxy": self.proxy is not None, "proxy_alive": bool(probe.get("alive")),
                               "proxy_restarted": bool(probe.get("restarted")),
                               "proxy_last_error": probe.get("last_error"),
-                              "snapshots": self.take_snapshots,
+                              "snapshots": bool(self.snapshots is not None and self.snapshots.take is not None),
                               # OPEN QUESTION 3: shell commands run without a snapshot when one can't be taken
                               "snapshot_failure": self.snapshots.last_failure() if self.snapshots else None}
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),

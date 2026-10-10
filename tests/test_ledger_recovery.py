@@ -7,13 +7,12 @@ from ferb.core.ids import SequentialIds
 from ferb.orchestrator.ledger import Ledger
 from ferb.policy.rules import Kind
 from ferb.store.db import Database
-from tests.conftest import FakeCap, RunningDaemon, gateway_setup, gateway_tool_call
-from tests.support.confirm import FerbAnswers
+from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
 
 
-def test_unresolved_unknown_rows_are_listed_for_recovery(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+def test_unresolved_unknown_rows_are_listed_for_recovery(daemon: RunningDaemon) -> None:
     boom = FakeCap("probe.send", "send", {"probe"}, boom=True)   # raises after "sending": outcome unknown
-    grant, _ = gateway_setup(daemon, {"probe"}, None, [boom])
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send it to x@y.com"), [boom])
     r = gateway_tool_call(daemon, grant, "probe.send", to="x@y.com")
     assert r["is_error"] and "outcome unknown" in r["content"]["error"]
     async def read() -> list[dict]:

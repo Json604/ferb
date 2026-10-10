@@ -5,7 +5,6 @@ from tests.conftest import GatewayCap as FakeCap, gateway_tool_call as call, gat
 from tests.conftest import chat, cond, done, install, outcome, sup, task
 import json
 import pytest
-from tests.support.confirm import FerbAnswers
 
 
 @pytest.mark.parametrize('owner_words', [
@@ -180,11 +179,11 @@ def test_planner_text_never_overrides_a_valid_action_plan(daemon):
     assert outcome(chat(daemon, 'Read the source'))['status'] == 'done'
 
 
-def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(ferb_yes: FerbAnswers, daemon):
+def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(daemon):
     read = FakeCap('fake.read', 'read', {'browser:read'}, reads=(('web', 'https://example.com'),))
     send = FakeCap('fake.send', 'send', {'browser:act'}, site='example.com')
     shell = FakeCap('fake.shell', 'run_shell', {'shell'})
-    grant, _ = setup(daemon, {'browser:read', 'browser:act', 'shell'}, request('send the result'), [read, send, shell])
+    grant, _ = setup(daemon, {'browser:read', 'browser:act', 'shell'}, request('send the result to alice@x.com'), [read, send, shell])
     assert not call(daemon, grant, read.name)['is_error']
     assert shell.name in {t['name'] for t in daemon.daemon.gateway.tools_for(grant)}
     assert not call(daemon, grant, send.name)['is_error']
@@ -192,12 +191,12 @@ def test_execution_does_not_run_per_action_policy_or_remove_tools_after_reading(
     assert not daemon.daemon.state.approvals.pending()
 
 
-def test_driver_exception_details_reach_recovery_and_the_record(ferb_yes: FerbAnswers, daemon):
+def test_driver_exception_details_reach_recovery_and_the_record(daemon):
     cap = FakeCap('fake.send', 'send', {'browser:act'})
     async def fail(args, ctx):
         raise ConnectionError('profile scaler transport disconnected after dispatch')
     cap.run = fail
-    grant, _ = setup(daemon, {'browser:act'}, request('send result'), [cap])
+    grant, _ = setup(daemon, {'browser:act'}, request('send result to alice@x.com'), [cap])
     result = call(daemon, grant, cap.name)
     assert result['is_error'] and 'scaler transport disconnected' in result['content']['error']
     async def recorded():
@@ -259,7 +258,7 @@ def test_scaler_gmail_keeps_setup_tools_and_orchestrator_switches_worker(daemon)
     assert {'browser:read', 'browser:act', 'shell'} <= seen[0]
 
 
-def test_recovery_preserves_artifacts_and_reports_uncertain_actions(ferb_yes: FerbAnswers, daemon):
+def test_recovery_preserves_artifacts_and_reports_uncertain_actions(daemon):
     from tests.conftest import tool
     cap = FakeCap('fake.send', 'send', {'browser:act'})
     async def lost_ack(args, ctx):
@@ -274,7 +273,7 @@ def test_recovery_preserves_artifacts_and_reports_uncertain_actions(ferb_yes: Fe
                          'instructions':'Inspect whether the send happened before doing anything else.', 'question':''})
     script = install(daemon, [sup('task','Sending',task('Send deck','owner'))],
                      {'worker':[first, done('Delivery confirmed by inspection.')], 'worker.dispatch':choice})
-    out = outcome(chat(daemon, 'Send the prepared deck'))
+    out = outcome(chat(daemon, 'Send the prepared deck to alice@x.com'))
     assert '/tmp/prepared-deck.pdf' in out['artifacts']
     retry_context = [ctx for _, key, ctx, _ in script.contexts if key == 'worker'][-1]
     assert 'fake.send' in retry_context and 'unknown' in retry_context

@@ -733,11 +733,11 @@ class Snapshots:
         self._failed = (self.clock.now(), why)
         return {"error": f"no snapshot was taken ({why})"}
 
-    def last_failure(self) -> dict[str, str] | None:
-        """The last attempt, when it failed (when, why), for `ferb doctor` (OPEN QUESTION 3); None after a success.
-        Snapshots turned off is a failure of every attempt."""
+    def last_failure(self) -> dict[str, Any] | None:
+        """For `ferb doctor` (OPEN QUESTION 3): the last attempt, when it failed (when, why); `off` when snapshots are
+        turned off (no attempt is made); None after a success or before any attempt."""
         if self.take is None:
-            return {"at": "", "why": "snapshots are turned off for this FERB"}
+            return {"off": True}
         if self._failed is None:
             return None
         return {"at": self._failed[0].isoformat(), "why": self._failed[1]}

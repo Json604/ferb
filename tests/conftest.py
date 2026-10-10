@@ -95,9 +95,11 @@ def daemon(home: Path) -> Iterator[RunningDaemon]:
 @pytest.fixture
 def ferb_yes(daemon: RunningDaemon) -> Iterator[FerbAnswers]:
     """FERB's own questions (the code floor, the sink rule) answered Yes as they come, for tests about something the
-    call passes through on the way (provenance, P19, recovery). `.asked` lists them."""
+    call passes through on the way (provenance, P19, recovery). Strict: the test declares each question it expects
+    (`ferb_yes.expect(rule, n)`), and teardown fails on any other or any missing one."""
     with FerbAnswers(daemon) as answers:
         yield answers
+    answers.verify()
 
 
 def real_codex_login() -> Path | None:

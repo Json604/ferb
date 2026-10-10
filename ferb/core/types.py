@@ -126,11 +126,13 @@ class Target:
 class ActionSpec:
     """Capability.describe(args): what the call does, recorded for tracing and result inspection. `kind` is the
     physical operation the capability derives from its arguments; `declared` a kind the agent's stated purpose adds
-    (a click it says sends or calls). A declared kind can only add a confirmation, never remove one (W2)."""
+    (a click it says sends or calls). A declared kind can only add a confirmation, never remove one (W2). `place` is
+    where the call happens as the owner knows it (an app's name), for FERB's questions; else the target's site."""
     kind: str
     target: Target = Target()
     content: str | None = None
     declared: str | None = None
+    place: str | None = None
 
 
 # ---------- runtimes ----------

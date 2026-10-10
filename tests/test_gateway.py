@@ -65,9 +65,9 @@ def test_act_tools_offer_optional_effect_and_why_annotations(daemon: RunningDaem
     assert not r["is_error"] and send.calls == 1
 
 
-def test_effect_and_reason_are_annotations_not_execution_conditions(ferb_yes: FerbAnswers, daemon):
+def test_effect_and_reason_are_annotations_not_execution_conditions(daemon):
     send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("send the message"), [send])
+    grant, _ = setup(daemon, {"browser:act"}, request("send the message to alice@x.com"), [send])
     assert not call(daemon, grant, send.name, effect="navigate")["is_error"]
     assert send.calls == 1
     assert daemon.run(_tree(daemon))[-1].span.input["effect"] == "navigate"
@@ -148,18 +148,18 @@ def test_revoked_token_cannot_call_tools_through_the_real_shim(daemon: RunningDa
     assert not (daemon.daemon.home / "workspace" / "y.txt").exists()
 
 
-def test_tool_call_span_records_action_kind_and_target(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+def test_tool_call_span_records_action_kind_and_target(daemon: RunningDaemon) -> None:
     send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("send the message"), [send])
+    grant, _ = setup(daemon, {"browser:act"}, request("send the message to mom@example.com"), [send])
     assert not call(daemon, grant, send.name, to="mom@example.com")["is_error"]
     spans = [r.span for r in daemon.run(_tree(daemon)) if r.span.input.get("tool") == send.name]
     assert spans[-1].input["kind"] == "send"
     assert spans[-1].input["target"]["recipients"] == ["mom@example.com"]
 
 
-def test_test_mode_allowlist_blocks_unlisted_recipient_and_allows_listed(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+def test_test_mode_allowlist_blocks_unlisted_recipient_and_allows_listed(daemon: RunningDaemon) -> None:
     send = FakeCap("fake.send", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
+    grant, _ = setup(daemon, {"browser:act"}, request("message ok@example.com"), [send])
     daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
     try:
         blocked = call(daemon, grant, "fake.send", to="attacker@evil.example", effect="send")
@@ -185,8 +185,10 @@ def test_allowlist_refusal_leaves_no_ledger_row_and_span_carries_error(daemon: R
     assert "allowlist" in str(spans[-1].error) and send.calls == 0
 
 
-def test_allowlist_refuses_send_without_checkable_recipient_only_in_test_mode(daemon: RunningDaemon) -> None:
-    send = FakeCap("fake.send", "send", {"browser:act"})
+def test_allowlist_refuses_send_without_checkable_recipient_only_in_test_mode(ferb_yes: FerbAnswers,
+                                                                             daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:new_recipient")       # outside test mode, the floor asks about a send it can't see the
+    send = FakeCap("fake.send", "send", {"browser:act"})   # recipient of (F5a); the allowlist refuses before asking
     grant, _ = setup(daemon, {"browser:act"}, request("message people"), [send])
     daemon.daemon.gateway.test_send_allowlist = {"ok@example.com"}
     try:
@@ -234,9 +236,9 @@ def test_allowlist_checks_contact_even_when_recipients_are_listed(daemon: Runnin
         daemon.daemon.gateway.test_send_allowlist = None
 
 
-def test_allowlist_allows_contact_only_destination_when_listed(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+def test_allowlist_allows_contact_only_destination_when_listed(daemon: RunningDaemon) -> None:
     send = _ContactCap("fake.msg", "send", {"browser:act"})
-    grant, _ = setup(daemon, {"browser:act"}, request("message"), [send])
+    grant, _ = setup(daemon, {"browser:act"}, request("message +15550000"), [send])
     daemon.daemon.gateway.test_send_allowlist = {"+15550000"}
     try:
         assert not call(daemon, grant, "fake.msg", to="", contact="+15550000")["is_error"]

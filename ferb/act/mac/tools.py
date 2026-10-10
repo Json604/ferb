@@ -16,7 +16,7 @@ from ferb.act.mac.input import Yielded
 from ferb.core.errors import Refused, StaleRef
 from ferb.core.types import ActionSpec, ComputerAction, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.contacts import Contact
-from ferb.policy.provenance import destination_shape
+from ferb.policy.provenance import typed_destination
 from ferb.policy.rules import Kind
 
 
@@ -58,6 +58,15 @@ class _Base:
     def _bundle(self, args: BaseModel) -> str:
         a = self.driver.apps.find(str(getattr(args, "app")))
         return a.bundle_id if a else str(getattr(args, "app"))
+
+    def _shown(self, args: BaseModel) -> str:
+        """The app's name as the owner knows it (for FERB's questions), else what the agent called it."""
+        try:
+            a = self.driver.apps.find(str(getattr(args, "app")))
+        except (AttributeError, LookupError):
+            a = None
+        name = getattr(a, "name", None) if a is not None else None
+        return str(name) if isinstance(name, str) and name else str(getattr(args, "app"))
 
 
 class _App(BaseModel):
@@ -225,6 +234,9 @@ async def app_window(driver: MacComputerDriver, app: str, scopes: Collection[str
                       "height": shot.size[1]}, _sources(a.bundle_id))
 
 
+TYPED = ("type", "set_value", "edit")                  # mac.act actions whose text is typed into the app
+
+
 class MacAct(_Base):
     name = "mac.act"
     on_screen = True
@@ -256,12 +268,11 @@ class MacAct(_Base):
                                        "may move the owner's cursor/Space. Leave false for background tasks")
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        """Typed text that is wholly an email address, a phone number or a URL (a shape, never a meaning) is recorded
-        as the call's recipient, so where it came from is checked like a send's (S4 b)."""
+        """Typed text that is wholly an email address, a phone number or a URL (a shape, never a meaning; the
+        punctuation around it aside) is recorded as the call's recipient, so where it came from is checked (S4 b)."""
         text = getattr(args, "text")
-        typed = getattr(args, "action") in ("type", "set_value") and isinstance(text, str) and \
-            destination_shape(text) is not None
-        return ActionSpec(self._kind(args), Target(site=self._bundle(args), recipients=(text.strip(),) if typed else ()),
+        typed = typed_destination(text) if getattr(args, "action") in TYPED and isinstance(text, str) else None
+        return ActionSpec(self._kind(args), Target(site=self._bundle(args), recipients=(typed,) if typed else ()),
                           content=text)
 
     def _kind(self, args: BaseModel) -> str:
@@ -372,8 +383,9 @@ class MacClick(_Base):
         """The physical kind is mechanical input; the agent's declared purpose (call / send) and contact are recorded
         beside it and can only add a confirmation, never remove one (W2). Never inferred from app or UI words."""
         contact = getattr(args, "contact")
+        declared = {"call": Kind.CALL, "send": Kind.SEND}.get(getattr(args, "purpose") or "")
         return ActionSpec(Kind.MAC_INPUT, Target(site=self._bundle(args), contact=contact.selected if contact else None),
-                          declared={"call": Kind.CALL, "send": Kind.SEND}.get(getattr(args, "purpose") or ""))
+                          declared=declared, place=self._shown(args) if declared else None)
 
     def locks(self, args: BaseModel) -> list[str]:
         return [f"app:{self._bundle(args)}"]
@@ -419,10 +431,10 @@ class MacPointer(MacClick):
 
     def describe(self, args: BaseModel) -> ActionSpec:
         spec = super().describe(args)
-        kind = Kind.READ if getattr(args, "action") == "hover" else spec.kind
-        return ActionSpec(kind, spec.target, content=str(args.model_dump(
+        hover = getattr(args, "action") == "hover"           # a hover sends nothing, whatever it is said to be for
+        return ActionSpec(Kind.READ if hover else spec.kind, spec.target, content=str(args.model_dump(
             exclude={"contact", "purpose", "app", "mechanism", "allow_foreground"})),   # notes, target, method: not content
-            declared=spec.declared)
+            declared=None if hover else spec.declared, place=None if hover else spec.place)
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         app = str(getattr(args, "app"))

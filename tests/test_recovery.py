@@ -491,6 +491,7 @@ def test_a_shell_call_takes_a_snapshot_first_and_trash_and_writes_take_none(daem
 
 
 def test_a_permanent_delete_takes_a_snapshot_first(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:delete_permanent")   # FERB's own question(s) on the way (F5a floor)
     fake = _Snapshots()
     _snaps(daemon, fake)
     gone = _Ordered("fs.fake_delete", Kind.DELETE_PERMANENT, fake.order)
@@ -503,6 +504,7 @@ def test_a_permanent_delete_takes_a_snapshot_first(ferb_yes: FerbAnswers, daemon
 
 
 def test_a_failed_snapshot_never_refuses_a_call_and_counts_toward_the_rate_limit(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:delete_permanent")   # FERB's own question(s) on the way (F5a floor)
     for fail in ("boom", "none"):
         fake = _Snapshots(fail=fail)
         _snaps(daemon, fake)

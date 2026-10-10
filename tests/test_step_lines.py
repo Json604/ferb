@@ -59,11 +59,11 @@ def test_gateway_stores_summaries_and_logs_show_step_lines(daemon: RunningDaemon
 
 def test_error_paths_get_a_summary_and_still_record_no_origin(daemon: RunningDaemon) -> None:
     cap = FakeCap("probe.send", "send", {"probe"}, boom=True)
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [cap])
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look, then email x@y.com"), [cap])   # named: no question
     seen: list[dict] = []
     real = daemon.daemon.gateway.publish
     daemon.daemon.gateway.publish = lambda topic, data: (seen.append({"topic": topic, **data}), real(topic, data))[1]
-    out = gateway_tool_call(daemon, grant, "probe.send", text="my token sk-ant-api03-abcdefghijklmnopqrstuvwx")
+    out = gateway_tool_call(daemon, grant, "probe.send", to="x@y.com", text="my token sk-ant-api03-abcdefghijklmnopqrstuvwx")
     assert out["is_error"] and "Origin:" not in out["footer"]
 
     async def go():
@@ -82,11 +82,12 @@ def test_a_secret_straddling_the_summary_cut_never_leaks(daemon: RunningDaemon) 
     class Leaky(FakeCap):
         async def run(self, args, ctx):
             raise ConnectionError("x" * 124 + " " + secret)    # "error: ConnectionError: " + 125 chars: it starts near 149
-    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [Leaky("probe.send", "send", {"probe"})])
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look, then email x@y.com"),
+                             [Leaky("probe.send", "send", {"probe"})])
     seen: list[dict] = []
     real = daemon.daemon.gateway.publish
     daemon.daemon.gateway.publish = lambda topic, data: (seen.append({"topic": topic, **data}), real(topic, data))[1]
-    gateway_tool_call(daemon, grant, "probe.send")
+    gateway_tool_call(daemon, grant, "probe.send", to="x@y.com")
 
     async def go():
         return daemon.daemon.db.conn.execute("SELECT summary FROM spans WHERE kind = 'tool.call'").fetchone()[0]

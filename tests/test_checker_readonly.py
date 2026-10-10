@@ -16,8 +16,7 @@ from ferb.orchestrator.tree import TaskRecord
 from ferb.registry import (Registry, add_context_readers, add_evidence, add_identity_browser, add_mac,
                            add_owner_browsers, add_recording, add_shell, add_time, add_trail, build)
 from ferb.trace.compose import compose, walk
-from tests.conftest import FakeCap, RunningDaemon, gateway_setup, gateway_tool_call
-from tests.support.confirm import FerbAnswers
+from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
 
 # Every installed capability a checker may use (W4: snapshots, reads, screenshots, scrolling, opening a URL in FERB's
 # own browser). Anything else, including a capability added later and left unmarked, is unavailable to a checker.
@@ -85,9 +84,9 @@ def test_an_observation_tool_runs_for_the_checker(daemon: RunningDaemon) -> None
     assert not r["is_error"] and r["content"]["seen"] == "the sent message" and read.calls == 1
 
 
-def test_a_normal_worker_still_acts(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+def test_a_normal_worker_still_acts(daemon: RunningDaemon) -> None:
     send = FakeCap("probe.send", "send", {"probe"})
-    grant, _ = gateway_setup(daemon, {"probe"}, None, [send])   # not observe-only
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send it to x@y.com"), [send])   # not observe-only
     assert not grant.observe_only
     r = gateway_tool_call(daemon, grant, "probe.send", to="x@y.com")
     assert not r["is_error"] and send.calls == 1

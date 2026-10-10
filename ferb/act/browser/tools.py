@@ -18,7 +18,7 @@ from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
                              RiskLevel, SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
-from ferb.policy.provenance import destination_shape
+from ferb.policy.provenance import typed_destination
 from ferb.policy.rules import Kind
 
 
@@ -495,16 +495,17 @@ class BrowserAct(_Base):
         return [(f, "read") for f in getattr(args, "files", None) or ()]
 
     def describe(self, args: BaseModel) -> ActionSpec:
-        """Typed text that is wholly an email address, a phone number or a URL (a shape, never a meaning) is recorded
-        as the call's recipient, so where it came from is checked like a send's (S4 b)."""
+        """Typed text that is wholly an email address, a phone number or a URL (a shape, never a meaning; the
+        punctuation around it aside) is recorded as the call's recipient, so where it came from is checked (S4 b)."""
         action, text = str(getattr(args, "action")), getattr(args, "text")
         kind = act_kind(action, text, self._element(args))
         content = text if action in ("type", "select") else None
         if action in {"click", "dblclick", "rightclick", "hover", "drag"}:
             content = f"{action}:{getattr(args, 'element')}:{getattr(args, 'end_element', '')}"
         spec = self._spec(kind, args, content=content)
-        if action == "type" and isinstance(text, str) and destination_shape(text) is not None:
-            spec = dataclasses.replace(spec, target=dataclasses.replace(spec.target, recipients=(text.strip(),)))
+        typed = typed_destination(text) if action == "type" and isinstance(text, str) else None
+        if typed:
+            spec = dataclasses.replace(spec, target=dataclasses.replace(spec.target, recipients=(typed,)))
         return spec
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:

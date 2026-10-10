@@ -10,6 +10,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -249,11 +250,16 @@ def snapshot_check(c: dict[str, Any] | None) -> Check:
     still runs, and this says so)."""
     if not c:
         return Check("snapshots", "warn", "the daemon didn't report them", "run `ferb setup --update`")
-    failure = c.get("snapshot_failure")
-    if failure is None and c.get("snapshots") is False:
-        failure = {"why": "snapshots are turned off for this FERB"}
+    failure = c.get("snapshot_failure") or {}
+    if c.get("snapshots") is False or failure.get("off"):
+        return Check("snapshots", "warn", "snapshots are turned off: shell commands and permanent deletes run without "
+                     "a recovery snapshot", "")
     if failure:
-        when = f" at {failure['at']}" if failure.get("at") else ""
+        when = ""
+        try:
+            when = " at " + datetime.fromisoformat(str(failure["at"])).astimezone().strftime("%Y-%m-%d %H:%M")
+        except (KeyError, ValueError):
+            pass
         return Check("snapshots", "warn", f"the last snapshot attempt failed{when} ({failure.get('why')}); shell "
                      "commands since then ran without a recovery snapshot", "check that Time Machine local snapshots "
                      "work (`tmutil localsnapshot`)")

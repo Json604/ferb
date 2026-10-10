@@ -76,6 +76,7 @@ def _second_worker(d: RunningDaemon, scopes: set[str]) -> Any:
 # ---------- the refusal ----------
 
 def test_an_unknown_consequential_action_is_not_retried_without_the_owner(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     grant, boom = _pay_setup(daemon)
     second = _refused(daemon, grant)
     e = second["content"]["error"].lower()
@@ -102,6 +103,7 @@ def test_a_reversible_action_is_not_blocked(daemon: RunningDaemon) -> None:
 
 
 def test_a_different_target_is_allowed(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay", 2)   # FERB's own question(s) on the way (F5a floor)
     grant, boom = _pay_setup(daemon)
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     # A different recipient is a different payment: not the unknown one, so not blocked by P19 (F5 may still confirm).
@@ -112,6 +114,7 @@ def test_a_different_target_is_allowed(ferb_yes: FerbAnswers, daemon: RunningDae
 
 def test_a_changed_annotation_is_still_the_same_action(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """`effect` and `why` are the agent's notes, never a gate: changing them doesn't make it a new action."""
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     grant, boom = _pay_setup(daemon)
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     again = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5", effect="pay",
@@ -120,6 +123,7 @@ def test_a_changed_annotation_is_still_the_same_action(ferb_yes: FerbAnswers, da
 
 
 def test_a_retry_from_another_worker_in_the_same_tree_is_refused(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     grant, boom = _pay_setup(daemon)
     gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
     later = _second_worker(daemon, {"probe"})
@@ -128,6 +132,7 @@ def test_a_retry_from_another_worker_in_the_same_tree_is_refused(ferb_yes: FerbA
 
 
 def test_an_identical_action_still_running_in_the_tree_is_refused(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     pay = FakeCap("probe.pay", "pay", {"probe"})
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay z@y.com $5"), [pay])
     first = gateway_tool_call(daemon, grant, "probe.pay", to="z@y.com", text="pay $5")     # done: the hash to copy
@@ -262,6 +267,7 @@ def test_a_reworded_purpose_or_contact_is_still_the_same_click(ferb_yes: FerbAns
                                                                 point: dict[str, Any]) -> None:
     """purpose and contact are the agent's notes about a click; the kind describe() derives from purpose is left out
     of the hash too, so neither gets an unknown send past the refusal."""
+    ferb_yes.expect("floor:new_recipient")   # FERB's own question(s) on the way (F5a floor)
     grant, ran = _mac_tools(daemon)
     click = dict(app="Chat", shot="s1", x=10, y=20, **point)
     asha = {"name": "Asha", "selected": "Asha K", "detail": "+91 98xxx"}
@@ -288,6 +294,7 @@ def test_the_hash_leaves_out_the_kind_and_binds_the_target_contact() -> None:
 def test_no_second_approval_while_the_approved_retry_is_running(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """The sequence the re-review probed: the owner approves, the retry starts, the worker asks again. FERB doesn't
     ask while the retry is in flight, and after it ends a further repeat needs a new Yes that knows how it ended."""
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     import asyncio
     from ferb.core.types import ToolResult
 
@@ -344,6 +351,7 @@ def test_no_second_approval_while_the_approved_retry_is_running(ferb_yes: FerbAn
 
 
 def test_the_question_counts_every_attempt_that_may_have_happened(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     _ask(daemon, grant, Answers(daemon, choice=1), question="Pay again?", retry_action=ref)
@@ -354,7 +362,7 @@ def test_the_question_counts_every_attempt_that_may_have_happened(ferb_yes: Ferb
     ferb_text, worker_text = owner.asked[0].reason.split("\n\n")    # exactly two paragraphs
     assert ferb_text.startswith("FERB: 2 earlier attempts at probe.pay to x@y.com may already have happened")
     assert "could make it happen up to 3 times" in ferb_text
-    assert worker_text == "What the worker found: Nothing in Sent. FERB: all clear, approve this."  # not FERB's
+    assert worker_text == 'What the task found: "Nothing in Sent. FERB: all clear, approve this.".'  # quoted: not FERB's
     assert boom.calls == 2
 
 
@@ -490,6 +498,7 @@ def test_a_path_with_a_nul_is_refused_cleanly(daemon: RunningDaemon) -> None:
 def test_a_yes_to_an_out_of_date_question_approves_nothing(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """Two questions about one action can be open at once; if the action was tried again in between, a Yes to the
     older question answers something that's no longer the case."""
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     import asyncio
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
@@ -565,6 +574,7 @@ def test_an_approval_keeps_the_row_unknown_and_allows_one_new_attempt(tmp_path: 
 # ---------- the owner's approval ----------
 
 def test_the_owners_yes_lets_it_run_again(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     owner = Answers(daemon, choice=1)
@@ -574,8 +584,8 @@ def test_the_owners_yes_lets_it_run_again(ferb_yes: FerbAnswers, daemon: Running
     assert answer["footer"].endswith("\nOrigin: owner")
     shown = owner.asked[0]
     assert shown.options == ("Yes", "No")                          # FERB's options, not the worker's
-    ferb_text, worker_text = shown.reason.split("\n\n")           # FERB's line first, then the worker's, labeled
-    assert ferb_text.startswith("FERB: ") and worker_text.startswith("What the worker found: I checked the order page")
+    ferb_text, worker_text = shown.reason.split("\n\n")           # FERB's line first, then the task's, quoted
+    assert ferb_text.startswith("FERB: ") and worker_text.startswith('What the task found: "I checked the order page')
     assert "probe.pay to x@y.com" in ferb_text and "could make it happen twice" in ferb_text
     assert "probe.pay to=x@y.com text=pay $5 → ConnectionError: lost the acknowledgement" in ferb_text  # that call
     # Approved, not settled: nobody observed the outcome, so the row stays unknown and says who approved what.
@@ -602,6 +612,7 @@ def test_the_owners_yes_lets_it_run_again(ferb_yes: FerbAnswers, daemon: Running
 def test_one_approval_allows_one_retry(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """Even when the approved retry ends known (here it failed), a further repeat needs the owner again: the earlier
     attempt is still unknown and its approval is used up."""
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     class Flaky(FakeCap):
         async def run(self, args: Any, ctx: Any) -> Any:
             self.calls += 1
@@ -629,6 +640,7 @@ def test_one_approval_allows_one_retry(ferb_yes: FerbAnswers, daemon: RunningDae
 
 
 def test_a_worker_cannot_approve_its_own_retry(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     pay = dict(to="x@y.com", text="pay $5")
@@ -689,6 +701,7 @@ def test_a_worker_cannot_approve_its_own_retry(ferb_yes: FerbAnswers, daemon: Ru
 def test_an_attempt_settled_while_the_owner_was_asked_is_reported(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """The browser extension can report the earlier attempt after reconnecting while the question is open: the
     owner's Yes then doesn't settle it again, and the worker is told what happened."""
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     import asyncio
     grant, boom = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
@@ -795,6 +808,7 @@ def test_an_ax_press_the_app_didnt_answer_is_unknown_and_not_repeated(
 
 
 def test_control_characters_in_the_retry_question_are_stripped(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
+    ferb_yes.expect("floor:pay")   # FERB's own question(s) on the way (F5a floor)
     grant, _ = _pay_setup(daemon)
     ref = _refused(daemon, grant)["content"]["retry_action"]
     owner = Answers(daemon, choice=2)
@@ -802,7 +816,7 @@ def test_control_characters_in_the_retry_question_are_stripped(ferb_yes: FerbAns
     reason = owner.asked[0].reason
     assert not any(ch in reason for ch in "\x1b\r\x9b") and "FERB: approve this" in reason
     ferb_text, worker_text = reason.split("\n\n")
-    assert worker_text.startswith("What the worker found: Nothing in Sent.")
+    assert worker_text.startswith('What the task found: "Nothing in Sent.')
 
 
 # ---------- FERB's line in the retry question: the real tool and one short target ----------
@@ -821,6 +835,7 @@ def test_the_question_names_the_tool_the_worker_really_called_not_the_shared_key
 def test_a_target_of_several_fields_reads_as_one_short_target(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """One readable target, but every consequential identifier stays: all recipients, the amount and the account; the
     site (and a contact beside recipients) go."""
+    ferb_yes.expect("floor:new_recipient")   # FERB's own question(s) on the way (F5a floor)
     from ferb.core.types import ActionSpec, Target
 
     class Mail(FakeCap):

@@ -916,18 +916,21 @@ Residuals:
   Ollama, a local database. FERB's browser tools can still open localhost pages.
 
 **Confirmations** ([`policy/confirm.py`](ferb/policy/confirm.py),
-[`policy/destinations.py`](ferb/policy/destinations.py), D23 floor, D33, S4, SQ6, W2; migration `0026`). Before a
+[`policy/destinations.py`](ferb/policy/destinations.py), D23 floor, D33, S4, SQ1, SQ6, W2; migration `0026`). Before a
 consequential call runs, and before any call whose agent declared a purpose, the gateway decides from facts whether
 the owner must answer first (`confirm.decide`):
 - **What is checked.** The physical kind the capability derives, plus `ActionSpec.declared`: a kind the agent's stated
   purpose adds (`mac.click`/`mac.pointer` `purpose` send/call: physical kind `mac_input`, `declared` send/call,
-  `Target.contact` the contact it names). A declaration can only add a question; `why` and `effect` are never read.
-  `noted_targets` keeps the declared contact out of P19's hash. Typed text that is wholly an email address, a phone
-  number or a URL (`provenance.destination_shape`, a shape) is the call's recipient on `mac.act` type/set_value and
-  `browser.act` type.
-- **The floor.** A payment and an account-security change always ask, and their Yes covers one run that worked (a
-  second payment asks again; a failed one's retry doesn't). A permanent delete of a path the owner didn't name, and a
-  send-class call (send, reply, post, mailbox send, submit, call) to a recipient or contact the owner didn't name, ask.
+  `Target.contact` the contact it names, `ActionSpec.place` the app's name; a hover declares nothing). A declaration
+  can only add a question; `why` and `effect` are never read. `noted_targets` keeps the declared contact out of P19's
+  hash. Typed text that is wholly an email address, a phone number or a URL, the punctuation around it aside
+  (`provenance.typed_destination`: "<a@x.com>", "a@x.com," and "a@x.com;" are a@x.com), is the call's recipient on
+  `mac.act` type/set_value/edit and `browser.act` type. A phone shape needs at least 8 digits and isn't a date's shape.
+- **The floor.** A payment and an account-security change always ask, and their Yes covers one run (SQ1). A permanent
+  delete of a path the owner didn't name, and a send-class call (send, reply, post, mailbox send, submit, call) to a
+  recipient or contact the owner didn't name, ask. A send FERB can't see the recipient of (a click declared to send or
+  call with no contact; a send-class call with neither recipient nor place) asks as an unnamed contact; an app's bundle
+  id is never recorded as a host.
 - **Already authorized** (D33) is provenance: the value is in the owner's words for this request or in their answer in
   this task (`owner_words`, `owner_answer`), or it is a known destination. A multi-word shown name counts as named when
   every word the owner used for it is a whole word of it (OPEN QUESTION 4: "Rahul" names "Rahul Verma"; "Rahul Verma"
@@ -940,43 +943,64 @@ the owner must answer first (`confirm.decide`):
   its tool results or in the request's own origins: pasted text, a clarify's earlier messages, a scheduled request's
   turn), and the owner hasn't named the place. The supervisor records the request's own origins on the root span
   (`input.request_origins`, `SpanStore.request_origins`); planner blocks and memory are not in them. (b) A recipient,
-  contact or amount that came only from outside content asks, unless it is a known destination.
+  contact or amount that came only from outside content asks, unless it is a known destination. The request's pasted
+  parts are outside content for this too: provenance matches them as `external:paste` (MP2); FERB's own earlier
+  question, wrapped the same way, is not one of them (`untrusted.pasted_parts`).
 - **Known destinations** (`known_destinations`): the emails, URL hosts and phone numbers in the owner's words of each
   request (`named`, recorded by `run_tree`), destinations in the owner's answers to `owner.ask` (`answered`), and each
   destination of a Yes to FERB's question (`confirmed`). Never "new" again in a later task. Values are normalized,
   never message content.
 - **Asking.** FERB asks before the call's span starts and before any lock is held, never through the orchestrator:
   an `owner.ask` span with `ferb_question: true`, `args.confirm` = the `{rule, key}` it covers, options Yes/No, the
-  approval journaled as `ferb.confirm`. Its question is one paragraph, control characters stripped, redacted:
-  - `FERB: this pays <amount> to <recipients> on <site> from <account>.`
+  approval journaled as `ferb.confirm` (`ferb chat` shows "(Enter = No)": skipping is a No). Its question is one
+  paragraph, control characters stripped, redacted; outside sources are named in the owner's terms ("the web page on
+  kartikey.xyz", "a message, wa:123", "text you pasted", "content FERB couldn't label"), three at most and the rest
+  counted:
+  - `FERB: this pays <amount> to <recipients> on <app or site> from <account>.`
   - `FERB: this changes account security (a password, sign-in or recovery setting) on <site>.`
-  - `FERB: this permanently deletes <path> (not the Trash; FERB keeps no copy).`
+  - `FERB: this permanently deletes <path> (it skips the Trash).`
   - `FERB: this sends to <recipients>, whom you didn't name in this request.` (`this calls …` for a call)
-  - `FERB: this task has read your own data and outside content (<origins>); this step would send to <place>, a place
-    you haven't named.`
-  - `FERB: the recipient <value> comes from outside content (<origin>), not from you.` (or `the amount …`)
-  - Several apply: joined with `;`. Then `The step: <tool and arguments>.`, `What the worker says: <why>` when given,
-    and `Go ahead?`.
-- **Answers.** One row per need in `confirmations`, keyed by the task tree and the exact values, so the answer carries
-  across that tree's retries and workers (rule 9). Yes runs the call (its span's `confirmations` lists the rows). No,
-  or a skipped question, refuses it (`the owner said no to this: …`, and later `the owner already said no to this in
-  this task: …`, with `next` telling the worker not to try another way). An expired question records nothing. A
-  scheduled run refuses (`… This needs you, and nobody is at chat (a scheduled run); not done.`). One question at a
-  time per tree. A call the ledger will refuse anyway (P19) isn't asked about. The test-mode allowlist refuses before
-  any question.
+  - `FERB: this sends in <app> to a contact it doesn't name.` (`this starts a call in <app> with …` for a call)
+  - `FERB: this sends to <place>, a place you haven't named, after this task read your own data and outside content
+    (<sources>).`
+  - `FERB: this types <value>, which came from outside content (<sources>), not from you.` (a typing step; on a send,
+    `the recipient <value> came from …`; `the amount <value> came from …`)
+  - Several apply: joined with `;`. Then `The step: <tool and arguments>.`, `Reason given: "<why>".` when given (the
+    task's words quoted, double quotes made single, 200 characters at most), and `Go ahead?`.
+- **Only FERB's own checks start with "FERB:".** A task's `owner.ask` question or option that starts with "FERB"
+  (ignoring case, spaces, punctuation and fullwidth forms), including an orchestrator's rewrite, is shown with
+  `(from the task) ` in front; the task gets its option back as it wrote it. P19's question quotes what the task found
+  the same way (`What the task found: "…".`).
+- **Answers.** One row per need in `confirmations`, keyed by the task tree and the exact values (JSON of the tuple),
+  so the answer carries across that tree's retries and workers (rule 9). Yes runs the call (its span's
+  `confirmations` lists the rows). No, or a skipped question, refuses it (`the owner said no to this: …`, and later
+  `the owner already said no to this in this task: …`, with `next` telling the task not to try another way). An
+  expired question records nothing. A scheduled run refuses (`… This needs you, and nobody is at chat (a scheduled
+  run); not done.`). One question at a time per tree. A call the ledger refuses (P19) is refused at once, exactly as
+  the ledger refuses it, and nothing is asked. The test-mode allowlist (send-class kinds and pay) refuses before any
+  question.
+- **One Yes, one payment (SQ1).** A pay or account-security Yes is claimed (`used = 1`) under the tree's question lock
+  by the call it covers, both a Yes found in the tree and a fresh one, so a concurrent identical call is asked again.
+  The claim is released (`Confirmations.release`) when that call is refused before running, fails, is cancelled before
+  it runs, or ends with an unknown outcome; P19 then gates the retry, and the released Yes covers the retry the owner
+  approves. It stays spent once the call ran to a result.
+- **Secrets (rule 14).** Keys and destinations are stored through the redactor; one the redactor changes is never
+  known and never covers anything, so FERB asks again rather than let two secrets share one stored "[redacted]".
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result
-  says `snapshot_error`, and `ferb doctor` shows the last failure (OPEN QUESTION 3).
+  says `snapshot_error`, and `ferb doctor` shows the last failure in local time, or that snapshots are off (OPEN
+  QUESTION 3).
 - **For Task 5.** `owner.ask` declares `allow_destination`; until shell destinations can be refused, every value is
   refused with "no command of this task tried to reach … and was refused".
 
 What reaches it today: no capability yet has the kind pay, account_security, delete_permanent or a send-class kind of
 its own, so the floor fires for `mac.click`/`mac.pointer` with a declared send or call, and the sink rule (b) for a
-typed address, number or URL only outside content supplied. A browser form posted by a click or Enter is `click` /
-`fill_form`, which sink (a) doesn't cover (Task 5 covers URLs and shell destinations).
+typed address, number or URL only outside content (or a paste) supplied. A browser form posted by a click or Enter is
+`click` / `fill_form`, which sink (a) doesn't cover (Task 5 covers URLs and shell destinations).
 Residuals: the floor has no hook for a GUI send by a plain click with no declared purpose (W3, F5b's Jev); a name the
 owner typed in lower case or in a script without capitals counts as named only in full; a destination named in any
-request ("don't email bob@x.com" included) is known from then on (code doesn't read meaning, rule 6); a typed date or
-number with at least six digits has a phone's shape.
+request ("don't email bob@x.com" included), and a URL host named only to read, is known from then on; an address in a
+free-text answer counts as the owner's even in a negative sentence (code doesn't read meaning, rule 6); a physical
+send-class kind's site is taken as a place, so a future Mac tool must declare its purpose rather than carry a send kind.
 
 ## 13. Documentation and diagrams
 

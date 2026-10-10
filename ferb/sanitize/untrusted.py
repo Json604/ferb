@@ -100,6 +100,15 @@ def _quotes(text: str) -> list[tuple[bool, str]]:
     return out
 
 
+_PARTS = re.compile(r'<untrusted-data id="([0-9a-f]+)">\n?(.*?)\n?</untrusted-data id="\1">', re.S)
+
+
+def pasted_parts(payload: str) -> list[str]:
+    """The pasted or quoted parts of a request's payload (`mark` wrapped them), without FERB's own earlier question,
+    which is wrapped the same way but is FERB's text, not the owner's paste."""
+    return [m.group(2) for m in _PARTS.finditer(_EARLIER.sub("", payload or "")) if m.group(2).strip()]
+
+
 def wrap_untrusted(text: str) -> str:
     """Data, not instructions: in tags with a random id; a forged closing tag inside can't end ours."""
     tag, uid = "untrusted-data", secrets.token_hex(6)

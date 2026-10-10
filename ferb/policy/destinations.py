@@ -5,9 +5,11 @@ A known destination is one the owner named in a request (emails, URL hosts and p
 shape), chose in an answer, or confirmed to FERB's question; it is never "new" for the sink rule in a later task.
 Values are normalized: an email or host lowercased, a phone number's digits, a name casefolded. Never message content.
 A confirmation is the owner's Yes or No to FERB's question in one task tree, keyed by what it covers; it carries
-across that tree's retries (rule 9). A used row (an escape run, a payment that ran) covers nothing more."""
+across that tree's retries (rule 9). A used row (an escape run, a payment that ran or is running) covers nothing more.
+Rule 14: what is stored goes through the redactor first. A destination or key the redactor changes (it holds a secret)
+is never known and never covered: FERB asks again rather than let two secrets share one stored "[redacted]"."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from ferb.core.interfaces import Clock, IdSource
 from ferb.policy import provenance
@@ -17,6 +19,11 @@ if TYPE_CHECKING:
 
 KINDS = ("email", "phone", "host", "name")
 HOW = ("named", "answered", "confirmed")
+Redact = Callable[[Any], Any]
+
+
+def _redacted(redact: Redact, text: str) -> str:
+    return str(redact({"value": text})["value"])
 
 
 def destination_of(value: str) -> tuple[str, str]:
@@ -29,8 +36,8 @@ def destination_of(value: str) -> tuple[str, str]:
 
 
 class KnownDestinations:
-    def __init__(self, db: "Database", clock: Clock, ids: IdSource) -> None:
-        self.db, self.clock, self.ids = db, clock, ids
+    def __init__(self, db: "Database", clock: Clock, ids: IdSource, redact: Redact) -> None:
+        self.db, self.clock, self.ids, self.redact = db, clock, ids, redact
 
     @staticmethod
     def normalize(kind: str, value: str) -> str:
@@ -45,7 +52,7 @@ class KnownDestinations:
 
     def known(self, kind: str, value: str) -> bool:
         norm = self.normalize(kind, value)
-        if kind not in KINDS or not norm:
+        if kind not in KINDS or not norm or _redacted(self.redact, norm) != norm:
             return False
         return self.db.conn.execute("SELECT 1 FROM known_destinations WHERE kind = ? AND value = ?",
                                     (kind, norm)).fetchone() is not None
@@ -54,7 +61,7 @@ class KnownDestinations:
                span_id: str | None = None) -> None:
         """Keep a destination; one already known keeps how it first became known."""
         norm = self.normalize(kind, value)
-        if kind not in KINDS or how not in HOW or not norm:
+        if kind not in KINDS or how not in HOW or not norm or _redacted(self.redact, norm) != norm:
             return
         self.db.conn.execute(
             "INSERT OR IGNORE INTO known_destinations (id, kind, value, how, request_id, span_id, at) "
@@ -76,11 +83,14 @@ class KnownDestinations:
 
 
 class Confirmations:
-    def __init__(self, db: "Database", clock: Clock, ids: IdSource) -> None:
-        self.db, self.clock, self.ids = db, clock, ids
+    def __init__(self, db: "Database", clock: Clock, ids: IdSource, redact: Redact) -> None:
+        self.db, self.clock, self.ids, self.redact = db, clock, ids, redact
 
     def find(self, tree_id: str, key: str) -> dict[str, Any] | None:
-        """The owner's latest answer in this task tree to the question `key` names, or None."""
+        """The owner's latest answer in this task tree to the question `key` names, or None (always None for a key
+        holding a secret: it is stored redacted, so it could match another one)."""
+        if _redacted(self.redact, key) != key:
+            return None
         row = self.db.conn.execute("SELECT * FROM confirmations WHERE tree_id = ? AND key = ? "
                                    "ORDER BY rowid DESC LIMIT 1", (tree_id, key)).fetchone()
         return dict(row) if row is not None else None
@@ -89,9 +99,16 @@ class Confirmations:
         cid = str(self.ids.new_id())
         self.db.conn.execute("INSERT INTO confirmations (id, tree_id, rule, key, granted, ask_span, used, at) "
                              "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-                             (cid, tree_id, rule, key, int(granted), ask_span, self.clock.now().isoformat()))
+                             (cid, tree_id, rule, _redacted(self.redact, key), int(granted), ask_span,
+                              self.clock.now().isoformat()))
         return cid
 
     def use(self, cid: str) -> None:
-        """A Yes that covers one run only (an escape, a payment, an account-security change) is spent."""
+        """A Yes that covers one run only (an escape, a payment, an account-security change) is claimed by the call
+        about to run; nothing else is covered by it."""
         self.db.conn.execute("UPDATE confirmations SET used = 1 WHERE id = ?", (cid,))
+
+    def release(self, cid: str) -> None:
+        """The claiming call didn't run to a result (refused, failed, cancelled, or its outcome is unknown): the Yes
+        covers its retry again (P19 gates a retry of an unknown outcome)."""
+        self.db.conn.execute("UPDATE confirmations SET used = 0 WHERE id = ?", (cid,))

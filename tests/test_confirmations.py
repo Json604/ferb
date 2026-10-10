@@ -21,7 +21,47 @@ class _Declared(FakeCap):
         self.declared, self.contact = declared, contact
 
     def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec("mac_input", Target(site="net.whatsapp.whatsapp", contact=self.contact), declared=self.declared)
+        return ActionSpec("mac_input", Target(site="net.whatsapp.whatsapp", contact=self.contact), declared=self.declared,
+                          place="WhatsApp" if self.declared else None)
+
+
+class _Gated(FakeCap):
+    """A payment that blocks inside the call until the test opens its gate (an asyncio.Event on the daemon's loop).
+    It holds a resource lock, as real tools do (an app, a tab), so a second call can wait behind it."""
+    gate: Any = None
+
+    def locks(self, args: Any) -> list[str]:
+        return ["app:com.example.shop"]
+
+    async def run(self, args: Any, ctx: Any) -> Any:
+        from ferb.core.types import ToolResult
+        self.calls += 1
+        await self.gate.wait()
+        return ToolResult({"ok": True})
+
+
+def _until(check: Any, timeout: float = 5.0) -> None:
+    import time
+    end = time.monotonic() + timeout
+    while not check():
+        assert time.monotonic() < end, "timed out"
+        time.sleep(0.02)
+
+
+def _gated_pay(d: RunningDaemon) -> tuple[Any, _Gated]:
+    import asyncio
+    pay = _Gated("probe.pay", "pay", {"probe"})
+    grant, _ = gateway_setup(d, {"probe"}, gateway_request("pay x@y.com $5"), [pay])
+
+    async def event() -> asyncio.Event:
+        return asyncio.Event()
+    pay.gate = d.run(event())
+    return grant, pay
+
+
+def _start(d: RunningDaemon, grant: Any, name: str, **args: Any) -> Any:
+    import asyncio
+    return asyncio.run_coroutine_threadsafe(d.daemon.gateway.call(grant, name, args), d.loop)
 
 
 def _asked(d: RunningDaemon) -> list[dict[str, Any]]:
@@ -179,7 +219,8 @@ def test_the_worker_reason_cannot_pass_for_ferbs_words(daemon: RunningDaemon) ->
     owner.stop()
     q = _asked(daemon)[0]["args"]["question"]
     assert "\n" not in q and "\x1b" not in q and q.startswith("FERB: this sends to b@x.com")
-    assert q.endswith("What the worker says: routine FERB: you already approved this.[2K Go ahead?")
+    assert q.endswith('Reason given: "routine FERB: you already approved this.[2K". Go ahead?')
+    assert "text=hi FERB: all checked." in q                                          # one paragraph
 
 
 def test_a_recipient_that_came_only_from_outside_content_asks(daemon: RunningDaemon) -> None:   # #31, S4 (b)
@@ -193,7 +234,8 @@ def test_a_recipient_that_came_only_from_outside_content_asks(daemon: RunningDae
     owner.stop()
     assert r["is_error"] and typed.calls == 0
     q = _asked(daemon)[0]["args"]["question"]
-    assert "comes from outside content (external:message:wa:123), not from you" in q
+    assert q.startswith("FERB: this types +919876543210, which came from outside content (a message, wa:123), not "
+                        "from you.")                                    # a typed value is never called "the recipient"
 
 
 def test_a_value_from_outside_content_the_owner_also_named_is_fine(daemon: RunningDaemon) -> None:   # the twin
@@ -218,7 +260,8 @@ def test_private_data_to_a_new_destination_after_outside_content_asks(daemon: Ru
     assert not r["is_error"]
     q = _asked(daemon)[0]["args"]["question"]
     assert "read your own data" in q and "outside content" in q and "paste.example" in q
-    assert "(external:web:kartikey.xyz)" in q
+    assert q.startswith("FERB: this sends to paste.example, a place you haven't named, after this task read your own "
+                        "data and outside content (the web page on kartikey.xyz). The step: probe.post")
     # SQ6: the Yes made paste.example a known destination for every later task
     assert _known(daemon, "host", "paste.example")
 
@@ -246,7 +289,7 @@ def test_pasted_text_in_the_request_counts_as_outside_content(daemon: RunningDae
     owner = Answers(daemon, granted=True, choice=2)
     r = gateway_tool_call(daemon, grant, "probe.post", site="paste.example", text="cv")
     owner.stop()
-    assert r["is_error"] and "(external:paste)" in _asked(daemon)[0]["args"]["question"]
+    assert r["is_error"] and "outside content (text you pasted)." in _asked(daemon)[0]["args"]["question"]
 
 
 def test_a_destination_the_owner_named_in_an_earlier_request_is_known(daemon: RunningDaemon) -> None:   # SQ6
@@ -316,7 +359,7 @@ def test_a_permanent_delete_of_a_path_the_owner_named_runs_and_another_asks(daem
     r = gateway_tool_call(daemon, grant, "probe.delete", text="/tmp/ferb-other.log")
     owner.stop()
     assert r["is_error"] and gone.calls == 1
-    assert "this permanently deletes /tmp/ferb-other.log (not the Trash; FERB keeps no copy)" in \
+    assert "FERB: this permanently deletes /tmp/ferb-other.log (it skips the Trash). The step:" in \
         _asked(daemon)[0]["args"]["question"]
 
 
@@ -362,10 +405,15 @@ def test_a_shell_command_runs_when_no_snapshot_can_be_taken(daemon: RunningDaemo
     assert not r["is_error"] and shell.calls == 1 and "no snapshot was taken" in r["content"]["snapshot_error"]
     assert service.last_failure() is not None and "tmutil" in service.last_failure()["why"]   # ferb doctor shows it
     report = daemon.run(daemon.daemon._doctor_check(None, {"selftest": False}), timeout=60)  # type: ignore[arg-type]
+    from datetime import datetime
     from ferb.cli.setup import snapshot_check
     check = snapshot_check(report["containment"])
     assert check.status == "warn" and "ran without a recovery snapshot" in check.detail and "tmutil" in check.detail
+    local = datetime.fromisoformat(service.last_failure()["at"]).astimezone().strftime("%Y-%m-%d %H:%M")
+    assert f"failed at {local} (" in check.detail                                       # local time, not UTC ISO
     assert snapshot_check({"snapshot_failure": None, "snapshots": True}).status == "ok"
+    off = snapshot_check({"snapshot_failure": {"off": True}, "snapshots": False})
+    assert off.status == "warn" and off.detail.startswith("snapshots are turned off") and "failed" not in off.detail
 
 
 def test_a_worker_cannot_ask_about_a_host_no_command_tried(daemon: RunningDaemon) -> None:   # declared for Task 5
@@ -387,9 +435,9 @@ def test_a_typed_address_from_the_owners_words_is_fine(daemon: RunningDaemon) ->
 
 def _decide(kind: str, target: Target, sources: dict[str, list[str]], declared: str | None = None,
             read_private: bool = False, read_external: bool = False,
-            known: Any = _never_known) -> list[confirm.Need]:
+            known: Any = _never_known, place: str | None = None) -> list[confirm.Need]:
     return confirm.decide(kind, declared, target, sources, read_private=read_private, read_external=read_external,
-                          known=known, outside_read="external:web:a.example")
+                          known=known, outside_read=("external:web:a.example",), place=place)
 
 
 def test_decide_the_floor() -> None:
@@ -419,8 +467,16 @@ def test_decide_a_declared_purpose_only_adds() -> None:
     assert _decide(Kind.MAC_INPUT, target, {"contact": ["unknown"], "site": ["unknown"]}) == []
     assert [n.rule for n in _decide(Kind.MAC_INPUT, target, {"contact": ["unknown"], "site": ["unknown"]},
                                     declared=Kind.SEND)] == ["floor:new_recipient"]
-    assert [n.rule for n in _decide(Kind.PAY, Target(amount=5.0), {"amount": ["owner_words"]},
-                                    declared=Kind.SEND)] == ["floor:pay"]               # never fewer than the kind's
+    assert [n.rule for n in _decide(Kind.PAY, Target(amount=5.0), {"amount": ["owner_words"]})] == ["floor:pay"]
+    assert [n.rule for n in _decide(Kind.PAY, Target(amount=5.0), {"amount": ["owner_words"]}, declared=Kind.SEND)] \
+        == ["floor:pay", "floor:new_recipient"]                          # never fewer than the kind's; a send to no one
+    [unnamed] = _decide(Kind.MAC_INPUT, Target(site="net.whatsapp.whatsapp"), {"site": ["unknown"]},
+                        declared=Kind.SEND, place="WhatsApp")
+    assert unnamed.rule == "floor:new_recipient" and unnamed.destinations == ()     # never a bundle id as a host
+    assert confirm.line([unnamed], "c", "") == "FERB: this sends in WhatsApp to a contact it doesn't name. The step: c. " \
+        "Go ahead?"
+    [call] = _decide(Kind.MAC_INPUT, Target(site="x"), {}, declared=Kind.CALL, place="FaceTime")
+    assert confirm.line([call], "c", "").startswith("FERB: this starts a call in FaceTime with a contact it doesn't name.")
 
 
 def test_decide_the_sink_rule() -> None:
@@ -439,7 +495,7 @@ def test_decide_the_sink_rule() -> None:
     outside = _decide(Kind.FILL_FORM, Target(recipients=("+91 98765 43210",), amount=499.0),
                       {"recipient:0": ["external:message:wa:1"], "amount": ["external:web:shop.example"]})
     assert [(n.rule, n.values["what"], n.values["value"]) for n in outside] == [
-        ("sink:outside_value", "recipient", "+91 98765 43210"), ("sink:outside_value", "amount", "499")]
+        ("sink:outside_value", "typed", "+91 98765 43210"), ("sink:outside_value", "amount", "499")]
     assert outside[0].destinations == (("phone", "+91 98765 43210"),) and outside[1].destinations == ()
     assert _decide(Kind.FILL_FORM, Target(recipients=("a@x.com",)),
                    {"recipient:0": ["owner_words", "external:web:a.example"]}) == []
@@ -454,18 +510,37 @@ def test_line_reads_in_the_owners_terms() -> None:
     sec = _decide(Kind.ACCOUNT_SECURITY, Target(site="accounts.example"), {})
     assert confirm.line(sec, "s", "the owner asked") == (
         "FERB: this changes account security (a password, sign-in or recovery setting) on accounts.example. The step: "
-        "s. What the worker says: the owner asked Go ahead?")
+        's. Reason given: "the owner asked". Go ahead?')
     both = _decide(Kind.SEND, Target(recipients=("b@x.com",)), {"recipient:0": ["external:email:e1"]})
     assert confirm.line(both, "c", "") == (
-        "FERB: this sends to b@x.com, whom you didn't name in this request; the recipient b@x.com comes from outside "
-        "content (external:email:e1), not from you. The step: c. Go ahead?")
+        "FERB: this sends to b@x.com, whom you didn't name in this request; the recipient b@x.com came from outside "
+        "content (an email, e1), not from you. The step: c. Go ahead?")
     sink = _decide(Kind.POST, Target(site="paste.example"), {"site": ["unknown"]}, read_private=True,
                    read_external=True)
     assert confirm.line(sink, "c", "") == (
-        "FERB: this task has read your own data and outside content (external:web:a.example); this step would send "
-        "to paste.example, a place you haven't named. The step: c. Go ahead?")
-    for word in ("worker,", "checker", "gateway", "tree"):
+        "FERB: this sends to paste.example, a place you haven't named, after this task read your own data and outside "
+        "content (the web page on a.example). The step: c. Go ahead?")
+    for word in ("worker", "checker", "gateway", "tree", "external:"):
         assert word not in confirm.line(pay + sec + both + sink, "c", "")
+
+
+def test_outside_sources_read_in_the_owners_terms_and_the_list_is_clipped() -> None:
+    assert [confirm.shown_origin(o) for o in ("external:web:kartikey.xyz", "external:message:wa:123", "external:paste",
+                                               "external:unlabeled", "external:email:e1", "external:web:excluded",
+                                               "external:download", "external:web")] == [
+        "the web page on kartikey.xyz", "a message, wa:123", "text you pasted", "content FERB couldn't label",
+        "an email, e1", "a site on your exclusion list", "a downloaded file", "a web page"]
+    many = [f"external:web:s{i}.example" for i in range(5)]
+    assert confirm.shown_origins(many) == ("the web page on s0.example; the web page on s1.example; the web page on "
+                                           "s2.example; and 2 more")
+
+
+def test_keys_name_their_values_unambiguously() -> None:
+    assert confirm.key("floor:delete_permanent", "a|b") != confirm.key("floor:delete_permanent", "a", "b")
+    one = _decide(Kind.SEND, Target(recipients=("a@x.com,b@x.com",)), {"recipient:0": ["unknown"]})
+    two = _decide(Kind.SEND, Target(recipients=("a@x.com", "b@x.com")), {"recipient:0": ["unknown"],
+                                                                        "recipient:1": ["unknown"]})
+    assert one[0].key != two[0].key
 
 
 def test_known_destinations_normalize_and_come_from_the_owners_words(daemon: RunningDaemon) -> None:
@@ -500,15 +575,19 @@ def test_the_requests_own_words_become_known_destinations(daemon: RunningDaemon)
 def test_mac_click_declares_its_purpose_beside_the_physical_kind() -> None:   # carried item 7, W2
     from types import SimpleNamespace
     from ferb.act.mac.tools import MacClick, MacPointer
-    for tool in (MacClick(SimpleNamespace()), MacPointer(SimpleNamespace())):
-        tool._bundle = lambda args: "net.whatsapp.whatsapp"                    # type: ignore[method-assign]
+    apps = SimpleNamespace(find=lambda name: SimpleNamespace(bundle_id="net.whatsapp.whatsapp", name="WhatsApp"))
+    for tool in (MacClick(SimpleNamespace(apps=apps)), MacPointer(SimpleNamespace(apps=apps))):
         point = {"action": "click"} if tool.name == "mac.pointer" else {}
         asha = {"name": "Asha", "selected": "Asha K", "detail": "+91 98xxx"}
         spec = tool.describe(tool.Input(app="WhatsApp", shot="s1", x=1, y=2, purpose="call", contact=asha, **point))
         assert (spec.kind, spec.declared, spec.target.contact) == (Kind.MAC_INPUT, Kind.CALL, "Asha K")
+        assert spec.place == "WhatsApp"                                          # the app's name, for FERB's question
         plain = tool.describe(tool.Input(app="WhatsApp", shot="s1", x=1, y=2, **point))
         assert (plain.kind, plain.declared, plain.target.contact) == (Kind.MAC_INPUT, None, None)
         assert tool.noted_targets == ("contact",)                                # not part of the P19 hash
+    pointer = MacPointer(SimpleNamespace(apps=apps))
+    hover = pointer.describe(pointer.Input(app="WhatsApp", shot="s1", x=1, y=2, action="hover", purpose="send"))
+    assert (hover.kind, hover.declared) == (Kind.READ, None)                     # a hover sends nothing
 
 
 def test_typing_an_address_records_it_as_the_recipient() -> None:              # S4 (b), the plan's decision
@@ -518,6 +597,9 @@ def test_typing_an_address_records_it_as_the_recipient() -> None:              #
     mac = MacAct(SimpleNamespace())
     mac._bundle = lambda args: "net.whatsapp.whatsapp"                         # type: ignore[method-assign]
     for action, text, who in (("type", " +91 98765 43210 ", ("+91 98765 43210",)), ("set_value", "a@x.com", ("a@x.com",)),
+                              ("edit", "<b@x.com>", ("b@x.com",)), ("type", "a@x.com,", ("a@x.com",)),
+                              ("type", "+91 98765 43210;", ("+91 98765 43210",)), ("type", "(555) 123-4567", ("(555) 123-4567",)),
+                              ("type", "2026-10-10", ()), ("type", "123456", ()),
                               ("type", "see you at 5", ()), ("key", "a@x.com", ())):
         assert mac.describe(mac.Input(app="WhatsApp", action=action, text=text)).target.recipients == who, action
     page = SimpleNamespace(tab_url=lambda tab: "https://mail.example/compose", element_info=lambda tab, el: None)
@@ -526,6 +608,9 @@ def test_typing_an_address_records_it_as_the_recipient() -> None:              #
     assert typed.kind == Kind.FILL_FORM and typed.target.recipients == ("https://kartikey.xyz/p",)
     assert typed.target.site == "mail.example"
     assert act.describe(act.Input(tab="t1", element="s1e2", action="type", text="hello")).target.recipients == ()
+    for text in ("a@x.com;", "<a@x.com>", "a@x.com,"):
+        assert act.describe(act.Input(tab="t1", element="s1e2", action="type", text=text)).target.recipients == (
+            "a@x.com",), text
     assert act.describe(act.Input(tab="t1", element="s1e2", action="select", text="a@x.com")).target.recipients == ()
 
 
@@ -538,3 +623,157 @@ def test_a_root_recorded_before_f5a_counts_everything_its_turn_saw(daemon: Runni
         spans.set_origin(new.id, "owner,external:email:e9")
         return spans.request_origins("old-1"), spans.request_origins("new-1"), spans.request_origins("none")
     assert daemon.run(go()) == ({"owner", "external:email:e9"}, {"owner"}, set())
+
+
+# ---------- fix round 1: one Yes, one payment; typed values; lookalikes; secrets ----------
+
+def test_one_yes_never_pays_twice_while_the_same_payment_is_running(daemon: RunningDaemon) -> None:   # SQ1, P19
+    grant, pay = _gated_pay(daemon)
+    owner = Answers(daemon, granted=True, choice=1)
+    first = _start(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
+    _until(lambda: pay.calls == 1)                                         # A is paying, holding the checkout
+    second = _start(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")   # B: would wait behind A's lock
+    import time
+    time.sleep(0.3)
+    daemon.loop.call_soon_threadsafe(pay.gate.set)                         # A finishes: done, no longer unresolved
+    assert not first.result(10)["is_error"]
+    again = second.result(10)
+    owner.stop()
+    assert again["is_error"] and "already running" in again["content"]["error"]  # refused at once, as P19 refuses
+    assert pay.calls == 1 and len(_asked(daemon)) == 1
+
+
+def test_one_yes_never_pays_twice_when_both_wait_for_the_owner(daemon: RunningDaemon) -> None:   # SQ1, the claim
+    grant, pay = _gated_pay(daemon)
+    approvals = daemon.daemon.state.approvals
+    first = _start(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
+    _until(lambda: len(approvals.pending()) == 1)                          # A is asking the owner
+    second = _start(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")   # B waits behind A's question
+    import time
+    time.sleep(0.3)
+    assert len(approvals.pending()) == 1                                   # one question at a time per task
+    daemon.call_soon(approvals.resolve, approvals.pending()[0].id, True, 1)    # Yes to A
+    _until(lambda: pay.calls == 1)
+    _until(lambda: len(approvals.pending()) == 1)                          # A claimed that Yes: B asks again
+    [b_question] = approvals.pending()
+    assert b_question.reason.startswith("FERB: this pays an amount to x@y.com.")
+    daemon.call_soon(approvals.resolve, b_question.id, True, 2)          # No to the second payment
+    refused = second.result(10)
+    daemon.loop.call_soon_threadsafe(pay.gate.set)
+    assert not first.result(10)["is_error"]
+    assert refused["is_error"] and "said no" in refused["content"]["error"] and pay.calls == 1
+    rows = _rows(daemon, "confirmations")
+    assert [(r["granted"], r["used"]) for r in rows] == [(1, 1), (0, 0)]  # A's Yes spent by A alone; B's No
+
+
+def test_a_claimed_yes_is_released_when_its_call_did_not_run(daemon: RunningDaemon) -> None:   # the claim's release
+    grant, pay = _gated_pay(daemon)
+    owner = Answers(daemon, granted=True, choice=1)
+    first = _start(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
+    _until(lambda: pay.calls == 1)
+    first.cancel()                                                       # stopped mid-call: the outcome is unknown
+    _until(lambda: first.done())
+    owner.stop()
+    assert [(r["granted"], r["used"]) for r in _rows(daemon, "confirmations")] == [(1, 0)]   # P19 gates the retry
+
+
+def test_a_pay_yes_carries_across_a_retry_the_owner_approved(daemon: RunningDaemon) -> None:   # SQ1 with P19
+    boom = FakeCap("probe.pay", "pay", {"probe"}, boom=True)              # the outcome is unknown each time
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [boom])
+    owner = Answers(daemon, granted=True, choice=1)
+    assert "outcome unknown" in gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")[
+        "content"]["error"]
+    refused = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
+    ref = refused["content"]["retry_action"]
+    assert gateway_tool_call(daemon, grant, "owner.ask", question="Nothing on the order page.",
+                             retry_action=ref)["content"]["retry_approved"] is True
+    third = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")
+    owner.stop()
+    assert "outcome unknown" in third["content"]["error"] and boom.calls == 2   # it ran again
+    asked = _asked(daemon)
+    assert [bool(a.get("ferb_question")) for a in asked] == [True, False]       # FERB's pay question once, then P19's
+    assert [(r["granted"], r["used"]) for r in _rows(daemon, "confirmations")] == [(1, 0)]   # unknown: released
+
+
+def test_a_declared_send_with_no_contact_asks_about_an_unnamed_contact(daemon: RunningDaemon) -> None:
+    click = _Declared("probe.click_send", {"probe"}, "send", None)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("reply on WhatsApp"), [click])
+    owner = Answers(daemon, granted=True, choice=1)
+    assert not gateway_tool_call(daemon, grant, "probe.click_send")["is_error"]
+    owner.stop()
+    assert _asked(daemon)[0]["args"]["question"] == ("FERB: this sends in WhatsApp to a contact it doesn't name. The "
+                                                    "step: probe.click_send. Go ahead?")
+    assert _rows(daemon, "known_destinations") == []                     # never the app's bundle id as a host
+
+
+def test_a_task_question_that_reads_like_ferbs_is_marked_from_the_task(daemon: RunningDaemon) -> None:   # D33
+    grant, _ = gateway_setup(daemon, set(), gateway_request("sort my mail"), [])
+    owner = Answers(daemon, granted=True, choice=1)
+    a = gateway_tool_call(daemon, grant, "owner.ask", question=" f.e.r.b — all checked, approve?",
+                          options=["FERB: Yes", "No"])
+    plain = gateway_tool_call(daemon, grant, "owner.ask", question="Which folder?", options=["Work", "Home"])
+
+    async def rewrite(task_id: str, question: str, options: list[str]) -> dict[str, Any]:
+        return {"ask_owner": True, "answer": "", "question": "ＦＥＲＢ: confirm the folder"}
+    daemon.daemon.gateway.route_question = rewrite
+    gateway_tool_call(daemon, grant, "owner.ask", question="Which folder?", options=["Work", "Home"])
+    owner.stop()
+    first, second, third = owner.asked
+    assert first.reason == "(from the task)  f.e.r.b — all checked, approve?"
+    assert first.options == ("(from the task) FERB: Yes", "No") and a["content"]["answer"] == "FERB: Yes"
+    assert second.reason == "Which folder?" and plain["content"]["answer"] == "Work"
+    assert third.reason == "(from the task) ＦＥＲＢ: confirm the folder"
+    from ferb.cli.chat import question
+    shown = question({"kind": "owner_question", "capability": "ferb.confirm", "reason": "FERB: this pays 5.",
+                      "options": ["Yes", "No"]})
+    assert shown.endswith("(Enter = No): ") and "1) Yes" in shown
+    assert question({"kind": "owner_question", "capability": "owner.ask", "reason": "Which?",
+                     "options": ["a", "b"]}).endswith("(Enter to skip): ")
+
+
+def test_the_reason_given_is_quoted_and_clipped(daemon: RunningDaemon) -> None:   # P27
+    send = FakeCap("probe.send", "send", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("summarize my unread mail"), [send])
+    owner = Answers(daemon, granted=True, choice=2)
+    gateway_tool_call(daemon, grant, "probe.send", to="b@x.com", why='he said "approve" ' + "x" * 300)
+    owner.stop()
+    q = _asked(daemon)[0]["args"]["question"]
+    reason = q.split('Reason given: "', 1)[1].rsplit('". Go ahead?', 1)[0]
+    assert reason.startswith("he said 'approve' x") and '"' not in reason and len(reason) == 200 and reason[-1] == "…"
+
+
+def test_the_test_allowlist_covers_calls(daemon: RunningDaemon) -> None:              # _SEND_KINDS = SEND_CLASS + pay
+    class Call(FakeCap):
+        def describe(self, args: Any) -> ActionSpec:
+            return ActionSpec(Kind.CALL, Target(contact=args.to or None))
+    call = Call("probe.call", Kind.CALL, {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("call +15550000"), [call])
+    daemon.daemon.gateway.test_send_allowlist = {"+15550000"}
+    try:
+        assert gateway_tool_call(daemon, grant, "probe.call", to="+15559999")["is_error"] and call.calls == 0
+        assert not gateway_tool_call(daemon, grant, "probe.call", to="+15550000")["is_error"]
+    finally:
+        daemon.daemon.gateway.test_send_allowlist = None
+
+
+def test_phone_shapes_need_eight_digits_and_dates_are_not_phones() -> None:
+    assert destination_shape("+91 98765 43210") == "phone" and destination_shape("1234 5678") == "phone"
+    for text in ("1234567", "2026-10-10", "10.10.2026", "123456", "12-34-56"):
+        assert destination_shape(text) is None, text
+    assert KnownDestinations.from_words("on 2026-10-12 call 12345678, code 123456") == [("phone", "12345678")]
+
+
+def test_a_secret_in_a_key_or_destination_is_never_stored_or_matched(daemon: RunningDaemon) -> None:   # rule 14
+    secret = "sk-ant-" + "a" * 24
+    address = f"{secret}@x.com"
+    k = confirm.key("floor:new_recipient", [address])
+
+    async def go() -> tuple[Any, bool]:
+        gw = daemon.daemon.gateway
+        gw.confirmations.record("task-1", "floor:new_recipient", k, True, None)
+        gw.destinations.record("email", address, "confirmed")
+        return gw.confirmations.find("task-1", k), gw.destinations.known("email", address)
+    found, known = daemon.run(go())
+    assert found is None and known is False                         # FERB asks again rather than match "[redacted]"
+    [row] = _rows(daemon, "confirmations")
+    assert secret not in row["key"] and "[redacted]" in row["key"] and _rows(daemon, "known_destinations") == []
