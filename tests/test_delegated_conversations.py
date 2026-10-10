@@ -224,3 +224,41 @@ def test_new_step_id_cannot_reask_a_declined_scope_or_duplicate_active_conversat
     s.approve('tree:one', 'owner-no', 'No')
     with pytest.raises(ValueError):
         s.open('tree:two', 'tree', scope())
+
+
+def test_converse_uses_gateway_then_checked_worker_and_handover(daemon):
+    import asyncio
+    import json
+    from tests.conftest import chat, done, install, outcome, sup, task
+    from ferb.orchestrator.plans import Plan, Step
+    from ferb.orchestrator.conversations import ConversationScope
+    spec = task('Discuss the project and hand over a lead', identity='owner')
+    scope = ConversationScope(identity='owner', account='owner@example.test', site='web.whatsapp.com',
+        app='net.whatsapp.WhatsApp', thread='message-yourself', recipients=['owner'], topic='project inquiry',
+        handover_when='The contact is interested')
+    spec['plan'] = Plan(steps=[Step(id='contact', kind='converse', goal='Read the self-chat lead', conversation=scope)]).model_dump()
+    worker = json.dumps({'status': 'done', 'summary': 'Owner-controlled contact expressed interest.',
+        'artifacts': [], 'evidence': ['scripted:observed-self-chat'], 'conversation_action': 'handover'})
+    script = install(daemon, [sup('task', 'Preparing the conversation scope.', spec)],
+        {'conversation.contact.1': worker, 'worker': done('Conversation handed over with evidence.')})
+    async def answer():
+        while not daemon.daemon.state.approvals.pending():
+            await asyncio.sleep(0)
+        ask = daemon.daemon.state.approvals.pending()[0]
+        assert 'platform' in ask.reason and 'owner@example.test' in ask.reason
+        daemon.daemon.state.approvals.resolve(ask.id, True, choice=1)
+    future = asyncio.run_coroutine_threadsafe(answer(), daemon.loop)
+    events = chat(daemon, 'Discuss my project in the self-chat and hand over when interested')
+    result = outcome(events)
+    future.result(3)
+    assert result['verified'], result
+    async def stored():
+        root = result['task_id']
+        rows = daemon.daemon.supervisor.conversations.list(root)
+        calls = daemon.daemon.db.conn.execute("SELECT input_json FROM spans WHERE kind='tool.call'").fetchall()
+        return rows, calls
+    rows, calls = daemon.run(stored())
+    assert rows[0]['status'] == 'handed_over'
+    assert any(json.loads(row['input_json']).get('tool') == 'conversation.read' for row in calls)
+    roles = [role for _, role, _, _ in script.contexts]
+    assert 'conversation.contact.1.verify' in roles and 'worker.verify' in roles
