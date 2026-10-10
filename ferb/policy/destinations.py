@@ -73,9 +73,9 @@ class KnownDestinations:
         """The destinations in a text by shape, in order: whole email tokens, the hosts of URL tokens, and phone-like
         runs of at least provenance.MIN_PHONE_DIGITS digits. Names are never taken from text."""
         found: list[tuple[str, str]] = []
-        for tok in provenance.tokens(words):
+        for tok in provenance.raw_tokens(words):
             if provenance.destination_shape(tok) == "email":
-                found.append(("email", tok))
+                found.append(("email", tok.lower()))
             elif host := provenance.host_of(tok):
                 found.append(("host", host))
         found += [("phone", digits) for digits in provenance.phone_runs(words)]

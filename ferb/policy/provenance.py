@@ -55,14 +55,19 @@ def _strip(raw: str) -> tuple[bool, str, bool]:
     return lead, tok, trail
 
 
-def tokens(text: str) -> list[str]:
-    """The text's whole tokens, lowercased, without leading and trailing punctuation."""
+def raw_tokens(text: str) -> list[str]:
+    """Whole tokens without framing punctuation, preserving case so URL hosts undergo UTS46 before case mapping."""
     out = []
-    for raw in text.lower().split():                     # lower(), not casefold(): strasse.de is not straße.de
+    for raw in text.split():
         tok = _strip(raw)[1]
         if tok:
             out.append(tok)
     return out
+
+
+def tokens(text: str) -> list[str]:
+    """The text's whole tokens, lowercased, without leading and trailing punctuation."""
+    return [tok.lower() for tok in raw_tokens(text)]     # lower(), not casefold(): strasse.de is not straße.de
 
 
 def phone_runs(text: str) -> list[str]:
@@ -139,7 +144,7 @@ class Text:
 def prepare(text: str) -> Text:
     toks = tokens(text)
     return Text(text.casefold(), frozenset(toks), frozenset(_norm_path(t) for t in toks),
-                 frozenset(h for t in toks if (h := host_of(t))),
+                 frozenset(h for t in raw_tokens(text) if (h := host_of(t))),
                  tuple(n for t in toks if (n := _token_amount(t)) is not None),
                  frozenset(_digits(m.group(0)) for m in _PHONE_RUN.finditer(text)), _words(text))
 

@@ -669,7 +669,7 @@ class Daemon:
         self._loop = asyncio.get_running_loop()
         self.proxy = EgressProxy(self._allow_destination, redactor=self.redact if isinstance(self.redact, Redactor)
                                  else None, excluded=getattr(self.redact, "excluded_host", None),
-                                 inspect_sni=self._sni_enforce)
+                                 inspect_sni=self._sni_enforce, on_reached=self._destination_reached)
         self.sandbox = Sandbox(self.protection, self.home / "run" / "sandbox",
                                lambda: self.proxy.port if self.proxy is not None else None, socket=self.server.path)
         self.sandbox.sweep()
@@ -711,6 +711,16 @@ class Daemon:
             return bool(fut.result(10))
         except Exception:
             return True
+
+    def _destination_reached(self, proc: str, host: str, port: int) -> None:
+        """On a proxy thread, before response bytes can become outside content: order a successful connection with
+        the tree's reads on the gateway loop. A reporting failure grants no earlier-host allowance."""
+        try:
+            assert self.gateway is not None and self._loop is not None
+            fut = asyncio.run_coroutine_threadsafe(self.gateway.destination_reached(proc, host, port), self._loop)
+            fut.result(10)
+        except Exception:
+            pass
 
     def _shell_network(self, info: ProcInfo, facts: dict[str, Any]) -> None:
         """A finished shell process's final network record (ferb trace / journal). The proxy may report it from a

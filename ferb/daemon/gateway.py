@@ -483,14 +483,21 @@ class Gateway:
             return True, ""
         live = self.tasks.get(root) is not None          # N4: never re-create a tree's sets after it ended
         if not self._outside_read(root):
-            if live:
-                self._reached_hosts.setdefault(root, set()).add(norm)   # reached before the first outside read
             return True, ""
         if norm in self._reached_hosts.get(root, ()):
             return True, ""
         if live:
             self._refused_hosts.setdefault(root, {})[norm] = self.proc_command(proc_id) or ""
         return False, DEST_REFUSED_NEW
+
+    async def destination_reached(self, proc_id: str, host: str, port: int) -> None:
+        """On the loop, after the proxy establishes a connection (or observes its differing SNI), before forwarding
+        bytes: remember the host only if this live tree has not read outside content yet. Permission before DNS is
+        not evidence of reaching a site; a failed or delayed connection must not earn this allowance."""
+        task_id = self.proc_task(proc_id)
+        root = self.tasks.tree_of(task_id) if task_id is not None else None
+        if root is not None and self.tasks.get(root) is not None and not self._outside_read(root):
+            self._reached_hosts.setdefault(root, set()).add(KnownDestinations.normalize("host", host))
 
     def _outside_read(self, root: str) -> bool:
         """Whether this tree has read outside content: an outside tool result (a shell command's output included, S3)

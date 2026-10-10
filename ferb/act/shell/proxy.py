@@ -192,12 +192,14 @@ def _literal(host: str) -> bool:
 class EgressProxy:
     def __init__(self, allow: Allow, *, resolve: Resolve = addresses, redactor: Secrets | None = None,
                  excluded: Callable[[str], bool] | None = None, on_report: Report | None = None,
-                 inspect_sni: Callable[[str, str, int], bool] | None = None) -> None:
+                 inspect_sni: Callable[[str, str, int], bool] | None = None,
+                 on_reached: Callable[[str, str, int], None] | None = None) -> None:
         self.allow, self.resolve, self.redactor = allow, resolve, redactor
         # S4: whether to hold a CONNECT's TLS ClientHello to enforce the SNI (after outside content); default off
         self.inspect_sni = inspect_sni or (lambda proc, host, port: False)
         self.excluded = excluded or (lambda host: False)    # the owner's exclusion list: such a host is never shown
         self.on_report = on_report                          # a process is fully done: its final record (host/bytes)
+        self.on_reached = on_reached                        # successful connection/SNI, before bytes are forwarded
         self._tokens: dict[str, str] = {}                   # proc id -> token, while FERB tracks the process
         self._facts: dict[str, dict[str, Any]] = {}
         self._active: dict[str, int] = {}                   # open connections per process (a tunnel may outlive it)
@@ -590,7 +592,9 @@ class EgressProxy:
             d = f["destinations"].setdefault((host, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
             d["connections"] += 1
             self._active[proc] = self._active.get(proc, 0) + 1
-            return True
+        if self.on_reached is not None:
+            self.on_reached(proc, host, port)               # outside the proxy lock: the gateway runs on its loop
+        return True
 
     def _closed(self, proc: str) -> None:
         """A connection ended. If the process was forgotten and this was its last connection, report it now (with the
@@ -625,8 +629,11 @@ class EgressProxy:
         """Record a differing SNI as a destination fact (a hostname like the CONNECT host), no bytes of its own."""
         with self._lock:
             f = self._facts.get(proc)
-            if f is not None:
-                f["destinations"].setdefault((sni, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
+            if f is None:
+                return
+            f["destinations"].setdefault((sni, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
+        if self.on_reached is not None:
+            self.on_reached(proc, sni, port)
 
     def _sni_gate(self, chunk: bytes, client: socket.socket, proc: str, host: str, port: int,
                   sni_check: Callable[[], bool]) -> bytes | None:

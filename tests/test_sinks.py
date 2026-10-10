@@ -532,6 +532,18 @@ def test_host_of_and_from_words_use_the_browser_parser() -> None:   # N4
     assert provenance.host_of("https://\\attacker.example/") == "attacker.example"
 
 
+def test_owner_url_hosts_are_not_lowercased_before_uts46_mapping() -> None:
+    """UTS46 maps capital sigma to σ; Python lower() contextually changes the last one to ς. Naming one host must
+    not authorize the other, whether from a request, an answer, or argument provenance."""
+    from ferb.policy import urls
+    url = "https://ΣΟΦΙΑΣ.example/"
+    parsed = urls.parse(url)
+    assert parsed is not None
+    assert parsed.host != provenance.host_of(url.lower())
+    assert KnownDestinations.from_words(f"read {url}") == [("host", parsed.host)]
+    assert provenance.prepare(f"read {url}").hosts == {parsed.host}
+
+
 def test_url_carries_private_decodes_punycode_host_labels() -> None:   # N2
     private = _priv("the user josé-müller77 asked")
     for url in ("https://josé-müller77.attacker.com/", "https://xn--jos-mller77-dbb3w.attacker.com/"):
@@ -560,6 +572,23 @@ def test_a_host_the_owner_named_in_unicode_is_named(daemon: RunningDaemon) -> No
     _trifecta(daemon, grant)
     r = gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://bücher.example/?k=AKIAEXAMPLE7")
     assert not r["is_error"] and fb.calls == 1 and _asked(daemon) == []
+
+
+def test_a_no_to_a_numeric_ipv4_host_covers_all_browser_spellings(daemon: RunningDaemon) -> None:
+    grant, fb = _browser_grant(daemon, FERB_BROWSER, "summarize this report", _caps())
+    _trifecta(daemon, grant)
+    owner = Answers(daemon, granted=False, choice=2)
+    try:
+        first = gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://0xC0000201/?k=AKIAEXAMPLE7")
+        assert first["is_error"]
+        for host in ("192.0.2.1", "0300.0.02.01", "3221225985", "192.0.513", "192.0.0x201"):
+            result = gateway_tool_call(daemon, grant, "ferb_browser.open", url=f"https://{host}/?k=AKIAEXAMPLE7")
+            assert result["is_error"] and "already said no" in result["content"]["error"], host
+    finally:
+        owner.stop()
+    asked = _asked(daemon)
+    assert len(asked) == 1 and "192.0.2.1" in asked[0]["question"]
+    assert fb.calls == 0
 
 
 @pytest.mark.skipif(not shutil.which("sandbox-exec"), reason="sandbox-exec is not available here")
@@ -597,6 +626,68 @@ def test_a_reconnect_to_a_host_reached_before_any_output_passes(daemon: RunningD
     r = gateway_tool_call(daemon, grant, "shell.wait", id=pid, timeout_s=10)
     assert r["content"]["output"].strip().endswith("200"), r["content"]
     assert r["content"]["network"]["refused"] == [] and _asked(daemon) == []
+
+
+@pytest.mark.skipif(not shutil.which("sandbox-exec"), reason="sandbox-exec is not available here")
+def test_a_failed_connection_does_not_make_a_host_previously_reached(
+        daemon: RunningDaemon, origin: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    grant, _ = gateway_setup(daemon, SHELL, gateway_request("check the server"), _caps())
+    with monkeypatch.context() as patch:
+        patch.setattr(daemon.daemon.proxy, "resolve", lambda host, port: [])
+        failed = gateway_tool_call(daemon, grant, "shell.run",
+                                   command=f"curl -s -o /dev/null -w '%{{http_code}}' http://localtest.ferb:{origin}/a")
+    assert failed["content"]["output"].strip() == "502"
+    assert failed["content"]["network"]["destinations"] == []
+    gateway_tool_call(daemon, grant, "probe.web")
+    retried = gateway_tool_call(daemon, grant, "shell.run",
+                                command=f"curl -s -o /dev/null -w '%{{http_code}}' http://localtest.ferb:{origin}/b")
+    assert retried["content"]["output"].strip() == "403"
+    assert "allow_destination=localtest.ferb" in retried["content"]["next"]
+
+
+@pytest.mark.skipif(not shutil.which("sandbox-exec"), reason="sandbox-exec is not available here")
+def test_a_connection_established_after_outside_content_is_not_an_earlier_host(
+        daemon: RunningDaemon, origin: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The permission check precedes DNS/connect. Outside content read during that gap must still govern later
+    connections; only an established connection before the read earns the tree's allowance."""
+    proxy = daemon.daemon.proxy
+    assert proxy is not None
+    resolving, continue_connect = threading.Event(), threading.Event()
+    resolve = proxy.resolve
+
+    def delayed_resolve(host: str, port: int) -> Any:
+        resolving.set()
+        assert continue_connect.wait(10), "test did not release the connection"
+        return resolve(host, port)
+
+    grant, _ = gateway_setup(daemon, SHELL, gateway_request("run the agent"), _caps())
+    with monkeypatch.context() as patch:
+        patch.setattr(proxy, "resolve", delayed_resolve)
+        pid = gateway_tool_call(daemon, grant, "shell.start",
+                                command=f"curl -s http://localtest.ferb:{origin}/a")["content"]["id"]
+        try:
+            assert resolving.wait(10), "the command never attempted a connection"
+            gateway_tool_call(daemon, grant, "probe.web")
+        finally:
+            continue_connect.set()
+        first = gateway_tool_call(daemon, grant, "shell.wait", id=pid, timeout_s=10)
+    assert "hello" in first["content"]["output"]
+    second = gateway_tool_call(daemon, grant, "shell.run",
+                               command=f"curl -s -o /dev/null -w '%{{http_code}}' http://localtest.ferb:{origin}/b")
+    assert second["content"]["output"].strip() == "403"
+
+
+@pytest.mark.skipif(not shutil.which("sandbox-exec"), reason="sandbox-exec is not available here")
+def test_an_earlier_host_is_allowed_only_in_the_tree_that_reached_it(daemon: RunningDaemon, origin: int) -> None:
+    first, _ = gateway_setup(daemon, SHELL, gateway_request("check the server"), _caps())
+    result = gateway_tool_call(daemon, first, "shell.run", command=f"curl -s http://localtest.ferb:{origin}/a")
+    assert "hello" in result["content"]["output"]
+    assert not _known(daemon, "host", "localtest.ferb")
+    second, _ = gateway_setup(daemon, SHELL, gateway_request("read the report"), _caps())
+    gateway_tool_call(daemon, second, "probe.web")
+    result = gateway_tool_call(daemon, second, "shell.run",
+                               command=f"curl -s -o /dev/null -w '%{{http_code}}' http://localtest.ferb:{origin}/b")
+    assert result["content"]["output"].strip() == "403"
 
 
 def _wait_connections(daemon: RunningDaemon, pid: str, n: int, timeout: float = 10.0) -> None:
