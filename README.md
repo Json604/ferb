@@ -4,8 +4,9 @@ FERB is a personal assistant for macOS. Talk to it with `ferb chat`; its orchest
 questions from context and changes approach when needed. Agents interpret your request and decide what actions it
 authorizes. They prepare a concrete hard-to-undo action, confirm its identity, and carry that confirmation across retries.
 
-Version **0.26.1**; 0.27 is in development on `astra/0.27-upgrade` ([plan](docs/0.27_PLAN.md)). See the capability
-ledger for measured behavior and pending owner acceptance.
+Checkout version **0.27.0.dev1**, on `astra_resume` ([plan](docs/0.27_PLAN.md)). F5–F10 are a prerelease pending
+combined checkout validation and owner live acceptance. The running installation remains separate; this work does
+not install or restart it. Earlier F0–F4 owner verdicts remain in the acceptance record.
 The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) explains the implementation and limits.
 
 ## Setup
@@ -162,7 +163,8 @@ disk snapshot (at most one per 15 minutes; FERB deletes its own after 7 days). F
 needs admin rights); you can, from macOS Recovery or Time Machine. File changes FERB makes through shell commands or
 AppleScript get no per-file copy.
 
-Closing chat leaves tasks running. Ctrl-C stops the current task. `ferb stop` stops all tasks until
+Closing chat leaves tasks running. Ctrl-C clears the current line; a second Ctrl-C on an empty line closes chat.
+Escape on an empty line stops the most recent task; `/stop` stops a named task or all tasks. `ferb stop` stops all tasks until
 `ferb resume-tasks`. `ferb pause` / `ferb resume` pause/resume activity sensing, tasks' desktop observations
 included.
 
@@ -383,3 +385,17 @@ commit and every file's SHA256. The JSON manifest declares `repository`, `revisi
 from verified local files, with remote model code disabled. No model is selected or downloaded by default before
 that evaluation. `status` exposes adoption and reports. Real task with/without-memory acceptance remains separate
 from retrieval scores; the paired report helper preserves actual trace IDs and missing owner verdicts.
+
+### Release measurement and owner checks
+
+`ferb release-checklist` prints the packaged 20-check catalogue covering all eleven target-task categories and the
+38 security scenarios. It executes nothing and records no verdict. Prepare the named owner-controlled surfaces,
+use the Codex runtime and test-mode send allowlist, and record real traces and `ferb verdict` results. The full
+security pass includes five runs per attack case and its benign twin; P0 cases 1–7 are the milestone live subset.
+Notification triage remains in shadow; its target check measures observation and labels without enabling actions.
+Third-party outreach still needs the owner's selected contacts, accepted platform terms and concrete send scope.
+
+After owner installation and representative use, capture `ferb baseline`, then compare the two saved files with
+`ferb baseline --compare BEFORE.json AFTER.json`. The JSON includes denominators, percentage-point changes, timings,
+cache rate and missing measurements. Different task mixes and overlapping all-time snapshots are explicit limits;
+aggregate improvement does not stand in for owner acceptance. With/without-memory comparisons use matched real runs.

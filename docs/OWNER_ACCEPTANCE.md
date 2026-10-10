@@ -1,4 +1,4 @@
-# Owner acceptance — 0.26.0
+# Owner acceptance — recorded history and 0.27 prerelease checks
 
 The 0.26.1 patch follows the owner's full-screen Brave regression. First rerun a harmless read task while Brave
 is full-screen and FERB has no remembered task window. The agent must choose an existing window from returned
@@ -539,3 +539,33 @@ inspect every dependent summary/vector; roll back a batch; label ~50–100 actua
 from `memory eval-export`, compare embedding candidates and adopt only a measured improvement. Preserve the actual
 trace IDs, timings/costs and `ferb verdict` results in the paired evaluation. Retrieval scores alone are not task
 acceptance. No embedding model/weights has been selected, downloaded or claimed helpful in this implementation pass.
+
+## 0.27 F10 — release acceptance pending
+
+The checkout is a prerelease (`0.27.0.dev1`). No F5–F10 code was installed, no personal browser or daemon was restarted,
+and no live model, send, security attack or owner verdict was run by the integration agent. F0–F4 sign-offs above are
+retained with their original scope. They do not accept changed code. The last known installed daemon is the owner's
+2026-10-09 F4 plus live fixes; `ferb doctor` after the owner's chosen installation must establish the actual version.
+
+`ferb release-checklist` prints the full packaged owner-supervised catalogue: twenty checks spanning target tasks
+1–11 in the plan, with specific surfaces and evidence requirements. It does not execute the checks. Prepare fixtures,
+choose exact accounts/recipients and enable the test-mode send allowlist before any send-capable run. Its limitation
+remains explicit: ordinary GUI typing is not a send-class action. Outreach to real third parties requires the owner's
+chosen run and accepted platform terms; first validate on FERB self-addressed accounts and WhatsApp self-only surfaces.
+
+After installation, run the F5, F6, F7, F8 and F9 pending checks above, including F7's real two-app AX prototype before
+claiming native capture coverage, the split-field Zomato sealed-input flow, and delegated conversation handover.
+Notification classification stays hard-shadow until measured and explicitly enabled by a later owner decision.
+For security, use the documented attack and benign fixture pair for every catalogue scenario 1–38, five attack runs
+per case with benign twins. Cases 1–7 are the P0 milestone subset. Keep traces and request-logger hits; record blocked
+attacks, benign completions, unknowns, false positives, leaked canaries and overhead separately. Offline boundary
+replays do not establish a live attack-success rate.
+
+Capture a fresh baseline after representative use and compare it to the saved F0 baseline using
+`ferb baseline --compare BEFORE.json AFTER.json`. Record the actual files, sample sizes, request mix, verified rate,
+owner pass rate, task latency, model calls, cache rate, trace size and owner questions. A difference in all-time
+snapshots is not a matched experiment. Keep the F8 paired with/without-memory task reports separate.
+
+For every result append date, exact checkout/installed hash and runtime, task ID, content verdict, desktop disturbance
+verdict and unavailable fields, security-fixture identity, cleanup outcome and `ferb verdict` result. No checkbox or
+status is set to passed until the owner supplies the observed verdict. F10 sign-off remains pending.

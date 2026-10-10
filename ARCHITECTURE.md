@@ -1,4 +1,4 @@
-# FERB architecture — 0.26.1
+# FERB architecture — 0.27.0.dev1 (checkout; owner acceptance pending)
 
 The [owner guide](docs/OWNER_GUIDE.md) is the starting point for understanding the code. This document is the
 implementation contract. [Capabilities](docs/CAPABILITIES.md) distinguishes measured behavior from offline tests;
@@ -1112,3 +1112,31 @@ owner-history evaluation, not implied by compilation. `eval/memory.py` exports h
 to an Authorization header and removed from browser history; exact Host and Origin, no CORS, no request logs, CSP,
 no external assets and DOM textContent protect the owner controls. Each request uses a fresh owner-authenticated
 Unix-socket RPC; SQLite stays on the daemon's thread. Workers never receive the dashboard token or write RPC.
+
+## 15. Durable task loop and release measurement (F6/F10)
+
+`orchestrator/plans.py` defines do/map/reduce/wait/ask/converse dependencies and validates complete inventories and
+batch context feasibility. `plan_store.py` persists the plan, completed outputs and event cursors (migration 0028).
+`plan_executor.py` runs ready steps and resumes incomplete work. The supervisor uses ordinary workers, gateway
+security and final verification for plan work. Explicit continuation of the same plan keeps the root and step IDs,
+completed notes and unknown-action ledger; reopens only unfinished steps; and preserves the owner's latest request
+in the durable record. A changed plan starts a distinct attempt with the previous evidence. New sends after an ended
+plan re-display the standing scope because its prior grants were revoked. Task rows use an upsert so resumed IDs do
+not delete referenced evidence or creation timestamps.
+
+`cli/live_chat.py` maintains input while independent work streams run; planner submissions from a conversation stay
+ordered. Hidden questions wait for Enter on an empty input line. Emergency stop and explicit task stops remain code
+paths. `cli/attach.py` exposes a managed PTY output stream and optional exclusive input lease; a disconnected client
+releases the lease. Owner skills are catalogued from local owner-written files, with no symlink traversal or automatic
+network installation.
+
+P3 context labels protect identity, request/conversation and task state. Recent activity is grouped over ten minutes.
+F8 supplies individually ranked fact, episode, procedure and lesson candidates; each is a complete optional block
+with its stored origin and retrieval reference. Lower-ranked items are omitted before higher-ranked ones, and
+activity has lower allocation priority than memory. Omission references and protected overflow remain explicit.
+
+`eval/release.py` exposes packaged owner-supervised definitions through `ferb release-checklist`; it never executes
+or accepts a check. `eval/comparison.py` compares saved baseline JSON without daemon RPC or model calls. Missing
+measurements remain null, denominators are retained and aggregate deltas are not treated as task acceptance.
+Prerelease packaging includes native/browser protocol resources, migrations, runtime prompts, evaluation sets and
+local dashboard assets. Installing and the owner's verdict remain separate from checkout validation.

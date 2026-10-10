@@ -10,6 +10,16 @@ Versions use three numbers, `MAJOR.MINOR.PATCH`:
 Each entry names the commits it covers, so `git show <hash>` takes you to the code. The current version is in
 `pyproject.toml` and `ferb/__init__.py`.
 
+## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
+
+- Integrates the remaining containment, task loop, perception, memory and delegated-conversation milestones.
+  Nothing from this pass is installed or live-accepted by the build agents.
+- Explicit same-plan continuation preserves completed steps and uncertain effects in the same task tree.
+  Retrieved memories are budgeted individually in rank order, with origins and full retrieval routes retained.
+- Adds a packaged owner acceptance catalogue covering every target category and all 38 documented security cases,
+  plus saved-baseline comparison that preserves denominators and missing measurements without inventing verdicts.
+- Release validation counts are recorded after the one combined end check; owner F0–F4 results remain historical.
+
 ## 0.27.0-dev — 2026-10-11 — F5 checkout, pending final validation/live checks
 
 - Executable-pinned local services through the authenticated proxy; trustd denied unless lifted for one exact command.
@@ -20,6 +30,7 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
   daily security facts, regression send switch and containment statistics. FDA setup waits for working containment.
 - No installed-daemon/browser changes or live claims. Python/JavaScript/Swift compilation checked; test execution deferred to the
   combined final pass requested by the owner.
+
 ## 0.27.0-dev — 2026-10-11 — F7 perception, pending combined checks
 
 - Added passive workspace/AX, per-field text, changed clipboard, Notification Center and installed-software sources.

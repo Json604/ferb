@@ -3,7 +3,7 @@
 
 [D1]
 milestone = "F0"
-tests = []
+tests = ["tests/test_decision_coverage.py"]
 summary = "Python stays; work on astra/0.27-upgrade"
 
 [D2]
@@ -13,7 +13,7 @@ summary = "Similarity search runs before FERB plans, giving it similar past task
 
 [D3]
 milestone = "F6"
-tests = []
+tests = ["tests/test_f6_chat.py"]
 summary = "Chat is never blocked by a loader"
 
 [D4]
@@ -229,7 +229,7 @@ summary = "Secret classes for code redaction (incl. OTPs, payment cards, conceal
 
 [P6]
 milestone = "F8"
-tests = []
+tests = ["tests/test_content_search.py", "tests/test_memory_embeddings.py"]
 summary = "Full-text search now, embeddings behind the same function"
 
 [P8]
@@ -370,7 +370,7 @@ summary = "Sink rule: the narrow cases where FERB must confirm"
 
 [S5]
 milestone = "F7"
-tests = []
+tests = ["tests/test_perception_batches.py"]
 summary = "Jev classifies untrusted text FERB already has; no reader role"
 
 [S6]
@@ -435,3 +435,6 @@ summary = "Browser downloads never open a dialog on the owner's screen; FERB tak
 milestone = "F5"
 tests = ["tests/test_worker_permissions.py"]
 summary = "FERB may write the clipboard and approve another agent's prompts; logged, no code gate"
+
+# F10 release validation: tests/test_release_measurement.py covers packaged target/security definitions
+# and saved-baseline comparisons. Live acceptance is recorded separately in OWNER_ACCEPTANCE.md.
