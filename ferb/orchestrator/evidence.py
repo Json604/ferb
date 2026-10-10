@@ -215,8 +215,13 @@ class MemoryRead(_PagedFacts):
         offset: int = Field(0, ge=0)
         max_chars: int = Field(12000, ge=1000, le=60000)
 
-    def __init__(self, memory: Callable[[], Any]) -> None:
-        self.memory = memory
+    def __init__(self, memory: Callable[[], Any], source_origins: Callable[[str], set[str]] | None = None) -> None:
+        self.memory, self.source_origins = memory, source_origins
+
+    def _origins(self, item_id: str, item_origin: str) -> set[str]:
+        if self.source_origins is not None:
+            return self.source_origins('memory:' + item_id)
+        return {memory_origin(item_origin)}
 
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
         memory = self.memory()
@@ -226,7 +231,7 @@ class MemoryRead(_PagedFacts):
             item = memory.get(args.item_id)
             if item is None:
                 return ToolResult({"error": "no memory item with that id"}, is_error=True)
-            result = self.page(asdict(item), args.offset, args.max_chars, {memory_origin(item.origin)})
+            result = self.page(asdict(item), args.offset, args.max_chars, self._origins(item.id, item.origin))
             result.content['source_refs'] = ['memory:' + item.id]
             return result
         items = [asdict(item) for item in memory.items(status=None, valid_now=False)]
@@ -240,4 +245,4 @@ class MemoryRead(_PagedFacts):
                      "read_full": {"tool": self.name, "item_id": item["id"]}} for item in shown]
         return ToolResult({"items": selected, "next_after": end if end < len(items) else None,
                            "total_items": len(items), 'source_refs': ['memory:' + item['id'] for item in shown]},
-                          read_sources=_passed({memory_origin(item["origin"]) for item in shown}))
+                          read_sources=_passed({label for item in shown for label in self._origins(item["id"], item["origin"])}))

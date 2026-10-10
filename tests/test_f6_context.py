@@ -4,13 +4,13 @@ from ferb.orchestrator.language import internal_terms
 
 
 def test_context_drops_activity_before_memory_and_keeps_complete_owner_request(monkeypatch):
-    monkeypatch.setattr("ferb.core.context.count_tokens", lambda text: len(text) // 4)
+    monkeypatch.setattr("ferb.core.context.count_tokens", len)
     blocks = [ContextBlock('identity', 'identity', protected=True),
               ContextBlock('ACTIVITY ' * 100, 'trail.query', priority=1),
               ContextBlock('IMPORTANT MEMORY', 'memory.read', priority=2),
               ContextBlock('YOUR COMPLETE REQUEST', 'request', protected=True),
               ContextBlock('CONFIRMATIONS AND OUTCOMES', 'state', protected=True)]
-    result = assemble_context(blocks, budget_tokens=400)
+    result = assemble_context(blocks, budget_tokens=600)
     assert 'YOUR COMPLETE REQUEST' in result and 'CONFIRMATIONS AND OUTCOMES' in result
     assert 'IMPORTANT MEMORY' in result
     assert 'ACTIVITY ' * 100 not in result

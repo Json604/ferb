@@ -567,9 +567,11 @@ class Daemon:
         self.supervisor.disturbance_context = self.disturbance.context
         self.supervisor.disturbance = self.disturbance
         self.supervisor.relevant_context = self._relevant_context
+        self.supervisor.relevant_source_refs = lambda words: ["trail:" + str(row["source_id"]) for row in
+            self.daily_activity.search(words) if row.get("source") and row.get("source_id")]
         add_context_readers(self.registry, self.supervisor.continuity,
                             lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None),
-                            lambda: self.memory)
+                            lambda: self.memory, lambda ref: self.learning._source_origins(ref) if self.learning else {origin_.external('unlabeled'), origin_.PRIVATE})
         self.supervisor.worker_types = lambda: ['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]
         self.gateway.route_question = self.supervisor.route_question
         from ferb.orchestrator.conversation_tools import ConversationRead
@@ -978,6 +980,7 @@ class Daemon:
             self.supervisor.memory_candidates = self._learning_candidates
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
             self.supervisor.procedure_source = lambda ident: self.learning.get(ident) or {}
+            self.supervisor.task_source_refs = self.learning.task_sources
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome

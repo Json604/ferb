@@ -130,6 +130,10 @@ def no_real_models(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPat
 
 def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
     """Claude-runtime real tests run only when the owner asks for them by name (-m real_claude); -m real is Codex only."""
+    # Unmarked real-surface files are still live-only; keep explicit Claude/API selections separate.
+    for item in items:
+        if '_real' in item.path.stem and not any(item.get_closest_marker(name) for name in ('real', 'real_claude', 'real_api')):
+            item.add_marker(pytest.mark.real)
     if "real_claude" in (config.getoption("-m") or ""):
         return
     keep = [i for i in items if i.get_closest_marker("real_claude") is None]
@@ -515,10 +519,3 @@ async def run_direct(d: RunningDaemon, mode: str, prompt: str, tool_names: list[
     finally:
         await rt.cancel(run)
     return out
-
-
-def pytest_collection_modifyitems(items):
-    """A real-surface file must never silently join the default offline suite if its marker was omitted."""
-    for item in items:
-        if '_real' in item.path.stem and not any(item.get_closest_marker(name) for name in ('real', 'real_claude', 'real_api')):
-            item.add_marker(pytest.mark.real)

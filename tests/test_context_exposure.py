@@ -39,3 +39,30 @@ def test_exposed_context_text_participates_in_private_url_and_argument_checks(da
         assert len(private) == 1 and len(outside) == 1
         assert spans.exposure_origins(grant.task_id) == {'private', 'external:web:kartikey.xyz'}
     daemon.run(check())
+
+
+def test_activity_then_displayed_history_preserves_forget_edges(daemon):
+    from ferb.sense.trail import Observation
+    from tests.conftest import chat, done, install, outcome, sup, task
+    supervisor = daemon.daemon.supervisor
+    supervisor.memory_candidates = lambda _: []
+    supervisor.context_budget_tokens = 1_000_000
+    async def record():
+        return daemon.daemon.trail.record(Observation('clipboard', {'text': 'Owner session comparison note'}, {'actor': 'owner'})).id
+    source = daemon.run(record())
+    install(daemon, [sup('task', 'Inspecting.', task('Inspect session note'))], {'worker': done('Inspected session note.')})
+    first = outcome(chat(daemon, 'Inspect session note'))
+    supervisor.recent_activity = lambda: ('', 'ferb')
+    supervisor.relevant_context = lambda _: ('', 'ferb')
+    supervisor.relevant_source_refs = lambda _: []
+    install(daemon, [sup('task', 'Continuing.', task('Compare recorded session result'))], {'worker': done('Compared recorded result.')})
+    second = outcome(chat(daemon, 'Compare that recorded session result'))
+    async def check():
+        learning = daemon.daemon.learning
+        cards = {node['key']: node for node in learning.items('episode')}
+        a, b = cards[first['task_id']], cards[second['task_id']]
+        assert 'trail:' + source in a['sources']
+        assert a['id'] in b['sources'] and 'trail:' + source in b['sources']
+        learning.forget(['trail:' + source])
+        assert learning.get(a['id']) is None and learning.get(b['id']) is None
+    daemon.run(check())
