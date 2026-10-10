@@ -169,6 +169,17 @@ global replay or focus restoration follows. Global foreground input requires the
 owner direction. Arbitrary shell/AppleScript remain powerful; the shared prompt and sentinel cover indirect routes,
 without a brittle denylist of command words.
 
+Automation preflight runs in the daemon process on dedicated daemon threads, sharing each pending check by
+target and ask/passive mode. macOS's `AEDeterminePermissionToAutomateTarget` can hang even with `ask=False`;
+the event loop and default executor never wait synchronously for it. Tool cancellation stops awaiting the
+check and cannot trigger late script execution. The existing caller-selected AppleScript timeout includes
+permission preflight and sandbox preparation; an unanswered check returns unknown/not performed. Expired
+calls cannot spawn a script. Started script processes are killed and drained on timeout or cancellation,
+including cancellation during process creation. Passive tab sensing skips an unresolved check, while explicit
+setup may still request permission. An in-flight native permission call itself cannot be cancelled safely;
+it remains shared until macOS returns or the daemon exits, without holding shutdown open. Cancellation while
+the existing `sandbox.wrap` thread builds its profile remains a separate cleanup limitation.
+
 `DisturbanceSentinel` samples frontmost app, focused key-window identity, cursor, focused-window full-screen state,
 visible window order and public Space-transition notifications throughout every task. It records action boundaries,
 250 ms periodic observations, overlapping actions, owner input, missing fields and measured sampling time. It neither

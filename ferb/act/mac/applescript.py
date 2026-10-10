@@ -23,6 +23,9 @@ async def run(bundle_id: str, body: str, timeout: float = 30.0, sandbox: Any = N
               cwd: str | None = None) -> tuple[bool, str]:
     """`sandbox` (ferb/act/shell/sandbox.py's Sandbox) contains osascript with its AppleScript profile (Apple Events
     and app launches kept); the tool never runs a script without one. `cwd` is FERB's workspace."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    if timeout <= 0:
+        return False, "timed out before execution"
     script = wrap(bundle_id, body)
     argv = ["/usr/bin/osascript", "-e", script]
     env = None
@@ -31,15 +34,38 @@ async def run(bundle_id: str, body: str, timeout: float = 30.0, sandbox: Any = N
         # Building the profile runs netstat and sandbox_check: off the event loop. The shell's clean environment
         argv, env = await asyncio.to_thread(sandbox.wrap, argv, apps=True), clean_env(sandbox)
     try:
-        proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE,
-                                                    stderr=asyncio.subprocess.PIPE, cwd=cwd, env=env)
+        if asyncio.get_running_loop().time() >= deadline:
+            return False, "timed out before execution"
+        proc = None
+        spawning = asyncio.create_task(asyncio.create_subprocess_exec(
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd, env=env))
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout)
+            proc = await asyncio.shield(spawning)
+            out, err = await asyncio.wait_for(proc.communicate(), max(0, deadline - asyncio.get_running_loop().time()))
+        except asyncio.CancelledError:
+            # Retain ownership if Stop arrives while the OS is still handing back the process handle.
+            if proc is None:
+                try:
+                    proc = await spawning
+                except OSError:
+                    pass
+            if proc is not None:
+                await _kill_and_drain(proc)
+            raise
         except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
+            assert proc is not None
+            await _kill_and_drain(proc)
             return False, "timed out"
     finally:
         if sandbox is not None:
             sandbox.cleanup(sandbox.profile_path(argv))
     return proc.returncode == 0, (out if proc.returncode == 0 else err).decode(errors="replace")
+
+
+async def _kill_and_drain(proc: asyncio.subprocess.Process) -> None:
+    if proc.returncode is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+    await proc.communicate()

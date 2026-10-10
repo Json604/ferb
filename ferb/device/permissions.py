@@ -5,8 +5,11 @@ TCC permission checks — never prompting — and open-settings helpers.
 Grants belong to the responsible process: the daemon runs these checks on itself, never the
 CLI's process. Automation can be *requested* (prompt) only from the daemon, so the grant attaches to it."""
 
+import asyncio
 import ctypes
 import subprocess
+import threading
+from concurrent.futures import Future
 from enum import Enum
 from pathlib import Path
 
@@ -87,6 +90,49 @@ def automation(bundle_id: str, ask: bool = False) -> Status:
     finally:
         _cs.AEDisposeDesc(ctypes.byref(desc))
     return _AE.get(rc, Status.UNKNOWN)
+
+
+_automation_jobs: dict[tuple[str, bool], Future[Status]] = {}
+_automation_lock = threading.Lock()
+
+
+def automation_check(bundle_id: str, ask: bool = False) -> Future[Status]:
+    """One in-process native check per target/mode, away from the event loop.
+
+    macOS can block even for ask=False. A daemon thread preserves FERB's TCC identity without keeping
+    interpreter shutdown hostage. Cancellation stops waiting, not the native call; retries share that call.
+    This thread only checks/requests permission: it never executes an AppleScript after a cancelled wait.
+    """
+    key = bundle_id, ask
+    with _automation_lock:
+        if key in _automation_jobs:
+            return _automation_jobs[key]
+        future: Future[Status] = Future()
+        _automation_jobs[key] = future
+
+        def check() -> None:
+            try:
+                future.set_result(automation(bundle_id, ask=ask))
+            except BaseException as exc:
+                future.set_exception(exc)
+            finally:
+                with _automation_lock:
+                    _automation_jobs.pop(key, None)
+
+        try:
+            threading.Thread(target=check, name='ferb-automation-permission', daemon=True).start()
+        except BaseException:
+            _automation_jobs.pop(key, None)
+            raise
+        return future
+
+
+async def automation_async(bundle_id: str, ask: bool = False) -> Status:
+    # A caller timeout/cancellation must not cancel the shared, still-running native check.
+    pending = asyncio.wrap_future(automation_check(bundle_id, ask))
+    # If every caller stops waiting, a later native error must not become an unhandled-loop error.
+    pending.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+    return await asyncio.shield(pending)
 
 
 PANES = {

@@ -248,6 +248,73 @@ def test_applescript_does_not_raise_a_permission_dialog(monkeypatch,tmp_path):
     assert result.is_error and result.content['code']=='needs_permission'
 
 
+def test_blocked_spotify_permission_leaves_rpc_and_stop_responsive(daemon, monkeypatch, tmp_path):
+    import threading
+    from ferb.act.mac.tools import MacAppleScript
+    from ferb.cli.client import Client
+    from ferb.device import permissions
+    from tests.mackit import mac
+    entered, release = threading.Event(), threading.Event()
+    d, *_ = mac(monkeypatch)
+    def blocked(*args, **kwargs):
+        entered.set()
+        release.wait(3)  # test escape only: old synchronous code must fail, not hang the suite
+        return permissions.Status.NOT_DETERMINED
+    monkeypatch.setattr(permissions, 'automation', blocked)
+    tool = MacAppleScript(d)
+    async def start():
+        job = asyncio.create_task(tool.run(tool.Input(app='Notes', script='get name'), context(tmp_path)))
+        daemon.daemon._turns.add(job)
+        job.add_done_callback(daemon.daemon._turns.discard)
+        # Register the pending call as a worker so the native app's actual task.stop route cancels it.
+        daemon.daemon.gateway._in_flight[job] = 'permission-hang.worker'
+        job.add_done_callback(lambda finished: daemon.daemon.gateway._in_flight.pop(finished, None))
+        daemon.daemon.supervisor._tree_of['permission-hang'] = SimpleNamespace(
+            id='permission-hang', stop=None, worker=SimpleNamespace(id='permission-hang.worker'),
+            spec=SimpleNamespace(goal='Read Spotify playback'))
+        return job
+    job = daemon.run(start())
+    try:
+        assert entered.wait(2)
+        c = Client(daemon.sock, timeout=0.5)
+        try:
+            assert c.call('ping')['pid']
+            c.call('chat.status', {'peek': True})
+            assert c.call('task.stop', {'task_ids': ['permission-hang']})['stopped'] == ['permission-hang']
+        finally:
+            c.close()
+        async def cancelled():
+            with pytest.raises(asyncio.CancelledError):
+                await job
+        daemon.run(cancelled())
+    finally:
+        release.set()
+        daemon.call_soon(daemon.daemon.supervisor._tree_of.pop, 'permission-hang', None)
+
+
+def test_applescript_permission_uses_caller_timeout_without_executing(monkeypatch, tmp_path):
+    import threading
+    from ferb.act.mac.tools import MacAppleScript
+    from ferb.device import permissions
+    from tests.mackit import mac
+    release = threading.Event()
+    d, *_ = mac(monkeypatch)
+    def blocked(*args, **kwargs):
+        release.wait(2)
+        return permissions.Status.GRANTED
+    monkeypatch.setattr(permissions, 'automation', blocked)
+    async def run(*args, **kwargs): pytest.fail('script must not run after permission timeout')
+    monkeypatch.setattr(applescript, 'run', run)
+    try:
+        tool = MacAppleScript(d, sandbox=object())
+        result = asyncio.run(tool.run(tool.Input(app='Notes', script='get name', timeout_s=0.01), context(tmp_path)))
+        assert result.is_error and result.content['code'] == 'permission_check_timeout'
+        assert result.content['performed'] is False
+        assert result.content['status'] == 'unknown'
+    finally:
+        release.set()
+
+
 def test_deep_subtree_continuation_survives_three_snapshot_generations(monkeypatch):
     from tests.mackit import mac
     from ferb.act.mac.accessibility import AxTree

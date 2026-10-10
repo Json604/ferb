@@ -143,6 +143,8 @@ class Daemon:
         self.config = Config(self.home)
         self.persona_scan = persona_scan
         self.persona: Any = None
+        self._automation_cache: dict[str, tuple[float, bool]] = {}
+        self._automation_checks: dict[str, Any] = {}
         self._redact_override = redact
         self.redact: Redact = redact or Redactor()
         from ferb.sense.daily import DailyActivity
@@ -901,8 +903,6 @@ class Daemon:
         return self.hub is not None and any(br.conn is not None and br.binding.browser == browser
                                             for br in self.hub.bridges.values())
 
-    _automation_cache: dict[str, tuple[float, bool]] = {}
-
     def _automation_granted(self, bundle_id: str) -> bool:
         """Already granted by the owner; never asks (the prompt would appear out of nowhere)."""
         import time as _t
@@ -910,7 +910,13 @@ class Daemon:
         hit = self._automation_cache.get(bundle_id)
         if hit and _t.monotonic() - hit[0] < 60:
             return hit[1]
-        ok = permissions.automation(bundle_id, ask=False) is permissions.Status.GRANTED
+        probe = self._automation_checks.get(bundle_id)
+        if probe is None:
+            probe = self._automation_checks[bundle_id] = permissions.automation_check(bundle_id, ask=False)
+        if not probe.done():
+            return False  # watcher skips this sample; a stuck native call must not hold its executor thread
+        self._automation_checks.pop(bundle_id, None)
+        ok = probe.result() is permissions.Status.GRANTED
         self._automation_cache[bundle_id] = (_t.monotonic(), ok)
         return ok
 
@@ -2819,7 +2825,7 @@ class Daemon:
         the grant attaches to FERB's interpreter). Apps that aren't running are asked on first use instead."""
         from ferb.device import permissions
         bundle_ids = [str(b) for b in params.get("bundle_ids", [])]
-        results = await asyncio.to_thread(lambda: {b: permissions.automation(b, ask=True).value for b in bundle_ids})
+        results = {b: (await permissions.automation_async(b, ask=True)).value for b in bundle_ids}
         self._journal().append("automation.requested", results)
         return {"results": results}
 

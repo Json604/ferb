@@ -794,3 +794,54 @@ passed (11 source files), Python compilation and `git diff --check` passed. The 
 reviews found no open Important issue. The initial combined run exposed a static bus-topic audit collision
 with the reply helper name `_publish`; renaming it to `_emit_text` fixed the collision without weakening the
 audit, and this complete rerun passed. Live audio/model and profile confirmation results are separate.
+
+
+### Spotify Automation freeze repair — 2026-10-11
+
+The owner reported native connection interruptions and asked for a fix and push. Task
+`fc639c54bd4e4e01b64906baeda87b8c` reached `mac.applescript` at 04:58:49.281719 IST, then its tool span
+`04d6fe61cb544f27b09e621bcc7807b7` remained open. A process sample at 05:03:00 confirmed daemon PID18243's
+main/event-loop thread was inside `AEDeterminePermissionToAutomateTarget`, waiting on a semaphore. The
+10-second owner-RPC authentication probe timed out. The journal contained the first Spotify request but
+not the later volume/cancel messages shown in the native UI. The daemon process had not crashed. Evidence:
+`/tmp/ferb-drop.sample`; live database journal/task/spans read without modifying records.
+
+Ruling: use in-process daemon threads with a shared Future for each target/mode — preserves the responsible
+process's TCC identity while removing the native call from the event loop and shutdown's default executor —
+if macOS never returns, that exact native check remains pending until process exit, but cannot run a script.
+No new product timeout or count cap: `mac.applescript.timeout_s` already existed and now covers preflight and
+sandbox preparation. Timeout reports unknown/not performed. Stop cancels the await; passive probes never
+become prompts. Explicit setup and passive tab sensing use the same nonblocking mechanism.
+
+Failing-first regressions cover a blocked permission check with responsive authenticated ping/status/Stop,
+loop shutdown while the native call remains blocked, shared retry and separate ask mode, late native errors,
+passive watcher caching, caller timeout without script execution, expiration during sandbox preparation and
+cancellation during/after process spawn. Independent scoped review found an expired-budget launch gap; the
+fix rejects expired time before spawning, and scoped re-review is clear. Existing cancellation while
+`sandbox.wrap` builds a profile is a separate residual, not claimed fixed here.
+
+Focused checks passed (68 permission/native/setup/sensing/shutdown checks plus four process-lifecycle cases).
+Core mypy, compilation and diff checks passed. Direct mypy of the platform permissions module reports the
+existing missing stubs for ApplicationServices/Quartz; core mypy is clean. The focused sensing run emitted an
+pending Sense._guard task warning; no such warning was classified as a passing live result. The full
+1901-test selected offline suite and owner-authorized installation are underway; final results follow.
+
+
+Activation completed: `uv run --no-sync ferb setup --update` exited 0. New daemon PID59509 reports
+code hash `8d9186e2f0de90ae`, equal to the checkout, and all four macOS permissions granted. Authenticated
+ping, doctor and chat.status respond. Running tasks are empty. The former Spotify root and worker were
+recorded interrupted at 2026-10-11T05:10:21.295515+05:30 by normal restart recovery; neither was replayed.
+The native app remains running as PID18904 and has its existing automatic reconnect/status reconciliation.
+Persona state is reviewed (separate from this fix). This is live recovery/health evidence, not a claim that
+Spotify playback or a real macOS permission stall was exercised successfully after installation.
+
+
+Final validation: all ten added cases pass. The full default selection ran 1,901 tests in six disjoint file
+shards: 1,900 passed and `test_egress_proxy.py::test_a_record_still_open_at_shutdown_is_reported` failed because
+its detached fixture child delivered zero bytes to its local socket within the fixture wait. That exact test
+then passed in a combined rerun with the complete permission/native regression files (**35 passed**). No proxy
+production code or test was changed. The full run is recorded as an initial failure plus a successful focused
+rerun, not a clean first pass. The strengthened cancellation regression now uses the native client's actual
+`task.stop` RPC and normal supervisor/gateway cancellation path, not a fixture Stop hook. Core plus AppleScript
+module mypy passed (10 source files), compileall and diff checks passed. No real Spotify playback/model call
+was made; installed daemon ping/status recovery was verified.

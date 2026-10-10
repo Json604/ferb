@@ -191,6 +191,61 @@ def test_applescript_wraps_target_and_validates_bundle_syntax():
         applescript.wrap('com.apple.Notes" to beep --', "get name")
 
 
+@pytest.mark.parametrize('timeout', [0, 0.01])
+def test_applescript_never_starts_after_budget_expires_during_preparation(monkeypatch, tmp_path, timeout):
+    class Sandbox:
+        owner_task = 't'
+        def wrap(self, argv, apps=False):
+            time.sleep(0.03)
+            return argv
+        def profile_path(self, argv): return str(tmp_path / 'profile')
+        def cleanup(self, path): cleaned.append(path)
+    cleaned = []
+    monkeypatch.setattr('ferb.act.shell.manager.clean_env', lambda sandbox: {})
+    async def spawn(*args, **kwargs): pytest.fail('expired call started a script')
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+    ok, detail = asyncio.run(applescript.run('com.spotify.client', 'play', timeout=timeout, sandbox=Sandbox()))
+    assert not ok and 'before execution' in detail
+    if timeout:
+        assert cleaned == [str(tmp_path / 'profile')]
+
+
+@pytest.mark.parametrize('during_spawn', [False, True])
+def test_applescript_cancellation_reaps_its_owned_process(monkeypatch, during_spawn):
+    async def go():
+        entered = asyncio.Event()
+        continue_spawn = asyncio.Event()
+        class Process:
+            returncode = None
+            killed = False
+            drained = False
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+            async def communicate(self):
+                entered.set()
+                if self.returncode is None:
+                    await asyncio.Event().wait()
+                self.drained = True
+                return b'', b''
+        process = Process()
+        async def spawn(*args, **kwargs):
+            if during_spawn:
+                entered.set()
+                await continue_spawn.wait()
+            return process
+        monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+        job = asyncio.create_task(applescript.run('com.spotify.client', 'play'))
+        await entered.wait()
+        job.cancel()
+        await asyncio.sleep(0)
+        continue_spawn.set()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        assert process.killed and process.drained
+    asyncio.run(go())
+
+
 # ---------- the Mac driver's method order ----------
 
 

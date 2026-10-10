@@ -136,7 +136,7 @@ summary = "One screenshot per task turn; screenshot when a worker starts on an a
 
 [D27]
 milestone = "F5"
-tests = ["tests/test_protection.py"]
+tests = ["tests/test_protection.py", "tests/test_permissions.py", "tests/test_native_hardening.py", "tests/test_mac_shell.py"]
 summary = "Security: S1 recovery, SQ3 shell commands, and related controls"
 
 [D28]

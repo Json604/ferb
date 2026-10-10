@@ -12,6 +12,9 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Fix the Spotify-triggered daemon freeze: Automation permission checks cannot block chat/Stop or daemon shutdown.
+  Pending checks are shared; the caller's timeout covers preflight, expired calls never launch a script, and
+  cancellation kills/drains owned script processes. Passive checks still never request a permission prompt.
 - Catch up missing setup persona discovery on existing installs: asynchronous local app-use evidence, a shared
   CLI/native confirmation, explicit `setup --persona` refresh, and stable identity context only after owner review.
 - Repair the native app's voice crash after microphone route changes: use the current hardware format and contain

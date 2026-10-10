@@ -455,7 +455,7 @@ class MacAppleScript(_Base):
 
     class Input(_App):
         script: str = Field(description="Statements for that app, e.g. `get name of every note`")
-        timeout_s: float = Field(30, gt=0, allow_inf_nan=False, description="Caller-chosen execution timeout; partial side effects remain possible on timeout")
+        timeout_s: float = Field(30, gt=0, allow_inf_nan=False, description="Caller-chosen timeout including permission preflight; partial side effects remain possible after script execution starts")
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.APPLESCRIPT, Target(site=self._bundle(args)), content=str(getattr(args, "script")))
@@ -470,8 +470,16 @@ class MacAppleScript(_Base):
                                "detail": "AppleScript bundle addressing cannot select this process uniquely; use PID-directed AX",
                                "candidates": [{"pid": c.pid, "bundle_id": c.bundle_id, "name": c.name}
                                               for c in self.driver.apps.candidates(a.bundle_id)]}, is_error=True)
-        from ferb.device.permissions import Status, automation
-        grant = automation(a.bundle_id, ask=False)
+        from ferb.device.permissions import Status, automation_async
+        deadline = asyncio.get_running_loop().time() + float(getattr(args, "timeout_s"))
+        try:
+            grant = await asyncio.wait_for(automation_async(a.bundle_id, ask=False),
+                                           timeout=float(getattr(args, "timeout_s")))
+        except asyncio.TimeoutError:
+            return ToolResult({"code": "permission_check_timeout", "permission": "Automation", "status": "unknown",
+                               "bundle_id": a.bundle_id, "performed": False,
+                               "detail": "macOS did not answer the permission check within this call's timeout; no script ran"},
+                              is_error=True)
         if grant is not Status.GRANTED:
             return ToolResult({"code": "needs_permission", "permission": "Automation", "status": grant.value,
                                "bundle_id": a.bundle_id, "performed": False,
@@ -479,7 +487,7 @@ class MacAppleScript(_Base):
         if self.sandbox is None:
             return _err("AppleScript runs only inside FERB's sandbox, which isn't available here (ferb doctor says why)")
         ok, out = await applescript.run(a.bundle_id, str(getattr(args, "script")),
-                                        timeout=float(getattr(args, "timeout_s")), sandbox=self.sandbox,
+                                        timeout=max(0, deadline - asyncio.get_running_loop().time()), sandbox=self.sandbox,
                                         cwd=ctx.workspace)
         return ToolResult({"ok": ok, "result": out}, is_error=not ok, read_sources=_sources(a.bundle_id))
 
