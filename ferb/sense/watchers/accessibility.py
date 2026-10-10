@@ -29,9 +29,15 @@ class AccessibilityWatcher:
         done = threading.Event()
         failure: list[Exception] = []
 
+        def subscription_failure() -> RuntimeError:
+            error = failure[0]
+            detail = self.redact({'error': f'{type(error).__name__}: {error}'})['error']
+            return RuntimeError(f'Accessibility subscription failed: {detail}')
+
         def native_body() -> None:
             import ApplicationServices as AX
             import Quartz
+            import objc
             from AppKit import NSWorkspace
             from ferb.act.mac.accessibility import _attr
             observers: dict[int, tuple[Any, Any, list[Any]]] = {}
@@ -64,6 +70,9 @@ class AccessibilityWatcher:
                     for event in ELEMENT_EVENTS:
                         AX.AXObserverAddNotification(observer, element, event, None)
 
+                # AXObserverCreate retains its C callback. PyObjC requires an explicit bridge closure;
+                # keep the decorated function in observers for the entire native observer lifetime.
+                @objc.callbackFor(AX.AXObserverCreate)
                 def callback(observer: Any, element: Any, notification: str, refcon: Any) -> None:
                     if done.is_set() or self.excluded(bundle, name):
                         return
@@ -128,9 +137,9 @@ class AccessibilityWatcher:
             while not stop.is_set():
                 await asyncio.sleep(0.1)
                 if failure:
-                    raise RuntimeError(f"Accessibility subscription failed: {type(failure[0]).__name__}")
+                    raise subscription_failure()
         finally:
             done.set()
             await asyncio.to_thread(thread.join, 2)
         if failure:
-            raise RuntimeError(f"Accessibility subscription failed: {type(failure[0]).__name__}")
+            raise subscription_failure()
