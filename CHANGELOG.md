@@ -12,6 +12,10 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Owner-requested reply style: short, natural, result-first everyday answers, with detailed evidence kept in the
+  separate report. Planner condition phrases and checker findings avoid boilerplate; substantive deliverables,
+  uncertainty and concrete confirmation scope remain complete. Pending questions precede the remaining-work list.
+  No truncation, output cap, extra model call or external skill dependency.
 - Owner-reported update fix: passive software inspection no longer invokes `sfltool dumpbtm`, which triggered
   repeated administrator dialogs. Its background-task inventory is explicitly unavailable; other software facts
   remain. Updates recognize already-granted macOS permissions instead of reporting an obsolete setup marker as

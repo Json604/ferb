@@ -1729,11 +1729,14 @@ NOTHING_TO_CHECK = "Done, but there was nothing to check it against."
 
 
 def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: str, reason: str) -> str:
-    """The owner's lines for an outcome that isn't simply done: each condition a check gave a verdict on and that
-    isn't confirmed ("failed" when found false, "unverified" when it couldn't tell); why work stopped; what was
-    confirmed; the conditions no check gave a verdict on (still to check when the checker failed, still to do when
-    the work stopped first, never "unverified" and never the failure's internals); the files; and any question."""
+    """The owner's lines for an outcome that isn't simply done: any pending question first, then each condition a
+    check gave a verdict on and that isn't confirmed ("failed" when found false, "unverified" when it couldn't tell);
+    why work stopped; what was confirmed; the conditions no check gave a verdict on (still to check when the
+    checker failed, still to do when the work stopped first, never "unverified" and never the failure's internals);
+    and the files."""
     lines = [header]
+    if out.status == "needs_user" and tree.owner_question:
+        lines += ["", "Question: " + tree.owner_question, ""]
     def owner_text(result: ConditionResult) -> str:
         conditions = tree.spec.success_conditions
         return (conditions[result.index].owner_text or result.text) if result.index < len(conditions) else result.text
@@ -1761,6 +1764,4 @@ def _report(tree: _Tree, results: list[ConditionResult], out: Outcome, header: s
         lines += ["", heading] + [f"- {REPORT_UNCHECKED if r.index == mine else owner_text(r)}" for r in unchecked]
     if out.artifacts:
         lines += ["", "Artifact paths (these do not establish completeness):"] + [f"- {path}" for path in out.artifacts]
-    if out.status == "needs_user" and tree.owner_question:
-        lines += ["", "Question: " + tree.owner_question]
     return "\n".join(lines)

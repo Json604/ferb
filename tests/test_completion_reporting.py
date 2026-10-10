@@ -41,6 +41,38 @@ def test_verifier_receives_and_owner_keeps_the_complete_long_report(daemon):
     assert json.loads(check['outcome_json'])['results'][0]['met'] is True
 
 
+def test_pending_question_leads_without_losing_any_condition_or_evidence():
+    from types import SimpleNamespace
+
+    from ferb.orchestrator.supervisor import Outcome, _report
+    from ferb.orchestrator.verify import UNCHECKED, ConditionResult
+
+    question = 'Which Gmail account should receive the draft?'
+    conditions = ['the intended Gmail account is open', 'the attachment is included',
+                  'the draft is saved', 'the message is not sent']
+    tree = SimpleNamespace(
+        spec=SimpleNamespace(success_conditions=[SimpleNamespace(owner_text=text) for text in conditions]),
+        owner_question=question, stop_reason='Gmail has signed out.', verification=[1])
+    results = [
+        ConditionResult(0, conditions[0], False, 'verifier', 'Gmail shows a different account.'),
+        ConditionResult(1, conditions[1], None, 'verifier', 'The attachment preview did not load.',
+                        how='Open the draft and check the attachment.'),
+        ConditionResult(2, conditions[2], None, UNCHECKED, 'The check did not finish.'),
+        ConditionResult(3, conditions[3], True, 'verifier', 'The draft is still unsent.'),
+    ]
+    report = _report(tree, results, Outcome('t', 'needs_user', '', ['draft.txt'], []),
+                     'I need your answer to finish this task.', '')
+    assert report.startswith('I need your answer to finish this task.\n\nQuestion: ' + question + '\n')
+    assert report.count(question) == 1
+    assert 'the intended Gmail account is open — failed: Gmail shows a different account.' in report
+    assert 'the attachment is included — unverified: The attachment preview did not load.' in report
+    assert 'To check: Open the draft and check the attachment.' in report
+    assert 'Why work stopped: Gmail has signed out.' in report
+    assert 'Confirmed:\n- the message is not sent' in report
+    assert 'Still to check (the check couldn\'t run, a problem on my side):\n- the draft is saved' in report
+    assert 'Artifact paths (these do not establish completeness):\n- draft.txt' in report
+
+
 @pytest.mark.parametrize('verdict,status', [('{}', 'failed'), ('invalid json', 'failed'),
     (json.dumps({'results': [{'index': 0, 'met': False, 'evidence': 'Missing Q5'}]}), 'done')])
 def test_verifier_terminal_state_survives_bad_reports_and_unmet_conditions(daemon, verdict, status):

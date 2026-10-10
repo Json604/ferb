@@ -80,6 +80,14 @@ optional blocks with a fetch reference. A protected overflow is explicit instead
 runtime context is recorded. Provider context/output capacity remains a provider constraint; a refusal is not a
 truncated success. Brevity instructions apply to status reports, never requested artifacts.
 
+The shared `interaction.md` prompt defines concise, natural owner communication for all orchestrator roles:
+answer/result first, actionable facts and material caveats, no repeated goal or routine process narrative. Workers
+write their compact `answer` separately from the complete `summary`/`evidence`/`input_notes`; the verifier sees both
+and must not demand routine tool narration in the visible answer. Requested substantive answers and artifacts keep
+their required depth. There is no output word cap, string truncation, separate rewrite call or blanket runtime
+verbosity change. `_report` puts an outstanding owner question first while retaining every condition, evidence
+detail, uncertainty, checking instruction and artifact.
+
 As built in F1: chat history (`HISTORY_TOKENS` 12000) and resumable attempts (`ATTEMPTS_TOKENS` 2000) keep their newest
 entries whole (`ferb/orchestrator/supervisor.py`): history is listed oldest first with an omission note, attempts
 newest first with a note about the older ones. Blocks are ordered stable first: device facts (installed apps), then

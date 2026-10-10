@@ -323,8 +323,8 @@ summary = "Three trace levels built by code: story, steps, full/json, with token
 
 [P27]
 milestone = "F6"
-tests = ["tests/test_f6_context.py"]
-note = "F4 live fixes pinned rule 2 (you/your) in the shared prompt; F6 owns the rest."
+tests = ["tests/test_f6_context.py", "tests/test_prompt_contract.py", "tests/test_completion_reporting.py"]
+note = "F4 pinned you/your; owner 2026-10-11 requested concise, relevant, natural replies. Shared prompts separate brief owner answers from complete evidence; pending questions lead without hiding conditions."
 summary = "Rules for everything FERB says to the owner"
 
 [P28]
@@ -339,7 +339,7 @@ summary = "Always-on chat with routing, status line and keys"
 
 [P30]
 milestone = "F6"
-tests = ["tests/test_f6_context.py"]
+tests = ["tests/test_f6_context.py", "tests/test_completion_reporting.py"]
 summary = "Answer shape: outcome first, only what the owner needs, unverified items, pending next step"
 
 [P31]

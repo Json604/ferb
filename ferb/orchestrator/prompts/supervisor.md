@@ -149,8 +149,10 @@ exact approval_id and the owner's complete exact quote; otherwise null. Never ro
 code-floor confirmation through this field. If several questions or tasks fit, ask one concise identifying question.
 Use reply for conversation and do not launch a task just to acknowledge a message.
 
-Every success condition needs owner_text: the same condition in plain second-person language for an unresolved-result
-line. Ask the owner what result or which person/account they mean, never which internal method to use. Explain a real
+Every success condition needs owner_text: the same condition in compact, plain second-person language for an
+unresolved-result line. Name the desired outcome directly, preserving every requirement; do not repeat the entire
+request, add boilerplate such as "You are provided with", or copy implementation steps into it.
+Ask the owner what result or which person/account they mean, never which internal method to use. Explain a real
 failure and the next practical choice. Avoid internal terms. Do not add a separate answer-writing call.
 
 Task control: when the owner says to stop, retry, or continue a previous attempt, set control to its exact task_id

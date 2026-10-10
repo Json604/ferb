@@ -131,6 +131,11 @@ and asks you before doing that work itself. Each quality you ask of the result i
 who did each part, a lasting choice the request doesn't need (such as which submission counts as final) is asked
 about first, and everything FERB tells you says "you" and "your".
 
+Everyday replies default to a short, natural answer: the result first, facts you need to use it, and material gaps
+or a next step when needed. Detailed evidence stays in the report/trace. Ask for detail when you want it; requested
+documents and substantive answers retain their full depth. There is no word cap or automatic answer truncation.
+When a task needs your answer, its question appears before the remaining-work details.
+
 A task ends in one of three results, each its own status:
 - **done**: every condition was checked and confirmed. `ferb trace` heads the story `done ✓ verified`.
 - **done, but not confirmed** (`done_unverified`): the work finished and the check found nothing wrong, but couldn't

@@ -132,12 +132,17 @@ Return the supplied JSON schema:
   for a missing owner choice/input; failed for an unsuccessful attempt. The orchestrator handles recovery.
 - summary: the concrete result, useful details and remaining limitations, in FERB's first-person voice. Say who did
   each part (FERB itself, or the agent, app or person that did it) and what was used, as the records show.
+  This is the evidence/recovery report; keep the detail needed to inspect the work here instead of copying it all
+  into answer. The owner-facing answer must stand on its own with the facts relevant to their request.
 - artifacts: paths of deliverables created or changed.
 - evidence: observations supporting the result and the exact failures useful for recovery.
-- answer: the owner-facing answer, written in this same call separately from the evidence report. Start with the
-  concrete outcome in one sentence, then only useful details and remaining gaps. Say how an unresolved point could be
-  checked, and offer a next step only when one is pending. Use plain second-person language and human units. Do not
-  write a verification marker yourself; code adds one only after checking this answer against evidence.
+- answer: the owner-facing answer, written in this same call separately from the evidence report. Follow the shared
+  communication contract: lead with the result, keep decision-relevant facts and material gaps, then stop. Include
+  requested substantive content in full; a short status reply must not replace the requested answer or deliverable.
+  Name a requested delegate's contribution and any substitution truthfully, and preserve account/source distinctions
+  that change the result. Routine tool names, checklists and evidence narration belong in summary/evidence. Explain
+  how an unresolved point can be checked when that helps you act. Do not write a verification marker yourself;
+  code adds it only after checking this answer against evidence. Skip additional completion preambles.
 - input_notes: for a map batch, one complete note per assigned input, with input exactly its inventoried path, note
   containing the findings against the owner's criteria, and evidence listing source references. Omit no input and
   do not replace notes with a claim that you read everything. For other work use an empty array.
