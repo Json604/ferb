@@ -160,7 +160,8 @@ class Learning:
         ep = episodes.get(self.db, task_id)
         if ep is None:
             return None
-        rows = self.db.conn.execute("SELECT id,input_json,output_json,error FROM spans WHERE kind='tool.call' "
+        rows = self.db.conn.execute("SELECT id,kind,input_json,output_json,error FROM spans "
+                                    "WHERE kind IN ('tool.call','context.exposure') "
                                     "AND (task_id=? OR task_id LIKE ? ESCAPE '\\') ORDER BY started_at,id",
                                     (task_id, task_id.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '.%'))
         actions = []
@@ -168,6 +169,9 @@ class Learning:
         used_apps: set[str] = set()
         for r in rows:
             inp = json.loads(r['input_json'])
+            if r['kind'] == 'context.exposure':
+                source_refs.update(str(ref) for ref in inp.get('source_refs', []))
+                continue
             args = inp.get('args') or {}
             if isinstance(args.get('bundle_id'), str):
                 used_apps.add(args['bundle_id'])
@@ -245,14 +249,10 @@ class Learning:
                                 for e in records if isinstance(e, dict) and e.get('id'))
             except (ValueError, TypeError):
                 pass  # a paged fragment has only its explicit input item ID
-        valid = set()
-        for ref in refs:
-            try:
-                self._source_origin(ref)
-                valid.add(ref)
-            except LearningRefused:
-                continue
-        return valid
+        # Missing evidence must remain an edge: dropping it would let a forgotten fact's
+        # descendants be reconstructed from old task traces without their deletion lineage.
+        # put() validates these refs; retained cards already preserve expired-source origins.
+        return refs
 
     def propose_procedure(self, proposal: dict[str, Any], batch: str, made_by: str) -> dict[str, Any]:
         examples = proposal.get('examples') or []
@@ -381,7 +381,8 @@ class Learning:
         body = dict(node['body'])
         body[key] = int(body.get(key, 0)) + 1
         return self.put('lesson', node['key'], body, [node['id']], origin_label=node['origin'],
-                        made_by='code:owner-lesson-feedback/1', state=node['state'])
+                        made_by='code:owner-lesson-feedback/1', state=node['state'],
+                        owner=node['origin'] == origin.OWNER)
 
     def identity(self) -> str:
         return '\n'.join(str(p['body'].get('text', '')) for p in self.items('identity') if p['origin'] == origin.OWNER)

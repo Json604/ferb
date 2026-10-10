@@ -143,3 +143,20 @@ def test_forgotten_logical_episode_cannot_return_as_new_revision(learning):
     a=card(learning,'a')
     learning.forget([a['id']])
     with pytest.raises(LearningRefused):card(learning,'a',version='2')
+
+
+def test_feedback_on_owner_edited_lesson_preserves_owner_statement(learning):
+    first = learning.put('lesson', 'mail', {'text': 'Read after send'}, [], made_by='model:test')
+    edited = learning.edit(first['id'], 'Check the actual sent folder')
+    feedback = learning.lesson_feedback(edited['id'], True)
+    assert feedback['origin'] == 'owner'
+    assert feedback['body']['text'] == 'Check the actual sent folder'
+    assert feedback['body']['helpful'] == 1
+
+
+def test_missing_read_source_cannot_be_dropped_to_recreate_forgotten_content(learning):
+    refs = learning._action_sources({'tool': 'memory.read', 'args': {'item_id': 'forgotten'}}, {})
+    assert refs == {'memory:forgotten'}
+    with pytest.raises(LearningRefused, match='source is missing'):
+        learning.put('episode', 'old-task', {'narrative': 'Derived from the removed fact'},
+                     refs, made_by='code:evidence-card/1')

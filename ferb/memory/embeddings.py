@@ -14,6 +14,7 @@ import math
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Callable
 from urllib.request import urlopen
@@ -86,12 +87,15 @@ class LocalMLX:
         self.dimensions = data['dimensions']
         self.name = data['repository'] + '@' + data['revision'] + ':' + str(self.dimensions) + ':' + digest(data)
         self.query_prefix = str(data.get('query_prefix', ''))
+        self._encode_lock = threading.Lock()
 
     def encode(self, text: str, *, query: bool = False) -> list[int]:
         from mlx_embeddings.utils import generate
         value = (self.query_prefix if query else '') + text
         # Do not silently clip long evidence. The model may report an unsupported context length.
-        out = generate(self.model, self.tokenizer, texts=value, truncation=False).text_embeds[0].tolist()
+        # Idle indexing runs in a thread; a new task can query this same loaded model.
+        with self._encode_lock:
+            out = generate(self.model, self.tokenizer, texts=value, truncation=False).text_embeds[0].tolist()
         if len(out) < self.dimensions:
             raise ValueError('embedding model returned fewer dimensions than its manifest')
         return quantize(out[:self.dimensions])
