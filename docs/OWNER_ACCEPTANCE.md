@@ -623,3 +623,15 @@ until owner installation and matched target runs; no live improvement or owner v
 The interrupted default runs also exercised legacy fixtures that created and deleted disposable test Keychains.
 The identity and browser-tool offline fixtures now inject their secret-store boundary; the two actual Keychain
 sandbox probes carry `real` markers and remain pending owner execution. No owner Keychain entries were targeted.
+
+An isolated native containment probe on 2026-10-11 found that the default `trustd` denial prevents this Mac's
+AppleScript Standard Additions from loading: `do shell script` failed during parsing with error `-2740`, under both
+the shell and apps profiles. That result did not reach the protected file read and is not file-containment proof.
+With an explicit `trustd` lift, the same harmless command ran; a separate temporary protected-file read remained
+denied. The owner-decided default remains unchanged. `shell.run` / `shell.start` accept `escape="trustd"` for an
+exact `/usr/bin/osascript -e ...` command and working folder, ask for one approval, and retain the other shell
+restrictions (`ferb/act/shell/tools.py`, `ferb/daemon/gateway.py::_escape`, `ferb/act/shell/sandbox.py`).
+`mac.applescript` has no escape argument; this shell route does not enable Apple Events or app launches. After
+installation, observe the chosen app script separately and record any Standard Additions blocker and exact-command
+approval; no actual owner app was addressed by the probe, and generic syntax errors are not classified as trustd
+failures.

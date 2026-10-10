@@ -257,7 +257,7 @@ class SpanStore:
                 "('task.evidence','chat.history','memory.read'))"
         params: list[Any] = [task_id]
         if root_id:
-            where += " OR (task_id = ? AND kind IN ('task','task.intake','context.source','disturbance.baseline'," \
+            where += " OR (task_id = ? AND kind IN ('task','task.intake','context.source','context.exposure','disturbance.baseline'," \
                      "'disturbance.change','disturbance.error','disturbance.summary','disturbance.paused'," \
                      "'disturbance.resumed'))"
             params.append(root_id)

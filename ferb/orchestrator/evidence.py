@@ -38,7 +38,7 @@ def record_origins(record: dict[str, Any], task_origins: set[str]) -> set[str]:
     (output). Any other record keeps its recorded origin; a worker's report inherits like a tool call's input; FERB's
     other records are its own, plus external:paste where FERB marked pasted text."""
     has_output = record.get("output") is not None or bool(record.get("has_output"))   # a listed record says which
-    content = record.get("kind") in ("tool.call", "context.source")
+    content = record.get("kind") in ("tool.call", "context.source", "context.exposure")
     recorded = origin.recorded(record.get("origin"), has_output) if content else origin.split(record.get("origin"))
     marked = {origin.external("paste")} if WRAPPER in json.dumps(record, ensure_ascii=False) else set()
     if record.get("kind") == "tool.call":

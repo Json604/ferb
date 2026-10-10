@@ -20,7 +20,7 @@ from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
 from ferb.policy.protection import Protection
-from tests.conftest import RunningDaemon
+from tests.conftest import Answers, RunningDaemon
 from tests.mackit import gateway_call as call, grant_task as task
 from tests.support.sandbox_probes import SECRET, SERVICE, lookups, run_under, throwaway_keychain
 
@@ -230,7 +230,9 @@ def test_a_lifted_rule_leaves_every_other_rule_and_never_lifts_ferbs_own(tmp_pat
     (ferb / "workspace").mkdir(parents=True)
     sb = Sandbox(Protection(home, ferb, ["~/.aws", "~/.ssh"], ["~/.ssh"], []), tmp_path / "p")
     lifted = sb.profile("read:~/.aws")
-    assert f'(subpath "{home}/.aws")' not in lifted and f'(subpath "{home}/.ssh")' in lifted
+    assert f'(deny file-read* (subpath "{home}/.aws"))' not in lifted
+    assert f'(deny file-write* (subpath "{home}/.aws"))' in lifted
+    assert f'(deny file-read* (subpath "{home}/.ssh"))' in lifted
     assert f'(deny file-write* (subpath "{home}/.ssh"))' in sb.profile("read:~/.ssh")    # a lifted read may not write
     for rule in ("ferb_state", "network", "admin", "read:~/nothing"):
         with pytest.raises(ValueError):
@@ -253,14 +255,17 @@ def test_a_link_where_the_workspace_was_opens_nothing(tmp_path: Path) -> None:
 
 
 def test_applescript_runs_under_the_same_sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """osascript under the profile: `do shell script` meets the same rules (no app is addressed, so no Automation
-    prompt); mac.applescript hands every script to the sandbox and removes the profile afterwards."""
+    """An explicitly approved trustd lift leaves osascript's file containment intact; no app is addressed.
+    mac.applescript independently hands every script to the default sandbox and removes its profile afterwards.
+    """
     from ferb.act.mac import applescript
     home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
     (ferb / "workspace").mkdir(parents=True)
     (ferb / "token").write_text("secret-token")
     sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p")
-    argv = sb.wrap(["/usr/bin/osascript", "-e", f'do shell script "cat {ferb}/token"'])
+    # This Mac needs trustd to load Standard Additions. Without the exact-command lift, osascript fails at
+    # parsing `do shell script`; that is not evidence that the protected file read reached its sandbox deny.
+    argv = sb.wrap(["/usr/bin/osascript", "-e", f'do shell script "cat {ferb}/token"'], "trustd")
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=20)
     finally:
@@ -295,6 +300,21 @@ def test_the_apps_profile_differs_only_by_the_app_rules_and_keeps_every_other_de
     assert shell_only == {"(deny lsopen)", *(f'(deny mach-lookup (global-name "{n}"))' for n in APP_SERVICES)}
     assert not set(sb.profile(apps=True).splitlines()) - set(sb.profile().splitlines())   # apps adds nothing
     assert "(deny job-creation)" in sb.profile(apps=True)                     # still no background jobs
+
+
+def test_osascript_can_use_the_approved_exact_command_trustd_escape(daemon: RunningDaemon) -> None:
+    """The shell interface can load Standard Additions with one approval, without addressing an app."""
+    grant = task(daemon, "osascript-escape", Identity.OWNER, SHELL)
+    command = '/usr/bin/osascript -e \'do shell script "printf ferb-contained-check"\''
+    answers = Answers(daemon, granted=True, choice=1)
+    try:
+        result = call(daemon, grant, "shell.run", command=command, escape="trustd")
+    finally:
+        answers.stop()
+    assert not result["is_error"] and "ferb-contained-check" in result["content"]["output"]
+    assert len(answers.asked) == 1
+    info = next(p for p in daemon.daemon.shells.list() if p.id == result["content"]["id"])
+    assert info.command == command and info.lifted == "trustd" and info.sandboxed
 
 
 @pytest.mark.real

