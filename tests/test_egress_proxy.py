@@ -9,6 +9,7 @@ import http.server
 import json
 import shutil
 import socket
+import time
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -262,8 +263,8 @@ def test_a_refused_destination_is_403_recorded_and_never_contacted(origin: int) 
             assert c.getresponse().status == 403
             c.close()
         assert asked == [("p-1", TEST_HOST, origin)] * 2
-        assert p.facts("p-1") == {"destinations": [], "refused": [
-            {"host": TEST_HOST, "port": origin, "why": "this destination needs the owner's approval"}] * 2}
+        assert p.facts("p-1") == {"destinations": [], "refused": [            # aggregated by (host, port, why), count 2
+            {"host": TEST_HOST, "port": origin, "why": "this destination needs the owner's approval", "count": 2}]}
         assert _Origin.seen == []
     finally:
         p.close()
@@ -305,7 +306,11 @@ def test_a_tunnel_counts_both_directions_and_forget_revokes_the_credential(origi
         d = p.facts("p-3")["destinations"][0]
         assert (d["host"], d["port"], d["connections"]) == (TEST_HOST, origin, 1)
         assert d["bytes_in"] > 5 and d["bytes_out"] > 10
-        p.forget("p-3")
+        p.forget("p-3")                                                       # the record is reported once the last
+        for _ in range(50):                                                   # connection has closed (it may still be)
+            if p.facts("p-3") == {"destinations": [], "refused": []}:
+                break
+            time.sleep(0.05)
         assert p.facts("p-3") == {"destinations": [], "refused": []}
         assert token in redactor.text(f"x {token} y")                         # no longer FERB's to scrub
         c = http.client.HTTPConnection("127.0.0.1", p.port, timeout=5)
@@ -434,3 +439,179 @@ def test_every_kind_of_socket_task_2_refused_stays_refused(tmp_path: Path) -> No
     finally:
         srv.close()
         shutil.rmtree(short, ignore_errors=True)
+
+
+# ---------- fix round 1 ----------
+
+def _raw_listener() -> tuple[socket.socket, list[Any], int]:
+    srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0)); srv.listen()
+    hits: list[Any] = []
+    def loop() -> None:
+        while True:
+            try:
+                c, a = srv.accept(); hits.append(a); c.close()
+            except OSError:
+                break
+    threading.Thread(target=loop, daemon=True).start()
+    return srv, hits, srv.getsockname()[1]
+
+
+def test_the_kernel_smb_and_nfs_clients_cannot_leave_the_sandbox(tmp_path: Path) -> None:
+    """The kernel's SMB/NFS clients run outside the sandbox: file-mount and the /dev/nsmb device are denied in both
+    profiles, so smbutil and mount_nfs reach no server (critical, F5a Task 3 fix 1)."""
+    home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    (ferb / "workspace" / "mnt").mkdir()
+    srv, hits, port = _raw_listener()
+    try:
+        sb = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p", lambda: None, listeners=lambda: {port})
+        for apps in (False, True):
+            assert "(deny file-mount)" in sb.profile(apps=apps)
+            assert '(deny file-read* file-write* file-ioctl (regex #"^/dev/nsmb"))' in sb.profile(apps=apps)
+        before = len(hits)
+        run_under(sb, ["/bin/sh", "-c", f"smbutil view -N //127.0.0.1:{port} 2>&1"], timeout=25)
+        run_under(sb, ["/bin/sh", "-c", f"mount_nfs -o soft,timeo=5,retrans=1 127.0.0.1:/x {ferb}/workspace/mnt 2>&1"],
+                  timeout=25)
+        time.sleep(1.5)
+        assert len(hits) == before                                            # no SMB/NFS connection reached the server
+    finally:
+        srv.close()
+
+
+def test_many_unauthenticated_connections_neither_starve_a_client_nor_the_daemon(origin: int) -> None:
+    """FD-exhaustion abuse: 300 idle connections without credentials, held open. A legitimate client still gets
+    through, and the proxy still answers. Unauthenticated connections are capped and time out; authenticated ones are
+    not (important, F5a Task 3 fix 1)."""
+    p = _proxy()
+    idle: list[socket.socket] = []
+    try:
+        for _ in range(300):
+            s = socket.socket(); s.connect(("127.0.0.1", p.port)); idle.append(s)      # connected, never a request
+        c = http.client.HTTPConnection("127.0.0.1", p.port, timeout=5)                  # a legitimate client still works
+        c.request("GET", f"http://{TEST_HOST}:{origin}/x", headers=_auth(p, "p-many"))
+        assert c.getresponse().read() == b"hello"
+        c.close()
+        assert p.probe()                                                                # the daemon's liveness check
+    finally:
+        for s in idle:
+            s.close()
+        p.close()
+
+
+def test_an_oversized_response_head_is_502_not_unbounded(origin: int) -> None:
+    """A malformed upstream with an endless header must not grow memory without bound: 502 past MAX_HEAD."""
+    flood = socket.socket(); flood.bind(("127.0.0.1", 0)); flood.listen()
+    port = flood.getsockname()[1]
+    def serve() -> None:
+        c, _ = flood.accept()
+        c.recv(4096)
+        c.sendall(b"HTTP/1.1 200 OK\r\n")
+        try:
+            while True:
+                c.sendall(b"X-Pad: " + b"a" * 4096 + b"\r\n")
+        except OSError:
+            pass
+        c.close()
+    threading.Thread(target=serve, daemon=True).start()
+    p = _proxy(resolve=lambda h, pt: [(socket.AF_INET, ("127.0.0.1", port))])
+    try:
+        c = http.client.HTTPConnection("127.0.0.1", p.port, timeout=10)
+        c.request("GET", f"http://{TEST_HOST}:{port}/x", headers=_auth(p, "p-head"))
+        assert c.getresponse().status == 502
+    finally:
+        flood.close()
+        p.close()
+
+
+def test_a_websocket_upgrade_becomes_a_tunnel(origin: int) -> None:
+    """A 101 response is a protocol switch, not an interim response: the proxy bridges both ways afterwards."""
+    ws = socket.socket(); ws.bind(("127.0.0.1", 0)); ws.listen()
+    port = ws.getsockname()[1]
+    def serve() -> None:
+        c, _ = ws.accept()
+        c.recv(4096)
+        c.sendall(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+        data = c.recv(4096)
+        c.sendall(b"echo:" + data)
+        c.close()
+    threading.Thread(target=serve, daemon=True).start()
+    p = _proxy(resolve=lambda h, pt: [(socket.AF_INET, ("127.0.0.1", port))])
+    try:
+        raw = socket.create_connection(("127.0.0.1", p.port), timeout=5)
+        auth = _auth(p, "p-ws")["Proxy-Authorization"]
+        raw.sendall(f"GET http://{TEST_HOST}:{port}/ws HTTP/1.1\r\nHost: {TEST_HOST}:{port}\r\n"
+                    f"Upgrade: websocket\r\nConnection: Upgrade\r\nProxy-Authorization: {auth}\r\n\r\n".encode())
+        head = raw.recv(4096)
+        assert b"101 Switching Protocols" in head
+        raw.sendall(b"ping")
+        assert raw.recv(4096) == b"echo:ping"                                 # the tunnel carried bytes after the 101
+        raw.close()
+    finally:
+        ws.close()
+        p.close()
+
+
+def test_bytes_sent_after_forget_are_counted_and_reported_once_the_tunnel_closes() -> None:
+    """A setsid child keeps a tunnel open after its shell exits: forget revokes the credential but the connection is
+    not killed, and the final record (reported at close) matches the bytes the upstream received (critical)."""
+    received = {"n": 0}
+    gate = threading.Event()
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen()
+    port = srv.getsockname()[1]
+    def serve() -> None:
+        c, _ = srv.accept()
+        while chunk := c.recv(4096):
+            received["n"] += len(chunk)
+            if chunk.endswith(b"END"):
+                break
+        gate.set()
+        c.close()
+    threading.Thread(target=serve, daemon=True).start()
+    reports: list[tuple[str, dict[str, Any]]] = []
+    p = _proxy(resolve=lambda h, pt: [(socket.AF_INET, ("127.0.0.1", port))])
+    p.on_report = lambda proc, facts: reports.append((proc, facts))
+    try:
+        raw = socket.create_connection(("127.0.0.1", p.port), timeout=5)
+        auth = _auth(p, "p-late")["Proxy-Authorization"]
+        raw.sendall(f"CONNECT {TEST_HOST}:{port} HTTP/1.1\r\nProxy-Authorization: {auth}\r\n\r\n".encode())
+        assert b"200" in raw.recv(4096)
+        raw.sendall(b"before-")
+        p.forget("p-late")                                                    # the shell exits; the child keeps the tunnel
+        assert reports == []                                                  # not reported yet: the tunnel is still open
+        raw.sendall(b"after-END")                                             # late bytes, after forget
+        gate.wait(5)
+        raw.close()
+        for _ in range(50):
+            if reports:
+                break
+            time.sleep(0.05)
+        assert len(reports) == 1 and reports[0][0] == "p-late"
+        d = reports[0][1]["destinations"][0]
+        assert d["bytes_out"] == received["n"] == len(b"before-after-END")    # the journal matches the upstream's bytes
+    finally:
+        srv.close()
+        p.close()
+
+
+def test_ipv6_hosts_are_bracketed_in_labels() -> None:
+    from ferb.act.shell.tools import _sources
+    net = {"destinations": [{"host": "2001:db8::1", "port": 443}, {"host": "example.com", "port": 80}]}
+    assert _sources(net) == (("web", "https://[2001:db8::1]"), ("web", "https://example.com"))
+
+
+def test_an_unauthenticated_connection_is_closed_after_the_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stalled head can't hold a descriptor forever: the connection is closed after UNAUTH_TIMEOUT. An authenticated
+    tunnel gets no idle timeout (tested elsewhere by the long SSE/tunnel paths)."""
+    import ferb.act.shell.proxy as proxy_mod
+    monkeypatch.setattr(proxy_mod, "UNAUTH_TIMEOUT", 0.3)
+    p = EgressProxy(lambda proc, host, port: (True, ""))
+    try:
+        s = socket.create_connection(("127.0.0.1", p.port), timeout=5)
+        s.settimeout(3)
+        start = time.time()
+        data = s.recv(100)                                                    # the server closes the idle connection
+        assert data == b"" and time.time() - start < 2.5                      # within the (short) timeout, not hanging
+        s.close()
+    finally:
+        p.close()

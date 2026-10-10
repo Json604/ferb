@@ -61,7 +61,8 @@ NO_APPS = ("FERB's shell can't open apps or URLs on the owner's screen, send App
 # What the network rules and FERB's proxy mean for a command (F5a Task 3, measured); shown to agents
 NETWORK_FACT = ("Network goes only through FERB's proxy (HTTPS_PROXY/HTTP_PROXY are set; programs that ignore them, "
                 "and ssh, get no network); each host reached is recorded and labels the output. On this Mac, only "
-                "servers started in FERB's shell are reachable (localhost), not other programs' servers.")
+                "servers started in FERB's shell are reachable, and Apple-framework clients must address them as "
+                "127.0.0.1, not localhost; other programs' servers are out of reach.")
 # System services that would reach the network for a contained process, outside its network rules and FERB's proxy:
 # background URL sessions (nsurlsessiond: a download from inside reached a server the sandbox denies, measured F5a
 # Task 3) and mDNSResponder's resolver service (the proxy resolves names; the sandbox has no DNS). Denied to both
@@ -122,6 +123,10 @@ class Sandbox:
                       f"(deny file-write-create (require-all (literal {_q(f)}) (vnode-type SYMLINK)))"]
         lines += [f'(deny mach-lookup (global-name "{SECURITY_SERVER}"))', "(deny job-creation)"]
         lines += [f'(deny mach-lookup (global-name "{name}"))' for name in NETWORK_SERVICES]
+        # The kernel's SMB and NFS clients run outside the sandbox: mounting a share makes kernel_task reach the
+        # server, past the network rules and FERB's proxy (measured, F5a Task 3 fix 1). Deny mounting and the SMB
+        # device node, in both profiles
+        lines += ["(deny file-mount)", '(deny file-read* file-write* file-ioctl (regex #"^/dev/nsmb"))']
         lines += self._network()
         if not apps:
             lines.append("(deny lsopen)")

@@ -12,6 +12,7 @@ reports). Each process gets its own credentials for FERB's egress proxy (proxy.p
 it reached is a recorded fact (`network`); when the task ends, each finished process's record is reported
 (`on_network`, journaled by the daemon) and forgotten."""
 
+import asyncio
 import dataclasses
 import os
 import secrets
@@ -73,8 +74,10 @@ class ShellManager:
         self.stream_factory = stream_factory
         self.sandbox = sandbox                    # None only in unit tests of the PTY plumbing; the daemon always sets it
         self.proxy = proxy                        # FERB's egress proxy (None: no network beyond this Mac)
-        self.on_network = on_network              # a finished process's network record, before it is forgotten
-        self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}
+        self.on_network = on_network              # a finished process's final network record (reported when its last
+        self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}   # connection closes, so a setsid child's late bytes count)
+        if proxy is not None:
+            proxy.on_report = self._report
 
     def _env(self, proc_id: str | None = None) -> dict[str, str]:
         env = clean_env(self.sandbox)
@@ -91,7 +94,8 @@ class ShellManager:
                 raise Refused("no sandbox here to lift a rule from")
             argv, profile = ["/bin/sh", "-c", command], None
         else:
-            argv = self.sandbox.argv(command, lift)
+            # Building the profile runs netstat and sandbox_check (listeners.py): off the event loop
+            argv = await asyncio.to_thread(self.sandbox.argv, command, lift)
             profile = self.sandbox.profile_path(argv)
         p = PtyProc(argv, cwd, self._env(pid), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory,
                     on_exit=lambda: Sandbox.cleanup(profile))
@@ -182,13 +186,17 @@ class ShellManager:
         return n
 
     def _settle(self, which: Callable[[ProcInfo], bool]) -> None:
-        """Finished processes: their network record goes to `on_network` (when there is one), then the proxy forgets
-        them (their credentials stop working). A running process keeps both, so later reads still show them."""
+        """Finished processes: forget their credential (it stops working now). The proxy keeps the record and reports
+        it through `_report` once the process's last connection closes, so a setsid child's late bytes still count.
+        A running process is left alone, so later reads still show it."""
         if self.proxy is None:
             return
         for info in self.list():
             if which(info) and not info.running:
-                facts = self.proxy.facts(info.id)
-                if self.on_network is not None and (facts["destinations"] or facts["refused"]):
-                    self.on_network(info, facts)
                 self.proxy.forget(info.id)
+
+    def _report(self, proc_id: str, facts: dict[str, Any]) -> None:
+        """The proxy's final record for a forgotten process (from the daemon loop, or a tunnel's thread at close)."""
+        hit = self._procs.get(proc_id)
+        if hit is not None and self.on_network is not None and (facts["destinations"] or facts["refused"]):
+            self.on_network(hit[1], facts)

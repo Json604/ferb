@@ -770,6 +770,8 @@ The profile:
   shell can't put an app on the owner's screen; FERB's browser and Mac tools do that;
 - denies the system services that would reach the network for a contained process: background URL sessions
   (`com.apple.nsurlsessiond`) and mDNSResponder's resolver (`com.apple.dnssd.service`);
+- denies mounting (`file-mount`) and the SMB device node (`/dev/nsmb*`), so the kernel's SMB and NFS clients, which run
+  outside the sandbox, can't be used to leave the Mac past the proxy (measured: `smbutil`, `mount_smbfs`, `mount_nfs`);
 - denies all network except FERB's egress proxy and the servers started inside FERB's sandbox (below);
 - names the daemon socket explicitly.
 
@@ -805,7 +807,9 @@ their flags:
 
 The loopback tool-list proxy for the Claude runtime
 ([`runtimes/proxy.py`](ferb/runtimes/proxy.py)) forwards only for a run id that is live and carries that run's random
-secret (`/run/<id>/<secret>/…`); anything else gets 403. The shell can't reach it at all now (below).
+secret (`/run/<id>/<secret>/…`); anything else gets 403. It is created lazily (on the first Claude run), so an earlier
+long-running contained process could reach its port, but only with the secret, which the shell can't read. The egress
+proxy (below) otherwise keeps the shell off every other local listener.
 
 **The egress proxy** ([`act/shell/proxy.py`](ferb/act/shell/proxy.py), S2, D28, S3). It is the shell's only way off
 the Mac. The daemon starts it on `127.0.0.1:<port>` with the shell, and closes it after the shell's processes at
@@ -822,15 +826,26 @@ shutdown.
   checked, and refuses this Mac's own addresses: loopback, `0.0.0.0`, and any address an interface holds.
   - CONNECT tunnels any port as opaque bytes.
   - Plain `http://` is forwarded byte for byte, one request per connection, so each request is gated and recorded for
-    its own host.
-- **The record.** Per process: host, port, `bytes_out`, `bytes_in` and connections. It never holds a path, query,
-  header or body. Byte counts are recorded, never capped. An owner-excluded host shows as `excluded`.
+    its own host. A WebSocket upgrade (a `101` response) becomes a bidirectional tunnel; SSE and chunked responses
+    stream until upstream closes.
+- **The record.** Per process: host, port, `bytes_out`, `bytes_in` and connections, never a path, query, header or
+  body. Byte counts are recorded, never capped. Refusals are aggregated by (host, port, why) with a count. An
+  owner-excluded host shows as `excluded`.
 - **Where the record goes.**
-  - `shell.run`, `shell.wait` and `shell.read` return it as `network`.
+  - `shell.run`, `shell.wait` and `shell.read` return it as `network`; an IPv6 host is bracketed in the label
+    (`external:web:[2001:db8::1]`).
   - The output is labelled `external:web:<host>` for each host the command reached. A command that reached none keeps
     `external:unlabeled`: what it read on disk can't be known.
-  - When the task ends, each finished process's record is journaled (`shell.network`) and the proxy forgets it.
+  - When the task ends, each finished process's credential is revoked (`forget`), but its record is kept and journaled
+    (`shell.network`) only once its last connection closes, so a setsid child still streaming through a tunnel after
+    its shell exits has its late bytes counted. The connection is never killed.
   - `ferb ps` shows `network` as a fact.
+- **Abuse bounds, no owner-visible limit.** An unauthenticated or stalled request head times out (10 s); the number of
+  not-yet-authenticated connections is bounded (an authenticated tunnel leaves that set at once and has no idle
+  timeout, so streaming stays up); a malformed request is a 400, and a response head over 256 KiB a 502; the daemon
+  raises its open-file limit at start and handles `EMFILE` without a hot loop. `ferb doctor` probes the proxy (expects
+  407) and restarts a dead serving thread; while it is down the shell has no network and fails closed. The server's
+  `handle_error` logs the exception type only, never request bytes (rule 14).
 - **Removed.** The command-word heuristic (`guard.fetches_network`, `network_annotation`, `external:web:shell`) is
   gone.
 
@@ -875,7 +890,11 @@ Residuals:
   local listener). Denying trustd would end TLS for Go programs such as `gh`, because Go on macOS has no file trust
   store. This is for the owner to decide.
 - **Listener timing.** The listener list is the one when a command starts. A server another program opens later is
-  reachable from a long-running contained process (a coding agent, a server) until that process ends.
+  reachable from a long-running contained process until that process ends; for a `background=true` process that window
+  has no end. Polling to record those later connections is parked, not built.
+- **Domain fronting.** The recorded host is the CONNECT host (or the plain-HTTP URL host). Inside a TLS tunnel a client
+  can send a different SNI or `Host` to a shared CDN, so the recorded host may not be the site actually served. This
+  matters for Task 5's per-destination gating.
 - **Other system services.** Other services that fetch for their callers aren't enumerated: only nsurlsessiond, the
   resolver and trustd were measured. WebKit's networking process is unmeasured, because pyobjc WebKit isn't installed.
 - **Name resolution.** NSURLSession can't resolve `localhost` once the resolver service is denied, so Apple-framework

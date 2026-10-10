@@ -88,6 +88,18 @@ ROOTS_PER_PURGE = 200
 RESTORE_LIST = 100                                # `ferb restore` lists the newest this many records
 
 
+def _raise_file_limit() -> None:
+    """Raise the open-file soft limit toward the hard limit, so the egress proxy's per-connection descriptors (and
+    everything else FERB holds open) don't hit EMFILE. Best effort; a failure never stops the daemon."""
+    try:
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft < hard:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+    except (OSError, ValueError, ImportError):
+        pass
+
+
 class _PurgePlan(NamedTuple):
     """One retention pass: its clock, its windows, the roots it handles and how many wait for the next pass."""
     now: datetime
@@ -209,6 +221,7 @@ class Daemon:
     async def start(self) -> None:
         self.home.mkdir(parents=True, exist_ok=True)
         os.chmod(self.home, 0o700)
+        _raise_file_limit()                     # the egress proxy holds a descriptor per live connection (F5a Task 3)
         ensure_socket_free(self.server.path)   # refuse before touching the database if another daemon runs
         self.config.ensure_privacy_defaults()
         self._load_config()
@@ -665,8 +678,16 @@ class Daemon:
             return False, "FERB could not check this destination"
 
     def _shell_network(self, info: ProcInfo, facts: dict[str, Any]) -> None:
-        """A finished shell process's network record, kept after the proxy forgets it (ferb trace / journal)."""
-        self._journal().append("shell.network", {"task_id": info.owner_task, "process": info.id, **facts})
+        """A finished shell process's final network record (ferb trace / journal). The proxy may report it from a
+        tunnel's own thread when a setsid child closes it, so the write is scheduled on the daemon loop."""
+        record = {"task_id": info.owner_task, "process": info.id, **facts}
+
+        def write() -> None:
+            self._journal().append("shell.network", record)
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(write)
+        else:                                                 # no loop (unit test): write inline
+            write()
 
     # ---------- watchers + trail ----------
 
@@ -2204,10 +2225,13 @@ class Daemon:
         out = await asyncio.to_thread(run)
         out["runtimes"] = await self._runtime_status()
         ok, reason = await asyncio.to_thread(self.sandbox.available) if self.sandbox else (False, "not built")
+        # The proxy's liveness check (expect 407): it also restarts a dead serving thread; a down proxy means the
+        # shell has no network and fails closed (F5a Task 3 fix 1)
+        proxy_ok = bool(self.proxy is not None and await asyncio.to_thread(self.proxy.probe))
         out["containment"] = {"sandbox_exec": os.path.exists(SANDBOX_EXEC), "profile_ok": ok, "reason": reason,
                               "shell": "shell.run" in self.registry.capabilities,
                               "shell_reason": self.containment[1],
-                              "proxy": self.proxy is not None,          # FERB's egress proxy (F5a Task 3)
+                              "proxy": self.proxy is not None, "proxy_alive": proxy_ok,
                               "snapshots": self.take_snapshots}
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
                         "connected": self.voice is not None and self.voice.app is not None,

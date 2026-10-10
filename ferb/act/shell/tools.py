@@ -22,8 +22,11 @@ OUTPUT_ORIGIN = "external:unlabeled"
 
 
 def _sources(network: dict[str, Any]) -> tuple[tuple[str, str], ...]:
-    """One web source per host the command reached through FERB's proxy (none: the unlabeled origin stays)."""
-    return tuple(dict.fromkeys(("web", f"https://{d['host']}") for d in network["destinations"]))
+    """One web source per host the command reached through FERB's proxy (none: the unlabeled origin stays). An IPv6
+    literal is bracketed so the URL parses (https://[2001:db8::1])."""
+    def host(h: str) -> str:
+        return f"[{h}]" if ":" in h and not h.startswith("[") else h
+    return tuple(dict.fromkeys(("web", f"https://{host(d['host'])}") for d in network["destinations"]))
 
 
 def _err(msg: str) -> ToolResult:
