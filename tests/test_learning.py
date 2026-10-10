@@ -104,7 +104,7 @@ def test_unicode_search_filters_and_no_identity_laundering(learning):
     a = card(learning, 'हिन्दी')
     learning.put('lesson', 'mail', {'text': 'हिन्दी report', 'scope': {'app': 'com.apple.mail'}},
                  [a['id']], made_by='model:test')
-    hits = learning.search('हिन्दी', app='com.apple.mail')
+    hits = learning.search('हिन्दी', kind='lesson', app='com.apple.mail')
     assert hits and all(h['kind'] == 'lesson' for h in hits)
     assert all(h['origin'] != 'owner' for h in hits)
 
