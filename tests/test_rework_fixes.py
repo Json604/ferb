@@ -123,7 +123,8 @@ def test_every_task_system_prompt_carries_the_same_interaction_contract(role):
     from types import SimpleNamespace
     from ferb.orchestrator.supervisor import Supervisor
     host = SimpleNamespace(_approach=lambda: 'orchestrator/prompts', facts=lambda: 'FERB profile is available.',
-                           availability=lambda: SimpleNamespace(text='Installed actions'))
+                           availability=lambda: SimpleNamespace(text='Installed actions'),
+                           identity_context=lambda: 'Owner identity and rules.', skills_catalog=lambda: [])
     system = ' '.join(Supervisor._system(host, role).split())
     assert 'Shared interaction contract' in system
     assert 'shell' in system and 'AppleScript' in system
@@ -132,6 +133,7 @@ def test_every_task_system_prompt_carries_the_same_interaction_contract(role):
     assert 'that direction covers its necessary actions and retries' in system
     assert 'do not ask again for each step or worker switch' in system
     assert 'FERB profile is available.' in system
+    assert 'Owner identity and rules.' in system
 
 
 def test_stats_reads_outcomes_and_errors_from_the_database(tmp_path: Path) -> None:

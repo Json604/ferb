@@ -174,7 +174,7 @@ def test_repeated_failure_does_not_silently_pause_a_recurring_task(daemon: Runni
 
 # ---------- time awareness ----------
 
-def test_ages_are_fresh_and_time_text_goes_last(daemon: RunningDaemon) -> None:
+def test_ages_are_fresh_and_situation_precedes_owner_message(daemon: RunningDaemon) -> None:
     now = datetime(2026, 9, 29, 16, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
     assert ago(now - timedelta(days=3, hours=1, minutes=58), now) == "3 days ago (Sat 26 Sep, 14:02)"
     script = install(daemon, [sup("reply", "Hi."), sup("reply", "Hi again.")])
@@ -182,7 +182,7 @@ def test_ages_are_fresh_and_time_text_goes_last(daemon: RunningDaemon) -> None:
     daemon.call_soon(daemon.daemon.clock.advance, 2 * 3600)                       # a gap of 2 hours
     chat(daemon, "hello again")
     ctx = script.contexts[1][2]
-    assert ctx.index("[now ") < ctx.index("Ages of the items above") < ctx.index("Owner's new message")
+    assert ctx.index("[now ") < ctx.index("Ages of the items above") < ctx.index("owner's complete new message")
     assert "[c1]" in ctx and "2 h ago" in ctx.split("Ages of the items above")[1]  # computed now, at the end
     assert "h ago" not in ctx.split("[now ")[0]                                    # nothing relative stored earlier
 
