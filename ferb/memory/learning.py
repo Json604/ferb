@@ -171,6 +171,11 @@ class Learning:
             args = inp.get('args') or {}
             if isinstance(args.get('bundle_id'), str):
                 used_apps.add(args['bundle_id'])
+            if str(inp.get('tool', '')).startswith(('browser.', 'ferb_browser.')):
+                # The retained trace may not identify a resolved browser bundle. Preserve the actual captured
+                # browser inventory conservatively, never invent which browser version ran a historic action.
+                used_apps.update(k for k in (apps or {}) if k in
+                    ('com.google.Chrome', 'com.brave.Browser', 'com.apple.Safari', 'com.microsoft.edgemac'))
             arg_sources = inp.get('arg_sources')
             # No provenance on historical actions is unknown, not evidence of a safe destination.
             labels = {o for values in (arg_sources or {}).values() for o in values}
@@ -178,16 +183,19 @@ class Learning:
                        any(origin.rank(o) >= origin.OUTSIDE_RANK for o in values)
                        for values in arg_sources.values()))
             source_refs.update(self._action_sources(inp, json.loads(r['output_json']) if r['output_json'] else {}))
+            result = json.loads(r['output_json']) if r['output_json'] else {}
+            outcome_facts = {k: result[k] for k in ('ok', 'status', 'intent_id', 'action_id', 'ledger_id')
+                             if isinstance(result, dict) and k in result}
             actions.append({'id': r['id'], 'tool': inp.get('tool'), 'args': args,
                             'kind': inp.get('kind'), 'outside_action': outside,
                             'arg_sources': arg_sources, 'error': r['error'],
-                            'result': json.loads(r['output_json']) if r['output_json'] else None})
+                            'result': outcome_facts})
         feedback = [dict(r) for r in self.db.conn.execute(
             'SELECT verdict,note,at FROM owner_verdicts WHERE task_id=? ORDER BY seq', (task_id,))]
         valid = ep['verified'] is True and not (feedback and feedback[-1]['verdict'] == 'fail')
         body = {'task_id': task_id, 'request': ep['request_text'], 'intent': ep['goal'], 'slots': {},
                 'apps': {a: (apps or {}).get(a, 'unknown') for a in used_apps},
-                'app_versions_captured': apps is not None, 'surfaces': ep['tools'], 'actions': actions,
+                'app_versions_captured': apps is not None, 'app_version_scope': 'identified apps and browser inventory', 'surfaces': ep['tools'], 'actions': actions,
                 'status': ep['status'], 'verified': valid, 'conditions': ep['conditions'],
                 'feedback': feedback, 'narrative': ep['answer'], 'problems': ep['problems'],
                 'started_at': ep['started_at'], 'ended_at': ep['ended_at'], 'usage': ep['usage']}
@@ -353,6 +361,16 @@ class Learning:
         body = dict(p['body']) | {'text': text}
         return self.put('identity' if p['kind'] == 'identity_proposal' else p['kind'], p['key'], body, [p['id']],
                          origin_label=origin.OWNER, made_by='owner:edit/1', state='active', owner=True)
+
+    def lesson_feedback(self, node_id: str, helpful: bool) -> dict[str, Any]:
+        node = self.get(node_id)
+        if not node or node['kind'] != 'lesson' or node['valid_to']:
+            raise LearningRefused('feedback needs a current lesson')
+        key = 'helpful' if helpful else 'harmful'
+        body = dict(node['body'])
+        body[key] = int(body.get(key, 0)) + 1
+        return self.put('lesson', node['key'], body, [node['id']], origin_label=node['origin'],
+                        made_by='code:owner-lesson-feedback/1', state=node['state'])
 
     def identity(self) -> str:
         return '\n'.join(str(p['body'].get('text', '')) for p in self.items('identity') if p['origin'] == origin.OWNER)

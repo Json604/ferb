@@ -128,3 +128,18 @@ def test_rollback_does_not_overwrite_a_later_owner_correction(learning):
     learning.rollback('batch')
     assert learning.get(newer['id'])['valid_to'] is None
     assert learning.get(newer['id'])['origin']=='owner'
+
+
+def test_feedback_versions_lesson_without_inventing_owner_origin(learning):
+    p=learning.put('lesson','mail',{'text':'Read after send','helpful':0,'harmful':0},[],made_by='model:test')
+    n=learning.lesson_feedback(p['id'],True)
+    assert n['body']['helpful']==1
+    assert n['origin']=='inferred'
+    assert learning.get(p['id'])['body']['helpful']==0
+    assert learning.get(p['id'])['valid_to'] is not None
+
+
+def test_forgotten_logical_episode_cannot_return_as_new_revision(learning):
+    a=card(learning,'a')
+    learning.forget([a['id']])
+    with pytest.raises(LearningRefused):card(learning,'a',version='2')

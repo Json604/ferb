@@ -1047,6 +1047,10 @@ class Daemon:
                 l.sync_facts(self.memory)
                 return {"items": l.search(node["key"])}
             return {"item": l.edit(ident, str(params.get("text", "")))}
+        if op == "lesson_feedback":
+            if params.get("feedback") not in ("helpful", "harmful"):
+                raise LearningRefused("feedback must be helpful or harmful")
+            return {"item": l.lesson_feedback(ident, params["feedback"] == "helpful")}
         if op == "retire":
             l.db.conn.execute("UPDATE learning_nodes SET state='retired' WHERE id=?", (ident,))
             return {"item": l.get(ident)}

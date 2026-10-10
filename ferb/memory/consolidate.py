@@ -13,8 +13,12 @@ from ferb.core.types import Identity, ModelRequest, Task
 from ferb.memory.learning import Learning, LearningRefused, digest, encoded
 
 PROPOSAL_SCHEMA: dict[str, Any] = {
-    'type': 'object', 'additionalProperties': False, 'required': ['procedures', 'lessons', 'identity'],
+    'type': 'object', 'additionalProperties': False, 'required': ['procedures', 'lessons', 'identity', 'episodes'],
     'properties': {
+        'episodes': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
+            'required': ['episode', 'intent_signature', 'slots', 'reflection', 'narrative'], 'properties': {
+                'episode': {'type': 'string'}, 'intent_signature': {'type': 'string'},
+                'slots': {'type': 'object'}, 'reflection': {'type': 'string'}, 'narrative': {'type': 'string'}}}},
         'procedures': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['intent', 'slots', 'preconditions', 'steps', 'ui_hints', 'examples'],
             'properties': {
@@ -94,6 +98,14 @@ class Consolidator:
     def apply(self, proposals: dict[str, Any], available: set[str], batch: str, maker: str) -> tuple[list[str], list[str]]:
         accepted, refused = [], []
         l = self.learning
+        for p in proposals.get('episodes', []):
+            try:
+                if p['episode'] not in available:
+                    raise LearningRefused('annotation needs a supplied episode')
+                accepted.append(l.put('episode_annotation', p['episode'], p, [p['episode']],
+                                       made_by=maker, batch=batch, state='active')['id'])
+            except (LearningRefused, KeyError, TypeError) as e:
+                refused.append(str(e))
         for p in proposals.get('procedures', []):
             try:
                 if any(e['episode'] not in available for e in p['examples']):
@@ -131,6 +143,20 @@ class Consolidator:
     def rollups(self) -> None:
         l = self.learning
         groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        from ferb.memory.summary import SUMMARY_KIND, NARRATIVE_KIND, build
+        for row in l.db.conn.execute('SELECT id,kind,data_json FROM journal WHERE kind IN (?,?)',
+                                     (SUMMARY_KIND, NARRATIVE_KIND)):
+            data = json.loads(row['data_json'])
+            day = data.get('day')
+            if not day:
+                continue
+            raw_refs = {kind + ':' + ident for refs in build(l.db, day).handles.values() for kind, ident in refs}
+            try:
+                l.put('activity_summary', row['kind'] + ':' + day, data, [
+                    'journal:' + row['id'], *sorted(raw_refs)], made_by=str(data.get('made_by') or 'code:summary-index/1'),
+                    state='active')
+            except LearningRefused:
+                continue
         for node in l.items('episode'):
             at = node['body'].get('ended_at') or node['recorded_at']
             day = at[:10]
