@@ -689,7 +689,9 @@ class Supervisor(WorkerRuns):
         try:
             if self.on_task_start is not None:
                 await self.on_task_start(tree_id)
-            yield {"type": "plan", "text": text, "task_id": tree_id, "goal": spec.goal, "identity": spec.identity,
+            # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
+            yield {"type": "plan", "text": confirm.from_task_lines(text), "task_id": tree_id, "goal": spec.goal,
+                   "identity": spec.identity,
                    "subtasks": [{"id": WORKER, "task_id": worker.id, "role": "worker", "goal": spec.goal,
                                  "depends_on": []}]}
             queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -1166,6 +1168,9 @@ class Supervisor(WorkerRuns):
         else:
             status, summary = "failed", out.summary
             answer = f"I couldn't finish this task.\n\n{out.summary}"
+        # D33: the answer and summary carry model-written lines (reports, the orchestrator's question, evidence); one
+        # that reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
+        summary, answer = confirm.from_task_lines(summary), confirm.from_task_lines(answer)
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},

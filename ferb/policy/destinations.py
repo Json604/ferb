@@ -117,6 +117,7 @@ class Confirmations:
         self.db.conn.execute("UPDATE confirmations SET used = 1 WHERE id = ?", (cid,))
 
     def release(self, cid: str) -> None:
-        """The claiming call didn't run to a result (refused, failed, cancelled, or its outcome is unknown): the Yes
-        covers its retry again (P19 gates a retry of an unknown outcome)."""
+        """The claiming call never made its attempt (refused, or cancelled before it ran) or the tool reported it
+        failed: the Yes covers its retry again. After an unknown outcome the Yes stays spent; only the identical retry
+        the owner approves under P19 may use it once more (the gateway checks the ledger)."""
         self.db.conn.execute("UPDATE confirmations SET used = 0 WHERE id = ?", (cid,))
