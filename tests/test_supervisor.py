@@ -40,7 +40,7 @@ def test_runtime_violation_reports_this_run_without_disabling_future_runs(daemon
 # ---------- running the task ----------
 
 
-def test_one_worker_with_every_tool_and_literal_facts_reviewed_by_checker(daemon: RunningDaemon) -> None:
+def test_one_worker_with_identity_tools_and_literal_facts_reviewed_by_checker(daemon: RunningDaemon) -> None:
     t = task("write todo.md with milk", "ferb", paths=("todo.md",),
              conds=(cond("todo.md contains milk", "file_contains", path="todo.md", text="milk"),))
     script = install(daemon, [sup("task", "I'll write todo.md", t)], {"worker": writes(daemon.sock, "todo.md", "milk")})
@@ -56,7 +56,8 @@ def test_one_worker_with_every_tool_and_literal_facts_reviewed_by_checker(daemon
     assert (daemon.daemon.home / "workspace" / "todo.md").read_text() == "milk"
     mode, key, ctx, tools = next(c for c in script.contexts if c[1] == "worker")
     assert "fs.write" in tools and "fs.read" in tools and "owner.ask" in tools      # full ferb scopes, reads too
-    assert {"mac.act", "shell.run", "browser.open", "actions.search"} <= set(tools)      # never the owner's
+    assert {"mac.act", "shell.run", "actions.search"} <= set(tools)
+    assert "browser.open" not in tools                         # FERB cannot use the owner browser identity
     worker_task = daemon.run(_task_scopes(daemon, evs[0]["task_id"] + ".worker"))
     assert {"fs:read", "fs:write", "identity:browse", "time"} <= worker_task or "identity:browse" not in worker_task
 
