@@ -78,14 +78,14 @@ to the model, Jev's destructive classifier in shadow, then Full Disk Access by d
 | 2 Shell sandbox (sandbox-exec) | complete (10453cd, 66a1dcd, b2d41ef) |
 | 3 Egress proxy | complete (96cf41d, 4bfd429, 4b27714), plus a small follow-up "T3b" once the owner answers Q1–Q2 below |
 | 4 Code-floor confirmations, sink rule, known destinations | complete (19318d3, 8aee147, eaa9000, 3ec05d4) |
-| 5 Sinks that are not sends (shell destinations, URLs) | fix round 2 committed (3c4d125); its re-review was running at handoff: if the ledger has no verdict for `b1f9e3f..3c4d125`, re-run that scoped re-review first. Owner answers Q3–Q4 below still to apply. |
+| 5 Sinks that are not sends (shell destinations, URLs) | fix round 3 (the last with the same implementer) dispatched from 3c4d125: a Critical leading-backslash URL bypass, owner Q3, minors (see ledger). If the ledger shows no `fix round 3 —` commit line, start it as round 4 with a fresh implementer on the strongest model, from the ledger's round-3 ruling. Then a scoped re-review. |
 | 6 Escape hatch (D31) | not started |
 | 7 Worker permission model (W1, W2, W4, D36) | not started |
 | 8 Security suite (offline replays, live P0 set, test-mode send switch, overhead in `ferb stats`) | not started |
 | 9 Docs, registry, "0.27 F5a — pending live checks" | not started; must also record the owner decisions and residuals listed in the ledger |
 
-**Owner decisions:** the owner's answers to the four questions below are recorded in the ledger once given. If the
-ledger has none, ask the owner these exactly (each has a recommendation):
+**Owner decisions:** the owner answered all four questions below "recommended" on 2026-10-10 (recorded in the ledger);
+apply them as described:
 1. Local servers (dev server, Ollama): FERB's shell can't reach programs already listening on the Mac; add a
    `[protection]` list of local ports the owner allows, each pinned to the listening program's executable, connections
    recorded. → T3b.
