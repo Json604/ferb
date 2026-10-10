@@ -22,6 +22,8 @@ uv run ferb setup
 Setup installs a dedicated interpreter, environment, runtime and LaunchAgent under `~/.ferb`. It collects macOS
 permissions and reports missing grants. `ferb setup --update` installs the current checkout and restarts the daemon;
 run it when existing work can be interrupted. The development environment and installed daemon are separate.
+Updates check existing grants in the running daemon and acknowledge them even when an older setup version was
+recorded. Only missing or unknown grants are reported as deferred; updating does not open permission dialogs.
 
 Chrome and Brave need FERB extension **0.15.1** (protocol 12); downloads without a Save dialog need it. After pulling
 it, run `ferb setup --update` to republish the managed bundle; a managed install reloads it when idle, and an older one

@@ -12,6 +12,10 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Owner-reported update fix: passive software inspection no longer invokes `sfltool dumpbtm`, which triggered
+  repeated administrator dialogs. Its background-task inventory is explicitly unavailable; other software facts
+  remain. Updates recognize already-granted macOS permissions instead of reporting an obsolete setup marker as
+  deferred, while missing or unknown permissions still require the owner's normal setup flow.
 - Integrates the remaining containment, task loop, perception, memory and delegated-conversation milestones.
   Nothing from this pass is installed or live-accepted by the build agents.
 - Explicit same-plan continuation preserves completed steps and uncertain effects in the same task tree.

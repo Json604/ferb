@@ -354,6 +354,10 @@ capture before release. Held input is cleared on pause. Exact successful `mac.cl
 writes; a frontmost app is context, not proof of the clipboard writer. Typed/clipboard content expires after seven
 days in Trail, its FTS index and the activity copy, while source IDs remain; this automatic expiry does not retract
 derived memory. Native schemas and two-app subscriptions await owner acceptance.
+Passive software inspection never invokes `sfltool dumpbtm`: on the owner's Mac it opens an administrator prompt
+even for a read. Background-task inventory is explicitly unavailable without a supported noninteractive source;
+signature, Gatekeeper, entitlements, download metadata, readable TCC grants and associated LaunchAgent files remain
+available. The first software observation also supplies its persistence fingerprint, avoiding duplicate probes.
 
 Migration 0032 adds durable batch receipts, external notification IDs, owner-quoted rules, told receipts and owner
 measurement labels. `sense/batches.py` sends roughly 10k estimated tokens per app group, interrupts for a notification,

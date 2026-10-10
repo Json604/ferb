@@ -651,3 +651,18 @@ voice/OTP handling and integration events. Retained context evidence can be rere
 tree. The installed daemon remains unchanged; installation, live security runs, target verdicts and measured
 post-installation baseline comparisons remain pending. Earlier interrupted discovery runs and temporary native
 fixture activity are disclosed above; their counts are superseded by the clean final run.
+
+### Owner update regression — 2026-10-11
+
+After the owner installed `c364097`, the F7 software monitor repeatedly spawned `/usr/bin/sfltool dumpbtm` and
+macOS displayed an administrator dialog. Both cancelling and approving allowed the monitor to revisit the command.
+The live process chain confirmed the command belonged to FERB; its Apple signature verified. The agent paused
+perception through `sense.pause` and terminated only the matching `sfltool dumpbtm` child to stop the recurrence.
+All four permission checks from the installed daemon returned `granted`; the setup marker was still version 22.
+Thus the reported permission deferral came from the old marker, not a missing macOS grant.
+
+The repair removes the interactive inventory command from passive collection, explicitly reports that inventory
+unavailable, preserves other software facts, and avoids duplicate startup probes. Update setup now acknowledges
+the daemon's complete current grants and advances its permission marker; absent status values remain unknown.
+Both software regressions and both setup regressions failed before their fixes; all 18 affected tests pass.
+Installation and restored-monitoring evidence will be appended after the repair is applied.

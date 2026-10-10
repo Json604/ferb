@@ -197,6 +197,29 @@ def test_update_reports_missing_permissions_without_opening_settings_or_promptin
     assert ('doctor.check', {'selftest': False}) in world['daemon'].calls
 
 
+def test_update_recognizes_existing_grants_despite_an_older_setup_marker(world):
+    world['inst'].install()
+    config = Config(world['home'])
+    config.set('setup', 'permissions_version', 22)
+    world['daemon'].perms = {name: 'granted' for name in S.SETUP_PERMISSIONS}
+    env, out = make_env(world, [])
+    assert S.setup(env, update=True) == 0
+    assert 'deferred' not in out.getvalue()
+    assert 'All macOS permissions are granted' in out.getvalue()
+    assert Config(world['home']).get('setup', 'permissions_version') == 27
+    assert world['panes'] == [] and world['daemon'].automation_requests == []
+
+
+def test_update_does_not_treat_a_missing_permission_status_as_a_grant(world):
+    world['inst'].install()
+    world['daemon'].perms = {name: 'granted' for name in S.SETUP_PERMISSIONS if name != 'full_disk_access'}
+    env, out = make_env(world, [])
+    assert S.setup(env, update=True) == 0
+    assert 'full_disk_access=unknown' in out.getvalue()
+    assert Config(world['home']).get('setup', 'permissions_version', 0) == 0
+    assert world['panes'] == []
+
+
 def test_doctor_never_wakes_browser_or_calls_not_checked_signed_out(world):
     world['inst'].install()
     env, out = make_env(world, [])

@@ -85,11 +85,14 @@ def setup(env: Env, update: bool = False) -> int:
         client = wait_for_daemon(env)
         config = Config(inst.home)
         health = client.call("doctor.check", {"selftest": False})
-        missing = [f"{name}={status}" for name, status in health.get("permissions", {}).items()
-                   if status != "granted"]
-        if config.get('setup', 'permissions_version', 0) < 27 or missing:
-            facts = ", ".join(missing) or "permission setup has not been recorded"
-            env.say(f"Permission setup deferred: {facts}. Run `ferb setup` when you want its permission dialogs.")
+        grants = health.get("permissions", {})
+        missing = [f"{name}={grants.get(name, 'unknown')}" for name in SETUP_PERMISSIONS
+                   if grants.get(name) != "granted"]
+        if missing:
+            env.say(f"Permission setup deferred: {', '.join(missing)}. Run `ferb setup` when you want its permission dialogs.")
+        if not missing:
+            config.set('setup', 'permissions_version', max(27, config.get('setup', 'permissions_version', 0)))
+            env.say("All macOS permissions are granted (checked by the running daemon).")
         client.close()
         env.say("Done.")
         return 0
