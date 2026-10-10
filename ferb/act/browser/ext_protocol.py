@@ -7,7 +7,8 @@ parts with `download_part` (or it is aborted, or released back to the browser); 
 task tab starts (`open_seen` answers an `open` within the extension's ~1 s wait, after which the browser opens the link
 itself; `open_plain` gives one back to the browser; `popup_ready` lets the page hook load a claimed popup); the hello
 lists armed tabs and `disarm` lets go of one the daemon doesn't hold. Chromium native-message size is a per-frame transport bound; content travels in chunks
-without clipping."""
+without clipping. Protocol 12 marks secret fills unknown when input began but a changed widget prevents readback,
+so P19 requires reconciliation or owner-approved retry rather than treating partial input as a known failure."""
 
 import base64
 import hashlib
@@ -17,8 +18,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 11
-MIN_EXTENSION_VERSION = "0.15.0"
+PROTOCOL_VERSION = 12
+MIN_EXTENSION_VERSION = "0.15.1"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 

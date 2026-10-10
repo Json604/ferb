@@ -660,14 +660,15 @@
       // Revalidate all references before any mutation. Do not choose another group after a rerender.
       if (!group.every(n => n.isConnected && n.ownerDocument === el.ownerDocument)) return {ok:false, detail:"code_group_changed"};
       for (let i = 0; i < group.length; i++) {
-        if (!group[i].isConnected) return {ok:false, detail:"code_group_changed_after_partial_fill"};
+        if (!group[i].isConnected) return {ok:false, unknown:true, detail:"code_group_changed_after_partial_fill"};
         setValue(group[i], value[i]);
       }
       const ok = group.every((n, i) => n.value === value[i]);
-      return {ok, detail: ok ? "filled_split_code" : "field_rejected_value"};
+      return {ok, unknown: !ok, detail: ok ? "filled_split_code" : "code_state_changed_after_input"};
     }
     setValue(el, value);
-    return { ok: el.value === value, detail: el.value === value ? "filled" : "field_rejected_value" };
+    const ok = el.isConnected && el.value === value;
+    return { ok, unknown: !ok, detail: ok ? "filled" : "field_state_changed_after_input" };
   }
 
   window.__ferb = { snapshot, uploadFiles, adopt, point, frameRect, visualState, captureState,

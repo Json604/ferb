@@ -1374,6 +1374,9 @@ const commands = {
     catch (_) { return { ok: false, detail: "seal_refused" }; }            // another command or origin: nothing filled
     const r = await inFrame(tab_id, frame_id, (g, i, o, v, c) => window.__ferb.fill(g, i, o, v, c), [snap, el, origin, value, code_only === true]);
     value = null;
+    // Renderer input events can submit/reset/rebuild the form. Once input began, an unconfirmed final value
+    // cannot become a known failure: onCommand persists unknown and the daemon's P19 ledger blocks blind retry.
+    if (r.unknown === true) throw new Error("secret fill outcome unknown after input; take a fresh observation");
     return { ok: !!r.ok, detail: String(r.detail || "") };
   },
   async read_source({ tab_id }, id) {

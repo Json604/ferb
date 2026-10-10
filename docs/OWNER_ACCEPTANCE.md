@@ -433,7 +433,7 @@ are deferred until F5–F10 code lands, per the owner's build cadence. The exist
 database remain untouched. Checkout implementation does not constitute owner sign-off.
 
 After the final combined review, owner setup must build the signed helper (local certificate `FERB Local Code Signing`),
-update the extension to 0.15.0/protocol 11, and report profile/proxy availability before offering Full Disk Access.
+update the extension to 0.15.1/protocol 12, and report profile/proxy availability before offering Full Disk Access.
 FileVault remains an owner-controlled setup step; its current state was not probed or changed in this build.
 
 Pending checks:
