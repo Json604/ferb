@@ -57,6 +57,21 @@ it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through sub
 `stop_reason`, and resource outcomes. Display the supplied `answer` verbatim: rebuilding a cheerful summary can hide
 failed conditions.
 
+Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.
+Append these already-redacted fragments to a **provisional** reply belonging to this connection's submitted turn.
+They are not a completed answer or proof of an action. The authoritative `reply`/`clarify` replaces the draft;
+`plan` clears it and starts normal task presentation. `reply_abort` with `{reason}` withdraws the draft. A transport
+failure or EOF before an authoritative event must mark the draft interrupted, never completed or replayed.
+Ignore late fragments after a final/plan. Do not speak, notify completion, or save partial text as a completed answer.
+Old clients may ignore these additional events and continue rendering the final unchanged. Stream identity is the
+existing request connection; independent submitted turns must never share their draft buffer.
+
+Streaming is genuine provider output, not a delayed replay of an already-complete answer. The supervisor releases
+only a top-level `text` field written after every action/control field establishes a pure conversation turn. It
+buffers action receipts, reordered output and task/worker/checker answers through execution and verification.
+Secret redaction and FERB-label marking preserve state across fragments. Raw provider JSON, reasoning, tool
+arguments and partial replies are not added to the daemon's journal or trace; canonical replies still are.
+
 Attachment-aware clients require `input_paths` in the attachment capabilities before sending selected files; an old
 daemon must not silently discard them. Paths are filesystem source metadata, not extra owner instructions or
 permission to send/delete the file. Existing read protection still applies. Paths persist through clarification;

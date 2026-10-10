@@ -1,11 +1,13 @@
 """P29 live terminal session: background streams never read from the owner's input line."""
 import random
+import shutil
+import textwrap
 import threading
 import time
 from collections import deque
-from typing import Any
+from typing import Any, Callable
 
-from ferb.cli.chat import Chat, question, render
+from ferb.cli.chat import Chat, ReplyDraft, question, render
 
 # P25 neutral variants from the owner's plan. Avoid the last eight acknowledgements.
 ACKNOWLEDGEMENTS = ('Got it.', 'Okay.', 'Understood.', 'Noted.', 'Received.', 'Alright.', 'Sure.',
@@ -25,6 +27,8 @@ class LiveChat(Chat):
         self._next_ticket = 0
         self._routing_ticket = 0
         self._streaming_tasks: set[str] = set()
+        self._drafts: dict[int, str] = {}
+        self.invalidate: Callable[[], None] = lambda: None
 
     def answer_approval(self, data: dict[str, Any]) -> None:
         with self._lock:
@@ -81,8 +85,35 @@ class LiveChat(Chat):
     def toolbar(self) -> str:
         with self._lock:
             count, questions, thinking = len(self.running), len(self.pending), self._thinking
+            drafts = list(self._drafts.items())
         tick = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[int(time.monotonic() * 8) % 10] if count or thinking else '·'
-        return f' {tick} {count} running · {questions} waiting for you · /tasks · Esc stops latest · /quit leaves tasks running '
+        status = f' {tick} {count} running · {questions} waiting for you · /tasks · Esc stops latest · /quit leaves tasks running '
+        if not drafts:
+            return status
+        # PromptSession's toolbar is a dynamic pane, outside patched stdout's line buffer.
+        # Wrap to the actual viewport, retaining every character and every draft, without a content cap.
+        width = max(1, shutil.get_terminal_size().columns)
+        rows = [status]
+        for ticket, draft in drafts:
+            text = f'ferb (draft {ticket + 1} · still responding)> ' + draft
+            for line in text.split('\n'):
+                rows.extend(textwrap.wrap(line, width, replace_whitespace=False, drop_whitespace=False,
+                                          break_on_hyphens=False) or [''])
+        return '\n'.join(rows)
+
+    def toolbar_fragments(self) -> list[tuple[str, str]]:
+        # This is a virtual cursor in the non-focused draft pane, so long text follows its
+        # newest line without stealing the real cursor from the owner's input buffer.
+        text = self.toolbar()
+        return [('', text), ('[SetCursorPosition]', '')] if '\n' in text else [('', text)]
+
+    def _show_draft(self, ticket: int, text: str) -> None:
+        with self._lock:
+            if text:
+                self._drafts[ticket] = text
+            else:
+                self._drafts.pop(ticket, None)
+        self.invalidate()
 
     def stop_latest(self) -> None:
         with self._lock:
@@ -162,11 +193,37 @@ class LiveChat(Chat):
         client = None
         registered = False
         routed = False
+        draft = ReplyDraft()
+        confirmed_reply: tuple[str, str] | None = None
         with self._route_order:
             self._route_order.wait_for(lambda: ticket == self._routing_ticket)
         try:
             client = self.connect()
             for event in client.stream('chat.send', {'session_id': self.session_id, 'text': text}):
+                kind = event.get('type')
+                if kind == 'reply_delta':
+                    if draft.append(str(event.get('text') or '')):
+                        self._show_draft(ticket, draft.text)
+                    continue
+                if kind == 'reply_abort':
+                    if draft.accepting and not draft.final:
+                        self.write('   Draft interrupted: ' + str(event.get('reason') or 'The response was not confirmed.') + '\n')
+                        draft.discard()
+                        self._show_draft(ticket, '')
+                    continue
+                if kind in ('reply', 'clarify'):
+                    canonical = (kind, str(event.get('text') or ''))
+                    if canonical == confirmed_reply:
+                        continue
+                    confirmed_reply = canonical if draft.text else None
+                    draft.final = True
+                elif kind in ('plan', 'outcome', 'error'):
+                    confirmed_reply = None
+                    if kind != 'plan':
+                        draft.final = True
+                if kind in ('plan', 'reply', 'clarify', 'outcome', 'error'):
+                    draft.discard()
+                    self._show_draft(ticket, '')
                 if not routed and event.get('type') in ('plan', 'reply', 'clarify', 'error'):
                     with self._route_order:
                         self._routing_ticket += 1
@@ -188,8 +245,11 @@ class LiveChat(Chat):
                     if line:
                         self.say(line)
         except Exception as exc:
-            self.say('ferb> I lost the connection to this conversation: ' + str(exc))
+            self.write('ferb> I lost the connection to this conversation: ' + str(exc) + '\n')
         finally:
+            if draft.text and not draft.final:
+                self.write('   Draft interrupted: the stream ended before FERB confirmed the response.\n')
+            self._show_draft(ticket, '')
             if not routed:
                 with self._route_order:
                     self._routing_ticket += 1

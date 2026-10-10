@@ -174,7 +174,7 @@ class RunHandle:
 
 @dataclass(frozen=True)
 class RuntimeEvent:
-    kind: Literal["message", "tool_call", "usage", "final", "error", "violation"]
+    kind: Literal["message", "text_delta", "tool_call", "usage", "final", "error", "violation"]
     data: dict[str, Any]
 
 

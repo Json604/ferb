@@ -65,6 +65,12 @@ class OpenAIProvider:
     def http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
         return URL, {"content-type": "application/json"}, state["body"]
 
+    def stream_http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
+        return URL, {"content-type": "application/json"}, {**state['body'], 'stream': True}
+
+    def stream_parser(self) -> "OpenAIStream":
+        return OpenAIStream()
+
     def auth(self, key: str) -> dict[str, str]:
         return {"authorization": f"Bearer {key}"}
 
@@ -105,3 +111,24 @@ class OpenAIProvider:
                 out = [{"type": "input_text", "text": text},
                        {"type": "input_image", "image_url": f"data:{r.image['mime']};base64,{r.image['data']}"}]
             state["body"]["input"].append({"type": "function_call_output", "call_id": r.call.id, "output": out})
+
+
+class OpenAIStream:
+    """Responses SSE carries text deltas and the authoritative complete response separately."""
+    def __init__(self) -> None:
+        self.response: dict[str, Any] | None = None
+
+    def feed(self, event: dict[str, Any]) -> str:
+        kind = event.get('type')
+        if kind == 'response.output_text.delta':
+            return str(event.get('delta') or '')
+        if kind in ('response.completed', 'response.failed', 'response.incomplete'):
+            self.response = event.get('response')
+        elif kind == 'error':
+            raise ProviderError('openai: the response stream failed')
+        return ''
+
+    def finish(self) -> dict[str, Any]:
+        if not isinstance(self.response, dict):
+            raise ProviderError('openai: the response stream ended before completion')
+        return self.response

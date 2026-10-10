@@ -10,6 +10,7 @@ errors. Provider-hosted tools are never enabled."""
 import asyncio
 import json
 import secrets
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Protocol
 
@@ -156,15 +157,27 @@ class ApiRuntime:
             while True:
                 if r.cancelled:
                     return
-                r.inflight = asyncio.ensure_future(self._call(r))
+                fragments: asyncio.Queue[str | None] = asyncio.Queue()
+
+                async def read_turn() -> Turn:
+                    try:
+                        return await self._call(r, fragments.put_nowait)
+                    finally:
+                        fragments.put_nowait(None)
+
+                r.inflight = asyncio.ensure_future(read_turn())
                 try:
+                    while (fragment := await fragments.get()) is not None:
+                        if r.cancelled:
+                            return
+                        yield RuntimeEvent('text_delta', {'text': fragment})
                     turn = await r.inflight
                 except asyncio.CancelledError:
                     if r.cancelled and not _consumer_cancelled():
                         return
                     raise
                 except ProviderError as e:
-                    yield RuntimeEvent("error", {"message": str(e)})
+                    yield RuntimeEvent("error", {"message": str(e).replace(r.key, '[key]')})
                     return
                 yield RuntimeEvent("usage", asdict(turn.usage))
                 if not turn.calls:
@@ -188,6 +201,11 @@ class ApiRuntime:
                     results.append(outcome)
                 self.provider.add_results(r.state, turn, results)
         finally:
+            if r.inflight is not None:
+                if not r.inflight.done():
+                    r.inflight.cancel()
+                # Closing at a yielded fragment can leave an already-failed HTTP task unobserved.
+                await asyncio.gather(r.inflight, return_exceptions=True)
             await r.client.aclose()
 
     async def _execute(self, r: _Run, capability: str, call: ToolCall) -> ToolOutcome | None:
@@ -211,30 +229,50 @@ class ApiRuntime:
         text = json.dumps(out["content"], ensure_ascii=False) + "\n" + str(out.get("footer", ""))
         return ToolOutcome(call, text, bool(out.get("is_error")), out.get("image"))
 
-    async def _call(self, r: _Run) -> Turn:
-        url, headers, body = self.provider.http(r.state)
+    async def _call(self, r: _Run, on_delta: Callable[[str], None]) -> Turn:
+        streaming = (self.mode == 'supervisor' and self.output_schema is not None
+                     and hasattr(self.provider, 'stream_http'))
+        request = getattr(self.provider, 'stream_http') if streaming else self.provider.http
+        url, headers, body = request(r.state)
         headers = {**headers, **self.provider.auth(r.key)}
         delay = self.backoff_s
         for attempt in range(self.retries + 1):
+            emitted = False
             try:
-                resp = await r.client.post(url, headers=headers, json=body)
+                async with r.client.stream('POST', url, headers=headers, json=body) as resp:
+                    if resp.status_code in RETRY_STATUS and attempt < self.retries:
+                        await resp.aread()
+                        await self.sleep(_retry_after(resp) or delay)
+                        delay *= 2
+                        continue
+                    if resp.status_code != 200:
+                        await resp.aread()
+                        raise ProviderError(self._error_text(resp, r.key))
+                    if streaming and resp.headers.get('content-type', '').split(';', 1)[0].strip().lower() == 'text/event-stream':
+                        parser = getattr(self.provider, 'stream_parser')()
+                        async for event in _sse_events(resp):
+                            try:
+                                text = parser.feed(event)
+                            except (KeyError, TypeError, ValueError):
+                                raise ProviderError(f'{self.name}: malformed response stream event') from None
+                            if text:
+                                emitted = True
+                                on_delta(text)
+                        data = parser.finish()
+                    else:
+                        await resp.aread()
+                        try:
+                            data = resp.json()
+                        except ValueError:
+                            raise ProviderError(f"{self.name}: the reply was not JSON") from None
+                    return self.provider.parse(r.state, data)
             except httpx.TransportError as e:
-                if attempt < self.retries:
+                # Once a draft has been exposed, silently restarting would concatenate different answers.
+                if not emitted and attempt < self.retries:
                     await self.sleep(delay)
                     delay *= 2
                     continue
                 raise ProviderError(f"{self.name}: network error ({type(e).__name__})") from None
-            if resp.status_code in RETRY_STATUS and attempt < self.retries:
-                await self.sleep(_retry_after(resp) or delay)
-                delay *= 2
-                continue
-            if resp.status_code != 200:
-                raise ProviderError(self._error_text(resp, r.key))
-            try:
-                data = resp.json()
-            except ValueError:
-                raise ProviderError(f"{self.name}: the reply was not JSON") from None
-            return self.provider.parse(r.state, data)
         raise ProviderError(f"{self.name}: still failing after {self.retries} retries")
 
     def _error_text(self, resp: httpx.Response, key: str) -> str:
@@ -262,6 +300,33 @@ class ApiRuntime:
 def _consumer_cancelled() -> bool:
     task = asyncio.current_task()
     return task is not None and task.cancelling() > 0
+
+
+async def _sse_events(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
+    """Decode SSE framing, including multiline data and transport splits, without logging raw provider bytes."""
+    data: list[str] = []
+
+    def decode() -> dict[str, Any] | None:
+        text = '\n'.join(data)
+        data.clear()
+        if not text or text == '[DONE]':
+            return None
+        try:
+            event = json.loads(text)
+        except ValueError:
+            raise ProviderError('The response stream contained invalid JSON') from None
+        if not isinstance(event, dict):
+            raise ProviderError('The response stream contained a non-object event')
+        return event
+
+    async for line in response.aiter_lines():
+        if not line:
+            if (event := decode()) is not None:
+                yield event
+        elif line.startswith('data:'):
+            data.append(line[5:].removeprefix(' '))
+    if (event := decode()) is not None:
+        yield event
 
 
 def _retry_after(resp: httpx.Response) -> float | None:

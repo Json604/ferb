@@ -201,6 +201,92 @@ class Spinner:
 FINAL = ("outcome", "reply", "clarify", "error")
 
 
+class ReplyDraft:
+    """Per-turn provisional response state; final text always remains authoritative."""
+    def __init__(self) -> None:
+        self.text = ""
+        self.accepting = True
+        self.final = False
+
+    def append(self, text: str) -> str:
+        if not self.accepting or self.final:
+            return ""
+        safe = printable(text)
+        self.text += safe
+        return safe
+
+    def discard(self) -> None:
+        self.text = ""
+        self.accepting = False
+
+
+class PlainReply:
+    """Piped output cannot erase a draft; explicitly confirm it or show the canonical correction."""
+    def __init__(self, write: Callable[[str], None], speak: Callable[[str], None]) -> None:
+        self.draft = ReplyDraft()
+        self.write, self.speak = write, speak
+        self.line_open = False
+        self.started = False
+        self.confirmed_reply: tuple[str, str] | None = None
+
+    def consume(self, event: dict[str, Any]) -> bool:
+        kind = event.get("type")
+        if kind == "reply_delta":
+            chunk = self.draft.append(str(event.get("text") or ""))
+            if chunk:
+                if not self.line_open:
+                    self.write("ferb (draft)> " if not self.started else "ferb (draft, continued)> ")
+                self.write(chunk)
+                self.line_open = self.started = True
+            return True
+        if kind == "reply_abort":
+            if not self.draft.final and self.draft.accepting:
+                self.interrupt(str(event.get("reason") or "The response was not confirmed."))
+            return True
+        if kind in FINAL:
+            canonical = (str(kind), printable(str(event.get("text") or "")))
+            if kind in ("reply", "clarify") and canonical == self.confirmed_reply:
+                return True
+            self.confirmed_reply = None
+            self.draft.final = True
+            self.draft.accepting = False
+            if kind in ("reply", "clarify") and self.draft.text:
+                text = canonical[1]
+                self.confirmed_reply = canonical
+                if text.startswith(self.draft.text):
+                    self.write(text[len(self.draft.text):] + "\n   [final response confirmed]\n")
+                else:
+                    self.break_line()
+                    self.write("ferb> Final response (replaces draft): " + text + "\n")
+                self.speak("ferb> " + text)
+                self.line_open = False
+                self.draft.discard()
+                return True
+            self.break_line()
+            self.draft.discard()
+        elif kind == "plan":
+            self.confirmed_reply = None
+            if self.draft.text:
+                self.break_line()
+                self.write("   Provisional reply discarded; starting the task.\n")
+            self.draft.discard()
+        return False
+
+    def break_line(self) -> None:
+        if self.line_open:
+            self.write("\n")
+            self.line_open = False
+
+    def interrupt(self, reason: str) -> None:
+        self.break_line()
+        self.write("   Draft interrupted: " + printable(reason) + "\n")
+        self.draft.discard()
+
+    def close(self) -> None:
+        if self.draft.text and not self.draft.final:
+            self.interrupt("The stream ended before FERB confirmed the response.")
+
+
 class Chat:
     def __init__(self, connect: Callable[[], Client], out: TextIO, ask: Callable[[str], str],
                  verbose: bool = False, spinner_out: TextIO | None = None, speaker: Any = None,
@@ -210,10 +296,16 @@ class Chat:
         self.speaker = speaker if speaker is not None else Silent()        # `--speak`: FERB's own words, out loud
         self.session_id = resume or "owner"
         self.new, self.resume = new, resume
+        self._output_lock = threading.RLock()
+
+    def write(self, text: str) -> None:
+        with self._output_lock:
+            self.out.write(printable(text))
+            self.out.flush()
 
     def say(self, line: str) -> None:
         line = printable(line)                            # model text never drives the owner's terminal
-        print(line, file=self.out, flush=True)
+        self.write(line + "\n")
         if line.lstrip().startswith(("ferb>", "📞", "✉️")):                 # FERB's words, never internals
             self.speaker.say(line)
 
@@ -281,11 +373,15 @@ class Chat:
         tasks: list[str] = []
         self.speaker.stop()                                   # a new message cuts off what FERB was saying
         spin = self.spinner
+        reply = PlainReply(self.write, self.speaker.say)
         spin.begin()
         spin.start("thinking")
         try:
             for ev in client.stream("chat.send", {"session_id": self.session_id, "text": msg}):
                 spin.stop()                                       # never draw over a line or a question
+                if reply.consume(ev):
+                    continue
+                reply.break_line()
                 if ev.get("type") == "plan" and ev.get("task_id"):
                     tasks.append(ev["task_id"])
                 if ev.get("type") == "event" and ev["topic"] == "approval.requested":
@@ -294,7 +390,7 @@ class Chat:
                     line = render(ev, self.verbose)
                     if line:
                         self.say(line)
-                if ev.get("type") not in FINAL:
+                if ev.get("type") not in FINAL and not reply.draft.text:
                     spin.start("working" if tasks else "thinking")
         except KeyboardInterrupt:                             # Ctrl-C: stop what FERB is doing for this message
             spin.stop()
@@ -303,6 +399,7 @@ class Chat:
                 self.say("ferb> Stopped.")
         finally:
             spin.stop()
+            reply.close()
             client.close()
 
 
@@ -370,15 +467,17 @@ def run_tty(connect: Callable[[], Client], verbose: bool = False, speaker: Any =
         return session.prompt(q, multiline=False, key_bindings=None)
 
     from ferb.cli.live_chat import LiveChat
-    chat = LiveChat(connect, sys.stdout, ask, verbose, speaker=speaker, new=new, resume=resume)
     with patch_stdout():
+        # Bind after patching: background final lines must go above the live editor.
+        chat = LiveChat(connect, sys.stdout, ask, verbose, speaker=speaker, new=new, resume=resume)
+        chat.invalidate = session.app.invalidate
         chat.say("FERB — type any time. /tasks lists work; Esc stops the latest task. /quit leaves tasks running.")
         chat.opening()
         threading.Thread(target=_live_reminders, args=(connect, sys.stdout), daemon=True).start()
         while True:
             pastes.clear()
             try:
-                text = session.prompt("you> ", bottom_toolbar=chat.toolbar, refresh_interval=0.1)
+                text = session.prompt("you> ", bottom_toolbar=chat.toolbar_fragments, refresh_interval=0.1)
             except (EOFError, KeyboardInterrupt):
                 return 0
             if text.strip() in ("/quit", "/exit"):
@@ -397,7 +496,8 @@ def reminders(connect: Callable[[], Client], out: TextIO) -> None:
         try:
             for r in c.call("reminders.unseen")["reminders"]:
                 late = f" (due {round(r['overdue_s'] / 60)} min ago)" if (r.get("overdue_s") or 0) >= 60 else ""
-                print(printable(f"\n   ⏰ reminder: {r['message']}{late}"), file=out, flush=True)
+                out.write(printable(f"\n   ⏰ reminder: {r['message']}{late}\n"))
+                out.flush()
         finally:
             c.close()
     except Exception:

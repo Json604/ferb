@@ -50,6 +50,12 @@ class GoogleProvider:
     def http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
         return f"{BASE}/{self.model}:generateContent", {"content-type": "application/json"}, state["body"]
 
+    def stream_http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
+        return f"{BASE}/{self.model}:streamGenerateContent?alt=sse", {"content-type": "application/json"}, state['body']
+
+    def stream_parser(self) -> "GoogleStream":
+        return GoogleStream()
+
     def auth(self, key: str) -> dict[str, str]:
         return {"x-goog-api-key": key}
 
@@ -90,3 +96,36 @@ class GoogleProvider:
                 response["parts"] = [{"inlineData": {"mimeType": r.image["mime"], "data": r.image["data"]}}]
             parts.append({"functionResponse": response})
         state["body"]["contents"].append({"role": "user", "parts": parts})
+
+
+class GoogleStream:
+    """Gemini streams complete candidate chunks; retain signatures and omit thought parts from deltas."""
+    def __init__(self) -> None:
+        self.parts: list[dict[str, Any]] = []
+        self.candidate: dict[str, Any] = {}
+        self.metadata: dict[str, Any] = {}
+
+    def feed(self, event: dict[str, Any]) -> str:
+        if event.get('error'):
+            raise ProviderError('google: the response stream failed')
+        for field in ('usageMetadata', 'promptFeedback'):
+            if field in event:
+                self.metadata[field] = event[field]
+        candidates = event.get('candidates') or []
+        if not candidates:
+            return ''
+        candidate = candidates[0]
+        if candidate.get('index', 0) != 0:
+            return ''
+        self.candidate.update(candidate)
+        parts = (candidate.get('content') or {}).get('parts') or []
+        self.parts.extend(parts)
+        return ''.join(str(part.get('text') or '') for part in parts if not part.get('thought'))
+
+    def finish(self) -> dict[str, Any]:
+        if not self.candidate:
+            return self.metadata
+        if not self.candidate.get('finishReason'):
+            raise ProviderError('google: the response stream ended before completion')
+        content = {**(self.candidate.get('content') or {}), 'parts': self.parts}
+        return {**self.metadata, 'candidates': [{**self.candidate, 'content': content}]}

@@ -1,6 +1,6 @@
 """Owns the pinned Codex CLI adapter and tool containment. Must not select task targets, authorize actions or expose tools outside the registered harness.
 
-CodexRuntime over `codex exec --json` — supervisor and worker modes.
+CodexRuntime: `codex exec --json` for workers; isolated app-server for typed supervisor output streaming.
 
 Tool containment (measured in spikes 1 and 21): pinned Codex 0.157.1 and MODEL below, run without code mode / sub-agents via
 FERB's own model catalog, user config and rules ignored,
@@ -16,8 +16,9 @@ Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
 - supervisor-mode runs (the planner, the answer writer, distillation: no tools) use low reasoning effort and replace
   Codex's built-in instructions with FERB's own (model_instructions_file) — about half the input tokens — and drop
   Codex's environment / permissions / apps / collaboration instruction blocks; tasks (worker mode) are unchanged;
-- a supervisor-mode run ends at Codex's `turn.completed`; the process exits in the background (about 0.6 s saved
-  per turn). Worker runs still wait for the exit, so the tool-list check reads the whole trace."""
+- typed supervisor runs use the pinned app-server in an empty configuration home with an ephemeral thread;
+  final-answer deltas are gated by the observed tool catalog and the complete trace is checked before final output;
+- untyped supervisor exec runs end at `turn.completed`; worker exec runs wait for process exit and its full trace."""
 
 import asyncio
 import json
@@ -155,6 +156,9 @@ class CodexRuntime:
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         system, context = request.system, request.context
         await check_version(self.binary)
+        if self.mode == "supervisor" and self.output_schema is not None:
+            from ferb.runtimes.codex_stream import start
+            return await start(self, task, request)
         self.workdir.mkdir(parents=True, exist_ok=True)
         paths: list[Path] = []
         proc = None
@@ -212,6 +216,11 @@ class CodexRuntime:
             raise
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
+        if run.state.get("app_server"):
+            from ferb.runtimes.codex_stream import events
+            async for event in events(self, run):
+                yield event
+            return
         proc: asyncio.subprocess.Process = run.state["proc"]
         assert proc.stdout is not None and proc.stderr is not None
         watcher = asyncio.create_task(self._watch_trace(run, proc))
@@ -293,6 +302,10 @@ class CodexRuntime:
         raise Unsupported("codex exec runs are one-shot; the supervisor re-sends the chat history each turn")
 
     async def cancel(self, run: RunHandle) -> None:
+        if run.state.get("app_server"):
+            from ferb.runtimes.codex_stream import cancel
+            await cancel(run)
+            return
         proc: asyncio.subprocess.Process = run.state["proc"]
         if proc.returncode is None:
             proc.kill()

@@ -696,3 +696,24 @@ task ID. Voice remains a microphone-off preview. No owner task, OTP success or v
 Frontend changes remain uncommitted in its existing dirty `native-quiet-notch` checkout to preserve the owner's
 work. Its README and `docs/plans/2026-10-11-daemon-connection.md` describe the implemented integration and shipping
 limitations. Public signing/notarization and broader owner acceptance remain pending.
+
+### Concise replies and response streaming — 2026-10-11
+
+The owner requested shorter, relevant natural replies and genuine response streaming. Concise prompt/report
+changes passed all 1,813 selected offline tests in six disjoint file shards, plus core mypy and compilation.
+Requested deliverable depth, exact approval scope, failures/unknowns, full evidence and the verified marker remain.
+No new output cap, truncation, rewrite model call or external writing skill was added.
+
+Streaming uses genuine provider fragments for pure conversational replies/clarifications. Action receipts and
+task results stay buffered through execution and verification. Native and terminal clients label provisional
+text, replace it with the canonical answer, and mark aborted/disconnected drafts interrupted. Only final answers
+are spoken or treated as completed. Offline fixtures cover early delivery while generation is held, cross-chunk
+secret redaction, forged FERB labels, malformed/failed streams, final replacement and cancellation.
+
+The pinned Codex binary completed initialize/account/read/thread/start using the new isolated transport without
+a turn/start or model call; its reported subscription, model, sandbox and instruction-source settings matched.
+This checks local protocol compatibility, not live generation. No running daemon or app was restarted for these
+changes. After installing, owner checks remain: a normal conversational answer visibly grows before completion;
+typing a second message stays usable; task results retain verification; interruption leaves no false completion;
+the same behavior appears in the native transcript. Concise meal-comparison/account-clarification replies should
+retain the requested facts and question while dropping repeated task summaries.

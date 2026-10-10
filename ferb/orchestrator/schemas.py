@@ -91,7 +91,6 @@ SCHEDULE_CHANGE_SCHEMA = _obj({"id": {"type": "string"},
 REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "string"}})
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
-    "text": {"type": "string"},
     "answer_question": {"anyOf": [{"type": "null"}, _obj({"approval_id": {"type": "string"},
                          "quote": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
@@ -107,6 +106,7 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "notification_rules": {"type": "array", "items": _obj({"app": {"type": "string"},
         "conversation": _nullable("string"), "topic": _nullable("string"), "until_at": _nullable("string"),
         "exceptions": _strings(), "quote": {"type": "string"}})},
+    "text": {"type": "string"},
 })
 
 WORKER_SCHEMA: dict[str, Any] = _obj({

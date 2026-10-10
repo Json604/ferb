@@ -166,7 +166,7 @@ class WorkerRuns:
         return result, worker_id
 
     async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str, parent_span: str,
-                   tree: "_Tree" | None, worker_id: str) -> str:
+                   tree: "_Tree" | None, worker_id: str, *, on_delta: Callable[[str], None] | None = None) -> str:
         tool_schemas = self.gateway.tools_for(self.tokens.validate(token)) if token else []
         output_schema = getattr(rt, "output_schema", None)
         parts, cacheable = assemble_parts(ctx, budget_tokens=self.context_budget_tokens,
@@ -190,7 +190,10 @@ class WorkerRuns:
             async for ev in rt.events(run):
                 if worker_id:
                     self.activity.beat(worker_id)
-                if ev.kind == "usage":
+                if ev.kind == "text_delta":
+                    if on_delta is not None:
+                        on_delta(str(ev.data.get('text', '')))
+                elif ev.kind == "usage":
                     s = self.spans.start("model.usage", task_id=task.id if task.id != task.request_id else None,
                                          parent_id=parent_span, input={"runtime": rt.name})
                     self.spans.finish(s, output=dict(ev.data), cost_usd=ev.data.get("cost_usd"))            # traced, never limited

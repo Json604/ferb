@@ -136,6 +136,11 @@ or a next step when needed. Detailed evidence stays in the report/trace. Ask for
 documents and substantive answers retain their full depth. There is no word cap or automatic answer truncation.
 When a task needs your answer, its question appears before the remaining-work details.
 
+Conversational replies appear progressively as a provisional draft in chat and the native app. The final reply
+replaces that draft; a failed or disconnected stream is marked interrupted. You can keep typing in terminal chat
+while the draft grows. Action confirmations and task results still wait for execution and verification. Secret
+redaction applies across fragments, and only the final reply is spoken by `--speak`.
+
 A task ends in one of three results, each its own status:
 - **done**: every condition was checked and confirmed. `ferb trace` heads the story `done ✓ verified`.
 - **done, but not confirmed** (`done_unverified`): the work finished and the check found nothing wrong, but couldn't

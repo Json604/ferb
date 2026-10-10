@@ -88,6 +88,27 @@ their required depth. There is no output word cap, string truncation, separate r
 verbosity change. `_report` puts an outstanding owner question first while retaining every condition, evidence
 detail, uncertainty, checking instruction and artifact.
 
+Conversational text streams through `RuntimeEvent.text_delta`, `WorkerRuns._run`'s planner-only callback and
+`orchestrator/reply_stream.py`. The incremental JSON reader requires every non-text supervisor field first and
+permits only reply/clarify with no pending action/control payload. `text` is last in the schema and prompt.
+`Redactor.stream()` holds incomplete secret patterns across chunks; the D33 line guard withholds ambiguous line
+prefixes before marking forged FERB labels. A queue delivers `reply_delta` to the existing chat socket while the
+model is still running. Invalid/cancelled drafts emit `reply_abort`; complete schema validation and the canonical
+reply remain authoritative. Repairs and action-bearing turns stay buffered; worker/checker outputs never publish
+through this callback. See `docs/RPC.md` for client replacement/interruption semantics.
+
+Codex schema-bearing supervisor turns use the pinned app-server's final-answer delta protocol in a disposable
+configuration home and ephemeral thread; workers retain `codex exec`. Subscription identity, isolated instructions,
+read-only sandbox and observed tool catalog are checked. Claude SDK streams only its StructuredOutput carrier;
+direct OpenAI, Anthropic and Google supervisor calls assemble provider SSE events through their existing final
+parsers. Provider errors, incomplete streams and transport cancellation cannot certify a draft. An emitted draft
+prevents an adapter from silently retrying and concatenating a second answer.
+
+The disposable Codex supervisor copies only FERB's subscription auth, then saves refreshed credentials atomically
+only while the source still matches the starting snapshot. Changed source credentials win. As with independent
+Codex processes writing the shared auth file, this comparison is not a filesystem compare-and-swap: a separate
+worker refresh can race the final comparison/replacement. No auth bytes enter diagnostics or traces.
+
 As built in F1: chat history (`HISTORY_TOKENS` 12000) and resumable attempts (`ATTEMPTS_TOKENS` 2000) keep their newest
 entries whole (`ferb/orchestrator/supervisor.py`): history is listed oldest first with an omission note, attempts
 newest first with a note about the older ones. Blocks are ordered stable first: device facts (installed apps), then

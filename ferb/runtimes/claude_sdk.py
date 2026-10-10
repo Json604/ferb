@@ -51,6 +51,7 @@ class ClaudeRuntime:
             setting_sources=[],
             strict_mcp_config=True, plugins=[], agents=None, skills=None, mcp_servers=mcp, env=env,
             model=self.model,
+            include_partial_messages=self.mode == 'supervisor' and self.output_schema is not None,
             extra_args={"no-session-persistence": None},   # no transcript (tool results, screenshots) on disk
             output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)
 
@@ -71,7 +72,9 @@ class ClaudeRuntime:
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
         from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, ToolUseBlock
+        from claude_agent_sdk.types import StreamEvent
         client = run.state["client"]
+        structured_blocks: set[int] = set()
         async for m in client.receive_response():
             if isinstance(m, SystemMessage) and m.subtype == "init":
                 if m.data.get("apiKeySource", "none") != "none":
@@ -80,6 +83,24 @@ class ClaudeRuntime:
                                                              "only the subscription login is allowed"})
                     return
                 run.state["checked_auth"] = True
+            elif isinstance(m, StreamEvent):
+                # The SDK's typed result is a StructuredOutput tool payload, not ordinary assistant commentary.
+                if not run.state.get('checked_auth') or m.parent_tool_use_id is not None:
+                    continue
+                event = m.event
+                kind = event.get('type')
+                if kind == 'message_start':
+                    structured_blocks.clear()
+                elif kind == 'content_block_start':
+                    block = event.get('content_block') or {}
+                    if block.get('type') == 'tool_use' and block.get('name') == STRUCTURED_OUTPUT:
+                        structured_blocks.add(event['index'])
+                elif kind == 'content_block_delta' and event.get('index') in structured_blocks:
+                    delta = event.get('delta') or {}
+                    if delta.get('type') == 'input_json_delta' and delta.get('partial_json'):
+                        yield RuntimeEvent('text_delta', {'text': delta['partial_json']})
+                elif kind == 'content_block_stop':
+                    structured_blocks.discard(event.get('index'))
             elif isinstance(m, AssistantMessage):
                 for b in m.content:
                     if isinstance(b, ToolUseBlock):

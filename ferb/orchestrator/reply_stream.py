@@ -1,0 +1,181 @@
+"""Provisional owner text from a pure conversational planner response.
+
+Raw structured fragments stay in memory. Action-bearing and reordered responses
+remain final-only; malformed drafts are withdrawn. Worker reports and reasoning never enter this path.
+"""
+import json
+import unicodedata
+from typing import Any, Callable
+
+from ferb.orchestrator.schemas import SUPERVISOR_SCHEMA
+from ferb.policy.confirm import from_task
+from ferb.sanitize.redact import Redactor
+
+
+class _LineGuard:
+    """Apply D33 before publishing any prefix that could impersonate FERB."""
+
+    def __init__(self) -> None:
+        self.prefix = ''
+        self.started = False
+
+    def feed(self, text: str, final: bool = False) -> str:
+        out = []
+        for part in text.splitlines(keepends=True):
+            if self.started:
+                out.append(part)
+            else:
+                self.prefix += part
+                letters = ''.join(c for c in unicodedata.normalize('NFKC', self.prefix) if c.isalnum())
+                if len(letters) >= 4 or '\n' in part:
+                    out.append(from_task(self.prefix))
+                    self.prefix = ''
+                    self.started = True
+            if part.endswith('\n'):
+                self.started = False
+        if final and self.prefix:
+            out.append(from_task(self.prefix))
+            self.prefix = ''
+        return ''.join(out)
+
+
+def _character(raw: str, pos: int) -> tuple[str, int] | None:
+    char = raw[pos]
+    if char != '\\':
+        if ord(char) < 32 or 0xD800 <= ord(char) <= 0xDFFF:
+            raise ValueError('invalid JSON string character')
+        return char, 1
+    if len(raw) < pos + 2:
+        return None
+    size = 6 if raw[pos + 1] == 'u' else 2
+    if len(raw) < pos + size:
+        return None
+    value = json.loads('"' + raw[pos:pos + size] + '"')
+    if len(value) == 1 and 0xD800 <= ord(value) <= 0xDBFF:
+        if len(raw) < pos + 12:
+            return None
+        low = raw[pos + 6:pos + 12]
+        if not low.startswith('\\u') or not 0xDC00 <= int(low[2:], 16) <= 0xDFFF:
+            raise ValueError('invalid JSON surrogate pair')
+        return json.loads('"' + raw[pos:pos + 12] + '"'), 12
+    if len(value) == 1 and 0xDC00 <= ord(value) <= 0xDFFF:
+        raise ValueError('unpaired JSON surrogate')
+    return value, size
+
+
+class ReplyDraft:
+    def __init__(self, redactor: Redactor, emit: Callable[[dict[str, Any]], None]) -> None:
+        self.emit = emit
+        self.redaction = redactor.stream()
+        self.lines = _LineGuard()
+        self.raw = ''
+        self.pos = 0
+        self.state = 'opening'
+        self.metadata: dict[str, Any] = {}
+        self.key = ''
+        self.visible = False
+        self.closed = False
+
+    def _publish(self, text: str, *, final: bool = False) -> None:
+        safe = self.redaction.feed(text.encode('utf-8'), final=final).decode('utf-8')
+        guarded = self.lines.feed(safe, final=final)
+        if guarded:
+            self.visible = True
+            self.emit({'type': 'reply_delta', 'text': guarded})
+
+    def _eligible(self) -> bool:
+        expected = set(SUPERVISOR_SCHEMA['properties']) - {'text'}
+        return (set(self.metadata) == expected and self.metadata.get('kind') in ('reply', 'clarify')
+                and all(value is None or value == [] for key, value in self.metadata.items() if key != 'kind'))
+
+    def feed(self, fragment: str) -> None:
+        if self.closed:
+            return
+        self.raw += fragment
+        try:
+            decoded = self._read()
+            if not self.closed:
+                self._publish(decoded)
+        except (ValueError, TypeError):
+            self.abort()
+
+    def _read(self) -> str:
+        decoder = json.JSONDecoder()
+        decoded_text: list[str] = []
+        while self.pos < len(self.raw):
+            if self.state != 'text' and self.raw[self.pos].isspace():
+                self.pos += 1
+                continue
+            char = self.raw[self.pos]
+            if self.state == 'opening':
+                if char != '{':
+                    raise ValueError('expected object')
+                self.state = 'key'
+            elif self.state == 'key':
+                try:
+                    key, end = decoder.raw_decode(self.raw, self.pos)
+                except json.JSONDecodeError:
+                    return ''.join(decoded_text)
+                if not isinstance(key, str) or key in self.metadata or key not in SUPERVISOR_SCHEMA['properties']:
+                    raise ValueError('unexpected or repeated key')
+                self.key, self.pos, self.state = key, end, 'colon'
+                continue
+            elif self.state == 'colon':
+                if char != ':':
+                    raise ValueError('expected colon')
+                self.state = 'value'
+            elif self.state == 'value':
+                if self.key == 'text':
+                    if char != '"' or not self._eligible():
+                        self.abort()
+                        return ''
+                    self.state = 'text'
+                else:
+                    try:
+                        value, end = decoder.raw_decode(self.raw, self.pos)
+                    except json.JSONDecodeError:
+                        return ''.join(decoded_text)
+                    self.metadata[self.key] = value
+                    self.pos, self.state = end, 'separator'
+                    continue
+            elif self.state == 'separator':
+                if char != ',':
+                    raise ValueError('expected next field')
+                self.state = 'key'
+            elif self.state == 'text':
+                if char == '"':
+                    self.state = 'closing'
+                else:
+                    decoded = _character(self.raw, self.pos)
+                    if decoded is None:
+                        return ''.join(decoded_text)
+                    value, size = decoded
+                    decoded_text.append(value)
+                    self.pos += size
+                    continue
+            elif self.state == 'closing':
+                if char != '}':
+                    raise ValueError('text must be last')
+                self.state = 'complete'
+            else:
+                raise ValueError('trailing content')
+            self.pos += 1
+        return ''.join(decoded_text)
+
+    def finish(self, validated_final: str) -> None:
+        if self.closed:
+            return
+        try:
+            matches = self.state == 'complete' and json.loads(self.raw) == json.loads(validated_final)
+        except ValueError:
+            matches = False
+        if not matches:
+            self.abort()
+            return
+        self._publish('', final=True)
+        self.closed = True
+
+    def abort(self) -> None:
+        if not self.closed and self.visible:
+            self.emit({'type': 'reply_abort', 'reason': 'The draft was interrupted; wait for the final reply.'})
+        self.closed = True

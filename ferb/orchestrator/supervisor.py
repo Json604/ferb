@@ -30,6 +30,8 @@ from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal
 from ferb.orchestrator.continuity import Continuity
+from ferb.orchestrator.reply_stream import ReplyDraft
+from ferb.sanitize.redact import Redactor
 from ferb.orchestrator.plans import Step, inventory, problems as plan_problems
 from ferb.orchestrator.plan_store import PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
@@ -268,10 +270,10 @@ class Supervisor(WorkerRuns):
         return spec.targets.targets([normalize_path(p, self.workspace) for p in spec.targets.paths])
 
     async def _decide(self, session: ChatSession, message: str, request_id: str,
-                      recalled: Any = "") -> SupervisorOutcome:
+                      recalled: Any = "", *, emit: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
         """Repair an invalid task reference without inferring task intent or account permission."""
         try:
-            out = await self._supervise(session, message, request_id, recalled)
+            out = await self._supervise(session, message, request_id, recalled, emit=emit)
         except ValidationError as exc:
             problems = [str(exc)]
             self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
@@ -460,8 +462,20 @@ class Supervisor(WorkerRuns):
         self._env[request_id] = {**env, "words": words, "payload": payload,
                                  "input_paths": paths,
                                  "message_origin": origins_.split(entry.origin) | asked | carried, "message_source_ref": "journal:" + entry.id}
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        decision = asyncio.create_task(self._decide(session, payload, request_id, recalled, emit=queue.put_nowait))
+        decision.add_done_callback(lambda _: queue.put_nowait(None))
         try:
-            out = await self._decide(session, payload, request_id, recalled)
+            try:
+                while (draft_event := await queue.get()) is not None:
+                    yield draft_event
+                out = await decision
+            finally:
+                if not decision.done():
+                    decision.cancel()
+                # Retrieve an already-failed decision too: a consumer may close at a yielded draft event.
+                # Unretrieved task exceptions can otherwise bypass the redacted trace through asyncio's logger.
+                await asyncio.gather(decision, return_exceptions=True)
         except RuntimeViolation as e:
             self.journal.append("chat.failed", {"request_id": request_id, "why": str(e)})
             self._env.pop(request_id, None)
@@ -584,7 +598,7 @@ class Supervisor(WorkerRuns):
                                 origin=origins_.join({origins_.INFERRED} | turn_origins))
             self._env.pop(request_id, None)
             # D33: only FERB's own checks start with "FERB:"; a planner's line that does is marked as the task's
-            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": confirm.from_task_lines(out.text)}
+            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": confirm.from_task_lines(self.gateway.redact(out.text))}
             return
         if authority_id == request_id:
             self.state.requests.record(Request(request_id, authority, self._targets(out.task), payload=payload,
@@ -599,7 +613,8 @@ class Supervisor(WorkerRuns):
             self._env.pop(authority_id, None)
 
     async def _supervise(self, session: ChatSession, message: str, request_id: str,
-                         remembered: Any = "", repair: list[str] | None = None) -> SupervisorOutcome:
+                         remembered: Any = "", repair: list[str] | None = None, *,
+                         emit: Callable[[dict[str, Any]], None] | None = None) -> SupervisorOutcome:
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
         recent, ages, history_origins = self._recent(request_id, session.id, max_tokens=None)
         mem_text, mem_ages = self.recall_items(remembered)
@@ -668,12 +683,18 @@ class Supervisor(WorkerRuns):
                          [], None)
         span = self.spans.start("model.turn", task_id=None, input={"role": "supervisor", "request_id": request_id,
                                                                    "repair": bool(repair)})
+        draft = ReplyDraft(self.gateway.redact, emit) if emit is not None and isinstance(self.gateway.redact, Redactor) else None
         try:
-            final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "")
+            final = await self._run(rt, chat_task, self._system("supervisor.md"), ctx, "", span.id, None, "",
+                                    **({'on_delta': draft.feed} if draft else {}))
             result = SupervisorOutcome.model_validate_json(final)
+            if draft:
+                draft.finish(final)
             self.spans.finish(span, output={"text": final})
             return result
         except BaseException as exc:
+            if draft:
+                draft.abort()
             self.spans.finish(span, output={"text": locals().get("final", "")}, error=f"{type(exc).__name__}: {exc}")
             raise
 

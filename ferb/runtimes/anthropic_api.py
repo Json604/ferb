@@ -12,6 +12,7 @@ Verified 2026-10-07 (https://platform.claude.com/docs/en/build-with-claude/promp
 - only end_turn, tool_use and stop_sequence are complete turns; refusal, pause_turn (FERB enables no server tools) and
   model_context_window_exceeded are errors."""
 
+import json
 from typing import Any
 
 from ferb.core.types import Capabilities, ModelRequest
@@ -57,6 +58,13 @@ class AnthropicProvider:
     def http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
         return URL, {"anthropic-version": VERSION, "content-type": "application/json"}, state["body"]
 
+    def stream_http(self, state: dict[str, Any]) -> tuple[str, dict[str, str], dict[str, Any]]:
+        url, headers, body = self.http(state)
+        return url, headers, {**body, 'stream': True}
+
+    def stream_parser(self) -> "AnthropicStream":
+        return AnthropicStream()
+
     def auth(self, key: str) -> dict[str, str]:
         return {"x-api-key": key}
 
@@ -85,3 +93,59 @@ class AnthropicProvider:
                                                             "data": r.image["data"]}})
             blocks.append({"type": "tool_result", "tool_use_id": r.call.id, "content": content, "is_error": r.is_error})
         state["body"]["messages"].append({"role": "user", "content": blocks})
+
+
+class AnthropicStream:
+    """Assemble indexed Messages blocks without forwarding thinking or tool arguments as answer text."""
+    def __init__(self) -> None:
+        self.message: dict[str, Any] | None = None
+        self.blocks: dict[int, dict[str, Any]] = {}
+        self.arguments: dict[int, str] = {}
+        self.stopped = False
+
+    def feed(self, event: dict[str, Any]) -> str:
+        kind = event.get('type')
+        if kind == 'message_start':
+            self.message = dict(event['message'])
+        elif kind == 'content_block_start':
+            started = dict(event['content_block'])
+            self.blocks[event['index']] = started
+            return str(started.get('text') or '') if started.get('type') == 'text' else ''
+        elif kind == 'content_block_delta':
+            index, delta = event['index'], event['delta']
+            block = self.blocks.get(index)
+            if block is None:
+                raise ProviderError('anthropic: a response fragment had no content block')
+            delta_type = delta.get('type')
+            if delta_type == 'text_delta' and block.get('type') == 'text':
+                text = str(delta.get('text') or '')
+                block['text'] = block.get('text', '') + text
+                return text
+            if delta_type == 'thinking_delta':
+                block['thinking'] = block.get('thinking', '') + str(delta.get('thinking') or '')
+            elif delta_type == 'signature_delta':
+                block['signature'] = block.get('signature', '') + str(delta.get('signature') or '')
+            elif delta_type == 'input_json_delta':
+                self.arguments[index] = self.arguments.get(index, '') + str(delta.get('partial_json') or '')
+            elif delta_type == 'citations_delta':
+                block.setdefault('citations', []).append(delta.get('citation'))
+        elif kind == 'content_block_stop':
+            index = event['index']
+            if index in self.arguments:
+                try:
+                    self.blocks[index]['input'] = json.loads(self.arguments[index])
+                except ValueError:
+                    raise ProviderError('anthropic: streamed tool arguments were not JSON') from None
+        elif kind == 'message_delta' and self.message is not None:
+            self.message.update(event.get('delta') or {})
+            self.message.setdefault('usage', {}).update(event.get('usage') or {})
+        elif kind == 'message_stop':
+            self.stopped = True
+        elif kind == 'error':
+            raise ProviderError('anthropic: the response stream failed')
+        return ''
+
+    def finish(self) -> dict[str, Any]:
+        if self.message is None or not self.stopped:
+            raise ProviderError('anthropic: the response stream ended before completion')
+        return {**self.message, 'content': [self.blocks[index] for index in sorted(self.blocks)]}

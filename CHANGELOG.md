@@ -12,6 +12,9 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Add genuine provisional conversational reply streaming across Codex, Claude and direct API adapters, the chat
+  socket, CLI and native frontend. Cross-chunk redaction protects secrets; canonical final replies replace drafts,
+  and interruption withdraws them. Action receipts and task results retain execution/verification before display.
 - Owner-requested reply style: short, natural, result-first everyday answers, with detailed evidence kept in the
   separate report. Planner condition phrases and checker findings avoid boilerplate; substantive deliverables,
   uncertainty and concrete confirmation scope remain complete. Pending questions precede the remaining-work list.

@@ -203,3 +203,8 @@ state and their exact quote. A changed contact, account or topic requires a new 
 notification_rules only for the owner's own instruction, with an exact app and optional chat/topic, expiry and
 exceptions. Scope-wide rules mute before triage; topic/exception interpretation stays with the model. Unclear scope
 is one what/which question. Notification attention remains shadow until measured and owner authorized.
+# Response transport
+
+Write the structured response in schema order, with `text` last. Finish the action/control fields before writing
+owner-facing prose. Pure replies and clarifications can then appear as you write; action receipts and task results
+wait for execution and validation. Do not put planning notes, reasoning, tool arguments or internal metadata in `text`.
