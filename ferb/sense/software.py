@@ -1,5 +1,4 @@
 """Inspect installed-software facts without launching it or assigning intent. Interpretation belongs to FERB."""
-import os
 import plistlib
 import sqlite3
 import subprocess
@@ -76,8 +75,16 @@ def login_items(path: Path, bundle_id: str, run: Callable[..., Any] = subprocess
             "association": "exact app or parent identifier, or path inside app bundle; not proof of installer causation"}
 
 
+def read_xattr(path: Path, name: str) -> bytes:
+    """macOS Python does not expose os.getxattr; the system utility preserves binary attributes as hex."""
+    result = subprocess.run(['/usr/bin/xattr', '-px', name, str(path)], capture_output=True)
+    if result.returncode:
+        raise OSError('extended attribute unavailable')
+    return bytes.fromhex(result.stdout.decode('ascii'))
+
+
 def app_security_facts(path: Path, bundle_id: str, *, run: Callable[..., Any] = subprocess.run,
-                       xattr: Callable[..., bytes] = os.getxattr, privacy: Callable[..., Any] = privacy_facts,
+                       xattr: Callable[..., bytes] = read_xattr, privacy: Callable[..., Any] = privacy_facts,
                        jobs: Callable[..., Any] = associated_jobs) -> dict[str, Any]:
     def command(args: list[str]) -> tuple[int, bytes, bytes]:
         try:

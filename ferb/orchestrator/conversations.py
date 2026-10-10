@@ -1,4 +1,6 @@
 """Durable delegated conversations. Observations can wake work, never create its authority."""
+from __future__ import annotations
+
 import asyncio
 import json
 from typing import Any, Callable, Literal

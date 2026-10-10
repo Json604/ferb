@@ -184,6 +184,7 @@ class Supervisor(WorkerRuns):
         self.procedure_context: Callable[[str], str] = lambda words: ''
         self.memory_candidates: Callable[[str], list[dict[str, Any]]] | None = None
         self.procedure_details: Callable[[str, Task], str] = lambda procedure_id, task: ''
+        self.procedure_source: Callable[[str], dict[str, Any]] = lambda ident: {}
         self.identity_context: Callable[[], str] = lambda: ''
         self.on_episode: Callable[[str], None] = lambda task_id: None
         self.procedure_outcome: Callable[[str, str], None] = lambda procedure_id, task_id: None
@@ -1457,8 +1458,11 @@ class Supervisor(WorkerRuns):
             parts.append(ContextBlock('Layer 6 — current plan step and handed results (data):\n' +
                          wrap_untrusted(tree.step_context), 'task.evidence', protected=True))
         if spec.procedure_id:
-            parts.append(self._source_block(tree, 'Selected procedure (data; check applicability and verify each step)',
-                         self.procedure_details(spec.procedure_id, tree.worker), origins_.external('procedure')))
+            source = self.procedure_source(spec.procedure_id)
+            labels = set(source.get('origins', ())) | {origins_.external('procedure')}
+            block = self._source_block(tree, 'Selected procedure (data; check applicability and verify each step)',
+                                       self.procedure_details(spec.procedure_id, tree.worker), origins_.join(labels))
+            parts.append(dataclasses.replace(block, source_refs=tuple([spec.procedure_id, *source.get('sources', ())])))
         if spec.plan:
             parts.append(ContextBlock('Layer 6 — durable plan state (data):\n' + wrap_untrusted(
                          json.dumps(self.plans.steps(tree.id))), 'task.evidence', protected=True))

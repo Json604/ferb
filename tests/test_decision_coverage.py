@@ -19,3 +19,10 @@ def test_every_decided_id_has_a_registry_entry_with_a_milestone() -> None:
     assert not missing, f"Decided IDs with no registry entry: {missing}"
     no_milestone = sorted(i for i in ids if not registry.get(i, {}).get("milestone"))
     assert not no_milestone, f"Decided IDs with no milestone: {no_milestone}"
+
+
+def test_every_registry_test_is_a_real_file() -> None:
+    registry = tomllib.loads(REGISTRY.read_text())
+    missing = [(ident, test) for ident, row in registry.items() for test in row.get('tests', [])
+               if not (REGISTRY.parents[1] / test).is_file()]
+    assert not missing, f'Registry points at absent tests: {missing}'

@@ -57,3 +57,15 @@ def test_persona_confirmation_is_once_and_preserves_the_owners_edit(tmp_path: Pa
     setup_persona(env, config, profile, client, usage=lambda apps: [])
     assert len(calls) == 1 and calls[0][1]['content'] == 'I code and make music'
     assert config.get('setup', 'persona_reviewed') and '3733' in messages[0]
+
+
+def test_macos_binary_xattr_uses_argument_vector(monkeypatch, tmp_path):
+    import ferb.sense.software as software
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout=b'62 70 6c 69 73 74 00 0a\n')
+    monkeypatch.setattr(software.subprocess, 'run', run)
+    path = tmp_path / 'Owner tool.app'
+    assert software.read_xattr(path, 'com.apple.metadata:kMDItemWhereFroms') == b'bplist\x00\n'
+    assert calls == [['/usr/bin/xattr', '-px', 'com.apple.metadata:kMDItemWhereFroms', str(path)]]

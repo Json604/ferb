@@ -972,6 +972,7 @@ class Daemon:
             self.supervisor.procedure_context = self._learning_context
             self.supervisor.memory_candidates = self._learning_candidates
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
+            self.supervisor.procedure_source = lambda ident: self.learning.get(ident) or {}
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome

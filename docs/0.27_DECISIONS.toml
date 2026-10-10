@@ -208,7 +208,7 @@ summary = "Jev batcher: send at ~10k tokens, a time limit or an interrupting eve
 
 [P2]
 milestone = "F5"
-tests = ["tests/test_jev.py", "tests/test_decide.py"]
+tests = ["tests/test_decide.py"]
 summary = "Drop Jev's trail.sensitive question once code redaction covers the secret classes"
 
 [P3]
