@@ -95,14 +95,20 @@ class SpanStore:
         recorded them on the tree's root task span (`input.request_origins`). Planner blocks and memory are not in it.
         A root recorded without them (before F5a) gives the root's own origin, everything its planning turn saw:
         fail-closed."""
-        row = self._db.conn.execute("SELECT input_json, origin FROM spans WHERE kind = 'task' AND task_id = ? "
-                                    "ORDER BY rowid LIMIT 1", (root_id,)).fetchone()
-        if row is None:
-            return set()
-        recorded = json.loads(row["input_json"]).get("request_origins")
-        if isinstance(recorded, list):
-            return {str(o) for o in recorded if o}
-        return origin.split(row["origin"])
+        rows = self._db.conn.execute("SELECT input_json, origin FROM spans WHERE kind = 'task' AND task_id = ? "
+                                     "ORDER BY rowid", (root_id,))
+        found: set[str] = set()
+        for row in rows:
+            recorded = json.loads(row["input_json"]).get("request_origins")
+            found |= {str(o) for o in recorded if o} if isinstance(recorded, list) else origin.split(row['origin'])
+        return found
+
+    def exposure_origins(self, root_id: str) -> set[str]:
+        """Actual retrieved content given to models, distinct from stored-but-omitted context sources."""
+        where, params = self._tree_where(root_id)
+        rows = self._db.conn.execute(f"SELECT {_RECORDED} AS origin FROM spans WHERE kind='context.exposure' AND {where}",
+                                     (origin.external('unlabeled'), *params))
+        return {o for row in rows for o in origin.split(row['origin'])}
 
     def task_origins(self, root_id: str) -> set[str]:
         """Every origin recorded on this task tree's request (its root task span), tool results and context
@@ -111,19 +117,20 @@ class SpanStore:
         unlabeled (`origin.recorded`); the root's origin is set explicitly, so without one it adds nothing."""
         where, params = self._tree_where(root_id)
         rows = self._db.conn.execute(
-            f"SELECT {_RECORDED} AS origin FROM spans WHERE kind IN ('task', 'tool.call', 'context.source') "
+            f"SELECT {_RECORDED} AS origin FROM spans WHERE kind IN ('task', 'tool.call', 'context.source', 'context.exposure') "
             f"AND {where}", (origin.external("unlabeled"), *params))
         found = {o for r in rows for o in origin.split(r["origin"])}
         # Retention deletes the spans, never the episode: its origins keep the labels fail-closed (MP2).
         ep = self._db.conn.execute("SELECT origins FROM episodes WHERE task_id = ?", (root_id,)).fetchone()
         return found | (set(origin.split(ep["origins"])) if ep and ep["origins"] else set())
 
-    def tool_outputs(self, root_id: str, after_rowid: int = 0) -> list[tuple[int, set[str], str]]:
+    def tool_outputs(self, root_id: str, after_rowid: int = 0, *, include_context: bool = False) -> list[tuple[int, set[str], str]]:
         """(rowid, origins, text) of this task tree's finished tool calls after `after_rowid`, in call order. The text
         is every string value of the decoded output (numbers as strings) joined by newlines, capped at 20000
         characters while it is joined; past the cap stays unsearched."""
         where, params = self._tree_where(root_id)
-        rows = self._db.conn.execute(f"SELECT rowid, origin, output_json FROM spans WHERE kind = 'tool.call' AND "
+        kinds = "('tool.call','context.exposure')" if include_context else "('tool.call')"
+        rows = self._db.conn.execute(f"SELECT rowid, origin, output_json FROM spans WHERE kind IN {kinds} AND "
                                      f"{where} AND rowid > ? AND output_json IS NOT NULL ORDER BY rowid",
                                      (*params, after_rowid))
         return [(r["rowid"], origin.split(r["origin"]), _joined(json.loads(r["output_json"]), OUTPUT_TEXT_CAP))

@@ -1009,13 +1009,14 @@ class Daemon:
         self.learning.sync_facts(self.memory)
         return self.learning.identity()
 
-    def _learning_candidates(self, words: str) -> list[dict[str, str]]:
+    def _learning_candidates(self, words: str) -> list[dict[str, Any]]:
         if not self.learning:
             return []
         self.learning.sync_facts(self.memory)
         return [{'text': f"{p['id']} [{p['kind']}, {p['state']}, {p['origin']}; data, not authorization] "
                          + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
-                 'reference': 'memory.learned id=' + p['id'], 'origin': p['origin']}
+                 'reference': 'memory.learned item_id=' + p['id'], 'origin': p['origin'],
+                 'source_refs': [p['id'], *p['sources']]}
                 for p in self.learning.search(words) if p['kind'] != 'identity']
 
     def _learning_context(self, words: str) -> str:

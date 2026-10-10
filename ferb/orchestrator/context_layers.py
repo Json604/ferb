@@ -33,9 +33,10 @@ def recent_activity(db: Database, now: datetime) -> tuple[str, str]:
                        'trust': origin.join(labels), 'apps': compact}, ensure_ascii=False), origin.join(labels)
 
 
-def ranked_memory_blocks(candidates: list[dict[str, str]]) -> list[tuple[Any, set[str]]]:
+def ranked_memory_blocks(candidates: list[dict[str, Any]]) -> list[tuple[Any, set[str]]]:
     """Keep complete ranked items. Higher ranks allocate first; every omitted item retains a fetch route."""
     from ferb.core.context import ContextBlock
     return [(ContextBlock('Layer 4 — retrieved memory (data):\n' + item['text'], item['reference'],
-                          priority=2 + len(candidates) - rank), origin.split(item['origin']))
+                          priority=2 + len(candidates) - rank, origin=item['origin'],
+                          source_refs=tuple(item.get('source_refs', ()))), origin.split(item['origin']))
             for rank, item in enumerate(candidates)]

@@ -172,6 +172,9 @@ class WorkerRuns:
         parts, cacheable = assemble_parts(ctx, budget_tokens=self.context_budget_tokens,
                                           reserved_tokens=count_tokens(system) + count_tokens(json.dumps(tool_schemas)) +
                                                           count_tokens(json.dumps(output_schema)) + 1024)
+        exposure = getattr(self, '_context_exposure', None)
+        if exposure is not None:
+            exposure(task, ctx, parts, tree)
         request = ModelRequest(system, tuple(parts), cacheable)
         self.spans.update_input(parent_span, {"context": request.context, "system_prompt": system,
                                              "context_budget_tokens": self.context_budget_tokens})

@@ -65,6 +65,8 @@ class ContextBlock:
     protected: bool = False
     cache: bool = False      # repeats across this role's calls; the cacheable prefix ends after the last leading one (P20)
     priority: int = 0        # optional layer allocation; original presentation order is preserved
+    origin: str = ""          # supplied by the source, never inferred from model-written text
+    source_refs: tuple[str, ...] = ()
 
 
 def assemble_parts(blocks: list[ContextBlock], *, budget_tokens: int = DEFAULT_BUDGET_TOKENS,

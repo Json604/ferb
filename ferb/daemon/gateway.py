@@ -504,7 +504,7 @@ class Gateway:
     def _outside_read(self, root: str) -> bool:
         """Whether this tree has read outside content: an outside tool result (a shell command's output included, S3)
         or the request's own outside parts (Q3, the shell's gate)."""
-        return any(origin.is_external(o) for o in self.spans.tool_origins(root) | self.spans.request_origins(root))
+        return any(origin.is_external(o) for o in (self.spans.tool_origins(root) | self.spans.exposure_origins(root)) | self.spans.request_origins(root))
 
     async def sni_enforced(self, proc_id: str) -> bool:
         """For the proxy (on the loop): whether to hold a CONNECT's TLS ClientHello and enforce its SNI (S4). True
@@ -577,7 +577,7 @@ class Gateway:
         kept under outside content (its external origins) and/or the owner's own data (origin.PRIVATE)."""
         known = self._outside.setdefault(root, OutsideTexts())
         running = self.spans.first_open_tool_call(root, known.floor)
-        for rowid, origins, text in self.spans.tool_outputs(root, known.floor):
+        for rowid, origins, text in self.spans.tool_outputs(root, known.floor, include_context=True):
             if rowid in known.seen:
                 continue
             known.seen.add(rowid)
@@ -807,11 +807,11 @@ class Gateway:
                          sources: dict[str, list[str]], ident: tuple[str, str] | None = None) -> Covered:
         """D23 floor, D33, S4: whether this call may run as far as the owner is concerned. The needs come from facts
         (confirm.decide): the kinds, the targets' provenance, what this tree has read (its own tool results and the
-        request's pasted parts; planner blocks and memory don't count), the known destinations. An answer recorded in
+        request's pasted parts and content actually retrieved into model context), the known destinations. An answer recorded in
         this tree covers its need (a No refuses); the rest are asked at once, in one question, while nothing is held.
         One question at a time per tree, so two workers' identical calls ask once."""
         root = rec.tree_id or grant.task_id
-        read = self.spans.tool_origins(root)
+        read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
         outside = sorted(o for o in read | self.spans.request_origins(root) if origin.is_external(o))
         known = self.destinations.known if self.destinations is not None else _nothing_known
         needs = confirm.decide(spec.kind, spec.declared, spec.target, sources, read_private=origin.PRIVATE in read,
@@ -910,7 +910,7 @@ class Gateway:
                 # A tree's No applies to this host, even if another tree later makes it known or this URL no longer
                 # carries private data. A change in sink shape cannot turn a final refusal into permission.
                 return {"error": ALREADY_NO.format(line=self.redact(f"reaching {host}")), "next": OWNER_DECIDED_NEXT}
-        read = self.spans.tool_origins(root)
+        read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
         outside_labels = sorted(o for o in read | self.spans.request_origins(root) if origin.is_external(o))
         if not outside_labels:
             return None                                  # no outside content read: not a sink
@@ -956,7 +956,7 @@ class Gateway:
         concurrent asks about one host ask once; the answer carries across the command's retries."""
         root = rec.tree_id or grant.task_id
         norm = KnownDestinations.normalize("host", allow)
-        read = sorted(o for o in self.spans.tool_origins(root) | self.spans.request_origins(root)
+        read = sorted(o for o in (self.spans.tool_origins(root) | self.spans.exposure_origins(root)) | self.spans.request_origins(root)
                       if origin.is_external(o))
         need = confirm.Need("sink:shell_destination", confirm.destination_key(norm),
                             {"destination": norm, "read": confirm.shown_origins(read)},

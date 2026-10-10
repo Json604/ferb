@@ -175,7 +175,7 @@ class Supervisor(WorkerRuns):
         self._chat_locks: dict[str, asyncio.Lock] = {}
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
-        self.memory_candidates: Callable[[str], list[dict[str, str]]] | None = None
+        self.memory_candidates: Callable[[str], list[dict[str, Any]]] | None = None
         self.procedure_details: Callable[[str, Task], str] = lambda procedure_id, task: ''
         self.identity_context: Callable[[], str] = lambda: ''
         self.on_episode: Callable[[str], None] = lambda task_id: None
@@ -605,7 +605,8 @@ class Supervisor(WorkerRuns):
         sourced.append((ContextBlock("Layer 5 — owner's complete new message:\n" + message, "current request", protected=True),
                         env.get("message_origin") or {origins_.external("unlabeled")}))
         sourced.sort(key=lambda pair: int(pair[0].text[6]) if pair[0].text.startswith('Layer ') else 6)
-        blocks = [block for block, _ in sourced]
+        blocks = [dataclasses.replace(block, origin=origins_.join(made))
+                  if block.text.startswith(('Layer 3 —', 'Layer 4 —')) else block for block, made in sourced]
         self._env.setdefault(request_id, {})["planner_sources"] = json.dumps([
             {"reference": block.reference, "text": block.text, "origin": origins_.join(made)}
             for block, made in sourced if not block.protected], ensure_ascii=False)
@@ -837,6 +838,10 @@ class Supervisor(WorkerRuns):
             self.plans.create(tree_id, spec.plan, {'spec': spec.model_dump(), 'request_id': request_id,
                 'words': request.words, 'payload': request.payload, 'origins': sorted(origins or []),
                 'message_origins': sorted(request_origins)}, conversation_id)
+        for exposure in self._env.get(request_id, {}).get('context_exposures', []):
+            captured = self.spans.start('context.exposure', task_id=tree_id, parent_id=root_span.id,
+                                       input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
+            self.spans.finish(captured, output={'text': exposure['text']}, origin=exposure['origin'])
         if tree.intake_receipts:
             receipt_span = self.spans.start("task.intake", task_id=tree_id, parent_id=root_span.id,
                                             input={"request_id": request_id, "layer": "chat"})
@@ -1311,6 +1316,20 @@ class Supervisor(WorkerRuns):
                                       'task.evidence', protected=True))
         return parts
 
+    def _context_exposure(self, task: Task, blocks: list[ContextBlock], parts: list[str], tree: _Tree | None) -> None:
+        """Only bytes actually handed to a model become reads; omitted full-source snapshots are not reads."""
+        for block, part in zip((b for b in blocks if b.text), parts):
+            if not block.origin or part != block.text:
+                continue
+            record = {'text': block.text, 'origin': block.origin, 'source_refs': list(block.source_refs),
+                      'reference': block.reference}
+            if tree is None:
+                self._env.setdefault(task.request_id, {}).setdefault('context_exposures', []).append(record)
+                continue
+            span = self.spans.start('context.exposure', task_id=tree.id,
+                                   input={'source_refs': record['source_refs'], 'reference': block.reference})
+            self.spans.finish(span, output={'text': block.text}, origin=block.origin)
+
     def _source_block(self, tree: _Tree, label: str, text: str, origin: str) -> ContextBlock:
         """Store full auxiliary evidence before budgeting so an omitted block always has a concrete reader. `origin`
         is where the text came from (S3); task.evidence returns it with the stored text."""
@@ -1323,7 +1342,7 @@ class Supervisor(WorkerRuns):
             self.spans.finish(span, output={"text": text}, origin=origin)
             tree.context_sources[key] = span.id
         reference = "task.evidence span_id=" + tree.context_sources.get(key, "")
-        return ContextBlock(label + ":\n" + text if text else "", reference)
+        return ContextBlock(label + ":\n" + text if text else "", reference, origin=origin)
 
     async def route_question(self, task_id: str, question: str, options: list[str]) -> dict[str, Any]:
         tree = self._tree_of.get(task_id)
