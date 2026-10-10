@@ -160,3 +160,26 @@ def test_missing_read_source_cannot_be_dropped_to_recreate_forgotten_content(lea
     with pytest.raises(LearningRefused, match='source is missing'):
         learning.put('episode', 'old-task', {'narrative': 'Derived from the removed fact'},
                      refs, made_by='code:evidence-card/1')
+
+
+def test_recalled_context_lineage_is_forgotten_and_cannot_reappear_from_old_trace(learning):
+    from ferb.orchestrator import episodes
+    from ferb.trace import compose
+    from tests.support.trace_builder import TraceBuilder
+
+    source = learning.put('lesson', 'mail', {'text': 'External delivery instructions'}, [],
+                          origin_label='external:mail', made_by='model:test')
+    trace = TraceBuilder(task_id='recalled-task', request='Find the delivery instructions',
+                         goal='Find the delivery instructions').finish()
+    episode = compose.compose(trace)
+    episodes.write(learning.db, episode | {'made_by': episodes.MADE_BY, 'built_at': learning.now()})
+    learning.db.conn.execute('INSERT INTO spans (id,task_id,kind,started_at,input_json,output_json,origin) '
+        'VALUES (?,?,?,?,?,?,?)', ('exposure', 'recalled-task', 'context.exposure', learning.now(),
+                                  json.dumps({'source_refs': [source['id']]}), '{}', source['origin']))
+    captured = learning.capture_episode('recalled-task')
+    assert source['id'] in captured['sources']
+    assert captured['origin'] == 'external:mail'
+    assert captured['body']['actions'] == []
+    assert captured['id'] in learning.forget([source['id']])
+    with pytest.raises(LearningRefused):
+        learning.capture_episode('recalled-task')
