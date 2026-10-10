@@ -1027,7 +1027,8 @@ class Daemon:
         self.learning.sync_facts(self.memory)
         return [{'text': f"{p['id']} [{p['kind']}, {p['state']}, {p['origin']}; data, not authorization] "
                          + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
-                 'reference': 'memory.learned item_id=' + p['id'], 'origin': p['origin'],
+                 'reference': 'memory.learned item_id=' + p['id'],
+                 'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
                  'source_refs': [p['id'], *p['sources']]}
                 for p in self.learning.search(words) if p['kind'] != 'identity']
 
@@ -1039,10 +1040,12 @@ class Daemon:
 
     def _forget_learning_sources(self, plan: Any) -> None:
         self.daily_activity.forget_sources(set(plan.trail))
+        refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
+                ["trail:" + s for s in plan.trail])
         if self.learning:
-            refs = (["memory:" + s for s in plan.items] + ["journal:" + s for s in plan.journal] +
-                    ["trail:" + s for s in plan.trail])
             self.learning.forget(refs)
+        if self.supervisor:
+            self.supervisor.conversations.forget_sources(set(refs))
 
     async def _memory_learning(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         from ferb.memory.learning import LearningRefused
@@ -2462,6 +2465,9 @@ class Daemon:
     async def _test_mode(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         if self.gateway is None:
             raise FerbError("the tool gateway is not ready")
+        if params.get("status") is True:
+            return {"enabled": self.gateway.test_send_allowlist is not None,
+                    "allow_send": sorted(self.gateway.test_send_allowlist or ())}
         allowed = params.get("allow_send", [])
         if not isinstance(allowed, list) or not all(isinstance(x, str) and x.strip() for x in allowed):
             raise FerbError("allow_send must be a list of exact recipient addresses")

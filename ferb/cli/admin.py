@@ -683,13 +683,16 @@ def regress(client: Client, connect: Callable[[], Client], set_path: Any, home: 
 
     from ferb.eval.regress import load_set, run_set
     tasks = load_set(set_path)
+    previous = client.call("test.mode", {"status": True})
+    if not isinstance(previous.get("enabled"), bool) or not isinstance(previous.get("allow_send"), list):
+        raise ValueError("daemon did not return a valid test-mode status; update it before running regressions")
     client.call("test.mode", {"allow_send": allow_send or []})
     try:
         rows = run_set(client, tasks, out, connect=connect)
     finally:
         cleanup = connect()
         try:
-            cleanup.call("test.mode", {"off": True})
+            cleanup.call("test.mode", {"allow_send": previous["allow_send"]} if previous["enabled"] else {"off": True})
         finally:
             cleanup.close()
     expect = {t.id: t.expect for t in tasks}

@@ -429,3 +429,9 @@ After owner installation and representative use, capture `ferb baseline`, then c
 `ferb baseline --compare BEFORE.json AFTER.json`. The JSON includes denominators, percentage-point changes, timings,
 cache rate and missing measurements. Different task mixes and overlapping all-time snapshots are explicit limits;
 aggregate improvement does not stand in for owner acceptance. With/without-memory comparisons use matched real runs.
+
+For owner-supervised live checks, `ferb test-mode on` refuses all declared send actions; add repeated
+`--allow-send EXACT_RECIPIENT` only for owner-controlled destinations. `ferb test-mode` inspects the active setting
+and `ferb test-mode off` disables it. `ferb regress --allow-send EXACT_RECIPIENT` temporarily sets this gate and
+restores the prior manual setting afterward. This gate covers send-class tools and declared GUI purposes; it is not
+a semantic classifier for arbitrary GUI input or shell programs.

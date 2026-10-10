@@ -4,6 +4,7 @@
 uninstall."""
 
 import argparse
+import json
 import sys
 
 from ferb.cli import admin, logs
@@ -163,6 +164,9 @@ def main(argv: list[str] | None = None) -> int:
     bp = sub.add_parser("baseline", help="capture metrics or compare two saved baseline JSON files")
     bp.add_argument('--compare', nargs=2, metavar=('BEFORE', 'AFTER'), help='read-only saved-snapshot comparison')
     sub.add_parser("release-checklist", help="print owner-supervised release checks as JSON; never runs them")
+    tm = sub.add_parser("test-mode", help="inspect or set the exact send allowlist for owner-run tests")
+    tm.add_argument("action", nargs="?", default="status", choices=("status", "on", "off"))
+    tm.add_argument("--allow-send", action="append", default=[], help="exact recipient, repeat per allowed destination")
     rg = sub.add_parser("regress", help="run a regression task set through the daemon; you give the verdicts")
     rg.add_argument("--allow-send", action="append", default=[], help="exact recipient allowed in test-mode send actions")
     rg.add_argument("set_file", nargs="?", default=None, help="task set TOML (default: the built-in smoke set)")
@@ -178,13 +182,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "stats":
         return admin.stats(ferb_home(), sys.stdout, args.days)
     if args.cmd == "release-checklist":
-        import json
         from ferb.eval.release import checklist
         print(json.dumps(checklist(), ensure_ascii=False, indent=2))
         return 0
     if args.cmd == "baseline":
         if args.compare:
-            import json
             from pathlib import Path
             from ferb.eval.comparison import compare_baselines
             try:
@@ -294,6 +296,13 @@ def main(argv: list[str] | None = None) -> int:
                 return admin.trace(client, args.task_id, sys.stdout, args.full, args.json, args.steps)
             if args.cmd == "verdict":
                 return admin.verdict(client, args.task_id, args.verdict, args.note, sys.stdout)
+            if args.cmd == "test-mode":
+                if args.allow_send and args.action != "on":
+                    raise ValueError("--allow-send requires test-mode on")
+                params = ({"status": True} if args.action == "status" else
+                          {"off": True} if args.action == "off" else {"allow_send": args.allow_send})
+                print(json.dumps(client.call("test.mode", params), indent=2))
+                return 0
             if args.cmd == "regress":
                 from pathlib import Path
 

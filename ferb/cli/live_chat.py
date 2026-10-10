@@ -10,7 +10,7 @@ from ferb.cli.chat import Chat, question, render
 # P25 neutral variants from the owner's plan. Avoid the last eight acknowledgements.
 ACKNOWLEDGEMENTS = ('Got it.', 'Okay.', 'Understood.', 'Noted.', 'Received.', 'Alright.', 'Sure.',
                     'Okay, noted.', 'Copy that.', 'Let me see.')
-SECRETS = {'owner_login_code', 'owner_admin_password'}
+SECRETS = {'owner_login_code', 'owner_admin_password', 'owner_secret'}
 
 
 class LiveChat(Chat):

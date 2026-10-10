@@ -32,6 +32,8 @@ class _FakeClient:
         self.calls.append((method, params or {}))
         if method == "chat.answer" and self.answer_fails:
             raise RuntimeError("approval expired")
+        if method == "test.mode":
+            return {"enabled": False, "allow_send": []}
         if method == "chat.attach":
             return {"ok": True, "session_id": "s1"}
         return {"ok": True, "state": "declined"}
@@ -173,3 +175,20 @@ def test_regress_send_allowlist_is_cleared_after_error(tmp_path: Path, monkeypat
         regress(client, lambda: cleanup, p, tmp_path, io.StringIO(), allow_send=['owner@example.test'])
     assert ('test.mode', {'allow_send': ['owner@example.test']}) in client.calls
     assert ('test.mode', {'off': True}) in cleanup.calls and cleanup.closed
+
+
+def test_regress_restores_manual_test_mode(tmp_path: Path, monkeypatch: Any) -> None:
+    import io
+    from ferb.cli.admin import regress
+    import ferb.eval.regress as runner
+    class Manual(_FakeClient):
+        def call(self, method, params=None):
+            if method == 'test.mode' and params == {'status': True}:
+                return {'enabled': True, 'allow_send': ['owner@controlled.test']}
+            return super().call(method, params)
+    p = tmp_path / 'set.toml'
+    p.write_text('[[task]]\nid="one"\nprompt="one"\nsurface="owner"\nexpect="no egress"\n')
+    cleanup = _FakeClient()
+    monkeypatch.setattr(runner, 'run_set', lambda *a, **k: [])
+    regress(Manual(), lambda: cleanup, p, tmp_path, io.StringIO())
+    assert ('test.mode', {'allow_send': ['owner@controlled.test']}) in cleanup.calls
