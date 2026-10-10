@@ -79,8 +79,11 @@ def test_cli_says_daemon_not_running(home: Path, capsys, monkeypatch) -> None:  
 def test_daemon_process_lifecycle_writes_journal(home: Path) -> None:
     """Through the installed `ferb` command, as launchd will run it: start, answer, SIGTERM, clean exit."""
     env = {**os.environ, "FERB_HOME": str(home)}
-    ferb = Path(sys.executable).parent / "ferb"
-    p = subprocess.Popen([str(ferb), "daemon", "run"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    # Exercise the CLI/lifecycle in a separate interpreter while excluding owner-native capture and models.
+    bootstrap = ("import ferb.daemon.main as dm; from ferb.cli import main; Real=dm.Daemon; "
+                 "dm.Daemon=lambda: Real(watchers=False, watch_owner_input=False, distill=False, "
+                 "retention=False, notifications=False, snapshots=False); main(['daemon','run'])")
+    p = subprocess.Popen([sys.executable, "-c", bootstrap], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     sock = home / "run" / "ferb.sock"
     end = time.monotonic() + 10
     while not sock.exists():

@@ -92,3 +92,19 @@ def test_publisher_never_blocks_and_closed_subscriber_stops_receiving() -> None:
         return len(bus._subs)
 
     assert asyncio.run(scenario()) == 0
+
+
+def test_every_literal_production_publication_has_a_declared_topic():
+    import ast
+    from pathlib import Path
+    from ferb.bus import STABLE_TOPICS
+    root = Path(__file__).resolve().parents[1] / 'ferb'
+    undeclared = []
+    for path in root.rglob('*.py'):
+        for call in ast.walk(ast.parse(path.read_text())):
+            if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr in ('publish', '_publish') and call.args
+                    and isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)
+                    and call.args[0].value not in STABLE_TOPICS):
+                undeclared.append((str(path.relative_to(root)), call.lineno, call.args[0].value))
+    assert not undeclared

@@ -22,7 +22,7 @@ from tests.conftest import FakeCap, RunningDaemon, gateway_request, gateway_setu
 # own browser). Anything else, including a capability added later and left unmarked, is unavailable to a checker.
 OBSERVATION = {
     "actions.search", "chat.history", "memory.read", "task.evidence", "trail.days", "trail.query",
-    "fs.list", "fs.read", "recording.inspect", "shell.list", "shell.read", "shell.rules", "shell.wait",
+    "fs.list", "fs.read", "fs.disk_usage", "recording.inspect", "shell.list", "shell.read", "shell.rules", "shell.wait",
     "mac.apps", "mac.screenshot", "mac.snapshot",
     "browser.downloads", "browser.find", "browser.point", "browser.profiles", "browser.read", "browser.screenshot",
     "browser.scroll", "browser.snapshot", "browser.tabs", "browser.wait",
