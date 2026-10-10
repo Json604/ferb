@@ -92,7 +92,13 @@ class TrailDays:
             return ToolResult({"error": "the trail isn't available"}, is_error=True)
         a: Any = args
         days = trail.days(text=a.text, since_days=a.since_days, limit=a.limit)
-        return ToolResult({"days": days, "count": len(days)}, read_sources=_day_sources(days))
+        from ferb.memory.summary import build
+        refs = {'journal:' + d['id'] for d in days}
+        for day in {d['day'] for d in days}:
+            refs.update(kind + ':' + ident for sources in build(trail.db, day).handles.values()
+                        for kind, ident in sources)
+        return ToolResult({"days": days, "count": len(days), 'source_refs': sorted(refs)},
+                          read_sources=_day_sources(days))
 
 
 def _day_sources(days: list[dict[str, Any]]) -> tuple[tuple[str, str], ...]:

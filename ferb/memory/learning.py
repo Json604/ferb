@@ -239,32 +239,35 @@ class Learning:
                         origin_label=origin.FERB, state='active')
 
     def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
-        tool, args = inp.get('tool'), inp.get('args') or {}
-        refs: set[str] = set()
-        if tool == 'memory.read' and args.get('item_id'):
-            refs.add('memory:' + str(args['item_id']))
-        if tool == 'memory.learned' and args.get('item_id'):
-            refs.add(str(args['item_id']))
-        if tool == 'trail.query':
-            if args.get('event_id'):
-                refs.add('trail:' + str(args['event_id']))
-            if isinstance(result, dict):
-                refs.update('trail:' + str(e['id']) for e in result.get('events', []) if e.get('id'))
-        if tool == 'trail.days' and isinstance(result, dict):
-            refs.update('journal:' + str(d['id']) for d in result.get('days', []) if d.get('id'))
-        if tool in ('memory.read', 'memory.learned') and isinstance(result, dict):
-            try:
-                full = json.loads(result.get('text', ''))
-                if isinstance(full, dict):
-                    records = full.get('items', full.get('candidates', []))
-                    refs.update(('memory:' if tool == 'memory.read' else '') + str(e['id'])
-                                for e in records if isinstance(e, dict) and e.get('id'))
-            except (ValueError, TypeError):
-                pass  # a paged fragment has only its explicit input item ID
+        from ferb.memory.lineage import call_sources
         # Missing evidence must remain an edge: dropping it would let a forgotten fact's
         # descendants be reconstructed from old task traces without their deletion lineage.
         # put() validates these refs; retained cards already preserve expired-source origins.
-        return refs
+        return call_sources(inp, result)
+
+    def task_sources(self, task_id: str) -> list[str]:
+        """Code-recorded lineage for a displayed task/history answer, never inferred from its prose."""
+        refs: set[str] = set()
+        if self.db.conn.execute('SELECT 1 FROM episodes WHERE task_id=?', (task_id,)).fetchone():
+            refs.add('episode:' + task_id)
+        for row in self.db.conn.execute("SELECT id FROM learning_nodes WHERE kind='episode' AND key=?", (task_id,)):
+            node = self.get(row[0])
+            refs.add(node['id'])
+            refs.update(node['sources'])
+        forgotten = 'key-' + digest(['episode', task_id])
+        if self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id=?', (forgotten,)).fetchone():
+            refs.add(forgotten)  # Keep this missing-source marker so a retained answer cannot recreate its card.
+        pattern = task_id.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '.%'
+        rows = self.db.conn.execute("SELECT kind,input_json,output_json FROM spans WHERE "
+            "kind IN ('tool.call','context.exposure') AND (task_id=? OR task_id LIKE ? ESCAPE '\\')",
+            (task_id, pattern))
+        for row in rows:
+            inp = json.loads(row['input_json'])
+            if row['kind'] == 'context.exposure':
+                refs.update(str(ref) for ref in inp.get('source_refs', []))
+            else:
+                refs.update(self._action_sources(inp, json.loads(row['output_json']) if row['output_json'] else {}))
+        return sorted(refs)
 
     def propose_procedure(self, proposal: dict[str, Any], batch: str, made_by: str) -> dict[str, Any]:
         examples = proposal.get('examples') or []

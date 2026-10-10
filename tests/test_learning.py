@@ -194,3 +194,18 @@ def test_derived_external_content_keeps_private_label_for_sink_checks(learning):
     assert {'external:mail', 'private', 'inferred'} == set(lesson['origins'])
     with pytest.raises(Exception, match='versioned'):
         learning.db.conn.execute("UPDATE learning_nodes SET origins_json='[]' WHERE id=?", (lesson['id'],))
+
+
+def test_task_history_lineage_survives_as_missing_refs_after_source_forget(learning):
+    source = learning.put('lesson', 'mail', {'text': 'Private message'}, [],
+                          origin_label='private', made_by='model:test')
+    learning.db.conn.execute('INSERT INTO spans (id,task_id,kind,started_at,input_json,output_json) VALUES (?,?,?,?,?,?)',
+        ('read', 'history-task.worker', 'tool.call', learning.now(),
+         json.dumps({'tool': 'memory.learned', 'args': {'item_id': source['id']}}), '{}'))
+    episode = learning.put('episode', 'history-task', {'text': 'Summary'}, [source['id']], made_by='code:evidence/1')
+    assert {episode['id'], source['id']} <= set(learning.task_sources('history-task'))
+    learning.forget([source['id']])
+    refs = learning.task_sources('history-task')
+    assert source['id'] in refs
+    with pytest.raises(LearningRefused):
+        learning.put('episode', 'later-task', {'text': 'Recall the summary'}, refs, made_by='code:evidence/1')

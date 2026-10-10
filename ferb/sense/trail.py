@@ -162,7 +162,7 @@ class Trail:
     def days(self, text: str | None = None, since_days: int = 30, limit: int = 10) -> list[dict[str, Any]]:
         """Daily summaries (code-built) and narratives (model-written), by content and/or date, newest first."""
         cutoff = (self.clock.now().astimezone().date() - timedelta(days=since_days)).isoformat()
-        q = "SELECT kind, data_json FROM journal WHERE kind IN (?, ?) AND json_extract(data_json, '$.day') >= ?"
+        q = "SELECT id, kind, data_json FROM journal WHERE kind IN (?, ?) AND json_extract(data_json, '$.day') >= ?"
         params: list[Any] = [SUMMARY_KIND, NARRATIVE_KIND, cutoff]
         if text is not None:
             terms = query_terms(text)
@@ -175,7 +175,7 @@ class Trail:
         out = []
         for r in rows:
             data = json.loads(r["data_json"])
-            out.append({"day": data.get("day"), "kind": "summary" if r["kind"] == SUMMARY_KIND else "narrative",
+            out.append({"id": r['id'], "day": data.get("day"), "kind": "summary" if r["kind"] == SUMMARY_KIND else "narrative",
                         "data": data})
         return out
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ferb.core import origin
 from ferb.core.types import ActionSpec, Identity, RiskLevel, ToolContext, ToolResult
 from ferb.store.spans import SpanStore
+from ferb.memory.lineage import record_sources
 
 MEMORY_ORIGINS = {"owner_stated": origin.OWNER, "observed": origin.PRIVATE, "inferred": origin.INFERRED,
                   "third_party": origin.external("memory")}
@@ -103,13 +104,16 @@ class TaskEvidence:
             payload = json.dumps(row, ensure_ascii=False)
             end = min(args.offset + args.max_chars, len(payload))
             return ToolResult({"source_task": source, "text": payload[args.offset:end], "offset": args.offset,
-                               "next_offset": end if end < len(payload) else None, "total_chars": len(payload)},
+                               "next_offset": end if end < len(payload) else None, "total_chars": len(payload),
+                               "source_refs": sorted(record_sources(row))},
                               read_sources=_passed(record_origins(row, task_origins([row]))))
         page = self.spans.tool_calls(source, query=args.query, after=args.after, limit=args.limit,
                                     root_id=root, kind=args.kind)
         inherited = task_origins(page["records"])
         origins = {o for record in page["records"] for o in record_origins(record, inherited)}
-        return ToolResult({"source_task": source, **page}, read_sources=_passed(origins))
+        refs = {ref for item in page['records']
+                for ref in record_sources(self.spans.tool_call(source, item['id'], root_id=root) or {})}
+        return ToolResult({"source_task": source, **page, 'source_refs': sorted(refs)}, read_sources=_passed(origins))
 
     def _captures(self, args: Any, source: str) -> ToolResult:
         """V1: the source task's stored captures, as facts each labeled with its capture's origin (passed through);
@@ -222,7 +226,9 @@ class MemoryRead(_PagedFacts):
             item = memory.get(args.item_id)
             if item is None:
                 return ToolResult({"error": "no memory item with that id"}, is_error=True)
-            return self.page(asdict(item), args.offset, args.max_chars, {memory_origin(item.origin)})
+            result = self.page(asdict(item), args.offset, args.max_chars, {memory_origin(item.origin)})
+            result.content['source_refs'] = ['memory:' + item.id]
+            return result
         items = [asdict(item) for item in memory.items(status=None, valid_now=False)]
         if args.query:
             items = [item for item in items if args.query.casefold() in json.dumps(item, default=str).casefold()]
@@ -233,5 +239,5 @@ class MemoryRead(_PagedFacts):
                      "preview": item["content"][:500], "preview_truncated": len(item["content"]) > 500,
                      "read_full": {"tool": self.name, "item_id": item["id"]}} for item in shown]
         return ToolResult({"items": selected, "next_after": end if end < len(items) else None,
-                           "total_items": len(items)},
+                           "total_items": len(items), 'source_refs': ['memory:' + item['id'] for item in shown]},
                           read_sources=_passed({memory_origin(item["origin"]) for item in shown}))

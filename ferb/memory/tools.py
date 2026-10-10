@@ -37,5 +37,7 @@ class LearningRead(_PagedFacts):
         found = learning.search(args.query, kind=args.kind, app=args.app, person=args.person,
                                  since=args.since, until=args.until)
         candidates = [{k: n[k] for k in ('id','kind','key','state','origin','origins','recorded_at','sources')} for n in found]
-        return self.page({'candidates': candidates, 'total': len(candidates)}, args.offset, args.max_chars,
-                         {label for n in found for label in n['origins']})
+        result = self.page({'candidates': candidates, 'total': len(candidates)}, args.offset, args.max_chars,
+                           {label for n in found for label in n['origins']})
+        result.content['source_refs'] = [n['id'] for n in found]
+        return result
