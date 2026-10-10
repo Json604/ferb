@@ -74,5 +74,5 @@ eight open questions "all recommended" (2026-10-09; recorded in its ledger). Tas
 2026-10-10 that agents FERB starts run inside its sandbox with their own sandbox off); Task 3 (the egress proxy) is
 complete except two owner decisions still open (an allow list for the owner's own local servers; blocking macOS's
 certificate service, liftable per command by the escape hatch) — when answered, apply them as a small follow-up.
-Task 4 (confirmations and the sink rule) is in progress. Its ledger is
+Task 4 (confirmations and the sink rule) is complete; Task 5 (sinks that are not sends) is in progress. Its ledger is
 `.superpowers/sdd/2026-10-10-f5a-containment/progress.md`.
