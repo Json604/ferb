@@ -23,10 +23,10 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
-from urllib.parse import unquote_plus, urlsplit
+from urllib.parse import unquote_plus
 
 from ferb.core.types import Target
-from ferb.policy import provenance
+from ferb.policy import provenance, urls
 from ferb.policy.destinations import destination_of
 from ferb.policy.rules import Kind
 
@@ -189,14 +189,16 @@ def _value_labels(host: str) -> list[str]:
 def _url_pieces(url: str) -> list[str]:
     """The pieces of a URL a value could ride in: userinfo, the host labels left of the registrable domain, each path
     segment (percent-decoded) with its `;` parameters and file extension stripped, each query name and value, and the
-    fragment whole and split. `\\` is treated as `/` first (browsers do), and pieces are `unquote_plus`-decoded."""
-    parts = urlsplit(url.replace("\\", "/"))
+    fragment whole and split. Parsed as the browser will (ferb/policy/urls.py); pieces are `unquote_plus`-decoded."""
+    parts = urls.parse(url)
+    if parts is None:
+        return []
     pieces: list[str] = []
     if parts.username:
         pieces.append(unquote_plus(parts.username))
     if parts.password:
         pieces.append(unquote_plus(parts.password))
-    pieces += _value_labels(parts.hostname or "")
+    pieces += _value_labels(parts.host)
     for seg in parts.path.split("/"):
         seg = unquote_plus(seg)
         main = seg.split(";", 1)[0]
@@ -251,10 +253,8 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
     hits: list[tuple[str, int]] = []
     for piece in _url_pieces(url):
         value = piece.strip()
-        forms = _variants(piece)
-        if not forms or forms & owner_toks:
-            continue
-        matched = {m for m in forms & set(first_private) if not laundered(m)}
+        # the owner-word exclusion is per matched form, so a typed word inside a decoded blob can't excuse the rest
+        matched = {m for m in _variants(piece) & set(first_private) if m not in owner_toks and not laundered(m)}
         if matched and value and value not in [v for v, _ in hits]:
             hits.append((value, min(first_private[m] for m in matched)))
     if not hits:
@@ -349,8 +349,8 @@ def _part(n: Need) -> str:
     if n.rule == "sink:shell_destination":
         read = f" ({v['read']})" if v.get("read") else ""
         return (f"a command of this task tried to reach {v['destination']}, a place you haven't named, after this task "
-                f"read your own data and outside content{read}; saying yes lets FERB reach {v['destination']} from "
-                f"shell commands and the browser, now and in later tasks")
+                f"read outside content{read}; saying yes lets FERB reach {v['destination']} from shell commands and the "
+                f"browser, now and in later tasks")
     if n.rule == "sink:outside_value" and v["what"] == "typed":
         return f"this types {v['value']}, which came from outside content ({v['origin']}), not from you"
     if n.rule == "sink:outside_value":

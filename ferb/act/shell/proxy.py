@@ -11,11 +11,13 @@ bodies, headers, paths or query strings (rule 14).
 - The proxy resolves names itself (the sandbox has no DNS) and connects only to an address it checked. This Mac's
   own addresses are refused: a contained command reaches the Mac's servers directly, and only those started inside
   FERB's shell (sandbox.py, listeners.py); the proxy must not reopen the others.
-- CONNECT tunnels any TCP port as opaque bytes (TLS stays end to end). The proxy peeks the TLS ClientHello's SNI (a
-  hostname, a destination fact like the CONNECT host, never content): it records it beside the destination, and after
-  the trifecta refuses a connection whose SNI names a different host that the owner hasn't named and FERB doesn't know
-  (domain fronting, S4). It cannot decrypt the tunnel, so fronting with a matching SNI, or a Host header inside TLS,
-  stays undetectable (residual); the shared-CDN case is caught only through the SNI. A plain http:// request is
+- CONNECT tunnels any TCP port as opaque bytes (TLS stays end to end). Both directions start at once; the first
+  client bytes are inspected inline. Non-TLS is forwarded with no delay. A TLS ClientHello's SNI (a hostname, a
+  destination fact like the CONNECT host, never content) is recorded; once the tree has read outside content (and,
+  failing closed, whenever FERB can't tell) the hello is held until reassembled (up to SNI_MAX, no timeout) and a
+  connection is refused whose SNI names a host the owner hasn't named and FERB doesn't know, or that has no readable
+  SNI to a named host (domain fronting, S4). Residuals: an ECH outer name goes through refuse-then-ask like any other
+  host; fronting with a matching SNI and a Host header inside TLS stays undetectable. A plain http:// request is
   forwarded byte for byte on its own connection, closed after the response, so each request is gated and recorded for
   its own host.
   Bytes are counted before they are passed on, so a record is complete by the time the client has the data. A
@@ -54,9 +56,9 @@ HOP = {"proxy-authorization", "proxy-connection", "connection", "keep-alive", "t
 CHUNK = 65536
 # S4: FERB's reasons for refusing a destination (the gateway sets them; the shell tool tells the worker what to do by
 # matching these exact strings, so a sink refusal names the right host and a final No isn't offered as "ask again").
-DEST_REFUSED_NEW = "a place you haven't named, after this task read your own data and outside content"
+DEST_REFUSED_NEW = "a place you haven't named, after this task read outside content"
 DEST_REFUSED_NO = "you said no to this place in this task"
-DEST_SNI_NONE = "a TLS connection whose server name FERB couldn't read, after reading your own data and outside content"
+DEST_SNI_NONE = "a TLS connection whose server name FERB couldn't read, after this task read outside content"
 SNI_MAX = 16 * 1024                                         # the most of a client's ClientHello FERB reassembles (S4)
 UNAUTH_TIMEOUT = 10.0                                       # seconds from accept until a connection must authenticate
 #                                                            (an absolute deadline: dripping bytes doesn't extend it)
@@ -116,24 +118,11 @@ def _hang_up(conn: socket.socket) -> None:
         pass
 
 
-def parse_sni(buf: bytes) -> str | None:
-    """The SNI host from a client's first bytes, reassembling the ClientHello across one or more TLS handshake records
-    (a hello can be fragmented): None while more bytes are needed, "" when the ClientHello is complete but has no SNI,
-    else the lowercased host. A shape parse of a hostname (a destination fact), never application data (rule 14)."""
-    hs = bytearray()                                  # the handshake-message bytes, concatenated across records
-    i = 0
-    while i + 5 <= len(buf) and buf[i] == 0x16:       # a TLS handshake record
-        rec_len = int.from_bytes(buf[i + 3:i + 5], "big")
-        if i + 5 + rec_len > len(buf):
-            return None                               # the record is not fully here yet
-        hs += buf[i + 5:i + 5 + rec_len]
-        i += 5 + rec_len
-    if len(hs) < 4 or hs[0] != 0x01:                  # not (yet) a ClientHello handshake message
-        return None
-    msg_len = int.from_bytes(hs[1:4], "big")
-    if len(hs) < 4 + msg_len:
-        return None                                   # the ClientHello is not fully received yet
-    body = hs[4:4 + msg_len]
+NOT_HELLO = "\x00not-a-client-hello"                       # a complete handshake record that isn't a ClientHello
+
+
+def _sni_of(body: bytes) -> str:
+    """The SNI host in a complete ClientHello body (after its 4-byte handshake header), lowercased; "" when none."""
     try:
         p = 2 + 32                                    # client_version, random
         p += 1 + body[p]                             # session id
@@ -156,6 +145,42 @@ def parse_sni(buf: bytes) -> str | None:
     return ""
 
 
+class HelloReader:
+    """Reassembles a client's ClientHello across TLS handshake records, incrementally: each `feed` looks only at the
+    new bytes, so a hello dribbled in many tiny records costs linear time. `feed` returns None while more bytes are
+    needed, NOT_HELLO as soon as a complete record shows it isn't a ClientHello (or isn't a handshake record), "" for a
+    complete ClientHello without an SNI, else the lowercased SNI host. Hostnames only, never application data."""
+
+    def __init__(self) -> None:
+        self.buf = bytearray()
+        self.pos = 0                                  # the first byte of the next record not yet taken
+        self.hs = bytearray()                         # handshake-message bytes, concatenated across records
+        self.read = 0                                 # bytes fed so far
+
+    def feed(self, data: bytes) -> str | None:
+        self.buf += data
+        self.read += len(data)
+        while self.pos + 5 <= len(self.buf):
+            if self.buf[self.pos] != 0x16:            # not a handshake record
+                return NOT_HELLO
+            rec_len = int.from_bytes(self.buf[self.pos + 3:self.pos + 5], "big")
+            if self.pos + 5 + rec_len > len(self.buf):
+                return None                           # this record isn't fully here yet
+            self.hs += self.buf[self.pos + 5:self.pos + 5 + rec_len]
+            self.pos += 5 + rec_len
+            if self.hs and self.hs[0] != 0x01:        # a complete record whose message isn't a ClientHello
+                return NOT_HELLO
+            if len(self.hs) >= 4 and len(self.hs) >= 4 + int.from_bytes(self.hs[1:4], "big"):
+                return _sni_of(bytes(self.hs[4:4 + int.from_bytes(self.hs[1:4], "big")]))
+        return None
+
+
+def parse_sni(buf: bytes) -> str | None:
+    """The SNI host from a client's first bytes (HelloReader in one go): None while more bytes are needed, NOT_HELLO,
+    "" for a complete ClientHello without an SNI, else the lowercased host."""
+    return HelloReader().feed(buf)
+
+
 def _literal(host: str) -> bool:
     try:
         ipaddress.ip_address(host.split("%", 1)[0])
@@ -169,7 +194,7 @@ class EgressProxy:
                  excluded: Callable[[str], bool] | None = None, on_report: Report | None = None,
                  inspect_sni: Callable[[str, str, int], bool] | None = None) -> None:
         self.allow, self.resolve, self.redactor = allow, resolve, redactor
-        # S4: whether to hold a CONNECT's TLS ClientHello to enforce the SNI (True only after the trifecta); default off
+        # S4: whether to hold a CONNECT's TLS ClientHello to enforce the SNI (after outside content); default off
         self.inspect_sni = inspect_sni or (lambda proc, host, port: False)
         self.excluded = excluded or (lambda host: False)    # the owner's exclusion list: such a host is never shown
         self.on_report = on_report                          # a process is fully done: its final record (host/bytes)
@@ -285,7 +310,7 @@ class EgressProxy:
                     self.send_response(200, "Connection established")
                     self.end_headers()
                     # S4 fronting: both directions start at once (server-first bytes flow immediately); the first client
-                    # bytes are inspected inline (non-TLS forwarded with no delay; a TLS SNI checked after the trifecta)
+                    # bytes are inspected inline (non-TLS forwarded with no delay; a TLS SNI checked after outside content)
                     proxy._pump(self.connection, upstream, proc, host, port,
                                 sni_check=lambda: proxy.inspect_sni(proc, host, port))
                 finally:
@@ -606,20 +631,22 @@ class EgressProxy:
     def _sni_gate(self, chunk: bytes, client: socket.socket, proc: str, host: str, port: int,
                   sni_check: Callable[[], bool]) -> bytes | None:
         """Inspect the first client bytes of a CONNECT (S4 fronting). Not TLS (SMTP/IMAP/FTP/MySQL/SSH): forwarded at
-        once. TLS before the trifecta: forwarded at once, the SNI recorded best-effort. TLS after the trifecta: the
-        ClientHello is held (across records, up to SNI_MAX, no timeout) and the SNI checked — forwarded if it matches
-        the CONNECT host or is known/named, refused if it names an unknown host or no SNI can be read. Returns the bytes
-        to forward, or None to refuse."""
+        once. TLS before the tree read outside content: forwarded at once, the SNI recorded best-effort. TLS after:
+        the ClientHello is held (reassembled incrementally across records, up to SNI_MAX, no timeout) and the SNI
+        checked — forwarded if it matches the CONNECT host or is known/named, refused if it names an unknown host, if a
+        complete record isn't a ClientHello, or if no SNI can be read. A complete hello without an SNI to an IP-literal
+        CONNECT host is forwarded: RFC 6066 forbids an IP literal in the SNI. Returns the bytes to forward, or None."""
         if chunk[:1] != b"\x16":                         # not a TLS handshake: forward immediately
             return chunk
-        if not sni_check():                              # before the trifecta: never hold; record best-effort
-            sni = parse_sni(chunk)
-            if sni and sni.rstrip(".") != host:
+        reader = HelloReader()
+        if not sni_check():                              # before any outside content: never hold; best-effort record
+            sni = reader.feed(chunk)
+            if sni and sni != NOT_HELLO and sni.rstrip(".") != host:
                 self._record_sni(proc, sni, port)
             return chunk
         buf = bytearray(chunk)
-        sni = parse_sni(bytes(buf))
-        while sni is None and len(buf) < SNI_MAX:        # reassemble a dribbled / split-record hello; no timeout
+        sni = reader.feed(chunk)
+        while sni is None and len(buf) < SNI_MAX:        # a dribbled / split-record hello just waits; no timeout
             try:
                 more = client.recv(CHUNK)
             except OSError:
@@ -627,8 +654,10 @@ class EgressProxy:
             if not more:
                 break
             buf += more
-            sni = parse_sni(bytes(buf))
-        if not sni:                                      # no server name read within the bound: fail closed
+            sni = reader.feed(more)
+        if sni == "" and _literal(host):                 # no SNI to an IP literal is the protocol's rule, not fronting
+            return bytes(buf)
+        if not sni or sni == NOT_HELLO:                  # no server name, or not a ClientHello: fail closed
             self._note(proc, host, port, refused=DEST_SNI_NONE)
             return None
         if sni.rstrip(".") != host:

@@ -457,9 +457,11 @@ class Gateway:
         again for a differing TLS SNI (domain fronting). Allowed when the host is a destination FERB already knows or
         the owner answered Yes to it in this tree (SQ6); refused as final when the owner answered No to it in this tree
         (a No carries across the tree and between shell and browser). Otherwise allowed when the owner named the host
-        (a URL host in the request's words or an answer, D33), or the task tree hasn't read both the owner's own data
-        and outside content (the trifecta doesn't hold). Else refused and recorded under this tree, so `owner.ask
-        allow_destination` can act on it (a worker can't invent a host nothing tried). Loopback never reaches here."""
+        (a URL host in the request's words or an answer, D33), or the task tree hasn't read outside content yet (owner,
+        Q3, 2026-10-10: code can't tell what a shell command read, so after any outside content — the request's outside
+        parts or any outside tool result, a shell command's own output included — a new host needs the owner). Else
+        refused and recorded under this tree, so `owner.ask allow_destination` can act on it (a worker can't invent a
+        host nothing tried). Loopback never reaches here."""
         norm = KnownDestinations.normalize("host", host)
         if self.destinations is not None and self.destinations.known("host", host):
             return True, ""
@@ -473,24 +475,24 @@ class Gateway:
                 return (True, "") if row["granted"] else (False, DEST_REFUSED_NO)
         if self._host_named(norm, root):
             return True, ""
-        if not self._trifecta_holds(root):
+        if not self._outside_read(root):
             return True, ""
         if self.tasks.get(root) is not None:             # N4: don't re-create _refused_hosts for a tree that ended
             self._refused_hosts.setdefault(root, {})[norm] = self.proc_command(proc_id) or ""
         return False, DEST_REFUSED_NEW
 
-    def _trifecta_holds(self, root: str) -> bool:
-        """Whether this tree has read both the owner's own data and outside content (its own tool results and the
-        request's own origins). Private data read by the shell is left out until the owner decides (C1)."""
-        read = self.spans.tool_origins(root)
-        return origin.PRIVATE in read and any(origin.is_external(o) for o in read | self.spans.request_origins(root))
+    def _outside_read(self, root: str) -> bool:
+        """Whether this tree has read outside content: an outside tool result (a shell command's output included, S3)
+        or the request's own outside parts (Q3, the shell's gate)."""
+        return any(origin.is_external(o) for o in self.spans.tool_origins(root) | self.spans.request_origins(root))
 
-    async def trifecta_holds(self, proc_id: str) -> bool:
-        """For the proxy (on the loop): whether to hold a CONNECT's TLS ClientHello to enforce the SNI (S4). True only
-        after the trifecta; before it, the proxy records the SNI best-effort and never holds."""
+    async def sni_enforced(self, proc_id: str) -> bool:
+        """For the proxy (on the loop): whether to hold a CONNECT's TLS ClientHello and enforce its SNI (S4). True
+        once the tree has read outside content, and — failing closed — for a process FERB no longer tracks; before any
+        outside content the proxy records the SNI best-effort and never holds."""
         task_id = self.proc_task(proc_id)
         root = self.tasks.tree_of(task_id) if task_id is not None else None
-        return root is not None and self._trifecta_holds(root)
+        return root is None or self._outside_read(root)
 
     def _host_named(self, host_norm: str, root: str) -> bool:
         """Whether the owner named this host (M4): a URL host in the request's own words or in an answer the owner gave
@@ -825,9 +827,12 @@ class Gateway:
         already answered in this tree (a Yes runs, a No is final, shared with shell commands), when the URL is one the
         tree read (a followed link), or when it carries no value that is the owner's own and not also public."""
         url = str(arguments.get("url") or "")
-        host = KnownDestinations.normalize("host", spec.target.site or "")
-        if spec.kind not in (Kind.NAVIGATE, Kind.OPEN_TAB) or not host or not url:
+        if spec.kind not in (Kind.NAVIGATE, Kind.OPEN_TAB) or not url:
             return None
+        host = KnownDestinations.normalize("host", spec.target.site or "")
+        if not host:                                     # parsed as the browser will, it names no site: never opened
+            return {"error": "this address names no site FERB can check, so it didn't run",
+                    "next": "Use a plain http(s) address with a site name."}
         root = rec.tree_id or grant.task_id
         read = self.spans.tool_origins(root)
         outside_labels = sorted(o for o in read | self.spans.request_origins(root) if origin.is_external(o))

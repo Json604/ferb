@@ -70,7 +70,8 @@ def origin() -> Iterator[int]:
 
 
 def test_direct_network_is_denied_and_the_proxy_records_destinations(daemon: RunningDaemon, origin: int) -> None:
-    g = task(daemon, "p", Identity.OWNER, SHELL)
+    # The owner names the test host: after the first command's output (outside content, Q3) a new host would ask
+    g = task(daemon, "p", Identity.OWNER, SHELL, f"fetch http://{TEST_HOST}:{origin}/x")
     # Ignoring the proxy variables gets no network at all (Task 2's sandbox): refused at the socket, nothing recorded
     r = call(daemon, g, "shell.run", command="curl -sS --noproxy '*' --max-time 3 http://192.0.2.1/ 2>&1; echo rc=$?")
     assert "rc=7" in r["content"]["output"] and r["content"]["network"] == {"destinations": [], "refused": []}
@@ -973,6 +974,48 @@ def test_a_server_first_protocol_and_a_short_client_message_are_not_held() -> No
         raw.sendall(b"PING\n")                                            # non-TLS: forwarded at once
         assert raw.recv(16).startswith(b"PING")
         assert time.monotonic() - start < 1.0
+        raw.close()
+    finally:
+        p.close()
+        stop()
+
+
+def test_no_sni_is_forwarded_to_an_ip_literal_and_refused_to_a_name() -> None:
+    """RFC 6066 forbids an IP literal in the SNI, so a complete hello without one to an IP-literal CONNECT host is
+    forwarded; to a name host a missing SNI is still refused after outside content."""
+    port, stop = _tls_server()
+    p = _proxy(lambda *a: (True, ""), inspect_sni=lambda *a: True)
+    p.resolve = lambda host, port_: [(socket.AF_INET, ("127.0.0.1", port))]
+    try:
+        auth = _auth(p, "p-ip")
+        assert _connect_with_sni(p.port, auth, "192.0.2.1", port, None) is True     # type: ignore[arg-type]
+        assert _connect_with_sni(p.port, auth, "cdn.test", port, None) is False     # type: ignore[arg-type]
+        assert any(r["host"] == "cdn.test" for r in p.facts("p-ip")["refused"])
+    finally:
+        p.close()
+        stop()
+
+
+def test_the_hello_reader_is_linear_and_refuses_a_non_hello_at_once() -> None:
+    from ferb.act.shell.proxy import NOT_HELLO, HelloReader
+    hello = _client_hello("cdn.test")
+    tiny = b"".join(b"\x16\x03\x03\x00\x01" + bytes([b]) for b in hello[5:])    # one byte per TLS record
+    reader, got, start = HelloReader(), None, time.monotonic()
+    for i in range(len(tiny)):
+        got = reader.feed(tiny[i:i + 1])
+        if got is not None:
+            break
+    assert got == "cdn.test" and time.monotonic() - start < 1.0
+    server_hello = b"\x16\x03\x03\x00\x04\x02\x00\x00\x00"                      # a complete record, not a ClientHello
+    assert HelloReader().feed(server_hello) == NOT_HELLO
+    port, stop = _tls_server()
+    p = _proxy(lambda *a: (True, ""), inspect_sni=lambda *a: True)
+    p.resolve = lambda host, port_: [(socket.AF_INET, ("127.0.0.1", port))]
+    try:
+        raw = _connect(p.port, _auth(p, "p-nh"), "cdn.test", port)
+        start = time.monotonic()
+        raw.sendall(server_hello)
+        assert _refused(raw) and time.monotonic() - start < 1.0                    # refused at once, not held
         raw.close()
     finally:
         p.close()

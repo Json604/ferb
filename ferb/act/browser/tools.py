@@ -7,7 +7,6 @@ A download a task tab starts is a file in FERB's workspace reported as facts (`d
 import dataclasses
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -18,6 +17,7 @@ from ferb.core.errors import DriverError, Refused
 from ferb.core.interfaces import BrowserDriver
 from ferb.core.types import (ActionResult, ActionSpec, BrowserAction, ElementRef, FileAccess, Identity, PageElement,
                              RiskLevel, SecretRef, SecretSpec, TabRef, Target, ToolContext, ToolResult, WaitCondition)
+from ferb.policy import urls
 from ferb.policy.provenance import typed_destination
 from ferb.policy.rules import Kind
 
@@ -64,9 +64,12 @@ FERB_BROWSER = Family("ferb_browser", Identity.FERB, "identity:browse", "identit
 
 
 def check_url(url: str) -> None:
-    u = urlsplit(url)
-    if u.scheme not in ("http", "https") or not u.hostname:
-        raise Refused(f"only http(s) URLs can be opened, not {u.scheme or 'this'}")
+    """Parsed as the browser will (ferb/policy/urls.py), so the host FERB checks is the one that opens (S4)."""
+    u = urls.parse(url)
+    if u is None or u.scheme not in ("http", "https"):
+        raise Refused(f"only http(s) URLs can be opened, not {u.scheme if u is not None else 'this'}")
+    if not u.host:
+        raise Refused("this address names no site, so FERB didn't open it")
 
 
 def _err(msg: str) -> ToolResult:
@@ -89,9 +92,10 @@ def _download_sources(found: list[dict[str, Any]]) -> tuple[tuple[str, str], ...
 
 
 def _host(url: str | None) -> str | None:
-    # Parse special-scheme hosts the way browsers do: `\` is `/`, so https://attacker.example\@good.example/ has host
-    # attacker.example (the sink and the navigation agree on where the request goes).
-    return urlsplit(url.replace("\\", "/")).hostname if url else None
+    """The host a browser opens for this URL (ferb/policy/urls.py: leading slashes/backslashes skipped, `\\` as `/`,
+    userinfo to the last `@`, IDNA), so the sink and the navigation agree; None when it names none."""
+    u = urls.parse(url) if url else None
+    return u.host or None if u is not None else None
 
 
 class _Base:

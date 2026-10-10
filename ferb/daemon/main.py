@@ -702,14 +702,15 @@ class Daemon:
             return False, "FERB could not check this destination"
 
     def _sni_enforce(self, proc: str, host: str, port: int) -> bool:
-        """On a proxy thread (S4 fronting): whether to hold a CONNECT's TLS ClientHello and enforce the SNI — only after
-        the trifecta. Anything that stops the gateway answering means no hold (the CONNECT host was already allowed)."""
+        """On a proxy thread (S4 fronting): whether to hold a CONNECT's TLS ClientHello and enforce the SNI — once the
+        tree has read outside content. Fails closed: anything that stops the gateway answering means hold, and then the
+        SNI must match the CONNECT host or a known or named host."""
         try:
             assert self.gateway is not None and self._loop is not None
-            fut = asyncio.run_coroutine_threadsafe(self.gateway.trifecta_holds(proc), self._loop)
+            fut = asyncio.run_coroutine_threadsafe(self.gateway.sni_enforced(proc), self._loop)
             return bool(fut.result(10))
         except Exception:
-            return False
+            return True
 
     def _shell_network(self, info: ProcInfo, facts: dict[str, Any]) -> None:
         """A finished shell process's final network record (ferb trace / journal). The proxy may report it from a
