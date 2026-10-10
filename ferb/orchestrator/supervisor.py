@@ -175,6 +175,7 @@ class Supervisor(WorkerRuns):
         self._chat_locks: dict[str, asyncio.Lock] = {}
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
+        self.memory_candidates: Callable[[str], list[dict[str, str]]] | None = None
         self.procedure_details: Callable[[str, Task], str] = lambda procedure_id, task: ''
         self.identity_context: Callable[[], str] = lambda: ''
         self.on_episode: Callable[[str], None] = lambda task_id: None
@@ -482,6 +483,23 @@ class Supervisor(WorkerRuns):
                 self._env.pop(request_id, None)
                 return
             prior_spec, prior_request, prior_state = prior
+            if prior_spec.plan is not None and (out.task is None or out.task.plan is None or
+                                                out.task.plan == prior_spec.plan):
+                # The routed control names this saved plan. Keep its tree so completed work and uncertain
+                # effects remain the same records, even when the planner supplies a generic retry task.
+                self.plans.reopen(control.task_id)
+                continued = Request(request_id, prior_request.words + "\n" + words,
+                                    prior_spec.targets.targets(),
+                                    payload=prior_request.payload + "\n\nOwner follow-up:\n" + payload)
+                self.state.requests.record(continued)
+                made = turn_origins | self.spans.task_origins(control.task_id)
+                try:
+                    async for event in self.run_tree(prior_spec, out.text, request_id, continued.payload,
+                            conversation_id=session.id, origins=made, resume_id=control.task_id):
+                        yield event
+                finally:
+                    self._env.pop(request_id, None)
+                return
             turn_origins = turn_origins | self.spans.task_origins(control.task_id) | \
                 self._request_origins(prior_request.request_id)   # the retry carries the earlier request and result
             if out.task is not None:
@@ -540,7 +558,7 @@ class Supervisor(WorkerRuns):
         rt = self.make_runtime("orchestrator", mode="supervisor", tool_names=[], schema=SUPERVISOR_SCHEMA)
         recent, ages, history_origins = self._recent(request_id, session.id, max_tokens=None)
         mem_text, mem_ages = self.recall_items(remembered)
-        procedures = self.procedure_context(message)
+        procedures = self.procedure_context(message) if self.memory_candidates is None else ''
         activity, activity_origin = _labeled(self.relevant_context(message))
         latest, latest_origin = self.recent_activity()
         if latest:
@@ -556,6 +574,11 @@ class Supervisor(WorkerRuns):
              {self.recall_origin(remembered)} | ({origins_.external('procedure')} if procedures else set())),
             (ContextBlock('Layer 3 — recent activity (data):\n' + activity, "task.evidence query=context.source; memory.read; trail.query", priority=1),
              origins_.split(activity_origin))]
+        if self.memory_candidates is not None:
+            from ferb.orchestrator.context_layers import ranked_memory_blocks
+            if not mem_text:
+                sourced = [(block, made) for block, made in sourced if not block.text.startswith('Layer 4 —')]
+            sourced.extend(ranked_memory_blocks(self.memory_candidates(message)))
         candidates = self.continuity.candidates(session.id)
         if candidates:
             attempts, shown = self._attempts(candidates)

@@ -127,3 +127,21 @@ def test_independent_steps_run_together_and_missing_map_notes_block_reduce(tmp_p
     asyncio.run(run())
     assert len(seen) == 2 and 'rank' not in seen
     db.close()
+
+
+def test_explicit_reopen_preserves_done_steps_notes_and_wait_cursor(tmp_path):
+    db = Database(tmp_path / 'state.db'); db.migrate()
+    store = PlanStore(db, lambda x: x)
+    plan = Plan(steps=[Step(id='read', goal='Read'), Step(id='send', goal='Send', depends_on=['read'])])
+    store.create('tree', plan, {'words': 'original'}, 'chat')
+    store.finish('tree', 'read', {'status': 'done', 'summary': 'saved notes'})
+    store.finish('tree', 'send', {'status': 'blocked', 'event_cursor': 7, 'summary': 'unknown delivery'})
+    store.set_status('tree', 'failed')
+    store.reopen('tree')
+    states = store.steps('tree')
+    assert states['read']['status'] == 'done'
+    assert states['send']['status'] == 'pending'
+    assert states['send']['output']['event_cursor'] == 7
+    assert states['send']['output']['summary'] == 'unknown delivery'
+    assert store.load('tree')['status'] == 'running'
+    db.close()

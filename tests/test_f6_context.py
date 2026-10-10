@@ -40,3 +40,17 @@ def test_selected_procedure_and_owner_answer_are_checked_in_same_task(daemon):
     assert any(row[0] == 'procedure-session' for row in inspected)
     assert any(row[0] == 'episode' for row in inspected)
     assert any(row[0] == 'outcome' for row in inspected)
+
+
+def test_ranked_memory_budget_keeps_best_item_when_all_candidates_do_not_fit(monkeypatch):
+    from ferb.orchestrator.context_layers import ranked_memory_blocks
+    monkeypatch.setattr('ferb.core.context.count_tokens', len)
+    blocks = ranked_memory_blocks([
+        {'text': 'BEST ' * 12, 'reference': 'memory.learned id=best', 'origin': 'private'},
+        {'text': 'LOWEST ' * 100, 'reference': 'memory.learned id=low', 'origin': 'external:web:example.com'},
+    ])
+    result = assemble_context([ContextBlock('owner request', 'request', protected=True)] +
+                              [block for block, _ in blocks], budget_tokens=600)
+    assert 'BEST ' * 12 in result and 'LOWEST ' * 100 not in result
+    assert 'memory.learned id=low' in result
+    assert blocks[1][1] == {'external:web:example.com'}

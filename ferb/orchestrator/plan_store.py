@@ -16,7 +16,8 @@ class PlanStore:
 
     def create(self, task_id: str, plan: Plan, request: dict[str, Any], conversation: str | None) -> None:
         with self.db.conn:
-            self.db.conn.execute('INSERT OR IGNORE INTO task_plans(task_id,plan,request,conversation) VALUES(?,?,?,?)',
+            self.db.conn.execute('INSERT INTO task_plans(task_id,plan,request,conversation) VALUES(?,?,?,?) '
+                                 'ON CONFLICT(task_id) DO UPDATE SET request=excluded.request',
                                  (task_id, self._json(plan.model_dump()), self._json(request), conversation))
             for step in plan.steps:
                 keys = [step.id] + ([f'{step.id}:{i}' for i in range(len(step.batches))] if step.kind == 'map' else [])
@@ -43,6 +44,14 @@ class PlanStore:
     def finish(self, task_id: str, step_id: str, output: dict[str, Any]) -> None:
         self.db.conn.execute('UPDATE plan_steps SET status=?,output=? WHERE task_id=? AND step_id=?',
                              (output.get('status', 'failed'), self._json(output), task_id, step_id))
+
+    def reopen(self, task_id: str) -> None:
+        """Explicit owner continuation retries unfinished steps; completed outputs and P19 ledger stay intact."""
+        with self.db.conn:
+            self.db.conn.execute("UPDATE plan_steps SET status='pending' WHERE task_id=? AND status != 'done'",
+                                 (task_id,))
+            # Ended trees revoke standing grants. A resumed send plan must display/approve its scope again.
+            self.db.conn.execute("UPDATE task_plans SET status='running', approved=0 WHERE task_id=?", (task_id,))
 
     def pending(self) -> list[str]:
         return [r[0] for r in self.db.conn.execute("SELECT task_id FROM task_plans WHERE status IN ('running','suspended','steps_done')")]

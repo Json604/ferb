@@ -51,8 +51,12 @@ class TaskTree:
             return
         t, now = rec.task, rec.started_at.isoformat()
         self.db.conn.execute(
-            "INSERT OR REPLACE INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, "
-            "depends_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, tree_id, parent_id, request_id, goal, identity, role, scopes_json, "
+            "depends_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET request_id=excluded.request_id,goal=excluded.goal,"
+            "identity=excluded.identity,role=excluded.role,scopes_json=excluded.scopes_json,"
+            "depends_json=excluded.depends_json,status=excluded.status,updated_at=excluded.updated_at,"
+            "outcome_json=NULL",
             (t.id, rec.tree_id or t.id, t.parent_id, t.request_id, t.goal, t.identity.value, t.role,
              json.dumps(sorted(t.scopes)), json.dumps(depends_on or []), status, now, now))
 

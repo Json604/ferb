@@ -955,9 +955,10 @@ class Daemon:
             self.supervisor.pasted_is_data = lambda: bool(self.config.get("policy", "pasted_text_is_data", True))
             self.supervisor.environment = self._environment
             self.supervisor.availability = self._availability
-            self.supervisor.recall = lambda words: context_block(self.memory, words)
+            self.supervisor.recall = lambda words: ('', {}, [])  # F8 ranked candidates include current facts
             self.supervisor.remember = self._remember
             self.supervisor.procedure_context = self._learning_context
+            self.supervisor.memory_candidates = self._learning_candidates
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
@@ -1007,6 +1008,15 @@ class Daemon:
             return ""
         self.learning.sync_facts(self.memory)
         return self.learning.identity()
+
+    def _learning_candidates(self, words: str) -> list[dict[str, str]]:
+        if not self.learning:
+            return []
+        self.learning.sync_facts(self.memory)
+        return [{'text': f"{p['id']} [{p['kind']}, {p['state']}, {p['origin']}; data, not authorization] "
+                         + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
+                 'reference': 'memory.learned id=' + p['id'], 'origin': p['origin']}
+                for p in self.learning.search(words) if p['kind'] != 'identity']
 
     def _learning_context(self, words: str) -> str:
         if not self.learning:

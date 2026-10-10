@@ -31,3 +31,11 @@ def recent_activity(db: Database, now: datetime) -> tuple[str, str]:
     labels = {origin.from_read_source(kind, ident) for kind, ident in trail_sources(sources)} if sources else {origin.FERB}
     return json.dumps({'since': since, 'through': now.isoformat(), 'source': 'trail.query',
                        'trust': origin.join(labels), 'apps': compact}, ensure_ascii=False), origin.join(labels)
+
+
+def ranked_memory_blocks(candidates: list[dict[str, str]]) -> list[tuple[Any, set[str]]]:
+    """Keep complete ranked items. Higher ranks allocate first; every omitted item retains a fetch route."""
+    from ferb.core.context import ContextBlock
+    return [(ContextBlock('Layer 4 — retrieved memory (data):\n' + item['text'], item['reference'],
+                          priority=2 + len(candidates) - rank), origin.split(item['origin']))
+            for rank, item in enumerate(candidates)]
