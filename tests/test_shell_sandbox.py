@@ -132,6 +132,7 @@ def test_no_new_name_can_be_made_for_a_protected_file(daemon: RunningDaemon, tmp
         assert r["is_error"] and not (out / "c").exists() and "aws-key" not in str(r) and "secret-token" not in str(r)
 
 
+@pytest.mark.real
 def test_the_keychain_service_is_out_of_reach_without_a_prompt(daemon: RunningDaemon, tmp_path: Path) -> None:
     # A throwaway keychain file with a throwaway item. `security create-keychain` adds it to the user's search list;
     # the helper restores that list even if the test fails. `security` must fail at the service at once, never show a
@@ -296,6 +297,7 @@ def test_the_apps_profile_differs_only_by_the_app_rules_and_keeps_every_other_de
     assert "(deny job-creation)" in sb.profile(apps=True)                     # still no background jobs
 
 
+@pytest.mark.real
 def test_the_apps_profile_still_blocks_files_network_and_the_keychain(daemon: RunningDaemon, tmp_path: Path) -> None:
     """The apps profile keeps Apple Events, but every file, network and Keychain deny still holds (fix round 2)."""
     home = tmp_path / "home"

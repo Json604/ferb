@@ -17,9 +17,10 @@ from ferb.cli.client import Client
 from ferb.core.errors import Refused
 from ferb.core.types import Identity, PageElement, SecretSpec, Task
 from ferb.orchestrator.tree import TaskRecord
+from ferb.identity.secrets import KeychainSecretStore
 from ferb.policy.rules import Kind
 from ferb.policy.targets import Request
-from tests.browserkit import PASSWORD, REF, FakeIdentityDriver, fake_driver, feed
+from tests.browserkit import PASSWORD, REF, FakeIdentityDriver, feed
 from tests.conftest import RunningDaemon
 
 FERB_SCOPES = {"identity:browse", "secrets:fill", "mailbox:read"}
@@ -27,9 +28,13 @@ SITE = "https://login.example.com"
 
 
 @pytest.fixture
-def bd(daemon: RunningDaemon, keychain: Any) -> Iterator[tuple[RunningDaemon, FakeIdentityDriver]]:
+def bd(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[RunningDaemon, FakeIdentityDriver]]:
     specs = {REF.key: SecretSpec(REF, [SITE], "test account")}
-    drv = fake_driver(keychain, specs, [])
+    store = KeychainSecretStore(lambda: specs)
+    async def find(ref: Any, reveal: bool) -> tuple[int, str]:
+        return (0, PASSWORD if reveal else "") if ref == REF else (1, "")
+    monkeypatch.setattr(store, "_find", find)
+    drv = FakeIdentityDriver(store, lambda _value: None)
     drv.add_secret_value = daemon.daemon._add_secret_value                   # the daemon's redactor learns it
     daemon.daemon.use_identity_browser(drv)
     yield daemon, drv

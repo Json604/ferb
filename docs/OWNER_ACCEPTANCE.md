@@ -619,3 +619,7 @@ unmarked real-surface files from the default suite. No owner task/model/send acc
 
 Read `0.27_BASELINE_COMPARISON.md` and its JSON for the actual saved F0 baseline. New after/delta values remain null
 until owner installation and matched target runs; no live improvement or owner verdict is inferred from unit tests.
+
+The interrupted default runs also exercised legacy fixtures that created and deleted disposable test Keychains.
+The identity and browser-tool offline fixtures now inject their secret-store boundary; the two actual Keychain
+sandbox probes carry `real` markers and remain pending owner execution. No owner Keychain entries were targeted.
