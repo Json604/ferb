@@ -9,8 +9,9 @@ bodies, headers, paths or query strings (rule 14).
 - `allow(proc, host, port)` (the gateway: S4) is asked before any name is resolved, so a refused name never
   reaches a DNS server; a refusal is 403 and is recorded under `refused` with FERB's reason.
 - The proxy resolves names itself (the sandbox has no DNS) and connects only to an address it checked. This Mac's
-  own addresses are refused: a contained command reaches the Mac's servers directly, and only those started inside
-  FERB's shell (sandbox.py, listeners.py); the proxy must not reopen the others.
+  own addresses are refused unless the owner configured executable-pinned local ports. Those explicit local
+  destinations are checked before dial and against the actual connected peer before forwarding; their address and
+  executable are recorded. Contained servers also remain reachable directly (sandbox.py, listeners.py).
 - CONNECT tunnels any TCP port as opaque bytes (TLS stays end to end). Both directions start at once; the first
   client bytes are inspected inline. Non-TLS is forwarded with no delay. A TLS ClientHello's SNI (a hostname, a
   destination fact like the CONNECT host, never content) is recorded; once the tree has read outside content (and,
@@ -23,7 +24,8 @@ bodies, headers, paths or query strings (rule 14).
   Bytes are counted before they are passed on, so a record is complete by the time the client has the data. A
   connection that FERB's shell opened and a setsid child keeps after the shell exits goes on being counted: `forget`
   revokes the credential but the process's record is kept and reported only once its last connection closes.
-- Loopback traffic doesn't come here (NO_PROXY). Nothing is logged; byte counts are recorded, never capped.
+- NO_PROXY keeps loopback direct by default; it is empty when owner-approved local ports need the proxy. Nothing is
+  logged; byte counts are recorded, never capped.
 - Abuse is bounded without an owner-visible limit: a connection that hasn't authenticated gets a short timeout, and
   only unauthenticated connections are capped; an authenticated tunnel has no idle timeout, so streaming APIs,
   WebSockets and SSE stay up, and there is no per-credential cap. A malformed request or an over-long response head
@@ -42,6 +44,8 @@ import threading
 import time
 from typing import Any, Callable, Protocol
 from urllib.parse import urlsplit
+
+from ferb.act.shell.local import LocalAccess, LocalPeer, LocalRefused
 
 Allow = Callable[[str, str, int], tuple[bool, str]]
 Address = tuple[int, tuple[Any, ...]]                       # (family, sockaddr) as getaddrinfo gives it
@@ -108,6 +112,20 @@ def addresses(host: str, port: int) -> list[Address]:
     if any(this_mac(str(sockaddr[0])) for _, sockaddr in found):
         raise Unreachable(OWN)
     return found
+
+
+def local_host(host: str) -> bool:
+    """Only explicit local destinations: no arbitrary DNS name gets resolved before the destination gate."""
+    return host.rstrip(".").lower() == "localhost" or (_literal(host) and this_mac(host))
+
+
+def local_addresses(host: str, port: int) -> list[Address]:
+    # localhost never causes DNS or uses an owner-modifiable alias; other local names still go through the ordinary
+    # before-DNS sink gate and own-address refusal. Explicit local IPs are dialled exactly as supplied.
+    if host.rstrip(".").lower() == "localhost":
+        return [(socket.AF_INET6, ("::1", port, 0, 0)), (socket.AF_INET, ("127.0.0.1", port))]
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    return [(family, (host, port))]
 
 
 def _hang_up(conn: socket.socket) -> None:
@@ -193,13 +211,16 @@ class EgressProxy:
     def __init__(self, allow: Allow, *, resolve: Resolve = addresses, redactor: Secrets | None = None,
                  excluded: Callable[[str], bool] | None = None, on_report: Report | None = None,
                  inspect_sni: Callable[[str, str, int], bool] | None = None,
-                 on_reached: Callable[[str, str, int], None] | None = None) -> None:
+                 on_reached: Callable[[str, str, int], None] | None = None,
+                 local_access: LocalAccess | None = None, allow_local: Allow | None = None) -> None:
         self.allow, self.resolve, self.redactor = allow, resolve, redactor
         # S4: whether to hold a CONNECT's TLS ClientHello to enforce the SNI (after outside content); default off
         self.inspect_sni = inspect_sni or (lambda proc, host, port: False)
         self.excluded = excluded or (lambda host: False)    # the owner's exclusion list: such a host is never shown
         self.on_report = on_report                          # a process is fully done: its final record (host/bytes)
         self.on_reached = on_reached                        # successful connection/SNI, before bytes are forwarded
+        self.local_access = local_access
+        self.allow_local = allow_local or allow              # daemon: standing local permission, final No still wins
         self._tokens: dict[str, str] = {}                   # proc id -> token, while FERB tracks the process
         self._facts: dict[str, dict[str, Any]] = {}
         self._active: dict[str, int] = {}                   # open connections per process (a tunnel may outlive it)
@@ -253,7 +274,7 @@ class EgressProxy:
                     self.wfile.write(body)
                 self.close_connection = True
 
-            def _open(self, host: str, port: int) -> tuple[str, socket.socket] | None:
+            def _open(self, host: str, port: int) -> tuple[str, socket.socket, bool] | None:
                 """The checked connection for this request, or None after answering 407/403/502."""
                 proc = self._who()
                 if proc is None:
@@ -261,36 +282,64 @@ class EgressProxy:
                     return None
                 self._authenticated()
                 host = host.lower()
+                local = proxy.local_access if local_host(host) else None
                 try:
-                    if _literal(host) and this_mac(host):    # before asking: an address needs no DNS
-                        raise Unreachable(OWN)
-                    ok, why = proxy.allow(proc, host, port)
-                    if not ok:
-                        raise Unreachable(why or "FERB refused this destination")
-                    where = proxy.resolve(host, port)
+                    if local is not None:
+                        where = local_addresses(host, port)
+                    else:
+                        if _literal(host) and this_mac(host):    # before asking: an address needs no DNS
+                            raise Unreachable(OWN)
+                        ok, why = proxy.allow(proc, host, port)
+                        if not ok:
+                            raise Unreachable(why or "FERB refused this destination")
+                        where = proxy.resolve(host, port)
                 except Unreachable as e:
                     proxy._note(proc, host, port, refused=str(e))
                     self._reply(403, f"FERB: {e}")
                     return None
+                local_error = None
                 for family, sockaddr in where:
                     if not proxy._live(proc):                # forgotten while allow/DNS ran: the task has ended
                         self._reply(403, f"FERB: {ENDED}")
                         return None
                     upstream = None
+                    peer = None
                     try:
+                        if local is not None:
+                            local.before_connect((str(sockaddr[0]), port))
                         upstream = socket.socket(family, socket.SOCK_STREAM)
                         upstream.settimeout(30)
                         upstream.connect(sockaddr)
                         upstream.settimeout(None)
+                        if local is not None:
+                            target, source = upstream.getpeername(), upstream.getsockname()
+                            peer = local.connected((str(target[0]), int(target[1])),
+                                                   (str(source[0]), int(source[1])))
+                            # Only after both executable checks: a configured local port is standing permission;
+                            # task ownership and an explicit tree No still apply. Other contained servers follow
+                            # the ordinary gate here; their existing direct socket route is unchanged.
+                            gate = proxy.allow_local if port in local.pins else proxy.allow
+                            ok, why = gate(proc, host, port)
+                            if not ok:
+                                raise LocalRefused(why or "FERB refused this destination")
+                    except LocalRefused as e:
+                        local_error = str(e)
+                        if upstream is not None:
+                            upstream.close()
+                        continue
                     except OSError:
                         if upstream is not None:
                             upstream.close()
                         continue
-                    if not proxy._opened(proc, host, port):  # forgotten during the connect: refuse, record nothing
+                    if not proxy._opened(proc, host, port, local_peer=peer):
                         upstream.close()
                         self._reply(403, f"FERB: {ENDED}")
                         return None
-                    return proc, upstream
+                    return proc, upstream, local is not None
+                if local_error is not None:
+                    proxy._note(proc, host, port, refused=local_error)
+                    self._reply(403, f"FERB: {local_error}")
+                    return None
                 self._reply(502, "FERB: couldn't connect to the destination")
                 return None
 
@@ -306,7 +355,7 @@ class EgressProxy:
                 opened = self._open(host, port)
                 if opened is None:
                     return
-                proc, upstream = opened
+                proc, upstream, local = opened
                 host = host.lower()
                 try:
                     self.send_response(200, "Connection established")
@@ -314,7 +363,7 @@ class EgressProxy:
                     # S4 fronting: both directions start at once (server-first bytes flow immediately); the first client
                     # bytes are inspected inline (non-TLS forwarded with no delay; a TLS SNI checked after outside content)
                     proxy._pump(self.connection, upstream, proc, host, port,
-                                sni_check=lambda: proxy.inspect_sni(proc, host, port))
+                                sni_check=None if local else lambda: proxy.inspect_sni(proc, host, port))
                 finally:
                     upstream.close()
                     proxy._closed(proc)
@@ -334,7 +383,7 @@ class EgressProxy:
                 opened = self._open(host, port)
                 if opened is None:
                     return
-                proc, upstream = opened
+                proc, upstream, _local = opened
                 host = host.lower()
                 target = (url.path or "/") + (f"?{url.query}" if url.query else "")
                 drop = HOP - {"upgrade"} if upgrading else HOP
@@ -526,7 +575,7 @@ class EgressProxy:
         """The process's proxy variables: every common spelling, so curl, git, Python, Go, Codex and Node (with
         NODE_USE_ENV_PROXY) all use the proxy; a client that ignores them has no network (the sandbox)."""
         url = f"http://{proc_id}:{self.credentials(proc_id)}@127.0.0.1:{self.port}"
-        local = "localhost,127.0.0.1,::1"
+        local = "" if self.local_access is not None else "localhost,127.0.0.1,::1"
         return {**{k: url for k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy",
                                     "all_proxy")},
                 "NO_PROXY": local, "no_proxy": local, "NODE_USE_ENV_PROXY": "1"}
@@ -549,7 +598,14 @@ class EgressProxy:
         for (host, port, why), count in sorted(f["refused"].items()):
             refused[("excluded" if self.excluded(host) else host, port, why)] = \
                 refused.get(("excluded" if self.excluded(host) else host, port, why), 0) + count
-        return {"destinations": [{"host": h, "port": p, **v} for (h, p), v in dests.items()],
+        local: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        for (host, port, address, executable), count in sorted(f.get("local", {}).items()):
+            shown = "excluded" if self.excluded(host) else host
+            local.setdefault((shown, port), []).append({"address": "excluded" if shown == "excluded" else address,
+                                                        "executable": executable, "connections": count})
+        return {"destinations": [{"host": h, "port": p, **v,
+                                  **({"local_connections": local[h, p]} if (h, p) in local else {})}
+                                 for (h, p), v in dests.items()],
                 "refused": [{"host": h, "port": p, "why": w, "count": c} for (h, p, w), c in refused.items()]}
 
     def _live(self, proc: str) -> bool:
@@ -582,7 +638,7 @@ class EgressProxy:
         self._active.pop(proc_id, None)
         return final
 
-    def _opened(self, proc: str, host: str, port: int) -> bool:
+    def _opened(self, proc: str, host: str, port: int, *, local_peer: LocalPeer | None = None) -> bool:
         """Record a new connection; False when the credential was revoked meanwhile (the connection is refused: a
         connection that passed the credential check before `forget` must not re-create a record nobody reports)."""
         with self._lock:
@@ -591,6 +647,10 @@ class EgressProxy:
             f = self._facts.setdefault(proc, {"destinations": {}, "refused": {}})
             d = f["destinations"].setdefault((host, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
             d["connections"] += 1
+            if local_peer is not None:
+                records = f.setdefault("local", {})
+                key = (host, port, local_peer.address, local_peer.executable)
+                records[key] = records.get(key, 0) + 1
             self._active[proc] = self._active.get(proc, 0) + 1
         if self.on_reached is not None:
             self.on_reached(proc, host, port)               # outside the proxy lock: the gateway runs on its loop

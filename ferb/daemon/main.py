@@ -33,6 +33,7 @@ from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ProcInfo, ShellManager
 from ferb.act.shell.proxy import EgressProxy
+from ferb.act.shell.local import LocalAccess
 from ferb.act.shell.sandbox import SANDBOX_EXEC, Sandbox
 from ferb.registry import add_context_readers, add_recording, add_evidence, add_recovery, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
@@ -669,7 +670,9 @@ class Daemon:
         self._loop = asyncio.get_running_loop()
         self.proxy = EgressProxy(self._allow_destination, redactor=self.redact if isinstance(self.redact, Redactor)
                                  else None, excluded=getattr(self.redact, "excluded_host", None),
-                                 inspect_sni=self._sni_enforce, on_reached=self._destination_reached)
+                                 inspect_sni=self._sni_enforce, on_reached=self._destination_reached,
+                                 local_access=LocalAccess(self.protection) if self.protection.local_ports else None,
+                                 allow_local=self._allow_local_destination)
         self.sandbox = Sandbox(self.protection, self.home / "run" / "sandbox",
                                lambda: self.proxy.port if self.proxy is not None else None, socket=self.server.path)
         self.sandbox.sweep()
@@ -711,6 +714,17 @@ class Daemon:
             return bool(fut.result(10))
         except Exception:
             return True
+
+    def _allow_local_destination(self, proc: str, host: str, port: int) -> tuple[bool, str]:
+        """Only the proxy calls this, after verifying an explicit local connected peer against its configured pin.
+        Standing local permission skips a new-host question, never task ownership or an explicit No."""
+        try:
+            assert self.gateway is not None and self._loop is not None
+            fut = asyncio.run_coroutine_threadsafe(
+                self.gateway.destination_allowed(proc, host, port, local_approved=True), self._loop)
+            return fut.result(10)
+        except Exception:
+            return False, "FERB could not check this local destination"
 
     def _destination_reached(self, proc: str, host: str, port: int) -> None:
         """On a proxy thread, before response bytes can become outside content: order a successful connection with

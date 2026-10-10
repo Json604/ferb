@@ -56,7 +56,7 @@ DEFAULT_NEVER_WRITE = (
 DEFAULT_TERMINAL_APPS = ("com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
                          "com.mitchellh.ghostty", "org.alacritty", "net.kovidgoyal.kitty", "com.github.wez.wezterm",
                          "co.zeit.hyper")
-FERB_STATE, NETWORK, ADMIN = "ferb_state", "network", "admin"
+FERB_STATE, NETWORK, ADMIN, TRUSTD = "ferb_state", "network", "admin", "trustd"
 WORKSPACE, UPLOADS = "workspace", "uploads"
 READ, WRITE, REMOVE = "read", "write", "remove"         # FileAccess (ferb/core/types.py): what a call does to a file
 # A call that takes a path away with everything inside it: a folder holding protected content is protected for it.
@@ -73,6 +73,33 @@ class Entry:
     path: Path       # resolved when FERB started
     shown: str       # as the owner wrote it, the home as ~
     typed: Path      # as written, absolute, `..` folded: still matched if the entry later becomes a link
+
+
+@dataclass(frozen=True)
+class LocalPort:
+    """An owner-approved TCP port and the resolved executable its listener must run."""
+    port: int
+    executable: Path
+
+
+def _local_ports(value: Any) -> tuple[LocalPort, ...]:
+    error = ("protection.local_ports in config.toml must be a list of {port = <TCP port>, "
+             "executable = <absolute executable path>} entries, with one executable per port")
+    if not isinstance(value, (list, tuple)):
+        raise BadProtection(error)
+    ports: dict[int, LocalPort] = {}
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"port", "executable"}:
+            raise BadProtection(error)
+        port, executable = item["port"], item["executable"]
+        if (not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535
+                or not isinstance(executable, str) or "\x00" in executable or not Path(executable).is_absolute()):
+            raise BadProtection(error)
+        pin = LocalPort(port, Path(os.path.realpath(executable)))
+        if port in ports and ports[port] != pin:
+            raise BadProtection(error)
+        ports[port] = pin
+    return tuple(ports.values())
 
 
 def _absolute(path: Path) -> Path:
@@ -168,12 +195,14 @@ def load(get: Callable[[str, str, Any], Any], home: Path, ferb_home: Path) -> "P
     return Protection(home, ferb_home, get("protection", "never_read", DEFAULT_NEVER_READ),
                       get("protection", "never_write", DEFAULT_NEVER_WRITE),
                       get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
-                      get("protection", "fs_reads_never_read", False))
+                      get("protection", "fs_reads_never_read", False),
+                      local_ports=get("protection", "local_ports", []))
 
 
 class Protection:
     def __init__(self, home: Path, ferb_home: Path, never_read: Iterable[str], never_write: Iterable[str],
-                 terminal_apps: Iterable[str], fs_reads_never_read: bool = False) -> None:
+                 terminal_apps: Iterable[str], fs_reads_never_read: bool = False, *,
+                 local_ports: Any = ()) -> None:
         if not isinstance(fs_reads_never_read, bool):
             raise BadProtection("protection.fs_reads_never_read in config.toml must be true or false")
         self.home = home
@@ -188,6 +217,7 @@ class Protection:
         self.writes = self._entries("write", _strings(never_write, "never_write", "paths"))
         self.terminal_apps = frozenset(a.lower() for a in _strings(terminal_apps, "terminal_apps", "app bundle ids"))
         self.fs_reads_never_read = fs_reads_never_read
+        self.local_ports = _local_ports(local_ports)
 
     def _entries(self, prefix: str, items: list[str]) -> list[Entry]:
         out: dict[str, Entry] = {}
@@ -238,7 +268,7 @@ class Protection:
         return None if self.fs_reads_never_read else self._hit(self.reads, forms, removes)
 
     def liftable(self, rule_id: str) -> bool:
-        return rule_id == ADMIN or any(e.id == rule_id for e in (*self.reads, *self.writes))
+        return rule_id in (ADMIN, TRUSTD) or any(e.id == rule_id for e in (*self.reads, *self.writes))
 
     def entry(self, rule_id: str) -> Entry | None:
         return next((e for e in (*self.reads, *self.writes) if e.id == rule_id), None)
@@ -264,9 +294,13 @@ class Protection:
             {"id": FERB_STATE, "kind": "read and write", "path": "FERB's own files (~/.ferb except its workspace, and "
              "the workspace's uploads)", "liftable": False},
             {"id": NETWORK, "kind": "network", "path": "no direct connection off this Mac, and on it only to "
-             "servers started inside FERB's shell; FERB's proxy, which records each host, is the way out "
+             "servers started inside FERB's shell, plus owner-approved executable-pinned local ports through "
+             "FERB's proxy; the proxy records each host and is the way out "
              "(shell.rules says whether it is running)", "liftable": False},
-            {"id": ADMIN, "kind": "admin", "path": "a command that needs your Mac password (sudo)", "liftable": True}]
+            {"id": ADMIN, "kind": "admin", "path": "a command that needs your Mac password (sudo)", "liftable": True},
+            {"id": TRUSTD, "kind": "service", "path": "macOS certificate trust evaluation (trustd): enabling it "
+             "lets the certificate service fetch certificate URLs outside FERB's proxy; Go TLS may need it",
+             "liftable": True}]
         out += [{"id": e.id, "kind": "read", "path": e.shown, "liftable": True} for e in self.reads]
         out += [{"id": e.id, "kind": "write", "path": e.shown, "liftable": True} for e in self.writes]
         return out

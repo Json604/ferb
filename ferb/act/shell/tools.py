@@ -259,9 +259,14 @@ class ShellRules(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         port = self.shells.sandbox.proxy_port() if self.shells.sandbox is not None else None
         local = ("this Mac's own servers only if started inside FERB's shell (other programs' servers, as they were "
-                 "when the command started, are out of reach)")
+                 "when the command started, are out of reach directly); protection.local_ports allows approved "
+                 "TCP services through the proxy with executable checks and connection records. With local ports "
+                 "configured, NO_PROXY is empty; contained servers still accept direct connections when the client "
+                 "explicitly bypasses the proxy. A configured local port always requires the proxy.")
         network = (f"no network beyond this Mac; FERB's proxy is not running; {local}" if port is None else
                    f"only through FERB's proxy on 127.0.0.1:{port}, which records each host, port and byte count "
                    f"(clients that ignore HTTPS_PROXY/HTTP_PROXY get no network; no ssh); {local}")
         return ToolResult({"rules": self.protection.rules(), "network": network, "apps": NO_APPS,
-                           "own_sandbox": NESTED_SANDBOX})
+                           "own_sandbox": NESTED_SANDBOX,
+                           "local_ports": [{"port": pin.port, "executable": str(pin.executable)}
+                                           for pin in self.protection.local_ports]})

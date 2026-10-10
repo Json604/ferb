@@ -126,6 +126,7 @@ class Config:
                                     ("protection", "never_read", list(DEFAULT_NEVER_READ)),
                                     ("protection", "never_write", list(DEFAULT_NEVER_WRITE)),
                                     ("protection", "terminal_apps", list(DEFAULT_TERMINAL_APPS)),
+                                    ("protection", "local_ports", []),
                                     ("protection", "fs_reads_never_read", False)):
             if self.get(section, key) is None:
                 self.set(section, key, value)

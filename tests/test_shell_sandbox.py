@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from ferb.act.shell.manager import ShellManager
-from ferb.act.shell.sandbox import APP_SERVICES, CERT_BUNDLE, NETWORK_SERVICES, SANDBOX_EXEC, SECURITY_SERVER, Sandbox
+from ferb.act.shell.sandbox import APP_SERVICES, CERT_BUNDLE, NETWORK_SERVICES, SANDBOX_EXEC, SECURITY_SERVER, TRUST_SERVICES, Sandbox
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
 from ferb.core.types import Identity
@@ -330,16 +330,16 @@ def test_each_denied_mach_service_fails_to_look_up(tmp_path: Path) -> None:
     appleevents = "com.apple.coreservices.appleevents"
     assert appleevents in APP_SERVICES                           # a raw send needs this service; the shell denies it
     denied = [SECURITY_SERVER, "com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb", appleevents]
-    shell = lookups(sb, [*denied, *NETWORK_SERVICES, "com.apple.trustd.agent"])
-    assert all(shell[name] != 0 for name in [*denied, *NETWORK_SERVICES]), shell   # every deny blocks the lookup
-    assert shell["com.apple.trustd.agent"] == 0                  # trust still reachable (TLS works)
-    apps = lookups(sb, [*denied, *NETWORK_SERVICES], apps=True)
+    shell = lookups(sb, [*denied, *NETWORK_SERVICES, *TRUST_SERVICES])
+    assert all(shell[name] != 0 for name in [*denied, *NETWORK_SERVICES, *TRUST_SERVICES]), shell
+    apps = lookups(sb, [*denied, *NETWORK_SERVICES, *TRUST_SERVICES], apps=True)
     assert apps[SECURITY_SERVER] != 0                            # the Keychain service stays denied
     assert all(apps[name] == 0 for name in denied if name != SECURITY_SERVER)   # app services back for AppleScript
     # No network around FERB's proxy for either profile: background URL sessions (nsurlsessiond reached a server the
     # sandbox denies: F5a Task 3) and mDNSResponder's resolver service (DNS for any name)
     assert "com.apple.nsurlsessiond" in NETWORK_SERVICES and "com.apple.dnssd.service" in NETWORK_SERVICES
     assert all(apps[name] != 0 for name in NETWORK_SERVICES), apps
+    assert all(apps[name] != 0 for name in TRUST_SERVICES), apps
 
 
 def test_without_a_working_sandbox_the_shell_and_applescript_are_left_out(home: Path,

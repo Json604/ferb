@@ -454,7 +454,8 @@ class Gateway:
     def in_flight(self, task_ids: set[str]) -> bool:
         return any(tid in task_ids and not job.done() for job, tid in self._in_flight.items())
 
-    async def destination_allowed(self, proc_id: str, host: str, port: int) -> tuple[bool, str]:
+    async def destination_allowed(self, proc_id: str, host: str, port: int, *,
+                                  local_approved: bool = False) -> tuple[bool, str]:
         """S4: whether a shell process may connect to host:port through FERB's egress proxy, and FERB's reason if not.
         Asked by the proxy (on the loop) before it resolves the name, so a refused name never reaches a DNS server, and
         again for a differing TLS SNI (domain fronting). Allowed when the host is a destination FERB already knows or
@@ -467,7 +468,8 @@ class Gateway:
         task was already talking to — a registry, an agent's own API — stays allowed for the rest of the tree, by the
         order of the connection and the first outside read, never by a list of hosts). Else refused and recorded under
         this tree, so `owner.ask allow_destination` can act on it (a worker can't invent a host nothing tried).
-        Loopback never reaches here."""
+        The proxy may supply local_approved only after matching a literal local connected peer to its owner-configured
+        executable pin. That standing permission still follows task ownership and the tree's final No."""
         norm = KnownDestinations.normalize("host", host)
         task_id = self.proc_task(proc_id)
         root = self.tasks.tree_of(task_id) if task_id is not None else None
@@ -477,6 +479,8 @@ class Gateway:
             row = self.confirmations.find(root, confirm.destination_key(norm))
             if row is not None:
                 return (True, "") if row["granted"] else (False, DEST_REFUSED_NO)
+        if local_approved:
+            return True, ""
         if self.destinations is not None and self.destinations.known("host", host):
             return True, ""
         if self._host_named(norm, root):

@@ -15,7 +15,8 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
 - Renaming a folder above a protected path would carry it to a path no rule names, so each such folder, and the
   workspace itself, is denied as a literal (the folder, not its contents): files can still be made inside them.
 - The Keychain's service (com.apple.SecurityServer) is unreachable, so `security` fails at once and no Keychain prompt
-  can appear (E4). Trust evaluation goes through trustd and still works (URLSession, Go: measured), but programs that
+  can appear (E4). Trust evaluation through trustd is also denied (owner, 2026-10-10); one approved command can lift
+  only that rule. Go TLS may need the lift. Programs that
   list root certificates through the Keychain service (rustls-native-certs, e.g. Codex CLI) find none, so the shell's
   environment names Apple's certificate bundle (SSL_CERT_FILE) for them.
 - No network except this Mac's own addresses (E2), and of those only FERB's proxy and servers started inside FERB's
@@ -46,7 +47,7 @@ from pathlib import Path
 from typing import Callable
 
 from ferb.act.shell.listeners import outside_ports
-from ferb.policy.protection import ADMIN, FERB_STATE, NETWORK, Entry, Protection
+from ferb.policy.protection import ADMIN, FERB_STATE, NETWORK, TRUSTD, Entry, Protection
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 SECURITY_SERVER = "com.apple.SecurityServer"
@@ -61,13 +62,19 @@ NO_APPS = ("FERB's shell can't open apps or URLs on the owner's screen, send App
 # What the network rules and FERB's proxy mean for a command (F5a Task 3, measured); shown to agents
 NETWORK_FACT = ("Network goes only through FERB's proxy (HTTPS_PROXY/HTTP_PROXY are set; programs that ignore them, "
                 "and ssh, get no network); each host reached is recorded and labels the output. On this Mac, only "
-                "servers started in FERB's shell are reachable, and Apple-framework clients must address them as "
-                "127.0.0.1, not localhost; other programs' servers are out of reach.")
+                "servers started in FERB's shell are reachable directly; owner-approved protection.local_ports "
+                "are reached through the proxy after checking the listener's executable. HTTP clients use the "
+                "proxy environment; other clients need HTTP CONNECT support for an approved local port. "
+                "Apple-framework clients must address contained servers as 127.0.0.1, not localhost. "
+                "Certificate trust evaluation (trustd) is denied; Go TLS may need a one-command trustd escape.")
 # System services that would reach the network for a contained process, outside its network rules and FERB's proxy:
 # background URL sessions (nsurlsessiond: a download from inside reached a server the sandbox denies, measured F5a
 # Task 3) and mDNSResponder's resolver service (the proxy resolves names; the sandbox has no DNS). Denied to both
 # profiles (AppleScriptObjC can make a URL session too)
 NETWORK_SERVICES = ("com.apple.nsurlsessiond", "com.apple.nsurlsessiond-launchondemand", "com.apple.dnssd.service")
+# Owner, 2026-10-10: trust evaluation can fetch certificate URLs outside the proxy. One exact approved command
+# may lift this service rule (D31); the Keychain and the socket network rules remain closed.
+TRUST_SERVICES = ("com.apple.trustd", "com.apple.trustd.agent")
 # Denied to the shell profile only (mac.applescript's keeps them): app lookup and the Apple Events service
 APP_SERVICES = ("com.apple.coreservices.launchservicesd", "com.apple.lsd.mapdb", "com.apple.coreservices.appleevents")
 
@@ -99,7 +106,7 @@ class Sandbox:
                 raise ValueError(f"{lift} is never lifted")
             if lift == ADMIN:
                 raise ValueError("admin is no profile change: sudo can't start under any sandbox profile")
-            if p.entry(lift) is None:
+            if lift != TRUSTD and p.entry(lift) is None:
                 raise ValueError(f"no such rule: {lift}")
         lines = ["(version 1)", "(allow default)"]
         lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.ferb_home)]
@@ -123,6 +130,8 @@ class Sandbox:
                       f"(deny file-write-create (require-all (literal {_q(f)}) (vnode-type SYMLINK)))"]
         lines += [f'(deny mach-lookup (global-name "{SECURITY_SERVER}"))', "(deny job-creation)"]
         lines += [f'(deny mach-lookup (global-name "{name}"))' for name in NETWORK_SERVICES]
+        if lift != TRUSTD:
+            lines += [f'(deny mach-lookup (global-name "{name}"))' for name in TRUST_SERVICES]
         # The kernel's SMB and NFS clients run outside the sandbox: mounting a share makes kernel_task reach the
         # server, past the network rules and FERB's proxy (measured, F5a Task 3 fix 1). Deny mounting and the SMB
         # device node, in both profiles
@@ -148,6 +157,9 @@ class Sandbox:
         if outside is None:
             lines.append('(deny network-outbound (remote ip "localhost:*"))')
         else:
+            # These ports always go through the proxy, even if no listener existed at command start. A direct
+            # exception could outlive the executable check and would have no per-connection audit record.
+            outside = outside | {pin.port for pin in self.protection.local_ports}
             lines += [f'(deny network-outbound (remote ip "localhost:{port}"))' for port in sorted(outside - {proxy})]
         if proxy is not None:
             lines.append(f'(allow network-outbound (remote tcp "localhost:{proxy}"))')
