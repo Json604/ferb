@@ -233,9 +233,9 @@ If the sandbox can't run, those tools are off and `ferb doctor` says why. `shell
 Before each shell command FERB takes a local disk snapshot (at most one per 15 minutes; a recent one is reused). If
 none can be taken the command still runs, and `ferb doctor` shows the last failure.
 
-FERB itself asks you, in chat, before some steps run. Only FERB's own checks start with `FERB:`; a task's question that
-starts that way is shown with "(from the task)" in front. FERB's question names the exact step and offers Yes or No
-(Enter counts as No):
+FERB itself asks you, in chat, before some steps run. Only FERB's own checks start with `FERB:`. A task's question
+always reads "Question from the task: …", and a task's option or chat line that starts with "FERB" has "(from the
+task)" in front. FERB's question names the exact step and offers Yes or No (Enter counts as No):
 - a payment or a change to a password, sign-in or recovery setting: always;
 - a permanent delete of something you didn't name, or a message or call to someone you didn't name, or to a contact
   it can't name ("Rahul" names "Rahul Verma"; typed in lower case, only the full name counts);

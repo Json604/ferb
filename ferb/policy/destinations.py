@@ -95,6 +95,14 @@ class Confirmations:
                                    "ORDER BY rowid DESC LIMIT 1", (tree_id, key)).fetchone()
         return dict(row) if row is not None else None
 
+    def covers(self, cid: str, key: str) -> bool:
+        """Whether row `cid` is a Yes to the question `key` names (never for a key holding a secret)."""
+        if _redacted(self.redact, key) != key:
+            return False
+        row = self.db.conn.execute("SELECT 1 FROM confirmations WHERE id = ? AND key = ? AND granted = 1",
+                                   (cid, key)).fetchone()
+        return row is not None
+
     def record(self, tree_id: str, rule: str, key: str, granted: bool, ask_span: str | None) -> str:
         cid = str(self.ids.new_id())
         self.db.conn.execute("INSERT INTO confirmations (id, tree_id, rule, key, granted, ask_span, used, at) "

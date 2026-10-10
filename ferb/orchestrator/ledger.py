@@ -85,6 +85,14 @@ class Ledger:
             return e
         return None
 
+    def approved_retry(self, task_id: str, capability: str, payload_hash: str) -> str | None:
+        """The unknown attempt whose one more try the owner approved and this identical action would use now, else
+        None; read only."""
+        try:
+            return self._check_repeat(task_id, capability, payload_hash)
+        except DuplicateUnresolved:
+            return None
+
     def _check_repeat(self, task_id: str, capability: str, payload_hash: str) -> str | None:
         """Refuse a repeat of an action the tree may already have done (P19): an identical attempt still in flight, or
         one whose outcome is unknown, unless the owner approved one more attempt on the latest unknown one and no

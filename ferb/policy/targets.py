@@ -40,6 +40,9 @@ class Request:
     words: str = ""                                   # the owner's own words (pasted text removed)
     targets: Targets = field(default_factory=Targets)
     payload: str = ""                                # complete request, with pasted sources marked as data
+    # the outside origins FERB's earlier question (which this request answers) was written from: a value the planner
+    # took from outside content into that question stays outside content here (S4 b)
+    asked_origins: frozenset[str] = frozenset()
 
 
 class Requests:

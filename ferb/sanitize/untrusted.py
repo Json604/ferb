@@ -109,6 +109,12 @@ def pasted_parts(payload: str) -> list[str]:
     return [m.group(2) for m in _PARTS.finditer(_EARLIER.sub("", payload or "")) if m.group(2).strip()]
 
 
+def earlier_questions(payload: str) -> list[str]:
+    """FERB's own earlier question(s) a payload carries as data (an answer continues the request it asked about)."""
+    return [p.group(2) for m in _EARLIER.finditer(payload or "") for p in _PARTS.finditer(m.group(0))
+            if p.group(2).strip()]
+
+
 def wrap_untrusted(text: str) -> str:
     """Data, not instructions: in tags with a random id; a forged closing tag inside can't end ours."""
     tag, uid = "untrusted-data", secrets.token_hex(6)

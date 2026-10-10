@@ -17,6 +17,8 @@ account-security changes ask anyway (SQ1).
 FERB's question (`line`) comes first and is labelled, in the owner's terms (P27): the concrete action, then the call."""
 
 import json
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
@@ -28,6 +30,9 @@ ALWAYS = {Kind.PAY: "floor:pay", Kind.ACCOUNT_SECURITY: "floor:account_security"
 SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.CALL})
 OWNER_SOURCES = frozenset({"owner_words", "owner_answer"})
 SHOWN_ORIGINS = 3                         # outside sources named in one question; the rest are counted
+FROM_TASK = "(from the task) "            # a task's text that reads like FERB's own (D33)
+TASK_QUESTION = "Question from the task: "
+_BUNDLE_LIKE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+){2,}", re.I)   # an app's id (com.apple.MobileSMS): internal
 Known = Callable[[str, str], bool]
 
 
@@ -62,7 +67,8 @@ def shown_amount(amount: float | None) -> str:
 
 
 def shown_origin(label: str) -> str:
-    """One origin label in the owner's terms: "the web page on kartikey.xyz", "a message, wa:123", "text you pasted"."""
+    """One origin label in the owner's terms, without FERB's internal ids: "the web page on kartikey.xyz", "a message,
+    wa:123", "an email", "text you pasted", "something FERB remembered"."""
     head, _, rest = label.partition(":")
     if head != "external":
         return label
@@ -70,6 +76,8 @@ def shown_origin(label: str) -> str:
     if kind == "web":
         if detail == "excluded":
             return "a site on your exclusion list"
+        if detail == "trail":
+            return "pages you visited"
         return f"the web page on {detail}" if detail else "a web page"
     if kind == "paste":
         return "text you pasted"
@@ -77,8 +85,34 @@ def shown_origin(label: str) -> str:
         return "content FERB couldn't label"
     if kind == "download":
         return "a downloaded file"
-    article = {"message": "a message", "email": "an email"}.get(kind, kind)
-    return f"{article}, {detail}" if detail else article
+    if kind == "memory":
+        return "something FERB remembered"
+    if kind == "email":
+        return "an email"
+    if kind == "message":
+        return f"a message, {detail}" if detail and not _BUNDLE_LIKE.fullmatch(detail) else "a message"
+    return f"content from {kind}"
+
+
+def reads_as_ferbs(text: str) -> bool:
+    """Whether a text starts with "FERB", ignoring case, spaces, punctuation and compatibility forms (fullwidth)."""
+    return "".join(c for c in unicodedata.normalize("NFKC", text) if c.isalnum()).casefold().startswith("ferb")
+
+
+def from_task(text: str) -> str:
+    """A task's option (or line) as the owner sees it: only FERB's own checks start with "FERB:" (D33)."""
+    return FROM_TASK + text if reads_as_ferbs(text) else text
+
+
+def task_question(text: str) -> str:
+    """A task's question as the owner sees it: always labelled, one paragraph, so no line of it can pass for FERB's
+    own check (a newline or a homoglyph doesn't help)."""
+    return TASK_QUESTION + " ".join(text.split())
+
+
+def from_task_lines(text: str) -> str:
+    """A planner's chat reply or clarify: each line that starts with "FERB" is marked as the task's."""
+    return "\n".join(from_task(line) for line in text.split("\n"))
 
 
 def shown_origins(labels: Iterable[str]) -> str:

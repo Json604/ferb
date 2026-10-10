@@ -31,7 +31,6 @@ import asyncio
 import base64
 import dataclasses
 import logging
-import unicodedata
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -61,7 +60,7 @@ from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
-from ferb.sanitize.untrusted import pasted_parts
+from ferb.sanitize.untrusted import earlier_questions, pasted_parts
 from ferb.store.spans import SpanStore
 from ferb.trace import lines
 
@@ -115,7 +114,6 @@ OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that 
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
 NO_SUCH_REFUSAL = ("no command of this task tried to reach {host} and was refused, so there is nothing to ask the owner "
                    "about")
-FROM_TASK = "(from the task) "            # a task's question or option that reads like FERB's own (D33)
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
 
 
@@ -234,7 +232,8 @@ def snapshot_facts(out: dict[str, Any]) -> dict[str, Any]:
 
 @dataclass
 class Claimed:
-    """The always-ask Yes rows a call claimed (SQ1). Kept only when the call ran to a result; else released."""
+    """The always-ask Yes rows a call claimed (SQ1). Spent once the call's attempt starts (an unknown outcome
+    included); released only when it is refused, cancelled before it runs, or the tool reports it failed."""
     ids: list[str] = field(default_factory=list)
     kept: bool = False
 
@@ -249,14 +248,6 @@ def quoted(text: str, limit: int = REASON_CHARS) -> str:
     return lines.clip(" ".join(printable(text).split()).replace('"', "'"), limit)
 
 
-def reads_as_ferbs(text: str) -> bool:
-    """Whether a text starts with "FERB", ignoring case, spaces, punctuation and compatibility forms (fullwidth)."""
-    return "".join(c for c in unicodedata.normalize("NFKC", text) if c.isalnum()).casefold().startswith("ferb")
-
-
-def from_task(text: str) -> str:
-    """A task's question or option as the owner sees it: only FERB's own checks start with "FERB:" (D33)."""
-    return FROM_TASK + text if reads_as_ferbs(text) else text
 
 
 def short_target(target: dict[str, Any]) -> str:
@@ -491,9 +482,11 @@ class Gateway:
         root = rec.tree_id or grant.task_id
         request = self.state.requests.get(rec.task.request_id)
         known = self._outside.setdefault(root, OutsideTexts())
-        if known.pasted is None:
+        if known.pasted is None:                     # FERB's earlier question too, when outside content fed it
             known.pasted = [(origin.external("paste"), provenance.prepare(part))
                             for part in pasted_parts(request.payload)]
+            known.pasted += [(o, provenance.prepare(q)) for q in earlier_questions(request.payload)
+                             for o in sorted(request.asked_origins) if origin.is_external(o)]
         return provenance.arg_sources_prepared(
             spec.target, provenance.prepare(request.words), self._outside_texts(root) + known.pasted,
             provenance.prepare("\n".join(self.spans.owner_answers(root))))
@@ -566,11 +559,13 @@ class Gateway:
         if consequential:                                # where each target came from (S3), a fact
             extra["arg_sources"] = self._arg_sources(spec, rec, grant)
         blocked = self._send_blocked(spec)               # test mode: before FERB asks the owner anything
-        repeat = None if blocked is not None else self._repeat_refusal(cap, name, spec, action, args, real, grant)
+        ident = self._identity(cap, name, spec, action, args, real)
+        repeat = None if blocked is not None else self._repeat_refusal(ident, grant)
         covered = Covered()
         if consequential and blocked is None and repeat is None:
             # D23 floor, S4: asked by code, before anything is held
-            covered = await self._confirmed(grant, rec, name, arguments, spec, why, extra["arg_sources"])
+            covered = await self._confirmed(grant, rec, name, arguments, spec, why, extra["arg_sources"],
+                                            ident if isinstance(ident, tuple) else None)
         if consequential:
             extra["confirmations"] = covered.ids
         claimed = Claimed(covered.spent)
@@ -593,8 +588,8 @@ class Gateway:
             return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments)
         finally:
             if claimed.ids and not claimed.kept and self.confirmations is not None:
-                for cid in claimed.ids:                  # it didn't run to a result: the Yes covers its retry again
-                    self.confirmations.release(cid)
+                for cid in claimed.ids:                  # refused, cancelled before it ran, or reported failed:
+                    self.confirmations.release(cid)      # the Yes covers its retry again
 
     async def _held(self, cap: Any, name: str, args: Any, spec: Any, action: ActionRequest, grant: RunGrant, rec: Any,
                     span: Any, reply: Callable[..., dict[str, Any]], real: Path | None, claimed: Claimed,
@@ -618,17 +613,41 @@ class Gateway:
         finally:
             self.observer.tool_call(grant, done=True)
 
-    def _repeat_refusal(self, cap: Any, name: str, spec: Any, action: ActionRequest, args: Any, real: Path | None,
-                        grant: RunGrant) -> Refused | DuplicateUnresolved | None:
-        """Why the ledger would refuse this call now (P19: the same action unresolved in the tree; a path no file can
-        have), else None. Such a call is refused at once, as `_execute` would, and FERB asks the owner nothing."""
+    @staticmethod
+    def _identity(cap: Any, name: str, spec: Any, action: ActionRequest, args: Any,
+                  real: Path | None) -> tuple[str, str] | Refused | None:
+        """A consequential call's P19 identity (ledger key, payload hash), the refusal of a path no file can have, or
+        None for a reversible call (no ledger row)."""
         if spec.kind in REVERSIBLE:
             return None
         try:
-            key, digest = ledger_identity(cap, name, action, args, real)
+            return ledger_identity(cap, name, action, args, real)
         except Refused as e:
             return e
-        return self.ledger.refusal(grant.task_id, key, digest)
+
+    def _repeat_refusal(self, ident: tuple[str, str] | Refused | None,
+                        grant: RunGrant) -> Refused | DuplicateUnresolved | None:
+        """Why the ledger would refuse this call now (P19: the same action unresolved in the tree; a path no file can
+        have), else None. Such a call is refused at once, as `_execute` would, and FERB asks the owner nothing."""
+        if ident is None or isinstance(ident, Refused):
+            return ident
+        return self.ledger.refusal(grant.task_id, *ident)
+
+    def _approved_retry_rows(self, grant: RunGrant, ident: tuple[str, str] | None) -> list[str]:
+        """SQ1 with P19: when this call is the identical retry the owner approved of an attempt whose outcome is
+        unknown, the confirmation rows that attempt used (its Yes stayed spent). That retry may use them once more;
+        any other call, a reworded one included, is asked again."""
+        if ident is None:
+            return []
+        approved = self.ledger.approved_retry(grant.task_id, *ident)
+        if approved is None:
+            return []
+        row = self.ledger.get(approved)
+        for ref in row.evidence:
+            found = self.spans.tool_call(row.intent.task_id, ref)
+            if found is not None and isinstance(found["input"].get("confirmations"), list):
+                return [str(c) for c in found["input"]["confirmations"]]
+        return []
 
     def _ledger_refused(self, span: Any, name: str, reply: Callable[..., dict[str, Any]],
                         e: Refused | DuplicateUnresolved) -> dict[str, Any]:
@@ -655,7 +674,7 @@ class Gateway:
         return "blocked by FERB test-mode send allowlist" + ("" if recipients else ": no checkable recipient"), unlisted
 
     async def _confirmed(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any, why: str,
-                         sources: dict[str, list[str]]) -> Covered:
+                         sources: dict[str, list[str]], ident: tuple[str, str] | None = None) -> Covered:
         """D23 floor, D33, S4: whether this call may run as far as the owner is concerned. The needs come from facts
         (confirm.decide): the kinds, the targets' provenance, what this tree has read (its own tool results and the
         request's pasted parts; planner blocks and memory don't count), the known destinations. An answer recorded in
@@ -669,16 +688,23 @@ class Gateway:
                                read_external=bool(outside), known=known, outside_read=outside, place=spec.place)
         if not needs:
             return Covered()
-        call = call_excerpt({"input": {"tool": name, "args": arguments}})
+        call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
         if self.confirmations is None:                   # never skipped silently: no record, no run
             return Covered(refused={"error": NOT_RECORDED.format(line=self._ferb_line(needs, call, why))})
         confirmations = self.confirmations
         async with self._confirming.setdefault(root, asyncio.Lock()):
             out, ask = Covered(), []
+            approved: list[str] | None = None
             try:
                 for need in needs:
                     row = confirmations.find(root, need.key)
-                    if row is None or (row["granted"] and row["used"]):   # an always-ask Yes another call claimed
+                    if row is not None and row["granted"] and row["used"] and need.always:
+                        approved = self._approved_retry_rows(grant, ident) if approved is None else approved
+                        again = next((cid for cid in approved if confirmations.covers(cid, need.key)), None)
+                        if again is not None:            # the identical retry the owner approved: once more
+                            out.ids.append(again)
+                            continue
+                    if row is None or (row["granted"] and row["used"]):   # an always-ask Yes another call spent
                         ask.append(need)
                         continue
                     out.ids.append(row["id"])
@@ -711,7 +737,8 @@ class Gateway:
     def _ferb_line(self, needs: list[confirm.Need], call: str, why: str) -> str:
         """FERB's question as the owner reads it: one paragraph (the call and the task's reason can't open one of
         their own, P19's rule), no terminal control characters, the reason quoted and clipped, redacted."""
-        text = confirm.line(needs, " ".join(printable(call).split()), quoted(why) if why.strip() else "")
+        text = confirm.line(needs, " ".join(printable(call).split()),
+                            quoted(self.redact({"w": why})["w"]) if why.strip() else "")   # redacted, then clipped
         return " ".join(printable(self.redact({"q": text})["q"]).split())
 
     async def ask_confirmation(self, grant: RunGrant, rec: Any, needs: list[confirm.Need], span: Any, call: str,
@@ -861,6 +888,8 @@ class Gateway:
             self._finish_call(span, name, {"error": error}, True, error=error)
             return reply({"error": error}, True, {origin.FERB})
         kept_out = ({"recoverable": kept} if kept else {}) | snap or None   # an unknown outcome keeps the copy
+        if claimed is not None:
+            claimed.kept = True                          # SQ1: the attempt starts; only a known non-outcome frees it
         try:
             result = await cap.run(args, ctx)
         except asyncio.CancelledError:
@@ -880,8 +909,8 @@ class Gateway:
             return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {}), True)
         if intent_id:                                    # the span id is already its evidence (marked executing)
             self.ledger.mark(intent_id, "failed" if result.is_error else "done")
-        if claimed is not None and not result.is_error:
-            claimed.kept = True                          # SQ1: that Yes covered this run; another one asks again
+        if claimed is not None and result.is_error:
+            claimed.kept = False                         # the tool reported it didn't happen: its retry may use it
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
         raw = result.content
@@ -1161,7 +1190,7 @@ class Gateway:
             ferb_line = printable(self.redact({"q": retry_line(row, attempts, call, tool)})["q"])
             # one quoted paragraph, no terminal control characters: the task's text can't open a paragraph of its own,
             # or rewrite a line on the owner's terminal, that looks like FERB's
-            question = f'{ferb_line}\n\nWhat the task found: "{quoted(question)}".'
+            question = f'{ferb_line}\n\nWhat the task found: "{quoted(self.redact({"q": question})["q"])}".'
             options = [RETRY_YES, RETRY_NO]
         elif self.route_question is not None:
             self.observer.waiting(grant.worker_id, True)
@@ -1177,8 +1206,9 @@ class Gateway:
                 return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
             question = decision['question'] or question
         given_options = options
-        if not retry:                                # D33: only FERB's own checks read as FERB's
-            question, options = from_task(question), [from_task(o) for o in options]
+        if not retry:                                # D33: only FERB's own checks read as FERB's; a task's is labelled
+            question = confirm.task_question(printable(question))
+            options = [confirm.from_task(" ".join(printable(o).split())) for o in options]
         span = self.spans.start("tool.call", task_id=grant.task_id, parent_id=rec.span_id, device_id=self.device_id,
                                 input={"tool": OWNER_ASK, "args": {"question": question, "options": options}
                                        | ({"retry_action": retry} if retry else {})})

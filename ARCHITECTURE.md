@@ -944,8 +944,10 @@ the owner must answer first (`confirm.decide`):
   turn), and the owner hasn't named the place. The supervisor records the request's own origins on the root span
   (`input.request_origins`, `SpanStore.request_origins`); planner blocks and memory are not in them. (b) A recipient,
   contact or amount that came only from outside content asks, unless it is a known destination. The request's pasted
-  parts are outside content for this too: provenance matches them as `external:paste` (MP2); FERB's own earlier
-  question, wrapped the same way, is not one of them (`untrusted.pasted_parts`).
+  parts are outside content for this too: provenance matches them as `external:paste` (MP2). FERB's own earlier
+  question, wrapped the same way, is not a paste (`untrusted.pasted_parts`); it is matched with the outside origins of
+  the planner turn that wrote it (its `chat.clarify` row, carried as `Request.asked_origins`), so a value the planner
+  took from outside content into it stays outside content (`untrusted.earlier_questions`).
 - **Known destinations** (`known_destinations`): the emails, URL hosts and phone numbers in the owner's words of each
   request (`named`, recorded by `run_tree`), destinations in the owner's answers to `owner.ask` (`answered`), and each
   destination of a Yes to FERB's question (`confirmed`). Never "new" again in a later task. Values are normalized,
@@ -954,8 +956,8 @@ the owner must answer first (`confirm.decide`):
   an `owner.ask` span with `ferb_question: true`, `args.confirm` = the `{rule, key}` it covers, options Yes/No, the
   approval journaled as `ferb.confirm` (`ferb chat` shows "(Enter = No)": skipping is a No). Its question is one
   paragraph, control characters stripped, redacted; outside sources are named in the owner's terms ("the web page on
-  kartikey.xyz", "a message, wa:123", "text you pasted", "content FERB couldn't label"), three at most and the rest
-  counted:
+  kartikey.xyz", "a message, wa:123", "an email", "text you pasted", "something FERB remembered", "pages you
+  visited", "content FERB couldn't label"; no internal ids or app ids), three at most and the rest counted:
   - `FERB: this pays <amount> to <recipients> on <app or site> from <account>.`
   - `FERB: this changes account security (a password, sign-in or recovery setting) on <site>.`
   - `FERB: this permanently deletes <path> (it skips the Trash).`
@@ -967,10 +969,14 @@ the owner must answer first (`confirm.decide`):
     `the recipient <value> came from …`; `the amount <value> came from …`)
   - Several apply: joined with `;`. Then `The step: <tool and arguments>.`, `Reason given: "<why>".` when given (the
     task's words quoted, double quotes made single, 200 characters at most), and `Go ahead?`.
-- **Only FERB's own checks start with "FERB:".** A task's `owner.ask` question or option that starts with "FERB"
-  (ignoring case, spaces, punctuation and fullwidth forms), including an orchestrator's rewrite, is shown with
-  `(from the task) ` in front; the task gets its option back as it wrote it. P19's question quotes what the task found
-  the same way (`What the task found: "…".`).
+- **Only FERB's own checks start with "FERB:".** Every `owner.ask` question from a task, an orchestrator's rewrite
+  included, is shown as `Question from the task: <one paragraph>`, so neither a newline nor a homoglyph can make a line
+  of it read as FERB's. Its options stay separate, each one line, and one that starts with "FERB" (ignoring case,
+  spaces, punctuation and NFKC compatibility forms) gets `(from the task) ` in front; the task gets its option back as
+  it wrote it. A planner's chat reply or clarify marks each such line the same way (a homoglyph there is a residual:
+  an owner's chat "yes" never stands in for a code confirmation). P19's question quotes what the task found
+  (`What the task found: "…".`). The task's words in any FERB question (the call excerpt, the reason, what was found)
+  are redacted before they are clipped.
 - **Answers.** One row per need in `confirmations`, keyed by the task tree and the exact values (JSON of the tuple),
   so the answer carries across that tree's retries and workers (rule 9). Yes runs the call (its span's
   `confirmations` lists the rows). No, or a skipped question, refuses it (`the owner said no to this: …`, and later
@@ -979,11 +985,13 @@ the owner must answer first (`confirm.decide`):
   run); not done.`). One question at a time per tree. A call the ledger refuses (P19) is refused at once, exactly as
   the ledger refuses it, and nothing is asked. The test-mode allowlist (send-class kinds and pay) refuses before any
   question.
-- **One Yes, one payment (SQ1).** A pay or account-security Yes is claimed (`used = 1`) under the tree's question lock
-  by the call it covers, both a Yes found in the tree and a fresh one, so a concurrent identical call is asked again.
-  The claim is released (`Confirmations.release`) when that call is refused before running, fails, is cancelled before
-  it runs, or ends with an unknown outcome; P19 then gates the retry, and the released Yes covers the retry the owner
-  approves. It stays spent once the call ran to a result.
+- **One Yes, one attempt (SQ1).** A pay or account-security Yes is claimed (`used = 1`) under the tree's question
+  lock by the call it covers, both a Yes found in the tree and a fresh one, so a concurrent identical call is asked
+  again. Once the call's attempt starts the Yes is spent, an unknown outcome included. It is released
+  (`Confirmations.release`) only when the call is refused before running, is cancelled before it runs, or the tool
+  reports it failed. After an unknown outcome, only the identical retry the owner approved under P19 may use it once
+  more (`Ledger.approved_retry`: the approved attempt's span lists the rows it used); a reworded retry is asked
+  again.
 - **Secrets (rule 14).** Keys and destinations are stored through the redactor; one the redactor changes is never
   known and never covers anything, so FERB asks again rather than let two secrets share one stored "[redacted]".
 - **Snapshots before shell work** (carried item 6): see section 11. When none can be taken the command runs, the result

@@ -39,6 +39,7 @@ from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import RuntimeViolation, ServiceError, WorkerRuns, service_problem
 from ferb.orchestrator.tree import ExecutionState
+from ferb.policy import confirm
 from ferb.policy.targets import Request, Targets
 from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, mark, wrap_untrusted
 from ferb.store.spans import SpanStore
@@ -311,6 +312,9 @@ class Supervisor(WorkerRuns):
         words = owner_words  # what recall and the environment search: may add FERB's earlier question
         payload = (session.payload + "\n\n" if session.payload else "") + m.for_model
         asked = {origins_.INFERRED} if session.asked else set()        # FERB's earlier (model-written) question
+        # what that question was written from: a value the planner took from outside content into it stays outside
+        # content in the continuation (S4 b)
+        asked_outside = self._clarify_outside(session_id) if session.asked else set()
         carried = self._carried_origins(session_id, "") if session.payload else set()   # earlier text in the payload
         if session.asked:
             words += "\n" + EARLIER_QUESTION + wrap_untrusted(session.asked)
@@ -398,10 +402,12 @@ class Supervisor(WorkerRuns):
                                                      "text": out.text},          # model-written from its turn (MP2)
                                 origin=origins_.join({origins_.INFERRED} | turn_origins))
             self._env.pop(request_id, None)
-            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": out.text}
+            # D33: only FERB's own checks start with "FERB:"; a planner's line that does is marked as the task's
+            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": confirm.from_task_lines(out.text)}
             return
         if authority_id == request_id:
-            self.state.requests.record(Request(request_id, authority, self._targets(out.task), payload=payload))
+            self.state.requests.record(Request(request_id, authority, self._targets(out.task), payload=payload,
+                                               asked_origins=frozenset(asked_outside)))
         try:
             async for ev in self.run_tree(out.task, out.text, authority_id, payload, conversation_id=session.id,
                                           prior_task=out.control.task_id if out.control else None,
@@ -564,6 +570,12 @@ class Supervisor(WorkerRuns):
         """The stored origins of the owner's chat message for a request."""
         return {o for e in self.journal.of_kind("chat.message", "request_id", request_id)
                 for o in origins_.split(e.origin)}
+
+    def _clarify_outside(self, session_id: str) -> set[str]:
+        """The outside origins of FERB's latest question in this chat (its chat.clarify row: what its planner turn
+        saw)."""
+        asked = self.journal.of_kind("chat.clarify", "session_id", session_id)
+        return {o for o in origins_.split(asked[-1].origin) if origins_.is_external(o)} if asked else set()
 
     def _carried_origins(self, session_id: str, current_request: str) -> set[str]:
         """The origins of the earlier messages a clarify continuation carries in its payload: the session's latest

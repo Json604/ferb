@@ -345,7 +345,8 @@ def test_8_owner_ask_shows_the_choice_in_chat_and_returns_the_answer(daemon: Run
     finally:
         c.close()
     assert [d["kind"] for d in shown] == ["owner_question", "owner_question"]
-    assert shown[0]["reason"] == "Which account?" and shown[0]["options"] == ["a@x", "b@x"] and shown[1]["options"] == []
+    assert shown[0]["reason"] == "Question from the task: Which account?"     # D33: a task's question is labelled
+    assert shown[0]["options"] == ["a@x", "b@x"] and shown[1]["options"] == []
     assert got["choice"]["content"] == {"answer": "b@x"} and got["free"]["content"] == {"answer": "yes, the second one"}
     out = outcome(evs)
     assert out["status"] == "done" and out["answer"] == "Using b@x; yes, the second one."
