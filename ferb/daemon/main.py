@@ -1473,6 +1473,7 @@ class Daemon:
     async def _task_result(self, ev: dict[str, Any], shown: bool) -> None:
         """What FERB told (or will tell) the owner about a task; a macOS notification if chat was closed."""
         assert self.db is not None
+        ev = self.redact(ev)
         answer = str(ev.get("answer") or ev.get("summary") or "")
         shown = shown or ev.get("status") == "cancelled"          # stopped by the owner: they know
         self.db.conn.execute("INSERT OR REPLACE INTO task_results (task_id, at, status, goal, answer, shown) VALUES "
@@ -1523,15 +1524,28 @@ class Daemon:
         """For `ferb chat` when it opens: answers that arrived while it was closed (then marked shown), tasks still
         running, and questions waiting for the owner."""
         assert self.db is not None
-        rows = self.db.conn.execute("SELECT * FROM task_results WHERE shown = 0 ORDER BY at").fetchall()
+        rows = self.db.conn.execute("SELECT r.*, t.outcome_json FROM task_results r LEFT JOIN tasks t "
+                                    "ON t.id = r.task_id WHERE r.shown = 0 ORDER BY r.at").fetchall()
         if not params.get('peek'):
             for r in rows:
                 self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (r["task_id"],))
+        approvals = self.state.approvals.pending()
+        request_trees: dict[str, set[str]] = {}
+        for request_id in {ap.request_id for ap in approvals}:
+            request_trees[request_id] = {row[0] for row in self.db.conn.execute(
+                "SELECT DISTINCT tree_id FROM tasks WHERE request_id=?", (request_id,))}
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
-                    "options": list(ap.options)} for ap in self.state.approvals.pending()]
+                    "task_id": next(iter(request_trees[ap.request_id]))
+                        if len(request_trees.get(ap.request_id, ())) == 1 else None,
+                    "options": list(ap.options)} for ap in approvals]
         running = [{"task_id": t, "goal": g} for t, g in (self.supervisor.running_trees() if self.supervisor else [])]
-        return {"results": [{"task_id": r["task_id"], "status": r["status"], "goal": r["goal"], "answer": r["answer"]}
-                            for r in rows], "running": running, "approvals": pending,
+        results = []
+        for row in rows:
+            recorded = json.loads(row['outcome_json'] or '{}')
+            results.append({key: row[key] for key in ('task_id', 'status', 'goal', 'answer')} |
+                           {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
+                            'verification': recorded.get('verification', [])})
+        return {"results": results, "running": running, "approvals": self.redact(pending),
                 "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None,
                 "notices": self.attention_notices.list() if self.attention_notices else [],
                 "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else []}
@@ -1623,7 +1637,7 @@ class Daemon:
             self._attached_trees.add(t)
         assert self.supervisor is not None
         conversation = self.supervisor.continuity.attach(bool(params.get("new")), params.get("resume"))
-        return {"ok": True, "session_id": conversation}
+        return {"ok": True, "session_id": conversation, "capabilities": ["input_paths"]}
 
     async def _task_stop(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Ctrl-C in ferb chat: stop the request's task, recorded as stopped by the owner."""
@@ -2508,6 +2522,12 @@ class Daemon:
             raise FerbError("daemon is shutting down; no new chat task was started")
         if self.supervisor is None:
             raise FerbError("daemon not started")
+        paths = params.get('input_paths', [])
+        if not isinstance(paths, list) or not all(isinstance(p, str) and p.strip() and '\x00' not in p for p in paths):
+            raise FerbError('input_paths must be a list of nonempty filesystem paths')
+        input_paths = list(dict.fromkeys(normalize_path(p, str(self.home / 'workspace')) for p in paths))
+        if self.redact(input_paths) != input_paths:
+            raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         my_tasks: set[str] = set()
         attached = {"on": True}                     # False once the owner closes chat: the task keeps running
@@ -2516,7 +2536,7 @@ class Daemon:
         async def turn() -> None:
             try:
                 async for ev in self.supervisor.send(str(params.get("session_id", "default")),  # type: ignore[union-attr]
-                                                     str(params.get("text", ""))):
+                                                     self.redact(str(params.get("text", ""))), input_paths=input_paths):
                     if ev.get("task_id"):
                         my_tasks.add(ev["task_id"])
                         if attached["on"]:
@@ -2589,6 +2609,10 @@ class Daemon:
         task_id = self._resolve_root_task(task_id, allow_last=True)
         spans = self.spans.tree_json(task_id)
         outcome = self.spans.outcome(task_id)
+        if not outcome.get('result'):
+            row = self.db.conn.execute('SELECT outcome_json FROM tasks WHERE id=?', (task_id,)).fetchone()
+            if row is not None and row[0] != '{}':
+                outcome['result'] = json.loads(row[0])
         episode = episodes.get(self.db, task_id)
         if episode is None and spans:                    # running, or written before F3: compose it live
             episode = compose.compose({"task_id": task_id, "spans": spans, "outcome": outcome})
