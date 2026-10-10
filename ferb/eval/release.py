@@ -8,4 +8,6 @@ CATALOGUE = Path(__file__).parent / 'sets' / 'owner_acceptance.toml'
 
 
 def checklist() -> dict[str, Any]:
-    return tomllib.loads(CATALOGUE.read_text())
+    result = tomllib.loads(CATALOGUE.read_text())
+    result['security_definitions'] = tomllib.loads((CATALOGUE.parent / 'security_full.toml').read_text())
+    return result
