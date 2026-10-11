@@ -32,7 +32,7 @@ class Pipe:
 
 
 class Process:
-    def __init__(self, account='chatgpt', tools=None, phase='final_answer', fail=False):
+    def __init__(self, account='chatgpt', tools=None, phase='final_answer', fail=False, catalog=True):
         self.stdout, self.stderr = Pipe(), Pipe()
         self.stdin = self
         self.returncode = None
@@ -40,6 +40,7 @@ class Process:
         self.account, self.phase, self.fail = account, phase, fail
         self.tools = tools if tools is not None else [{'type': 'function', 'name': 'apply_patch'}]
         self.finished = asyncio.Event()
+        self.catalog = catalog
 
     def write(self, data):
         msg = json.loads(data)
@@ -54,7 +55,8 @@ class Process:
                 'model': 'test-model', 'modelProvider': 'openai', 'approvalPolicy': 'never',
                 'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}})
         elif method == 'turn/start':
-            self.stderr.queue.put_nowait(('TRACE {"tools":' + json.dumps(self.tools, separators=(',', ':')) + '}\n').encode())
+            if self.catalog:
+                self.stderr.queue.put_nowait(('TRACE {"tools":' + json.dumps(self.tools, separators=(',', ':')) + '}\n').encode())
             self.stdout.put({'id': ident, 'result': {'turn': {'id': 'tu', 'status': 'inProgress'}}})
             self.notify('item/started', {'item': {'type': 'agentMessage', 'id': 'a', 'phase': self.phase, 'text': ''}})
             self.notify('item/agentMessage/delta', {'itemId': 'a', 'delta': '{"text":"Hello '})
@@ -189,11 +191,9 @@ async def test_cancel_cleans_up_and_keeps_refreshed_auth_without_overwriting_new
 
 @pytest.mark.anyio
 async def test_missing_catalog_never_emits_a_delta_or_final(tmp_path, monkeypatch):
-    proc = Process()
+    proc = Process(catalog=False)
     stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
     # Simulate a transport that never provides the required request catalog.
-    while not proc.stderr.queue.empty():
-        proc.stderr.queue.get_nowait()
     proc.stderr.queue.put_nowait(b'')
     proc.complete()
     got = [ev async for ev in stream.events(rt, run)]
@@ -216,12 +216,12 @@ async def test_late_catalog_violation_is_drained_before_final(tmp_path, monkeypa
 
 
 @pytest.mark.anyio
-async def test_codex_runtime_routes_only_schema_supervisors_to_app_server(tmp_path, monkeypatch):
+async def test_codex_runtime_routes_schema_supervisors_to_app_server(tmp_path, monkeypatch):
     import ferb.runtimes.codex_exec as codex
     import ferb.runtimes.codex_stream as stream
     seen = []
     async def version(binary): pass
-    async def start(rt, task, request):
+    async def start(rt, task, request, run_token):
         seen.append(rt.mode)
         return 'app-server-handle'
     monkeypatch.setattr(codex, 'check_version', version)
@@ -234,10 +234,8 @@ async def test_codex_runtime_routes_only_schema_supervisors_to_app_server(tmp_pa
 
 @pytest.mark.anyio
 async def test_missing_catalog_with_open_stderr_reaches_completed_and_fails_promptly(tmp_path, monkeypatch):
-    proc = Process()
+    proc = Process(catalog=False)
     stream, rt, run, _ = await begin(tmp_path, monkeypatch, proc)
-    while not proc.stderr.queue.empty():
-        proc.stderr.queue.get_nowait()
     # The app-server stays alive, with stderr open. Reading completion must reap it rather than waiting forever
     # for the catalog that this protocol fixture deliberately omitted. This is only a test deadline.
     proc.complete()
@@ -247,3 +245,134 @@ async def test_missing_catalog_with_open_stderr_reaches_completed_and_fails_prom
     assert 'catalog' in got[-1].data['message']
     assert not any(ev.kind in {'text_delta', 'final'} for ev in got)
     assert proc.returncode is not None
+
+class SteeringProcess(Process):
+    def __init__(self):
+        super().__init__(tools=[{'type': 'function', 'name': 'mcp__ferb.mac_read'}])
+        self.steers = asyncio.Queue()
+
+    def write(self, data):
+        msg = json.loads(data)
+        if msg.get('method') == 'turn/steer':
+            self.requests.append(msg)
+            self.steers.put_nowait(msg)
+        else:
+            super().write(data)
+
+
+async def begin_worker(tmp_path, monkeypatch, proc):
+    import ferb.runtimes.codex_exec as codex
+    seen = {}
+    async def spawn(*cmd, **kw):
+        seen.update(cmd=cmd, **kw)
+        return proc
+    async def version(binary): pass
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+    monkeypatch.setattr(codex, 'check_version', version)
+    rt = runtime(tmp_path)
+    rt.mode, rt.shim_cmd = 'worker', ['ferb', 'mcp']
+    rt.allowed = rt.allowed | {'mcp__ferb.mac_read'}
+    task = Task('t', None, 'food', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
+    run = await CODEX_START(rt, task, ModelRequest('FERB instructions', ('context',)), 'private-token')
+    return rt, run, seen
+
+
+@pytest.mark.anyio
+async def test_worker_steers_same_turn_while_events_are_read_without_restarting(tmp_path, monkeypatch):
+    proc = SteeringProcess()
+    rt, run, seen = await begin_worker(tmp_path, monkeypatch, proc)
+    assert run.state.get('app_server')
+    events = rt.events(run)
+    # Existing worker tools remain authenticated; the raw token never enters argv.
+    assert 'private-token' not in ' '.join(seen['cmd'])
+    token = run.state['token_file']
+    assert token.read_text() == 'private-token' and token.stat().st_mode & 0o777 == 0o600
+    assert 'model_reasoning_effort="low"' not in seen['cmd']
+    assert 'effort' not in next(m['params'] for m in proc.requests if m['method'] == 'turn/start')
+    first = asyncio.create_task(anext(events))
+    steering = asyncio.create_task(rt.continue_(run, 'Keep it under ₹300'))
+    msg = await asyncio.wait_for(proc.steers.get(), 1)
+    assert msg['params'] == {'threadId': 'th', 'expectedTurnId': 'tu',
+                            'input': [{'type': 'text', 'text': 'Keep it under ₹300'}]}
+    proc.stdout.put({'id': msg['id'], 'result': {'turnId': 'tu'}})
+    await asyncio.wait_for(steering, 1)
+    assert proc.returncode is None
+    assert (await first).kind == 'text_delta'
+    proc.notify('item/completed', {'item': {'id': 'm', 'type': 'mcpToolCall', 'server': 'ferb',
+        'tool': 'mac_read', 'arguments': {}, 'status': 'completed'}})
+    proc.complete()
+    rest = [event async for event in events]
+    assert any(e.kind == 'tool_call' and e.data['tool'] == 'mac_read' for e in rest)
+    assert rest[-1].kind == 'final'
+    assert sum(m['method'] == 'turn/start' for m in proc.requests) == 1
+    assert not token.exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('close', ['completed', 'disconnect', 'cancel', 'rejected', 'malformed'])
+async def test_worker_steer_completion_and_transport_races_never_claim_acceptance(tmp_path, monkeypatch, close):
+    from ferb.core.errors import Unsupported
+    proc = SteeringProcess()
+    rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
+    steering = asyncio.create_task(rt.continue_(run, 'Only vegetarian'))
+    msg = await asyncio.wait_for(proc.steers.get(), 1)
+    if close == 'completed':
+        proc.complete()
+    elif close == 'disconnect':
+        proc.kill()
+    elif close == 'cancel':
+        await rt.cancel(run)
+    elif close == 'malformed':
+        proc.stdout.put({'id': ['invalid-id'], 'result': {}})
+    else:
+        proc.stdout.put({'id': msg['id'], 'error': {'code': -32600, 'message': 'turn mismatch'}})
+    with pytest.raises(Unsupported):
+        await asyncio.wait_for(steering, 1)
+    await rt.cancel(run)
+
+
+@pytest.mark.anyio
+async def test_concurrent_steers_match_rpc_ids_not_notification_order(tmp_path, monkeypatch):
+    proc = SteeringProcess()
+    rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
+    steers = [asyncio.create_task(rt.continue_(run, text)) for text in ('under ₹300', 'two breads')]
+    first, second = [await asyncio.wait_for(proc.steers.get(), 1) for _ in range(2)]
+    for msg in (second, first):
+        proc.notify('item/agentMessage/delta', {'itemId': 'a', 'delta': ''})
+        proc.stdout.put({'id': msg['id'], 'result': {'turnId': 'tu'}})
+    await asyncio.wait_for(asyncio.gather(*steers), 1)
+    assert proc.returncode is None
+    await rt.cancel(run)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('item', [
+    {'id': 'm', 'type': 'mcpToolCall', 'server': 'untrusted', 'tool': 'mac_read'},
+    {'id': 'm', 'type': 'mcpToolCall', 'server': 'ferb', 'tool': 'not_registered'},
+    {'id': 'm', 'type': 'commandExecution', 'command': 'touch /tmp/not-permitted'},
+])
+async def test_worker_only_accepts_registered_ferb_mcp_calls(tmp_path, monkeypatch, item):
+    proc = SteeringProcess()
+    rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
+    proc.notify('item/started', {'item': item})
+    proc.complete()
+    got = [event async for event in rt.events(run)]
+    assert got[-1].kind == 'violation'
+    assert not any(event.kind == 'final' for event in got)
+    assert proc.returncode is not None
+    assert not run.state['token_file'].exists()
+
+
+@pytest.mark.anyio
+async def test_worker_completion_validates_schema_and_closed_run_rejects_steering(tmp_path, monkeypatch):
+    from ferb.core.errors import Unsupported
+    proc = SteeringProcess()
+    rt, run, _ = await begin_worker(tmp_path, monkeypatch, proc)
+    rt.output_schema = {'type': 'object', 'required': ['missing']}
+    proc.complete()
+    got = [event async for event in rt.events(run)]
+    assert got[-1].kind == 'error' and 'schema' in got[-1].data['message']
+    with pytest.raises(Unsupported):
+        await rt.continue_(run, 'new correction')
+    assert not any(m['method'] == 'turn/steer' for m in proc.requests)
+    assert rt.capabilities.continuation and rt.capabilities.live_messaging

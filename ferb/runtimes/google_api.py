@@ -24,7 +24,7 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 
 class GoogleProvider:
     name = "google"
-    capabilities = Capabilities("direct", "prefix", False, "native", True, True, False, False, "api")
+    capabilities = Capabilities("direct", "prefix", False, "native", True, True, True, True, "api")
 
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.model = model
@@ -85,6 +85,9 @@ class GoogleProvider:
         text = "".join(p.get("text", "") for p in parts if "text" in p and not p.get("thought"))
         return Turn(calls, None if calls else text, from_gemini(self.model, data.get("usageMetadata") or {}, billing="api"),
                     finish)
+
+    def add_message(self, state: dict[str, Any], message: str) -> None:
+        state["body"]["contents"].append({"role": "user", "parts": [{"text": message}]})
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         parts = []

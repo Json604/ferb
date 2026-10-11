@@ -26,7 +26,7 @@ BREAKPOINT = {"mode": "explicit"}
 
 def capabilities_for(model: str) -> Capabilities:
     explicit = model.startswith(EXPLICIT_CACHE)
-    return Capabilities("direct", "markers" if explicit else "prefix", True, "native", True, True, False, False, "api")
+    return Capabilities("direct", "markers" if explicit else "prefix", True, "native", True, True, True, True, "api")
 
 
 class OpenAIProvider:
@@ -102,6 +102,9 @@ class OpenAIProvider:
         text = "".join(c.get("text", "") for c in parts if c.get("type") == "output_text")
         return Turn(calls, None if calls else text, from_openai(self.model, data.get("usage") or {}, billing="api"),
                     str(data.get("status") or ""))
+
+    def add_message(self, state: dict[str, Any], message: str) -> None:
+        state["body"]["input"].append({"role": "user", "content": [self._text(message, False)]})
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         for r in results:

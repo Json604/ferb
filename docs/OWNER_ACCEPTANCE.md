@@ -875,3 +875,40 @@ remains unloaded. The native app was not opened. This supersedes the earlier act
 Final checkout validation: **1,904 default-selected tests passed** in six disjoint file shards. Core mypy
 (9 source files), compilation, decision coverage and diff checks passed. No live model/GUI workflow was run.
 Full-daemon idle CPU and normal workspace/AX event reception remain owner acceptance checks for the next launch.
+
+
+### Direct owner steering — 2026-10-11
+
+Owner requested corrections reach the running worker without shutdown/replacement. Active `steer`/`continue`
+now updates the same task's redacted durable request and goal/conditions, delivers to its current worker handles,
+and preserves context for later plan steps. Unrelated requests stay separate; explicit Stop/retry still cancels.
+The active run's identity/scopes, existing plan graph and standing approvals are unchanged. An already-started
+external action may finish before a correction is applied; no rollback is claimed. Ordinary `owner.ask` waits
+can receive the exact owner words; secret/payment prompts are never approved by steering. `plan.ask` remains
+pending for explicit owner input.
+
+Codex workers now use the same isolated pinned app-server transport as streaming supervisors, with exact-turn
+`turn/steer`, one multiplexed stdout reader and FERB-only authenticated MCP. The installed 0.157.1 generated
+schema confirmed the protocol fields. Claude's pinned SDK/CLI supports UUID user-message replay, including
+merged queued input; direct HTTP adapters accept ordered user updates before the next model decision, retaining
+started tool outcomes while skipping unstarted stale calls. No live provider/model call was made for these checks.
+Official protocol reference: https://learn.chatgpt.com/docs/app-server (retrieved 2026-10-11).
+
+Failing-first regressions cover active same-run delivery, startup and completed-turn races, cleanup/dispatch,
+failed plan child cleanup, internal adapter retry, startup-failure recovery, cross-chat isolation, pasted
+provenance, secret redaction, attachments and unchanged authorization. Review found and fixed completion-window
+losses, stale context on internal retry, startup failure looping, and model-spec text bypassing task-goal redaction.
+Focused orchestration tests and adapter protocol tests pass; core plus seven changed runtime modules and the
+steering helper pass mypy (17 files). Combined default tests and final review are in progress.
+
+Owner acceptance still requires a real long task followed by an ordinary correction, an unrelated request and
+explicit Stop, observing the same task/run IDs during correction, current goal/result, preserved tool receipts,
+and frontend progress. Offline fixtures establish transport/lifecycle contracts, not model classification quality
+or live vendor consumption timing. The daemon currently has an owner task running; activation must wait for it
+so installation does not interrupt that work.
+
+Final checkout validation: **1,950 default-selected tests passed** in six disjoint file shards. An additional
+factory-failure regression added after that collection also passed in the final **8-test race suite** (1,951
+current selected cases covered across these runs). The last scoped re-review is clear: no Critical or Important
+findings remain. Core/changed-module mypy (17 files), compilation and diff checks pass. Activation is pending;
+the installed daemon still has one active task and was not restarted by this change.

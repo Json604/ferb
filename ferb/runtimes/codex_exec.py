@@ -1,6 +1,6 @@
 """Owns the pinned Codex CLI adapter and tool containment. Must not select task targets, authorize actions or expose tools outside the registered harness.
 
-CodexRuntime: `codex exec --json` for workers; isolated app-server for typed supervisor output streaming.
+CodexRuntime: isolated app-server for steerable workers and typed supervisor output streaming.
 
 Tool containment (measured in spikes 1 and 21): pinned Codex 0.157.1 and MODEL below, run without code mode / sub-agents via
 FERB's own model catalog, user config and rules ignored,
@@ -18,7 +18,7 @@ Speed (owner decisions, 2026-10-01; all within the owner's Codex subscription):
   Codex's environment / permissions / apps / collaboration instruction blocks; tasks (worker mode) are unchanged;
 - typed supervisor runs use the pinned app-server in an empty configuration home with an ephemeral thread;
   final-answer deltas are gated by the observed tool catalog and the complete trace is checked before final output;
-- untyped supervisor exec runs end at `turn.completed`; worker exec runs wait for process exit and its full trace."""
+- untyped supervisor exec runs end at `turn.completed`; app-server runs drain their full tool trace before final output."""
 
 import asyncio
 import json
@@ -43,7 +43,7 @@ DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "mult
             "in_app_browser", "computer_use", "image_generation", "view_image", "goals", "sleep_tool",
             "code_mode_host", "skill_mcp_dependency_install"]
 # Native tools Codex always offers: inert (MCP resource plumbing over FERB's server only; request_user_input fails
-# closed in exec; apply_patch can't write in the read-only sandbox).
+# closed in exec and client actions are rejected in app-server; apply_patch cannot write in the read-only sandbox).
 SUPERVISOR_SETTINGS = ["-c", 'model_reasoning_effort="low"', "-c", "include_environment_context=false",
                        "-c", "include_permissions_instructions=false", "-c", "include_apps_instructions=false",
                        "-c", "include_collaboration_mode_instructions=false"]
@@ -115,7 +115,7 @@ async def check_version(binary: Path) -> None:
 class CodexRuntime:
     name = "codex"
     # image_input True: verified live 2026-10-08 — a PNG returned by an MCP tool in FERB's shim format reached the model
-    capabilities = Capabilities("direct", "prefix", False, "native", True, True, False, False, "subscription")
+    capabilities = Capabilities("direct", "prefix", False, "native", True, True, True, True, "subscription")
 
     def __init__(self, binary: Path, mode: Literal["supervisor", "worker"], workdir: Path, ferb_home: Path,
                  shim_cmd: list[str] | None = None, tool_names: list[str] | None = None,
@@ -123,6 +123,20 @@ class CodexRuntime:
         self.binary, self.mode, self.workdir, self.ferb_home = binary, mode, workdir, ferb_home
         self.shim_cmd, self.output_schema, self.model, self.timeout_s = shim_cmd, output_schema, model, timeout_s
         self.allowed = BASE_TOOLS | {f"mcp__ferb.{mcp_name(n)}" for n in (tool_names or [])}
+
+    def _mcp_settings(self, token_file: Path | None) -> list[str]:
+        if not self.shim_cmd:
+            raise ValueError("worker mode needs the ferb mcp shim")
+        if token_file is None:
+            raise ValueError("worker mode needs a run token file")
+        # the token itself never goes on the command line (visible in `ps` to every local process): the shim
+        # reads it from a file only the owner can read (audit 2026-10-02)
+        env = "{" + ",".join(f'{k}={json.dumps(v)}' for k, v in {"FERB_RUN_TOKEN_FILE": str(token_file),
+                                        "FERB_HOME": str(self.ferb_home)}.items()) + "}"
+        return ["-c", f"mcp_servers.ferb.command={json.dumps(self.shim_cmd[0])}",
+                "-c", f"mcp_servers.ferb.args={json.dumps(self.shim_cmd[1:])}",
+                "-c", f"mcp_servers.ferb.env={env}",
+                "-c", 'mcp_servers.ferb.default_tools_approval_mode="approve"']
 
     def _cmd(self, schema_file: Path | None, token_file: Path | None, instructions: Path | None = None) -> list[str]:
         cmd = [str(self.binary), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config",
@@ -133,18 +147,7 @@ class CodexRuntime:
         if (catalog := locked_catalog(self.ferb_home)) is not None:      # no code mode / sub-agents for any model
             cmd += ["-c", f"model_catalog_json={json.dumps(str(catalog))}"]
         if self.mode == "worker":
-            if not self.shim_cmd:
-                raise ValueError("worker mode needs the ferb mcp shim")
-            if token_file is None:
-                raise ValueError("worker mode needs a run token file")
-            # the token itself never goes on the command line (visible in `ps` to every local process): the shim
-            # reads it from a file only the owner can read (audit 2026-10-02)
-            env = "{" + ",".join(f'{k}="{v}"' for k, v in {"FERB_RUN_TOKEN_FILE": str(token_file),
-                                                            "FERB_HOME": str(self.ferb_home)}.items()) + "}"
-            cmd += ["-c", f"mcp_servers.ferb.command={json.dumps(self.shim_cmd[0])}",
-                    "-c", f"mcp_servers.ferb.args={json.dumps(self.shim_cmd[1:])}",
-                    "-c", f"mcp_servers.ferb.env={env}",
-                    "-c", 'mcp_servers.ferb.default_tools_approval_mode="approve"']
+            cmd += self._mcp_settings(token_file)
         if self.mode == "supervisor":
             cmd += SUPERVISOR_SETTINGS
             if instructions is not None:                       # FERB's instructions replace Codex's built-in ones
@@ -156,9 +159,9 @@ class CodexRuntime:
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         system, context = request.system, request.context
         await check_version(self.binary)
-        if self.mode == "supervisor" and self.output_schema is not None:
+        if self.mode == "worker" or self.output_schema is not None:
             from ferb.runtimes.codex_stream import start
-            return await start(self, task, request)
+            return await start(self, task, request, run_token)
         self.workdir.mkdir(parents=True, exist_ok=True)
         paths: list[Path] = []
         proc = None
@@ -171,15 +174,6 @@ class CodexRuntime:
                     json.dump(self.output_schema, f)
                 schema_file = Path(name)
             token_file = None
-            if self.mode == "worker":
-                run_dir = self.ferb_home / "run"
-                run_dir.mkdir(parents=True, exist_ok=True)
-                fd, tname = tempfile.mkstemp(prefix="token-", dir=run_dir)
-                paths.append(Path(tname))
-                os.fchmod(fd, 0o600)
-                with os.fdopen(fd, "w") as f:
-                    f.write(run_token)
-                token_file = Path(tname)
             instructions = None
             if self.mode == "supervisor" and system:               # a stable prefix: FERB's instructions, then the context
                 fd, iname = tempfile.mkstemp(prefix="ferb-instructions-", suffix=".md")
@@ -299,7 +293,11 @@ class CodexRuntime:
                 return
 
     async def continue_(self, run: RunHandle, message: str) -> None:
-        raise Unsupported("codex exec runs are one-shot; the supervisor re-sends the chat history each turn")
+        if self.mode == "worker" and run.state.get("app_server"):
+            from ferb.runtimes.codex_stream import steer
+            await steer(run, message)
+            return
+        raise Unsupported("Only active Codex worker turns accept steering")
 
     async def cancel(self, run: RunHandle) -> None:
         if run.state.get("app_server"):

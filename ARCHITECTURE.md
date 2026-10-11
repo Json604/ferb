@@ -97,17 +97,38 @@ model is still running. Invalid/cancelled drafts emit `reply_abort`; complete sc
 reply remain authoritative. Repairs and action-bearing turns stay buffered; worker/checker outputs never publish
 through this callback. See `docs/RPC.md` for client replacement/interruption semantics.
 
-Codex schema-bearing supervisor turns use the pinned app-server's final-answer delta protocol in a disposable
-configuration home and ephemeral thread; workers retain `codex exec`. Subscription identity, isolated instructions,
+Codex schema-bearing supervisor turns and tool workers use the pinned app-server in a disposable
+configuration home and ephemeral thread. Supervisor replies use its final-answer delta protocol; worker
+corrections use `turn/steer` with the exact active turn ID and retain the same process/thread. One stdout reader
+routes RPC responses and model events, so steering never competes with the event consumer for a read.
+Workers expose only the authenticated FERB MCP shim; supervisor turns expose no action tools.
+Subscription identity, isolated instructions,
 read-only sandbox and observed tool catalog are checked. Claude SDK streams only its StructuredOutput carrier;
 direct OpenAI, Anthropic and Google supervisor calls assemble provider SSE events through their existing final
 parsers. Provider errors, incomplete streams and transport cancellation cannot certify a draft. An emitted draft
 prevents an adapter from silently retrying and concatenating a second answer.
 
-The disposable Codex supervisor copies only FERB's subscription auth, then saves refreshed credentials atomically
+The disposable Codex process copies only FERB's subscription auth, then saves refreshed credentials atomically
 only while the source still matches the starting snapshot. Changed source credentials win. As with independent
 Codex processes writing the shared auth file, this comparison is not a filesystem compare-and-swap: a separate
 worker refresh can race the final comparison/replacement. No auth bytes enter diagnostics or traces.
+
+Owner corrections route through `orchestrator/steering.py` to the active task tree. Chat intake is serialized until
+each message is registered, while workers continue independently. `steer` (and `continue` on an active task)
+updates the redacted durable request and result conditions, then calls `AgentRuntime.continue_` on existing member
+runs. It never calls stop/cancel/revoke or changes existing identity/scope grants, standing approvals or the plan
+graph. All plan members share correction state; future workers and retries read it too. An ordinary `owner.ask`
+wait can receive the owner's exact words; old consequential/secret prompts are denied, never approved or filled.
+Explicit `plan.ask` approvals/questions remain pending. Unrelated requests use their own tree; stop/retry retains
+explicit cancellation semantics. Corrections cannot undo an action already in flight.
+
+Revision checks prevent a result captured before an undelivered correction from finishing the task. Worker
+startup, verification, cleanup, recovery dispatch and failed plan completion retain the update for the next
+decision. A task already in finalization completes naturally before its saved context is continued, without
+requesting cancellation. Delivery errors are recorded and acknowledgements distinguish accepted live input from
+pending input. Claude uses UUID user-message replay to keep receiving through stale/merged results; direct HTTP
+adapters append ordered user messages at the next model decision, preserve started tool outcomes and skip stale
+unstarted tool calls. Neither path replaces the runtime to accept a correction.
 
 As built in F1: chat history (`HISTORY_TOKENS` 12000) and resumable attempts (`ATTEMPTS_TOKENS` 2000) keep their newest
 entries whole (`ferb/orchestrator/supervisor.py`): history is listed oldest first with an omission note, attempts

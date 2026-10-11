@@ -260,3 +260,95 @@ async def test_cancel_while_the_consumer_handles_the_tool_call_event_skips_the_b
         if e.kind == "tool_call":
             await rt.cancel(run)                      # the consumer awaits while handling the event
     assert bridge.calls == [] and len(script.requests) == 1 and not any(e.kind == "final" for e in events)
+
+
+@pytest.mark.anyio
+async def test_owner_correction_replaces_stale_final_in_same_run():
+    script = Scripted([(200, {"text": "stale"}), (200, {"text": "updated"})])
+    rt = runtime(script)
+    run = await rt.start(TASK, REQ, "tok")
+    events = []
+    async for event in rt.events(run):
+        events.append(event)
+        if event.kind == "usage" and len(script.requests) == 1:
+            await rt.continue_(run, "Keep it under 300")
+            await rt.continue_(run, "With two breads")
+    assert [e.data["text"] for e in events if e.kind == "final"] == ["updated"]
+    assert script.requests[1][1]["updates"] == ["Keep it under 300", "With two breads"]
+    with pytest.raises(Unsupported):
+        await rt.continue_(run, "too late")
+
+
+@pytest.mark.anyio
+async def test_owner_correction_preserves_started_tool_and_skips_remaining_stale_batch():
+    gate = asyncio.Event()
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/a"}],
+                                       ["c2", "fs_list", {"path": "/b"}]]}), (200, {"text": "updated"})])
+    bridge = SlowBridge(gate)
+    rt = runtime(script, bridge=bridge)
+    run = await rt.start(TASK, REQ, "tok")
+    consumer = asyncio.create_task(_collect(rt, run))
+    while not bridge.calls:
+        await asyncio.sleep(0)
+    try:
+        await rt.continue_(run, "Use /c instead")
+    finally:
+        gate.set()
+    events = await asyncio.wait_for(consumer, 2)
+    assert bridge.calls == [("fs.list", {"path": "/a"})]
+    assert not bridge.tasks[0].cancelled()
+    results = script.requests[1][1]["results"][0]
+    assert results[0][2] is False and results[1][2] is True
+    assert "not executed" in results[1][1]
+    assert script.requests[1][1]["updates"] == ["Use /c instead"]
+    assert events[-1].data == {"text": "updated"}
+
+
+@pytest.mark.anyio
+async def test_owner_correction_at_tool_event_prevents_unstarted_call():
+    script = Scripted([(200, {"calls": [["c1", "fs_list", {"path": "/a"}]]}), (200, {"text": "updated"})])
+    bridge = FakeBridge()
+    rt = runtime(script, bridge=bridge)
+    run = await rt.start(TASK, REQ, "tok")
+    async for event in rt.events(run):
+        if event.kind == "tool_call":
+            await rt.continue_(run, "Use /b instead")
+    assert bridge.calls == []
+    assert script.requests[1][1]["results"][0][0][2] is True
+
+
+@pytest.mark.anyio
+async def test_owner_update_during_http_is_retained_without_cancelling_request():
+    entered, release = asyncio.Event(), asyncio.Event()
+    script = Scripted([(200, {"text": "stale"}), (200, {"text": "updated"})])
+    rt = runtime(script)
+    request_tasks = []
+
+    async def handle(request):
+        request_tasks.append(asyncio.current_task())
+        if len(request_tasks) == 1:
+            entered.set()
+            await release.wait()
+        return await script._handle(request)
+
+    rt.transport = httpx.MockTransport(handle)
+    run = await rt.start(TASK, REQ, "tok")
+    consumer = asyncio.create_task(_collect(rt, run))
+    await entered.wait()
+    await rt.continue_(run, "Keep it under 300")
+    release.set()
+    events = await asyncio.wait_for(consumer, 2)
+    assert not request_tasks[0].cancelled()
+    assert "updates" not in script.requests[0][1]
+    assert script.requests[1][1]["updates"] == ["Keep it under 300"]
+    assert [e.data["text"] for e in events if e.kind == "final"] == ["updated"]
+
+
+@pytest.mark.anyio
+async def test_terminal_event_rejects_updates_before_generator_cleanup():
+    rt = runtime(Scripted([(200, {"text": "done"})]))
+    run = await rt.start(TASK, REQ, "tok")
+    async for event in rt.events(run):
+        if event.kind == "final":
+            with pytest.raises(Unsupported):
+                await rt.continue_(run, "too late")

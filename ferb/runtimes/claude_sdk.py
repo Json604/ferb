@@ -8,12 +8,15 @@ Telemetry off. Subscription login only: a run whose init reports an API key is r
 ANTHROPIC_API_KEY would otherwise silently take over). The tool list the API actually receives is checked through
 the local tool-list proxy after every turn."""
 
+import asyncio
 import secrets
+import uuid
 from dataclasses import asdict
 from contextlib import suppress
 from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
+from ferb.core.errors import Unsupported
 from ferb.core.types import ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.usage import from_anthropic
@@ -52,7 +55,7 @@ class ClaudeRuntime:
             strict_mcp_config=True, plugins=[], agents=None, skills=None, mcp_servers=mcp, env=env,
             model=self.model,
             include_partial_messages=self.mode == 'supervisor' and self.output_schema is not None,
-            extra_args={"no-session-persistence": None},   # no transcript (tool results, screenshots) on disk
+            extra_args={"no-session-persistence": None, "replay-user-messages": None},   # no transcript (tool results, screenshots) on disk
             output_format={"type": "json_schema", "schema": self.output_schema} if self.output_schema else None)
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
@@ -71,11 +74,24 @@ class ClaudeRuntime:
         return RunHandle(run_id, self.name, task.id, {"client": client, "checked_auth": False})
 
     async def events(self, run: RunHandle) -> AsyncIterator[RuntimeEvent]:
-        from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, ToolUseBlock
-        from claude_agent_sdk.types import StreamEvent
         client = run.state["client"]
+        if client is None or run.state.get("closed"):
+            return
+        try:
+            async for event in self._events(run, client):
+                yield event
+        finally:
+            run.state["closed"] = True
+
+    async def _events(self, run: RunHandle, client: Any) -> AsyncIterator[RuntimeEvent]:
+        from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, ToolUseBlock, UserMessage
+        from claude_agent_sdk.types import StreamEvent
         structured_blocks: set[int] = set()
-        async for m in client.receive_response():
+        # receive_response stops at the first ResultMessage, even with queued input.
+        async for m in client.receive_messages():
+            if isinstance(m, UserMessage):
+                run.state.setdefault("pending_updates", set()).discard(m.uuid)
+                continue
             if isinstance(m, SystemMessage) and m.subtype == "init":
                 if m.data.get("apiKeySource", "none") != "none":
                     await self.cancel(run)
@@ -115,6 +131,7 @@ class ClaudeRuntime:
                                                                   billing="subscription",
                                                                   provider_cost=m.total_cost_usd)))
                 if getattr(m, "is_error", False):
+                    run.state["closed"] = True
                     yield RuntimeEvent("error", {"message": m.result or str(getattr(m, "errors", None)) or m.subtype})
                     return
                 extra = self.proxy.seen(run.id) - self.allowed
@@ -122,17 +139,44 @@ class ClaudeRuntime:
                     await self.cancel(run)
                     yield RuntimeEvent("violation", {"unexpected_tools": sorted(extra)})
                     return
+                if run.state.get("pending_updates"):
+                    # A late result from the previous input cannot finish accepted corrections.
+                    run.state.pop("structured", None)
+                    continue
                 structured = getattr(m, "structured_output", None) or run.state.get("structured")
                 text = m.result or ""
                 if structured is not None:
                     import json
                     text = json.dumps(structured)
+                run.state["closed"] = True
                 yield RuntimeEvent("final", {"text": text, "tools_seen": sorted(self.proxy.seen(run.id))})
+                return
 
     async def continue_(self, run: RunHandle, message: str) -> None:
-        await run.state["client"].query(message)
+        async with run.state.setdefault("input_lock", asyncio.Lock()):
+            client = run.state.get("client")
+            if client is None or run.state.get("closed"):
+                raise Unsupported("the Claude run has already ended")
+            ident = str(uuid.uuid4())
+            pending = run.state.setdefault("pending_updates", set())
+            pending.add(ident)
+
+            async def frames() -> AsyncIterator[dict[str, Any]]:
+                yield {"type": "user", "message": {"role": "user", "content": message},
+                       "parent_tool_use_id": None, "uuid": ident}
+
+            try:
+                # The SDK writes to the same live CLI. UUID replay acknowledgements also
+                # cover multiple queued inputs merged into a single model turn by Claude.
+                await client.query(frames())
+            except BaseException:
+                pending.discard(ident)
+                with suppress(Exception):
+                    await self.cancel(run)
+                raise
 
     async def cancel(self, run: RunHandle) -> None:
+        run.state["closed"] = True
         client = run.state.get("client")
         if client is not None:
             try:

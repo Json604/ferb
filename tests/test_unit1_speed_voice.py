@@ -24,17 +24,20 @@ async def test_codex_start_failure_removes_created_files(tmp_path, monkeypatch):
     import ferb.runtimes.codex_exec as adapter
     from ferb.core.types import Identity
     created = []
-    original = adapter.tempfile.mkstemp
+    original = adapter.tempfile.TemporaryDirectory
     def temporary(*args, **kwargs):
         kwargs['dir'] = tmp_path
-        fd, name = original(*args, **kwargs)
-        created.append(Path(name))
-        return fd, name
+        directory = original(*args, **kwargs)
+        created.append(Path(directory.name))
+        return directory
     async def version(binary): pass
     async def spawn(*args, **kwargs): raise OSError('cannot launch runtime')
     monkeypatch.setattr(adapter, 'check_version', version)
-    monkeypatch.setattr(adapter.tempfile, 'mkstemp', temporary)
+    monkeypatch.setattr(adapter.tempfile, 'TemporaryDirectory', temporary)
     monkeypatch.setattr(adapter.asyncio, 'create_subprocess_exec', spawn)
+    home = tmp_path / 'codex-home'
+    home.mkdir()
+    (home / 'auth.json').write_text('{}')
     rt = CodexRuntime(Path('/missing'), 'worker', tmp_path, tmp_path,
                       shim_cmd=['ferb', 'mcp'], output_schema={'type':'object'})
     t = Task('t', None, 'g', 'd', Identity.OWNER, set(), 'worker', 'r', [], None)

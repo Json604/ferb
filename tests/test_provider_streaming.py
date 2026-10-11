@@ -217,7 +217,7 @@ async def test_claude_streams_only_the_structured_output_tool_payload():
         return StreamEvent('event', 'session', data)
 
     class Client:
-        async def receive_response(self):
+        async def receive_messages(self):
             yield SystemMessage('init', {'apiKeySource': 'none'})
             yield event({'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}})
             yield event({'type': 'content_block_delta', 'index': 0,

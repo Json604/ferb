@@ -31,6 +31,7 @@ from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal
 from ferb.orchestrator.continuity import Continuity
 from ferb.orchestrator.reply_stream import ReplyDraft
+from ferb.orchestrator.steering import Steering, apply as apply_steering
 from ferb.sanitize.redact import Redactor
 from ferb.orchestrator.plans import Step, inventory, problems as plan_problems
 from ferb.orchestrator.plan_store import PlanStore
@@ -135,6 +136,10 @@ class _Tree:
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
     step_context: str = ''
     required_inputs: list[str] = field(default_factory=list)
+    steering: Steering = field(default_factory=Steering)
+    result_revision: int = 0
+    accepting_updates: bool = True
+    finished: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class _Watch(Observer):
@@ -513,8 +518,23 @@ class Supervisor(WorkerRuns):
                 yield {"type": "reply", "text": "I couldn't find that attempt in this chat. Tell me which task to stop or retry."}
                 self._env.pop(request_id, None)
                 return
+            active = self._tree_of.get(control.task_id)
+            if control.action in ('steer', 'continue') and active is not None and not active.stop and active.accepting_updates:
+                reply = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
+                                            out.task, 'journal:' + entry.id)
+                if reply is not None:
+                    try:
+                        yield reply
+                    finally:
+                        self._env.pop(request_id, None)
+                    return
+            if control.action in ('steer', 'continue') and active is not None and not active.accepting_updates:
+                # Work already completed; let its normal finalization finish, without requesting cancellation.
+                await active.finished.wait()
+                prior = self.continuity.load(control.task_id, session.id) or prior
+            # A correction racing natural completion becomes an ordinary continuation of that saved task.
             controlled_ids = self._tree_task_ids(self._tree_of[control.task_id]) if control.task_id in self._tree_of else set()
-            was_running = self.stop_tree(control.task_id)
+            was_running = self.stop_tree(control.task_id) if control.action in ('stop', 'retry') else False
             deadline = asyncio.get_running_loop().time() + 10
             while (control.task_id in self._tree_of or self.gateway.in_flight(controlled_ids)) and asyncio.get_running_loop().time() < deadline:
                 await asyncio.sleep(0.05)
@@ -995,6 +1015,7 @@ class Supervisor(WorkerRuns):
                 for tid in [k for k, v in self._tree_of.items() if v.id == tree.id]:
                     self._tree_of.pop(tid, None)
                     self.tasks.remove(tid)
+                tree.finished.set()
                 for row in self.tasks.rows(tree_id):
                     if row["status"] in ("running", "planned"):
                         self.tasks.set_status(row["id"], "cancelled" if tree.stop == STOPPED_BY_YOU else "interrupted",
@@ -1038,6 +1059,7 @@ class Supervisor(WorkerRuns):
     async def _execute_plan(self, tree: _Tree, span: str, queue: asyncio.Queue[dict[str, Any]]) -> Outcome:
         plan = tree.spec.plan
         assert plan is not None
+        plan_revision = len(tree.steering.messages)
         if (plan.big_job or plan.standing_sends) and not self.plans.load(tree.id)['approved']:
             outline = '\n'.join(f'- {s.goal or s.question or s.kind}' for s in plan.steps)
             permissions = '\n'.join(f"Send using {s.identity}'s account {s.account or ''} at {s.site or ''}, "
@@ -1068,6 +1090,7 @@ class Supervisor(WorkerRuns):
             child = dataclasses.replace(tree.worker, id=tree.id + '.step.' + step.id, goal=step.goal,
                                          success_conditions=[c.text for c in child_spec.success_conditions])
             member = _Tree(tree.id, child_spec, child, prior_task=tree.prior_task,
+                steering=tree.steering,
                 required_inputs=inputs if ':' in step.id else [],
                 step_context=json.dumps({'step': step.model_dump(), 'inputs': inputs, 'prior': prior,
                     'requirement': 'Write one input_notes entry per input with the complete note and evidence references.'}))
@@ -1109,7 +1132,7 @@ class Supervisor(WorkerRuns):
         evidence = [e for o in outputs for e in o.get('evidence', [])]
         # A final ordinary worker synthesizes the owner's answer and verifies the requested outcome.
         # It sees all complete notes; it must inspect final artifacts and cannot inherit a completion verdict.
-        if result['status'] == 'done':
+        if result['status'] == 'done' or plan_revision != len(tree.steering.messages):
             from ferb.policy.confirm import SEND_CLASS
             sends = []
             for row in self.journal.db.conn.execute('SELECT s.id,s.input_json,s.output_json,s.error FROM spans s '
@@ -1122,9 +1145,11 @@ class Supervisor(WorkerRuns):
                                   'error': row['error']})
             self.journal.append('task.send_digest', {'task_id': tree.id, 'sends': sends},
                                 origin=origins_.join({origins_.FERB} | self.spans.tool_origins(tree.id)))
-            tree.step_context = json.dumps({'completed_steps': outputs,
+            tree.step_context = json.dumps({'step_results': outputs, 'plan_status': result['status'],
                 'message_activity': sends,
-                'instruction': 'Inspect the final artifacts against the complete request. Write evidence report and owner answer. '
+                'instruction': 'Handle any remaining work under the latest owner correction. Preserve completed steps and '
+                               'inspect uncertain actions before continuing. Inspect final artifacts against the complete request. '
+                               'Write evidence report and owner answer. '
                                'Include a concise digest of the messages actually sent, failed, or still unconfirmed; inspect evidence.'})
             return await self._worker(tree, span)
         return Outcome(tree.worker.id, result['status'], 'The plan needs attention before I can finish.', artifacts, evidence)
@@ -1319,6 +1344,7 @@ class Supervisor(WorkerRuns):
                 out = Outcome(worker.id, "cancelled" if tree.stop == STOPPED_BY_YOU else "failed",
                               tree.stop if tree.stop != STOPPED_BY_YOU else STOPPED_BY_YOU, out.artifacts, out.evidence)
             tree.outcome = out
+            tree.accepting_updates = False
             self.tasks.set_status(worker.id, out.status, {"summary": out.summary})
             await queue.put({"type": "subtask", "id": WORKER, "task_id": worker.id, "status": out.status,
                              "summary": out.summary, "role": "worker"})
@@ -1360,6 +1386,7 @@ class Supervisor(WorkerRuns):
             self.tasks.set_status(task.id, "running")
             raw, _ = await self.run_worker(tree, task, "worker.md", self._context(tree) + [ContextBlock(instructions, "current continuation", protected=True)],
                                            WORKER_SCHEMA, span)
+            attempt_revision = len(tree.steering.messages)
             try:
                 w = raw if isinstance(raw, Outcome) else WorkerOutcome.model_validate(raw)
                 out = Outcome(task.id, w.status, w.summary, w.artifacts, w.evidence)
@@ -1378,9 +1405,15 @@ class Supervisor(WorkerRuns):
             artifacts = list(dict.fromkeys(artifacts + out.artifacts))
             evidence = list(dict.fromkeys(evidence + out.evidence))
             out = Outcome(task.id, out.status, out.summary, artifacts, evidence)
+            if tree.result_revision < len(tree.steering.messages) and not tree.stop:
+                # Preserve completed work while a fresh turn handles the correction that raced completion.
+                tree.reports.append({'status': out.status, 'summary': out.summary, 'artifacts': artifacts,
+                                     'evidence': evidence, 'note': 'Finished before the latest owner correction was delivered.'})
+                continue
             finished: Outcome | None = None      # this attempt's done report when its check found nothing false
             if out.status == "done" and tree.spec.success_conditions and not tree.stop:
                 tree.outcome = out
+                checking_revision = len(tree.steering.messages)
                 try:
                     tree.verification = await self.verify(tree, span)
                 except Exception as exc:
@@ -1389,6 +1422,9 @@ class Supervisor(WorkerRuns):
                     tree.verification = [ConditionResult(i, c.text, None, UNCHECKED,      # no check gave a verdict
                                                          f"The check couldn't run: {type(exc).__name__}: {exc}")
                                          for i, c in enumerate(checked_conditions(tree.spec))]
+                if checking_revision != len(tree.steering.messages) and not tree.stop:
+                    tree.verification = []
+                    continue
                 unresolved = [f"{r.text}: {r.evidence}" for r in tree.verification if r.met is not True]
                 if unresolved:
                     # Unknown coverage is also work for the planner. It decides retry/ask/finish; no retry cap
@@ -1410,6 +1446,8 @@ class Supervisor(WorkerRuns):
             tree.reports.append({"worker_type": tree.spec.worker_type, "status": out.status,
                                  "summary": out.summary, "artifacts": artifacts, "evidence": evidence,
                                  "resources": tree.resources, "cleanup_errors": tree.cleanup_errors})
+            if attempt_revision != len(tree.steering.messages) and not tree.stop:
+                continue
             if tree.stop or out.status in ("done", "cancelled"):
                 return out
             try:
@@ -1417,6 +1455,8 @@ class Supervisor(WorkerRuns):
             except Exception as exc:
                 self.journal.append("task.dispatch_failed", {"task_id": task.id,
                                      "error": f"{type(exc).__name__}: {exc}"})
+                if attempt_revision != len(tree.steering.messages) and not tree.stop:
+                    continue
                 # The owner reads the problem in plain words; the details stay in the records (P27).
                 problem = (": " + service_problem(str(exc), exc.runtime) if isinstance(exc, ServiceError)
                            else " (a problem on my side)")
@@ -1427,6 +1467,8 @@ class Supervisor(WorkerRuns):
                 return Outcome(task.id, "cancelled" if tree.stop else "failed",
                                tree.stop or _sentence(out.summary) + f"I couldn't plan the next attempt{problem}.",
                                artifacts, evidence)
+            if attempt_revision != len(tree.steering.messages) and not tree.stop:
+                continue
             if choice.action == "ask":
                 tree.owner_question = choice.question
                 return Outcome(task.id, "needs_user", choice.question, artifacts, evidence)

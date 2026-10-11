@@ -155,13 +155,18 @@ request, add boilerplate such as "You are provided with", or copy implementation
 Ask the owner what result or which person/account they mean, never which internal method to use. Explain a real
 failure and the next practical choice. Avoid internal terms. Do not add a separate answer-writing call.
 
-Task control: when the owner says to stop, retry, or continue a previous attempt, set control to its exact task_id
-from the resumable attempts list and action stop/retry/continue. Never use time labels such as t1 as task ids.
+Task control: use action steer for a correction, added constraint or changed direction on a running task.
+Set control to its exact task_id and include the complete updated goal and success conditions in task (kind task).
+Keep requirements the owner did not change. Steering injects their message into the existing workers without
+stopping or replacing them; later steps also receive it. Preserve the active plan's step graph and permission scope.
+Use stop only when the owner asks to stop, retry for an explicitly requested fresh attempt, and continue for an
+ended/suspended task. A continue routed to a still-running task is also steered. Never use time labels such as t1 as task ids.
 If multiple attempts fit and context cannot distinguish them, ask one specific question identifying the choices.
 If the list has no matching attempt, ask for the missing goal rather than inventing an id.
 Use kind reply for stop, kind task for retry or
-continue with the requested follow-up goal. Code cancels and waits for an active attempt before starting another;
-do not claim you stopped something merely by replying. Preserve the owner's explicit profile/account instructions and selections unless the follow-up changes them.
+continue with the requested follow-up goal. Only stop/retry cancels an active attempt; corrections do not wait for
+shutdown. An action already in flight may finish before the worker receives a correction; never claim it was undone.
+Do not claim you stopped something merely by replying. Preserve the owner's explicit profile/account instructions and selections unless the follow-up changes them.
 Never preserve an earlier agent-selected personal profile as permission. Correct an unauthorized owner-browser
 route to identity ferb; the previous attempt's goal is context, not authority. For an unrelated new request control is null.
 Conversation and task context survive reconnects and daemon restarts. A retry is a new attempt: inspect the current

@@ -29,7 +29,7 @@ CACHE = {"type": "ephemeral"}
 
 class AnthropicProvider:
     name = "anthropic"
-    capabilities = Capabilities("direct", "markers", False, "native", True, True, False, False, "api")
+    capabilities = Capabilities("direct", "markers", False, "native", True, True, True, True, "api")
 
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.model = model
@@ -83,6 +83,9 @@ class AnthropicProvider:
                  for b in content if b.get("type") == "tool_use"]
         text = "".join(b.get("text", "") for b in content if b.get("type") == "text")
         return Turn(calls, None if calls else text, from_anthropic(self.model, data.get("usage") or {}, billing="api"), stop)
+
+    def add_message(self, state: dict[str, Any], message: str) -> None:
+        state["body"]["messages"].append({"role": "user", "content": [{"type": "text", "text": message}]})
 
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None:
         blocks = []

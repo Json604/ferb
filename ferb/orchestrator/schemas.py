@@ -199,7 +199,7 @@ class Remember(BaseModel):
 
 class TaskControl(BaseModel):
     task_id: str
-    action: Literal["stop", "retry", "continue"]
+    action: Literal["stop", "retry", "continue", "steer"]
 
 
 class SupervisorOutcome(BaseModel):

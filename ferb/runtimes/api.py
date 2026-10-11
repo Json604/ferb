@@ -68,6 +68,7 @@ class Provider(Protocol):
     def auth(self, key: str) -> dict[str, str]: ...
     def parse(self, state: dict[str, Any], data: dict[str, Any]) -> Turn: ...
     def add_results(self, state: dict[str, Any], turn: Turn, results: list[ToolOutcome]) -> None: ...
+    def add_message(self, state: dict[str, Any], message: str) -> None: ...
 
 
 class Bridge(Protocol):
@@ -117,6 +118,8 @@ class _Run:
     names: dict[str, str]                       # model-visible tool name -> capability name
     client: httpx.AsyncClient
     cancelled: bool = False
+    closed: bool = False
+    updates: list[str] = field(default_factory=list)
     inflight: "asyncio.Future[Any] | None" = None
 
 
@@ -156,6 +159,7 @@ class ApiRuntime:
             while True:
                 if r.cancelled:
                     return
+                self._apply_updates(r)
                 fragments: asyncio.Queue[str | None] = asyncio.Queue()
 
                 async def read_turn() -> Turn:
@@ -176,30 +180,43 @@ class ApiRuntime:
                         return
                     raise
                 except ProviderError as e:
+                    r.closed = True
                     yield RuntimeEvent("error", {"message": str(e).replace(r.key, '[key]')})
                     return
                 yield RuntimeEvent("usage", asdict(turn.usage))
                 if not turn.calls:
+                    if r.updates:
+                        continue  # The answer predates an accepted owner correction.
                     if not turn.final:
+                        r.closed = True
                         yield RuntimeEvent("error", {"message": f"{self.name}: the model ended without an answer"})
                         return
+                    r.closed = True  # No update may be accepted while the final event is handled.
                     yield RuntimeEvent("final", {"text": turn.final})
                     return
                 unoffered = [c.name for c in turn.calls if c.name not in r.names]
                 if unoffered:
+                    r.closed = True
                     yield RuntimeEvent("violation", {"unexpected_tools": unoffered})
                     return
                 results = []
                 for call in turn.calls:
-                    yield RuntimeEvent("tool_call", {"tool": call.name, "arguments": call.arguments})
+                    if not r.updates:
+                        yield RuntimeEvent("tool_call", {"tool": call.name, "arguments": call.arguments})
                     if r.cancelled:
                         return
+                    if r.updates:
+                        # Keep every call paired with a result, but do not begin stale actions.
+                        results.append(ToolOutcome(call, "Tool not executed: the owner updated the task; "
+                                                   "reconsider this action using the new instructions.", True))
+                        continue
                     outcome = await self._execute(r, r.names[call.name], call)
                     if outcome is None or r.cancelled:
                         return
                     results.append(outcome)
                 self.provider.add_results(r.state, turn, results)
         finally:
+            r.closed = True
             if r.inflight is not None:
                 if not r.inflight.done():
                     r.inflight.cancel()
@@ -285,8 +302,18 @@ class ApiRuntime:
             detail = detail.replace(key, "[key]")      # before truncating: a key at the cut would keep its prefix
         return f"{self.name} HTTP {resp.status_code}" + (f": {detail[:300]}" if detail else "")
 
+    def _apply_updates(self, r: _Run) -> None:
+        for message in r.updates:
+            self.provider.add_message(r.state, message)
+        r.updates.clear()
+
     async def continue_(self, run: RunHandle, message: str) -> None:
-        raise Unsupported("direct-API runs are one-shot; the supervisor re-sends the chat history each turn")
+        r: _Run = run.state["run"]
+        if r.closed or r.cancelled:
+            raise Unsupported("the direct-API run has already ended")
+        # An HTTP request or started tool cannot be rewritten safely. The existing loop
+        # consumes these in order before its next model decision, retaining tool outcomes.
+        r.updates.append(message)
 
     async def cancel(self, run: RunHandle) -> None:
         r: _Run = run.state["run"]

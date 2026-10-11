@@ -19,6 +19,7 @@ from ferb.core.structured import check_final
 from ferb.core.interfaces import AgentRuntime
 from ferb.core.types import ModelRequest, Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
+from ferb.orchestrator.steering import deliver as deliver_steering
 
 if TYPE_CHECKING:
     from ferb.orchestrator.supervisor import _Tree
@@ -130,6 +131,9 @@ class WorkerRuns:
         self.activity.start(worker_id)
         failure = None
         try:
+            if task.role == 'worker':
+                # Runtime construction can itself fail (for example missing subscription login).
+                tree.result_revision = len(tree.steering.messages)
             role = "checker" if task.role == "verifier" else "worker:" + tree.spec.worker_type
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema)
             final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id)
@@ -167,6 +171,13 @@ class WorkerRuns:
 
     async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str, parent_span: str,
                    tree: "_Tree" | None, worker_id: str, *, on_delta: Callable[[str], None] | None = None) -> str:
+        revision = len(tree.steering.messages) if tree is not None else 0
+        if tree is not None and task.role == 'worker':
+            # A startup failure is a current-attempt failure, not a stale result to retry forever.
+            tree.result_revision = revision
+        if tree is not None and revision:
+            # Internal adapter retries may reuse a context captured before a correction arrived.
+            ctx = ctx + [ContextBlock('\n\n'.join(tree.steering.messages), 'latest owner corrections', protected=True)]
         tool_schemas = self.gateway.tools_for(self.tokens.validate(token)) if token else []
         output_schema = getattr(rt, "output_schema", None)
         parts, cacheable = assemble_parts(ctx, budget_tokens=self.context_budget_tokens,
@@ -182,11 +193,16 @@ class WorkerRuns:
         self._active[run.id] = (rt, run)
         if worker_id:
             self._worker_runs[worker_id] = (rt, run)
+        if tree is not None:
+            tree.steering.delivered[run.id] = revision
         final = ""
         watchdog = asyncio.create_task(self._watch(rt, run, worker_id, tree)) if worker_id else None
         try:
             if tree is not None and tree.stop:
                 raise ValueError("task stopped while the runtime was starting")
+            if tree is not None:
+                async with tree.steering.lock:
+                    await deliver_steering(self, tree, rt, run)
             async for ev in rt.events(run):
                 if worker_id:
                     self.activity.beat(worker_id)
@@ -215,9 +231,19 @@ class WorkerRuns:
         finally:
             if watchdog is not None:
                 watchdog.cancel()
-            self._active.pop(run.id, None)
-            self._worker_runs.pop(worker_id, None)
-            await rt.cancel(run)
+            async def close() -> None:
+                if tree is not None:
+                    applied = tree.steering.delivered.pop(run.id, revision)
+                    if task.role == 'worker':
+                        tree.result_revision = applied
+                self._active.pop(run.id, None)
+                self._worker_runs.pop(worker_id, None)
+                await rt.cancel(run)
+            if tree is not None:
+                async with tree.steering.lock:
+                    await close()
+            else:
+                await close()
         if worker_id in self._stalled:
             raise Stalled()
         if not final:

@@ -74,3 +74,6 @@ class FakeProvider:
 
     def add_results(self, state, turn, results) -> None:
         state["body"]["results"].append([[r.call.id, r.text, r.is_error, r.image] for r in results])
+
+    def add_message(self, state, message) -> None:
+        state["body"].setdefault("updates", []).append(message)

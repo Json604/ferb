@@ -298,3 +298,31 @@ async def test_google_missing_finish_reason_is_a_normal_end() -> None:
     reply = {"candidates": [{"content": {"role": "model", "parts": [{"text": '{"ok": true}'}]}}], "usageMetadata": {}}
     events = await run(make(CASES["google"], Scripted([(200, reply)]), mode="supervisor"), token="")
     assert events[-1].kind == "final"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('initial', ['final', 'tool'])
+async def test_owner_updates_are_native_user_messages_after_prior_turn(case, initial):
+    first = case['final'] if initial == 'final' else case['tool']('fs_list', {'path': '/tmp'})
+    script = Scripted([(200, first), (200, case['final'])])
+    bridge = FakeBridge()
+    rt = make(case, script, bridge=bridge)
+    handle = await rt.start(TASK, REQ, 'tok')
+    events = []
+    async for event in rt.events(handle):
+        events.append(event)
+        if event.kind == 'usage' and len(script.requests) == 1:
+            await rt.continue_(handle, 'Keep it under 300')
+            await rt.continue_(handle, 'Two breads')
+    body = script.requests[1][1]
+    history = body.get('messages', body.get('input', body.get('contents')))
+    assert [item['role'] for item in history[-2:]] == ['user', 'user']
+    assert 'Keep it under 300' in json.dumps(history[-2])
+    assert 'Two breads' in json.dumps(history[-1])
+    assert bridge.calls == []
+    if initial == 'tool':
+        assert 'not executed' in json.dumps(history[-3])
+    else:
+        assert 'ok' in json.dumps(history[-3])
+    assert len([event for event in events if event.kind == 'final']) == 1
+    assert rt.capabilities.continuation and rt.capabilities.live_messaging

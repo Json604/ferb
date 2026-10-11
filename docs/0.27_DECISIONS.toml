@@ -13,7 +13,7 @@ summary = "Similarity search runs before FERB plans, giving it similar past task
 
 [D3]
 milestone = "F6"
-tests = ["tests/test_f6_chat.py"]
+tests = ["tests/test_f6_chat.py", "tests/test_live_steering.py", "tests/test_steering_races.py"]
 summary = "Chat is never blocked by a loader"
 
 [D4]
@@ -161,7 +161,7 @@ summary = "Escape hatch for boundaries enforced by code only"
 
 [D32]
 milestone = "F2"
-tests = ["tests/test_runtime_contract.py", "tests/test_api_runtime.py", "tests/test_runtime_selection.py", "tests/test_usage_prices.py", "tests/test_codex_isolation.py", "tests/test_codex_streaming.py", "tests/test_provider_streaming.py", "tests/test_reply_streaming.py"]
+tests = ["tests/test_runtime_contract.py", "tests/test_api_runtime.py", "tests/test_runtime_selection.py", "tests/test_usage_prices.py", "tests/test_codex_isolation.py", "tests/test_codex_streaming.py", "tests/test_provider_streaming.py", "tests/test_reply_streaming.py", "tests/test_claude_steering.py", "tests/test_live_steering.py"]
 note = "Probe 2026-10-07: Codex 0.157.1 defers MCP tools behind tool_search unless the model catalog sets supports_search_tool = false; F1 sets it in CATALOG_LOCKDOWN (tools then appear directly as mcp__ferb.<tool>). With --disable skill_search Codex still tried to load the owner's personal skills from ~/.agents/skills; F2 fixed this: Codex runs with its own empty HOME (~/.ferb/codex-user) and skill_mcp_dependency_install disabled. F2 built the five runtimes (Codex, Claude, Anthropic, OpenAI, Google) behind one interface, selectable per role. Live API checks (-m real_api) wait for the owner's keys."
 summary = "Universal model runtimes: one model interface defined by FERB"
 
@@ -172,7 +172,7 @@ summary = "Raw evidence is append-only, redacted at capture, and the source of t
 
 [MP2]
 milestone = "F3"
-tests = ["tests/test_origins.py", "tests/test_tool_origins.py", "tests/test_upload_staging.py", "tests/test_learning.py", "tests/test_delegated_conversations.py"]
+tests = ["tests/test_origins.py", "tests/test_tool_origins.py", "tests/test_upload_staging.py", "tests/test_learning.py", "tests/test_delegated_conversations.py", "tests/test_steering_scope.py"]
 note = "F4 live fixes: a browser upload reads FERB's own copy; a copy of outside content is kept under workspace/uploads/outside, an untrusted fs root code adds, so it keeps the original's label."
 summary = "Trust follows origin, permanently"
 
@@ -334,7 +334,7 @@ summary = "Setup persona from apps actually used, confirmed by the owner"
 
 [P29]
 milestone = "F6"
-tests = ["tests/test_f6_chat.py", "tests/test_cli_reply_streaming.py", "tests/test_reply_streaming.py"]
+tests = ["tests/test_f6_chat.py", "tests/test_cli_reply_streaming.py", "tests/test_reply_streaming.py", "tests/test_live_steering.py"]
 summary = "Always-on chat with routing, status line and keys"
 
 [P30]
