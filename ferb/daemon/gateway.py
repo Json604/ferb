@@ -30,7 +30,9 @@ to later tasks. A scheduled run (nobody at chat) doesn't run such a call. A shel
 import asyncio
 import base64
 import dataclasses
+import ipaddress
 import logging
+import json
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -43,13 +45,13 @@ from ferb.act.fs import recovery
 from ferb.act.fs.files import normalize_path, owner_path, real_path as file_real_path
 from ferb.act.locks import ResourceLocks
 from ferb.act.mac.ax_browser import BROWSER_BUNDLES
-from ferb.act.shell.proxy import DEST_REFUSED_NEW, DEST_REFUSED_NO
+from ferb.act.shell.proxy import DEST_REFUSED_NO, DEST_NETWORK_APPROVAL
 from ferb.act.mac.driver import UNTRUSTED_APPS
 from ferb.clock import context
 from ferb.core import origin
 from ferb.core.errors import NoTarget, Refused
 from ferb.core.interfaces import Capability, Clock
-from ferb.core.types import ToolContext, EscapeGrant
+from ferb.core.types import ToolContext, EscapeGrant, ShellCommandGrant
 from ferb.policy.escape import escape_key
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
@@ -63,7 +65,7 @@ from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, pa
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import earlier_questions, pasted_parts
-from ferb.store.spans import SpanStore
+from ferb.store.spans import SpanStore, PayloadOutput
 from ferb.trace import lines
 
 Publish = Callable[[str, dict[str, Any]], None]
@@ -342,17 +344,15 @@ def origin_line(origins: set[str]) -> str:
 
 @dataclass
 class OutsideTexts:
-    """A task tree's tool-result content, prepared once for argument and URL matching (S3, S4). Each call reads and
-    prepares only tool results it hasn't seen: those after `floor`, minus `seen`. One reader, two filters: outside
-    content (external origins, for the sink rule and provenance) and the owner's own data (`private`, for the URL
-    sink's carried-value check)."""
+    """Outside tool/context text prepared once for argument provenance. URL payload evidence is read separately."""
     floor: int = 0                   # every tool call at or below this rowid had finished when last read
     seen: set[int] = field(default_factory=set)       # finished calls above the floor, already prepared
     texts: list[tuple[str, provenance.Text]] = field(default_factory=list)   # (external origin, prepared text)
-    private: list[provenance.Text] = field(default_factory=list)   # results the owner's own data (origin.PRIVATE)
-    # (span order, is_private, is_outside_only, prepared text) in read order, for the URL sink's N1 span-order rule:
-    # a record labelled both outside and private counts as private (never outside-only).
-    results: list[tuple[int, bool, bool, provenance.Text]] = field(default_factory=list)
+    payload_floor: int = 0
+    payload_seen: set[int] = field(default_factory=set)
+    payloads: dict[int, tuple[set[str], provenance.Text]] = field(default_factory=dict)
+    file_chunks: dict[str, dict[int, PayloadOutput]] = field(default_factory=dict)
+    joined_files: dict[str, list[tuple[int, set[str], provenance.Text]]] = field(default_factory=dict)
     pasted: list[tuple[str, provenance.Text]] | None = None    # the request's pasted parts, prepared once (MP2)
 
 
@@ -396,6 +396,7 @@ class Gateway:
         # S4: the shell process's task and command, for a per-task sink decision on a destination (set by the daemon)
         self.proc_task: Callable[[str], str | None] = lambda proc_id: None
         self.proc_command: Callable[[str], str | None] = lambda proc_id: None
+        self.proc_network: Callable[[str], bool] = lambda proc_id: False
         self._refused_hosts: dict[str, dict[str, str]] = {}   # root tree -> {refused host: the command that tried it}
         # root tree -> the hosts its shell reached before the tree first read outside content: they stay allowed for
         # the rest of the tree (owner, 2026-10-10). Decided by connection order, never by a list of hosts.
@@ -455,43 +456,32 @@ class Gateway:
 
     async def destination_allowed(self, proc_id: str, host: str, port: int, *,
                                   local_approved: bool = False) -> tuple[bool, str]:
-        """S4: whether a shell process may connect to host:port through FERB's egress proxy, and FERB's reason if not.
-        Asked by the proxy (on the loop) before it resolves the name, so a refused name never reaches a DNS server, and
-        again for a differing TLS SNI (domain fronting). Allowed when the host is a destination FERB already knows or
-        the owner answered Yes to it in this tree (SQ6); refused as final when the owner answered No to it in this tree
-        (a No carries across the tree and between shell and browser). Otherwise allowed when the owner named the host
-        (a URL host in the request's words or an answer, D33), or the task tree hasn't read outside content yet (owner,
-        Q3, 2026-10-10: code can't tell what a shell command read, so after any outside content — the request's outside
-        parts or any outside tool result, a shell command's own output included — a new host needs the owner), or
-        this tree's shell reached the host before the tree first read outside content (owner, 2026-10-10: a site the
-        task was already talking to — a registry, an agent's own API — stays allowed for the rest of the tree, by the
-        order of the connection and the first outside read, never by a list of hosts). Else refused and recorded under
-        this tree, so `owner.ask allow_destination` can act on it (a worker can't invent a host nothing tried).
-        The proxy may supply local_approved only after matching a literal local connected peer to its owner-configured
-        executable pin. That standing permission still follows task ownership and the tree's final No."""
+        """Remote access needs an exact-command grant on this live process, never a global host allowlist.
+        The proxy calls before DNS and again for differing TLS SNI. A prior tree-level host No remains final.
+        Local standing permission is supplied only after the proxy checks its executable pin; networking approval
+        never bypasses that check. The grant is not inherited by another process with its own proxy credentials.
+        """
         norm = KnownDestinations.normalize("host", host)
         task_id = self.proc_task(proc_id)
         root = self.tasks.tree_of(task_id) if task_id is not None else None
         if root is None:                                 # a process FERB no longer tracks: fail closed
             return False, "FERB couldn't tell which task this command belongs to"
-        if self.confirmations is not None:               # C2: a Yes allows, a No is final (keyed by tree + host)
+        if self.confirmations is not None:               # A prior host No remains final for this task tree.
             row = self.confirmations.find(root, confirm.destination_key(norm))
-            if row is not None:
-                return (True, "") if row["granted"] else (False, DEST_REFUSED_NO)
+            if row is not None and not row["granted"]:
+                return False, DEST_REFUSED_NO
         if local_approved:
             return True, ""
-        if self.destinations is not None and self.destinations.known("host", host):
+        # Local addresses must pass the proxy's executable-pin check; a command approval cannot lift it.
+        try:
+            local = ipaddress.ip_address(norm).is_loopback
+        except ValueError:
+            local = norm == 'localhost' or norm.endswith('.localhost')
+        if local:
+            return False, "local services need the proxy's executable-pinned permission"
+        if self.proc_network(proc_id):
             return True, ""
-        if self._host_named(norm, root):
-            return True, ""
-        live = self.tasks.get(root) is not None          # N4: never re-create a tree's sets after it ended
-        if not self._outside_read(root):
-            return True, ""
-        if norm in self._reached_hosts.get(root, ()):
-            return True, ""
-        if live:
-            self._refused_hosts.setdefault(root, {})[norm] = self.proc_command(proc_id) or ""
-        return False, DEST_REFUSED_NEW
+        return False, DEST_NETWORK_APPROVAL
 
     async def destination_reached(self, proc_id: str, host: str, port: int) -> None:
         """On the loop, after the proxy establishes a connection (or observes its differing SNI), before forwarding
@@ -508,12 +498,8 @@ class Gateway:
         return any(origin.is_external(o) for o in (self.spans.tool_origins(root) | self.spans.exposure_origins(root)) | self.spans.request_origins(root))
 
     async def sni_enforced(self, proc_id: str) -> bool:
-        """For the proxy (on the loop): whether to hold a CONNECT's TLS ClientHello and enforce its SNI (S4). True
-        once the tree has read outside content, and — failing closed — for a process FERB no longer tracks; before any
-        outside content the proxy records the SNI best-effort and never holds."""
-        task_id = self.proc_task(proc_id)
-        root = self.tasks.tree_of(task_id) if task_id is not None else None
-        return root is None or self._outside_read(root)
+        """A command grant never bypasses a prior host No through a differing TLS server name."""
+        return True
 
     def _host_named(self, host_norm: str, root: str) -> bool:
         """Whether the owner named this host (M4): a URL host in the request's own words or in an answer the owner gave
@@ -574,23 +560,18 @@ class Gateway:
 
     def _read_texts(self, root: str) -> OutsideTexts:
         """The tree's tool results so far, prepared; only results not seen before are read and prepared. A call still
-        running holds the floor below it, so its result is picked up once it finishes. Each result's prepared text is
-        kept under outside content (its external origins) and/or the owner's own data (origin.PRIVATE)."""
+        running holds the floor below it, so its result is picked up once it finishes. Context keeps its external
+        provenance here; URL transfer checks use the separately recorded direct source payloads."""
         known = self._outside.setdefault(root, OutsideTexts())
-        running = self.spans.first_open_tool_call(root, known.floor)
+        running = self.spans.first_open_tool_call(root, known.floor, include_context=True)
         for rowid, origins, text in self.spans.tool_outputs(root, known.floor, include_context=True):
             if rowid in known.seen:
                 continue
             known.seen.add(rowid)
             external = sorted(o for o in origins if origin.is_external(o))
-            is_private = origin.PRIVATE in origins
-            if external or is_private:
+            if external:
                 prepared = provenance.prepare(text)
                 known.texts += [(o, prepared) for o in external]
-                if is_private:
-                    known.private.append(prepared)
-                # N1(b): a record labelled both outside and private counts as private, never outside-only
-                known.results.append((rowid, is_private, bool(external) and not is_private, prepared))
         known.floor = running - 1 if running is not None else max(known.seen, default=known.floor)
         known.seen = {r for r in known.seen if r > known.floor}
         return known
@@ -600,11 +581,39 @@ class Gateway:
         return self._read_texts(root).texts
 
     def _sink_texts(self, root: str) -> tuple[list[tuple[int, provenance.Text]], list[tuple[int, provenance.Text]]]:
-        """(the owner's own data, outside-only content), each as (span order, prepared text) in read order, for the URL
-        sink's N1 span-order rule (a value is public only if it was outside-only before it was first read privately)."""
-        results = self._read_texts(root).results
-        private = [(rowid, t) for rowid, is_private, _, t in results if is_private]
-        outside_only = [(rowid, t) for rowid, _, outside_only, t in results if outside_only]
+        """Incremental source evidence, including actual context data; never reprepare unchanged payloads."""
+        known = self._outside.setdefault(root, OutsideTexts())
+        running = self.spans.first_open_tool_call(root, known.payload_floor, include_context=True)
+        changed: set[str] = set()
+        for result in self.spans.payload_outputs(root, known.payload_floor, seen=known.payload_seen):
+            known.payload_seen.add(result.rowid)
+            if result.text:
+                known.payloads[result.rowid] = (result.origins, provenance.prepare(result.text))
+            if result.path:
+                known.file_chunks.setdefault(result.path, {})[result.rowid] = result
+                changed.add(result.path)
+        known.payload_floor = running - 1 if running is not None else max(known.payload_seen, default=known.payload_floor)
+        known.payload_seen = {rowid for rowid in known.payload_seen if rowid > known.payload_floor}
+        for path in changed:
+            joined: list[tuple[int, set[str], provenance.Text]] = []
+            chain: list[PayloadOutput] = []
+            def finish_chain() -> None:
+                if len(chain) > 1:
+                    joined.append((chain[0].rowid, set().union(*(part.origins for part in chain)),
+                                   provenance.prepare(''.join(part.text for part in chain))))
+            for part in sorted(known.file_chunks[path].values(), key=lambda part: part.rowid):
+                if chain and (part.offset == 0 or chain[-1].next_offset != part.offset):
+                    finish_chain()
+                    chain = []
+                chain.append(part)
+            finish_chain()
+            known.joined_files[path] = joined
+        results = [(rowid, labels, text) for rowid, (labels, text) in known.payloads.items()]
+        results.extend(item for joined in known.joined_files.values() for item in joined)
+        results.sort(key=lambda item: item[0])
+        private = [(rowid, text) for rowid, labels, text in results if origin.PRIVATE in labels]
+        outside_only = [(rowid, text) for rowid, labels, text in results
+                        if origin.PRIVATE not in labels and any(origin.is_external(label) for label in labels)]
         return private, outside_only
 
     async def _call(self, grant: RunGrant, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -711,14 +720,23 @@ class Gateway:
             self._finish_call(span, name, covered.refused, True, error=error)
             return reply(covered.refused, True, {origin.FERB})
         escape = None
+        shell_command = None
         try:
+            if name in {"shell.run", "shell.start"} and (getattr(args, "network", False)
+                    or getattr(args, "external_source", None) is not None):
+                try:
+                    shell_command = await self._shell_approval(grant, rec, args, why)
+                except Refused as error:
+                    self._finish_call(span, name, {"error": str(error)}, True, error=str(error))
+                    return reply({"error": str(error)}, True, {origin.FERB})
             if name in {"shell.run", "shell.start"} and getattr(args, "escape", None):
                 try:
                     escape = await self._escape(grant, rec, args, why)
                 except Refused as error:
                     self._finish_call(span, name, {"error": str(error)}, True, error=str(error))
                     return reply({"error": str(error)}, True, {origin.FERB})
-            return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments, escape)
+            return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments,
+                                    escape, shell_command)
         finally:
             if escape is not None and escape.secret and isinstance(self.redact, Redactor):
                 self.redact.release_secret(escape.secret)
@@ -728,7 +746,8 @@ class Gateway:
 
     async def _held(self, cap: Any, name: str, args: Any, spec: Any, action: ActionRequest, grant: RunGrant, rec: Any,
                     span: Any, reply: Callable[..., dict[str, Any]], real: Path | None, claimed: Claimed,
-                    arguments: dict[str, Any], escape: EscapeGrant | None = None) -> dict[str, Any]:
+                    arguments: dict[str, Any], escape: EscapeGrant | None = None,
+                    shell_command: ShellCommandGrant | None = None) -> dict[str, Any]:
         """The call under its resource locks, with the disturbance record around it."""
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
         if name.startswith("fs.") and real is not None:
@@ -741,7 +760,8 @@ class Gateway:
                 if self.disturbance is not None:
                     await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
-                    return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, escape)
+                    return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
+                                               escape, shell_command)
                 finally:
                     if self.disturbance is not None:
                         await self.disturbance.after_action(span.id)
@@ -915,6 +935,15 @@ class Gateway:
                 # A tree's No applies to this host, even if another tree later makes it known or this URL no longer
                 # carries private data. A change in sink shape cannot turn a final refusal into permission.
                 return {"error": ALREADY_NO.format(line=self.redact(f"reaching {host}")), "next": OWNER_DECIDED_NEXT}
+        # Opening a local report is not a remote data transfer. This does not grant a shell access to local
+        # programs, nor waive an explicit No recorded above. Only literal loopback addresses qualify.
+        try:
+            address = ipaddress.ip_address(host)
+            if address.is_loopback or (isinstance(address, ipaddress.IPv6Address) and
+                                       address.ipv4_mapped is not None and address.ipv4_mapped.is_loopback):
+                return None
+        except ValueError:
+            pass
         read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
         outside_labels = sorted(o for o in read | self.spans.request_origins(root) if origin.is_external(o))
         if not outside_labels:
@@ -1082,6 +1111,40 @@ class Gateway:
                                 input={"tool": lines.clip(name, 100), "worker_id": grant.worker_id})
         self.spans.finish(span, error=reason)
 
+    async def _shell_approval(self, grant: RunGrant, rec: Any, args: Any, why: str) -> ShellCommandGrant:
+        """Ask once for exact command/cwd/identity/scopes/tree, before spawning any process."""
+        cwd = file_real_path(args.cwd or self.roots.workspace, self.roots.workspace)
+        if not cwd.is_dir():
+            raise Refused("the command's working folder does not exist")
+        root = rec.tree_id or grant.task_id
+        network, external = bool(getattr(args, 'network', False)), getattr(args, 'external_source', None)
+        key = confirm.key('shell:command', args.command, str(cwd), grant.identity.value, sorted(grant.scopes), root,
+                          network, external)
+        if self.confirmations is None:
+            raise Refused("FERB cannot record this command's approval")
+        reasons = []
+        if external is not None:
+            reasons.append('run code or instructions declared as coming from outside content: ' + external)
+        if network:
+            reasons.append('allow this process, its later input and its children to contact remote hosts for its '
+                           'tracked lifetime through FERB’s proxy; local-service protections and prior refusals stay enforced')
+        need = confirm.Need('shell:command', key, {'text': '; '.join(reasons)})
+        async with self._confirming.setdefault(root, asyncio.Lock()):
+            row = self.confirmations.find(root, key)
+            if row is not None and not row['granted']:
+                raise Refused("you already said no to this exact command approval in this task")
+            if row is None:
+                answer = await self.ask_confirmation(grant, rec, [need], None,
+                    json.dumps(self.redact({'command': args.command, 'cwd': str(cwd),
+                        'identity': grant.identity.value, 'scopes': sorted(grant.scopes)}), ensure_ascii=False), why)
+                if not answer:
+                    raise Refused(answer.error)
+                confirmation_id = answer.ids[0]
+            else:
+                confirmation_id = row['id']
+        return ShellCommandGrant(confirmation_id, args.command, str(cwd), grant.task_id, root,
+                                 grant.identity, grant.scopes, network, external)
+
     async def _escape(self, grant: RunGrant, rec: Any, args: Any, why: str) -> EscapeGrant:
         rule, command = args.escape, args.command
         protection = self.roots.protection
@@ -1140,7 +1203,8 @@ class Gateway:
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
                        real: Path | None = None, claimed: Claimed | None = None,
-                       escape: EscapeGrant | None = None) -> dict[str, Any]:
+                       escape: EscapeGrant | None = None,
+                       shell_command: ShellCommandGrant | None = None) -> dict[str, Any]:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:
@@ -1159,7 +1223,8 @@ class Gateway:
                               scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
-                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape)
+                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape,
+                              shell_command=shell_command)
             if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
                 self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
         except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)

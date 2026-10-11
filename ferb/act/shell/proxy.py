@@ -62,7 +62,8 @@ CHUNK = 65536
 # matching these exact strings, so a sink refusal names the right host and a final No isn't offered as "ask again").
 DEST_REFUSED_NEW = "a place you haven't named, after this task read outside content"
 DEST_REFUSED_NO = "you said no to this place in this task"
-DEST_SNI_NONE = "a TLS connection whose server name FERB couldn't read, after this task read outside content"
+DEST_NETWORK_APPROVAL = "this shell command has no network approval; request network=true for this exact command"
+DEST_SNI_NONE = "a TLS connection whose server name FERB couldn't read"
 SNI_MAX = 16 * 1024                                         # the most of a client's ClientHello FERB reassembles (S4)
 UNAUTH_TIMEOUT = 10.0                                       # seconds from accept until a connection must authenticate
 #                                                            (an absolute deadline: dripping bytes doesn't extend it)

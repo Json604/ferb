@@ -29,6 +29,16 @@ class SpanNode:
     children: list["SpanNode"] = field(default_factory=list)
 
 
+@dataclass
+class PayloadOutput:
+    rowid: int
+    origins: set[str]
+    text: str
+    path: str = ""
+    offset: int = 0
+    next_offset: int | None = None
+
+
 class SpanStore:
     def __init__(self, db: Database, clock: Clock, ids: IdSource, redact: Redact) -> None:
         self._db, self._clock, self._ids, self._redact = db, clock, ids, redact
@@ -136,6 +146,41 @@ class SpanStore:
         return [(r["rowid"], origin.split(r["origin"]), _joined(json.loads(r["output_json"]), OUTPUT_TEXT_CAP))
                 for r in rows]
 
+    def payload_outputs(self, root_id: str, after_rowid: int = 0, *, seen: set[int] | None = None) -> list["PayloadOutput"]:
+        """New actual source data, using capability schemas rather than globally dropping field names.
+
+        Context producers supply wrapper-free payloads. Legacy context stays conservative: its complete text is
+        evidence. File chunk boundaries accompany the payload so the gateway can assemble only changed streams.
+        """
+        where, params = self._tree_where(root_id)
+        rows = self._db.conn.execute(
+            f"SELECT rowid,kind,origin,input_json,output_json FROM spans WHERE kind IN ('tool.call','context.exposure') AND {where} "
+            "AND rowid > ? AND output_json IS NOT NULL ORDER BY rowid", (*params, after_rowid))
+        out: list[PayloadOutput] = []
+        for row in rows:
+            if seen is not None and row['rowid'] in seen:
+                continue
+            inp, body = json.loads(row['input_json']), json.loads(row['output_json'])
+            result = PayloadOutput(row['rowid'], origin.split(row['origin']), '')
+            tool = inp.get('tool', '')
+            payload: Any = body
+            if isinstance(body, dict):
+                if row['kind'] == 'context.exposure':
+                    payload = body.get('payload', body.get('text', ''))
+                elif tool == 'fs.read':
+                    payload = body.get('text', '')
+                    result.path = str(body.get('path') or inp.get('args', {}).get('path') or '')
+                    result.offset, result.next_offset = body.get('offset', 0), body.get('next_offset')
+                elif tool in {'shell.run', 'shell.read', 'shell.wait'}:
+                    payload = body.get('output', '')
+                elif tool in {'fs.list', 'fs.write', 'fs.patch', 'fs.mkdir', 'fs.trash', 'fs.delete',
+                              'browser.open', 'browser.navigate', 'browser.close', 'ferb_browser.open',
+                              'ferb_browser.navigate', 'ferb_browser.close'}:
+                    payload = ''
+            result.text = '\n'.join(_strings(payload))
+            out.append(result)  # even empty results advance the incremental cursor
+        return out
+
     def latest_acting_call(self, root_id: str, tool: str | None = None) -> dict[str, Any] | None:
         """The latest tool.call in this task tree: of `tool` when named, else any consequential (non-reading) one.
         Failed calls count. Never a model's claim: the recorded span."""
@@ -149,11 +194,12 @@ class SpanStore:
                         "error": r["error"]}
         return None
 
-    def first_open_tool_call(self, root_id: str, after_rowid: int = 0) -> int | None:
+    def first_open_tool_call(self, root_id: str, after_rowid: int = 0, *, include_context: bool = False) -> int | None:
         """The rowid of this task tree's earliest tool call after `after_rowid` that hasn't finished (still running),
         if any: its result arrives later than calls started after it."""
         where, params = self._tree_where(root_id)
-        row = self._db.conn.execute(f"SELECT min(rowid) FROM spans WHERE kind = 'tool.call' AND {where} "
+        kinds = "('tool.call','context.exposure')" if include_context else "('tool.call')"
+        row = self._db.conn.execute(f"SELECT min(rowid) FROM spans WHERE kind IN {kinds} AND {where} "
                                     "AND rowid > ? AND ended_at IS NULL", (*params, after_rowid)).fetchone()
         return row[0] if row else None
 

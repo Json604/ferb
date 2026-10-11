@@ -138,4 +138,17 @@ from not executed. Stop and resource ownership stay in the harness for every fut
 Native task controls enumerate exact backend roots and pending local turn IDs. Stop task sends only that nonempty
 backend ID to `task.stop`; a pending-turn stop is deferred only until that turn receives its plan/task identity.
 Task inspection uses `trace.get` and never invokes Stop. Background answers update state/history without opening
-or refocusing the native panel; the owner opens Tasks to inspect or answer a particular request.
+or refocusing the native panel. A new genuine approval or clarification opens its question once with amber
+attention, without activating keyboard focus. Approval IDs and local turn IDs deduplicate attention across polls
+and reconnects. Clients reconcile all roots and must not let an older status response undo newer task/approval
+events. Interrupted unbound streams are not running tasks. Supported Markdown is rendered as native text, tables,
+lists, links and code; raw HTML is not executed and remote images are not automatically fetched.
+
+Worker `shell.run`/`shell.start` accept `network: true` to request one exact-command network approval. Missing/false
+does not authorize remote egress; failure never automatically retries an uncertain command. The approval binds
+command, canonical cwd, identity, scopes and task tree; the process receives a code-owned grant, not a model token.
+The grant covers later input and children of that live process. Declare `external_source` for externally sourced
+code/instructions; the gateway requires concrete approval even for local-only execution. Semantic origin is a
+model responsibility, not complete detection by code. Use `shell.start` or `background: true` for a continuing
+network process. Approval is not an inspection of encrypted
+payloads, and does not lift executable-pinned local-service rules or prior explicit host refusals.

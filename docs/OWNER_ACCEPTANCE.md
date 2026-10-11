@@ -986,7 +986,51 @@ no failures. The native app was gracefully quit after the task completion, repla
 and opened with `open -g` asPID82232. AppKit's cached termination property initially stayed false, so replacement
 was withheld until a separate OS process check confirmed the app had exited; no forced kill occurred.
 
-Read-only `browsers.list` confirms ChromeProfile22 and BraveDefault connected on extension0.15.2 with no refusal.
+Read-only `browsers.list` confirms ChromeProfile22 and BraveDefault connected on extension 0.15.2 with no refusal.
 Their managed extension updated through its existing idle reload path; no personal browser was quit or relaunched.
 No new model task, OTP submission or order was made. Live OTP success and owner visual/writing-quality acceptance
 remain unverified; compilation, offline regressions and installation state are the evidence reported here.
+
+
+### Approval attention, report audit and navigation policy — 2026-10-11
+
+Owner observations: a genuine question did not open itself; three requests appeared running after results; ticket
+answers exposed raw Markdown. Owner chose to keep payment/permanent-deletion/account-security confirmations,
+remove routine navigation prompts and approve opaque network shell commands once per exact command.
+
+Trace findings: local-report task `d6d52ab01af942fc937ca430e0740832` prompted on `index.html` at14:34:29;
+ticket task `6eb4bffd1c3c4c6ca3f5ed348df1dc91` prompted on Google `/search` at14:51:42 and seven further
+shell hosts. Context wrapper vocabulary had been treated as private URL payload. Proxy encryption prevents
+payload inspection; task visibility cannot prevent a transfer already begun. Changed policy keeps actual source
+payload/provenance and exact-command approval boundaries, not a claim that arbitrary code is safe.
+
+Independent report audit (local ledger `report-audit.md`): session task `726ab98b8edb4181b3937dbdc9e172c6`
+found a real Sept27 session and historical validator PASS outputs. It inventoried790 candidates but ranked
+first4 user/last6 assistant records and a top30 shortlist; it did not substantively inspect all sessions or derive
+its91/100 from a reproducible rubric. Its 60MB marker did not actually skip large files. The original project
+folder was absent at audit, so historical outputs do not prove current deliverables exist.
+
+The ticket report relied on aggregator InStock metadata despite primary-source access gaps. Audit found the
+Hyderabad A.R.Rahman Jan31,2027 page said Coming Soon, Lollapalooza spans Jan23–24, Sunburn direct starting
+price differed, and omitted cities/prices prevented a verified purchase-ready comparison. Cloudflare, wrong
+District URLs and a JS-only Skillboxes response were source/method limitations. Shell host approvals and the
+background-window boundary were actual FERB restrictions; head/substrings/top-N/timeouts were worker choices.
+No enforced task/token/cost budget was shown to end the research. Prompt corrections require per-claim primary
+support and honest coverage; offline prompt tests do not prove future reports will obey them.
+
+Pending owner checks: a new question opens once and glows amber without stealing focus; dismiss/reconnect does
+not reopen it; ordinary progress stays quiet. With overlapping requests, complete one during a status refresh
+and confirm only real work remains listed. Inspect/stop one task independently. Confirm a real concert table
+renders with usable links, and compare concise text with full Details. Verify public navigation/local report
+opens without routine prompts, exact shell networking asks once, and a declined command does not spawn.
+Checkout validation: full default run selected 2009 tests:2006 passed / 3 failed. Two failures were obsolete shell
+expectations updated for explicit network approval; the third documentation parser observed a concurrently edited
+file. With source settled, all 182 affected integration tests passed (including all three failure paths), plus 93
+native tests and the release build. Core mypy, compilation and both repositories' diff checks passed. Independent
+scoped review has no Important/Critical findings. No real model task, OTP, purchase or external send was tested.
+
+Authorized activation: immediately before update there were0 running tasks,0 approvals and0 running tracked shell
+processes. `ferb setup --update` succeeded; daemon PID 12882 reports installed/checkout hash 67f9cd286fc9a94b,
+all four macOS grants and no failed watchers. Chrome FERB/Brave Work reconnected with extension 0.15.2. Native
+app PID 13099 runs the newly staged/signed release binary; OS process checks confirmed the old app exited before
+bundle replacement. No task was interrupted. Owner interaction/appearance verdict remains pending.

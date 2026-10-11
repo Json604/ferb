@@ -85,3 +85,53 @@ def test_recent_and_relevant_activity_both_keep_labels_and_source_refs(daemon):
     matched = [row for row in rows if 'trail:matching' in row['input_json']]
     assert matched and any('trail:recent' in row['input_json'] for row in matched)
     assert any('private' in row['origin'] and 'external:clipboard' in row['origin'] for row in matched)
+
+
+def test_context_payload_omits_catalogue_but_preserves_recorded_memory(daemon):
+    import json
+    from tests.conftest import chat, done, install, outcome, sup, task
+    supervisor = daemon.daemon.supervisor
+    supervisor.relevant_context = lambda _: ('Installed catalogue: search metadata. Private account: Customer-Record',
+                                              'private', 'Customer-Record')
+    supervisor.recent_activity = lambda: ('', 'ferb')
+    supervisor.memory_candidates = lambda _: [
+        {'text': 'Remembered-Private-Value', 'reference': 'memory.learned id=private',
+         'origin': 'private', 'source_refs': ['private']}]
+    install(daemon, [sup('task', 'Checking.', task('Inspect the source'))], {'worker': done('Inspected.')})
+    result = outcome(chat(daemon, 'Inspect the source'))
+    async def check():
+        rows = daemon.daemon.db.conn.execute(
+            "SELECT output_json FROM spans WHERE kind='context.exposure' AND task_id=?", (result['task_id'],)).fetchall()
+        values = [json.loads(row['output_json']) for row in rows]
+        assert any('Installed catalogue' in value['text'] and value['payload'] == 'Customer-Record' for value in values)
+        assert any(value.get('payload') == 'Remembered-Private-Value' for value in values)
+        private, _ = daemon.daemon.gateway._sink_texts(result['task_id'])
+        assert any(value.folded == 'remembered-private-value' for _, value in private)
+        assert all('installed catalogue' not in value.folded for _, value in private)
+    daemon.run(check())
+
+
+def test_payload_cache_prepares_only_new_evidence_and_retains_late_context(daemon, monkeypatch):
+    from ferb.policy import provenance
+    from tests.conftest import gateway_setup, gateway_request
+    grant, _ = gateway_setup(daemon, set(), gateway_request('Inspect my files'), [])
+    prepared = []
+    original = provenance.prepare
+    def track(text):
+        prepared.append(text)
+        return original(text)
+    monkeypatch.setattr(provenance, 'prepare', track)
+    async def check():
+        spans, gateway = daemon.daemon.spans, daemon.daemon.gateway
+        pending = spans.start('context.exposure', task_id=grant.task_id, input={'source_refs':['memory:late']})
+        one = spans.start('context.exposure', task_id=grant.task_id, input={})
+        spans.finish(one, output={'text':'source wrapper', 'payload':'Initial-Private-Value'}, origin='private')
+        gateway._sink_texts(grant.task_id)
+        before = len(prepared)
+        gateway._sink_texts(grant.task_id)
+        assert len(prepared) == before
+        spans.finish(pending, output={'text':'Late-Private-Value'}, origin='private')
+        private, _ = gateway._sink_texts(grant.task_id)
+        assert len(prepared) == before + 1
+        assert [value.folded for _, value in private] == ['late-private-value', 'initial-private-value']
+    daemon.run(check())

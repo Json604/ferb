@@ -14,6 +14,7 @@ summary = "Similarity search runs before FERB plans, giving it similar past task
 [D3]
 milestone = "F6"
 tests = ["tests/test_f6_chat.py", "tests/test_live_steering.py", "tests/test_steering_races.py"]
+note = "Native follow-up: genuine questions open once with amber attention; ordinary activity stays quiet. All roots/turns reconcile, and older snapshots cannot overwrite newer events. Native Swift regressions live in ferb-UI."
 summary = "Chat is never blocked by a loader"
 
 [D4]
@@ -324,7 +325,7 @@ summary = "Three trace levels built by code: story, steps, full/json, with token
 [P27]
 milestone = "F6"
 tests = ["tests/test_f6_context.py", "tests/test_prompt_contract.py", "tests/test_completion_reporting.py", "tests/test_concise_presentation.py"]
-note = "F4 pinned you/your; owner 2026-10-11 requested concise, relevant, natural replies. Shared prompts separate brief owner answers from complete evidence; pending questions lead without hiding conditions."
+note = "F4 pinned you/your; owner 2026-10-11 requested concise, relevant, natural replies. Shared prompts separate brief owner answers from complete evidence; pending questions lead without hiding conditions. Report audit requires primary evidence for live availability and truthful source coverage/scoring; native Markdown preserves readable tables and details."
 summary = "Rules for everything FERB says to the owner"
 
 [P28]
@@ -365,7 +366,8 @@ summary = "Origin labels on every record; consequential arguments matched agains
 
 [S4]
 milestone = "F5"
-tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py", "tests/test_delegated_conversations.py"]
+tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py", "tests/test_delegated_conversations.py", "tests/test_sinks.py", "tests/test_context_exposure.py", "tests/test_shell_network_approval.py"]
+note = "Owner 2026-10-11: public research passes; actual private URL payload checks exclude delivery metadata. Opaque shell networking asks once per exact command/cwd/identity/scopes/tree; external-source execution declares its source. Retain destructive floors, local executable pins and explicit No. This supersedes per-host shell prompts; no TLS payload inspection is claimed."
 summary = "Sink rule: the narrow cases where FERB must confirm"
 
 [S5]

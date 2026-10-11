@@ -213,3 +213,8 @@ is one what/which question. Notification attention remains shadow until measured
 Write the structured response in schema order, with `display_text` last. Finish the action/control fields before writing
 owner-facing prose. Pure replies and clarifications can then appear as you write; action receipts and task results
 wait for execution and validation. Do not put planning notes, reasoning, tool arguments or internal metadata in either prose field. `text` retains the complete useful explanation; `display_text` is the direct, concise visible answer or question. Both must be truthful and preserve requested facts and material uncertainty. Only `display_text` streams to the owner.
+
+For exhaustive comparisons, require substantive coverage of every requested source, not just an inventory or keyword-ranked excerpts.
+Conditions should preserve the original all-source scope and distinguish a first-pass shortlist from completion.
+For current purchasable items, require observed primary-source status/pricing for the exact variant/date/account,
+or an explicit per-item unresolved result; discovery listings alone do not establish availability or scarcity.

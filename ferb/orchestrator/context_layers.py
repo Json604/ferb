@@ -40,7 +40,7 @@ def ranked_memory_blocks(candidates: list[dict[str, Any]]) -> list[tuple[Any, se
     from ferb.core.context import ContextBlock
     return [(ContextBlock('Layer 4 — retrieved memory (data):\n' + item['text'], item['reference'],
                           priority=2 + len(candidates) - rank, origin=item['origin'],
-                          source_refs=tuple(item.get('source_refs', ()))), origin.split(item['origin']))
+                          source_refs=tuple(item.get('source_refs', ())), payload=item['text']), origin.split(item['origin']))
             for rank, item in enumerate(candidates)]
 
 
@@ -52,3 +52,15 @@ def recent_activity_refs(text: str) -> list[str]:
         return []
     refs = value.get('source_refs', []) if isinstance(value, dict) else []
     return [ref for ref in refs if isinstance(ref, str) and ref.startswith('trail:')]
+
+
+def recent_activity_payload(text: str) -> str:
+    """Extract event data from our recent-activity schema, retaining unknown legacy hook text conservatively."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(value, dict) or value.get('source') != 'trail.query' or not isinstance(value.get('apps'), list):
+        return text
+    return json.dumps([event['data'] for app in value['apps'] for event in app.get('events', [])
+                       if 'data' in event], ensure_ascii=False)

@@ -940,7 +940,8 @@ shutdown.
   - Another process can't read it: macOS returns no environment for another process through `KERN_PROCARGS2`, even
     unsandboxed; `ps` is setuid, so it can't start inside; `task_for_pid` fails.
 - **Asked before resolving.** Before resolving a name, the proxy asks `Gateway.destination_allowed(proc, host, port)`.
-  Task 3 answers yes for every host; Task 5 decides. A refusal is 403 and is recorded under `refused`.
+  Remote traffic requires a live process grant for an owner-approved exact command. A prior host No remains
+  final; local connections require executable-pinned permission. A refusal is 403 and recorded under `refused`.
 - **Connecting.** The proxy resolves names itself, because the sandbox has no DNS. It connects only to an address it
   checked, and refuses this Mac's own addresses: loopback, `0.0.0.0`, and any address an interface holds.
   - CONNECT tunnels any port as opaque bytes.
@@ -1032,6 +1033,25 @@ Residuals:
   authenticated proxy verifies listener and connected peer before forwarding application bytes, then records actual
   address, executable, count and bytes. Configured ports remain closed to direct shell connections. Unknown owner
   snapshots fail closed; script/plugin execution by the pinned binary and the snapshot/exec race remain residuals.
+
+**Owner clarification, 2026-10-11 (S4/D27/MP2).** Ordinary public browser navigation passes; literal loopback
+navigation is local (a prior explicit No still applies). URL transfer checks use actual private source values,
+including structured records and inherited private history/memory. Context producers record a typed source
+payload separately from presentation metadata; legacy context keeps its complete text conservatively. Prepared
+URL evidence is cached incrementally and refreshed for late results and changed file streams. Contiguous file
+chunks remain comparable when a value is encoded across reads. This is source matching, not semantic detection
+of every transformed private value; common words in real private bodies may still collide.
+
+`shell.run`/`shell.start` declare `network=true` when remote access is needed. The gateway asks before spawn and
+binds the answer to command, resolved cwd, identity, scopes and task tree. A code-owned grant follows the tracked
+process and children using its proxy credentials; it is not a global host permission. Its scope includes later
+input to that live process, so approving an interactive interpreter is broader than approving one fixed script.
+The proxy checks host refusals and local executable pins separately, including TLS SNI. A process exit removes
+its grant for new connections; already-open tunnels may drain. Background services must use a tracked long-lived
+process rather than a detached launcher. Changed command context asks again; P19 still blocks unknown-outcome
+retries. Encrypted application payloads are opaque. Declared `external_source` code execution requires concrete
+approval even without networking; deciding semantic origin remains a model responsibility, not complete code
+recognition of arbitrary externally derived programs. Payment, permanent-delete and account-security floors stay.
 
 **Confirmations** ([`policy/confirm.py`](ferb/policy/confirm.py),
 [`policy/destinations.py`](ferb/policy/destinations.py), D23 floor, D33, S4, SQ1, SQ6, W2; migration `0026`). Before a

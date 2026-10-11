@@ -111,6 +111,11 @@ def _labeled(value: Any) -> tuple[str, str]:
     return str(value or ""), origins_.external("unlabeled")
 
 
+def _context_payload(value: Any) -> str:
+    """Source hooks may supply a third, wrapper-free payload; older hooks retain their complete text."""
+    return str(value[2]) if isinstance(value, tuple) and len(value) > 2 else _labeled(value)[0]
+
+
 @dataclass
 class _Tree:
     id: str
@@ -643,13 +648,16 @@ class Supervisor(WorkerRuns):
         recent, ages, history_origins = self._recent(request_id, session.id, max_tokens=None)
         mem_text, mem_ages = self.recall_items(remembered)
         procedures = self.procedure_context(message) if self.memory_candidates is None else ''
-        activity, activity_origin = _labeled(self.relevant_context(message))
+        activity_source = self.relevant_context(message)
+        activity, activity_origin = _labeled(activity_source)
+        activity_payload = _context_payload(activity_source)
         activity_refs = self.relevant_source_refs(message)
         latest, latest_origin = self.recent_activity()
         if latest:
             activity = latest + ('\n' + activity if activity else '')
             activity_origin = origins_.join(origins_.split(activity_origin) | origins_.split(latest_origin))
-            from ferb.orchestrator.context_layers import recent_activity_refs
+            from ferb.orchestrator.context_layers import recent_activity_refs, recent_activity_payload
+            activity_payload = recent_activity_payload(latest) + "\n" + activity_payload
             activity_refs = sorted(set(activity_refs) | set(recent_activity_refs(latest)))
         env = self._env.get(request_id, {})
         # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
@@ -657,10 +665,10 @@ class Supervisor(WorkerRuns):
         sourced: list[tuple[ContextBlock, set[str]]] = [
             (ContextBlock('Layer 1 — stable device and capabilities:\n' + _env_text(env), "actions.search and current device facts", protected=True, cache=True),
              {origins_.PRIVATE}),
-            (ContextBlock('Layer 5 — conversation:\n' + recent, "chat.history", protected=True, cache=True, source_refs=tuple(env.get("history_source_refs", ()))), history_origins),
-            (ContextBlock('Layer 4 — relevant memory (data):\n' + mem_text + '\n' + wrap_untrusted(procedures), "memory.read", priority=2),
+            (ContextBlock('Layer 5 — conversation:\n' + recent, "chat.history", protected=True, cache=True, source_refs=tuple(env.get("history_source_refs", ())), payload=recent), history_origins),
+            (ContextBlock('Layer 4 — relevant memory (data):\n' + mem_text + '\n' + wrap_untrusted(procedures), "memory.read", priority=2, payload=mem_text + "\n" + procedures),
              {self.recall_origin(remembered)} | ({origins_.external('procedure')} if procedures else set())),
-            (ContextBlock('Layer 3 — recent activity (data):\n' + activity, "task.evidence query=context.source; memory.read; trail.query", priority=1, source_refs=tuple(activity_refs)),
+            (ContextBlock('Layer 3 — recent activity (data):\n' + activity, "task.evidence query=context.source; memory.read; trail.query", priority=1, source_refs=tuple(activity_refs), payload=activity_payload),
              origins_.split(activity_origin))]
         if self.memory_candidates is not None:
             from ferb.orchestrator.context_layers import ranked_memory_blocks
@@ -670,7 +678,7 @@ class Supervisor(WorkerRuns):
         candidates = self.continuity.candidates(session.id)
         if candidates:
             attempts, shown = self._attempts(candidates)
-            sourced.append((ContextBlock('Layer 6 — resumable task state:\n' + attempts, "chat.history include_tasks=true", protected=True, source_refs=tuple({ref for t in shown for ref in self.task_source_refs(t)})),
+            sourced.append((ContextBlock('Layer 6 — resumable task state:\n' + attempts, "chat.history include_tasks=true", protected=True, source_refs=tuple({ref for t in shown for ref in self.task_source_refs(t)}), payload=attempts),
                             {o for t in shown for o in self._task_line_origins(t)} | {origins_.INFERRED}))
         if repair:
             sourced.append((ContextBlock('Layer 6 — plan repair:\n' + load_prompt(self._approach() + "/repair.md") + "\n" +
@@ -678,7 +686,7 @@ class Supervisor(WorkerRuns):
         owner_active, last_event = self.signals()
         since, since_origins = await self.since_last_talk(request_id)
         sourced.append((ContextBlock('Layer 2 — situation:\n' + context.time_block(self.clock.now(), None, None, owner_active, last_event,
-                                                        ages=ages | mem_ages, since_last_talk=since), "chat.history", source_refs=tuple(self._env.get(request_id, {}).get("since_source_refs", ()))),
+                                                        ages=ages | mem_ages, since_last_talk=since), "chat.history", source_refs=tuple(self._env.get(request_id, {}).get("since_source_refs", ())), payload=since),
                         {origins_.FERB} | since_origins))          # FERB's clock, plus any task answers it quotes
         if env.get("live"):
             sourced.append((ContextBlock('Layer 2 — current device:\n' + env["live"], "current device facts"), {origins_.PRIVATE}))
@@ -947,7 +955,7 @@ class Supervisor(WorkerRuns):
         for exposure in self._env.get(request_id, {}).get('context_exposures', []):
             captured = self.spans.start('context.exposure', task_id=tree_id, parent_id=root_span.id,
                                        input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
-            self.spans.finish(captured, output={'text': exposure['text']}, origin=exposure['origin'])
+            self.spans.finish(captured, output={'text': exposure['text'], 'payload': exposure.get('payload', exposure['text'])}, origin=exposure['origin'])
         if tree.intake_receipts:
             receipt_span = self.spans.start("task.intake", task_id=tree_id, parent_id=root_span.id,
                                             input={"request_id": request_id, "layer": "chat"})
@@ -1525,14 +1533,16 @@ class Supervisor(WorkerRuns):
         spec = tree.spec
         request = self.state.requests.get(tree.worker.request_id)
         words = request.words
-        activity, recalled = _labeled(self.relevant_context(words)), self.recall(words)
+        activity_source = self.relevant_context(words)
+        activity, recalled = _labeled(activity_source), self.recall(words)
         if tree.step_context:             # worker gets its own step and handed evidence; broader context is pullable
             activity, recalled = ('', origins_.FERB), ''
         parts = [ContextBlock("Owner's complete original request (pasted sources remain marked as data):\n" +
                               (request.payload or words), "task.evidence kind=task", protected=True, cache=True),
                  ContextBlock(f"Task: {spec.goal}\nWorker type: {spec.worker_type}", "task specification", protected=True, cache=True),
                  dataclasses.replace(self._source_block(tree, "Layer 3 — relevant activity and actions", *activity,
-                                                               source_refs=tuple(self.relevant_source_refs(words)) if activity[0] else ()), priority=1),
+                                                               source_refs=tuple(self.relevant_source_refs(words)) if activity[0] else (),
+                                                               payload=_context_payload(activity_source) if activity[0] else ""), priority=1),
                  dataclasses.replace(self._source_block(tree, "Layer 4 — recalled memory", self.recall_items(recalled)[0],
                                     self.recall_origin(recalled)), priority=2),
                  ContextBlock(self.disturbance_context(tree.id), "task.evidence query=disturbance", protected=True)]
@@ -1590,16 +1600,16 @@ class Supervisor(WorkerRuns):
             if not block.origin or part != block.text:
                 continue
             record = {'text': block.text, 'origin': block.origin, 'source_refs': list(block.source_refs),
-                      'reference': block.reference}
+                      'reference': block.reference, 'payload': block.text if block.payload is None else block.payload}
             if tree is None:
                 self._env.setdefault(task.request_id, {}).setdefault('context_exposures', []).append(record)
                 continue
             span = self.spans.start('context.exposure', task_id=tree.id,
                                    input={'source_refs': record['source_refs'], 'reference': block.reference})
-            self.spans.finish(span, output={'text': block.text}, origin=block.origin)
+            self.spans.finish(span, output={'text': block.text, 'payload': record['payload']}, origin=block.origin)
 
     def _source_block(self, tree: _Tree, label: str, text: str, origin: str,
-                      source_refs: tuple[str, ...] = ()) -> ContextBlock:
+                      source_refs: tuple[str, ...] = (), *, payload: str | None = None) -> ContextBlock:
         """Store full auxiliary evidence before budgeting so an omitted block always has a concrete reader. `origin`
         is where the text came from (S3); task.evidence returns it with the stored text."""
         import hashlib
@@ -1611,7 +1621,8 @@ class Supervisor(WorkerRuns):
             self.spans.finish(span, output={"text": text}, origin=origin)
             tree.context_sources[key] = span.id
         reference = "task.evidence span_id=" + tree.context_sources.get(key, "")
-        return ContextBlock(label + ":\n" + text if text else "", reference, origin=origin, source_refs=source_refs)
+        return ContextBlock(label + ":\n" + text if text else "", reference, origin=origin, source_refs=source_refs,
+                            payload=text if payload is None else payload)
 
     async def route_question(self, task_id: str, question: str, options: list[str]) -> dict[str, Any]:
         tree = self._tree_of.get(task_id)

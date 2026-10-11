@@ -559,6 +559,7 @@ class Daemon:
         if self.shells is not None:                  # S4: the shell process's task and command, for a sink decision
             self.gateway.proc_task = self.shells.owner_of
             self.gateway.proc_command = self.shells.command_of
+            self.gateway.proc_network = self.shells.network_approved
         self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
@@ -2021,7 +2022,7 @@ class Daemon:
         return ("\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen "
                 "the page or guess tab ids): " + json.dumps(tabs)) if tabs else ""
 
-    def _relevant_context(self, words: str) -> tuple[str, str]:
+    def _relevant_context(self, words: str) -> tuple[str, str, str]:
         """Installed actions and worker types (FERB's own) and today's matching activity, with its origin (S3):
         recorded trail rows carry the trail labels; FERB's own observed actions are FERB's."""
         from ferb.act.catalog import search_actions
@@ -2035,7 +2036,8 @@ class Daemon:
         return ('\nRelevant installed actions: ' + json.dumps(actions) +
                 '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) +
                 '\nWorker types: ' + json.dumps(['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]) + '\n',
-                origin.join({origin.FERB} | labels))
+                origin.join({origin.FERB} | labels),
+                json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False))
 
     def _profile_state(self, p: Any) -> str:
         """connected / paired (FERB opens it) / installed, not paired / no extension."""

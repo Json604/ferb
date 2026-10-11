@@ -50,3 +50,17 @@ def test_the_prompt_carries_the_instruction(name: str, sentence: str) -> None:
 def test_the_old_monitoring_line_still_says_launching_is_not_completion() -> None:
     # The new paragraph sits after it; the existing instruction is kept, not replaced.
     assert "launching it is not completion." in _words("worker.md")
+
+
+@pytest.mark.parametrize("name, sentence", [
+    ("worker.md", "An aggregator's InStock metadata is a discovery lead, not proof that an official seller currently has tickets available."),
+    ("verifier.md", "A caveat at the end does not repair unsupported availability or price claims in individual rows."),
+    ("supervisor.md", "For exhaustive comparisons, require substantive coverage of every requested source, not just an inventory or keyword-ranked excerpts."),
+    ("worker.md", "Do not invent a numerical ranking score without a reproducible rubric and supporting observations."),
+    ("verifier.md", "Inventory counts, opening/closing excerpts and a shortlist do not establish that all source content was analyzed."),
+    ("worker.md", "For unclassified split boxes, pass their exact fresh snapshot IDs in split_elements, in code order, with element set to the first ID."),
+])
+def test_owner_report_audit_contract(name, sentence):
+    # Real owner traces: session review 726ab98b and ticket list 6eb4bffd.
+    # These guard executable instructions; live model adherence remains separately audited.
+    assert sentence in _words(name)

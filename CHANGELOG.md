@@ -12,6 +12,15 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Native approval attention opens the actual new question once with an amber trace, preserving keyboard focus;
+  routine replies stay quiet. Reconcile every local request/backend root, including interrupted unbound requests
+  and duplicate turns, and render supported Markdown tables, lists, links and code as native views.
+- Replace shell per-site confirmation with an explicit exact-command network grant; command, resolved directory,
+  identity, scopes and task tree define its scope. Existing local-server pins, explicit refusals, sandbox and
+  unknown-outcome retry protection remain. Routine URL checks distinguish payload from delivery metadata.
+- Audit the owner's session-selection and concert reports: sampled coverage was overstated, and aggregator stock
+  metadata did not establish current primary ticket availability. Tighten worker/checker evidence instructions;
+  report audit and live acceptance remain distinct from offline prompt-contract checks.
 - Fix recurring sealed-input refusal: verify the local helper with the correct inline signing requirement, and
   support exact ordered split OTP textboxes even without recognizable numeric attributes. Extension 0.15.2 /
   protocol 13 validates the complete binding, masks filled fields and retains partial-input uncertainty.
