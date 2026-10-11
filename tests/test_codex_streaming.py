@@ -376,3 +376,151 @@ async def test_worker_completion_validates_schema_and_closed_run_rejects_steerin
         await rt.continue_(run, 'new correction')
     assert not any(m['method'] == 'turn/steer' for m in proc.requests)
     assert rt.capabilities.continuation and rt.capabilities.live_messaging
+
+class AccountProcess(Process):
+    def __init__(self, error=None, hold=False):
+        super().__init__()
+        self.error, self.hold = error, hold
+        self.account_requested = asyncio.Event()
+        self.account_id = None
+        self.auth_path = None
+        self.refresh = None
+
+    def write(self, data):
+        message = json.loads(data)
+        if message['method'] != 'account/read':
+            return super().write(data)
+        self.requests.append(message)
+        self.account_id = message['id']
+        self.account_requested.set()
+        if not self.hold:
+            self.answer_account()
+
+    def answer_account(self):
+        if self.refresh is not None:
+            self.auth_path.write_text(self.refresh)
+        result = {'error': self.error} if self.error is not None else {'result': {'account': {'type': 'chatgpt'}}}
+        self.stdout.put({'id': self.account_id, **result})
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('marker,reason', [
+    ('refresh_token_reused', 'auth_required'), ('refresh_token_expired', 'auth_required'),
+    ('refresh_token_invalidated', 'auth_required'), ('invalid_grant', 'auth_required'),
+    ('upstream temporarily unavailable', 'account_unavailable'),
+])
+async def test_account_failure_is_actionable_without_provider_secrets_or_starting_turn(tmp_path, monkeypatch, marker, reason):
+    import ferb.runtimes.codex_stream as stream
+    proc = AccountProcess(error={'code': -32000, 'message': marker + ' secret-provider-payload',
+                                 'data': {'credential': 'secret-provider-payload'}})
+    with pytest.raises(stream.AccountError) as caught:
+        await begin(tmp_path, monkeypatch, proc)
+    assert caught.value.reason == reason and caught.value.code == -32000
+    assert 'secret-provider-payload' not in str(caught.value)
+    assert ('ferb setup --codex-login' in str(caught.value)) == (reason == 'auth_required')
+    assert not any(m['method'] in {'thread/start', 'turn/start'} for m in proc.requests)
+    assert proc.returncode is not None
+
+
+@pytest.mark.anyio
+async def test_refresh_published_before_next_start_and_again_after_turn(tmp_path, monkeypatch):
+    import ferb.runtimes.codex_stream as stream
+    rt = runtime(tmp_path)
+    source = tmp_path / 'codex-home' / 'auth.json'
+    first, second = AccountProcess(hold=True), AccountProcess()
+    first.refresh = '{"tokens":{"refresh_token":"first-refresh-fixture"}}'
+    processes, copies = [], []
+    async def spawn(*cmd, **kw):
+        proc = first if not processes else second
+        proc.auth_path = Path(kw['env']['CODEX_HOME']) / 'auth.json'
+        copies.append(proc.auth_path.read_text())
+        processes.append(proc)
+        return proc
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+    task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
+    request = ModelRequest('instructions', ('context',))
+    initial = asyncio.create_task(stream.start(rt, task, request))
+    await asyncio.wait_for(first.account_requested.wait(), 1)
+    first.answer_account()
+    run1 = await asyncio.wait_for(initial, 1)
+    run2 = await asyncio.wait_for(stream.start(rt, task, request), 1)
+    assert copies[1] == first.refresh and source.read_text() == first.refresh
+    assert first.returncode is None  # Refresh is shared while the first model turn remains active.
+    later = '{"tokens":{"refresh_token":"second-refresh-fixture"}}'
+    first.auth_path.write_text(later)
+    await stream.cancel(run1)
+    await stream.cancel(run2)
+    assert source.read_text() == later
+
+
+@pytest.mark.anyio
+async def test_stalled_account_start_does_not_block_another_start(tmp_path, monkeypatch):
+    import ferb.runtimes.codex_stream as stream
+    rt = runtime(tmp_path)
+    first, second = AccountProcess(hold=True), AccountProcess()
+    processes = []
+    async def spawn(*cmd, **kw):
+        proc = first if not processes else second
+        processes.append(proc)
+        return proc
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+    task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
+    request = ModelRequest('instructions', ('context',))
+    initial = asyncio.create_task(stream.start(rt, task, request))
+    await asyncio.wait_for(first.account_requested.wait(), 1)
+    run = await asyncio.wait_for(stream.start(rt, task, request), 1)
+    assert not initial.done() and first.returncode is None
+    initial.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await initial
+    await stream.cancel(run)
+    assert first.returncode is not None and second.returncode is not None
+
+@pytest.mark.anyio
+@pytest.mark.parametrize('account', [None, {}, {'type': 'apiKey'}])
+async def test_missing_or_wrong_account_explains_subscription_login(tmp_path, monkeypatch, account):
+    import ferb.runtimes.codex_stream as stream
+    class MissingAccount(Process):
+        def write(self, data):
+            message = json.loads(data)
+            if message['method'] == 'account/read':
+                self.requests.append(message)
+                self.stdout.put({'id': message['id'], 'result': {'account': account}})
+            else:
+                super().write(data)
+    proc = MissingAccount()
+    with pytest.raises(stream.AccountError, match='ferb setup --codex-login') as caught:
+        await begin(tmp_path, monkeypatch, proc)
+    assert caught.value.reason == 'auth_required'
+    assert not any(m['method'] in {'thread/start', 'turn/start'} for m in proc.requests)
+
+
+@pytest.mark.anyio
+async def test_early_refresh_does_not_overwrite_owner_login_or_adopt_its_baseline(tmp_path, monkeypatch):
+    import ferb.runtimes.codex_stream as stream
+    rt = runtime(tmp_path)
+    source = tmp_path / 'codex-home' / 'auth.json'
+    original = source.read_bytes()
+    proc = AccountProcess(hold=True)
+    proc.refresh = '{"tokens":{"refresh_token":"old-run-refresh-fixture"}}'
+    async def spawn(*cmd, **kw):
+        proc.auth_path = Path(kw['env']['CODEX_HOME']) / 'auth.json'
+        return proc
+    monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
+    task = Task('t', None, 'reply', 'd', Identity.OWNER, set(), 'mixed', 'r', [], None)
+    starting = asyncio.create_task(stream.start(rt, task, ModelRequest('instructions', ('context',))))
+    await asyncio.wait_for(proc.account_requested.wait(), 1)
+    owner_login = '{"tokens":{"refresh_token":"owner-new-login-fixture"}}'
+    source.write_text(owner_login)
+    proc.answer_account()
+    run = await asyncio.wait_for(starting, 1)
+    assert source.read_text() == owner_login and run.state['auth_original'] == original
+    await stream.cancel(run)
+    assert source.read_text() == owner_login
+
+
+def test_account_error_never_retains_a_non_numeric_provider_code():
+    from ferb.runtimes.codex_stream import _account_error
+    error = _account_error({'code': 'secret-provider-payload', 'message': 'unknown provider failure'})
+    assert error.reason == 'account_unavailable' and error.code is None
+    assert 'secret-provider-payload' not in str(error)

@@ -99,6 +99,36 @@ def test_earlier_turns_keep_full_owner_words_within_context_budget(daemon: Runni
 
 # ---------- plain reasons ----------
 
+def test_account_startup_failure_reaches_chat_without_starting_a_task(daemon, monkeypatch):
+    from ferb.core.errors import RuntimeUnavailable
+    from tests.conftest import FakeRuntime
+
+    install(daemon, [])
+    starts = []
+    message = "Codex account check failed (account_unavailable; RPC -32000). Please try again shortly."
+
+    async def unavailable(self, task, request, token):
+        starts.append(task.id)
+        raise RuntimeUnavailable(message)
+
+    monkeypatch.setattr(FakeRuntime, 'start', unavailable)
+    events = chat(daemon, 'call asmit')
+    reply = next(e['text'] for e in events if e['type'] == 'reply')
+    assert message in reply
+    assert 'Could you say that again' not in reply
+    assert len(starts) == 1
+
+    async def evidence():
+        failures = [e.data for e in daemon.daemon._journal().entries() if e.kind == 'chat.failed']
+        tasks = daemon.daemon.db.conn.execute('SELECT count(*) FROM tasks').fetchone()[0]
+        return failures, tasks
+
+    failures, tasks = daemon.run(evidence())
+    assert failures[-1]['why'] == 'ServiceError'
+    assert failures[-1]['detail'] == message
+    assert tasks == 0
+
+
 def test_a_service_failure_is_recorded_and_told_plainly(daemon: RunningDaemon) -> None:
     assert "You've hit your usage limit. Try again at 9:00" in service_problem("You've hit your usage limit. Try again at 9:00")
     assert "401 Unauthorized: token expired" in service_problem("401 Unauthorized: token expired")

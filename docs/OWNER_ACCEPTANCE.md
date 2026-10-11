@@ -1034,3 +1034,28 @@ processes. `ferb setup --update` succeeded; daemon PID 12882 reports installed/c
 all four macOS grants and no failed watchers. Chrome FERB/Brave Work reconnected with extension 0.15.2. Native
 app PID 13099 runs the newly staged/signed release binary; OS process checks confirmed the old app exited before
 bundle replacement. No task was interrupted. Owner interaction/appearance verdict remains pending.
+
+### Codex account-check failure — 2026-10-11
+
+Owner request `call asmit` (request `0d5d0b1119c64f7e91c3b908e088ec4d`) reached chat at
+17:09:12.872677 IST, then `chat.failed` at 17:09:31.398152 with `ProtocolError: Codex could not complete
+account/read`. No task row was created. The provider error had been discarded, so the historical cause cannot
+be established. Both the pre-fix and revised-code authentication-only probes succeeded against pinned Codex
+0.157.1; neither started a thread, model turn, call or other task action. Re-login was not required by those probes.
+
+The repair retains only fixed account error categories and numeric RPC codes, routes those failures through the
+existing service-error response, and offers the login command only for missing/wrong accounts or recognized
+invalid-refresh errors. Successful startup refreshes are published before model work instead of waiting for turn
+teardown. Source changes from a newer login remain protected. Startup checks stay independent; simultaneous or
+long-running refresh coordination remains a residual, not a proven cause or a claimed comprehensive fix.
+
+Focused streaming/isolation regressions passed (38); chat/service integration tests passed (11). Independent
+review found and removed an attempted shared startup lock that could block unrelated requests. Revised review
+had no Critical/Important findings. Core mypy and compilation passed. Whole offline validation and activation
+status are recorded below when complete. No owner live calling acceptance is claimed.
+
+Whole default offline suite: **2027 passed**, across six disjoint file shards (2 real-only cases deselected).
+Compilation, core mypy and `git diff --check` passed. The revised auth-only probe also passed with no model turn.
+Activation is deferred to preserve the still-running local report server (`p-08a32c98`, port 8766); no active task
+or approval remained. Daemon shutdown kills managed shell processes (`ferb/daemon/main.py`), so activating this
+change requires stopping that server. The owner's earlier keep-running instruction is retained.

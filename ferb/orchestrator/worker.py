@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from ferb.clock import context
 from ferb.core.context import ContextBlock, assemble_parts, count_tokens
+from ferb.core.errors import RuntimeUnavailable
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import check_final
 from ferb.core.interfaces import AgentRuntime
@@ -189,7 +190,10 @@ class WorkerRuns:
         request = ModelRequest(system, tuple(parts), cacheable)
         self.spans.update_input(parent_span, {"context": request.context, "system_prompt": system,
                                              "context_budget_tokens": self.context_budget_tokens})
-        run = await rt.start(task, request, token)
+        try:
+            run = await rt.start(task, request, token)
+        except RuntimeUnavailable as exc:
+            raise ServiceError(str(exc), rt.name) from None
         self._active[run.id] = (rt, run)
         if worker_id:
             self._worker_runs[worker_id] = (rt, run)

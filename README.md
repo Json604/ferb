@@ -216,7 +216,9 @@ Borrowed owner tabs stay open. Cleanup results and errors are recorded so the fi
 | `ferb regress [SET]` | Run a regression task set (default: the built-in smoke set) and print the verdict lines for you |
 
 Codex runs in FERB's own home and needs `ferb setup --codex-login` (there is no fallback to `~/.codex`); without it
-the chat says to run that command, and `ferb runtimes` shows Codex as not usable. `ferb runtimes use` still saves the
+the chat says to run that command, and `ferb runtimes` shows Codex as not usable. Account-check errors distinguish
+confirmed login failures from an unavailable account check; repeating a request cannot repair an invalid login.
+Refreshed credentials are shared after startup checks, before model work begins. `ferb runtimes use` still saves the
 choice for a runtime that is not usable yet and warns that the role will fail until it is.
 
 The Codex and Claude runtimes use your subscriptions. The Anthropic, OpenAI and Google API runtimes bill per token

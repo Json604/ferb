@@ -10,6 +10,10 @@ class FerbError(Exception):
     """Base class for FERB errors."""
 
 
+class RuntimeUnavailable(ValueError):
+    """Adapter startup failed; its message contains only safe, owner-facing diagnostics."""
+
+
 class Unsupported(FerbError):
     """A guarantee this component can't provide; it fails explicitly instead of approximating."""
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import tempfile
 from contextlib import suppress
@@ -16,7 +17,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
-from ferb.core.errors import Unsupported
+from ferb.core.errors import RuntimeUnavailable, Unsupported
 from ferb.core.structured import check_final
 from ferb.core.types import ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.tooltrace import tools_in
@@ -28,6 +29,27 @@ if TYPE_CHECKING:
 
 class ProtocolError(ValueError):
     pass
+
+
+class AccountError(ProtocolError, RuntimeUnavailable):
+    """Account startup failure containing only fixed categories and a numeric RPC code."""
+
+    def __init__(self, reason: str, code: int | None = None) -> None:
+        self.reason = 'auth_required' if reason == 'auth_required' else 'account_unavailable'
+        self.code = code if type(code) is int else None
+        detail = self.reason + (f', code {self.code}' if self.code is not None else '')
+        recovery = ('FERB needs its Codex subscription login. Run `ferb setup --codex-login`.'
+                    if self.reason == 'auth_required' else
+                    'Codex could not check the account. Try again shortly; if it persists, run `ferb doctor`.')
+        super().__init__(f'{recovery} ({detail})')
+
+
+def _account_error(error: Any) -> AccountError:
+    error = error if isinstance(error, dict) else {}
+    # Inspect provider contents only to choose a fixed category; never retain or emit them.
+    markers = r'(?<![a-z_])(?:refresh_token_(?:reused|expired|invalidated)|invalid_grant)(?![a-z_])'
+    reason = 'auth_required' if re.search(markers, json.dumps(error).lower()) else 'account_unavailable'
+    return AccountError(reason, error.get('code'))
 
 
 def _private_write(path: Path, data: bytes) -> None:
@@ -50,6 +72,7 @@ def _save_refresh(state: dict[str, Any]) -> None:
                 file.write(refreshed)
             if source.read_bytes() == state['auth_original']:
                 os.replace(name, source)
+                state['auth_original'] = refreshed
         finally:
             Path(name).unlink(missing_ok=True)
     except (OSError, ValueError):
@@ -79,7 +102,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
     from ferb.runtimes.codex_exec import CODEX_USER, codex_home, locked_catalog
     home = codex_home(runtime.ferb_home)
     if home is None:
-        raise Unsupported('FERB Codex subscription login missing: run `ferb setup --codex-login`')
+        raise AccountError('auth_required')
     temporary = tempfile.TemporaryDirectory(prefix='ferb-codex-run-')
     root = Path(temporary.name)
     isolated = root / 'codex'
@@ -98,26 +121,28 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
             token_file = root / 'run-token'
             _private_write(token_file, run_token.encode())
             state['token_file'] = token_file
-        state['auth_original'] = state['auth_source'].read_bytes()
-        _private_write(state['auth_copy'], state['auth_original'])
-        user_home = runtime.ferb_home / CODEX_USER
-        user_home.mkdir(mode=0o700, parents=True, exist_ok=True)
-        env = {k: v for k, v in os.environ.items() if k not in {
-            'OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'CODEX_ACCESS_TOKEN',
-            'CODEX_AUTHAPI_BASE_URL', 'CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL'}}
-        env.update(HOME=str(user_home), CODEX_HOME=str(isolated), RUST_LOG='trace')
-        state['proc'] = await asyncio.create_subprocess_exec(*_command(runtime, locked_catalog(runtime.ferb_home), token_file),
-            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            env=env, cwd=str(workdir), limit=64 * 1024 * 1024)
-        state['watcher'] = asyncio.create_task(_watch_catalog(runtime, run))
-        state['reader'] = asyncio.create_task(_dispatch(run))
         async with asyncio.timeout(runtime.timeout_s):
+            state['auth_original'] = state['auth_source'].read_bytes()
+            _private_write(state['auth_copy'], state['auth_original'])
+            user_home = runtime.ferb_home / CODEX_USER
+            user_home.mkdir(mode=0o700, parents=True, exist_ok=True)
+            env = {k: v for k, v in os.environ.items() if k not in {
+                'OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'CODEX_ACCESS_TOKEN',
+                'CODEX_AUTHAPI_BASE_URL', 'CODEX_AGENT_IDENTITY_AUTHAPI_BASE_URL'}}
+            env.update(HOME=str(user_home), CODEX_HOME=str(isolated), RUST_LOG='trace')
+            state['proc'] = await asyncio.create_subprocess_exec(*_command(runtime, locked_catalog(runtime.ferb_home), token_file),
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                env=env, cwd=str(workdir), limit=64 * 1024 * 1024)
+            state['watcher'] = asyncio.create_task(_watch_catalog(runtime, run))
+            state['reader'] = asyncio.create_task(_dispatch(run))
             await _rpc(run, 'initialize', {'clientInfo': {'name': 'ferb', 'title': 'FERB', 'version': '0.27'},
                                          'capabilities': {'experimentalApi': True}})
             await _write(run, {'method': 'initialized'})
             account = await _rpc(run, 'account/read', {'refreshToken': False})
-            if (account.get('account') or {}).get('type') != 'chatgpt':
-                raise ProtocolError('Codex runtime requires the FERB subscription login')
+            details = account.get('account')
+            if not isinstance(details, dict) or details.get('type') != 'chatgpt':
+                raise AccountError('auth_required')
+            _save_refresh(state)
             thread = await _rpc(run, 'thread/start', {'model': runtime.model, 'modelProvider': 'openai',
                 'cwd': str(workdir), 'approvalPolicy': 'never', 'sandbox': 'read-only',
                 'baseInstructions': request.system if runtime.mode == 'supervisor' else None,
@@ -225,6 +250,8 @@ async def _rpc(run: RunHandle, method: str, params: dict[str, Any]) -> dict[str,
         obj = await future
         result = obj.get('result')
         if 'error' in obj or not isinstance(result, dict):
+            if method == 'account/read':
+                raise _account_error(obj.get('error'))
             raise ProtocolError('Codex could not complete ' + method)
         return result
     finally:

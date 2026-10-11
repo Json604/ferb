@@ -12,6 +12,9 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Surface Codex account-check failures with safe diagnostics and relevant recovery instructions instead of the
+  generic request-repeat apology. Publish refreshed credentials before starting model work; preserve newer owner
+  logins and independent startup checks. No failed call or other task is automatically replayed.
 - Native approval attention opens the actual new question once with an amber trace, preserving keyboard focus;
   routine replies stay quiet. Reconcile every local request/backend root, including interrupted unbound requests
   and duplicate turns, and render supported Markdown tables, lists, links and code as native views.

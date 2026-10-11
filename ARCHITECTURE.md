@@ -107,10 +107,16 @@ direct OpenAI, Anthropic and Google supervisor calls assemble provider SSE event
 parsers. Provider errors, incomplete streams and transport cancellation cannot certify a draft. An emitted draft
 prevents an adapter from silently retrying and concatenating a second answer.
 
-The disposable Codex process copies only FERB's subscription auth, then saves refreshed credentials atomically
-only while the source still matches the starting snapshot. Changed source credentials win. As with independent
-Codex processes writing the shared auth file, this comparison is not a filesystem compare-and-swap: a separate
-worker refresh can race the final comparison/replacement. No auth bytes enter diagnostics or traces.
+The disposable Codex process copies only FERB's subscription auth and publishes refreshed credentials immediately
+after `account/read`, before model work begins. Publication advances the comparison baseline so a later refresh
+can also be saved at teardown; changed source credentials win. Startup checks remain independent so a stalled
+check cannot block other requests. Concurrently starting or already-running isolated processes can still refresh
+independently. As with
+independent Codex processes writing the shared auth file, the comparison is not a filesystem compare-and-swap:
+a separate process can race the final comparison/replacement. No auth bytes enter diagnostics or traces.
+Account-check failures retain only fixed error categories and numeric RPC codes, and reach chat as model-service
+errors. Confirmed missing/invalid login points to `ferb setup --codex-login`; an unknown failure does not claim
+expired credentials. No task or model turn is replayed by this handling.
 
 Owner corrections route through `orchestrator/steering.py` to the active task tree. Chat intake is serialized until
 each message is registered, while workers continue independently. `steer` (and `continue` on an active task)
