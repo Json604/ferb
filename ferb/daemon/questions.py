@@ -22,6 +22,7 @@ class Approval:
     options: tuple[str, ...] = ()
     choice: str | None = None
     answer: str | None = None
+    display_text: str = ""
 
 
 class Approvals:

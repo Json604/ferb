@@ -1310,11 +1310,25 @@ class Router(_TabDriver):
             del value
 
     async def owner_secret(self, el: ElementRef, ctx: ToolContext, *, handle: str | None = None,
-                           remember: str | None = None) -> ActionResult:
+                           remember: str | None = None, split_elements: list[str] | None = None) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
         self.owned_by(el.tab.tab_id, ctx.task_id)
         if info.role not in {"textbox", "searchbox", "combobox"} and not info.input_type:
             raise Refused("select an exact text field from a fresh snapshot")
+        refs = [el]
+        locals_: list[int] | None = None
+        if split_elements is not None:
+            if len(split_elements) < 2 or len(set(split_elements)) != len(split_elements) or split_elements[0] != el.element_id:
+                raise Refused("select every distinct split-code textbox in order, with element first")
+            refs = [self.element_ref(el.tab, ident) for ident in split_elements]
+            locals_ = []
+            for ref in refs:
+                other, other_frame, other_snap, other_local, field = self._resolve(ref)
+                if other is not t or (other_frame, other_snap) != (frame, snap):
+                    raise Refused("split-code fields must share one tab, frame and snapshot")
+                if field.role != "textbox" or field.input_type not in {None, "", "text", "tel", "number"}:
+                    raise Refused("split-code fields must all be textboxes, not passwords or other controls")
+                locals_.append(other_local)
         ask = getattr(self, "ask_secret", None)
         if ask is None:
             raise Refused("hidden secret input is unavailable")
@@ -1326,14 +1340,16 @@ class Router(_TabDriver):
         if not value:
             return ActionResult(False, "secret input declined")
         try:
-            self._resolve(el)
+            for ref in refs:
+                self._resolve(ref)
             self.add_secret_value(value)
             key = self.hub.pairings.key(t.bridge.binding.install_id)
             if key is None:
                 raise Refused("the browser is no longer paired")
             cid = ctx.intent_id or "f-" + secrets.token_hex(8)
             result = await t.bridge.call("fill", {"tab_id": t.chrome_id, "frame_id": frame, "snap": snap,
-                "el": local, "sealed": self.seal_value(seal_key(key), value, cid, origin), "origin": origin}, timeout=15, cid=cid)
+                "el": local, "sealed": self.seal_value(seal_key(key), value, cid, origin), "origin": origin,
+                **({"split_els": locals_} if locals_ is not None else {})}, timeout=15, cid=cid)
             return ActionResult(bool(result.get("ok")), str(result.get("detail", "")))
         finally:
             self.release_secret(value)

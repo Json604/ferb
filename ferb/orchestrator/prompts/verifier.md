@@ -104,3 +104,8 @@ the requested substantive answer, material gaps, the actual account/source when 
 when the owner requested a particular agent or person. Do not demand an evidence dump in the visible answer.
 Write each evidence/how field as a direct finding or practical way to check it; keep distinct facts and exact
 supporting references, without repeating the whole condition or narrating the inspection.
+
+The concise owner display is separately generated and will be shown first. Judge it alongside the complete
+worker report under the same final report condition. It must not hide a material uncertainty, omitted result,
+wrong account/source, delegate substitution or missing requested substantive content. Details may contain
+explanations and routine evidence; the concise display must stand alone as a truthful answer.

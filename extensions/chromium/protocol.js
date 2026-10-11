@@ -1,7 +1,7 @@
 // Owns protocol versions, sealing and allowed CDP mechanics; must not interpret task or page meaning.
 // FERB extension protocol , mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 12;
+const FERB_PROTOCOL = 13;
 const FERB_HOST = "com.ferb.native_host";
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):

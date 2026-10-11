@@ -59,7 +59,7 @@ summary = "The clipboard is recorded through the same code redaction"
 
 [D12]
 milestone = "F5"
-tests = ["tests/test_owner_secrets.py", "tests/test_split_code.py"]
+tests = ["tests/test_owner_secrets.py", "tests/test_split_code.py", "tests/test_secret_helper.py", "tests/test_owner_login.py"]
 summary = "Secrets are entered through a hidden secure input"
 
 [D13]
@@ -323,7 +323,7 @@ summary = "Three trace levels built by code: story, steps, full/json, with token
 
 [P27]
 milestone = "F6"
-tests = ["tests/test_f6_context.py", "tests/test_prompt_contract.py", "tests/test_completion_reporting.py"]
+tests = ["tests/test_f6_context.py", "tests/test_prompt_contract.py", "tests/test_completion_reporting.py", "tests/test_concise_presentation.py"]
 note = "F4 pinned you/your; owner 2026-10-11 requested concise, relevant, natural replies. Shared prompts separate brief owner answers from complete evidence; pending questions lead without hiding conditions."
 summary = "Rules for everything FERB says to the owner"
 

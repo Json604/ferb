@@ -1493,7 +1493,7 @@ class Daemon:
                              "(?, ?, ?, ?, ?, ?)", (ev["task_id"], self.clock.now().isoformat(), ev.get("status", ""),
                                                     str(ev.get("goal", "")), answer, int(shown)))
         if not shown and ev.get("status") != "cancelled":
-            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", answer)
+            await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", str(ev.get("display_text") or answer))
         self._publish('task.result', {**ev, 'shown': shown})
 
     def _approval_notice(self, data: dict[str, Any]) -> None:
@@ -1551,7 +1551,7 @@ class Daemon:
         pending = [{"approval_id": ap.id, "capability": ap.capability, "kind": ap.kind, "reason": ap.reason,
                     "task_id": next(iter(request_trees[ap.request_id]))
                         if len(request_trees.get(ap.request_id, ())) == 1 else None,
-                    "options": list(ap.options)} for ap in approvals]
+                    "options": list(ap.options), **({"display_text": ap.display_text} if ap.display_text else {})} for ap in approvals]
         if persona.get('approval'):
             pending = [persona['approval'] if p['approval_id'] == persona['approval']['approval_id'] else p
                        for p in pending]
@@ -1561,6 +1561,7 @@ class Daemon:
             recorded = json.loads(row['outcome_json'] or '{}')
             results.append({key: row[key] for key in ('task_id', 'status', 'goal', 'answer')} |
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
+                            'display_text': recorded.get('display_text') or row['answer'],
                             'verification': recorded.get('verification', [])})
         return {"results": results, "running": running, "approvals": self.redact(pending),
                 "persona": {'state': persona['state'], **({'error': persona['error']} if persona.get('error') else {})},

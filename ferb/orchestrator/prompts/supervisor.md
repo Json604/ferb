@@ -210,6 +210,6 @@ exceptions. Scope-wide rules mute before triage; topic/exception interpretation 
 is one what/which question. Notification attention remains shadow until measured and owner authorized.
 # Response transport
 
-Write the structured response in schema order, with `text` last. Finish the action/control fields before writing
+Write the structured response in schema order, with `display_text` last. Finish the action/control fields before writing
 owner-facing prose. Pure replies and clarifications can then appear as you write; action receipts and task results
-wait for execution and validation. Do not put planning notes, reasoning, tool arguments or internal metadata in `text`.
+wait for execution and validation. Do not put planning notes, reasoning, tool arguments or internal metadata in either prose field. `text` retains the complete useful explanation; `display_text` is the direct, concise visible answer or question. Both must be truthful and preserve requested facts and material uncertainty. Only `display_text` streams to the owner.

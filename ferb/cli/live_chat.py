@@ -62,7 +62,7 @@ class LiveChat(Chat):
                         self.running.pop(data['task_id'], None)
                         own_stream = data['task_id'] in self._streaming_tasks
                     if not own_stream:
-                        self.say('ferb> ' + str(data.get('answer', '')))
+                        self.say('ferb> ' + str((None if self.verbose else data.get('display_text')) or data.get('answer', '')))
                 elif topic == 'attention.notice':
                     self.say('ferb> ' + str(data.get('text', '')))
                     self.call('attention.ack', {'id': data['id']})
@@ -212,7 +212,7 @@ class LiveChat(Chat):
                         self._show_draft(ticket, '')
                     continue
                 if kind in ('reply', 'clarify'):
-                    canonical = (kind, str(event.get('text') or ''))
+                    canonical = (kind, str((None if self.verbose else event.get('display_text')) or event.get('text') or ''))
                     if canonical == confirmed_reply:
                         continue
                     confirmed_reply = canonical if draft.text else None

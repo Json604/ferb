@@ -12,7 +12,7 @@ def request(body: dict, home: Path | None = None) -> dict:
     binary, requirement = root/'bin'/'ferb-secrets', root/'bin'/'ferb-secrets.requirement'
     if not binary.is_file() or not requirement.is_file():
         raise Refused('the signed secret helper is unavailable; owner setup is required')
-    checked = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '-R', requirement.read_text().strip(), str(binary)],
+    checked = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '-R=' + requirement.read_text().strip(), str(binary)],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if checked.returncode:
         raise Refused('the secret helper signature does not match the installed identity')

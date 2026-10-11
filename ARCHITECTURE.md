@@ -80,22 +80,21 @@ optional blocks with a fetch reference. A protected overflow is explicit instead
 runtime context is recorded. Provider context/output capacity remains a provider constraint; a refusal is not a
 truncated success. Brevity instructions apply to status reports, never requested artifacts.
 
-The shared `interaction.md` prompt defines concise, natural owner communication for all orchestrator roles:
-answer/result first, actionable facts and material caveats, no repeated goal or routine process narrative. Workers
-write their compact `answer` separately from the complete `summary`/`evidence`/`input_notes`; the verifier sees both
-and must not demand routine tool narration in the visible answer. Requested substantive answers and artifacts keep
-their required depth. There is no output word cap, string truncation, separate rewrite call or blanket runtime
-verbosity change. `_report` puts an outstanding owner question first while retaining every condition, evidence
-detail, uncertainty, checking instruction and artifact.
+The shared `interaction.md` prompt defines direct, natural owner communication. Structured supervisor, worker,
+recovery-dispatch and ordinary-question outputs provide `display_text` separately from the complete answer/report.
+This is a same-generation presentation layer, not truncation or an extra rewriting request. The task verifier judges
+both the full answer and proposed display under the report condition; verified success uses its checked snapshot.
+Recovery displays retain code-selected incomplete/unconfirmed status. Original answers, condition findings, evidence
+and artifacts remain available in Details and task inspection. Missing presentation fields fall back to the original
+for historical/older output. Consequential approvals and secret prompts keep their full concrete scope.
 
 Conversational text streams through `RuntimeEvent.text_delta`, `WorkerRuns._run`'s planner-only callback and
-`orchestrator/reply_stream.py`. The incremental JSON reader requires every non-text supervisor field first and
-permits only reply/clarify with no pending action/control payload. `text` is last in the schema and prompt.
-`Redactor.stream()` holds incomplete secret patterns across chunks; the D33 line guard withholds ambiguous line
-prefixes before marking forged FERB labels. A queue delivers `reply_delta` to the existing chat socket while the
-model is still running. Invalid/cancelled drafts emit `reply_abort`; complete schema validation and the canonical
-reply remain authoritative. Repairs and action-bearing turns stay buffered; worker/checker outputs never publish
-through this callback. See `docs/RPC.md` for client replacement/interruption semantics.
+`orchestrator/reply_stream.py`. The incremental JSON reader buffers full `text` and requires every action/control
+field before streaming the last `display_text` field of a pure reply/clarify. `Redactor.stream()` holds incomplete
+secret patterns across chunks; the D33 line guard withholds ambiguous line prefixes before marking forged FERB
+labels. Invalid/cancelled drafts emit `reply_abort`; complete schema validation and the canonical reply remain
+authoritative. Action-bearing turns stay buffered through execution/verification. `docs/RPC.md` describes client
+replacement/interruption semantics. Native history retains both display and full answer without recording secrets.
 
 Codex schema-bearing supervisor turns and tool workers use the pinned app-server in a disposable
 configuration home and ephemeral thread. Supervisor replies use its final-answer delta protocol; worker
@@ -260,13 +259,25 @@ The model selects from profile candidates; display names, email hints and direct
 No last-used/default-owner-account resolver or first-tab account extractor chooses for it. FERB’s own profile remains
 a stated approach preference for tasks that call for it, not permission to replace an explicitly requested source.
 
-Extension **0.15.1 / protocol 12** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
+Extension **0.15.2 / protocol 13** uses native messaging, paired sessions and per-tab CDP. Task tabs are inactive in an existing FERB window or an explicitly selected window. If none is selected/owned,
 open returns all window candidates without creating anything. New-window creation requires explicit foreground
 permission: macOS can switch Spaces before minimized/unfocused creation finishes. Borrowed tabs retain ownership. Exact tab/frame/generation references avoid stale-target reuse.
 Local uploads use `DOM.setFileInputFiles` on the identified input, including supported iframe/OOPIF routes. Canonical
 path, size, modified time and SHA-256 receipts tie the chosen local bytes to the selected files. Unknown/unsupported
 routes return structured facts; no Google Drive replacement is performed. Remote attachment identity still needs
 model inspection and final observed content evidence.
+
+Sealed `browser.secret` accepts optional ordered `split_elements` from a fresh snapshot when automatic OTP
+classification cannot recognize a widget. Python binds distinct textbox IDs to one tab/frame/snapshot before the
+hidden prompt and rechecks them afterward. The extension validates origin, exact connected/editable fields and
+code length before writing and preserves unknown outcomes if the page mutates during input. After explicit
+split input, editable values/text/labels remain masked for that document across node replacement, with AX merge
+preserving the masked labels. This capture state does not change ordinary field action classification, so unrelated
+search inputs remain editable. Screenshot and recording paths check sensitive/document state before and after capture. No site-name heuristic or broader automatic OTP classification is introduced.
+The locally signed helper is verified with codesign's inline requirement syntax (`-R=`), retaining fail-closed
+signature checks. Protocol 13 prevents an older extension silently ignoring explicit split targets. The background fill callback also
+requires the current page helper’s explicit split-fill capability before writing, so a stale isolated helper refuses
+without falling back to filling only the first field.
 
 The browser reads FERB's copy, never the original (rule 17, MP2; F4 live fixes,
 [`uploads.py`](ferb/act/browser/uploads.py)). macOS asks the owner, in front of their work, when a browser reads a

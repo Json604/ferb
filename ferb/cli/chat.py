@@ -95,7 +95,7 @@ OUTCOME = {"done": "done ✓", "done_unverified": "done — not confirmed", "fai
 def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
     t = ev.get("type")
     if t in ("reply", "clarify"):
-        return f"ferb> {ev['text']}"
+        return f"ferb> {ev['text'] if verbose else ev.get('display_text') or ev['text']}"
     if t == "memory":
         return f"   ✎ {ev['text']}"
     if t == "timer":
@@ -119,7 +119,7 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
     if t == "outcome":
         answer = ev.get("answer") or ev.get("summary", "")
         if not verbose:
-            return f"ferb> {answer}"
+            return f"ferb> {ev.get('display_text') or answer}"
         arts = f"\n      files: {', '.join(ev['artifacts'])}" if ev.get("artifacts") else ""
         return f"ferb: {OUTCOME.get(ev['status'], ev['status'])} — {ev['summary']}{arts}\nferb> {answer}"
     if t == "error":
@@ -222,9 +222,10 @@ class ReplyDraft:
 
 class PlainReply:
     """Piped output cannot erase a draft; explicitly confirm it or show the canonical correction."""
-    def __init__(self, write: Callable[[str], None], speak: Callable[[str], None]) -> None:
+    def __init__(self, write: Callable[[str], None], speak: Callable[[str], None], verbose: bool = False) -> None:
         self.draft = ReplyDraft()
         self.write, self.speak = write, speak
+        self.verbose = verbose
         self.line_open = False
         self.started = False
         self.confirmed_reply: tuple[str, str] | None = None
@@ -244,7 +245,7 @@ class PlainReply:
                 self.interrupt(str(event.get("reason") or "The response was not confirmed."))
             return True
         if kind in FINAL:
-            canonical = (str(kind), printable(str(event.get("text") or "")))
+            canonical = (str(kind), printable(str((None if self.verbose else event.get("display_text")) or event.get("text") or "")))
             if kind in ("reply", "clarify") and canonical == self.confirmed_reply:
                 return True
             self.confirmed_reply = None
@@ -350,7 +351,7 @@ class Chat:
                 raise
             return
         for r in st.get("results", []):
-            self.say(f"ferb> (while you were away) {r['answer']}")
+            self.say(f"ferb> (while you were away) {r['answer'] if self.verbose else r.get('display_text') or r['answer']}")
         for r in st.get("running", []):
             self.say(f"ferb> Still working on: {r['goal']}")
         digest = st.get('memory_digest')
@@ -373,7 +374,7 @@ class Chat:
         tasks: list[str] = []
         self.speaker.stop()                                   # a new message cuts off what FERB was saying
         spin = self.spinner
-        reply = PlainReply(self.write, self.speaker.say)
+        reply = PlainReply(self.write, self.speaker.say, self.verbose)
         spin.begin()
         spin.start("thinking")
         try:

@@ -12,6 +12,15 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Fix recurring sealed-input refusal: verify the local helper with the correct inline signing requirement, and
+  support exact ordered split OTP textboxes even without recognizable numeric attributes. Extension 0.15.2 /
+  protocol 13 validates the complete binding, masks filled fields and retains partial-input uncertainty.
+- Add same-generation concise `display_text` for replies, questions and task reports; keep full original details.
+  Stream the concise field, verify it alongside the task answer, and keep consequential approval scope intact.
+- Native follow-ups: standard paste/edit commands, no automatic panel reopening on background answers, and a Tasks
+  view with individually scoped Stop, activity, results/artifacts and full-record inspection. These changes and
+  direct steering were activated after the owner’s tasks completed; no running task was interrupted.
+
 - Inject owner corrections into active workers without stopping/replacing the task. Codex workers now use isolated
   app-server steering; Claude and direct APIs retain the same run and apply queued updates before accepting a
   final answer. Preserve update order, durable context, completed work and existing permission boundaries.
@@ -31,7 +40,7 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 - Owner-requested reply style: short, natural, result-first everyday answers, with detailed evidence kept in the
   separate report. Planner condition phrases and checker findings avoid boilerplate; substantive deliverables,
   uncertainty and concrete confirmation scope remain complete. Pending questions precede the remaining-work list.
-  No truncation, output cap, extra model call or external skill dependency.
+  The later presentation layer adds a separate concise field in the same generation, with no truncation or output cap.
 - Owner-reported update fix: passive software inspection no longer invokes `sfltool dumpbtm`, which triggered
   repeated administrator dialogs. Its background-task inventory is explicitly unavailable; other software facts
   remain. Updates recognize already-granted macOS permissions instead of reporting an obsolete setup marker as

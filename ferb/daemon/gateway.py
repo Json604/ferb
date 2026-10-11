@@ -1594,6 +1594,7 @@ class Gateway:
         """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits
         for the answer. A scheduled run (nobody at chat) is declined at once."""
         question = str(getattr(args, "question"))
+        display_text = ""
         options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
         retry = str(getattr(args, "retry_action", "") or "").strip()
         allow = str(getattr(args, "allow_destination", "") or "").strip()
@@ -1625,6 +1626,7 @@ class Gateway:
             if not decision['ask_owner']:
                 return {'answer': decision['answer'], 'answered_by': 'orchestrator'}
             question = decision['question'] or question
+            display_text = str(decision.get('display_text', ''))
         given_options = options
         if not retry:                                # D33: only FERB's own checks read as FERB's; a task's is labelled
             question = confirm.task_question(printable(question))
@@ -1642,8 +1644,10 @@ class Gateway:
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=question, effect="navigate")
         ap = self.state.approvals.question(ask, question, options)
+        ap.display_text = confirm.task_question(printable(self.redact(display_text))) if display_text.strip() else ""
         self.publish("approval.requested", {"approval_id": ap.id, "capability": OWNER_ASK, "kind": "owner_question",
-                                            "reason": question, "options": options, "task_id": grant.task_id})
+                                            "reason": question, "options": options, "task_id": grant.task_id,
+                                            **({"display_text": ap.display_text} if ap.display_text else {})})
         self.observer.tool_call(grant, done=False)
         try:
             answer = await self._wait_answer(grant, ap.id)

@@ -561,19 +561,22 @@ class BrowserLoginCode(_Base):
 class BrowserSecret(BrowserLoginCode):
     verb = "secret"
     blurb = ("Fill an exact field from hidden owner input or an owner-saved Keychain handle. Any secret type, "
-             "including recognized numeric split OTP boxes. Use for a known exact field when login_code cannot "
-             "classify it. The model never receives the value. remember proposes a handle; the "
+             "including split OTP boxes. If login_code cannot classify visible split boxes, pass their exact "
+             "snapshot IDs in split_elements, in code order, with element set to the first ID. This needs no "
+             "numeric or maxlength attributes. The model never receives the value. remember proposes a handle; the "
              "hidden owner prompt explicitly asks to save it for this HTTPS origin.")
 
     class Input(_Tab):
         element: str
         secret: str | None = None
         remember: str | None = None
+        split_elements: list[str] | None = Field(default=None, description="All exact split-code textbox IDs in code order, including element first; omit for a single field")
 
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         tab = self.driver.owned_by(args.tab, ctx.task_id)
         ref = self.driver.element_ref(tab, args.element)
-        r = await self.driver.owner_secret(ref, ctx, handle=args.secret, remember=args.remember)
+        r = await self.driver.owner_secret(ref, ctx, handle=args.secret, remember=args.remember,
+                                          split_elements=getattr(args, "split_elements"))
         return ToolResult({"ok": r.ok, "detail": r.detail, "handle": args.remember or args.secret}, is_error=not r.ok)
 
 

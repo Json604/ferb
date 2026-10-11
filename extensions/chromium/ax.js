@@ -51,7 +51,7 @@ async function accessibilitySnapshot(tabId, gen, frames) {
         const {frame, element} = bound;
         byCdpFrame.set(frameId, frame);
         element.role = role;
-        if (n.name && n.name.value) element.label = String(n.name.value).replace(/\s+/g, " ");
+        if (!element.capture_masked && n.name && n.name.value) element.label = String(n.name.value).replace(/\s+/g, " ");
         // Never copy AX values: password and OTP metadata lives in the DOM, including autocomplete/name/type.
         element.ax = true;
         const list = ordered.get(frame) || [];

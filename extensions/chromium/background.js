@@ -1317,10 +1317,17 @@ const commands = {
   // jpeg, and split into parts when one message would come near the 1 MB native-messaging line.
   async screenshot({ tab_id, format, quality, snap }) {
     await attach(tab_id);
+    const st = tabState(tab_id);
+    st.shot = null; st.visual = null;
+    const check = async () => {
+      const frames = await recordingState(tab_id);
+      if (frames.some(f => f.secret || !f.complete)) throw new Error('screenshot sensitive field or incomplete inventory');
+      return JSON.stringify(frames.map(f => [f.frameId,f.documentId]));
+    };
+    const documentBefore = await check();
     const before = snap == null ? null : JSON.stringify(await visualStates(tab_id));
     const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: format || "jpeg", quality: quality || 70 });
-    const st = tabState(tab_id);
-    st.visual = null;
+    if (documentBefore !== await check()) throw new Error('screenshot document changed during capture');
     if (before !== null) {
       if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
       st.visual = {at: Date.now(), snap, states: before, points: new Map()};
@@ -1364,15 +1371,22 @@ const commands = {
   async frame_origin({ tab_id, frame_id }) {
     return { origin: await inFrame(tab_id, frame_id, () => window.__ferb.origin(), []) };
   },
-  // FERB identity only (the daemon never sends it to owner profiles). The value is opened here, for this command id
+  // Sealed owner/FERB input. The value is opened here, for this command id
   // and origin only, handed to that frame's isolated world, and never posted back or logged.
-  async fill({ tab_id, frame_id, snap, el, sealed, origin, code_only }, id) {
+  async fill({ tab_id, frame_id, snap, el, sealed, origin, code_only, split_els }, id) {
     const st = await install();
     if (!st.key) throw new Error("not paired");
     let value;
     try { value = await unseal(st.key, sealed, id, origin); }
     catch (_) { return { ok: false, detail: "seal_refused" }; }            // another command or origin: nothing filled
-    const r = await inFrame(tab_id, frame_id, (g, i, o, v, c) => window.__ferb.fill(g, i, o, v, c), [snap, el, origin, value, code_only === true]);
+    const r = await inFrame(tab_id, frame_id, (g, i, o, v, c, targets) => {
+      // An already-open page can still hold the previous isolated helper after an extension update.
+      // Never let that helper ignore the group argument and write the full code into the first field.
+      if (targets !== null && window.__ferb.supportsSplitSecretFill !== true)
+        return {ok:false, detail:'split_fill_helper_update_required'};
+      return window.__ferb.fill(g, i, o, v, c, targets);
+    },
+      [snap, el, origin, value, code_only === true, split_els ?? null]);
     value = null;
     // Renderer input events can submit/reset/rebuild the form. Once input began, an unconfirmed final value
     // cannot become a known failure: onCommand persists unknown and the daemon's P19 ledger blocks blind retry.

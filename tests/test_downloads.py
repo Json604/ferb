@@ -290,7 +290,7 @@ def test_protocol_and_extension_versions_move_together() -> None:
     manifest = json.loads((EXT / "manifest.json").read_text())
     js = subprocess.run([_node(), "-e", f"console.log(require({json.dumps(str(EXT / 'protocol.js'))}).FERB_PROTOCOL)"],
                         capture_output=True, text=True, timeout=20).stdout.strip()
-    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (12, 12, "0.15.1", "0.15.1")
+    assert (PROTOCOL_VERSION, int(js), MIN_EXTENSION_VERSION, manifest["version"]) == (13, 13, "0.15.2", "0.15.2")
     assert "downloads" not in manifest["permissions"]            # the debugger's Fetch domain needs no new permission
 
 

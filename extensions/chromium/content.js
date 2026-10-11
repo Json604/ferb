@@ -13,6 +13,11 @@
   const SKIP_TEXT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "HEAD", "TITLE"]);
   const SECRET_NAME = /otp|one.?time|2fa|totp|mfa|passcode|verification.?code|security.?code|\bpin\b/i;
   const SECRET_PARAM = /token|key|code|secret|session|auth|sig|password|pwd|otp|ticket|nonce|state/i;
+  const sealedFields = new WeakSet(); // Exact caller-selected fields remain masked after a sealed fill.
+  // Unclassified split widgets may replace every node while retaining individual secret characters.
+  // Without stable bindings, mask captured editable values for this document until navigation.
+  // This is capture protection only: it must not prohibit typing into unrelated search/form inputs.
+  let sealedSplitDocument = false;
   let els = new Map();                 // local id -> WeakRef(element), for the latest snapshot only
   let containers = new Map();          // container id -> WeakRef(scroller element), for the latest snapshot only
   let snapGen = 0;
@@ -115,17 +120,37 @@
     return "generic";
   }
 
+  function maskedEditable(el) {
+    return sealedSplitDocument && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+  }
+
+  function captureText(el) {
+    if (!el) return "";
+    if (!sealedSplitDocument) return el.innerText || el.textContent || "";
+    if (maskedEditable(el)) return "";
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+      acceptNode: n => {
+        const p = n.parentElement;
+        return !p || maskedEditable(p) || SKIP_TEXT.has(p.tagName) ||
+          p.checkVisibility && !p.checkVisibility({visibilityProperty:true}) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const text = []; let n;
+    while ((n = walker.nextNode())) text.push(n.data);
+    return text.join(" ");
+  }
+
   function label(el) {
     let s = el.getAttribute("aria-label");
     if (!s && el.getAttribute("aria-labelledby"))
       s = el.getAttribute("aria-labelledby").split(/\s+/).map((id) => {
         const n = (el.getRootNode().getElementById ? el.getRootNode() : document).getElementById(id);
-        return n ? n.textContent : ""; }).join(" ");
-    if (!s && el.labels && el.labels.length) s = Array.from(el.labels).map((l) => l.textContent).join(" ");
+        return n ? (sealedSplitDocument ? captureText(n) : n.textContent) : ""; }).join(" ");
+    if (!s && el.labels && el.labels.length) s = Array.from(el.labels).map((l) => sealedSplitDocument ? captureText(l) : l.textContent).join(" ");
     if (!s) s = el.getAttribute("placeholder") || el.getAttribute("title");
     if (!s && el.tagName === "INPUT" && ["button", "submit", "reset"].includes(el.type)) s = el.value;
     if (!s) { const img = el.querySelector && el.querySelector("img[alt]"); if (img) s = img.alt; }
-    if (!s) s = el.innerText;
+    if (!s) s = captureText(el);
     return labelText(String(s || ""));
   }
 
@@ -143,7 +168,7 @@
     }
     return [];
   }
-  const isSecret = (el) => el.tagName === "INPUT" && ((el.type || "").toLowerCase() === "password"
+  const isSecret = (el) => sealedFields.has(el) || el.tagName === "INPUT" && ((el.type || "").toLowerCase() === "password"
     || /one-time-code/.test(el.autocomplete || "") || SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el))
     || codeGroup(el).length > 1);
 
@@ -221,8 +246,8 @@
     else if (el.tagName === "INPUT" && (el.type === "checkbox" || el.type === "radio")) value = el.checked ? "checked" : "";
     else if (el.tagName === "INPUT" && el.type === "file") value = el.files && el.files.length ? `${el.files.length} file(s)` : "";
     else if (el.tagName === "INPUT" || el.tagName === "TEXTAREA")
-      value = secret ? (el.value ? "filled" : "") : el.value;   // preserve editor newlines and whitespace
-    else if (el.isContentEditable) value = el.innerText;
+      value = secret || maskedEditable(el) ? (el.value ? "filled" : "") : el.value;   // preserve editor newlines and whitespace
+    else if (el.isContentEditable) value = maskedEditable(el) ? (el.innerText ? "filled" : "") : el.innerText;
     const meets = r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
     const occluded = meets ? hitTest(el, r) : false;
     const sc = scrollerOf(el);
@@ -237,7 +262,8 @@
     }
     const e = { id, role, label: label(el), value, rect: [round(r.x), round(r.y), round(r.width), round(r.height)],
                 in_view: meets && !occluded, input_type: el.tagName === "INPUT" ? (el.type || "text") : null,
-                href: el.tagName === "A" ? maskUrl(el.href) : null, form: formKind(el), secret };
+                href: el.tagName === "A" ? maskUrl(el.href) : null, form: formKind(el), secret,
+                capture_masked: sealedSplitDocument };
     if (!meets) e.offscreen = r.bottom <= 0 ? "above" : r.top >= innerHeight ? "below" : r.right <= 0 ? "left" : "right";
     if (occluded) e.occluded = true;
     if (container) e.container = container;
@@ -259,7 +285,7 @@
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode: (n) => {
         const p = n.parentElement;
-        if (!p || SKIP_TEXT.has(p.tagName) || !/\S/.test(n.data)) return NodeFilter.FILTER_REJECT;
+        if (!p || maskedEditable(p) || SKIP_TEXT.has(p.tagName) || !/\S/.test(n.data)) return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
       } });
     const chunks = [];
@@ -285,7 +311,7 @@
 
   function captureState() {
     // A separate field inventory: recording must not replace snapshot/point bindings while the worker acts.
-    let secret = false, frames = 0;
+    let secret = sealedSplitDocument, frames = 0;
     const walk = root => {
       for (const el of root.querySelectorAll('*')) {
         if (isSecret(el) && visible(el)) secret = true;
@@ -648,34 +674,47 @@
 
   // Sealed fill: the value arrives already opened by the service worker, for this element only. Re-check this
   // frame's origin in the same call that sets it; set it on that exact element (never typed into whatever has focus).
-  function fill(gen, id, expectedOrigin, value, codeOnly = false) {
+  function fill(gen, id, expectedOrigin, value, codeOnly = false, splitIds = null) {
     if (location.origin !== expectedOrigin) return { ok: false, detail: "origin_changed" };
     const { el, error } = element(gen, id);
     if (error) return { ok: false, detail: error };
     if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return { ok: false, detail: "not_a_text_field" };
     if (codeOnly && (!isSecret(el) || el.type === "password")) return {ok: false, detail: "code_field_changed"};
-    const group = codeGroup(el);
+    let group = codeGroup(el);
+    if (splitIds !== null) {
+      if (!Array.isArray(splitIds) || splitIds.length < 2 || splitIds[0] !== id ||
+          new Set(splitIds).size !== splitIds.length) return {ok:false, detail:"invalid_split_targets"};
+      group = splitIds.map(i => element(gen, i).el);
+      if (!group.every(n => n instanceof HTMLInputElement && ["text", "tel", "number"].includes(n.type) &&
+          visible(n) && !n.disabled && !n.readOnly)) return {ok:false, detail:"split_target_changed"};
+    }
     if (group.length) {
-      if (!/^\d+$/.test(value) || value.length !== group.length) return {ok: false, detail: "code_length_mismatch"};
+      const chars = Array.from(value);
+      if ((splitIds === null && !/^\d+$/.test(value)) || chars.length !== group.length)
+        return {ok: false, detail: "code_length_mismatch"};
       // Revalidate all references before any mutation. Do not choose another group after a rerender.
       if (!group.every(n => n.isConnected && n.ownerDocument === el.ownerDocument)) return {ok:false, detail:"code_group_changed"};
+      if (splitIds !== null) sealedSplitDocument = true;
+      group.forEach(n => sealedFields.add(n));
       for (let i = 0; i < group.length; i++) {
         if (!group[i].isConnected) return {ok:false, unknown:true, detail:"code_group_changed_after_partial_fill"};
-        setValue(group[i], value[i]);
+        setValue(group[i], chars[i]);
       }
-      const ok = group.every((n, i) => n.value === value[i]);
+      const ok = group.every((n, i) => n.value === chars[i]);
       return {ok, unknown: !ok, detail: ok ? "filled_split_code" : "code_state_changed_after_input"};
     }
+    sealedFields.add(el);
     setValue(el, value);
     const ok = el.isConnected && el.value === value;
     return { ok, unknown: !ok, detail: ok ? "filled" : "field_state_changed_after_input" };
   }
 
   window.__ferb = { snapshot, uploadFiles, adopt, point, frameRect, visualState, captureState,
+    supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
                     scrolled, probeArm, probeSeen: () => probeSeen,
-                    text: () => (document.body ? document.body.innerText : ""), url: () => location.href,
+                    text: () => captureText(document.body), url: () => location.href,
                     ready: () => document.readyState, downloadPart, armDownloads, releaseDownload,
                     dropDownload: (id) => { heldDownloads.delete(id); } };
 })();

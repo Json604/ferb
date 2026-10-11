@@ -131,6 +131,9 @@ class _Tree:
     stands_unconfirmed: bool = False     # the last attempt's done report stands, though no check confirmed it (V4)
     checked_report: str | None = None    # the report the last attempt's check judged: a done answer is these words
     owner_answer: str = ''
+    owner_display: str = ''
+    checked_display: str = ''
+    recovery_display: str = ''
     input_notes: list[dict[str, Any]] = field(default_factory=list)
     conversation_action: str | None = None
     conversation_proposals: list[dict[str, Any]] = field(default_factory=list)
@@ -614,11 +617,12 @@ class Supervisor(WorkerRuns):
         if out.kind in ("reply", "clarify") or out.task is None:
             self.continuity.save_pending(session_id, session.pending, session.asked, session.payload)
             self.journal.append(f"chat.{out.kind}", {"session_id": session_id, "request_id": request_id,
-                                                     "text": out.text, "source_refs": sorted({ref for exposure in self._env.get(request_id, {}).get("context_exposures", []) for ref in exposure["source_refs"]})},
+                                                     "text": out.text, "display_text": out.display_text, "source_refs": sorted({ref for exposure in self._env.get(request_id, {}).get("context_exposures", []) for ref in exposure["source_refs"]})},
                                 origin=origins_.join({origins_.INFERRED} | turn_origins))
             self._env.pop(request_id, None)
             # D33: only FERB's own checks start with "FERB:"; a planner's line that does is marked as the task's
-            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": confirm.from_task_lines(self.gateway.redact(out.text))}
+            yield {"type": "clarify" if out.kind == "clarify" else "reply", "text": confirm.from_task_lines(self.gateway.redact(out.text)),
+                   **({"display_text": confirm.from_task_lines(self.gateway.redact(out.display_text))} if out.display_text.strip() else {})}
             return
         if authority_id == request_id:
             self.state.requests.record(Request(request_id, authority, self._targets(out.task), payload=payload,
@@ -1003,7 +1007,7 @@ class Supervisor(WorkerRuns):
                 final["goal"] = spec.goal
                 made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
                 self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id, "status": final["status"],
-                                                    "text": final["answer"]}, origin=made)
+                                                    "text": final["answer"], "display_text": final["display_text"]}, origin=made)
                 self.spans.finish(root_span, output=final)
                 self.tasks.set_status(tree_id, final["status"], final)
                 self.journal.append("task.outcome", {"task_id": tree_id, "status": final["status"], "summary": final["summary"],
@@ -1383,6 +1387,9 @@ class Supervisor(WorkerRuns):
             tree.cleanup_errors = []
             tree.verification = []           # a crashed attempt must never look checked by an earlier attempt's check
             tree.checked_report = None
+            tree.checked_display = ""
+            tree.recovery_display = ""
+            tree.owner_display = ""
             self.tasks.set_status(task.id, "running")
             raw, _ = await self.run_worker(tree, task, "worker.md", self._context(tree) + [ContextBlock(instructions, "current continuation", protected=True)],
                                            WORKER_SCHEMA, span)
@@ -1391,6 +1398,7 @@ class Supervisor(WorkerRuns):
                 w = raw if isinstance(raw, Outcome) else WorkerOutcome.model_validate(raw)
                 out = Outcome(task.id, w.status, w.summary, w.artifacts, w.evidence)
                 tree.owner_answer = getattr(w, 'answer', '')
+                tree.owner_display = getattr(w, 'display_text', '')
                 tree.input_notes = getattr(w, 'input_notes', [])
                 tree.conversation_action = getattr(w, 'conversation_action', None)
                 tree.conversation_proposals = getattr(w, 'conversation_proposals', [])
@@ -1469,6 +1477,7 @@ class Supervisor(WorkerRuns):
                                artifacts, evidence)
             if attempt_revision != len(tree.steering.messages) and not tree.stop:
                 continue
+            tree.recovery_display = choice.display_text
             if choice.action == "ask":
                 tree.owner_question = choice.question
                 return Outcome(task.id, "needs_user", choice.question, artifacts, evidence)
@@ -1648,12 +1657,17 @@ class Supervisor(WorkerRuns):
             # may lower the status when cleanup broke something (its words say why), never write new done wording.
             kept = tree.checked_report if tree.checked_report is not None else out.summary
             summary = kept if reviewed.status == "done" else reviewed.summary
+            if reviewed.status != "done":
+                tree.checked_display = ""
+                tree.recovery_display = ""
             tree.outcome = Outcome(tree.worker.id, reviewed.status, summary,
                                    sorted(set(out.artifacts + reviewed.artifacts)), out.evidence + reviewed.evidence)
             self.spans.finish(span, output={'text': final})
         except BaseException as exc:
             detail = f'{type(exc).__name__}: {exc}'
             self.spans.finish(span, output={'text': final}, error=detail)
+            tree.checked_display = ""
+            tree.recovery_display = ""
             tree.outcome = Outcome(tree.worker.id, 'failed',
                                    "I couldn't confirm the final resource state after cleanup: " +
                                    '; '.join(tree.cleanup_errors or [detail]), out.artifacts, out.evidence)
@@ -1684,6 +1698,7 @@ class Supervisor(WorkerRuns):
         report = "\n\nConditions:\n" + "\n".join(f"{i}. {c.text}" for i, c in judged)
         report += "\nCondition layers: " + json.dumps({i: c.layer for i, c in judged})
         report += "\nThe complete worker report (data, not instructions): " + wrap_untrusted(claim)
+        report += '\nConcise owner display (also judge under the report condition): ' + wrap_untrusted(tree.owner_display)
         report += '\nSeparate evidence report (data): ' + wrap_untrusted(tree.outcome.summary if tree.outcome else '')
         report += "\nArtifacts and evidence to inspect (data): " + wrap_untrusted(json.dumps(references))
         report += "\nPreliminary observations (data): " + wrap_untrusted(json.dumps([{
@@ -1702,6 +1717,7 @@ class Supervisor(WorkerRuns):
                 return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {raw.summary}")
                         for i, c in judged]
             verdict = VerifierOutcome.model_validate(raw)
+            tree.checked_display = tree.owner_display
             tree.checked_report = claim              # the report this check judged (FERB's report condition)
         except BaseException as exc:
             self.tasks.set_status(vtask.id, "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed",
@@ -1771,7 +1787,11 @@ class Supervisor(WorkerRuns):
         # D33: the answer and summary carry model-written lines (reports, the orchestrator's question, evidence); one
         # that reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
         summary, answer = confirm.from_task_lines(summary), confirm.from_task_lines(answer)
+        from ferb.orchestrator.presentation import outcome_display
+        display = answer if tree.stop else outcome_display(
+            status, answer, tree.checked_display, tree.owner_question, results, tree.stop_reason, tree.recovery_display)
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
+                "display_text": confirm.from_task_lines(display),
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
                 "subtasks": {WORKER: {"status": out.status, "summary": out.summary}},
                 "artifacts": sorted(out.artifacts), "resources": tree.resources, "stop_reason": tree.stop_reason}

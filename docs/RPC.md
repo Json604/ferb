@@ -55,12 +55,12 @@ browser bridge pages large observations; client RPC and extension protocol versi
 and outcome. Render unknown event types safely rather than treating them as completion. `outcome` includes status
 (`done` only when every condition was verified, `done_unverified` when the work finished but a check couldn't confirm
 it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through subtasks, verification, a separate
-`stop_reason`, and resource outcomes. Display the supplied `answer` verbatim: rebuilding a cheerful summary can hide
-failed conditions.
+`stop_reason`, and resource outcomes. Render optional `display_text` as the concise reply and retain the complete `answer` in expandable Details.
+If absent/empty, fall back to `answer`. Do not invent a client summary or change completion status.
 
 Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.
 Append these already-redacted fragments to a **provisional** reply belonging to this connection's submitted turn.
-They are not a completed answer or proof of an action. The authoritative `reply`/`clarify` replaces the draft;
+They are not a completed answer or proof of an action. The authoritative `reply`/`clarify` replaces the draft with `display_text` (fallback `text`), retaining `text` as Details;
 `plan` clears it and starts normal task presentation. `reply_abort` with `{reason}` withdraws the draft. A transport
 failure or EOF before an authoritative event must mark the draft interrupted, never completed or replayed.
 Ignore late fragments after a final/plan. Do not speak, notify completion, or save partial text as a completed answer.
@@ -68,7 +68,7 @@ Old clients may ignore these additional events and continue rendering the final 
 existing request connection; independent submitted turns must never share their draft buffer.
 
 Streaming is genuine provider output, not a delayed replay of an already-complete answer. The supervisor releases
-only a top-level `text` field written after every action/control field establishes a pure conversation turn. It
+only a top-level `display_text` field written last, after full `text` and every action/control field establishes a pure conversation turn. It
 buffers action receipts, reordered output and task/worker/checker answers through execution and verification.
 Secret redaction and FERB-label marking preserve state across fragments. Raw provider JSON, reasoning, tool
 arguments and partial replies are not added to the daemon's journal or trace; canonical replies still are.
@@ -80,7 +80,7 @@ the planner's eventual plan receives them as input sources. Secret-bearing filen
 into planning or persistence. Pasted outside text must retain the CLI's external-data delimiters unless the owner
 explicitly identifies it as their own request.
 
-Status results include `artifacts`, `verified` and `verification`; pending approvals include their `task_id` root
+Status results include `display_text`, `artifacts`, `verified` and `verification`; pending approvals include their `task_id` root
 when the request maps to one tree, otherwise null. Clients must not guess a task identity from display text.
 The full final answer and artifact list also persist as `trace.get.outcome.result` for known-task reconnect, even
 if another client already marked the result shown. Older historical tasks may lack these fields.
@@ -94,7 +94,9 @@ a future client wanting durable multi-device delivery needs explicit acknowledgm
 
 ## Questions and secrets
 
-An ordinary question has an `approval_id`, reason/question and options. Keep full labels and free-text answers;
+An ordinary question has an `approval_id`, reason/question and options. Routed ordinary `owner.ask` questions may
+include `display_text`; retain the complete reason under Details. Secret, retry and consequential approval prompts
+keep their concrete full text; clients must not compress them. Keep full option labels and free-text answers;
 duplicate labels must not become a first-match selection. Pending questions expire after 600 seconds; timeout is
 not consent. Scheduled unattended work cannot wait indefinitely for an answer and reports what remains unresolved.
 
@@ -132,3 +134,8 @@ Standard errors: `-32700` malformed JSON, `-32600` invalid request, `-32601` mis
 FERB errors: `-32001` unauthorized, `-32002` oversize, `-32003` unsupported, `-32004` operation failure. Do not retry
 an effectful action merely because a connection ended: inspect its task/ledger outcome. Unknown delivery is distinct
 from not executed. Stop and resource ownership stay in the harness for every future client and approach.
+
+Native task controls enumerate exact backend roots and pending local turn IDs. Stop task sends only that nonempty
+backend ID to `task.stop`; a pending-turn stop is deferred only until that turn receives its plan/task identity.
+Task inspection uses `trace.get` and never invokes Stop. Background answers update state/history without opening
+or refocusing the native panel; the owner opens Tasks to inspect or answer a particular request.

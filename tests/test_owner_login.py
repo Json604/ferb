@@ -79,3 +79,46 @@ def test_cancelling_a_task_clears_its_pending_secret_prompt(bd, monkeypatch) -> 
             "SELECT state FROM action_ledger WHERE task_id = ?", (grant.task_id,)))
     d.run(run())
     assert ext.fills == []
+
+
+@pytest.mark.parametrize('changed', ['none', 'other_frame', 'stale_after_prompt', 'duplicate'])
+def test_explicit_split_secret_binds_snapshot_frame_and_never_exposes_value(bd, monkeypatch, changed):
+    """Owner trace's six unnamed textboxes, without guessing unrecorded DOM attributes."""
+    import tests.fake_extension as fake
+    fields = [{'role': 'textbox', 'label': '', 'input_type': 'text'} for _ in range(6)]
+    if changed == 'other_frame':
+        fields[-1].update(frame=1, origin='https://other.example')
+    monkeypatch.setattr(fake, 'page', lambda url: {'title': 'OTP Verification', 'text': 'Check text messages for your OTP', 'elements': fields})
+    received = []
+    real_fill = fake.FakeExtension.op_fill
+    def fill(self, args, cid):
+        received.append(args)
+        return real_fill(self, args, cid)
+    monkeypatch.setattr(fake.FakeExtension, 'op_fill', fill)
+    d, launched = bd
+    ext, grant = _ready(d, launched)
+    tab = call(d, grant, 'browser.open', url=f'{SHOP}/code')['content']['tab']
+    snap = call(d, grant, 'browser.snapshot', tab=tab)['content']
+    elements = [e['id'] for e in snap['elements']]
+    if changed == 'duplicate':
+        elements[-1] = elements[0]
+    prompts = []
+    async def ask(ctx, target, **kwargs):
+        prompts.append(target)
+        if changed == 'stale_after_prompt':
+            d.daemon.router._tabs[tab].snap_gen += 1
+        return '9Z8Y7X'
+    d.daemon.router.ask_secret = ask
+    result = call(d, grant, 'browser.secret', tab=tab, element=elements[0], split_elements=elements,
+                  effect='edit', why='Fill the requested login code into these exact six boxes')
+    assert result['is_error'] == (changed != 'none'), result
+    assert len(prompts) == (0 if changed in {'other_frame', 'duplicate'} else 1)
+    if changed == 'none':
+        assert received[0]['split_els'] == list(range(6))
+        assert '9Z8Y7X' not in json.dumps(received)
+    else:
+        assert not received
+    assert '9Z8Y7X' not in json.dumps(result)
+    async def dump():
+        return '\n'.join(d.daemon.db.conn.iterdump())
+    assert '9Z8Y7X' not in d.run(dump())

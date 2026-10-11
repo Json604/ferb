@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FERB",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "description": "FERB's hands in the browser: executes FERB daemon commands and reports state. No decisions here.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqoU/SS/n7r5oDmpKo1fzrGru+NDbyrYCfN6ke4l8kSUDUwujfsVE1AxDbSrEdcVbFQwtu2f0ktQPNlAjKeiltl5FncC0xUDVn7m6Jd1jwpqnmIX7Ojm6BD8d5ZHqBRTcYW31DLek2q30rW4nP2IHE753jxEhuXxhT+I/EKtXcD/uiBalgv4N37AiUbhvOnZgndxms46vhXc87b7ZQt8OxPyRomjGX95IXmyaoIC5BcCxJC6TFv0PQFdZMI86l8AAZPRayihugqLcJQnj3GUL0ooWmoAr82o+TaL2toHD0lrR57Q51SOwLFfZ0sbmjRzsKpMPuLG1acY8FiacllWSUQIDAQAB",
   "permissions": [

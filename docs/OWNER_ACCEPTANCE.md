@@ -912,3 +912,81 @@ factory-failure regression added after that collection also passed in the final 
 current selected cases covered across these runs). The last scoped re-review is clear: no Critical or Important
 findings remain. Core/changed-module mypy (17 files), compilation and diff checks pass. Activation is pending;
 the installed daemon still has one active task and was not restarted by this change.
+
+
+### Native task controls, concise presentation and recurring OTP — 2026-10-11
+
+The owner supplied the Zomato refusal and session-review chat screenshots and requested five fixes while explicitly
+keeping the current task running. No daemon/native app restart, installed bundle replacement, browser interaction,
+OTP submission or live model call was performed. Direct steering (0269e3c) and this wave remain pending activation.
+
+Read-only trace of Zomato task `9de9b3888e56444288c1368aff1f91fa` shows six unnamed textboxes on snapshot
+`7ca851fbce9844c581aeedf5d8d35674` at 14:15:48 IST. `browser.login_code` rejected the first as unclassified;
+`browser.secret` then failed twice because helper signature verification passed requirement source without codesign's
+inline `=` prefix. The installed helper passed a read-only verification with corrected syntax. The subsequent owner
+question inaccurately called this only a split-widget limitation. Actual maxlength/inputmode attributes were not
+retained in the trace; no claim about them or successful live login is made.
+
+The corrected helper still rejects a mismatched signature. Explicit ordered split textboxes are now supported via
+sealed input with one exact tab/frame/snapshot binding and pre-write validation; automatic OTP classification is
+unchanged. Extension 0.15.2 / protocol 13 is required. Replacement-node value masking and sensitive screenshot
+handling are reviewed separately from ordinary editing, so privacy protection does not disable restaurant search.
+
+Recent journal replies (14:22:05 and 14:22:49) repeated the ongoing assignment and speculative timing. The new
+same-generation display field supplies short visible replies and ordinary questions; original text remains in
+Details. Worker display is checked alongside the full answer. Code-selected status and failed/unconfirmed check
+findings take precedence over unchecked recovery prose. It adds no rewriting model call, but first visible tokens
+wait until the model writes the preceding structured details. No claim that fixtures prove live writing quality.
+
+Native source showed answer delivery explicitly expanding the panel/cancelling hover dismissal, plus background
+session swaps carrying stale expansion state. Both paths are removed. This is a code-path diagnosis, not measured
+causality for the screenshot; Codex did not open/focus the native app during the preceding steering work. The old
+application menu had only Quit; native Edit actions and composer Cmd-V now retain pasted-text provenance and undo.
+Tasks are listed independently, with exact Stop task, recent activity, results/artifacts and optional full record.
+The old arbitrary-active-task Stop fallback is removed. Inspection is read-only and preserves the current draft.
+
+Native validation: 78 tests passed; release compilation and staged app signature verification passed. The app was
+packaged separately at `/tmp/ferb-ui-followups/FERB Notch.app`; the running bundle is untouched. Backend combined
+validation follows below. Fresh review found and fixed replacement-node masking and unchecked recovery-display
+contradictions; final capture/action separation was checked in an additional scoped review.
+
+Owner acceptance after an idle authorized update: reload the matching extension; retry the real Zomato split OTP
+flow using hidden input, then search/add the requested item without placing an order. Paste/edit a draft, submit a
+long task plus follow-up, confirm direct short text and expandable details, inspect/stop exactly one of two tasks,
+and observe that background updates do not reopen/refocus the panel. These remain pending, not offline successes.
+
+Combined default validation: **1,971 passed, one failure** across six disjoint file shards. The concurrent-download
+budget regression timed out waiting for its fixture record within ten seconds. The exact test then passed in
+1.53 seconds without changes to download production code or its fixture; this is a successful focused rerun,
+not a clean initial full-suite pass. Required core and focused presentation mypy (13 files), compileall and diff
+checks passed. Final browser capture regressions were added after collection and are recorded separately below.
+
+Final integrated focused check: **58 passed** across owner login, split fields, signature helper, recording/screenshot,
+concise presentation and decision coverage. This includes the capture/action separation regressions added after
+full-suite collection. Backend wheel built successfully in `/tmp/ferb-ui-followups-dist/`. Native repository has no
+configured remote; its existing uncommitted integration and this wave are preserved locally, with scoped delta
+saved in `/tmp/ferb-ui-followups-baseline/current-delta.patch`. No owner AGENTS changes were staged.
+
+Final compatibility guard: an explicit split fill checks the isolated page helper capability before invoking it;
+an old/missing helper flag refuses without writes. Three callback regressions cover absent, false and supported
+flags; the final split/recording suite passed **37 tests**. The backend wheel was rebuilt after this guard.
+
+
+### Activation after the owner tasks completed — 2026-10-11
+
+This supersedes the earlier pending-install notes for direct steering and this repair wave. Read-only task rows
+show session analysis `726ab98b8edb4181b3937dbdc9e172c6` completed successfully at14:33:07IST and report-opening
+follow-up `d6d52ab01af942fc937ca430e0740832` completed successfully at14:38:43IST. Immediately before updating,
+`chat.status(peek=true)` reported zero running tasks and zero pending approvals. The owner's existing authorization
+to update/run the app was applied only at this idle point, preserving their explicit keep-task-running instruction.
+
+`uv run --no-sync ferb setup --update` completed. Daemon PID81243 reports installed code hash
+`edd80a0f5c69a8ec`, matching the reviewed checkout; all four macOS permissions are granted and watchers report
+no failures. The native app was gracefully quit after the task completion, replaced from the signed staged release,
+and opened with `open -g` asPID82232. AppKit's cached termination property initially stayed false, so replacement
+was withheld until a separate OS process check confirmed the app had exited; no forced kill occurred.
+
+Read-only `browsers.list` confirms ChromeProfile22 and BraveDefault connected on extension0.15.2 with no refusal.
+Their managed extension updated through its existing idle reload path; no personal browser was quit or relaunched.
+No new model task, OTP submission or order was made. Live OTP success and owner visual/writing-quality acceptance
+remain unverified; compilation, offline regressions and installation state are the evidence reported here.

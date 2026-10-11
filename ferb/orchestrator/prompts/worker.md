@@ -150,6 +150,10 @@ Return the supplied JSON schema:
   that change the result. Routine tool names, checklists and evidence narration belong in summary/evidence. Explain
   how an unresolved point can be checked when that helps you act. Do not write a verification marker yourself;
   code adds it only after checking this answer against evidence. Skip additional completion preambles.
+- display_text: write a separate concise visible version of answer, preserving the actual result, requested facts,
+  useful deliverable links, attribution and material limitations. The full answer remains expandable. Remove
+  repeated task descriptions, process narration and defensive filler; do not merely copy a long answer. The
+  verifier checks this wording too. Do not add a verification marker.
 - input_notes: for a map batch, one complete note per assigned input, with input exactly its inventoried path, note
   containing the findings against the owner's criteria, and evidence listing source references. Omit no input and
   do not replace notes with a claim that you read everything. For other work use an empty array.
