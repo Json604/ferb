@@ -76,3 +76,41 @@ def test_subscription_failure_keeps_sanitized_bridge_diagnostic(bridge):
         assert 'TypeError: callback signature is invalid' in message
         assert 'private-error-canary' not in message
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('empty_apps', [True, False], ids=['no-apps', 'subscriptions-denied'])
+def test_no_native_sources_do_not_busy_poll_apps(bridge, monkeypatch, empty_apps):
+    ax, _, _ = bridge
+    entered = threading.Event()
+    scans = 0
+    workspace = sys.modules['AppKit'].NSWorkspace.sharedWorkspace()
+    original_apps = workspace.runningApplications
+
+    def applications():
+        nonlocal scans
+        scans += 1
+        return [] if empty_apps else original_apps()
+
+    def pump(*args):
+        entered.set()
+        return 1
+
+    workspace.runningApplications = applications
+    monkeypatch.setattr(sys.modules['AppKit'].NSWorkspace, 'sharedWorkspace', lambda: workspace)
+    monkeypatch.setattr(sys.modules['Quartz'], 'CFRunLoopRunInMode', pump)
+    monkeypatch.setattr(ax, 'AXObserverCreate', lambda *args: (-25211, None))
+
+    async def run():
+        stop = asyncio.Event()
+        task = asyncio.create_task(AccessibilityWatcher(lambda data: data, lambda *args: False).run(
+            lambda event: None, stop))
+        try:
+            assert await asyncio.to_thread(entered.wait, 1)
+            await asyncio.sleep(.05)
+            assert scans == 1
+        finally:
+            stop.set()
+            await asyncio.wait_for(task, .3)
+
+    asyncio.run(run())
+    assert not any(t.name == 'ferb-ax-observers' for t in threading.enumerate())

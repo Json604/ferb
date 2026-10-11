@@ -402,6 +402,10 @@ days in Trail, its FTS index and the activity copy, while source IDs remain; thi
 derived memory. Native schemas and two-app subscriptions await owner acceptance.
 AX observer callbacks use PyObjC's explicit retained-callback bridge and remain strongly referenced until their
 run-loop sources are removed; subscription failures expose redacted error details through `sense.status.failed`.
+Workspace and AX watcher threads fill the unused portion of their existing 0.5s/1s native run-loop slices with
+an interruptible event wait. An empty CFRunLoop returns immediately rather than waiting for its requested duration;
+this fallback prevents idle CPU spinning, including when all AX subscriptions are unavailable. A full native slice
+adds no extra delay, and stopping interrupts the fallback wait before observer cleanup.
 Passive software inspection never invokes `sfltool dumpbtm`: on the owner's Mac it opens an administrator prompt
 even for a read. Background-task inventory is explicitly unavailable without a supported noninteractive source;
 signature, Gatekeeper, entitlements, download metadata, readable TCC grants and associated LaunchAgent files remain

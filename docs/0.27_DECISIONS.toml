@@ -18,7 +18,7 @@ summary = "Chat is never blocked by a loader"
 
 [D4]
 milestone = "F7"
-tests = ["tests/test_perception_capture.py", "tests/test_perception_notifications.py"]
+tests = ["tests/test_perception_capture.py", "tests/test_perception_notifications.py", "tests/test_workspace_watcher.py", "tests/test_accessibility_watcher.py"]
 summary = "Log every event on the Mac through system-wide sources, not per-app watchers"
 
 [D5]

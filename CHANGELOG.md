@@ -12,6 +12,8 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- Fix idle CPU spinning in workspace and Accessibility watchers when macOS returns immediately from an empty
+  run loop. Preserve their existing polling cadence with a shutdown-interruptible wait for the unused slice.
 - Fix the Spotify-triggered daemon freeze: Automation permission checks cannot block chat/Stop or daemon shutdown.
   Pending checks are shared; the caller's timeout covers preflight, expired calls never launch a script, and
   cancellation kills/drains owned script processes. Passive checks still never request a permission prompt.

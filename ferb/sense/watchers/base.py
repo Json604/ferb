@@ -8,6 +8,7 @@ has no AppKit run loop, so NSWorkspace's cached app state can go stale)."""
 
 import asyncio
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -15,6 +16,18 @@ from typing import Any, Callable, Protocol
 from ferb.sense.trail import Observation
 
 Emit = Callable[[Observation], None]
+
+
+def run_loop_slice(done: threading.Event, interval_s: float) -> None:
+    """Pump native events, then wait out any unused slice without spinning on empty run loops."""
+    import Quartz
+    started = time.monotonic()
+    Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, interval_s, False)
+    # With no sources CFRunLoop returns immediately, ignoring its requested duration.
+    # Preserve the watcher's existing cadence; shutdown interrupts this fallback wait.
+    remaining = interval_s - (time.monotonic() - started)
+    if remaining > 0:
+        done.wait(remaining)
 
 
 class Watcher(Protocol):

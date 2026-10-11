@@ -4,7 +4,7 @@ import threading
 from typing import Any, Callable
 
 from ferb.sense.trail import Observation
-from ferb.sense.watchers.base import Emit
+from ferb.sense.watchers.base import Emit, run_loop_slice
 
 APP_EVENTS = ("AXWindowCreated", "AXFocusedWindowChanged", "AXFocusedUIElementChanged",
               "AXApplicationActivated", "AXApplicationDeactivated", "AXMainWindowChanged")
@@ -118,7 +118,7 @@ class AccessibilityWatcher:
                     for app in apps:
                         if int(app.processIdentifier()) not in observers and int(app.processIdentifier()) not in failed_pids:
                             attach(app)
-                    Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, 1.0, False)
+                    run_loop_slice(done, 1.0)
             except Exception as error:
                 failure.append(error)
             finally:

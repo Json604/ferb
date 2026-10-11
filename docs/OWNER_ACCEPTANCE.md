@@ -845,3 +845,33 @@ rerun, not a clean first pass. The strengthened cancellation regression now uses
 `task.stop` RPC and normal supervisor/gateway cancellation path, not a fixture Stop hook. Core plus AppleScript
 module mypy passed (10 source files), compileall and diff checks passed. No real Spotify playback/model call
 was made; installed daemon ping/status recovery was verified.
+
+
+### Idle watcher CPU repair — 2026-10-11
+
+The owner reported Python PID80498 using about 108% CPU after quitting the native app and requested shutdown,
+then a fix. The daemon was unloaded with `launchctl bootout` and remains stopped. That PID exited before a
+sample was taken, so its exact hot stack was not captured. An older saved sample (`/tmp/ferb-drop.sample`,
+PID18243) shows a runnable background thread in PyObjC conversion/CFRunLoopRunInMode. A separate native probe
+confirmed an empty run loop returns `kCFRunLoopRunFinished` in 0.000133s despite a requested 0.5s wait.
+
+The workspace watcher repeatedly called that function without another wait. The AX watcher had the same
+failure mode when no sources were attached. Both now wait for the unused portion of their existing slices
+(workspace 0.5s, AX 1s), interruptible on shutdown. No new polling interval or capture limit was introduced.
+
+Three failing-first regressions reproduced hundreds of thousands of iterations instead of one: empty workspace
+run loop, no AX apps, and all AX subscriptions denied. After the fix, all 11 focused watcher/capture tests passed,
+including notification delivery, exclusion/redaction, observer cleanup and interruption of the fallback wait.
+A bounded, isolated **real workspace watcher** measurement (no daemon, model call, app launch or stored events)
+used a 0.5s warmup and two-second sample: **96.2846% CPU before, 0.2354% after**. This demonstrates the watcher
+fix on this Mac; it is not a measurement of the full daemon's idle CPU. Full-daemon observation remains pending
+until the owner next chooses to run it. Core mypy and Python compilation passed; combined checks/review follow.
+
+Independent scoped review found no Critical or Important issues and independently reran the 11 focused checks.
+The fixed package was installed as a non-editable copy without dependencies or service restart; installed code
+hash `4d13a9a678f9abd7` matches the checkout. `launchctl print gui/501/com.ferb.daemon` confirms the service
+remains unloaded. The native app was not opened. This supersedes the earlier activation status: FERB is stopped.
+
+Final checkout validation: **1,904 default-selected tests passed** in six disjoint file shards. Core mypy
+(9 source files), compilation, decision coverage and diff checks passed. No live model/GUI workflow was run.
+Full-daemon idle CPU and normal workspace/AX event reception remain owner acceptance checks for the next launch.

@@ -4,7 +4,7 @@ import threading
 from typing import Any, Callable
 
 from ferb.sense.trail import Observation
-from ferb.sense.watchers.base import Emit
+from ferb.sense.watchers.base import Emit, run_loop_slice
 
 
 class WorkspaceWatcher:
@@ -19,7 +19,6 @@ class WorkspaceWatcher:
 
         def native_body() -> None:
             import AppKit
-            import Quartz
             center = AppKit.NSWorkspace.sharedWorkspace().notificationCenter()
             tokens = []
 
@@ -40,7 +39,7 @@ class WorkspaceWatcher:
                              "NSWorkspaceDidMountNotification", "NSWorkspaceDidUnmountNotification"):
                     tokens.append(center.addObserverForName_object_queue_usingBlock_(getattr(AppKit, name), None, None, observed))
                 while not done.is_set():
-                    Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, 0.5, False)
+                    run_loop_slice(done, 0.5)
             except Exception as error:
                 failure.append(error)
             finally:
