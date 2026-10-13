@@ -14,8 +14,8 @@ class Perception:
 
     def __init__(self, daemon: Any) -> None:
         self.daemon = daemon
-        # macOS banners FERB posted that Notification Center hasn't shown back yet: {title, body, at} (L10). Each one
-        # matches one record; they live with this process, so none is kept as another copy of FERB's words.
+        # macOS banners FERB posted that Notification Center hasn't shown back yet: {title, body, poster, at} (L10).
+        # Each one matches one record; they live with this process, so none is kept as another copy of FERB's words.
         self.banners: list[dict[str, str]] = []
         self.policy = NotificationPolicy(daemon.db, daemon.clock, daemon.ids, daemon.redact)
         self.batches = EventBatcher(daemon.db, daemon.clock, daemon.ids, lambda: daemon.jev,
@@ -61,17 +61,25 @@ class Perception:
                         (len(observations), self.daemon.clock.now().isoformat()))
         return []
 
-    def banner_posted(self, shown: dict[str, str]) -> None:
-        """FERB is posting a macOS banner with this (redacted) title and body."""
-        self.banners.append({"title": shown["title"], "body": shown["body"], "at": self.daemon.clock.now().isoformat()})
+    def banner_posted(self, shown: dict[str, str], poster: str) -> dict[str, str]:
+        """FERB is posting a macOS banner with this (redacted) title and body, under the app id `poster`."""
+        banner = {"title": shown["title"], "body": shown["body"], "poster": poster,
+                  "at": self.daemon.clock.now().isoformat()}
+        self.banners.append(banner)
+        return banner
+
+    def banner_failed(self, banner: dict[str, str]) -> None:
+        """That banner was never posted."""
+        self.banners = [b for b in self.banners if b is not banner]
 
     def _own_banner(self, observation: Observation) -> Observation:
-        """A record showing a banner FERB posted (same title and body) is FERB's (P4), as a fact: recorded with actor
-        FERB, without the body (FERB's words stay with the notice or answer they came from), and never sent to Jev as
-        an outside arrival. Any other record is returned unchanged."""
+        """A record showing a banner FERB posted (same poster app, title and body) is FERB's (P4), as a fact: recorded
+        with actor FERB, without the body (FERB's words stay with the notice or answer they came from), and never sent
+        to Jev as an outside arrival. Any other record is returned unchanged. Bundle ids compare in any case (I4)."""
         data = observation.data
         for banner in self.banners:
-            if (banner["title"], banner["body"]) == (data.get("title"), data.get("body")):
+            if (banner["poster"].lower(), banner["title"], banner["body"]) == (
+                    str(data.get("bundle_id", "")).lower(), data.get("title"), data.get("body")):
                 self.banners.remove(banner)
                 kept = {k: v for k, v in data.items() if k != "body"} | {"ferb_banner": {"posted_at": banner["at"]}}
                 return Observation(observation.source, kept, {"actor": "ferb"})

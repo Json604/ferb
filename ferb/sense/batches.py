@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from typing import Any, Callable
 
+from ferb.act.browser.profiles import BROWSERS
 from ferb.core.context import count_tokens
 from ferb.decide.decider import Ask
 from ferb.sense.notifications import NotificationPolicy
@@ -14,6 +15,19 @@ OLDEST_SECONDS = 60.0                   # P1 example; controller timing ruling 2
 INTERRUPTS = {"notification", "incoming_call"}
 # I1: rows recorded before perception's install/migration never reach Jev (migration 0035 keeps the last seq).
 SINCE_INSTALL = "t.seq > COALESCE((SELECT seq FROM perception_floor WHERE source='trail'), 0)"
+
+
+# A tab row names its browser ("brave"), an Accessibility row its bundle: both are the same app (L10).
+BROWSER_BUNDLES = {name: browser.bundle_id for name, browser in BROWSERS.items()} | {"safari": "com.apple.Safari"}
+
+
+def app_of(data: dict[str, Any]) -> str:
+    """The app an observation row is about: its bundle id, or the bundle of the browser a tab row names; "" when the
+    row names no app (files, idle). A fact recorded on the row, never inferred from its content."""
+    if data.get("bundle_id"):
+        return str(data["bundle_id"])
+    browser = str(data.get("browser") or "")
+    return BROWSER_BUNDLES.get(browser, browser)
 
 
 def _text(value: Any) -> str:
@@ -105,42 +119,57 @@ class EventBatcher:
             if self.jev() is None:
                 return                         # retain unsent events across no-key periods and restarts
             events = self.pending()
+            data = {e["id"]: e["data"] for e in events}
             ordinary = [e for e in events if e["source"] != "notification"]
-            groups = [[e] for e in events if e["source"] == "notification"] + batch_events(ordinary)
-            moment: list[tuple[Any, str, list[str]]] = []      # this flush's live yes answers, published together
-            for group in groups:
-                ident = self.ids.new_id()
-                refs = [e["id"] for e in group]
-                self.db.conn.execute("INSERT INTO perception_batches VALUES(?,?,?,'pending',?,NULL)",
-                                     (ident, self.clock.now().isoformat(), reason, json.dumps(refs)))
-                for event_id in refs:
-                    self.db.conn.execute("INSERT INTO perception_receipts VALUES(?,?)", (event_id, ident))
-                state, asks = self._request(group, ident)
-                if not asks:
-                    self.db.conn.execute("UPDATE perception_batches SET state='done' WHERE id=?", (ident,))
-                    continue
-                try:
-                    jev = self.jev()
-                    answers = await jev.answers(state, asks)
-                    self.db.conn.execute("UPDATE perception_batches SET state=?,error=? WHERE id=?",
-                                         ("done" if answers else "unavailable", None if answers else "no typed answer; see decisions", ident))
-                    self.publish("perception.batch", {"id": ident, "event_ids": refs, "reason": reason,
-                                                       "mode": "live" if asks[0].question.live else "shadow",
-                                                       "answers": answers})
-                    if answers.get("trail.attention") == "yes":
-                        moment.append((jev, ident, refs))
-                except asyncio.CancelledError:
-                    raise                      # pending is retried after restart
-                except Exception as error:
-                    self.db.conn.execute("UPDATE perception_batches SET state='unavailable',error=? WHERE id=?",
-                                         (type(error).__name__, ident))
-            # Q4: a live yes starts a consideration; the daemon marks its outcome on the decision. L10: one flush is one
-            # moment, so its yes batches are published together, once every batch of it has Jev's answer; batches about
-            # one app then merge into one consideration (no timer).
-            for jev, ident, refs in moment:
-                self.publish("perception.attention", {"batch_id": ident, "source_refs": ["trail:" + ref for ref in refs],
-                             "authority": "observation_only", "reason": "trail.attention"})
-                jev.mark_effect("trail.attention", "batch:" + ident, "attention consideration started")
+            # L10: one flush is one moment. Its batches go to Jev app by app; an app's yes answers are published
+            # together once its last batch has Jev's answer, so they merge into one consideration while the next app's
+            # batches are still being judged (no timer).
+            by_app = sorted(batch_events(ordinary), key=lambda group: app_of(data[group[0]["id"]]))
+            groups = [[e] for e in events if e["source"] == "notification"] + by_app
+            moment: list[tuple[Any, str, list[str]]] = []      # the current app's yes answers, not yet published
+            try:
+                for group in groups:
+                    if moment and app_of(data[group[0]["id"]]) != app_of(data[moment[0][2][0]]):
+                        self._attention(moment)
+                    await self._judge(group, reason, moment)
+            finally:
+                self._attention(moment)    # a cancelled or failed flush still publishes the yes answers it has
+
+    def _attention(self, moment: list[tuple[Any, str, list[str]]]) -> None:
+        """Q4: a live yes starts a consideration; the daemon marks its outcome on the decision."""
+        while moment:
+            jev, ident, refs = moment.pop(0)
+            self.publish("perception.attention", {"batch_id": ident, "source_refs": ["trail:" + ref for ref in refs],
+                         "authority": "observation_only", "reason": "trail.attention"})
+            jev.mark_effect("trail.attention", "batch:" + ident, "attention consideration started")
+
+    async def _judge(self, group: list[dict[str, Any]], reason: str, moment: list[tuple[Any, str, list[str]]]) -> None:
+        """One batch to Jev; a live trail.attention yes joins `moment`."""
+        ident = self.ids.new_id()
+        refs = [e["id"] for e in group]
+        self.db.conn.execute("INSERT INTO perception_batches VALUES(?,?,?,'pending',?,NULL)",
+                             (ident, self.clock.now().isoformat(), reason, json.dumps(refs)))
+        for event_id in refs:
+            self.db.conn.execute("INSERT INTO perception_receipts VALUES(?,?)", (event_id, ident))
+        state, asks = self._request(group, ident)
+        if not asks:
+            self.db.conn.execute("UPDATE perception_batches SET state='done' WHERE id=?", (ident,))
+            return
+        try:
+            jev = self.jev()
+            answers = await jev.answers(state, asks)
+            self.db.conn.execute("UPDATE perception_batches SET state=?,error=? WHERE id=?",
+                                 ("done" if answers else "unavailable", None if answers else "no typed answer; see decisions", ident))
+            self.publish("perception.batch", {"id": ident, "event_ids": refs, "reason": reason,
+                                               "mode": "live" if asks[0].question.live else "shadow",
+                                               "answers": answers})
+            if answers.get("trail.attention") == "yes":
+                moment.append((jev, ident, refs))
+        except asyncio.CancelledError:
+            raise                      # pending is retried after restart
+        except Exception as error:
+            self.db.conn.execute("UPDATE perception_batches SET state='unavailable',error=? WHERE id=?",
+                                 (type(error).__name__, ident))
 
     def _request(self, group: list[dict[str, Any]], ident: str) -> tuple[dict[str, Any], list[Ask]]:
         event = group[0]

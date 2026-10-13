@@ -1449,7 +1449,7 @@ class Daemon:
         except Exception:
             pass                                                     # chat, logs and the journal still have it
 
-    async def _osascript_notify(self, title: str, text: str) -> None:
+    async def _osascript_notify(self, title: str, text: str) -> None:            # posts as OSASCRIPT_POSTER
         """A macOS notification (the OS's own, not FERB UI). Text is redacted and quoted for AppleScript."""
         def q(v: str) -> str:
             return '"' + str(self._redact_text(v)).replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -1503,14 +1503,16 @@ class Daemon:
         asyncio.get_running_loop().create_task(self._notify("FERB needs you", text, urgent=True))
 
     async def _notify_safely(self, title: str, text: str) -> None:
+        banner = None
         if self.perception is not None and self.notify is not _no_notify:
             # FERB knows its own banners (L10): the Notification Center row they become is FERB's, not an arrival.
             shown = {"title": self._redact_text(title), "body": self._redact_text(text)}     # as osascript shows it
-            self.perception.banner_posted(self.redact(shown))
+            banner = self.perception.banner_posted(self.redact(shown), OSASCRIPT_POSTER)
         try:
             await self.notify(title, text)
         except Exception:
-            pass
+            if banner is not None:                    # never posted: no row of it will come back
+                self.perception.banner_failed(banner)
 
     def owner_idle(self) -> bool:
         """Away from the Mac longer than [sense] idle_after_s (the owner-input tap); unknown counts as present."""
@@ -1668,7 +1670,7 @@ class Daemon:
 
     def _attention_app(self, event: dict[str, Any]) -> str:
         """The app a Jev yes batch is about: that of its first observation row (a batch never spans apps)."""
-        from ferb.orchestrator.attention import app_of
+        from ferb.sense.batches import app_of
         for ref in event.get('source_refs', []):
             if self.db is not None and isinstance(ref, str) and ref.startswith('trail:'):
                 row = self.db.conn.execute('SELECT source,data_json FROM trail WHERE id=?', (ref[6:],)).fetchone()
@@ -1701,7 +1703,7 @@ class Daemon:
     async def _consider_attention(self, *events: dict[str, Any]) -> None:
         """One consideration of one or more yes batches about one app (merged, rows in the order they happened). Every
         batch's decision records the outcome. Already told is scoped to the rows' app (L10)."""
-        from ferb.orchestrator.attention import app_of
+        from ferb.sense.batches import app_of
         decisions = list(dict.fromkeys('batch:' + str(event.get('batch_id')) for event in events))
 
         def effect(text: str) -> None:
@@ -3001,6 +3003,10 @@ class Daemon:
         finally:
             self._log_subscriptions.discard(sub)
             sub.close()
+
+
+# `osascript -e 'display notification …'` posts under Script Editor's bundle id (Notification Center's app identifier).
+OSASCRIPT_POSTER = "com.apple.ScriptEditor2"
 
 
 async def _no_notify(title: str, text: str) -> None:

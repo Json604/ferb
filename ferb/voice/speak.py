@@ -57,8 +57,8 @@ class SaySpeaker:
 
 
 def spoken(line: str) -> str:
-    """A chat line as words: no "ferb>" prompt, no emoji or markdown, units read naturally."""
-    text = re.sub(r"^\s*(ferb>|\?)\s*", "", line.strip())
+    """A chat line as words: no "ferb>" or "ferb (noticed)>" prompt, no emoji or markdown, units read naturally."""
+    text = re.sub(r"^\s*(ferb( \(noticed\))?>|\?)\s*", "", line.strip())
     text = re.sub(r"\[y/N\]|\(Ctrl-C to cancel\)|`", "", text)
     text = re.sub(r"[^\w\s.,;:!?'’\"()/%+@&-]", "", text)                 # emoji, arrows, bullets
     text = re.sub(r"\b(\d+) s\b", r"\1 seconds", text)

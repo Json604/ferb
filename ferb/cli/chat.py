@@ -23,6 +23,7 @@ import time
 from typing import Any, Callable, TextIO
 
 from ferb.cli.client import Client
+from ferb.core import origin as origin_
 from ferb.sanitize.terminal import printable
 from ferb.sanitize.untrusted import PASTE_END, PASTE_START
 from ferb.voice.speak import Silent
@@ -290,6 +291,22 @@ class PlainReply:
 
 
 NOTICED = "ferb (noticed)>"                  # a perception notice: FERB's words about what it noticed (L10)
+# Where a quote came from, in plain words for the owner (presentation only; an origin label never gates anything).
+OUTSIDE = {"observation": "what FERB saw on screen", "web": "a web page", "email": "an email", "message": "a message",
+           "conversation": "a conversation", "paste": "pasted text", "download": "a download",
+           "memory": "FERB's memory", "procedure": "a saved procedure"}
+OWN = {"owner": "your own words", "private": "your own data", "inferred": "FERB's inference", "ferb": "FERB"}
+
+
+def origin_phrase(label: str) -> str:
+    """An origin label (MP2) as the owner reads it: `external:web:claude.ai` → "a web page (claude.ai)"; an unknown
+    outside label is "an outside source"."""
+    least = origin_.least_trusted(origin_.split(label))
+    if not origin_.is_external(least):
+        return OWN.get(least, "an outside source")
+    kind, _, detail = least.removeprefix(origin_.EXTERNAL).lstrip(":").partition(":")
+    phrase = OUTSIDE.get(kind, "an outside source")
+    return phrase + (f" ({detail})" if detail and phrase != "an outside source" else "")
 
 
 class Chat:
@@ -321,7 +338,7 @@ class Chat:
         self.say(NOTICED + " " + str(notice.get("text", "")))
         for quote in notice.get("quotes") or []:
             text = json.dumps(str(quote.get("text", "")), ensure_ascii=False)
-            self.say(f'   quoted from {quote.get("origin", "")}: {text}')
+            self.say(f'   quoted from {origin_phrase(str(quote.get("origin", "")))}: {text}')
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
         c = self.connect()

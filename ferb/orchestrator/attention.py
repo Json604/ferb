@@ -5,21 +5,10 @@ keeps that origin, and outside text it repeats stays apart in `quotes` with its 
 import json
 from typing import Any
 
-from ferb.act.browser.profiles import BROWSERS
 from ferb.core import origin
+from ferb.sense.batches import app_of
 
 ORIGIN = origin.join({origin.external("observation"), origin.INFERRED})
-# A tab row names its browser ("brave"), an Accessibility row its bundle: both are the same app (L10).
-BROWSER_BUNDLES = {name: browser.bundle_id for name, browser in BROWSERS.items()} | {"safari": "com.apple.Safari"}
-
-
-def app_of(data: dict[str, Any]) -> str:
-    """The app an observation row is about: its bundle id, or the bundle of the browser a tab row names; "" when the
-    row names no app (files, idle). A fact recorded on the row, never inferred from its content."""
-    if data.get("bundle_id"):
-        return str(data["bundle_id"])
-    browser = str(data.get("browser") or "")
-    return BROWSER_BUNDLES.get(browser, browser)
 
 
 def _quotes(value: Any, source: str) -> list[dict[str, str]]:
@@ -92,7 +81,7 @@ CONTEXT_REMOVED = "Removed: this recorded context held text that has expired or 
 def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     """Clear the text of every notice derived from these source rows (cited or considered), wherever it was copied:
     the notice (taken out of `chat.status`), its `chat.notice` journal entry, the told receipts carrying its text, the
-    `attention.consider` spans, and any other recorded model context that was shown it in the chat history (L10). A
+    `attention.consider` spans, and any other span that recorded it from the chat history (L10). A
     consideration that saw one of the rows loses its recorded model context and its answer's text; any other model
     context that was told the notice (already_told, the chat history) loses that notice's text. Audit rows stay.
     Idempotent: a notice already carrying `replacement` is left as it is. Used by the D14 seven-day purge (I3) and by
@@ -112,16 +101,12 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
                             (replacement, ref.removeprefix("trail:"), row["text"]))
         cleared += 1
     # A told notice sits in a later consideration's context as a JSON "text" field (already_told, or a quote), and in
-    # the chat history the planner and later considerations were given (L10) in the same form.
-    told = [('"text": ' + json.dumps(text), '"text": ' + json.dumps(replacement)) for text in said if text]
-    if told:                                              # one pass over the other spans, only when needed
-        holds = " OR ".join(["instr(input_json, ?) > 0"] * len(told))
-        for span in db.conn.execute(f"SELECT id,input_json FROM spans WHERE kind!='attention.consider' AND ({holds})",
-                                    [json.dumps(old)[1:-1] for old, _ in told]).fetchall():
-            inp = json.loads(span["input_json"])
-            new_inp = {k: _without(v, told) for k, v in inp.items()}
-            if new_inp != inp:
-                db.conn.execute("UPDATE spans SET input_json=? WHERE id=?", (json.dumps(new_inp), span["id"]))
+    # the chat history (L10) in the same form: in the planner's recorded context, in the history block a task keeps
+    # as a `context.exposure` output, and in a `chat.history` or `task.evidence` read (written without ASCII escapes,
+    # or with that context encoded once more as a JSON string).
+    told = list({form: (form, new) for text in said if text for form, new in _forms(text, replacement)}.values())
+    if told:
+        _scrub_spans(db, told)
     for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'").fetchall():
         inp = json.loads(span["input_json"])
         out = json.loads(span["output_json"]) if span["output_json"] else None
@@ -137,7 +122,52 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     return cleared
 
 
+def _forms(text: str, replacement: str) -> list[tuple[str, str]]:
+    """A told string as a JSON "text" field, with its replacement, in each way FERB's records write it."""
+    out = []
+    for ascii_only in (True, False):
+        field = ('"text": ' + json.dumps(text, ensure_ascii=ascii_only),
+                 '"text": ' + json.dumps(replacement, ensure_ascii=ascii_only))
+        out += [field, (json.dumps(field[0], ensure_ascii=ascii_only)[1:-1],
+                        json.dumps(field[1], ensure_ascii=ascii_only)[1:-1])]
+    return out
+
+
+def notice_sources(db: Any, notice_id: str) -> list[str]:
+    """The rows a notice cited or considered: its lineage, carried by whatever is derived from it (forget reaches it)."""
+    row = db.conn.execute("SELECT source_refs_json, considered_refs_json FROM attention_notices WHERE id=?",
+                          (notice_id,)).fetchone()
+    return sorted(set(json.loads(row[0])) | set(json.loads(row[1] or "[]"))) if row is not None else []
+
+
+def _scrub_spans(db: Any, told: list[tuple[str, str]]) -> None:
+    """Every span but the considerations (handled by the caller) whose recorded input or output holds one of the told
+    strings loses it. One scan, matched in SQL against a temporary table of the strings, so any number of them fits."""
+    db.conn.execute("CREATE TEMP TABLE IF NOT EXISTS expiring_text (held TEXT PRIMARY KEY)")
+    try:
+        db.conn.executemany("INSERT OR IGNORE INTO expiring_text VALUES (?)",
+                            [(json.dumps(old)[1:-1],) for old, _ in told])      # as it sits inside the stored JSON
+        rows = db.conn.execute(
+            "SELECT id,input_json,output_json FROM spans s WHERE kind!='attention.consider' AND EXISTS (SELECT 1 FROM "
+            "expiring_text e WHERE instr(s.input_json, e.held) > 0 OR instr(COALESCE(s.output_json, ''), e.held) > 0)"
+        ).fetchall()
+    finally:
+        db.conn.execute("DELETE FROM expiring_text")
+    for span in rows:
+        inp = json.loads(span["input_json"])
+        out = json.loads(span["output_json"]) if span["output_json"] else None
+        new_inp, new_out = _without(inp, told), _without(out, told)
+        if new_inp != inp or new_out != out:
+            db.conn.execute("UPDATE spans SET input_json=?,output_json=? WHERE id=?",
+                            (json.dumps(new_inp), None if new_out is None else json.dumps(new_out), span["id"]))
+
+
 def _without(value: Any, told: list[tuple[str, str]]) -> Any:
+    """`value` with every told string replaced, in every string it holds."""
+    if isinstance(value, dict):
+        return {k: _without(v, told) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_without(v, told) for v in value]
     if not isinstance(value, str):
         return value
     for old, new in told:

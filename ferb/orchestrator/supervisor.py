@@ -791,8 +791,9 @@ class Supervisor(WorkerRuns):
             elif entry.kind == "chat.notice":                  # L10: what FERB noticed, quotes with their own origin
                 who += f" (noticed; origin {entry.origin})"
                 said = json.dumps({"text": said, "quotes": data.get("quotes", [])})
+            sources = self._notice_entry_sources if entry.kind == "chat.notice" else self._history_entry_sources
             timeline.append((entry.at, f"({entry.at.astimezone():%a %d %b %H:%M}) {who}: " + said,
-                             f"chat.history entry_id={entry.id}", True, partial(origins_.split, entry.origin), partial(self._history_entry_sources, entry.id, data)))
+                             f"chat.history entry_id={entry.id}", True, partial(origins_.split, entry.origin), partial(sources, entry.id, data)))
         for row in self.tasks.recent_roots(""):
             if task_ids is not None and row["id"] not in task_ids:
                 continue
@@ -859,6 +860,11 @@ class Supervisor(WorkerRuns):
         if data.get('task_id'):
             refs.update(self.task_source_refs(str(data['task_id'])))
         return sorted(refs)
+
+    def _notice_entry_sources(self, entry_id: str, data: dict[str, Any]) -> list[str]:
+        """A notice's history entry, with the rows the notice came from: what is derived from it traces to them (L10)."""
+        from ferb.orchestrator.attention import notice_sources
+        return sorted({'journal:' + entry_id, *notice_sources(self.journal.db, str(data.get('id', '')))})
 
     def _task_line_origins(self, task_id: str) -> set[str]:
         """A task's planner-written goal and recorded state, with what that task was given (S3, MP2)."""
