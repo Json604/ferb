@@ -40,7 +40,7 @@ def test_task_display_is_checked_and_full_answer_survives(daemon):
                          'artifacts': [], 'evidence': []})
     script = install(daemon, [sup('task', 'Reviewing.', task('review coding sessions'))], {'worker': worker})
     final = outcome(chat(daemon, 'review coding sessions'))
-    assert final['answer'] == 'Verified. ' + full
+    assert final['answer'] == full and final['verified']          # the check mark is the flag, not a prefix (L11)
     assert final['display_text'] == short
     checked = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker.verify')
     assert short in checked and full in checked
@@ -58,8 +58,9 @@ def test_unverified_display_cannot_reuse_worker_success_claim(daemon):
             {'worker': worker, 'worker.verify': check})
     final = outcome(chat(daemon, 'review coding sessions'))
     assert final['status'] == 'failed'
-    assert final['display_text'] != 'Done!'
-    assert 'missing' in final['display_text']
+    assert final['display_text'] != 'Done!' and 'Done!' not in final['display_text']
+    assert final['display_text'].startswith("I couldn't confirm the task was complete:")   # code's status label
+    assert 'missing' not in final['display_text'] and 'missing' in final['answer']        # findings: Details (L11)
 
 
 def test_question_projection_is_separate_from_authoritative_reason(daemon):
@@ -106,7 +107,7 @@ def test_failed_report_has_distinct_blocker_display_and_complete_details(daemon)
     install(daemon, [sup('task', 'Reviewing.', task('review coding sessions'))],
             {'worker': worker, 'worker.dispatch': dispatch})
     final = outcome(chat(daemon, 'review coding sessions'))
-    assert final['display_text'] == 'Task incomplete.\n' + short
+    assert final['display_text'] == "I couldn't finish this task.\n" + short       # code's label, the model's words
     assert full in final['answer']
     assert 'Still to do:' in final['answer']
     assert 'Still to do:' not in final['display_text']
@@ -114,8 +115,8 @@ def test_failed_report_has_distinct_blocker_display_and_complete_details(daemon)
 
 def test_cancellation_cannot_show_stale_recovery_question():
     from ferb.orchestrator.presentation import outcome_display
-    assert outcome_display('cancelled', 'Stopped, as you asked.', '', 'Choose a source?', [], '',
-                           'Which logs should I use?') == 'Stopped, as you asked.'
+    assert outcome_display('cancelled', 'Stopped, as you asked.', '', "I couldn't finish this task.",
+                           'Which logs should I use?', ['Choose a source?']) == 'Stopped, as you asked.'
 
 
 def test_cli_uses_same_visible_text_and_keeps_verbose_details():
@@ -164,11 +165,14 @@ def test_changed_cleanup_report_invalidates_prior_display(daemon, monkeypatch):
     assert not tree.checked_display and not tree.recovery_display
 
 
-def test_dispatch_cannot_hide_or_contradict_verified_failure():
+def test_dispatch_cannot_remove_or_replace_code_s_status_line():
+    """L11: the short text of an unfinished task is the orchestrator's, after code's status label. Whatever it says,
+    the label (from the check's verdict) leads, and the findings stay in the full answer; code doesn't judge the
+    wording (rule 6)."""
     from ferb.orchestrator.presentation import outcome_display
-    from ferb.orchestrator.verify import ConditionResult
-    findings = [ConditionResult(0, 'Payment completes', False, 'verifier', 'Payment did not complete.')]
-    visible = outcome_display('failed', 'Full failure report.', '', '', findings, '',
-                              'Payment completed successfully.')
-    assert 'Payment did not complete.' in visible
-    assert 'Payment completed successfully.' not in visible
+    label = "I couldn't confirm the task was complete:"
+    visible = outcome_display('failed', label + '\n- Payment completes — failed: Payment did not complete.', '', label,
+                              'The payment page timed out; nothing was charged that I can see.')
+    assert visible.split('\n')[0] == label
+    assert 'Payment did not complete.' not in visible
+    assert outcome_display('failed', 'Full failure report.', 'Done!', label, '') == label     # never a success claim

@@ -121,6 +121,14 @@ plan or outcome to its submitted turn, even when it arrives after a later turn's
 but a check couldn't confirm it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through subtasks, verification, a separate
 `stop_reason`, and resource outcomes. Render optional `display_text` as the concise reply and retain the complete `answer` in expandable Details.
 If absent/empty, fall back to `answer`. Do not invent a client summary or change completion status.
+`verified` (bool) is true only for `done`, when every condition was checked true; show it as a check mark. Neither
+`answer` nor `display_text` carries a "Verified." prefix (L11). For `failed`, `needs_user` and `done_unverified`,
+`display_text` starts with FERB's status line (such as "Done, but not confirmed:"), followed by the short text the
+orchestrator wrote from the check's verdict (without one: the open question, the reason work stopped and the files);
+the checker's findings stay in `answer`.
+When the task reached any site, `answer` ends with a code-built line `Sites contacted: host, host` (L2's list).
+A reply whose reminder or memory write FERB refused keeps its text and adds one line naming the refused part; on a
+task's turn that line arrives as a `timer` or `memory` event. A steering reply names the change ("Switched to: …").
 
 Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.
 Append these already-redacted fragments to a **provisional** reply belonging to this connection's submitted turn.

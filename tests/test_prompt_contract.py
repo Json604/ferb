@@ -31,8 +31,8 @@ SENTENCES = [
      "final, or changing a setting or default) is also an outcome to confirm, never a side step."),
     ("interaction.md",
      'Everything the owner reads (answers, summaries, questions, success conditions, stop reasons, and a check\'s '
-     'evidence and how) speaks to them as "you" and "your" ("your Brave Work profile"), never "the owner" or "the '
-     'user". In a success condition, "you" means the owner.'),
+     'evidence and how) speaks to them as "you" and "your", never "the owner" or "the user". In a success condition, '
+     '"you" means the owner.'),
         ("dispatch.md",
      'When the owner handed the work to a named agent or person (not an app FERB uses as a tool), never instruct a worker to do that work itself: have it help the named one, or use action=ask to ask the owner whether FERB should take over, saying what is stuck.'),
         ("question.md",

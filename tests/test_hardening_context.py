@@ -60,8 +60,11 @@ def test_pasted_syllabus_reaches_worker_and_checker_as_data(daemon):
 def test_checker_receives_successful_intake_memory_receipt(daemon):
     receipt = "remembered (memory-study-123): The current syllabus is https://example.test/syllabus."
     daemon.daemon.supervisor.remember = lambda *_: [receipt]
-    script = install(daemon, [sup("task", "Preparing", task(conds=(cond("Syllabus link is stored durably"),)))],
-                     {"worker": done("Created the files")})
+    planned = json.loads(sup("task", "Preparing", task(conds=(cond("Syllabus link is stored durably"),))))
+    # the planner asked to remember the link (each item goes to the memory hook on its own, L11)
+    planned["remember"] = [{"kind": "fact", "subject": "owner", "key": "syllabus", "quote": "Remember "
+                            "https://example.test/syllabus", "content": "The current syllabus is https://example.test/syllabus."}]
+    script = install(daemon, [json.dumps(planned)], {"worker": done("Created the files")})
     events = chat(daemon, "Remember https://example.test/syllabus and create study files")
     assert any(event.get("text") == receipt for event in events)
     checker_context = next(ctx for _, key, ctx, _ in script.contexts if key == "worker.verify")

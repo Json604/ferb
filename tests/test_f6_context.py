@@ -37,7 +37,7 @@ def test_selected_procedure_and_owner_answer_are_checked_in_same_task(daemon):
         'status': 'done', 'summary': 'Technical file inspection evidence.', 'answer': 'Your session file is complete.',
         'artifacts': [], 'evidence': ['File inspected'], 'input_notes': []})})
     result = outcome(chat(daemon, 'Inspect the session file'))
-    assert result['answer'] == 'Verified. Your session file is complete.'
+    assert result['answer'] == 'Your session file is complete.' and result['verified']   # the flag, no prefix (L11)
     assert any(row[0] == 'procedure-session' for row in inspected)
     assert any(row[0] == 'episode' for row in inspected)
     assert any(row[0] == 'outcome' for row in inspected)

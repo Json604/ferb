@@ -8,6 +8,7 @@ from typing import Any
 from ferb.core import origin
 from ferb.core.errors import Unsupported
 from ferb.core.types import RunHandle
+from ferb.policy.confirm import from_task_lines
 from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import wrap_untrusted
 
@@ -115,6 +116,10 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                   if (member := supervisor._tree_of.get(run.task_id)) is not None and member.id == tree.id]
         accepted = await asyncio.gather(*(deliver(supervisor, tree, runtime, run) for runtime, run in active))
         supervisor.publish('task.steered', {'task_id': tree.id, 'revision': revision, 'goal': tree.spec.goal})
-        return {'type': 'reply', 'task_id': tree.id,
-                'text': 'Updated the running task.' if active and all(accepted) else
-                        'Added your correction to the task; it will be picked up at the next worker turn.'}
+        # L11: the reply names what changed: the planner's updated goal, else the owner's correction itself. The goal
+        # is the planner's words: a line of it that reads like FERB's own check is marked as the task's (D33).
+        changed = ('Switched to: ' + tree.spec.goal if spec is not None else
+                   'Added your correction: ' + ' '.join(clean['words'].split()))
+        if not (active and all(accepted)):
+            changed += "\nI'll apply it at my next step."
+        return {'type': 'reply', 'task_id': tree.id, 'text': from_task_lines(changed)}

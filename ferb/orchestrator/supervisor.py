@@ -50,9 +50,10 @@ from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceErr
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
+from ferb.policy.sites import sites_contacted
 from ferb.policy.standing import StandingPermissions
 from ferb.policy.targets import Request, Targets
-from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, mark, wrap_untrusted
+from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, mark, wrap_untrusted
 from ferb.store.spans import SpanStore
 
 HEARTBEAT_POLL_S = 5.0
@@ -94,14 +95,34 @@ def _env_text(env: dict[str, Any]) -> str:
 
 SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
 SCHEDULED_SORRY = "Something went wrong on my side before this scheduled run could start."   # nobody to ask again
-REMINDER_NOT_SET = ("I couldn't set that reminder — a problem on my side, not with how you asked, so nothing is "
-                    "scheduled for it. Could you ask again?")
 HISTORY_TOKENS = 12000      # the conversation's newest entries that fit; older ones stay in chat.history
 ATTEMPTS_TOKENS = 2000      # resumable attempts: newest that fit
 TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done",
               "done_unverified": "done but not confirmed", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
               "unknown": "outcome unclear", "skipped": "skipped"}
+
+
+def _quoted(names: list[str]) -> str:
+    """Model-written names on one line, each in quotes."""
+    return ", ".join("“" + " ".join(name.split()) + "”" for name in names)
+
+
+def _not_set(messages: list[str]) -> str:
+    """The one line saying which reminders code refused (L11); "" when none."""
+    if not messages:
+        return ""
+    what, it = ("the reminder", "it") if len(messages) == 1 else ("the reminders", "them")
+    return (f"I couldn't set {what} {_quoted(messages)} — a problem on my side, not with how you asked, so nothing "
+            f"is scheduled for {it}. Could you ask again?")
+
+
+def _not_saved(contents: list[str]) -> str:
+    """The one line saying which memory writes code refused (L11); "" when none."""
+    if not contents:
+        return ""
+    return (f"I couldn't remember {_quoted(contents)} — a problem on my side, so "
+            f"{'it is' if len(contents) == 1 else 'they are'} not saved. Could you tell me again?")
 
 
 @dataclass
@@ -293,25 +314,39 @@ class Supervisor(WorkerRuns):
     def _default_availability(self) -> Availability:
         return build_availability(set().union(*(c.scopes for c in self.gateway.caps.values())), {})
 
-    def _set_timers(self, items: list[Any], own_words: str, request_id: str) -> list[str]:
-        """Reminders the owner asked for in chat: kept only when the quote is the owner's own words and the time is
-        in the future."""
+    def _set_timers(self, items: list[Any], said: list[str], request_id: str) -> tuple[list[str], list[str]]:
+        """Reminders the owner asked for in chat: kept only when the quote is within one of the owner's own messages
+        (`said`: their words, never pasted text) and the time is in the future. Returns the notes of those set and the
+        messages of those refused."""
         if self.timers is None:
-            return []
-        norm = " ".join(own_words.lower().split())
-        out = []
+            return [], [str(it.message) for it in items]
+        norms = [" ".join(words.lower().split()) for words in said]
+        out: list[str] = []
+        refused: list[str] = []
         for it in items:
             quote = " ".join(str(it.quote).lower().split())
             try:
-                if not quote or quote not in norm:
+                if not quote or not any(quote in norm for norm in norms):
                     raise ValueError("the reminder isn't in the owner's own words")
                 at = when.resolve(it.when, self.clock.now())                     # code computes the date, not the model
                 t = self.timers.add("reminder", at, it.message, request_id=request_id)
             except ValueError as e:                                             # WhenError is a ValueError
                 self.journal.append("timer.refused", {"why": str(e)})
+                refused.append(str(it.message))
                 continue
             out.append(f"⏰ reminder {t.id} set for {t.fire_at.astimezone():%a %d %b %H:%M}: {t.message}")
-        return out
+        return out, refused
+
+    def _owner_words_in_chat(self, session_id: str) -> list[str]:
+        """The owner's own words in each of this chat's messages (MP2): only messages recorded as theirs, without the
+        pasted or quoted parts FERB marked as outside data. A message recorded before FERB counted those parts is
+        left out (its origin is unlabeled)."""
+        words = []
+        for entry in self.journal.of_kind("chat.message", "session_id", session_id, missing="owner"):
+            held = origins_.split(entry.origin)
+            if origins_.OWNER in held and origins_.external("unlabeled") not in held:
+                words.append(WRAPPED.sub(" ", str(entry.data.get("text", ""))))
+        return words
 
 
     def _targets(self, spec: TaskSpec) -> Targets:
@@ -622,8 +657,13 @@ class Supervisor(WorkerRuns):
                 self._env.pop(request_id, None)
                 return
             prior_spec, prior_request, prior_state = prior
-            if prior_spec.plan is not None and (out.task is None or out.task.plan is None or
-                                                out.task.plan == prior_spec.plan):
+            # L11 (ef9e5d75): a follow-up the planner gave a new goal on the ended task replaces the goal and is
+            # planned afresh below, with the earlier goal and result as context; reopening the saved plan would run
+            # the old goal again.
+            new_goal = control.action == 'continue' and out.task is not None and \
+                out.task.goal.strip() != prior_spec.goal.strip()
+            if prior_spec.plan is not None and not new_goal and (out.task is None or out.task.plan is None or
+                                                                 out.task.plan == prior_spec.plan):
                 # The routed control names this saved plan. Keep its tree so completed work and uncertain
                 # effects remain the same records, even when the planner supplies a generic retry task.
                 self.plans.reopen(control.task_id)
@@ -667,17 +707,34 @@ class Supervisor(WorkerRuns):
         for rule in out.notification_rules:
             yield {'type': 'reply', 'text': self.notification_rule(rule, typed)}
         # Quotes are checked against what the owner typed (never against pasted text)
-        receipts = self.remember(out.remember, typed, entry.id)
+        receipts: list[str] = []
+        unsaved: list[str] = []
+        for item in out.remember:           # one at a time, so a refused one is known by name
+            saved_now = self.remember([item], typed, entry.id)
+            receipts += saved_now
+            unsaved += [] if saved_now else [item.content]
         self._env[request_id]["intake_receipts"] = receipts
         for saved in receipts:               # the owner's words, quote-checked
             yield {"type": "memory", "text": saved}
         for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
             yield {"type": "timer", "text": self.on_reminder_cancel(rc, typed)}
-        notes = self._set_timers(out.timers, typed, request_id)
+        # A reminder's quote may come from any of the owner's own messages in this chat (L11: the 19:52 boarding
+        # timer recovered at 20:10).
+        said = [typed, *self._owner_words_in_chat(session_id)] if out.timers else []
+        notes, unset = self._set_timers(out.timers, said, request_id)
         for note in notes:
             yield {"type": "timer", "text": note}
-        if len(notes) < len(out.timers) and out.kind == "reply":   # the reply mustn't claim a reminder that wasn't set
-            out = SupervisorOutcome(kind="reply", task=None, text=REMINDER_NOT_SET)
+        # L11 (20:10): a refused side output never replaces the reply. One line each says what wasn't done, so the
+        # reply can't stand as a claim that it was; it goes in the reply (and so into the conversation's history).
+        refused = {"timer": _not_set(unset), "memory": _not_saved(unsaved)}
+        lines = [line for line in refused.values() if line]
+        if lines and out.kind in ("reply", "clarify"):
+            shown = "\n".join([out.display_text.rstrip(), *lines]) if out.display_text.strip() else ""
+            out = out.model_copy(update={"text": "\n".join([out.text.rstrip(), *lines]), "display_text": shown})
+        else:                                                  # a task's turn: no reply to add them to
+            for kind, line in refused.items():
+                if line:
+                    yield {"type": kind, "text": line}
         if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
             yield {"type": "timer", "text": self.on_schedule(out.schedule, typed, request_id,
                                                              {origins_.INFERRED} | turn_origins)}
@@ -1883,6 +1940,7 @@ class Supervisor(WorkerRuns):
                    for index, condition in enumerate(conditions)]
         verified = not tree.stop and out.status == "done" and bool(conditions) and all(r.met is True for r in results)
         refuted = any(r.met is False for r in results)
+        label = ""                  # code's status line: the answer's first line, and the short text's (L11)
         if tree.stop == STOPPED_BY_YOU:
             status, summary, answer = "cancelled", STOPPED_BY_YOU, "Stopped, as you asked."
         elif tree.stop:
@@ -1890,40 +1948,48 @@ class Supervisor(WorkerRuns):
             answer = f"I couldn't finish that: {tree.stop}"
         elif verified:
             # The report the check judged, never a later review's wording (P16 V4/V6, D34). A check that confirmed
-            # every condition always judged one; the fallback only satisfies the type.
+            # every condition always judged one; the fallback only satisfies the type. Clients show `verified` as a
+            # check mark: the answer carries no marker of it (L11).
             report = tree.checked_report if tree.checked_report is not None else out.summary
-            status, summary, answer = "done", out.summary, ('Verified. ' + report if tree.owner_answer else report)
+            status, summary, answer = "done", out.summary, report
         elif out.status == "done" and not conditions:
             # Nothing could be checked, so completion is honestly unconfirmed rather than failed or done.
             status = "done_unverified"
-            summary = answer = NOTHING_TO_CHECK
+            summary = answer = label = NOTHING_TO_CHECK
         elif tree.stands_unconfirmed and out.status == "done" and not refuted:
-            status = "done_unverified"
-            summary = answer = _report(tree, results, out, "Done, but not confirmed:", "")
+            status, label = "done_unverified", "Done, but not confirmed:"
+            summary = answer = _report(tree, results, out, label, "")
         elif attempted and any(r.met is not True for r in results):
             # Condition facts are validated structure. Freeform worker/recovery prose may contradict them;
             # code cannot safely repair its meaning, so do not reuse it as the owner-facing summary.
             status = "needs_user" if out.status == "needs_user" else "failed"
-            summary = answer = _report(tree, results, out, "I couldn't confirm the task was complete:", "")
+            label = "I couldn't confirm the task was complete:"
+            summary = answer = _report(tree, results, out, label, "")
         elif not attempted and (conditions or out.status != "done"):
             # No check ran: the work stopped first. The reason is the orchestrator's stop reason, or a code-written
             # or failure report; never the orchestrator's instructions or an unchecked claim of success.
             status = "needs_user" if out.status == "needs_user" else "failed"
             reason = "" if tree.finish_chosen or out.status in ("done", "needs_user") else out.summary
-            header = ("I need your answer to finish this task." if status == "needs_user"
-                      else "I couldn't finish this task.")
-            summary = answer = _report(tree, results, out, header, reason)
+            label = NEEDS_ANSWER if status == "needs_user" else NOT_FINISHED
+            summary = answer = _report(tree, results, out, label, reason)
         elif out.status == "needs_user":
-            status, summary, answer = "needs_user", out.summary, out.summary
+            status, summary, answer, label = "needs_user", out.summary, out.summary, NEEDS_ANSWER
         else:
-            status, summary = "failed", out.summary
-            answer = f"I couldn't finish this task.\n\n{out.summary}"
+            status, summary, label = "failed", out.summary, NOT_FINISHED
+            answer = f"{NOT_FINISHED}\n\n{out.summary}"
         # D33: the answer and summary carry model-written lines (reports, the orchestrator's question, evidence); one
         # that reads like FERB's own check is marked as the task's. Code's own lines here never start with "FERB".
         summary, answer = confirm.from_task_lines(summary), confirm.from_task_lines(answer)
         from ferb.orchestrator.presentation import outcome_display
-        display = answer if tree.stop else outcome_display(
-            status, answer, tree.checked_display, tree.owner_question, results, tree.stop_reason, tree.recovery_display)
+        # An unfinished outcome's short text is the answer-writing model's (the orchestrator, which read the check's
+        # verdict), after code's label. Without one, code adds only plain facts it holds, never a finding (L11).
+        facts = [tree.owner_question if status == "needs_user" else "", tree.stop_reason,
+                 ("Files: " + ", ".join(sorted(out.artifacts))) if out.artifacts else ""]
+        display = answer if tree.stop else outcome_display(status, answer, tree.checked_display, label,
+                                                           tree.recovery_display, facts)
+        # The sites this task reached, from FERB's own records (L2), at the end of the full answer.
+        if sites := sites_contacted(self.spans, tree.id):
+            answer += "\n\nSites contacted: " + ", ".join(sites)
         return {"type": "outcome", "task_id": tree.id, "status": status, "summary": summary,
                 "display_text": confirm.from_task_lines(display),
                 "answer": answer, "verified": verified, "verification": [r.as_dict() for r in results],
@@ -1932,6 +1998,8 @@ class Supervisor(WorkerRuns):
 
 
 NOT_CHECKED = "Not checked: the task stopped before a check."
+NEEDS_ANSWER = "I need your answer to finish this task."
+NOT_FINISHED = "I couldn't finish this task."
 # FERB's report condition in the owner's terms: they never saw the worker's report (P27)
 REPORT_FALSE = "What I reported didn't match the records"
 REPORT_UNKNOWN = "I couldn't confirm my report matches the records"

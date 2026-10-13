@@ -356,4 +356,5 @@ def test_a_test_reminder_survives_typo_fixing_and_a_refusal_is_told(daemon: Runn
     install(daemon, [json.dumps({"kind": "reply", "text": "I'll remind you.", "plan": None, "remember": [],
                                  "timers": [{"when": mins(1), "message": "x", "quote": "words never said"}]})])
     evs = chat(daemon, "remind me in a minute")
-    assert evs[-1]["text"].startswith("I couldn't set that reminder")                # never "I'll remind you"
+    # L11: the reply stays, and its last line says the reminder wasn't set (never "I'll remind you" alone)
+    assert evs[-1]["text"].split("\n")[-1].startswith("I couldn't set the reminder “x”")

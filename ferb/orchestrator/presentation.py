@@ -1,32 +1,20 @@
-"""Visible outcome text, separate from the complete inspectable task report.
+"""Visible outcome text, separate from the complete inspectable task report (L11).
 
-Only verified model wording can become a success display. Incomplete outcomes keep
-code's status and every unresolved finding; the full condition ledger stays in answer.
+Only verified model wording can become a success display. An unfinished outcome (failed, needs_user, done but not
+confirmed) shows code's status label first, then the short text the model that wrote the answer composed from the
+checker's verdict. Code never puts the checker's findings in the short text: they stay in the full answer (Details).
 """
-from ferb.orchestrator.verify import ConditionResult, UNCHECKED
+from collections.abc import Sequence
 
 
-def outcome_display(status: str, answer: str, checked_display: str, question: str,
-                    results: list[ConditionResult], stop_reason: str, recovery_display: str = "") -> str:
+def outcome_display(status: str, answer: str, checked_display: str, label: str, short: str,
+                    facts: Sequence[str] = ()) -> str:
+    """`label`: code's status line (the first line of the answer). `short`: the answer-writing model's short text.
+    `facts`: what code shows after the label when no model wrote a short text: the open question, the reason work
+    stopped, the files recorded; never a checker finding."""
     if status == 'cancelled':
         return answer
     if status == 'done':
         return checked_display.strip() or answer
-    unresolved = [r for r in results if r.met is not True and r.path != UNCHECKED]
-    findings = list(dict.fromkeys(r.evidence + (' How to check: ' + r.how if r.met is None and r.how else '')
-                                 for r in unresolved))
-    if status == 'needs_user' and question and (findings or not recovery_display.strip()):
-        return '\n'.join([question, *findings])
-    if findings:
-        lead = 'Finished, but not fully confirmed.' if status == 'done_unverified' else "I couldn't confirm completion."
-        return '\n'.join([lead, *findings])
-    if recovery_display.strip():
-        lead = {
-            'failed': 'Task incomplete.',
-            'needs_user': 'Your answer is needed.',
-            'done_unverified': 'Finished, but not fully confirmed.',
-        }.get(status, '')
-        return (lead + '\n' + recovery_display).strip()
-    if stop_reason and status == 'failed':
-        return "I couldn't finish: " + stop_reason
-    return answer
+    body = short.strip() or '\n'.join(fact.strip() for fact in facts if fact.strip())
+    return '\n'.join(part for part in (label.strip(), body) if part) or answer
