@@ -95,6 +95,7 @@ Five read-only reports, kept locally (git-ignored) in `.superpowers/sdd/2026-10-
 | L12 | **The planner sees the front window with every message:** app, window title, and one redacted screenshot of that window taken **when the owner sends**. The worker for that message gets the same screenshot. |
 | L13 | **Browser-window screenshots and recording frames go to the model, redacted, with no exceptions** (removes `gateway.py:154-165` withholding). |
 | L14 | Fixes land on `astra_resume`. Afterwards it becomes `main` and the other branches are deleted (exact commands confirmed with the owner at that step). |
+| L28 | **The planner's prompt uses each model's real context window** instead of the hidden 32,768-token cap (never an owner decision). The situation, running tasks and questions, memory and today's activity always go in first; then chat newest-first, with older chat summarized; ordered so it can be cached (owner, 2026-10-14). |
 | L15 | The UI moved into this repository as `ui/` (done in 2b9f727; its old two-commit history is kept locally). |
 
 L16–L24 are the fix items in §4.6, accepted by the owner as a list. L25 (§4.8) was added at approval; L26 (§4.9)

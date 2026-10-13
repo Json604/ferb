@@ -91,6 +91,7 @@ Every event on a `chat.send` stream and the matching bus topic carries `request_
 | B: broken features | 11 → 12 → 13 | `sanitize/redact.py`, `store/spans.py`, `memory/*`, `policy/security_digest.py`, `sense/watchers/text_input.py`, `plan_executor.py`, `plans.py`, runtime account errors, `main.py` distill loop |
 | U: UI | 15 → 16 | `ui/mac/FERBNotch` |
 | X: extension | 17 → 20 | `ferb/act/browser/*` setup/install, `ferb/cli/*` setup, extension bundle |
+| L: planner context | 22 | `core/context.py`, `runtimes/`, supervisor context assembly, `learning.task_sources`, `sense/daily.py` |
 | R: release | 21 | `scripts/`, app bundle, install paths |
 | Final | 18 → 19 → whole-branch review | tests through the gateway, docs |
 
@@ -749,6 +750,68 @@ Arc and Opera on macOS:
 - [ ] Research, then tests first (structure/Info.plist/smoke), then implement. Validate: full suite, mypy core,
   diff-check, `swift test` in `ui/mac/FERBNotch`, and one real local build of the app and DMG into the scratchpad
   (report size and what launched). Commit `feat(L27): packaged FERB.app and DMG, ad-hoc signed; Developer ID ready`.
+
+### Task 22: Planner context the owner chose, and planning latency (L28)
+
+**Owner decision (2026-10-14).** The hidden `DEFAULT_BUDGET_TOKENS = 32768` (`ferb/core/context.py:18`, added in
+fd7d7f8 on 2026-10-05, never an owner decision) is replaced by **each model's real context window**, minus room for
+its reply. Inside it, the situation always comes first. Evidence:
+`.superpowers/sdd/2026-10-13-launch-week-fixes/latency-analysis.md`.
+- On 85 of 87 planner turns, the unbounded protected history overflowed the cap, so Layers 2–4 (situation including the
+  current time, activity, memory) never reached the planner.
+- The median time to the first line is 17.7 s.
+
+**Files:**
+- `ferb/core/context.py`;
+- the runtime adapters under `ferb/runtimes/` (each reports `context_window` and `max_output` per model, taken from
+  the provider's documented model limits — facts, not FERB choices);
+- `ferb/orchestrator/supervisor.py` (`_supervise` block order and priorities, `_recent`, `:706` sort);
+- `ferb/orchestrator/worker.py` (budget from the runtime);
+- `ferb/memory/learning.py` (`task_sources` lineage);
+- `ferb/sense/daily.py` (`DailyActivity.search`);
+- `ferb/memory/embeddings.py` (encode off the loop);
+- `ferb/daemon/main.py` (`relevant_context`/`relevant_source_refs` sharing one search).
+
+**Behaviour:**
+1. **Budget.** It comes from the active runtime's `context_window − max_output`. If an adapter can't report its window,
+   that is an explicit error at startup or doctor, never a guessed number.
+2. **Priority, always included:**
+   - the system prompt;
+   - the owner's message;
+   - Layer 2 (situation: time, owner activity, the front window from Task 8);
+   - running tasks and open questions;
+   - relevant memory;
+   - today's activity.
+
+   Then the conversation is filled newest-first. Turns that don't fit are represented by FERB's running summary of the
+   older conversation (reuse continuity/summary code if it exists). No block is "protected" in a way that can push
+   Layers 2–4 out.
+3. **Prompt order for caching:** system, Layer 1, the stable conversation prefix, then the per-turn blocks. Fix the
+   `int(text[6])` sort at `supervisor.py:706`. Record cached-token counts per turn in the span.
+4. **Latency fixes (no new limits):**
+   - memoize `task_sources` lineage within a turn and use the existing index range instead of a `LIKE` full scan;
+   - stop copying earlier replies' source refs into every `chat.reply` row;
+   - incremental token counting in `assemble_parts` (count each block once);
+   - one indexed `DailyActivity.search` per turn, shared by `relevant_context` and `relevant_source_refs`, off the
+     event loop;
+   - embedding `encode` off the loop;
+   - big span writes after the plan line.
+5. **History payload without wrapper vocabulary.** The `payload=` passed for S4 holds only entry texts: no times,
+   `[cN]` tags or ids (Task 2 review). The S4 private-value match then can't hit FERB's own wrapper tokens.
+6. **Measure.** Use the replay method in latency-analysis.md ("Reproduction") before and after, and report time to the
+   first line and cached tokens.
+
+- [ ] Tests first:
+  - a long history plus memory, activity and situation → all of Layers 2–4 are present and the oldest chat is summarized;
+  - the budget follows a fake runtime's window;
+  - a missing window → explicit error;
+  - the stable prefix is byte-identical across two consecutive turns;
+  - `task_sources` is called once per lineage per turn;
+  - one activity search per turn;
+  - the history payload contains no `[cN]` or timestamps.
+
+  All fail first. Implement, validate (full suite, mypy, diff-check), commit
+  `perf(L28): planner sees situation first within the model's real window; planning latency`.
 
 ### Task 18: Launch campaign path through the gateway (D30, L22)
 
