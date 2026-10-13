@@ -10,7 +10,9 @@ def build(db, day: str) -> dict:
     for row in c.execute("SELECT id, kind, input_json, output_json, error FROM spans WHERE substr(started_at,1,10)=? "
                          "AND kind IN ('tool.refused','tool.call')", (day,)):
         inp, out = json.loads(row['input_json'] or '{}'), json.loads(row['output_json'] or '{}')
-        for refusal in (out.get('network') or {}).get('refused', []):
+        # A command's proxy facts are {destinations, refused}; shell.rules describes the network as text (no refusals).
+        network = out.get('network') if isinstance(out, dict) else None
+        for refusal in network.get('refused', []) if isinstance(network, dict) else []:
             blocked.append({'span': row['id'], 'network': refusal})
         if row['kind'] == 'tool.refused':
             blocked.append({'span': row['id'], 'tool': inp.get('tool'), 'reason': row['error']})

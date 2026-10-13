@@ -4,9 +4,11 @@ import json
 import pytest
 
 from ferb.core.structured import check_final
+from ferb.memory.consolidate import PROPOSAL_SCHEMA
 from ferb.memory.distill import DISTILL_SCHEMA
 from ferb.orchestrator import schemas
 from tests.conftest import install, sup
+from tests.support.strict_schema import strict_problems
 
 SCHEMA = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"], "additionalProperties": False}
 
@@ -28,22 +30,9 @@ def test_no_schema_means_free_text() -> None:
 
 def test_every_ferb_output_schema_is_strict_compatible() -> None:
     """OpenAI strict mode and Anthropic output_config need additionalProperties false and every property required."""
-    def problems(node, path="$"):
-        out = []
-        if isinstance(node, dict):
-            if node.get("type") == "object" or "properties" in node:
-                if node.get("additionalProperties") is not False:
-                    out.append(f"{path}: additionalProperties")
-                if set(node.get("properties") or {}) - set(node.get("required") or []):
-                    out.append(f"{path}: required")
-            for k, v in node.items():
-                out += problems(v, f"{path}.{k}")
-        elif isinstance(node, list):
-            for i, v in enumerate(node):
-                out += problems(v, f"{path}[{i}]")
-        return out
-    found = {n: problems(getattr(schemas, n)) for n in dir(schemas) if n.endswith("_SCHEMA")}
-    found["DISTILL_SCHEMA"] = problems(DISTILL_SCHEMA)
+    found = {n: strict_problems(getattr(schemas, n)) for n in dir(schemas) if n.endswith("_SCHEMA")}
+    found["DISTILL_SCHEMA"] = strict_problems(DISTILL_SCHEMA)
+    found["PROPOSAL_SCHEMA"] = strict_problems(PROPOSAL_SCHEMA)
     assert not {n: p for n, p in found.items() if p}
 
 

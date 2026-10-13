@@ -12,27 +12,39 @@ from ferb.core.structured import check_final
 from ferb.core.types import Identity, ModelRequest, Task
 from ferb.memory.learning import Learning, LearningRefused, digest, encoded
 
+
+def _pairs(value: dict[str, Any]) -> dict[str, Any]:
+    """An open map in strict form: Codex strict output allows no open object, so a map is a list of {name, value}."""
+    return {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False, 'required': ['name', 'value'],
+                                       'properties': {'name': {'type': 'string'}, 'value': value}}}
+
+
+JSON_TEXT = {'type': 'string', 'description': 'the value as JSON text: a string in double quotes, a number, '
+                                              'true/false, a list or an object'}
 PROPOSAL_SCHEMA: dict[str, Any] = {
     'type': 'object', 'additionalProperties': False, 'required': ['procedures', 'lessons', 'identity', 'episodes'],
     'properties': {
         'episodes': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['episode', 'intent_signature', 'slots', 'reflection', 'narrative'], 'properties': {
                 'episode': {'type': 'string'}, 'intent_signature': {'type': 'string'},
-                'slots': {'type': 'object'}, 'reflection': {'type': 'string'}, 'narrative': {'type': 'string'}}}},
+                'slots': _pairs(JSON_TEXT), 'reflection': {'type': 'string'}, 'narrative': {'type': 'string'}}}},
         'procedures': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['intent', 'slots', 'preconditions', 'steps', 'ui_hints', 'examples'],
             'properties': {
-                'intent': {'type': 'string'}, 'slots': {'type': 'object', 'additionalProperties': {'type': 'string'}},
+                'intent': {'type': 'string'},
+                'slots': _pairs({'type': 'string', 'description': "the slot's JSON type: string, number, boolean, "
+                                                                  "array or object"}),
                 'preconditions': {'type': 'object', 'required': ['apps'], 'additionalProperties': False,
-                                  'properties': {'apps': {'type': 'object', 'additionalProperties': {'type': 'string'}}}},
+                                  'properties': {'apps': _pairs({'type': 'string',
+                                                                 'description': 'the captured app version'})}},
                 'steps': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
                     'required': ['tool', 'args', 'expect', 'evidence'], 'properties': {
-                        'tool': {'type': 'string'}, 'args': {'type': 'object'}, 'expect': {'type': 'string'},
+                        'tool': {'type': 'string'}, 'args': _pairs(JSON_TEXT), 'expect': {'type': 'string'},
                         'evidence': {'type': 'array', 'items': {'type': 'string'}}}}},
                 'ui_hints': {'type': 'string'},
                 'examples': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
                     'required': ['episode', 'slots'], 'properties': {
-                        'episode': {'type': 'string'}, 'slots': {'type': 'object'}}}}}}},
+                        'episode': {'type': 'string'}, 'slots': _pairs(JSON_TEXT)}}}}}},
         'lessons': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['scope', 'trigger', 'text', 'failure', 'success'], 'properties': {
                 'scope': {'type': 'object', 'additionalProperties': False,
@@ -43,6 +55,28 @@ PROPOSAL_SCHEMA: dict[str, Any] = {
         'identity': {'type': 'array', 'items': {'type': 'object', 'additionalProperties': False,
             'required': ['key', 'text', 'evidence'], 'properties': {'key': {'type': 'string'}, 'text': {'type': 'string'},
                 'evidence': {'type': 'array', 'items': {'type': 'string'}}}}}}}
+
+
+def _map(pairs: list[dict[str, Any]], *, json_text: bool = False) -> dict[str, Any]:
+    """The map a strict {name, value} list stands for. A repeated name or a value that isn't JSON text is refused."""
+    out: dict[str, Any] = {}
+    for pair in pairs:
+        name = pair['name']
+        if name in out:
+            raise LearningRefused(f'{name} is given twice')
+        try:
+            out[name] = json.loads(pair['value']) if json_text else pair['value']
+        except ValueError:
+            raise LearningRefused(f'the value of {name} is not JSON text') from None
+    return out
+
+
+def _procedure(p: dict[str, Any]) -> dict[str, Any]:
+    """A proposed procedure in the shape Learning checks and stores: its slots, apps and args as maps."""
+    return p | {'slots': _map(p['slots']),
+                'preconditions': p['preconditions'] | {'apps': _map(p['preconditions']['apps'])},
+                'steps': [s | {'args': _map(s['args'], json_text=True)} for s in p['steps']],
+                'examples': [e | {'slots': _map(e['slots'], json_text=True)} for e in p['examples']]}
 
 
 class Consolidator:
@@ -96,10 +130,12 @@ class Consolidator:
             return {'status': 'done', 'sources': results}
 
     def apply(self, proposals: dict[str, Any], available: set[str], batch: str, maker: str) -> tuple[list[str], list[str]]:
+        """Check each proposal of a PROPOSAL_SCHEMA answer against storage; a refused one never stops the others."""
         accepted, refused = [], []
         l = self.learning
         for p in proposals.get('episodes', []):
             try:
+                p = p | {'slots': _map(p['slots'], json_text=True)}
                 if p['episode'] not in available:
                     raise LearningRefused('annotation needs a supplied episode')
                 accepted.append(l.put('episode_annotation', p['episode'], p, [p['episode']],
@@ -108,6 +144,7 @@ class Consolidator:
                 refused.append(str(e))
         for p in proposals.get('procedures', []):
             try:
+                p = _procedure(p)
                 if any(e['episode'] not in available for e in p['examples']):
                     raise LearningRefused('procedure cites evidence outside its supplied context')
                 accepted.append(l.propose_procedure(p, batch, maker)['id'])

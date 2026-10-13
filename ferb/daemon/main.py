@@ -1295,18 +1295,25 @@ class Daemon:
     async def _distill_loop(self) -> None:
         """Hourly: summarize and distill every past day not done yet, then purge (summarized days only)."""
         while True:
+            await self._memory_pass()
+            await asyncio.sleep(3600)
+
+    async def _memory_pass(self) -> None:
+        """One hourly pass: distill, consolidate, restore the memory embedding. Each job has its own error scope, so
+        one failing never stops the others (L16); a failure never takes the daemon down and is tried again next hour."""
+        assert self.distiller is not None
+        jobs: list[tuple[str, Callable[[], Awaitable[Any]]]] = [("memory.distill_failed", self.distiller.catch_up)]
+        if self.consolidator is not None:
+            jobs.append(("memory.consolidate_failed", self.consolidator.catch_up))
+        if self.learning is not None:
+            jobs.append(("memory.embedding_restore_failed", self._restore_memory_embedding))
+        for failed, job in jobs:
             try:
-                assert self.distiller is not None
-                await self.distiller.catch_up()
-                if self.consolidator is not None:
-                    await self.consolidator.catch_up()
-                if self.learning is not None:
-                    await self._restore_memory_embedding()
+                await job()
             except asyncio.CancelledError:
                 raise
-            except Exception as e:                             # never takes the daemon down; tried again next hour
-                self._journal().append("memory.distill_failed", {"error": f"{type(e).__name__}: {e}"})
-            await asyncio.sleep(3600)
+            except Exception as e:
+                self._journal().append(failed, {"error": f"{type(e).__name__}: {e}"})
 
     async def _restore_memory_embedding(self) -> None:
         if self.learning.embedder is not None:

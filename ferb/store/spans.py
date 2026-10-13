@@ -1,6 +1,7 @@
 """Own redacted span persistence, evidence reads and task exports. Must not invent missing observations."""
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Iterator
@@ -12,6 +13,11 @@ from ferb.policy.rules import REVERSIBLE
 from ferb.store.db import Database
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
+# A span input's structured id fields hold FERB's own record ids, built by code from stored rows, never content. Text
+# redaction never runs over an id there (L16): an altered ref breaks lineage ("unknown source"). A value that isn't a
+# single id token (words, a URL) is redacted like any other text.
+ID_FIELDS = frozenset({"source_refs"})
+ID_TOKEN = re.compile(r"[A-Za-z0-9_.:-]+")
 OUTPUT_TEXT_CAP = 20000          # characters of each tool result matched for argument sources (S3)
 # origin.recorded in SQL: a non-root span's output with no recorded origin is unlabeled (the one parameter).
 _RECORDED = "CASE WHEN kind != 'task' AND origin IS NULL AND output_json IS NOT NULL THEN ? ELSE origin END"
@@ -46,13 +52,24 @@ class SpanStore:
     def start(self, kind: str, *, input: dict[str, Any], task_id: str | None = None,
               parent_id: str | None = None, device_id: str | None = None) -> Span:
         span = Span(id=self._ids.new_id(), parent_id=parent_id, kind=kind, task_id=task_id, device_id=device_id,
-                    started_at=self._clock.now(), ended_at=None, input=self._redact(input), output=None,
+                    started_at=self._clock.now(), ended_at=None, input=self._redact_input(input), output=None,
                     cost_usd=None, error=None)
         self._db.conn.execute(
             "INSERT INTO spans (id, parent_id, task_id, kind, device_id, started_at, input_json)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (span.id, parent_id, task_id, kind, device_id, span.started_at.isoformat(), json.dumps(span.input)))
         return span
+
+    def _redact_input(self, input: dict[str, Any]) -> dict[str, Any]:
+        out = self._redact({k: v for k, v in input.items() if k not in ID_FIELDS})
+        for key in ID_FIELDS & input.keys():
+            refs = input[key]
+            if not isinstance(refs, (list, tuple)):
+                out[key] = self._redact({key: refs})[key]
+                continue
+            out[key] = [ref if isinstance(ref, str) and ID_TOKEN.fullmatch(ref) else self._redact({key: ref})[key]
+                        for ref in refs]
+        return out
 
     def finish(self, span: Span, *, output: dict[str, Any] | None = None, error: str | None = None,
                cost_usd: float | None = None, origin: str | None = None,

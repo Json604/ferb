@@ -54,7 +54,11 @@ OTP_LABEL = re.compile(r"(?i)\b(?:otp|totp|2fa|one[ _-]?time(?:[ _-]+(?:code|pas
 # text is still redacted by the narrow credential patterns, so 'login phone number' remains ordinary text.
 OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
 OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b[^\d\n]{0,40})(\d(?:[ -]?\d){3,7})(?!\d)")
-CARD = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
+# A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
+# id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
+# \r in a redacted JSON text) still separates it from the word before.
+_ID_CHAR = "[0-9A-Za-z_]"
+CARD = re.compile(rf"(?:(?<!{_ID_CHAR})|(?<=\\[ntr]))(?<!{_ID_CHAR}-)(?:\d[ -]?){{12,18}}\d(?!{_ID_CHAR}|-{_ID_CHAR})")
 
 
 def payment_card(value: str) -> bool:
