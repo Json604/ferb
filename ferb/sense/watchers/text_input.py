@@ -1,12 +1,12 @@
-"""Listen-only text capture. Secure Input, terminal apps and the focused AX role are checked before Unicode is
-extracted."""
+"""Listen-only text capture. Secure Input, terminal apps and the focused field's AX role and password metadata are
+checked before Unicode is extracted."""
 import asyncio
 import ctypes
 import time
 from typing import Any, Callable
 
 from ferb.policy.protection import DEFAULT_TERMINAL_APPS
-from ferb.sense.capture import Field, TypedFields, TEXT_ROLES
+from ferb.sense.capture import Field, TypedFields, TEXT_ROLES, password_element
 from ferb.sense.watchers.base import Emit, focused_app, poll
 
 # L17: typed text is never captured in a terminal app. A `sudo` password typed there has no secure field and Secure
@@ -34,8 +34,8 @@ def focused_field(excluded: Callable[[str, str], bool]) -> Field | None:
     field = _attr(root, "AXFocusedUIElement")
     role = str(_attr(field, "AXRole") or "") if field is not None else ""
     subrole = str(_attr(field, "AXSubrole") or "") if field is not None else ""
-    if role not in TEXT_ROLES or "Secure" in role or "Secure" in subrole:
-        return None
+    if role not in TEXT_ROLES or "Secure" in role or "Secure" in subrole or password_element(role, field, _attr):
+        return None                         # a shown password is a plain AXTextField: its metadata still says so
     value = _attr(field, "AXValue")
     masked = isinstance(value, str) and bool(value) and all(c in "•●*·" for c in value)
     window = _attr(field, "AXWindow")

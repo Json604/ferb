@@ -35,6 +35,7 @@ from ferb.core.errors import DriverError, Refused, StaleRef
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, SecretSpec, TabRef, ToolContext, WaitCondition)
 from ferb.orchestrator.ledger import Ledger
+from ferb.sanitize.redact import password_field
 
 Publish = Callable[[str, dict[str, Any]], None]
 CMD_TIMEOUT_S = 30.0
@@ -1284,7 +1285,7 @@ class Router(_TabDriver):
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
         self.owned_by(el.tab.tab_id, ctx.task_id)
-        if not info.secret or info.input_type == "password":
+        if not info.secret or info.input_type == "password" or password_field(info.input_type or "", info.label):
             raise Refused("select a visible verification-code field, not a password or ordinary text field")
         if self.ask_code is None:
             raise Refused("hidden login-code input is unavailable")

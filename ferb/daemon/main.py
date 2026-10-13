@@ -2633,7 +2633,7 @@ class Daemon:
                 # answer alone when an explicit code label asks for a code, and never remembered.
                 if (ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor)
                         and ap.option_for(text) is None):
-                    text = self.redact.field(text, label=ap.reason)
+                    text = self.redact.answer(text, question=ap.reason)
                 if ap is not None and ap.kind == "owner_login_code" and text:
                     self._add_secret_value(text)
         try:

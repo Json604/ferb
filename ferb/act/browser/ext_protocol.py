@@ -20,7 +20,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 PROTOCOL_VERSION = 13
-MIN_EXTENSION_VERSION = "0.15.2"
+MIN_EXTENSION_VERSION = "0.15.3"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 

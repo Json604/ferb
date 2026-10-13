@@ -3,11 +3,19 @@ from dataclasses import dataclass
 import threading
 from typing import Any, Callable
 
+from ferb.sanitize.redact import password_field
 from ferb.sense.trail import Observation
 
 CONCEALED = {"org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType"}
 TEXT_ROLES = {"AXTextField", "AXTextArea", "AXComboBox"}
+# AX attributes that can name a password field, also while "Show password" makes it a plain AXTextField.
+FIELD_METADATA_ATTRS = ("AXTitle", "AXDescription", "AXPlaceholderValue", "AXIdentifier", "AXDOMIdentifier")
 _clipboard_write: tuple[int, str | None] | None = None
+
+
+def password_element(role: str, element: Any, attr: Callable[[Any, str], Any]) -> bool:
+    """A text element whose own AX metadata names it a password field: its value is a secret (rule 14)."""
+    return role in TEXT_ROLES and password_field(role, *(attr(element, a) for a in FIELD_METADATA_ATTRS))
 
 
 def mark_clipboard_write(change_count: int, task_id: str | None = None) -> None:

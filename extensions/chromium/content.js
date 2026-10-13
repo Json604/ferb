@@ -168,7 +168,14 @@
     }
     return [];
   }
-  const isSecret = (el) => sealedFields.has(el) || el.tagName === "INPUT" && ((el.type || "").toLowerCase() === "password"
+  // A password field, also while a site's "Show password" makes it type=text (Google keeps autocomplete
+  // current-password and name Passwd): its autocomplete, name, id or label says so. Checkboxes and buttons
+  // ("Show password") are no text fields.
+  const passwordField = (el) => el.tagName === "INPUT" && ((el.type || "").toLowerCase() === "password" ||
+    ["text", "email", "search", "tel", "url", "number", ""].includes((el.type || "").toLowerCase()) &&
+    (/\b(?:current|new)-password\b/.test(el.autocomplete || "") ||
+     /passw|pwd/i.test((el.name || "") + " " + (el.id || "") + " " + label(el))));
+  const isSecret = (el) => sealedFields.has(el) || el.tagName === "INPUT" && (passwordField(el)
     || /one-time-code/.test(el.autocomplete || "") || SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el))
     || codeGroup(el).length > 1);
 
@@ -679,7 +686,7 @@
     const { el, error } = element(gen, id);
     if (error) return { ok: false, detail: error };
     if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return { ok: false, detail: "not_a_text_field" };
-    if (codeOnly && (!isSecret(el) || el.type === "password")) return {ok: false, detail: "code_field_changed"};
+    if (codeOnly && (!isSecret(el) || passwordField(el))) return {ok: false, detail: "code_field_changed"};
     let group = codeGroup(el);
     if (splitIds !== null) {
       if (!Array.isArray(splitIds) || splitIds.length < 2 || splitIds[0] !== id ||

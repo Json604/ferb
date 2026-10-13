@@ -50,6 +50,28 @@ def secret_param(name: str) -> bool:
 # Explicit credential-field metadata, never broad login/security/access language in an ordinary owner question.
 OTP_LABEL = re.compile(r"(?i)\b(?:otp|totp|2fa|one[ _-]?time(?:[ _-]+(?:code|password|pin))?|"
                        r"(?:verification|authentication|security|login|sign[ _-]?in|access)[ _-]+(?:code|pin))\b")
+# A password field, also while a site's "Show password" makes it plain text (type=text, AXTextField): its own
+# metadata says so (autocomplete current-password/new-password, or a name, id, label, placeholder or title holding
+# "passw" or "pwd"). A secret class at the capture boundary like OTP_LABEL, never a judgement of intent. It covers
+# text-entry fields (their AX role, ARIA role or input type; "" when a record names none): a checkbox, a button or a
+# menu item ("Show password", "Passwords") is no text field, so its state stays readable.
+PASSWORD_FIELD = re.compile(r"(?i)passw|pwd")
+TEXT_FIELD_KINDS = frozenset({"", "text", "password", "email", "search", "tel", "url", "number", "textarea",
+                              "textbox", "searchbox", "combobox", "axtextfield", "axtextarea", "axcombobox",
+                              "axsearchfield"})
+FIELD_METADATA = ("autocomplete", "name", "id", "label", "placeholder", "title")
+
+
+def password_field(kind: str, *metadata: Any) -> bool:
+    """A text-entry field of this kind (its role or input type) that its metadata names a password field."""
+    return kind.casefold() in TEXT_FIELD_KINDS and any(isinstance(m, str) and PASSWORD_FIELD.search(m)
+                                                        for m in metadata)
+
+
+def _labelled_code(label: str, text: str) -> bool:
+    return bool(OTP_LABEL.search(label)) and re.fullmatch(r"[\d -]+", text.strip()) is not None
+
+
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
 # text is still redacted by the narrow credential patterns, so 'login phone number' remains ordinary text.
 OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authentication|security|login|sign[ _-]?in|access|2fa|otp|totp)\b")
@@ -144,11 +166,17 @@ class Redactor:
         return self._str(s)
 
     def field(self, text: str, *, role: str = "", label: str = "", secure_input: bool = False,
-              concealed: bool = False) -> str:
+              concealed: bool = False, metadata: tuple[str, ...] = ()) -> str:
         """Capture boundary for AX/DOM/clipboard fields; metadata never grants action permission."""
-        if secure_input or concealed or "secure" in role.casefold() or role.casefold() == "password":
+        if (secure_input or concealed or "secure" in role.casefold() or role.casefold() == "password"
+                or password_field(role, label, *metadata) or _labelled_code(label, text)):
             return REDACTED if text else text
-        if OTP_LABEL.search(label) and re.fullmatch(r"[\d -]+", text.strip()):
+        return self._str(text)
+
+    def answer(self, text: str, *, question: str) -> str:
+        """The owner's typed answer to an ordinary question, which is no field: a code is hidden for this answer
+        when the question carries an explicit code label (rule 14); the question's other words never hide it."""
+        if _labelled_code(question, text):
             return REDACTED if text else text
         return self._str(text)
 
@@ -188,8 +216,10 @@ class Redactor:
         return obj
 
     def _dict(self, d: dict[Any, Any]) -> dict[Any, Any]:
-        secret_field = str(d.get("type", "")).lower() == "password" or \
-            "one-time-code" in str(d.get("autocomplete", "")).lower()
+        secret_field = (str(d.get("type", "")).lower() == "password"
+                        or "one-time-code" in str(d.get("autocomplete", "")).lower()
+                        or password_field(str(d.get("input_type") or d.get("type") or d.get("role") or ""),
+                                          *(d.get(k) for k in FIELD_METADATA)))
         input_event = isinstance(d.get("method"), str) and d["method"].startswith("Input.")
         out: dict[Any, Any] = {}
         for k, v in d.items():

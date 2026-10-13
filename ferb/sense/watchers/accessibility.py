@@ -3,6 +3,7 @@ import asyncio
 import threading
 from typing import Any, Callable
 
+from ferb.sense.capture import password_element
 from ferb.sense.trail import Observation
 from ferb.sense.watchers.base import Emit, run_loop_slice
 
@@ -16,6 +17,22 @@ def accessibility_observation(bundle_id: str, app: str, pid: int, notification: 
     allowed = {k: facts[k] for k in ("window_id", "field_id", "role", "title") if k in facts}
     return Observation("accessibility", redact({"bundle_id": bundle_id, "app": app, "pid": pid,
                        "notification": notification} | allowed), {"actor": "unknown"})
+
+
+def element_facts(kind: str, element: Any, attr: Callable[[Any, str], Any]) -> dict[str, Any] | None:
+    """What an AX event about `element` records, or None when nothing is: a value change of a secure or password
+    field (a shown password is a plain AXTextField; its metadata still names it). Such a field never gives its title."""
+    role = str(attr(element, "AXRole") or "")
+    subrole = str(attr(element, "AXSubrole") or "")
+    hidden = "Secure" in role + subrole or password_element(role, element, attr)
+    if hidden and kind == "AXValueChanged":
+        return None
+    window = attr(element, "AXWindow")
+    facts = {"role": role, "field_id": str(attr(element, "AXIdentifier") or hash(element)),
+             "window_id": str(attr(window, "AXWindowNumber") or hash(window)) if window is not None else ""}
+    if not hidden:
+        facts["title"] = str(attr(element, "AXTitle") or "")
+    return facts
 
 
 class AccessibilityWatcher:
@@ -45,14 +62,10 @@ class AccessibilityWatcher:
             runloop = Quartz.CFRunLoopGetCurrent()
 
             def deliver(bundle: str, name: str, pid: int, kind: str, element: Any) -> None:
-                role = str(_attr(element, "AXRole") or "")
-                subrole = str(_attr(element, "AXSubrole") or "")
-                window = _attr(element, "AXWindow")
-                facts = {"role": role, "field_id": str(_attr(element, "AXIdentifier") or hash(element)),
-                         "window_id": str(_attr(window, "AXWindowNumber") or hash(window)) if window is not None else ""}
-                # Secure controls never expose their titles/values to the callback or event queue.
-                if "Secure" not in role + subrole:
-                    facts["title"] = str(_attr(element, "AXTitle") or "")
+                # Secure and password controls never expose their titles or value changes to the event queue.
+                facts = element_facts(kind, element, _attr)
+                if facts is None:
+                    return
                 observation = accessibility_observation(bundle, name, pid, kind, facts, self.redact)
                 loop.call_soon_threadsafe(emit, observation)
 
