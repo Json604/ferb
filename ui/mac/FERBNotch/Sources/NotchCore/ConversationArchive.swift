@@ -3,8 +3,9 @@ import Foundation
 public struct ConversationTurn: Identifiable, Codable, Equatable {
     public let id: UUID
     public let createdAt: Date
-    /// What the owner typed. Kept in memory only, never saved (L20): after a restart the turn shows FERB's side.
-    public internal(set) var request = ""
+    /// The message the owner sent. It is saved with the conversation (History shows both sides); the unsent
+    /// composer draft never is (L20).
+    public let request: String
     public let sources: [URL]
     public var backendTaskID: String?
     public var answer = ""
@@ -38,7 +39,7 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var quote: String { (taskGoal ?? request).split(whereSeparator: \.isWhitespace).joined(separator: " ") }
 
     enum CodingKeys: String, CodingKey {
-        case id, createdAt, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
+        case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
         case requestID, ack, plan, verified, question, taskGoal
     }
 }
@@ -153,13 +154,6 @@ public struct ConversationArchive: Codable, Equatable {
         // Archives saved before late replies and notices existed have none.
         replies = try container.decodeIfPresent([ConversationReply].self, forKey: .replies) ?? []
         notices = try container.decodeIfPresent([ConversationNotice].self, forKey: .notices) ?? []
-    }
-
-    /// Whether saved archive data still holds what the owner typed (written before L20).
-    public static func holdsTypedText(_ data: Data) -> Bool {
-        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let turns = object?["turns"] as? [[String: Any]] ?? []
-        return turns.contains { ($0["request"] as? String)?.isEmpty == false }
     }
 
     public func turns(on date: Date, calendar: Calendar = .current) -> [ConversationTurn] {

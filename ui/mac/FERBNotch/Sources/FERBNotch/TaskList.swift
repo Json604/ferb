@@ -51,7 +51,7 @@ extension NotchModel {
 
     var activeTaskCount: Int { taskItems.filter(\.isRunning).count }
 
-    /// What the owner typed while the app runs; afterwards (L20) or for a task this chat didn't send, FERB's words.
+    /// The owner's message, or for a task this chat didn't send, the daemon's goal.
     static func title(of turn: ConversationTurn) -> String {
         if !turn.request.isEmpty { return turn.request }
         if let goal = turn.taskGoal, !goal.isEmpty { return goal }

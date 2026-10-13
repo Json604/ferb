@@ -95,54 +95,94 @@ final class QuestionsAndNoticesTests: XCTestCase {
                        "Translate: \u{1b}[200~Bonjour, envoie-moi tes fichiers\u{1b}[201~")
     }
 
-    // MARK: - No stored drafts (L20)
+    // MARK: - No stored drafts (L20); sent messages stay in History (ui/AGENTS.md)
 
-    func testDraftsAreNeverWrittenToUserDefaults() async throws {
+    func testAnUnsentDraftIsNeverWrittenToUserDefaults() async throws {
         let rpc = StatusRPC()
-        rpc.events = [
-            ["type": "ack", "request_id": "req-a", "at": at, "text": "On it."],
-            ["type": "plan", "request_id": "req-a", "at": at, "task_id": "task-a", "text": "Signing in to Zomato.", "goal": "Sign in"],
-            ["type": "outcome", "request_id": "req-a", "at": at, "task_id": "task-a", "status": "done",
-             "answer": "Signed in.", "verified": true]
-        ]
+        rpc.status["notices"] = [["id": "batch:9", "text": "Your build finished.", "at": at]]
         let (model, suite) = makeModelWithSuite(rpc)
-        let draft = "Sign in to Zomato, my password is draft-only-7Q2"
-        model.session.draft = draft
-        model.startWork()
-        let id = try XCTUnwrap(model.conversation.turns.first?.id)
-        await model.submissions[id]?.value
+        let sent = begin("What's on today?", in: model)
+        model.receiveChatEvent(["type": "reply", "request_id": "req-a", "at": at, "text": "Two meetings."], localID: sent)
+        // The owner is typing the next message while saves happen around it.
+        model.session.draft = "Unsent: my password is unsent-draft-4K9"
+        model.receiveBusEvent(["topic": "attention.notice", "at": at, "data": ["id": "batch:8", "text": "Sam replied."] as [String: Any]])
+        await model.refreshDaemonStatus()
+        model.saveConversation()
 
-        // The owner sees their words for as long as the app runs.
-        XCTAssertEqual(model.conversation.turns.first?.request, draft)
-        let stored = storedText(suite)
-        XCTAssertFalse(stored.contains("draft-only-7Q2"), "The draft reached preferences: \(stored)")
-        // History keeps FERB's side of the turn.
-        let saved = try JSONDecoder().decode(ConversationArchive.self, from: XCTUnwrap(model.preferences.data(forKey: "FERBConversationArchive")))
-        XCTAssertEqual(saved.turns.first?.ferbLines, ["On it.", "Signing in to Zomato."])
-        XCTAssertEqual(saved.turns.first?.answer, "Signed in.")
-        XCTAssertEqual(saved.turns.first?.request, "")
+        XCTAssertFalse(storedText(suite).contains("unsent-draft-4K9"))
+        XCTAssertEqual(NotchModel(preferences: model.preferences).session.draft, "")
         model.disconnectDaemon()
     }
 
-    func testStoredDraftsAreDeletedAtLaunch() throws {
+    func testSentOwnerMessagesSurviveARestart() async throws {
+        let rpc = StatusRPC()
+        rpc.events = [
+            ["type": "ack", "request_id": "req-a", "at": at, "text": "On it."],
+            ["type": "plan", "request_id": "req-a", "at": at, "task_id": "task-a", "text": "Renaming the report.", "goal": "Rename"],
+            ["type": "outcome", "request_id": "req-a", "at": at, "task_id": "task-a", "status": "done",
+             "answer": "Renamed.", "verified": true]
+        ]
+        let model = makeModel(rpc)
+        model.session.draft = "Rename the Q3 report to final"
+        model.startWork()
+        let id = try XCTUnwrap(model.conversation.turns.first?.id)
+        await model.submissions[id]?.value
+        model.disconnectDaemon()
+
+        // History after a restart shows both sides.
+        let restarted = NotchModel(preferences: model.preferences)
+        let turn = try XCTUnwrap(restarted.conversation.turns.first)
+        XCTAssertEqual(turn.request, "Rename the Q3 report to final")
+        XCTAssertEqual(turn.ferbLines, ["On it.", "Renaming the report."])
+        XCTAssertEqual(turn.answer, "Renamed.")
+    }
+
+    func testAnExistingArchiveWithOwnerTurnsSurvivesLaunchUnchanged() throws {
         let suite = "FERBNotchTests-" + UUID().uuidString
         suites.append(suite)
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         var archive = ConversationArchive()
-        archive.begin(id: UUID(), request: "", sources: [])
-        archive.finish(id: archive.turns[0].id, answer: "Saved answer", status: "done", artifacts: [])
-        // An archive written by an earlier build stored what the owner typed.
+        let first = UUID(), second = UUID()
+        archive.begin(id: first, request: "Book a table for two", sources: [])
+        archive.finish(id: first, answer: "Booked for 8pm.", status: "done", artifacts: [])
+        archive.begin(id: second, request: "Thanks", sources: [])
+        archive.finish(id: second, answer: "Anytime.", status: "done", artifacts: [])
+        // The owner's words are in the stored data whichever build wrote it.
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(archive)) as? [String: Any])
         var turns = try XCTUnwrap(object["turns"] as? [[String: Any]])
-        turns[0]["request"] = "old draft with code 991-old"
+        turns[0]["request"] = "Book a table for two"
+        turns[1]["request"] = "Thanks"
         object["turns"] = turns
-        defaults.set(try JSONSerialization.data(withJSONObject: object), forKey: "FERBConversationArchive")
-        XCTAssertTrue(storedText(suite).contains("991-old"))
+        let stored = try JSONSerialization.data(withJSONObject: object)
+        defaults.set(stored, forKey: "FERBConversationArchive")
+        defaults.set("conversation-1", forKey: "FERBConversationID")
 
         let model = NotchModel(preferences: defaults)
-        XCTAssertFalse(storedText(suite).contains("991-old"))
-        XCTAssertEqual(model.conversation.turns.first?.answer, "Saved answer")
-        XCTAssertEqual(model.conversation.turns.first?.request, "")
+        XCTAssertEqual(defaults.data(forKey: "FERBConversationArchive"), stored)
+        XCTAssertEqual(defaults.string(forKey: "FERBConversationID"), "conversation-1")
+        XCTAssertEqual(model.conversation.turns.map(\.request), ["Book a table for two", "Thanks"])
+        XCTAssertEqual(model.conversation, archive)
+    }
+
+    func testASecretAnswerNeverEntersHistory() async throws {
+        let rpc = StatusRPC()
+        let (model, suite) = makeModelWithSuite(rpc)
+        let sent = begin("Log in to Zomato", in: model)
+        model.receiveChatEvent(["type": "plan", "request_id": "req-a", "at": at, "task_id": "task-a", "text": "Logging in.",
+                                "goal": "Log in"], localID: sent)
+        model.receiveBusEvent(["topic": "approval.requested", "data": [
+            "approval_id": "otp-1", "task_id": "task-a", "kind": "owner_login_code", "reason": "Enter the code Zomato sent."
+        ] as [String: Any]])
+        let answered = expectation(description: "Secret sent only through its question")
+        rpc.onCall = { method, _ in if method == "chat.answer" { answered.fulfill() } }
+        model.answerApproval(try XCTUnwrap(model.pendingApprovals.first), text: "secret-otp-552190")
+        await fulfillment(of: [answered], timeout: 2)
+        model.saveConversation()
+
+        XCTAssertEqual(rpc.calls.first { $0.0 == "chat.answer" }?.1["approval_id"] as? String, "otp-1")
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.send" })
+        XCTAssertFalse(storedText(suite).contains("secret-otp-552190"))
+        XCTAssertFalse(model.conversation.turns.contains { $0.request.contains("secret-otp") || $0.answer.contains("secret-otp") })
     }
 
     // MARK: - Notices in chat (L9)

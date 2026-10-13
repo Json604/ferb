@@ -90,7 +90,7 @@ private struct TurnView: View {
 }
 
 /// The owner's message on the right. A task this chat didn't send has no owner message: its goal is FERB's
-/// description, shown on FERB's side. What the owner typed is not kept after a restart (L20).
+/// description, shown on FERB's side.
 private struct RequestView: View {
     let turn: ConversationTurn
 
@@ -99,13 +99,6 @@ private struct RequestView: View {
             Label(goal.isEmpty ? "A task from earlier" : goal, systemImage: "arrow.triangle.2.circlepath")
                 .font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
                 .help("A task this chat didn’t send")
-        } else if turn.request.isEmpty {
-            HStack {
-                Spacer(minLength: 28)
-                Text("Your message isn’t kept after a restart")
-                    .font(.system(size: 10)).foregroundStyle(Palette.secondary)
-                    .help("What you type stays in memory only, so it never lands on disk.")
-            }
         } else {
             HStack {
                 Spacer(minLength: 28)
@@ -132,13 +125,13 @@ private struct LateReplyView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Label {
-                Text(turn.quote.isEmpty ? "Your earlier message" : turn.quote).lineLimit(1).truncationMode(.tail)
+                Text(turn.quote.isEmpty ? "A task from earlier" : turn.quote).lineLimit(1).truncationMode(.tail)
             } icon: {
                 Image(systemName: "arrowshape.turn.up.left")
             }
             .font(.system(size: 10)).foregroundStyle(Palette.secondary)
             .help(turn.taskGoal ?? turn.request)
-            .accessibilityLabel("Reply to: " + (turn.quote.isEmpty ? "your earlier message" : turn.quote))
+            .accessibilityLabel("Reply to: " + (turn.quote.isEmpty ? "a task from earlier" : turn.quote))
             if reply.part == .question, let question = turn.question {
                 // The question was shown here; the final answer follows it unless it went further below.
                 FerbBubble { MarkdownContent(question).equatable() }
