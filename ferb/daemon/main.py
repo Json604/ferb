@@ -35,7 +35,7 @@ from ferb.act.shell.manager import ProcInfo, ShellManager
 from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.local import LocalAccess
 from ferb.act.shell.sandbox import SANDBOX_EXEC, Sandbox
-from ferb.registry import add_context_readers, add_recording, add_evidence, add_recovery, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
+from ferb.registry import add_context_readers, add_hearing, add_recording, add_evidence, add_recovery, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
 from ferb.sense.exclusions import DEFAULT_EXCLUDE_PATHS, Exclusions
 from ferb.sense.manager import Sense
@@ -162,9 +162,17 @@ class Daemon:
         self._macos_task: asyncio.Task[None] | None = None
         self.secrets = KeychainSecretStore(lambda: specs_from_config(self.config.load().get("secrets")))
         self.identity_browser: IdentityDriver | None = None    # the extension in Chrome's FERB profile
+        from ferb.act.listen import FOLDER as AUDIO_FOLDER, Hearing
+        from ferb.act.mac.audio import AppAudio
         from ferb.act.recording import RecordingManager
         from ferb.sanitize.images import ImageRedactor
-        self.recordings = RecordingManager(sanitize=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
+        from ferb.sense.transcribe import Transcriber
+        # L26: hearing an app's sound during a task (ScreenCaptureKit), transcribed on this Mac by FERB.app
+        self.hearing = Hearing(self.home / "workspace" / AUDIO_FOLDER, AppAudio(),
+                               Transcriber(self.home / "FERB.app", self._hearing_requirement), self._redact_text,
+                               excluded_host=lambda host: bool(getattr(self.redact, "excluded_host", lambda h: False)(host)))
+        self.recordings = RecordingManager(sanitize=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()),
+                                           hearing=self.hearing)
         self.registry = build_registry()
         add_recording(self.registry, self.recordings)
         self.tasks = TaskTree()
@@ -372,6 +380,7 @@ class Daemon:
             await drain(set(self.gateway.looks), "first looks")
         if self._proxy:
             self._proxy.close()
+        await self.hearing.shutdown()
         await self.recordings.shutdown()
         if self.identity_browser is not None:
             await self.identity_browser.shutdown()
@@ -443,6 +452,27 @@ class Daemon:
     def voice_bundle(self) -> Path:
         return self.home / "FERB.app"
 
+    def _hearing_requirement(self) -> str | None:
+        """FERB.app's signature as `ferb setup` recorded it (hearing), or as `ferb setup --voice` did (same app)."""
+        req = self.config.get("hearing", "requirement") or self.config.get("voice", "requirement")
+        return str(req) if req else None
+
+    async def _hearing_status(self, probe: bool) -> dict[str, Any]:
+        """L26 for doctor and setup: FERB.app installed and signed as recorded, and (probe) its Speech Recognition state
+        and on-device support, asked of FERB.app itself in the background. Never a prompt."""
+        out: dict[str, Any] = {"installed": self.voice_bundle.exists()}
+        if not out["installed"] or not probe:
+            return out
+        from ferb.sense.transcribe import signed
+        req = self._hearing_requirement()
+        out["signed"] = bool(req) and await asyncio.to_thread(signed, self.voice_bundle, str(req))
+        if out["signed"]:
+            try:
+                out.update(await self.hearing.transcriber.status(self.hearing.folder))
+            except Exception as e:
+                out["error"] = self._redact_text(f"{type(e).__name__}: {e}")
+        return out
+
     def _voice_app_exe(self) -> str | None:
         exe = self.voice_bundle / "Contents" / "MacOS" / "FERB"
         return str(exe) if self._ptt and exe.exists() else None
@@ -474,6 +504,11 @@ class Daemon:
             self.voice.detach(q)
 
     async def _voice_transcript(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        if params.get("on_device") is False:                     # no on-device recognition: never the network
+            self._journal().append("voice.failed", {"why": str(params.get("error") or "on-device recognition unavailable")})
+            self.voice._say("On-device speech recognition isn't available on this Mac, so I didn't listen. Your voice "
+                            "never leaves the Mac.")
+            return {"handled": "on_device_unavailable"}
         if params.get("error"):                                  # FERB.app couldn't listen
             self._journal().append("voice.failed", {"why": str(params["error"])})
             self.voice._say("I couldn't use the microphone.")
@@ -614,7 +649,8 @@ class Daemon:
         add_identity_browser(self.registry, driver, self.recordings)
 
     async def _task_end(self, task_id: str) -> list[dict[str, Any]]:
-        resources = await self.recordings.end_task(task_id)
+        resources = await self.hearing.end_task(task_id)          # L26: listening ends with the task
+        resources.extend(await self.recordings.end_task(task_id))
         for name, drv in (("ferb_browser", self.identity_browser), ("browser", self.router)):
             if drv is not None:
                 try:
@@ -665,6 +701,7 @@ class Daemon:
                                     "left": list(getattr(e, "left", []))})
 
     def _stop_identity_browser(self) -> None:
+        asyncio.get_event_loop().create_task(self.hearing.shutdown())
         asyncio.get_event_loop().create_task(self.recordings.shutdown())
         for drv in (self.identity_browser, self.router):
             if drv is not None:
@@ -738,6 +775,9 @@ class Daemon:
         self.mac.ask_secret = lambda ctx, target, **kw: self.gateway.ask_secret(ctx, target, **kw)
         self.mac.release_secret = lambda value: self.gateway.release_secret(value)
         add_mac(self.registry, self.mac, self._device_profile, self.recordings, contained, self.protection)
+        self.hearing.apps = self.mac.app                          # the Mac tools' exact app lookup (exclusions too)
+        add_hearing(self.registry, self.hearing,
+                    lambda identity: self.identity_browser if identity is Identity.FERB else self.router)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,
                                    stream_factory=getattr(self.redact, "stream", None), sandbox=self.sandbox,
                                    proxy=self.proxy, on_network=self._shell_network,
@@ -2215,6 +2255,9 @@ class Daemon:
             problems["mac"] = "FERB doesn't have the Accessibility permission — run `ferb doctor`"
         if "screen" in registered and not perms.get("screen", True):
             problems["screen"] = "FERB doesn't have the Screen Recording permission — run `ferb doctor`"
+        if "audio" in registered and not perms.get("screen", True):   # app sound is captured under Screen Recording
+            problems["hearing"] = "FERB doesn't have the Screen Recording permission, which covers app sound — run " \
+                                  "`ferb doctor`"
         return build(registered, problems, profiles)
 
     def _installed_apps(self) -> list[tuple[str, str]]:
@@ -2953,6 +2996,7 @@ class Daemon:
                               "snapshots": bool(self.snapshots is not None and self.snapshots.take is not None),
                               # OPEN QUESTION 3: shell commands run without a snapshot when one can't be taken
                               "snapshot_failure": self.snapshots.last_failure() if self.snapshots else None}
+        out["hearing"] = await self._hearing_status(bool(params.get("hearing", params.get("selftest", True))))
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
                         "connected": self.voice is not None and self.voice.app is not None,
                         "permissions": self.voice.permissions if self.voice is not None else {}}

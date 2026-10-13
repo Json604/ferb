@@ -1,7 +1,7 @@
 // Owns protocol versions, sealing and allowed CDP mechanics; must not interpret task or page meaning.
 // FERB extension protocol , mirrored by ferb/act/browser/ext_protocol.py.
 // Loaded by the service worker (importScripts) and by the node tests (module.exports). No decisions here.
-const FERB_PROTOCOL = 13;
+const FERB_PROTOCOL = 14;
 const FERB_HOST = "com.ferb.native_host";
 
 // Editing commands the key path may ask the renderer for (CDP Input.dispatchKeyEvent `commands`, macOS only):
@@ -300,7 +300,7 @@ const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page re
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready", "open_seen"];
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media"];
 
 if (typeof module !== "undefined") module.exports = { FERB_PROTOCOL, FERB_HOST, cdpAllowed, cdpFilter, OPS, seal, unseal,
                                                       FEED_URL, keyEvent, EDIT_COMMANDS, DOWNLOAD_PART, DOWNLOAD_PATTERNS,

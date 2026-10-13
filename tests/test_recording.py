@@ -173,8 +173,9 @@ def test_cleanup_stops_recording_before_releasing_browser():
     order=[]
     async def finish(task): order.append('recording'); return [{'resource':'recording','released':True}]
     async def release(task): order.append('browser'); return []
+    async def unheard(task): return []                 # no listen in progress (L26 listens end first)
     host=SimpleNamespace(recordings=SimpleNamespace(end_task=finish),identity_browser=SimpleNamespace(release=release),
-                         router=None,shells=None)
+                         router=None,shells=None,hearing=SimpleNamespace(end_task=unheard))
     assert asyncio.run(Daemon._task_end(host,'task')) == [{'resource':'recording','released':True}]
     assert order == ['recording','browser']
 

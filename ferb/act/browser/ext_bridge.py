@@ -42,6 +42,7 @@ WINDOWLESS_WAIT_S = 8.0          # a profile loaded with no window: its extensio
 KEEPALIVE_S = 15.0               # while a task tab is open: a ping keeps the MV3 worker awake (idle limit 30 s, 1.1)
 TRUSTED_KINDS = frozenset({"click", "dblclick", "rightclick", "hover", "type", "press"})   # real input by default
 BLANK = "about:blank"            # a task tab opens blank, then loads its URL (D35)
+MEDIA_FIELDS = ("playing", "current_time", "duration", "muted", "volume", "in_view")   # a media element's state (L26)
 
 
 class OutcomeUnknown(DriverError):
@@ -55,6 +56,27 @@ class _Conn:
     bridge: "Bridge | None" = None
     gen: int = 0
     unpaired_install: str | None = None
+    browser_pid: int | None = None          # the browser process behind this native host (L26: hear its tab's app)
+
+
+def _browser_pid(writer: Any) -> int | None:
+    """The browser process behind a native-host connection: the native host's parent (the browser starts it, and
+    FERB's launcher execs Python in place). Kernel facts (LOCAL_PEERPID, libproc), never a name or window lookup."""
+    import ctypes
+    import socket as socket_mod
+    import struct
+    try:
+        sock = writer.get_extra_info("socket")
+        if not isinstance(sock, socket_mod.socket):
+            sock = getattr(sock, "_sock", sock)
+        host = int(sock.getsockopt(0, 0x002))                 # SOL_LOCAL, LOCAL_PEERPID
+        info = ctypes.create_string_buffer(136)               # struct proc_bsdinfo: pbi_ppid at offset 16
+        if ctypes.CDLL("/usr/lib/libproc.dylib").proc_pidinfo(host, 3, ctypes.c_uint64(0), info, 136) != 136:
+            return None
+        parent = int(struct.unpack_from("I", info.raw, 16)[0])
+        return parent if parent > 1 else None
+    except Exception:
+        return None
 
 
 @dataclass
@@ -295,7 +317,7 @@ class Hub:
 
     async def serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """One native-host connection, after its auth.hello: newline-delimited extension messages both ways."""
-        conn = _Conn(writer)
+        conn = _Conn(writer, browser_pid=_browser_pid(writer))
         try:
             while line := await reader.readline():
                 try:
@@ -520,6 +542,7 @@ class _Tab:
     opened: list[dict[str, Any]] = field(default_factory=list)   # new tabs this tab started, not yet reported
     containers: dict[str, tuple[int, str]] = field(default_factory=dict)
     elements: dict[str, tuple[int, int, int, PageElement]] = field(default_factory=dict)  # id -> frame, snap, local
+    media: dict[int, tuple[int, int]] = field(default_factory=dict)   # snapshot media index -> frame, local index
 
 
 class _TabDriver:
@@ -768,8 +791,14 @@ class _TabDriver:
         text, title, url, truncated = "", "", t.url, False
         scroll: dict[str, Any] | None = None
         scrollers: list[dict[str, Any]] = []
+        media: list[dict[str, Any]] = []
+        media_refs: dict[int, tuple[int, int]] = {}
         for f in v["frames"]:
             fid = int(f["frame_id"])
+            for m in f.get("media", []):               # L26: one index across frames, as browser.media takes it
+                media_refs[len(media)] = (fid, int(m["index"]))
+                media.append({k: m[k] for k in MEDIA_FIELDS if k in m} | {"index": len(media)}
+                             | ({"frame": fid} if fid else {}))
             for sc in f.get("scrollers", []):
                 local = str(sc['id'])
                 alias = local if fid == 0 else f"f{fid}:{local}"
@@ -793,9 +822,9 @@ class _TabDriver:
         t.visual = None
         t.points.clear()
         t.snap_gen, t.snap_nav, t.elements, t.url = gen, nav, elements, url
-        t.containers = containers
+        t.containers, t.media = containers, media_refs
         result = PageSnapshot(tab, gen, url, title, [e for *_, e in elements.values()], text, truncated, dialogs,
-                              scroll, scrollers)
+                              scroll, scrollers, media)
         from ferb.act.browser.snapshot import for_model
         full = for_model(result, full=True)
         full["frames"] = [{k: f[k] for k in ("frame_id", "url", "text", "truncated") if k in f} for f in v["frames"]]
@@ -1012,6 +1041,30 @@ class _TabDriver:
             out["frame"] = frame
         return out
 
+    async def media(self, tab: TabRef, action: str, index: int | None, to: float | None) -> dict[str, Any]:
+        """L26: play/pause/mute/unmute/seek one media element of the latest snapshot, by its index there; returns its
+        state afterwards (and the page's error when it refused, e.g. play() without a real click)."""
+        t = self._tab(tab)
+        if not t.snapshot_json:
+            raise Refused("take a snapshot first: browser.media uses an index from its `media` list")
+        if index is None:
+            if len(t.media) != 1:
+                raise Refused(f"this page has {len(t.media)} media elements in the latest snapshot; choose one by its "
+                              "index" if t.media else "the latest snapshot lists no video or audio on this page")
+            index = next(iter(t.media))
+        if index not in t.media:
+            raise Refused(f"the latest snapshot has no media element {index}")
+        frame, local = t.media[index]
+        try:
+            v = await t.bridge.call("media", {"tab_id": t.chrome_id, "frame_id": frame, "snap": t.snap_gen,
+                                              "index": local, "action": action, "to": to})
+        except DriverError as e:
+            if "unknown op" in str(e):
+                raise Refused(f"the FERB extension in that browser is older than FERB: reload it "
+                              f"({MIN_EXTENSION_VERSION} or later)") from None
+            raise
+        return {k: v[k] for k in (*MEDIA_FIELDS, "error") if k in v} | {"index": index} | ({"frame": frame} if frame else {})
+
     async def wait(self, tab: TabRef, until: WaitCondition, timeout: float) -> bool:
         t = self._tab(tab)
         try:
@@ -1033,6 +1086,12 @@ class _TabDriver:
         for i in range(int(v.get("parts", 0))):
             parts.append(str((await t.bridge.call("screenshot_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
         return base64.b64decode("".join(parts))
+
+    def browser_pid(self, tab: TabRef) -> int | None:
+        """The process of the browser showing this tab (its native host's parent), so hearing the tab (L26) captures
+        that exact app process even when another instance shares its bundle id."""
+        conn = self._tab(tab).bridge.conn
+        return conn.browser_pid if conn is not None else None
 
     def recording_source(self, tab: TabRef, owner: str) -> tuple[dict[str, Any], Any]:
         t = self._tab(tab)

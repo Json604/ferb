@@ -1,6 +1,7 @@
 """`ferb setup` / `doctor` / `uninstall` flows with a scripted fake daemon, fake installer and scripted answers."""
 
 import io
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,8 @@ class FakeDaemon:
         self.tap_ok = True
         self.automation_requests: list[list[str]] = []
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
+        # FERB.app's Speech Recognition state as the daemon reports it (L26: FERB hears app sound during tasks)
+        self.hearing = {"installed": True, "signed": True, "speech": "granted", "on_device": True, "locale": "en-US"}
 
     def client(self) -> "FakeClient":
         return FakeClient(self)
@@ -43,8 +46,10 @@ class FakeClient:
             st = [] if params and params.get("selftest") is False else [
                 {"name": "ax_read", "ok": True, "detail": "ok"},
                 {"name": "event_tap", "ok": self.d.tap_ok, "detail": "listen-only tap; no input posted"}]
+            probe = (params or {}).get("hearing", not (params and params.get("selftest") is False))
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid,
+                    "hearing": dict(self.d.hearing) if probe else {"installed": self.d.hearing["installed"]},
                     "containment": {"sandbox_exec": True, "profile_ok": True, "reason": "ok", "shell": True,
                                     "shell_reason": "ok", "proxy": True, "proxy_alive": True, "snapshots": False}}
         if method == "jev.stats":
@@ -71,6 +76,31 @@ class FakeClient:
         pass
 
 
+class FakeRun:
+    """The commands setup runs for FERB.app (build, signature, its one permission request); nothing really runs."""
+
+    REQUIREMENT = 'identifier "com.ferb.app" and certificate leaf = H"abc"'
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: list[str], **kw: Any) -> subprocess.CompletedProcess[str]:
+        self.calls.append([str(a) for a in argv])
+        if argv[:2] == ["security", "find-identity"]:
+            return subprocess.CompletedProcess(argv, 0, '  1) ABC "FERB Local Code Signing"\n', "")
+        if str(argv[0]).endswith("build.sh"):
+            Path(argv[1]).mkdir(parents=True, exist_ok=True)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[:3] == ["codesign", "-d", "-r-"]:
+            return subprocess.CompletedProcess(argv, 0, "", f"designated => {self.REQUIREMENT}\n")
+        if argv[0] == "open":
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        raise AssertionError(argv)
+
+    def ran(self, *prefix: str) -> list[list[str]]:
+        return [c for c in self.calls if c[:len(prefix)] == list(prefix)]
+
+
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     apps = tmp_path / "Applications"
@@ -84,7 +114,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     inst = Installer(home, label="com.ferb.test", run=runner, launch_agents=tmp_path / "LA")
     daemon = FakeDaemon()
     panes: list[str] = []
-    return {"inst": inst, "runner": runner, "daemon": daemon, "panes": panes, "home": home}
+    return {"inst": inst, "runner": runner, "daemon": daemon, "panes": panes, "home": home, "run": FakeRun()}
 
 
 def make_env(world: dict[str, Any], answers: list[str], daemon_up: bool = True) -> tuple[S.Env, io.StringIO]:
@@ -114,7 +144,8 @@ def make_env(world: dict[str, Any], answers: list[str], daemon_up: bool = True) 
             raise NotRunning("not running")
         return d.client()
     env = S.Env(world["inst"], connect, ask, out, open_pane=world["panes"].append, sleep=lambda s: None,  # type: ignore[arg-type]
-                running_apps=lambda: {"com.google.Chrome", "com.brave.Browser", "com.apple.Notes"}, persona_usage=lambda apps: [])
+                running_apps=lambda: {"com.google.Chrome", "com.brave.Browser", "com.apple.Notes"}, persona_usage=lambda apps: [],
+                run=world["run"])
     return env, out
 
 
@@ -289,3 +320,61 @@ def test_persona_only_review_does_not_install_restart_or_confirm_empty_input(wor
     assert calls == [('setup.persona', {'refresh': True})]
     assert world['runner'].ran('uv', 'python', 'install') == 0
     assert 'still pending' in out.getvalue() and world['panes'] == []
+
+
+# ---------- L26: FERB.app hears app sound during tasks (Speech Recognition only, unless --voice) ----------
+
+def test_plain_setup_builds_ferb_app_and_asks_for_speech_recognition_only(world: dict[str, Any]) -> None:
+    env, out = make_env(world, ["", "", "", "1,2,3"], daemon_up=False)
+    assert S.setup(env) == 0, out.getvalue()
+    run: FakeRun = world["run"]
+    app = str(world["home"] / "FERB.app")
+    assert [c[1] for c in run.calls if c[0].endswith("build.sh")] == [app]
+    assert run.ran("open", "-n", "-W", app, "--args", "request-speech")
+    assert not any(c[-1] == "request" for c in run.ran("open"))       # never the microphone without --voice
+    assert Config(world["home"]).get("hearing", "requirement") == FakeRun.REQUIREMENT
+    assert ("doctor.check", {"selftest": False, "hearing": True}) in world["daemon"].calls
+    assert "Speech Recognition" in out.getvalue() and "on this Mac" in out.getvalue()
+
+
+def test_setup_says_how_to_allow_speech_recognition_and_still_finishes(world: dict[str, Any]) -> None:
+    world["daemon"].hearing.update(speech="denied")
+    env, out = make_env(world, ["", "", "", "1,2,3"], daemon_up=False)
+    assert S.setup(env) == 0, out.getvalue()
+    assert "Privacy & Security" in out.getvalue() and "Speech Recognition" in out.getvalue()
+
+
+def test_doctor_reports_ferb_apps_speech_permission(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "✓ hearing: FERB.app may use on-device Speech Recognition (en-US)" in out.getvalue()
+    world["daemon"].hearing.update(speech="not_determined")
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "! hearing: FERB.app's Speech Recognition: not_determined" in out.getvalue()
+    assert "run `ferb setup`" in out.getvalue()
+    world["daemon"].hearing.update(speech="granted", on_device=False, locale="en-IN")
+    env, out = make_env(world, [])
+    S.doctor(env)
+    assert "! hearing: on-device speech recognition isn't available for en-IN" in out.getvalue()
+    assert not world["run"].calls                                    # doctor never builds or asks
+
+
+def test_update_rebuilds_an_installed_ferb_app_without_asking_for_anything(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    (world["home"] / "FERB.app").mkdir()
+    env, out = make_env(world, [])
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    run: FakeRun = world["run"]
+    assert [c for c in run.calls if c[0].endswith("build.sh")]       # the new transcribe mode is installed
+    assert not run.ran("open")                                        # no permission dialog during an update
+    assert Config(world["home"]).get("hearing", "requirement") == FakeRun.REQUIREMENT
+
+
+def test_doctor_says_nothing_about_hearing_it_did_not_probe() -> None:
+    lines: list[S.Check] = []
+    S.add_hearing_check(lines.append, {"installed": True})          # a quick check: FERB.app wasn't asked
+    assert lines == []
+    S.add_hearing_check(lines.append, {"installed": False})
+    assert lines[0].status == "warn" and "isn't installed" in lines[0].detail

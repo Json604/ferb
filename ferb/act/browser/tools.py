@@ -412,12 +412,17 @@ class BrowserRecord(_Base):
     target_args = ("path",)                            # Target.path, normalized by the gateway (P19 hash)
     creates_new_only = True                            # S1: RecordingManager.start refuses an existing path
     blurb = ('Start a sampled video of this exact task tab in {whose}, including while inactive/minimized. '
-             'No tab selection or desktop focus change. Silent video, default 2 fps; one output per target. '
+             'No tab selection or desktop focus change. Default 2 fps; one output per target. Silent unless '
+             'with_audio=true: then the browser app\'s sound is recorded too (every tab of that browser making sound, '
+             'so pause other media first) and the stopped recording carries an on-device transcript with timed '
+             'segments; confirm the media is playing and unmuted first. '
              'Use recording_stop to finalize, then recording_inspect to check saved content. Requires ffmpeg/ffprobe.')
     class Input(BaseModel):
         tab: str
         path: str = Field(description='New .mp4 output path; existing files are never overwritten')
         fps: float = Field(2, ge=0.2, le=10, allow_inf_nan=False)
+        with_audio: bool = Field(False, description="also record the browser app's sound and transcribe it on this Mac")
+        language: str | None = Field(None, description="with_audio: the speech's language as a locale, e.g. en-US")
     def __init__(self, driver: IdentityDriver, family: Family, recordings: Any) -> None:
         super().__init__(driver, family)
         self.recordings = recordings
@@ -427,11 +432,62 @@ class BrowserRecord(_Base):
     def describe(self, args: Any) -> ActionSpec:
         return ActionSpec('write_file', Target(site=self._site(args), path=args.path))
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        from ferb.act.browser.profiles import BROWSERS
         from ferb.act.fs.files import resolve
         tab = self.driver.owned_by(args.tab, ctx.task_id)
+        audio = None
+        if args.with_audio:                            # hearing is its own scope, like audio.listen (L26)
+            hearing = getattr(self.recordings, "hearing", None)
+            if "audio" not in ctx.scopes or hearing is None:
+                raise Refused("recording with sound needs the audio scope (hearing); record without with_audio")
+            if tab.browser not in BROWSERS:
+                raise Refused(f"FERB doesn't know which app {tab.browser} runs as")
+            exact = getattr(self.driver, "browser_pid", lambda r: None)(tab)   # that browser's own process
+            audio = hearing.resolve(f"pid:{exact}" if exact else BROWSERS[tab.browser].bundle_id)
+            if audio[0] != BROWSERS[tab.browser].bundle_id:
+                raise Refused(f"the process showing that tab isn't {tab.browser}; FERB didn't record its sound")
         target, capture = self.driver.recording_source(tab, ctx.task_id)
-        result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps)
+        result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
+                                             audio=audio, language=args.language)
         return ToolResult(result, read_sources=(('web', self.driver.tab_url(tab.tab_id) or ''),))
+
+
+class BrowserMedia(_Base):
+    """L26: a page's own video/audio controls through the content script (play/pause/mute/unmute/seek), so the worker can
+    make the sound FERB is asked to hear actually play. Never a click, never page script."""
+    verb = "media"
+    on_screen = True                                   # the owner may hear what plays (owner accepted, L26)
+    blurb = ("Play, pause, mute, unmute or seek one video or audio element in one of this task's tabs ({whose}), by "
+             "its index in the latest {p}_snapshot's `media` (index may be left out when the page has exactly one). "
+             "Returns that element's state: playing, current_time, duration, muted, volume. Sound must actually play "
+             "for audio_listen or a recording with_audio to hear it. A page can refuse play() without a real click "
+             "(the error is returned): then use the page's own play control with {p}_act. The owner may briefly hear "
+             "what plays.")
+
+    class Input(_Tab):
+        action: Literal["play", "pause", "mute", "unmute", "seek"]
+        index: int | None = Field(default=None, ge=0, description="the element's index in the latest snapshot's media")
+        to: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="seek: the time, in seconds")
+
+        @model_validator(mode="after")
+        def seek_time(self) -> "BrowserMedia.Input":
+            if (self.action == "seek") != (self.to is not None):
+                raise ValueError("seek needs `to` (seconds); only seek takes it")
+            return self
+
+    def _scopes(self) -> set[str]:
+        return {self.family.act}
+
+    def describe(self, args: Any) -> ActionSpec:
+        # Page playback only, reversible like scroll: no ledger row, so a timed-out play stays retryable (P19 is for
+        # consequential actions); on_screen marks it in the disturbance record.
+        return self._spec(Kind.READ, args, content=f"media:{args.action}:{args.index}:{args.to}")
+
+    async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        ref = self.driver.owned_by(args.tab, ctx.task_id)
+        state = await self.driver.media(ref, args.action, args.index, args.to)  # type: ignore[attr-defined]
+        return ToolResult({"state": state, "next": "check `playing` and `muted` before listening or recording"},
+                          is_error=bool(state.get("error")), read_sources=self._page(ref.tab_id))
 
 
 class BrowserPoint(_Base):

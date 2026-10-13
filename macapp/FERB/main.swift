@@ -1,9 +1,16 @@
-// FERB.app (ARCHITECTURE section 20.1): push-to-talk's microphone. No windows, Dock icon or menu-bar item.
-// It is the only part of FERB that opens a microphone. The daemon decides which input (never a Bluetooth headset's)
-// and when: "start" opens it with a Core Audio IOProc and feeds on-device speech recognition; "stop" returns the text;
-// "discard" drops everything. Audio is never written anywhere.
-// Usage: FERB            run as the voice service (opened by the daemon)
-//        FERB request    ask for Microphone + Speech Recognition, print the result, exit (ferb setup --voice)
+// FERB.app (ARCHITECTURE section 20.1): push-to-talk's microphone, and FERB's on-device speech recognition. No
+// windows, Dock icon or menu-bar item. It is the only part of FERB that opens a microphone. The daemon decides which
+// input (never a Bluetooth headset's) and when: "start" opens it with a Core Audio IOProc and feeds on-device speech
+// recognition; "stop" returns the text; "discard" drops everything. Microphone audio is never written anywhere.
+// Speech is recognized on this Mac only (requiresOnDeviceRecognition): without on-device support FERB says so and
+// never sends speech to Apple's servers (rule 15, L26).
+// Usage: FERB                               run as the voice service (opened by the daemon)
+//        FERB request                       ask for Microphone + Speech Recognition, print the result (ferb setup --voice)
+//        FERB request-speech                ask for Speech Recognition only, print the result (ferb setup)
+//        FERB transcribe <audio> <out> [locale]  L26: a captured app's sound file to text, written to <out> (0600)
+//        FERB status <out>                  Speech Recognition state and on-device support, written to <out> (0600)
+// The daemon starts the last two per use with `open -g -n -W` (LaunchServices: FERB.app, not the daemon, is the app
+// macOS asks about); they never prompt and write nothing to stdout or any log.
 import AppKit
 import AVFoundation
 import CoreAudio
@@ -99,6 +106,7 @@ func inputDevices() -> [InputDevice] {
 }
 
 let BLUETOOTH: Set<String> = ["blue", "blea"]
+let ON_DEVICE_UNAVAILABLE = "on-device speech recognition isn't available on this Mac"
 
 // ---------- listening ----------
 
@@ -114,9 +122,9 @@ final class Listener {
     private var done = DispatchSemaphore(value: 0)
 
     func warmUp() {                                   // load the on-device model before anyone talks
-        guard let rec = recognizer else { return }
+        guard let rec = recognizer, rec.supportsOnDeviceRecognition else { return }
         let req = SFSpeechAudioBufferRecognitionRequest()
-        req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+        req.requiresOnDeviceRecognition = true
         let sem = DispatchSemaphore(value: 0)
         let t = rec.recognitionTask(with: req) { r, err in if (r?.isFinal ?? false) || err != nil { sem.signal() } }
         if let f = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1), let b = AVAudioPCMBuffer(pcmFormat: f, frameCapacity: 4000) {
@@ -127,6 +135,7 @@ final class Listener {
 
     func start(uid: String) -> String? {
         guard let rec = recognizer else { return "speech recognition unavailable" }
+        guard rec.supportsOnDeviceRecognition else { return ON_DEVICE_UNAVAILABLE }   // never the network (rule 15)
         guard let dev = inputDevices().first(where: { $0.uid == uid }) else { return "no such microphone" }
         if BLUETOOTH.contains(dev.transport) { return "refused: a Bluetooth microphone is never opened" }   // second guard
         var fa = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamFormat, mScope: kAudioObjectPropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
@@ -134,7 +143,7 @@ final class Listener {
         AudioObjectGetPropertyData(dev.id, &fa, 0, nil, &sz, &asbd)
         guard let fmt = AVAudioFormat(standardFormatWithSampleRate: asbd.mSampleRate, channels: 1) else { return "bad format" }
         let req = SFSpeechAudioBufferRecognitionRequest()
-        req.requiresOnDeviceRecognition = rec.supportsOnDeviceRecognition
+        req.requiresOnDeviceRecognition = true
         req.shouldReportPartialResults = true
         req.contextualStrings = ["FERB"]
         lastPartial = ""; finalText = nil
@@ -200,12 +209,94 @@ func permissionStates() -> [String: String] {
     return ["microphone": mic, "speech": sr]
 }
 
+func speechState() -> String {
+    switch SFSpeechRecognizer.authorizationStatus() {
+    case .authorized: return "granted"; case .denied: return "denied"; case .restricted: return "restricted"
+    default: return "not_determined" }
+}
+
+func requestSpeech() {                               // ferb setup: Speech Recognition only, never the microphone
+    let sem = DispatchSemaphore(value: 0)
+    SFSpeechRecognizer.requestAuthorization { _ in sem.signal() }
+    sem.wait()
+    print("{\"speech\": \"\(speechState())\"}")
+}
+
 func requestPermissions() {
     let sem = DispatchSemaphore(value: 0)
     AVCaptureDevice.requestAccess(for: .audio) { _ in SFSpeechRecognizer.requestAuthorization { _ in sem.signal() } }
     _ = sem.wait(timeout: .now() + 300)
     let s = permissionStates()
     print("{\"microphone\": \"\(s["microphone"]!)\", \"speech\": \"\(s["speech"]!)\"}")
+}
+
+// ---------- hearing (L26): a captured app's sound to text, on this Mac only ----------
+
+// The answer goes to the daemon's private folder: written to a 0600 file beside <out>, then renamed into place whole.
+func writeAnswer(_ out: String, _ answer: [String: Any]) {
+    guard let data = try? JSONSerialization.data(withJSONObject: answer) else { return }
+    let part = out + ".part"
+    let fd = open(part, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+    if fd < 0 { return }
+    let wrote = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) }
+    close(fd)
+    if wrote == data.count { rename(part, out) } else { unlink(part) }
+}
+
+func recognizer(_ language: String?) -> SFSpeechRecognizer? {
+    if let language = language { return SFSpeechRecognizer(locale: Locale(identifier: language)) }
+    return SFSpeechRecognizer()                       // the Mac's own language
+}
+
+func writeStatus(_ out: String) {
+    let rec = recognizer(nil)
+    writeAnswer(out, ["speech": speechState(), "on_device": rec?.supportsOnDeviceRecognition ?? false,
+                      "locale": rec?.locale.identifier ?? Locale.current.identifier])
+}
+
+func transcribe(audio: String, out: String, language: String?) {
+    let locale = language ?? Locale.current.identifier
+    let state = speechState()
+    guard state == "granted" else {                  // a task never prompts: `ferb setup` asks once
+        writeAnswer(out, ["error": "Speech Recognition isn't allowed for FERB", "reason": "not_authorized",
+                          "speech": state, "locale": locale]); return }
+    guard let rec = recognizer(language) else {
+        writeAnswer(out, ["error": "no speech recognizer for \(locale)", "reason": "unsupported_language",
+                          "locale": locale]); return }
+    guard rec.supportsOnDeviceRecognition else {     // no cloud fallback: the sound never leaves the Mac
+        writeAnswer(out, ["error": "on-device recognition isn't available for \(rec.locale.identifier)",
+                          "reason": "on_device_unavailable", "locale": rec.locale.identifier]); return }
+    guard rec.isAvailable else {
+        writeAnswer(out, ["error": "speech recognition isn't available right now", "reason": "unavailable",
+                          "locale": rec.locale.identifier]); return }
+    rec.queue = OperationQueue()                     // answers off the main thread, which waits below
+    let req = SFSpeechURLRecognitionRequest(url: URL(fileURLWithPath: audio))
+    req.requiresOnDeviceRecognition = true
+    req.shouldReportPartialResults = false
+    req.addsPunctuation = true
+    let sem = DispatchSemaphore(value: 0)
+    let lock = NSLock()
+    var answer: [String: Any]? = nil
+    let task = rec.recognitionTask(with: req) { r, err in
+        lock.lock(); defer { lock.unlock() }
+        if answer != nil { return }
+        if let r = r, r.isFinal {
+            let best = r.bestTranscription
+            answer = ["on_device": true, "locale": rec.locale.identifier, "text": best.formattedString,
+                      "segments": best.segments.map { ["text": $0.substring, "start": $0.timestamp, "duration": $0.duration] }]
+            sem.signal()
+        } else if let err = err as NSError? {
+            if err.domain == "kAFAssistantErrorDomain" && err.code == 1110 {   // no speech in the sound
+                answer = ["on_device": true, "locale": rec.locale.identifier, "text": "", "segments": []]
+            } else {
+                answer = ["error": err.localizedDescription, "reason": "failed", "locale": rec.locale.identifier]
+            }
+            sem.signal()
+        }
+    }
+    sem.wait()
+    _ = task
+    writeAnswer(out, answer ?? ["error": "no answer", "reason": "failed"])
 }
 
 // ---------- the service ----------
@@ -225,7 +316,9 @@ func serve() {
             switch cmd["op"] as? String {
             case "start":
                 if let err = listener.start(uid: cmd["device_uid"] as? String ?? "") {
-                    _ = connectAsVoice()?.call(3, "voice.transcript", ["text": "", "error": err]) }
+                    var failed: [String: Any] = ["text": "", "error": err]
+                    if err == ON_DEVICE_UNAVAILABLE { failed["on_device"] = false }
+                    _ = connectAsVoice()?.call(3, "voice.transcript", failed) }
             case "chime":
                 NSSound(named: "Tink")?.play()
             case "stop":
@@ -245,6 +338,19 @@ let args = Array(CommandLine.arguments.dropFirst())
 if args.first == "request" {
     NSApplication.shared.setActivationPolicy(.accessory)
     requestPermissions()
+    exit(0)
+}
+if args.first == "request-speech" {
+    NSApplication.shared.setActivationPolicy(.accessory)
+    requestSpeech()
+    exit(0)
+}
+if args.first == "transcribe", args.count >= 3 {
+    transcribe(audio: args[1], out: args[2], language: args.count > 3 ? args[3] : nil)
+    exit(0)
+}
+if args.first == "status", args.count >= 2 {
+    writeStatus(args[1])
     exit(0)
 }
 NSApplication.shared.setActivationPolicy(.accessory)

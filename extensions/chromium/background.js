@@ -1200,6 +1200,12 @@ const commands = {
     return {container:cid, frame_id, y:s.y, height:s.height, viewport_h:s.viewport_h,
             at_end:direction === 'up' ? s.y <= 0 : s.at_end};
   },
+  // L26: one media element of the latest snapshot, in its exact frame, through the content script's own controls.
+  async media({ tab_id, frame_id = 0, snap, index, action, to = null }) {
+    const r = await inFrame(tab_id, frame_id, (g, i, a, t) => window.__ferb.media(g, i, a, t), [snap, index, action, to]);
+    if (r.error === "stale") throw Error("that media element is from an older snapshot; take a new snapshot");
+    return r;
+  },
   async find({tab_id, text}) {
     const results = await chrome.scripting.executeScript({target:{tabId:tab_id,allFrames:true},
       func:q => {

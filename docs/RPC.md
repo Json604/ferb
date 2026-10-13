@@ -30,6 +30,17 @@ text is never prefix-truncated and executed. This is a message boundary, not a d
 artifact work can use multiple file edits or shell/file operations. Native messaging has its own framing and the
 browser bridge pages large observations; client RPC and extension protocol versions are distinct.
 
+Extension protocol 14 (L26) adds the `media` command: play, pause, mute, unmute or seek one video/audio element of
+the latest snapshot, by frame and index, through the content script (no script evaluation, no click); it answers with
+that element's state (`playing`, `current_time`, `duration`, `muted`, `volume`, `in_view`, and the page's `error` when
+it refused). Each snapshot frame lists its media elements' state under `media`. The daemon refuses an extension on
+another protocol, so the daemon and extension update together; the extension version is unchanged.
+
+`doctor.check` also returns `hearing` (L26): `installed` (FERB.app), and when probed `signed` (matches the signature
+setup recorded) and FERB.app's own `speech` permission state, `on_device` support and `locale`. It probes by default,
+or with `selftest: false` only when `hearing: true` is passed; probing starts FERB.app in the background and never
+prompts.
+
 ## Conversation and results
 
 | Method | Parameters | Result / behavior |

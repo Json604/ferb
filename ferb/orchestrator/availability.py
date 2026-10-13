@@ -35,6 +35,9 @@ GROUPS: tuple[Group, ...] = (
           "activate or switch to it; a goal is what to read or do in it (\"Read the top chat in WhatsApp\")."),
     Group("screen", "screenshots of app windows", frozenset({"screen"}),
           "A screenshot of one app window, with screenshot-bound pointer input (screen, mac:act)."),
+    Group("hearing", "hearing app sound", frozenset({"audio"}),
+          "Hearing (audio): what one app or a task's tab is playing, as a transcript recognized on this Mac only; "
+          "recordings can include the sound. The media must be playing and unmuted."),
     Group("shell", "shell commands", frozenset({"shell"}), "Shell commands on the owner's Mac (shell)."),
     Group("trail", "the owner's activity record", frozenset({"trail:read"}),
           "FERB's record of the owner's recent activity (trail:read)."),

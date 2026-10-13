@@ -335,7 +335,9 @@ class MacRecord(_Base):
     name = 'mac.record'
     description = ('Record the exact window selected by a fresh mac_screenshot shot id using background '
                    'window capture. Keeps the window id and process fixed across focus/Space changes; never '
-                   'captures the whole display. Silent sampled video, default 2 fps. Prefer browser_record for '
+                   'captures the whole display. Sampled video, default 2 fps, silent unless with_audio=true: then '
+                   'that app\'s sound is recorded too and the stopped recording carries an on-device transcript with '
+                   'timed segments (confirm its media is playing first). Prefer browser_record for '
                    'individual tabs. Stop with recording_stop and inspect decoded frames with recording_inspect.')
     scopes = {'screen', 'fs:write'}
     target_args = ("app", "path")                      # Target.site / Target.path, normalized (P19 hash)
@@ -344,6 +346,8 @@ class MacRecord(_Base):
         shot: str
         path: str = Field(description='New .mp4 output path')
         fps: float = Field(2, ge=0.2, le=10, allow_inf_nan=False)
+        with_audio: bool = Field(False, description="also record this app's sound and transcribe it on this Mac")
+        language: str | None = Field(None, description="with_audio: the speech's language as a locale, e.g. en-US")
     def __init__(self, driver: MacComputerDriver, recordings: Any) -> None:
         super().__init__(driver)
         self.recordings = recordings
@@ -354,7 +358,13 @@ class MacRecord(_Base):
     async def _run(self, args: Any, ctx: ToolContext) -> ToolResult:
         from ferb.act.fs.files import resolve
         target, capture = self.driver.recording_source(args.app, args.shot)
-        result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps)
+        audio = None
+        if args.with_audio:                            # hearing is its own scope, like audio.listen (L26)
+            if "audio" not in ctx.scopes or getattr(self.recordings, "hearing", None) is None:
+                raise Refused("recording with sound needs the audio scope (hearing); record without with_audio")
+            audio = (str(target['app']), int(target['pid']))    # the pinned window's own process, never another
+        result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
+                                             audio=audio, language=args.language)
         return ToolResult(result, read_sources=_sources(target['app']))
 
 

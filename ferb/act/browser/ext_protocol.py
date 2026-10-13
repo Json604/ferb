@@ -9,7 +9,9 @@ itself; `open_plain` gives one back to the browser; `popup_ready` lets the page 
 lists armed tabs and `disarm` lets go of one the daemon doesn't hold. Chromium native-message size is a per-frame transport bound; content travels in chunks
 without clipping. Protocol 12 marks secret fills unknown when input began but a changed widget prevents readback,
 so P19 requires reconciliation or owner-approved retry rather than treating partial input as a known failure.
-Protocol 13 adds caller-selected exact split-code fields to sealed fill; older extensions must not ignore the group."""
+Protocol 13 adds caller-selected exact split-code fields to sealed fill; older extensions must not ignore the group.
+Protocol 14 adds `media` (L26): play/pause/mute/unmute/seek one video/audio element of the latest snapshot through the
+content script, and each snapshot frame lists its media elements' state."""
 
 import base64
 import hashlib
@@ -19,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-PROTOCOL_VERSION = 13
+PROTOCOL_VERSION = 14
 MIN_EXTENSION_VERSION = "0.15.3"
 FERB_EXTENSION_ID = "jaclnphefmmgmpofnabffahdkbjjompm"   # from the key in extensions/chromium/manifest.json
 MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
@@ -28,7 +30,7 @@ ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
              "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
-             "download_part", "disarm", "open_plain", "popup_ready", "open_seen"]
+             "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media"]
 
 
 def version_tuple(v: str) -> tuple[int, ...]:

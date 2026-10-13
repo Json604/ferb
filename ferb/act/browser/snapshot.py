@@ -82,6 +82,8 @@ def for_model(snap: PageSnapshot, *, full: bool = False) -> dict[str, Any]:
         out["scroll"] = snap.scroll
     if snap.scrollers:
         out["scrollers"] = snap.scrollers
+    if snap.media:                                 # L26: confirm playback before listening or recording
+        out["media"] = snap.media
     if snap.truncated or omitted or len(text) < len(snap.text):
         out["truncated"] = True
         out["omitted_elements"] = omitted

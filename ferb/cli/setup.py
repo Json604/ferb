@@ -46,6 +46,7 @@ class Env:
     running_apps: Callable[[], set[str]] = lambda: _running_bundle_ids()
     persona_usage: Callable[[list[Any]], list[dict[str, Any]]] = app_usage
     browser_support: Path | None = None      # ~/Library/Application Support (the CLI's); None: no browser step
+    run: Callable[..., Any] = subprocess.run  # FERB.app's build, signature and permission request (tests replace it)
 
     def say(self, line: str = "") -> None:
         print(line, file=self.out, flush=True)
@@ -138,6 +139,8 @@ def setup(env: Env, update: bool = False) -> int:
             env.say("All macOS permissions are granted (checked by the running daemon).")
         _review_persona(env, client)
         client.close()
+        if (inst.home / "FERB.app").exists():          # L26: its new modes, no permission dialog during an update
+            _build_app(env)
         extension_setup(env)
         env.say("Done.")
         return 0
@@ -179,6 +182,7 @@ def setup(env: Env, update: bool = False) -> int:
             env.say("Full Disk Access is part of FERB's full-access setup; containment is active before this grant.")
         client = _grant(env, client, perm, binary, required=perm in REQUIRED_PERMISSIONS)
     _automation(env, client, profile)
+    hearing_setup(env, client)
     config.set('setup', 'permissions_version', 27)
 
     env.say("4/4  Self-test through the daemon")
@@ -373,6 +377,30 @@ def snapshot_check(c: dict[str, Any] | None) -> Check:
                  "minutes, reused)")
 
 
+def add_hearing_check(add: Callable[[Check], None], hearing: dict[str, Any] | None) -> None:
+    """L26: FERB.app's Speech Recognition, as the daemon asked FERB.app itself (no prompt)."""
+    if not hearing:
+        return
+    fix = "run `ferb setup`"
+    if not hearing.get("installed"):
+        add(Check("hearing", "warn", "FERB.app isn't installed, so FERB can't turn sound into text", fix))
+    elif "signed" not in hearing:                    # a quick check: FERB.app wasn't asked
+        return
+    elif not hearing.get("signed"):
+        add(Check("hearing", "warn", "FERB.app's signature isn't the one recorded at setup", fix))
+    elif hearing.get("error"):
+        add(Check("hearing", "warn", f"FERB.app didn't answer: {hearing['error']}", fix))
+    elif hearing.get("speech") != "granted":
+        add(Check("hearing", "warn", f"FERB.app's Speech Recognition: {hearing.get('speech')}",
+                  fix + " and allow Speech Recognition for FERB"))
+    elif not hearing.get("on_device"):
+        add(Check("hearing", "warn", f"on-device speech recognition isn't available for {hearing.get('locale')}; FERB "
+                  "never uses a cloud recognizer", "on-device support follows the Mac's Dictation languages (System Settings → "
+                  "Keyboard → Dictation)"))
+    else:
+        add(Check("hearing", "ok", f"FERB.app may use on-device Speech Recognition ({hearing.get('locale')})"))
+
+
 def doctor(env: Env) -> int:
     inst = env.inst
     checks: list[Check] = []
@@ -423,6 +451,7 @@ def doctor(env: Env) -> int:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
         add(containment_check(report.get("containment")))
         add(snapshot_check(report.get("containment")))
+        add_hearing_check(add, report.get("hearing"))
         voice = report.get("voice", {})
         if voice.get("push_to_talk"):
             perms = voice.get("permissions", {})
@@ -681,28 +710,63 @@ def uninstall(env: Env, purge: bool) -> int:
 CERTIFICATE = "FERB Local Code Signing"
 
 
-def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
-    """Push-to-talk: build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
-    survive rebuilds), record its signature for the daemon's check, ask for Microphone and Speech Recognition once,
-    turn push-to-talk on. The daemon is not restarted."""
+def _build_app(env: Env, run: Callable[..., Any] | None = None) -> str | None:
+    """Build FERB.app into ~/.ferb and sign it with the local certificate (so its permissions survive rebuilds); record
+    its signature for the daemon's checks (hearing, L26). Returns the signature requirement, or None (said why)."""
+    run = run or env.run
     # not `-v`: that lists only certificates macOS trusts, and a self-made one never is (it still signs fine)
     found = run(["security", "find-identity", "-p", "codesigning"], capture_output=True, text=True)
     if CERTIFICATE not in (found.stdout or ""):
         env.say(f"The signing certificate \"{CERTIFICATE}\" isn't in your login keychain. Create it in Keychain Access →")
         env.say("Certificate Assistant → Create a Certificate (name it exactly that, type Code Signing), then run this again.")
-        return 1
+        return None
     app = env.inst.home / "FERB.app"
-    env.say("Building FERB.app (the microphone part of push-to-talk; no windows, no Dock icon)…")
+    env.say("Building FERB.app (on-device speech recognition and push-to-talk's microphone; no windows, no Dock icon)…")
     built = run([str(repo_root() / "macapp" / "FERB" / "build.sh"), str(app)], capture_output=True, text=True)
     if built.returncode != 0:
         env.say("Build failed:\n" + ((built.stderr or built.stdout or "").strip()[-1500:]))
-        return 1
+        return None
     shown = run(["codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
     req = next((ln.split("=>", 1)[1].strip() for ln in ((shown.stdout or "") + (shown.stderr or "")).splitlines()
                 if ln.startswith("designated =>")), "")
     if "certificate leaf" not in req:
-        env.say("FERB.app isn't signed with the local certificate; push-to-talk stays off.")
+        env.say("FERB.app isn't signed with the local certificate, so FERB won't use it.")
+        return None
+    Config(env.inst.home).set("hearing", "requirement", req)
+    return req
+
+
+def hearing_setup(env: Env, client: Any) -> None:
+    """L26: FERB hears app sound during tasks. Build FERB.app and ask once for Speech Recognition only (never the
+    microphone: that is `ferb setup --voice`). Speech is recognized on this Mac only; without it FERB can't turn
+    sound into text, but setup still finishes."""
+    env.say("     Hearing: FERB turns an app's sound into text during a task, on this Mac only.")
+    if _build_app(env) is None:
+        env.say("     Hearing isn't set up; `ferb doctor` will remind you.")
+        return
+    app = env.inst.home / "FERB.app"
+    env.say("     macOS will ask once for Speech Recognition for FERB — allow it.")
+    env.run(["open", "-n", "-W", str(app), "--args", "request-speech"])
+    hearing = client.call("doctor.check", {"selftest": False, "hearing": True}).get("hearing", {})
+    speech = hearing.get("speech")
+    if speech == "granted":
+        line = "on this Mac" if hearing.get("on_device") else \
+            f"but on-device recognition isn't available for {hearing.get('locale')}, so FERB won't transcribe"
+        env.say(f"     Speech Recognition: granted ✓ ({line})")
+    else:
+        env.say(f"     Speech Recognition: {speech or 'not checked'}. Allow FERB in System Settings → Privacy & Security → "
+                "Speech Recognition, then run `ferb setup` again. Until then FERB can't turn sound into text.")
+
+
+def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
+    """Push-to-talk: build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
+    survive rebuilds), record its signature for the daemon's check, ask for Microphone and Speech Recognition once,
+    turn push-to-talk on. The daemon is not restarted."""
+    req = _build_app(env, run)
+    if req is None:
+        env.say("Push-to-talk stays off.")
         return 1
+    app = env.inst.home / "FERB.app"
     config = Config(env.inst.home)
     config.set("voice", "requirement", req)
     env.say("macOS will ask once for Microphone and Speech Recognition for FERB — allow both.")

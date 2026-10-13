@@ -1,4 +1,8 @@
-"""Task-owned, sampled target videos and decoded-frame inspection. Never captures a display or moves focus."""
+"""Task-owned, sampled target videos and decoded-frame inspection. Never captures a display or moves focus.
+
+With sound (L26): `with_audio` also captures the target app's sound through Hearing (ferb/act/listen.py) from just
+after the first frame; stopping puts it in the video as its audio track and attaches the redacted, on-device
+transcript with segment times on the video's own timeline."""
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -63,6 +67,9 @@ class _Recording:
     halt: asyncio.Event = field(default_factory=asyncio.Event)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     result: dict[str, Any] | None = None
+    listening: Any = None                    # the sound being captured with it (with_audio), else None
+    audio_at: float = 0.0                    # when that sound starts, in seconds of the video
+    language: str | None = None
 
     @property
     def receipt(self) -> Path:
@@ -70,11 +77,13 @@ class _Recording:
 
 
 class RecordingManager:
-    def __init__(self, now: Callable[[], float] = time.monotonic, *, sanitize: Callable[[bytes], bytes] | None = None) -> None:
+    def __init__(self, now: Callable[[], float] = time.monotonic, *, sanitize: Callable[[bytes], bytes] | None = None,
+                 hearing: Any = None) -> None:
         from ferb.sanitize.images import ImageRedactor
         from ferb.sanitize.redact import Redactor
         self.sanitize = sanitize or ImageRedactor(Redactor())
         self.now = now
+        self.hearing = hearing                   # ferb/act/listen.py's Hearing: recordings with sound
         self.records: dict[str, _Recording] = {}
         self._starts = asyncio.Lock()
 
@@ -96,7 +105,8 @@ class RecordingManager:
                 'running': not r.halt.is_set() and r.result is None}
 
     async def start(self, owner: str, target: dict[str, Any], path: Path, capture: Capture,
-                    fps: float = 2) -> dict[str, Any]:
+                    fps: float = 2, audio: tuple[str, int] | None = None, language: str | None = None) -> dict[str, Any]:
+        """`audio`: (bundle id, pid) of the app whose sound is recorded with the frames (with_audio)."""
         async with self._starts:
             executable('ffmpeg'); executable('ffprobe')
             if not math.isfinite(fps) or not 0.2 <= fps <= 10:
@@ -112,9 +122,18 @@ class RecordingManager:
             # Capture before allocating files; no video should exist if the target cannot be reached.
             first = await asyncio.to_thread(self.sanitize, await capture())
             began = self.now()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            folder = Path(tempfile.mkdtemp(prefix='.ferb-recording-', dir=path.parent))
-            r = _Recording('rec-' + uuid4().hex[:12], owner, dict(target), path, folder, capture, fps, began)
+            if audio is not None and self.hearing is None:
+                raise Refused('FERB has no way to hear sound here; record without with_audio')
+            listening = await self.hearing.start(owner, *audio) if audio is not None else None
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                folder = Path(tempfile.mkdtemp(prefix='.ferb-recording-', dir=path.parent))
+            except BaseException:
+                if listening is not None:
+                    await self.hearing.finish(listening)
+                raise
+            r = _Recording('rec-' + uuid4().hex[:12], owner, dict(target), path, folder, capture, fps, began,
+                           listening=listening, audio_at=max(0.0, self.now() - began), language=language)
             try:
                 (folder/'00000000.jpg').write_bytes(first)
                 r.times.append(0.0)
@@ -122,6 +141,8 @@ class RecordingManager:
                     json.dump(self._info(r) | {'sample_times_s': r.times}, out, indent=2)
             except BaseException:
                 shutil.rmtree(folder)
+                if listening is not None:
+                    await self.hearing.finish(listening)
                 raise
             self.records[r.id] = r
             r.loop = asyncio.create_task(self._loop(r))
@@ -162,6 +183,7 @@ class RecordingManager:
                 return r.result
             r.ended = r.ended if r.ended is not None else self.now()
             r.error = r.error or reason
+            heard = await self.hearing.finish(r.listening) if r.listening is not None else None
             result = self._info(r) | {'running': False, 'released': True}
             try:
                 # Timestamped concat preserves slow captures and variable intervals instead of speeding up time.
@@ -179,18 +201,40 @@ class RecordingManager:
                               f'fps=25,tpad=stop_mode=clone:stop_duration={end}',
                               '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-fps_mode', 'cfr', '-r', '25',
                               '-t', str(end), '-movflags', '+faststart', str(video))
+                if heard is not None and heard.get('audio_s'):
+                    sound = r.folder/'with-sound.mp4'    # the captured sound as the video's audio track, in time
+                    await command(executable('ffmpeg'), '-v', 'error', '-nostdin', '-i', str(video),
+                                  '-itsoffset', f'{r.audio_at:.3f}', '-i', str(r.listening.path), '-map', '0:v',
+                                  '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-t', str(end),
+                                  '-movflags', '+faststart', str(sound))
+                    video = sound
                 os.link(video, r.path)              # atomic publication, never replaces an owner's existing file
-                result.update(capture_complete=r.error is None, bytes=r.path.stat().st_size)
+                result.update(capture_complete=r.error is None and not (heard or {}).get('error'),
+                              bytes=r.path.stat().st_size)
             except Exception as exc:
                 result.update(error=f'{r.error + "; " if r.error else ""}{type(exc).__name__}: {exc}', capture_complete=False)
             finally:
                 shutil.rmtree(r.folder, ignore_errors=True)
+            if heard is not None:
+                result.update(await self._sound(r, heard))
             r.result = result
             try:
                 r.receipt.write_text(json.dumps(result | {'sample_times_s': r.times}, indent=2))
             except OSError as exc:
                 result.update(error=f'recording receipt could not be finalized: {exc}', capture_complete=False)
             return result
+
+    async def _sound(self, r: _Recording, heard: dict[str, Any]) -> dict[str, Any]:
+        """What the sound added: its file and facts, and the redacted transcript on the video's timeline."""
+        out: dict[str, Any] = {'audio_path': str(r.listening.path), 'audio_s': round(float(heard.get('audio_s') or 0), 2),
+                               'audio_peak': heard.get('peak', 0.0), 'audio_offset_s': round(r.audio_at, 3)}
+        if heard.get('error'):
+            out['audio_error'] = self.hearing.redact(str(heard['error']))
+        try:
+            out.update(await self.hearing.transcript(r.listening.path, heard, r.language, offset=r.audio_at))
+        except Refused as e:
+            out['transcript_error'] = str(e)
+        return out
 
     async def end_task(self, owner: str) -> list[dict[str, Any]]:
         owned = [r for r in self.records.values() if r.owner == owner]

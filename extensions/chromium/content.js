@@ -20,6 +20,7 @@
   let sealedSplitDocument = false;
   let els = new Map();                 // local id -> WeakRef(element), for the latest snapshot only
   let containers = new Map();          // container id -> WeakRef(scroller element), for the latest snapshot only
+  let mediaEls = new Map();            // media index -> WeakRef(video/audio element), for the latest snapshot only
   let snapGen = 0;
   let bindings = new Map();
   const randomId = () => {                         // getRandomValues: also on plain-http pages (randomUUID isn't)
@@ -370,9 +371,47 @@
                      in_view: meets && !hitTest(f, r) });
     }
     const text = pageText();
+    mediaEls = new Map();
+    const media = mediaElements(document, []).map((el, index) => { mediaEls.set(index, new WeakRef(el)); return mediaState(el, index); });
     return { gen, document_binding: bind(document.documentElement), url: maskUrl(location.href), title: document.title, name: window.name || "", top: window === top,
              viewport: [innerWidth, innerHeight], scroll: scrollState(null), scrollers, iframes, elements: out, text,
-             truncated: false };
+             media, truncated: false };
+  }
+
+  // Video and audio elements (L26), in document order with open shadow roots, visible or not (an <audio> never is).
+  function mediaElements(root, out) {
+    for (const el of root.querySelectorAll("*")) {
+      if (el.tagName === "VIDEO" || el.tagName === "AUDIO") out.push(el);
+      if (el.shadowRoot) mediaElements(el.shadowRoot, out);
+    }
+    return out;
+  }
+  function mediaState(el, index) {
+    const r = el.getBoundingClientRect();
+    const finite = v => Number.isFinite(v) ? round(v) : null;    // an unknown or live duration is null
+    return { index, playing: !el.paused && !el.ended, current_time: finite(el.currentTime), duration: finite(el.duration),
+             muted: !!el.muted, volume: finite(el.volume),
+             in_view: r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight };
+  }
+  // The page's own media controls on one element of the latest snapshot: never a click, never page script. play()
+  // is given one turn of the event loop so a refusal (no user gesture) is reported, not waited on.
+  async function media(gen, index, action, to) {
+    if (gen !== snapGen) return { error: "stale" };
+    const ref = mediaEls.get(index), el = ref && ref.deref();
+    if (!el || !el.isConnected) return { error: "stale" };
+    let error = null;
+    try {
+      if (action === "play") {
+        const refused = await Promise.race([Promise.resolve(el.play()).then(() => null, e => e),
+                                            new Promise(r => setTimeout(() => r(null), 0))]);
+        if (refused) error = String(refused.name || refused);
+      } else if (action === "pause") el.pause();
+      else if (action === "mute") el.muted = true;
+      else if (action === "unmute") el.muted = false;
+      else if (action === "seek" && Number.isFinite(to) && to >= 0) el.currentTime = to;
+      else return { error: "unsupported media action" };
+    } catch (e) { error = String((e && e.name) || e); }
+    return error ? { ...mediaState(el, index), error } : mediaState(el, index);
   }
 
   function element(gen, id) {
@@ -724,7 +763,7 @@
     return { ok, unknown: !ok, detail: ok ? "filled" : "field_state_changed_after_input" };
   }
 
-  window.__ferb = { snapshot, uploadFiles, adopt, point, frameRect, visualState, captureState,
+  window.__ferb = { snapshot, media, uploadFiles, adopt, point, frameRect, visualState, captureState,
     supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,
