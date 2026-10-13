@@ -117,10 +117,12 @@ class Voice:
             self._say("I didn't catch that.")
             return {"handled": "empty"}
         if pending:
-            # The shared owner-answer resolver registers contextual secrets before any transcript event can
-            # escape through the daemon's redacting publisher. Hidden questions were refused above.
-            self.answer(pending[0].id, True, None, text)
-            self.publish("voice.heard", {"text": text})
+            # What was heard is shown as the shared owner-answer resolver stored it: a code spoken to a code question
+            # is [redacted] there, and it never becomes a remembered secret (L18), so the raw transcript isn't
+            # published. Hidden questions were refused above.
+            question = pending[0]
+            self.answer(question.id, True, None, text)
+            self.publish("voice.heard", {"text": getattr(question, "answer", text) or ""})
             self._say("Got it.")
             return {"handled": "answer"}
         self.publish("voice.heard", {"text": text})

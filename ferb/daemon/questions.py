@@ -24,6 +24,13 @@ class Approval:
     answer: str | None = None
     display_text: str = ""
 
+    def option_for(self, text: str) -> int | None:
+        """The option (1-based) a typed answer picks: its exact words in any case, else its number."""
+        matches = [i for i, o in enumerate(self.options, 1) if o.strip().casefold() == text.casefold()]
+        if len(matches) == 1:
+            return matches[0]
+        return int(text) if text.isdigit() and 1 <= int(text) <= len(self.options) else None
+
 
 class Approvals:
     def __init__(self, clock: Clock, ttl_s: float = APPROVAL_TTL_S) -> None:
@@ -51,10 +58,7 @@ class Approvals:
         else:
             text = (text or "").strip() or None
         if text is not None and choice is None and ap.options:
-            matches = [i for i, o in enumerate(ap.options, 1) if o.strip().casefold() == text.casefold()]
-            choice = matches[0] if len(matches) == 1 else None
-            if choice is None and text.isdigit() and 1 <= int(text) <= len(ap.options):
-                choice = int(text)
+            choice = ap.option_for(text)
         if granted and choice is not None:
             if not 1 <= choice <= len(ap.options):
                 raise ValueError(f"pick one of 1–{len(ap.options)}")

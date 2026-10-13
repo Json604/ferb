@@ -2628,11 +2628,12 @@ class Daemon:
             else:
                 text = text.strip()
                 granted = bool(text)
-                if ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor):
-                    safe = self.redact.field(text, label=ap.reason)
-                    if safe != text:
-                        self.redact.remember_hidden_secret(text)
-                        text = safe
+                # Only the sealed secret inputs (a secret, the admin password, a login code) make hidden secrets
+                # (L18, D28). A picked option is never one; other typed words to a question are hidden for this
+                # answer alone when an explicit code label asks for a code, and never remembered.
+                if (ap is not None and ap.kind == "owner_question" and isinstance(self.redact, Redactor)
+                        and ap.option_for(text) is None):
+                    text = self.redact.field(text, label=ap.reason)
                 if ap is not None and ap.kind == "owner_login_code" and text:
                     self._add_secret_value(text)
         try:

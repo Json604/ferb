@@ -95,7 +95,9 @@ class Redactor:
             self._temporary[value] = self._temporary.get(value, 0) + 1
 
     def remember_hidden_secret(self, value: str) -> None:
-        """An explicitly hidden value is a secret even when shorter than pattern-derived credentials."""
+        """A sealed secret (entered through the hidden secret input, or a stored one revealed for a sealed fill) is
+        a secret even when shorter than pattern-derived credentials. Only those call this (L18): a typed or picked
+        answer to an ordinary question never does, so a "1" can't turn every later 1 into [redacted]."""
         if value:
             self._values.add(value)
 

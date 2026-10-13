@@ -223,7 +223,8 @@ def test_spoken_otp_in_ordinary_question_is_redacted_before_event_and_resolution
     assert result == {'handled': 'answer'} and answer == REDACTED
     assert ('voice.heard', {'text': REDACTED}) in published
     assert '314159' not in repr(published)
-    assert daemon.daemon.redact.text('echo 314159') == 'echo ' + REDACTED
+    # L18: a spoken answer isn't sealed input, so it never becomes a remembered secret that rewrites later text.
+    assert daemon.daemon.redact.text('freed 1.5 GB in 11 files') == 'freed 1.5 GB in 11 files'
 
 
 def test_a_voice_request_is_a_chat_turn_and_the_reply_is_spoken(daemon: RunningDaemon) -> None:

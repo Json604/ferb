@@ -52,7 +52,8 @@ DEFAULT_NEVER_WRITE = (
     "~/.zshrc", "~/.zprofile", "~/.zshenv", "~/.zlogin", "~/.bash_profile", "~/.bashrc", "~/.profile",
     "/System", "/Library", "/Applications",
 )
-# D31: FERB never types into terminal apps (bundle ids; the owner may edit the list).
+# D31: FERB never types into terminal apps (bundle ids; the owner may edit the list in config). L17: typed text is
+# never captured in these apps either (sense/watchers/text_input.py uses this constant).
 DEFAULT_TERMINAL_APPS = ("com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
                          "com.mitchellh.ghostty", "org.alacritty", "net.kovidgoyal.kitty", "com.github.wez.wezterm",
                          "co.zeit.hyper")

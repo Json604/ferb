@@ -71,9 +71,8 @@ def test_ordinary_owner_answer_to_otp_question_is_scrubbed_before_resolution(dae
         action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
         ap = daemon.daemon.state.approvals.question(action, 'Please enter the OTP on the Zomato page.', ['Done', 'Cancel'])
         await daemon.daemon._chat_answer(None, {'approval_id': ap.id, 'text': '314159'})
-        return ap.answer, daemon.daemon.redact.text('page echoed 314159')
-    answer, echo = daemon.run(answer())
-    assert answer == REDACTED and '314159' not in echo
+        return ap.answer
+    assert daemon.run(answer()) == REDACTED      # hidden for this answer; only sealed input is remembered (L18)
 
 
 def test_admin_answer_preserves_spaces_and_rejects_newline_privately(daemon) -> None:
