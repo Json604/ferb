@@ -91,6 +91,7 @@ Every event on a `chat.send` stream and the matching bus topic carries `request_
 | B: broken features | 11 → 12 → 13 | `sanitize/redact.py`, `store/spans.py`, `memory/*`, `policy/security_digest.py`, `sense/watchers/text_input.py`, `plan_executor.py`, `plans.py`, runtime account errors, `main.py` distill loop |
 | U: UI | 15 → 16 | `ui/mac/FERBNotch` |
 | X: extension | 17 → 20 | `ferb/act/browser/*` setup/install, `ferb/cli/*` setup, extension bundle |
+| R: release | 21 | `scripts/`, app bundle, install paths |
 | Final | 18 → 19 → whole-branch review | tests through the gateway, docs |
 
 Task 18 starts after Tasks 1, 7 and 13 are integrated; Task 19 after all others.
@@ -703,6 +704,51 @@ Arc and Opera on macOS:
 
   All fail first.
 - [ ] Implement, validate (full suite, mypy, diff-check), commit `feat(L26): FERB hears app sound during tasks, on-device transcripts; media control`.
+
+### Task 21: Packaged FERB.app and DMG, ad-hoc signed now and signed later (L27)
+
+**Research first (write it in the report, with sources)**, then implement the best-supported approach:
+- **Embedding the daemon:** how to embed the daemon's Python into a macOS app bundle so it runs from any location.
+  Candidates:
+  - a uv-managed standalone CPython plus the `ferb` package and dependencies installed into the bundle;
+  - py2app;
+  - PyInstaller.
+
+  Check: relocatability; PyObjC; MLX (if the embeddings dependency is optional, say so); code-signing every nested
+  binary.
+- **Background daemon:** how to run it from the bundle. `SMAppService` login item or agent: does it work for an
+  ad-hoc-signed app? If not, use the existing `~/Library/LaunchAgents` approach that `ferb setup` already uses,
+  pointed into the bundle.
+- **Helpers:** where the native-messaging host and the secret helper live in the bundle, and how their requirements
+  and paths change. The secret helper's `codesign -R` requirement must match the ad-hoc signature, and later the
+  Developer ID one.
+
+**Files:**
+- Create:
+  - `scripts/build-app.sh` (assemble and sign the bundle);
+  - `scripts/build-dmg.sh` (DMG with the app plus an Applications link);
+  - a packaging smoke test in `tests/test_packaging.py`, which checks bundle structure and Info.plist keys and
+    builds into a temp dir when tools are available, otherwise skips with a reason.
+- Modify:
+  - `ui/mac/FERBNotch` (app bundle id/name "FERB", Info.plist usage descriptions, first-launch setup flow);
+  - `ferb/device/install.py` and `ferb/cli/setup.py` (bundle-aware paths);
+  - README install section ("Open Anyway" steps; source install kept).
+
+**Constraints:**
+- Don't edit `macapp/FERB` sources while Task 20 is changing them. Include the voice/transcribe app as a nested helper
+  app built from `macapp/FERB` for now, and merge it into the main bundle after Task 20 integrates (note it as a
+  follow-up in the report).
+- Never touch the owner's installed `~/.ferb`, the running daemon or browsers, and never run first-launch setup against
+  the real home. Build into the session scratchpad.
+
+**Signing step:**
+- `SIGN_IDENTITY` defaults to ad-hoc (`-`).
+- When it is set to a Developer ID, the script also runs `notarytool` and `stapler`, with credentials taken from the
+  environment and never written anywhere.
+
+- [ ] Research, then tests first (structure/Info.plist/smoke), then implement. Validate: full suite, mypy core,
+  diff-check, `swift test` in `ui/mac/FERBNotch`, and one real local build of the app and DMG into the scratchpad
+  (report size and what launched). Commit `feat(L27): packaged FERB.app and DMG, ad-hoc signed; Developer ID ready`.
 
 ### Task 18: Launch campaign path through the gateway (D30, L22)
 

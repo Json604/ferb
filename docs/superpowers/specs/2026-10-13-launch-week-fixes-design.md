@@ -98,7 +98,7 @@ Five read-only reports, kept locally (git-ignored) in `.superpowers/sdd/2026-10-
 | L15 | The UI moved into this repository as `ui/` (done in 2b9f727; its old two-commit history is kept locally). |
 
 L16–L24 are the fix items in §4.6, accepted by the owner as a list. L25 (§4.8) was added at approval; L26 (§4.9)
-on 2026-10-14.
+and L27 (§4.10) on 2026-10-14.
 
 ## 4. Design
 
@@ -403,6 +403,34 @@ hears it briefly. This is recorded like any other on-screen action.
 
 **Permission.** Speech recognition needs a one-time macOS permission for FERB. `ferb setup` asks for it and
 `ferb doctor` reports it. Screen Recording, already granted for screenshots, covers app audio.
+
+### 4.10 Packaged app: one FERB.app in a DMG (L27)
+
+The owner decided this on 2026-10-14. The release includes a packaged, end-to-end FERB.app in a DMG; that is why the
+UI moved into this repo.
+
+**Signing.** The owner has no Apple Developer membership. For comparison, Sentient OS is Developer-ID signed and
+notarized (`spctl`: "Notarized Developer ID"). So the DMG ships **ad-hoc signed now and is signed later**.
+- The README and the download page show the one-time macOS "Open Anyway" step (System Settings → Privacy & Security).
+- The build has a single signing step that becomes Developer ID signing plus notarization once a membership exists,
+  with no repackaging.
+- Install from source stays supported. A `git clone` install never triggers Gatekeeper.
+
+**What the bundle holds.**
+- The main executable is the notch UI.
+- The daemon's Python runtime and the `ferb` package with its dependencies are inside the bundle.
+- Speech features (transcription for L26, push-to-talk) run inside the bundle with their usage descriptions.
+- The secret helper and the native-messaging host are inside the bundle.
+- Info.plist declares the usage descriptions macOS requires.
+
+**First launch.**
+- It sets up the background daemon from inside the bundle.
+- It puts a `ferb` command on PATH.
+- It runs the same steps as `ferb setup`: permissions guidance and the extension auto-install.
+- It uses the same `~/.ferb` home, so an existing install keeps its data.
+
+**Residual (owner accepted).** Ad-hoc signing means macOS may ask for permissions again after an update, until Developer
+ID signing exists.
 
 ## 5. Changes to the plan of record and working rules
 
