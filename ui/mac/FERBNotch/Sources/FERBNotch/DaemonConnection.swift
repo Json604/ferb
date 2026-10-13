@@ -53,6 +53,8 @@ extension NotchModel {
     func refreshDaemonStatus() async {
         guard !refreshingStatus else { return }
         refreshingStatus = true
+        // Before the snapshot below, so this extra read never makes it stale.
+        if bodyVisible && viewingToday { await fetchLearningDigest() }
         let rootsBefore = Set(workSessions.values.compactMap(\.backendTaskID))
             .union(session.backendTaskID.map { [$0] } ?? [])
             .union(conversation.turns.filter { ["working", "interrupted", "needs_user"].contains($0.status) }.compactMap(\.backendTaskID))
@@ -61,14 +63,14 @@ extension NotchModel {
         let previousSize = panelSize
         defer { if panelSize != previousSize { onBackgroundChange?(true) } }
         do {
-            // Not a peek: this read marks the results it returns shown, so `ferb chat` doesn't replay what this chat
-            // shows. Everything it marks (results, notices, the learning digest) is therefore shown here, even when a
-            // newer event makes the rest of the snapshot stale.
-            let status = try await rpc.call("chat.status", params: ["peek": false])
+            // A peek: reading marks nothing shown. Results and notices are final facts, placed in the chat even when
+            // a newer event makes the rest of the snapshot stale, and then acknowledged one by one, so `ferb chat`
+            // replays only what this chat didn't show.
+            let status = try await rpc.call("chat.status", params: ["peek": true])
             let results = status["results"] as? [[String: Any]] ?? []
             for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
+            acknowledgeResults(results.compactMap { $0["task_id"] as? String })
             receiveNotices(status["notices"] as? [[String: Any]] ?? [])
-            receiveLearningDigest(status["memory_digest"] as? [String: Any])
             // A newer event wins over this older request's snapshot. The existing
             // reconciliation cadence will fetch a fresh snapshot next time.
             guard taskStateRevision == snapshotRevision else { return }
@@ -343,7 +345,10 @@ extension NotchModel {
         case "task.result":
             var result = data
             if let taskID, let goal = runningTasks.removeValue(forKey: taskID), result["goal"] == nil { result["goal"] = goal }
+            if result["at"] == nil { result["at"] = event["at"] }
             receiveOutcome(result)
+            // A result no attached chat showed would be replayed by `ferb chat`; this chat showed it.
+            if let taskID, data["shown"] as? Bool == false { acknowledgeResults([taskID]) }
         case "tool.called":
             guard let taskID else { return }
             let matches: (String?) -> Bool = { root in
@@ -375,26 +380,36 @@ extension NotchModel {
         if let localID = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
             withWorkSession(localID) { handleOutcome(event, announce: announce) }
         } else if let status = event["status"] as? String {
-            let known = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
-                ?? conversation.turns.first(where: { $0.backendTaskID == taskID })
-            let turn = known ?? recoveredTurn(taskID: taskID, goal: event["goal"] as? String ?? "")
-            // Bound here too, so Tasks and Inspect reach a turn found by its request.
-            conversation.bind(id: turn.id, taskID: taskID)
-            conversation.finish(id: turn.id, answer: event["answer"] as? String ?? event["summary"] as? String ?? turn.answer,
-                status: status, artifacts: (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) },
-                displayText: event["display_text"] as? String, verified: event["verified"] as? Bool ?? false)
+            let artifacts = (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
+            if let turn = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
+                ?? conversation.turns.first(where: { $0.backendTaskID == taskID }) {
+                // Bound here too, so Tasks and Inspect reach a turn found by its request.
+                conversation.bind(id: turn.id, taskID: taskID)
+                conversation.finish(id: turn.id, answer: event["answer"] as? String ?? event["summary"] as? String ?? turn.answer,
+                    status: status, artifacts: artifacts, displayText: event["display_text"] as? String,
+                    verified: event["verified"] as? Bool ?? false)
+            } else {
+                // A task this chat has no turn for (started elsewhere, or before a restart): FERB's message,
+                // described by the daemon's goal and filed when its result arrived.
+                conversation.recordRecovered(taskID: taskID, goal: event["goal"] as? String ?? "",
+                    answer: event["answer"] as? String ?? event["summary"] as? String ?? "", status: status,
+                    artifacts: artifacts, displayText: event["display_text"] as? String,
+                    verified: event["verified"] as? Bool ?? false, at: LiveProgress.time(event["at"]) ?? Date())
+            }
             knownCompletedTasks.insert(taskID)
             runningTasks.removeValue(forKey: taskID)
             saveConversation()
         }
     }
 
-    /// A result for a task this chat has no turn for (started elsewhere, or before a restart): FERB's message,
-    /// described by the daemon's goal, never shown as the owner's words.
-    private func recoveredTurn(taskID: String, goal: String) -> ConversationTurn {
-        let id = UUID()
-        conversation.begin(id: id, request: "", sources: [], goal: goal)
-        return conversation.turns.first { $0.id == id }!
+    /// Marks shown, one by one, the results this chat placed (`results.ack`), so `ferb chat` doesn't replay them.
+    /// Saved first: a result is acknowledged only once it is in the saved conversation.
+    func acknowledgeResults(_ taskIDs: [String]) {
+        let placed = taskIDs.filter { id in
+            conversation.turns.contains { $0.backendTaskID == id && !["working", "interrupted"].contains($0.status) }
+        }
+        guard !placed.isEmpty else { return }
+        Task { _ = try? await rpc.call("results.ack", params: ["task_ids": placed]) }
     }
 
     /// Notices go into the chat (L9) and are saved before they are acknowledged, so a shown notice is never lost. Every
@@ -402,7 +417,9 @@ extension NotchModel {
     func receiveNotices(_ rows: [[String: Any]]) {
         var ids: [String] = [], added = false
         for row in rows {
-            guard let id = row["id"] as? String, !id.isEmpty, let text = row["text"] as? String, !text.isEmpty else { continue }
+            guard let id = row["id"] as? String, !id.isEmpty else { continue }
+            // A notice with nothing to say is still acknowledged, so it isn't delivered again on every read.
+            guard let text = row["text"] as? String, !text.isEmpty else { ids.append(id); continue }
             let quotes = (row["quotes"] as? [[String: Any]] ?? []).compactMap { quote -> NoticeQuote? in
                 guard let text = quote["text"] as? String, !text.isEmpty else { return nil }
                 return NoticeQuote(text: text, origin: quote["origin"] as? String ?? "")
@@ -418,24 +435,40 @@ extension NotchModel {
         Task { _ = try? await rpc.call("attention.ack", params: ["ids": ids]) }
     }
 
-    /// The learning digest a status read returns (once a day, while proposals wait), shown as `ferb chat` shows it.
-    func receiveLearningDigest(_ digest: [String: Any]?) {
-        let proposals = (digest?["proposals"] as? [[String: Any]] ?? []).compactMap { proposal -> (String, String)? in
-            guard let id = proposal["id"] as? String, let text = proposal["text"] as? String else { return nil }
-            return (id, text)
+    /// The day's learning digest (`memory.learning {op: digest}`, the read `ferb chat` makes when it opens). It marks
+    /// the digest seen for the day, so it is read only while the owner has today's chat open, and shown at once.
+    func fetchLearningDigest() async {
+        guard let reply = try? await rpc.call("memory.learning", params: ["op": "digest"]),
+              let digest = reply["digest"] as? [String: Any] else { return }
+        let proposals = (digest["proposals"] as? [[String: Any]] ?? []).compactMap { proposal -> LearningProposal? in
+            guard let id = proposal["id"] as? String, !id.isEmpty, let text = proposal["text"] as? String else { return nil }
+            return LearningProposal(id: id, text: text)
         }
         guard !proposals.isEmpty else { return }
-        let text = (["Here are things I learned that need your confirmation:"]
-            + proposals.map { id, text in "• \(text) — /memory confirm \(id)" }).joined(separator: "\n")
-        guard conversation.addNotice(id: "learned:" + proposals.map(\.0).joined(separator: ","), text: text, tag: nil) else { return }
+        let day = digest["day"] as? String ?? proposals.map(\.id).joined(separator: ",")
+        guard conversation.addNotice(id: "learned:" + day, text: "Here are things I learned that need your confirmation:",
+                                     tag: nil, proposals: proposals) else { return }
         saveConversation()
         onBackgroundChange?(true)
+    }
+
+    /// The owner's answer to one learned item: Confirm keeps it (`confirm`); Not right retires it so it isn't proposed
+    /// again (`retire`, a state change, not a deletion).
+    func decideLearning(noticeID: String, proposalID: String, confirm: Bool) {
+        Task {
+            do {
+                _ = try await rpc.call("memory.learning", params: ["op": confirm ? "confirm" : "retire", "id": proposalID])
+                conversation.decide(noticeID: noticeID, proposalID: proposalID, decision: confirm ? "confirmed" : "not right")
+                saveConversation()
+            } catch { promptError = "That answer about what FERB learned wasn't recorded. Try again." }
+        }
     }
 
     /// An answered question no longer holds its task: that task's work resumes, whichever turn is in front.
     func resolveApproval(_ approvalID: String?) {
         let resolved = pendingApprovals.first { $0.id == approvalID }
         pendingApprovals.removeAll { $0.id == approvalID }
+        if questionFocus?.id == approvalID { questionFocus = nil }
         guard let taskID = resolved?.taskID else {
             if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
             return

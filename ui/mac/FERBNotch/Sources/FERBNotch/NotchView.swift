@@ -78,7 +78,7 @@ struct NotchView: View {
 
     private func focusInput() {
         composerFocused = model.bodyVisible && !model.showingSources && model.viewingToday && !model.showingActivity
-            && model.canCompose && model.focusedQuestionID == nil
+            && model.canCompose && model.questionFocus == nil
     }
 
     private var contentID: String {

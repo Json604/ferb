@@ -3,6 +3,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 import NotchCore
 
+/// The owner asked to answer this question: its field has keyboard focus until it loses it, the question is
+/// resolved or the body hides. Only an explicit owner action creates one.
+struct QuestionFocus: Equatable {
+    let id: String
+    let token = UUID()
+}
+
 @MainActor
 final class NotchModel: ObservableObject {
     @Published var session = NotchSession()
@@ -51,10 +58,7 @@ final class NotchModel: ObservableObject {
     let preferences: UserDefaults
     @Published var connectionStatus = "Connecting to FERB…"
     @Published var pendingApprovals: [DaemonApproval] = []
-    @Published var selectedApprovalID: String?
-    var presentedApproval: DaemonApproval? {
-        pendingApprovals.first(where: { $0.id == selectedApprovalID }) ?? pendingApprovals.first
-    }
+    @Published var questionFocus: QuestionFocus?
     @Published var promptError: String?
     @Published var sendingAnswer = false
     @Published var runningTasks: [String: String] = [:]
@@ -66,17 +70,27 @@ final class NotchModel: ObservableObject {
     /// Which parts of the composer draft were pasted; they are sent as data, never as the owner's words (MP2).
     var pasteProvenance = PasteProvenance()
     var knownCompletedTasks = Set<String>()
+    /// An unreadable archive couldn't be set aside, so nothing may be saved over it.
+    var archiveBlocked = false
 
     init(rpc: DaemonRPCTransport = DaemonRPC(), preferences: UserDefaults = .standard, microphone: VoiceCapturing? = nil) {
         self.microphone = microphone ?? Microphone()
         self.rpc = rpc
         self.preferences = preferences
-        if let data = preferences.data(forKey: "FERBConversationArchive"),
-           let saved = try? JSONDecoder().decode(ConversationArchive.self, from: data) {
-            conversation = saved
-            conversation.interruptRestoredDrafts()
-            if conversation != saved, let repaired = try? JSONEncoder().encode(conversation) {
-                preferences.set(repaired, forKey: "FERBConversationArchive")
+        if let data = preferences.data(forKey: "FERBConversationArchive") {
+            if let saved = try? JSONDecoder().decode(ConversationArchive.self, from: data) {
+                conversation = saved
+                conversation.interruptRestoredDrafts()
+                if conversation != saved, let repaired = try? JSONEncoder().encode(conversation) {
+                    preferences.set(repaired, forKey: "FERBConversationArchive")
+                }
+            } else {
+                // History this build can't read is never saved over: it is kept aside, unchanged, and a new
+                // conversation archive starts.
+                let aside = "FERBConversationArchive.unreadable-" + ISO8601DateFormatter().string(from: Date())
+                preferences.set(data, forKey: aside)
+                if preferences.data(forKey: aside) == data { preferences.removeObject(forKey: "FERBConversationArchive") }
+                else { archiveBlocked = true }
             }
         }
         conversationID = preferences.string(forKey: "FERBConversationID")
@@ -442,8 +456,16 @@ final class NotchModel: ObservableObject {
     }
 
     func composerChanged() {
-        // Update the shared surface geometry when the field wraps or adds a line.
-        if expanded && canCompose { onPresentationChange?(true) }
+        // Update the shared surface geometry when the field wraps or adds a line. Geometry only: a presentation that
+        // requests focus here would move it while the owner types.
+        if expanded && canCompose { onBackgroundChange?(true) }
+    }
+
+    /// The owner chose to answer this question (clicked it, or Answer request in Tasks): focus its field.
+    func focusQuestion(_ id: String) {
+        guard pendingApprovals.contains(where: { $0.id == id }) else { return }
+        if !viewingToday { selectDay(Date()) }
+        questionFocus = QuestionFocus(id: id)
     }
 
     func removeAttachment(_ url: URL) {
@@ -476,8 +498,7 @@ final class NotchModel: ObservableObject {
     func announceApproval(_ approval: DaemonApproval) {
         let key = "approval:" + approval.id
         guard !announcedAttentionIDs.contains(key) else { return }
-        selectedApprovalID = approval.id
-        // Questions are shown inline in today's chat.
+        // Questions are shown inline in today's chat; arriving never moves keyboard focus.
         followsToday = true
         selectedDay = Calendar.current.startOfDay(for: Date())
         announceAttention(key)

@@ -98,6 +98,20 @@ public struct NoticeQuote: Codable, Equatable {
     }
 }
 
+/// Something FERB learned about the owner and asks them to confirm, with the owner's decision once made.
+public struct LearningProposal: Codable, Equatable {
+    public let id: String
+    public let text: String
+    /// "confirmed" or "not right"; nil while undecided.
+    public var decision: String?
+
+    public init(id: String, text: String, decision: String? = nil) {
+        self.id = id
+        self.text = text
+        self.decision = decision
+    }
+}
+
 /// A FERB message no turn asked for (L9): something FERB noticed, or what it learned and needs confirmed. It is shown
 /// where it arrived, after the newest turn.
 public struct ConversationNotice: Codable, Equatable {
@@ -114,6 +128,8 @@ public struct ConversationNotice: Codable, Equatable {
     public let tag: String?
     /// The newest turn when it arrived; nil when the chat had none.
     public let afterTurnID: UUID?
+    /// The learning digest's proposals, each answered in place.
+    public var proposals: [LearningProposal]?
 }
 
 /// One entry of the chat as shown, top to bottom.
@@ -219,11 +235,33 @@ public struct ConversationArchive: Codable, Equatable {
     /// Posts a FERB message no turn asked for, once per daemon id. Returns whether it is new to this chat.
     @discardableResult
     public mutating func addNotice(id: String, text: String, quotes: [NoticeQuote] = [], tag: String? = "noticed",
-                                   noticedAt: Date? = nil, at date: Date = Date()) -> Bool {
+                                   noticedAt: Date? = nil, proposals: [LearningProposal]? = nil, at date: Date = Date()) -> Bool {
         guard !id.isEmpty, !text.isEmpty, !notices.contains(where: { $0.id == id }) else { return false }
         notices.append(ConversationNotice(id: id, entryID: UUID(), createdAt: date, noticedAt: noticedAt, text: text,
-                                          quotes: quotes, tag: tag, afterTurnID: turns.last?.id))
+                                          quotes: quotes, tag: tag, afterTurnID: turns.last?.id, proposals: proposals))
         return true
+    }
+
+    /// Records the owner's decision on one proposal of a learning digest.
+    public mutating func decide(noticeID: String, proposalID: String, decision: String) {
+        guard let index = notices.firstIndex(where: { $0.id == noticeID }),
+              let item = notices[index].proposals?.firstIndex(where: { $0.id == proposalID }) else { return }
+        notices[index].proposals?[item].decision = decision
+    }
+
+    /// A finished task this chat didn't send (started elsewhere, or before a restart), filed among the turns at the
+    /// time its result arrived and answered in place: it is FERB's message, not a late answer to the owner.
+    public mutating func recordRecovered(taskID: String, goal: String, answer: String, status: String, artifacts: [URL],
+                                         displayText: String?, verified: Bool, at date: Date) {
+        guard !turns.contains(where: { $0.backendTaskID == taskID }) else { return }
+        var turn = ConversationTurn(id: UUID(), createdAt: date, request: "", sources: [], backendTaskID: taskID,
+                                    taskGoal: goal)
+        turn.answer = answer
+        turn.displayText = displayText
+        turn.status = status
+        turn.artifacts = artifacts
+        turn.verified = verified
+        turns.insert(turn, at: turns.firstIndex { $0.createdAt > date } ?? turns.endIndex)
     }
 
     public mutating func bind(id: UUID, taskID: String) {

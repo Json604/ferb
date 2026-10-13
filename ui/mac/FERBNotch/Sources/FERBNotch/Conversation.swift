@@ -15,11 +15,16 @@ extension NotchModel {
     var visibleEntries: [TranscriptEntry] { conversation.transcript(on: followsToday ? Date() : selectedDay) }
     /// Open questions, shown at the end of today's chat.
     var inlineQuestions: [DaemonApproval] { viewingToday ? pendingApprovals : [] }
-    /// A private value is typed only into its own hidden field, so a secret question takes keyboard focus from the
-    /// composer; an ordinary question leaves it with the composer.
-    var focusedQuestionID: String? {
-        let secret = inlineQuestions.filter(\.isSecret)
-        return (secret.first { $0.id == selectedApprovalID } ?? secret.first)?.id
+    /// The task a question belongs to: its goal, or its short id when the goal isn't known (a secret prompt must
+    /// always say which task asks).
+    func questionContext(_ approval: DaemonApproval) -> String? {
+        guard let taskID = approval.taskID, !taskID.isEmpty else { return nil }
+        if let goal = runningTasks[taskID], !goal.isEmpty { return goal }
+        if let turn = conversation.turns.first(where: { $0.backendTaskID == taskID }) {
+            let title = Self.title(of: turn)
+            if title != Self.unknownTaskTitle { return title }
+        }
+        return "Task " + String(taskID.prefix(8))
     }
     var viewingToday: Bool { followsToday || Calendar.current.isDateInToday(selectedDay) }
 
@@ -45,6 +50,10 @@ extension NotchModel {
     }
 
     func saveConversation() {
+        guard !archiveBlocked else {
+            promptError = "Earlier history couldn’t be read or set aside, so new messages aren’t being saved."
+            return
+        }
         do { preferences.set(try JSONEncoder().encode(conversation), forKey: "FERBConversationArchive") }
         catch { promptError = "Conversation history could not be saved: " + error.localizedDescription }
     }

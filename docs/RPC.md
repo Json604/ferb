@@ -37,7 +37,8 @@ browser bridge pages large observations; client RPC and extension protocol versi
 | `ping` | `{}` | PID, role, timestamp, explicit stop state |
 | `chat.attach` | `{new?: bool, resume?: conversation_id}` | `{ok, session_id, capabilities:["input_paths"]}`; resume/new conversation; marks running tasks attached |
 | `chat.send` | `{session_id, text, input_paths?: [path,...]}` | Stream of `chat.send.event` notifications (`ack` first), then `{ended:true}` |
-| `chat.status` | `{peek?: bool}` | `results`, `running`, `approvals`; fetching unseen results marks them shown unless `peek:true` |
+| `chat.status` | `{peek?: bool}` | `results` (each with `request_id` and `at`, when the result arrived), `running`, `approvals`, `notices`; fetching unseen results marks them shown unless `peek:true` |
+| `results.ack` | `{task_ids:[task_id,...]}` | Marks only those results shown, for a client that reads `chat.status` with `peek:true` and acknowledges each result it placed in its chat (the notch UI); `{ok:true}`. Unknown ids are ignored |
 | `chat.answer` | `{approval_id, text}` | Answers that exact pending question; empty text declines |
 | `setup.persona` | `{refresh?: bool, status?: bool}` | CLI-owner role only; local discovery state (`scanning`, `pending`, `reviewed`, `failed`) and pending profile approval |
 | `chat.approve` | `{approval_id, granted, choice?: integer}` | Explicit yes/no or 1-based option on that exact question |
@@ -106,8 +107,9 @@ A streaming request occupies its connection. Use a second authenticated connecti
 status or trace reads. The stream ends with a response carrying its request ID. Events are notifications, without
 that ID, using `<method>.event` and `params`. A client disconnect ends its subscription, while an already-started
 chat task continues in the daemon. Reconnect with `chat.attach` and `chat.status`. Live logs are not a durable replay
-cursor; use trace/timeline for persisted facts. `chat.status` is currently a delivery read, not an acknowledged queue:
-a future client wanting durable multi-device delivery needs explicit acknowledgments, not orchestration changes.
+cursor; use trace/timeline for persisted facts. `chat.status` without `peek` is a delivery read (`ferb chat` uses it
+when it opens). A client that polls should read with `peek:true` and call `results.ack` for each result it actually
+showed, so `ferb chat` replays only what no client showed.
 
 ## Questions and secrets
 

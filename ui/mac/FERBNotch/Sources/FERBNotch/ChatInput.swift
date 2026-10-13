@@ -47,7 +47,8 @@ struct ChatInput: NSViewRepresentable {
         view.isEditable = model.canCompose
         if context.coordinator.focusRequest != model.focusRequest {
             context.coordinator.focusRequest = model.focusRequest
-            if model.bodyVisible, model.canCompose, model.focusedQuestionID == nil, view.window?.isKeyWindow == true {
+            // The question field the owner chose to answer keeps focus over the composer.
+            if model.bodyVisible, model.canCompose, model.questionFocus == nil, view.window?.isKeyWindow == true {
                 view.window?.makeFirstResponder(view)
             }
         }

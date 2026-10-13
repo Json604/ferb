@@ -55,8 +55,10 @@ extension NotchModel {
     static func title(of turn: ConversationTurn) -> String {
         if !turn.request.isEmpty { return turn.request }
         if let goal = turn.taskGoal, !goal.isEmpty { return goal }
-        return turn.plan ?? turn.ack ?? "A task from earlier"
+        return turn.plan ?? turn.ack ?? unknownTaskTitle
     }
+
+    static let unknownTaskTitle = "A task from earlier"
 
     func toggleTasks() {
         showingTasks.toggle()
@@ -164,10 +166,9 @@ struct TaskListView: View {
                             }.font(.system(size: 11))
                             if let approval = model.pendingApprovals.first(where: { item.backendID != nil && $0.taskID == item.backendID }) {
                                 Button("Answer request") {
-                                    // The question is inline at the end of today's chat.
-                                    model.selectedApprovalID = approval.id
+                                    // The question is inline at the end of today's chat; the owner asked to answer it.
                                     model.toggleTasks()
-                                    if !model.viewingToday { model.selectDay(Date()) }
+                                    model.focusQuestion(approval.id)
                                 }.buttonStyle(FerbButtonStyle(quiet: true))
                             }
                             if model.inspectedTaskID == item.id {

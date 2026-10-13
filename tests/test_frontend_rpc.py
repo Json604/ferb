@@ -134,6 +134,31 @@ def test_status_and_trace_recover_recorded_artifacts_after_result_was_shown(daem
         client.close()
 
 
+def test_results_ack_marks_only_the_results_a_client_showed(daemon):
+    """A client that peeks acknowledges the results it placed in its chat, so `ferb chat` doesn't replay them; any
+    other unseen result is still delivered."""
+    async def unseen():
+        for task_id in ('task-a', 'task-b'):
+            daemon.daemon.db.conn.execute(
+                'INSERT INTO task_results (task_id, at, status, goal, answer, shown) VALUES (?, ?, ?, ?, ?, 0)',
+                (task_id, '2026-10-11T09:00:00+05:30', 'done', 'Goal ' + task_id, 'Answer ' + task_id))
+    daemon.run(unseen())
+    client = Client(daemon.sock)
+    try:
+        status = client.call('chat.status', {'peek': True})
+        assert [r['task_id'] for r in status['results']] == ['task-a', 'task-b']
+        assert status['results'][0]['at'] == '2026-10-11T09:00:00+05:30'      # when the result arrived
+        assert client.call('results.ack', {'task_ids': ['task-a']}) == {'ok': True}
+        assert [r['task_id'] for r in client.call('chat.status', {'peek': True})['results']] == ['task-b']
+        for bad in ({}, {'task_ids': 'task-b'}, {'task_ids': ['']}, {'task_ids': [None]}):
+            with pytest.raises(RpcError):
+                client.call('results.ack', bad)
+        assert [r['task_id'] for r in client.call('chat.status', {'peek': True})['results']] == ['task-b']
+        assert client.call('results.ack', {'task_ids': ['unknown-task']}) == {'ok': True}
+    finally:
+        client.close()
+
+
 def test_status_associates_hidden_prompt_with_task_and_answer_stays_private(daemon):
     grant = grant_task(daemon, 'frontend-login', Identity.OWNER, {'owner:ask'}, 'Sign in')
     async def pending():

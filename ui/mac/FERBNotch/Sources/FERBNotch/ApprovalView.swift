@@ -14,9 +14,9 @@ struct ApprovalView: View {
             Label(approval.isSecret ? "Private input needed" : approval.title ?? "FERB needs your answer",
                   systemImage: approval.isSecret ? "lock" : "questionmark.bubble")
                 .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.secondary)
-            if let taskID = approval.taskID, let goal = model.runningTasks[taskID] {
-                Text(goal).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
-                    .help("Task " + taskID)
+            if let context = model.questionContext(approval) {
+                Text(context).font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
+                    .help("Task " + (approval.taskID ?? ""))
             }
             MarkdownContent(approval.visibleReason).equatable().font(.system(size: 12))
             if approval.visibleReason != approval.reason {
@@ -66,13 +66,33 @@ struct ApprovalView: View {
             }.disabled(model.sendingAnswer)
         }
         .padding(.horizontal, 11).padding(.vertical, 9)
-        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 15))
+        .background {
+            // Clicking the card itself (not a control in it) is the owner choosing to answer it.
+            RoundedRectangle(cornerRadius: 15).fill(.white.opacity(0.10))
+                .onTapGesture { model.focusQuestion(approval.id) }
+        }
         .padding(.trailing, 28)
-        // Only a secret question takes keyboard focus; an ordinary one leaves it with the composer.
-        .onChange(of: model.focusRequest) { _, _ in inputFocused = model.bodyVisible && model.focusedQuestionID == approval.id }
+        // Its field takes keyboard focus only when the owner asks; a question arriving never moves focus. Once
+        // asked, a panel focus request returns focus here rather than to the composer, until the field loses it.
+        .onChange(of: model.questionFocus) { _, _ in takeRequestedFocus() }
+        .onChange(of: model.focusRequest) { _, _ in takeRequestedFocus() }
+        .onAppear(perform: takeRequestedFocus)
+        .onChange(of: inputFocused) { _, focused in
+            if !focused, model.questionFocus?.id == approval.id { model.questionFocus = nil }
+        }
         .onChange(of: approval.id) { _, _ in answer = "" }
         .onChange(of: model.bodyVisible) { _, visible in if !visible { answer = ""; inputFocused = false } }
-        .onDisappear { answer = "" }
+        .onDisappear {
+            answer = ""
+            if model.questionFocus?.id == approval.id { model.questionFocus = nil }
+        }
+    }
+
+    private func takeRequestedFocus() {
+        guard model.questionFocus?.id == approval.id, model.bodyVisible else { return }
+        DispatchQueue.main.async {
+            if model.questionFocus?.id == approval.id, model.bodyVisible { inputFocused = true }
+        }
     }
 
     private func send() {

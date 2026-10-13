@@ -186,7 +186,7 @@ final class AttentionReconciliationTests: XCTestCase {
         model.receiveBusEvent(["topic": "approval.requested", "data": ["approval_id": "new", "reason": "Choose"]])
         rpc.complete(["approvals": []])
         await refresh.value
-        XCTAssertEqual(model.presentedApproval?.id, "new")
+        XCTAssertEqual(model.pendingApprovals.map(\.id), ["new"])
         XCTAssertTrue(model.bodyVisible)
     }
 

@@ -11,53 +11,64 @@ struct ConversationTranscript: View {
     /// Open questions, shown after the newest entry; they are live state and never enter history.
     var questions: [DaemonApproval] = []
     @ObservedObject var model: NotchModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(entries) { entry in
-                    Group {
-                        switch entry {
-                        case let .turn(turn, answeredBelow): TurnView(turn: turn, answeredBelow: answeredBelow, model: model)
-                        case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, model: model)
-                        case let .notice(notice): NoticeView(notice: notice)
-                        }
-                    }.id(entry.id)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(entries) { entry in
+                        Group {
+                            switch entry {
+                            case let .turn(turn, answeredBelow): TurnView(turn: turn, answeredBelow: answeredBelow, model: model)
+                            case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, model: model)
+                            case let .notice(notice): NoticeView(notice: notice, model: model)
+                            }
+                        }.id(entry.id)
+                    }
+                    ForEach(questions) { question in
+                        ApprovalView(model: model, approval: question).id("question-" + question.id)
+                    }
                 }
-                ForEach(questions) { question in
-                    ApprovalView(model: model, approval: question).id("question-" + question.id)
+                .font(.system(size: 12))
+                .padding(.top, 36)
+                .padding(.bottom, 2)
+                .frame(maxWidth: .infinity)
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: TranscriptHeight.self, value: proxy.size.height)
+                })
+            }
+            .defaultScrollAnchor(.bottom)
+            .frame(height: model.chatTranscriptHeight)
+            .mask {
+                // Fade the content itself into the existing native glass. A material
+                // overlay here creates a visible gray rectangle over the messages.
+                VStack(spacing: 0) {
+                    LinearGradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.08), location: 0.15),
+                        .init(color: .black.opacity(0.35), location: 0.38),
+                        .init(color: .black.opacity(0.72), location: 0.65),
+                        .init(color: .black.opacity(0.94), location: 0.85),
+                        .init(color: .black, location: 1)
+                    ], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 36)
+                    Rectangle().fill(.black)
                 }
             }
-            .font(.system(size: 12))
-            .padding(.top, 36)
-            .padding(.bottom, 2)
-            .frame(maxWidth: .infinity)
-            .background(GeometryReader { proxy in
-                Color.clear.preference(key: TranscriptHeight.self, value: proxy.size.height)
-            })
-        }
-        .defaultScrollAnchor(.bottom)
-        .frame(height: model.chatTranscriptHeight)
-        .mask {
-            // Fade the content itself into the existing native glass. A material
-            // overlay here creates a visible gray rectangle over the messages.
-            VStack(spacing: 0) {
-                LinearGradient(stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black.opacity(0.08), location: 0.15),
-                    .init(color: .black.opacity(0.35), location: 0.38),
-                    .init(color: .black.opacity(0.72), location: 0.65),
-                    .init(color: .black.opacity(0.94), location: 0.85),
-                    .init(color: .black, location: 1)
-                ], startPoint: .top, endPoint: .bottom)
-                .frame(height: 36)
-                Rectangle().fill(.black)
+            .onPreferenceChange(TranscriptHeight.self) { height in
+                guard abs(model.measuredTranscriptHeight - height) > 1 else { return }
+                model.measuredTranscriptHeight = height
+                model.onBackgroundChange?(true)
             }
-        }
-        .onPreferenceChange(TranscriptHeight.self) { height in
-            guard abs(model.measuredTranscriptHeight - height) > 1 else { return }
-            model.measuredTranscriptHeight = height
-            model.onBackgroundChange?(true)
+            // A question the owner chose to answer is brought into view with its field.
+            .onChange(of: model.questionFocus) { _, request in
+                guard let request else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo("question-" + request.id, anchor: .bottom) }
+            }
+            .onAppear {
+                if let request = model.questionFocus { proxy.scrollTo("question-" + request.id, anchor: .bottom) }
+            }
         }
     }
 }
@@ -149,6 +160,7 @@ private struct LateReplyView: View {
 /// quote with its origin. Both are plain text, so nothing in them becomes a link or an instruction.
 private struct NoticeView: View {
     let notice: ConversationNotice
+    @ObservedObject var model: NotchModel
 
     var body: some View {
         FerbBubble {
@@ -157,6 +169,24 @@ private struct NoticeView: View {
                     Label(tag, systemImage: "eye").font(.system(size: 10)).foregroundStyle(Palette.secondary)
                 }
                 Text(notice.text).textSelection(.enabled)
+                // What FERB learned, each confirmed or turned down here.
+                ForEach(notice.proposals ?? [], id: \.id) { proposal in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(proposal.text).textSelection(.enabled)
+                        if let decision = proposal.decision {
+                            Text(decision == "confirmed" ? "Confirmed" : "Marked not right")
+                                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                        } else {
+                            HStack(spacing: 8) {
+                                Button("Confirm") { model.decideLearning(noticeID: notice.id, proposalID: proposal.id, confirm: true) }
+                                    .buttonStyle(FerbButtonStyle())
+                                Button("Not right") { model.decideLearning(noticeID: notice.id, proposalID: proposal.id, confirm: false) }
+                                    .buttonStyle(FerbButtonStyle(quiet: true))
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
                 ForEach(Array(notice.quotes.enumerated()), id: \.offset) { _, quote in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(quote.text).textSelection(.enabled).font(.system(size: 11))

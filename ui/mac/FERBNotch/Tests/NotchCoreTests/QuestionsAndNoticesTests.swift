@@ -29,8 +29,8 @@ final class QuestionsAndNoticesTests: XCTestCase {
 
         XCTAssertTrue(model.canCompose)
         XCTAssertEqual(model.inlineQuestions.map(\.id), ["q-account"])
-        // An ordinary question leaves keyboard focus with the composer; the owner can answer there or click.
-        XCTAssertNil(model.focusedQuestionID)
+        // A question arriving never moves keyboard focus.
+        XCTAssertNil(model.questionFocus)
 
         let sent = expectation(description: "The new message is sent while the question is open")
         rpc.onCall = { method, _ in if method == "chat.send" { sent.fulfill() } }
@@ -42,13 +42,75 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.session.draft, "")
         XCTAssertEqual(model.pendingApprovals.map(\.id), ["q-account"])
 
-        // A private value goes only to its own hidden field, so a secret question takes focus there, never the chat.
+        // A secret question doesn't take focus either; its hidden field is focused only when the owner asks for it.
         model.receiveBusEvent(["topic": "approval.requested", "data": [
             "approval_id": "q-otp", "kind": "owner_login_code", "reason": "Enter the code Zomato sent."
         ] as [String: Any]])
         XCTAssertTrue(model.canCompose)
-        XCTAssertEqual(model.focusedQuestionID, "q-otp")
+        XCTAssertNil(model.questionFocus)
+        model.focusQuestion("q-otp")
+        XCTAssertEqual(model.questionFocus?.id, "q-otp")
         model.disconnectDaemon()
+    }
+
+    func testASecretQuestionNeverTakesFocusWhileTheOwnerTypes() async throws {
+        let rpc = StatusRPC()
+        let model = makeModel(rpc)
+        model.receiveBusEvent(["topic": "approval.requested", "data": [
+            "approval_id": "q-otp", "task_id": "task-z", "kind": "owner_login_code", "reason": "Enter the code Zomato sent."
+        ] as [String: Any]])
+        model.expand()
+        // What PanelCoordinator does: a presentation with focus asks the view to focus again; a background one doesn't.
+        model.onPresentationChange = { [weak model] _ in model?.focusRequest = UUID() }
+        model.onBackgroundChange = { _ in }
+        let focus = model.focusRequest
+        let editor = ChatTextView()
+        ChatInput.configure(editor, model: model, coordinator: ChatInput.Coordinator(model))
+        for line in ["Book a table at Bukhara", "\nfor two at 8", "\nnear Chanakyapuri", "\nwindow seat if they have one"] {
+            editor.insertText(line, replacementRange: editor.selectedRange())
+        }
+        XCTAssertEqual(model.session.draft, "Book a table at Bukhara\nfor two at 8\nnear Chanakyapuri\nwindow seat if they have one")
+        // Typing and the composer growing never move focus, so the words stay in the composer.
+        XCTAssertEqual(model.focusRequest, focus)
+        XCTAssertNil(model.questionFocus)
+
+        let sent = expectation(description: "Sent as chat")
+        rpc.onCall = { method, _ in if method == "chat.send" { sent.fulfill() } }
+        model.startWork()
+        await fulfillment(of: [sent], timeout: 2)
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "chat.answer" })
+        XCTAssertEqual(model.pendingApprovals.map(\.id), ["q-otp"])
+        model.disconnectDaemon()
+    }
+
+    func testAnExplicitQuestionFocusLastsUntilThatQuestionIsAnswered() async {
+        let rpc = StatusRPC()
+        let model = makeModel(rpc)
+        model.receiveBusEvent(["topic": "approval.requested", "data": [
+            "approval_id": "q-otp", "task_id": "task-z", "kind": "owner_login_code", "reason": "Enter the code."
+        ] as [String: Any]])
+        model.receiveBusEvent(["topic": "approval.requested", "data": [
+            "approval_id": "q-other", "kind": "owner_question", "reason": "Which account?"
+        ] as [String: Any]])
+        model.focusQuestion("q-otp")
+        // Another question resolving leaves the owner's choice alone; its own resolving ends it.
+        model.receiveBusEvent(["topic": "approval.resolved", "data": ["approval_id": "q-other"]])
+        XCTAssertEqual(model.questionFocus?.id, "q-otp")
+        model.receiveBusEvent(["topic": "approval.resolved", "data": ["approval_id": "q-otp"]])
+        XCTAssertNil(model.questionFocus)
+        // A question that isn't open can't be focused.
+        model.focusQuestion("q-gone")
+        XCTAssertNil(model.questionFocus)
+    }
+
+    func testAQuestionCardNamesItsTaskEvenWhenTheGoalIsUnknown() {
+        let model = makeModel(StatusRPC())
+        let unknown = DaemonApproval(["approval_id": "q1", "task_id": "0f3c9a7e5b2d4c18a6e0", "kind": "owner_login_code",
+                                      "reason": "Enter the code."])!
+        XCTAssertEqual(model.questionContext(unknown), "Task 0f3c9a7e")
+        model.runningTasks["0f3c9a7e5b2d4c18a6e0"] = "Log in to Zomato"
+        XCTAssertEqual(model.questionContext(unknown), "Log in to Zomato")
+        XCTAssertNil(model.questionContext(DaemonApproval(["approval_id": "q2", "reason": "Which?"])!))
     }
 
     func testPastePlusTypingSendsWithoutADialog() async throws {
@@ -164,6 +226,26 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(model.conversation, archive)
     }
 
+    func testAnArchiveThatFailsToDecodeIsSetAsideNeverSavedOver() throws {
+        let suite = "FERBNotchTests-" + UUID().uuidString
+        suites.append(suite)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let unreadable = Data("{\"turns\": [{\"id\": \"not-a-uuid\", \"request\": \"Older history\"}]}".utf8)
+        defaults.set(unreadable, forKey: "FERBConversationArchive")
+
+        let model = NotchModel(preferences: defaults)
+        XCTAssertTrue(model.conversation.turns.isEmpty)
+        let domain = UserDefaults().persistentDomain(forName: suite) ?? [:]
+        let aside = domain.filter { $0.key.hasPrefix("FERBConversationArchive.unreadable") }
+        XCTAssertEqual(aside.count, 1)
+        XCTAssertEqual(aside.first?.value as? Data, unreadable)
+        // New conversation is saved in its own place; the unreadable history is untouched.
+        let id = begin("Hello again", in: model)
+        model.receiveChatEvent(["type": "reply", "request_id": "req-a", "at": at, "text": "Hi."], localID: id)
+        XCTAssertEqual(defaults.data(forKey: try XCTUnwrap(aside.first?.key)), unreadable)
+        XCTAssertEqual(NotchModel(preferences: defaults).conversation.turns.first?.request, "Hello again")
+    }
+
     func testASecretAnswerNeverEntersHistory() async throws {
         let rpc = StatusRPC()
         let (model, suite) = makeModelWithSuite(rpc)
@@ -240,33 +322,101 @@ final class QuestionsAndNoticesTests: XCTestCase {
         XCTAssertEqual(acks, [["batch:7"], ["batch:7"]])
     }
 
+    func testANoticeWithNoTextIsAckedSoItIsNotFetchedForever() async {
+        let rpc = StatusRPC()
+        let model = makeModel(rpc)
+        let acked = expectation(description: "Acked")
+        rpc.onCall = { method, _ in if method == "attention.ack" { acked.fulfill() } }
+        model.receiveNotices([["id": "batch:0", "text": "", "at": at]])
+        await fulfillment(of: [acked], timeout: 2)
+        XCTAssertEqual(rpc.calls.first { $0.0 == "attention.ack" }?.1["ids"] as? [String], ["batch:0"])
+        XCTAssertTrue(model.conversation.notices.isEmpty)
+    }
+
     // MARK: - Shown results are acknowledged; recovered tasks are not the owner's words
 
-    func testStatusReadAcknowledgesTheResultsItShowsIncludingTasksStartedElsewhere() async throws {
+    func testPolledResultsAreAcknowledgedOnlyOncePlacedInChat() async throws {
         let rpc = StatusRPC()
-        rpc.status["results"] = [["task_id": "sched-1", "status": "done", "goal": "Post the launch story to X",
-                                  "answer": "Posted the story at 9:00.", "display_text": "Posted.", "verified": true]]
-        rpc.status["memory_digest"] = ["proposals": [["id": "p-1", "text": "You prefer posting in the morning"]]]
+        let backlog = "2026-10-11T09:00:00+05:30"
+        rpc.status["results"] = [
+            ["task_id": "sched-1", "status": "done", "goal": "Post the launch story to X", "at": backlog,
+             "answer": "Posted the story at 9:00.", "display_text": "Posted.", "verified": true]
+        ]
         let model = makeModel(rpc)
+        let acked = expectation(description: "Placed results acknowledged")
+        rpc.onCall = { method, _ in if method == "results.ack" { acked.fulfill() } }
         await model.refreshDaemonStatus()
+        await fulfillment(of: [acked], timeout: 2)
+        rpc.onCall = nil
 
-        // Reading results is what marks them shown, so the CLI doesn't replay them as "while you were away".
+        // A peek: reading never marks anything shown; only what this chat placed is acknowledged.
         let read = try XCTUnwrap(rpc.calls.first { $0.0 == "chat.status" })
-        XCTAssertNotEqual(read.1["peek"] as? Bool, true)
-        // So every result it returns is shown, including a task this chat didn't send, as FERB's message.
+        XCTAssertEqual(read.1["peek"] as? Bool, true)
+        XCTAssertEqual(rpc.calls.filter { $0.0 == "results.ack" }.map { $0.1["task_ids"] as? [String] }, [["sched-1"]])
+        // A task started elsewhere is FERB's message, filed on the day its result arrived.
         let result = try XCTUnwrap(model.conversation.turns.first { $0.backendTaskID == "sched-1" })
         XCTAssertTrue(result.isRecovered)
         XCTAssertEqual(result.taskGoal, "Post the launch story to X")
         XCTAssertEqual(result.request, "")
         XCTAssertEqual(result.visibleAnswer, "Posted.")
-        XCTAssertTrue(result.isVerified)
-        // The learning digest that read returns is shown too, not dropped.
-        let digest = try XCTUnwrap(model.conversation.notices.last)
-        XCTAssertTrue(digest.text.contains("You prefer posting in the morning"), digest.text)
-        XCTAssertTrue(digest.text.contains("/memory confirm p-1"), digest.text)
-        // Re-reading the same result never adds a second entry.
+        XCTAssertEqual(result.createdAt, LiveProgress.time(backlog))
+        XCTAssertTrue(model.visibleEntries.isEmpty)
+        XCTAssertTrue(model.conversation.replies.isEmpty)
+        // Re-reading the same unacknowledged result never adds a second entry.
         await model.refreshDaemonStatus()
         XCTAssertEqual(model.conversation.turns.filter { $0.backendTaskID == "sched-1" }.count, 1)
+    }
+
+    func testALiveResultNotShownElsewhereIsAcknowledgedOncePlaced() async throws {
+        let rpc = StatusRPC()
+        let model = makeModel(rpc)
+        let acked = expectation(description: "Acknowledged")
+        rpc.onCall = { method, _ in if method == "results.ack" { acked.fulfill() } }
+        model.receiveBusEvent(["topic": "task.result", "at": at, "data": ["task_id": "voice-1", "status": "done",
+                               "answer": "Timer set.", "verified": false, "shown": false] as [String: Any]])
+        model.receiveBusEvent(["topic": "task.result", "at": at, "data": ["task_id": "own-1", "status": "done",
+                               "answer": "Done.", "verified": false, "shown": true] as [String: Any]])
+        await fulfillment(of: [acked], timeout: 2)
+        rpc.onCall = nil
+        await settle()
+        XCTAssertEqual(rpc.calls.filter { $0.0 == "results.ack" }.map { $0.1["task_ids"] as? [String] }, [["voice-1"]])
+    }
+
+    func testTheLearningDigestIsShownWithConfirmAndNotRightWhileTheOwnerIsLooking() async throws {
+        let rpc = StatusRPC()
+        rpc.responses["memory.learning"] = ["digest": ["day": "2026-10-13", "ids": ["p-1", "p-2"], "proposals": [
+            ["id": "p-1", "text": "You prefer posting in the morning"], ["id": "p-2", "text": "You use Brave for work"]
+        ]]]
+        let model = makeModel(rpc)
+        // Fetching the digest marks it seen for the day, so it is fetched only while the chat is open.
+        model.collapse()
+        await model.refreshDaemonStatus()
+        XCTAssertFalse(rpc.calls.contains { $0.0 == "memory.learning" })
+        model.expand()
+        await model.refreshDaemonStatus()
+        XCTAssertEqual(rpc.calls.first { $0.0 == "memory.learning" }?.1["op"] as? String, "digest")
+
+        let digest = try XCTUnwrap(model.conversation.notices.last)
+        XCTAssertEqual(digest.proposals?.map(\.id), ["p-1", "p-2"])
+        XCTAssertEqual(digest.proposals?.map(\.text), ["You prefer posting in the morning", "You use Brave for work"])
+        XCTAssertFalse(digest.text.contains("/memory"))
+        XCTAssertNil(digest.tag)
+
+        let decided = expectation(description: "Both decisions sent")
+        decided.expectedFulfillmentCount = 2
+        rpc.onCall = { method, _ in if method == "memory.learning" { decided.fulfill() } }
+        model.decideLearning(noticeID: digest.id, proposalID: "p-1", confirm: true)
+        model.decideLearning(noticeID: digest.id, proposalID: "p-2", confirm: false)
+        await fulfillment(of: [decided], timeout: 2)
+        rpc.onCall = nil
+        await settle()
+        let decisions = rpc.calls.filter { $0.0 == "memory.learning" && $0.1["op"] as? String != "digest" }
+        XCTAssertEqual(decisions.map { $0.1["op"] as? String }, ["confirm", "retire"])
+        XCTAssertEqual(decisions.map { $0.1["id"] as? String }, ["p-1", "p-2"])
+        XCTAssertEqual(model.conversation.notices.last?.proposals?.map(\.decision), ["confirmed", "not right"])
+        // The same day's digest is never shown twice.
+        await model.refreshDaemonStatus()
+        XCTAssertEqual(model.conversation.notices.filter { $0.proposals != nil }.count, 1)
     }
 
     func testRecoveredTaskIsNeverShownAsTheOwnersWords() async throws {
@@ -468,6 +618,7 @@ final class QuestionsAndNoticesTests: XCTestCase {
 private final class StatusRPC: DaemonRPCTransport {
     var status: [String: Any] = ["running": [[String: Any]](), "approvals": [[String: Any]](), "results": [[String: Any]]()]
     var traces: [String: [String: Any]] = [:]
+    var responses: [String: [String: Any]] = [:]
     var events: [[String: Any]] = []
     var calls: [(String, [String: Any])] = []
     var onCall: ((String, [String: Any]) -> Void)?
@@ -479,7 +630,7 @@ private final class StatusRPC: DaemonRPCTransport {
         case "chat.attach": return ["session_id": "test", "capabilities": ["input_paths"]]
         case "chat.status": return status
         case "trace.get": return traces[params["task_id"] as? String ?? ""] ?? [:]
-        default: return ["ok": true]
+        default: return responses[method] ?? ["ok": true]
         }
     }
 

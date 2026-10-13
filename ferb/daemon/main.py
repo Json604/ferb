@@ -290,7 +290,8 @@ class Daemon:
         self._build_timers()
         for name, fn in (("ping", self._ping), ("sense.pause", self._sense_pause),
                          ("schedules.list", self._schedules_list), ("schedules.change", self._schedules_change),
-                         ("chat.status", self._chat_status), ("chat.attach", self._chat_attach),
+                         ("chat.status", self._chat_status), ("results.ack", self._results_ack),
+                         ("chat.attach", self._chat_attach),
                          ("setup.persona", self._setup_persona),
                          ("task.stop", self._task_stop),
                          ("reminders.list", self._reminders_list), ("reminders.cancel", self._reminders_cancel),
@@ -1560,6 +1561,17 @@ class Daemon:
                 "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None,
                 "notices": self.attention_notices.list() if self.attention_notices else [],
                 "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else []}
+
+    async def _results_ack(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """A client that reads `chat.status` with `peek` showed these results in its chat: mark only them shown, so
+        `ferb chat` doesn't replay them as arrived while it was closed."""
+        assert self.db is not None
+        task_ids = params.get('task_ids')
+        if not isinstance(task_ids, list) or not all(isinstance(t, str) and t for t in task_ids):
+            raise ValueError('task_ids must be a list of task ids')
+        for task_id in task_ids:
+            self.db.conn.execute("UPDATE task_results SET shown = 1 WHERE task_id = ?", (task_id,))
+        return {"ok": True}
 
     def _resume_conversation_plans(self) -> None:
         if self.supervisor is not None:
