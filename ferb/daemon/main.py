@@ -482,12 +482,13 @@ class Daemon:
         req = self.config.get("voice", "requirement")
         if not req:
             return False
-        r = subprocess.run(["codesign", "--verify", f"-R={req}", str(self.voice_bundle)], capture_output=True)
+        r = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", f"-R={req}", str(self.voice_bundle)],
+                           capture_output=True)
         return r.returncode == 0
 
     def _launch_voice_app(self) -> None:
         if self.voice_bundle.exists():
-            subprocess.Popen(["open", "-g", str(self.voice_bundle)], stdout=subprocess.DEVNULL,
+            subprocess.Popen(["/usr/bin/open", "-g", str(self.voice_bundle)], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
 
     async def _voice_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:

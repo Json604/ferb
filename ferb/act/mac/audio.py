@@ -28,6 +28,7 @@ from ferb.core.errors import Refused
 
 SAMPLE_RATE = 16000          # ScreenCaptureKit accepts 8000, 16000, 24000 or 48000 Hz; speech needs no more than 16 kHz
 FLOAT, NON_INTERLEAVED = 1, 32    # kAudioFormatFlagIsFloat, kAudioFormatFlagIsNonInterleaved
+ZEROS = b"\0" * 65536              # silence is written in pieces of this many bytes (memory only, not a limit)
 
 
 class WavWriter:
@@ -51,9 +52,12 @@ class WavWriter:
                 return
             self.rate = self.rate or rate
             gap = round(at * self.rate) - self.frames if at is not None else 0
-            if gap > 0:
-                self.f.write(b"\0" * (4 * gap))
-                self.frames += gap
+            left = 4 * gap
+            while left > 0:
+                piece = min(left, len(ZEROS))
+                self.f.write(memoryview(ZEROS)[:piece])
+                left -= piece
+            self.frames += max(0, gap)
             self.f.write(values.tobytes())
             self.frames += len(values)
             if values:

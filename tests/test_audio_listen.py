@@ -750,6 +750,11 @@ def test_ferb_app_writes_only_into_the_daemons_answer_file_and_stops_when_it_goe
     assert "workspace/audio" in opened and "realpath" in opened                       # only FERB's audio folder
     assert "makeFileSystemObjectSource" in body and ".delete" in body                 # deleting it means stop
     assert "rename(" not in body                                                      # no file appears afterwards
+    assert "st_nlink == 1" in opened                                                  # no second name for it
+    write = body[body.index("func writeAnswer("):]
+    write = write[:write.index("\n}\n")]
+    assert "leaseWatch" in write and ".cancel()" in write                             # unwatched before closing
+    assert "setCancelHandler" in opened                                               # the watch closes its fd
 
 
 
@@ -766,3 +771,91 @@ def test_a_buffer_is_never_placed_after_it_arrived(tmp_path: Path, monkeypatch) 
     clock[0] = 0.25
     seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=sine(0.25), pts=900000.0), 1)
     assert handle.stop()["frames"] == 4000 + 4000                     # placed at its arrival, 0.25 s in
+
+
+
+# ---------- fix round 2 ----------
+
+class _SlowStop(FakeCapture):
+    def start(self, bundle_id: str, pid: int, path: Path) -> Any:
+        handle = super().start(bundle_id, pid, path)
+        stop = handle.stop
+
+        def slow() -> dict[str, Any]:
+            import time as _t
+            _t.sleep(0.3)                                # ScreenCaptureKit's stopCapture completion
+            return stop()
+        handle.stop = slow  # type: ignore[method-assign]
+        return handle
+
+
+def test_a_task_ending_while_a_finished_listen_stops_never_launches_ferb_app(tmp_path: Path) -> None:
+    hearing, fake, capture = _hearing(tmp_path, capture=_SlowStop())
+
+    async def go() -> tuple[Any, Any]:
+        job = asyncio.create_task(hearing.listen("task", "com.apple.Music", 77, 0.01, None))
+        await asyncio.sleep(0.1)                         # the listen's time is up; its stream is stopping
+        ended = await hearing.end_task("task")
+        return ended, await job
+    ended, result = asyncio.run(asyncio.wait_for(go(), 10))
+    assert ended and result["error"].startswith("listening stopped: the task ended")
+    assert fake.argv == [] and not list((tmp_path / "workspace" / "audio").iterdir())
+
+
+def test_cancelling_recording_stop_while_it_encodes_deletes_the_sound(tmp_path: Path, frames: list[bytes],
+                                                                      monkeypatch) -> None:
+    from ferb.act import recording
+    from ferb.act.recording import RecordingManager
+    hearing, fake, capture = _hearing(tmp_path)
+    m = RecordingManager(sanitize=lambda image: image, hearing=hearing)
+    encoding = asyncio.Event()
+
+    async def shot() -> bytes:
+        return frames[0]
+
+    async def slow_encoder(*args: str) -> bytes:
+        encoding.set()
+        await asyncio.sleep(3600)
+        return b""
+
+    async def go() -> None:
+        started = await m.start("task", {"kind": "tab", "tab": "t1"}, tmp_path / "z.mp4", shot, 1,
+                                audio=("com.google.Chrome", 88))
+        monkeypatch.setattr(recording, "command", slow_encoder)
+        job = asyncio.create_task(m.stop(started["id"], "task"))
+        await encoding.wait()
+        assert capture.handles[0].path.exists()          # the sound, finished, waiting for the frames to encode
+        job.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+    asyncio.run(asyncio.wait_for(go(), 20))
+    assert not list((tmp_path / "workspace" / "audio").iterdir()) and fake.argv == []
+
+
+def test_long_silence_is_written_in_pieces(tmp_path: Path, monkeypatch) -> None:
+    import array
+    from ferb.act.mac import audio
+    monkeypatch.setattr(audio, "ZEROS", b"\0" * 1024)                 # a small piece, to cross many boundaries
+    w = audio.WavWriter(tmp_path / "s.wav")
+    w.write(sine(0.01), 16000, at=0.0)
+    w.write(sine(0.01), 16000, at=1.0)                                  # 0.99 s of silence before it
+    facts = w.close()
+    assert facts["frames"] == 16000 + 160
+    samples = array.array("f")
+    samples.frombytes((tmp_path / "s.wav").read_bytes()[44:])
+    assert len(samples) == 16160 and not any(samples[160:16000]) and any(samples[16000:])
+
+
+def test_push_to_talk_checks_and_opens_ferb_app_by_absolute_path(tmp_path: Path, monkeypatch) -> None:
+    from ferb.daemon import main
+    from ferb.daemon.main import Daemon
+    ran: list[list[str]] = []
+    monkeypatch.setattr(main.subprocess, "run", lambda argv, **kw: ran.append(list(argv)) or SimpleNamespace(returncode=0))
+    monkeypatch.setattr(main.subprocess, "Popen", lambda argv, **kw: ran.append(list(argv)))
+    bundle = tmp_path / "FERB.app"
+    bundle.mkdir()
+    host = SimpleNamespace(config=SimpleNamespace(get=lambda section, key: "req"), voice_bundle=bundle)
+    assert Daemon._voice_signed(host, "/x") is True  # type: ignore[arg-type]
+    Daemon._launch_voice_app(host)  # type: ignore[arg-type]
+    assert ran == [["/usr/bin/codesign", "--verify", "--strict", "-R=req", str(bundle)],
+                   ["/usr/bin/open", "-g", str(bundle)]]

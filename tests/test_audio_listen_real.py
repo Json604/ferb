@@ -147,8 +147,8 @@ def test_hear_a_tab_then_with_the_mac_muted_then_record_it_with_sound(tmp_path: 
                 report["focus_changes"] = front.changes
             finally:
                 d.run(d.daemon._task_end("hearing-check"), timeout=60)
-                (tmp_path / "result.json").write_text(json.dumps(report, indent=2, default=str))
                 report["sound_files_left"] = [str(f) for f in d.daemon.hearing.folder.glob("*.wav")]   # expected: none
+                (tmp_path / "result.json").write_text(json.dumps(report, indent=2, default=str))
                 print(f"\nResults in {tmp_path / 'result.json'}.")
                 print("Heard (output on):", (report.get("listen") or {}).get("transcript"))
                 print("Heard (output muted):", (report.get("listen_with_output_muted") or {}).get("transcript"),

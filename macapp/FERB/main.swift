@@ -244,11 +244,13 @@ func answerFile(_ out: String) -> Int32? {
     let fd = open(out, O_WRONLY | O_NOFOLLOW)              // never creates a file: only the daemon's own
     if fd < 0 { return nil }
     var st = stat()
-    guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size == 0, st.st_uid == getuid() else {
-        close(fd); return nil }                            // an existing answer is never replaced
+    guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size == 0, st.st_uid == getuid(),
+          st.st_nlink == 1 else {                          // no second name for it, no existing answer replaced
+        close(fd); return nil }
     let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.delete, .rename, .revoke],
                                                           queue: .global())
     watch.setEventHandler { exit(0) }                      // stopped: no answer, recognition ends with the process
+    watch.setCancelHandler { close(fd) }                   // the watched descriptor closes only once unwatched
     watch.resume()
     leaseWatch = watch
     return fd
@@ -268,7 +270,12 @@ func writeAnswer(_ fd: Int32, _ answer: [String: Any]) {
     if let data = try? JSONSerialization.data(withJSONObject: answer) {
         _ = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) }
     }
-    close(fd)
+    if let watch = leaseWatch {                            // unwatch first; its cancel handler closes the descriptor
+        leaseWatch = nil
+        watch.cancel()
+    } else {
+        close(fd)
+    }
 }
 
 func recognizer(_ language: String?) -> SFSpeechRecognizer? {

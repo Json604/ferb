@@ -84,9 +84,7 @@ class Hearing:
         try:
             listen.handle = await asyncio.shield(listen.starting)
         except asyncio.CancelledError:                  # stopped mid-start: the stream still starts, then is stopped
-            job = asyncio.ensure_future(self.discard(listen))
-            self.cleanup.add(job)
-            job.add_done_callback(self.cleanup.discard)
+            self.discard_later(listen)
             raise
         except Exception as e:                          # nothing was captured: a clear refusal, not an unknown outcome
             self.listening.pop(lid, None)
@@ -122,6 +120,12 @@ class Hearing:
         finally:
             self.listening.pop(listen.id, None)
 
+    def discard_later(self, listen: Listening) -> None:
+        """Its caller was cancelled: stop it and delete its sound in the background (shutdown waits for it)."""
+        job = asyncio.ensure_future(self.discard(listen))
+        self.cleanup.add(job)
+        job.add_done_callback(self.cleanup.discard)
+
     async def discard(self, listen: Listening) -> dict[str, Any]:
         """Stop it and delete its sound (nothing will transcribe it)."""
         try:
@@ -153,7 +157,7 @@ class Hearing:
                      "peak": facts.get("peak", 0.0)}
             if facts.get("error"):
                 heard["capture_error"] = self.redact(str(facts["error"]))
-            if halted:
+            if halted or listen.halt.is_set():           # the task may have ended while the stream stopped
                 return heard | {"error": "listening stopped: the task ended"}
             try:
                 return heard | await self.transcript(listen.path, facts, language)

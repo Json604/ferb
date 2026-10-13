@@ -191,44 +191,49 @@ class RecordingManager:
                 return r.result
             r.ended = r.ended if r.ended is not None else self.now()
             r.error = r.error or reason
-            heard = await self.hearing.finish(r.listening) if r.listening is not None else None
-            result = self._info(r) | {'running': False, 'released': True}
             try:
-                # Timestamped concat preserves slow captures and variable intervals instead of speeding up time.
-                end = max(r.ended-r.started, r.times[-1]+0.04)
-                timeline = ['ffconcat version 1.0']
-                for i, at in enumerate(r.times):
-                    following = r.times[i+1] if i+1 < len(r.times) else end
-                    timeline.extend([f"file '{i:08d}.jpg'", f'duration {max(0.04, following-at):.6f}'])
-                timeline.append(f"file '{len(r.times)-1:08d}.jpg'")
-                (r.folder/'frames.txt').write_text('\n'.join(timeline)+'\n')
-                video = r.folder/'video.mp4'
-                await command(executable('ffmpeg'), '-v', 'error', '-nostdin', '-f', 'concat', '-safe', '1',
-                              '-i', str(r.folder/'frames.txt'), '-vf',
-                              'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,'
-                              f'fps=25,tpad=stop_mode=clone:stop_duration={end}',
-                              '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-fps_mode', 'cfr', '-r', '25',
-                              '-t', str(end), '-movflags', '+faststart', str(video))
-                os.link(video, r.path)              # atomic publication, never replaces an owner's existing file
-                result.update(capture_complete=r.error is None and not (heard or {}).get('error'),
-                              bytes=r.path.stat().st_size)
-            except Exception as exc:
-                result.update(error=f'{r.error + "; " if r.error else ""}{type(exc).__name__}: {exc}', capture_complete=False)
-            finally:
-                shutil.rmtree(r.folder, ignore_errors=True)
-            if heard is not None:
+                heard = await self.hearing.finish(r.listening) if r.listening is not None else None
+            except asyncio.CancelledError:          # its stop goes on: the sound is deleted once it has finished
+                self.hearing.discard_later(r.listening)
+                raise
+            try:
+                result = self._info(r) | {'running': False, 'released': True}
                 try:
+                    # Timestamped concat preserves slow captures and variable intervals instead of speeding up time.
+                    end = max(r.ended-r.started, r.times[-1]+0.04)
+                    timeline = ['ffconcat version 1.0']
+                    for i, at in enumerate(r.times):
+                        following = r.times[i+1] if i+1 < len(r.times) else end
+                        timeline.extend([f"file '{i:08d}.jpg'", f'duration {max(0.04, following-at):.6f}'])
+                    timeline.append(f"file '{len(r.times)-1:08d}.jpg'")
+                    (r.folder/'frames.txt').write_text('\n'.join(timeline)+'\n')
+                    video = r.folder/'video.mp4'
+                    await command(executable('ffmpeg'), '-v', 'error', '-nostdin', '-f', 'concat', '-safe', '1',
+                                  '-i', str(r.folder/'frames.txt'), '-vf',
+                                  'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,'
+                                  f'fps=25,tpad=stop_mode=clone:stop_duration={end}',
+                                  '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-fps_mode', 'cfr', '-r', '25',
+                                  '-t', str(end), '-movflags', '+faststart', str(video))
+                    os.link(video, r.path)              # atomic publication, never replaces an owner's existing file
+                    result.update(capture_complete=r.error is None and not (heard or {}).get('error'),
+                                  bytes=r.path.stat().st_size)
+                except Exception as exc:
+                    result.update(error=f'{r.error + "; " if r.error else ""}{type(exc).__name__}: {exc}', capture_complete=False)
+                finally:
+                    shutil.rmtree(r.folder, ignore_errors=True)
+                if heard is not None:
                     result.update(await self._sound(r, heard) if transcribe else {
                         'audio_track': False, 'audio_note': 'not transcribed: the recording ended with its task, '
                                                             'and its sound was deleted'})
-                finally:
-                    r.listening.path.unlink(missing_ok=True)   # owner decision: no sound is kept
-            r.result = result
-            try:
-                r.receipt.write_text(json.dumps(result | {'sample_times_s': r.times}, indent=2))
-            except OSError as exc:
-                result.update(error=f'recording receipt could not be finalized: {exc}', capture_complete=False)
-            return result
+                r.result = result
+                try:
+                    r.receipt.write_text(json.dumps(result | {'sample_times_s': r.times}, indent=2))
+                except OSError as exc:
+                    result.update(error=f'recording receipt could not be finalized: {exc}', capture_complete=False)
+                return result
+            finally:                                # owner decision: the sound goes once no longer needed,
+                if r.listening is not None:         # however stop() ends (a cancelled encode included)
+                    r.listening.path.unlink(missing_ok=True)
 
     async def _sound(self, r: _Recording, heard: dict[str, Any]) -> dict[str, Any]:
         """What the sound added: its file and facts, and the redacted transcript on the video's timeline."""
