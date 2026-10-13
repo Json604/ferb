@@ -132,6 +132,18 @@ def test_cards_in_a_url_query_or_fragment_are_redacted_but_ids_in_its_path_are_n
     assert r.text(status + ' card 4111 1111 1111 1111') == status + ' card [redacted]'
 
 
+@pytest.mark.parametrize('text', ['order,https://shop.example/o/12,4111111111111111,12/27',
+                                  'https://shop.example/checkout,4111 1111 1111 1111',
+                                  'pay|https://shop.example/checkout|4111111111111111',
+                                  '(https://shop.example/checkout)4111111111111111',
+                                  json.dumps('Pay here: https://shop.example/checkout\n4111 1111 1111 1111')])
+def test_a_card_after_a_url_is_redacted_even_where_the_url_pattern_runs_on(text) -> None:
+    """The URL pattern runs on through , | ) and a JSON \\n; only a whole path segment or host label (right after
+    / or .) is an id."""
+    out = Redactor().text(text)
+    assert '4111111111111111' not in out and '4111 1111 1111 1111' not in out and REDACTED in out
+
+
 # (b) ---------------------------------------------------------------------------------------------------------------
 
 def test_episode_capture_with_refs_recorded_through_a_redacted_span_succeeds(stores) -> None:

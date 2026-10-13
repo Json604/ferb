@@ -56,3 +56,10 @@ def test_values_entered_through_the_sealed_input_stay_redacted_in_later_text(dae
 
     answer(daemon, ask(daemon, TWO_FA, ['SMS', 'Authenticator app']), '1')
     assert redact.text('482913, pa5; ' + LATER) == f'{REDACTED}, {REDACTED}; {LATER}'
+
+
+def test_a_typed_superscript_digit_is_no_option_number(daemon) -> None:
+    """'²' is a digit but not a decimal number: it picks nothing and is kept as typed (int('²') would raise)."""
+    ap = ask(daemon, TWO_FA, ['SMS', 'Authenticator app'])
+    answer(daemon, ap, '²')
+    assert (ap.choice, ap.answer) == (None, '²')

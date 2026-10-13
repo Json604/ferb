@@ -1,8 +1,11 @@
 """L17: typed text is captured per field through the native adapter (D7), never from a secure field, while Secure
 Input is on, or in a terminal app. Key events here are synthetic CGEvents handed straight to the watcher's callback:
 no event tap is ever installed against the session."""
+from typing import Any
+
 import pytest
 
+from ferb.sense.watchers.text_input import key_text
 from tests.support.typed_text import Screen, capture, key_event, texts
 
 # The terminal apps the brief names (L17): Terminal, iTerm2, Warp, Ghostty, kitty, Alacritty, WezTerm, Hyper.
@@ -44,3 +47,27 @@ def test_secure_fields_secure_input_and_terminal_apps_record_nothing(monkeypatch
     assert capture(monkeypatch, screen, [key_event('hunter2')], secure=case == 'secure input') == []
     if case not in ('secure field', 'secure input'):
         assert screen.queried == []            # a terminal's focused element is never even read (where-boundary)
+
+
+def test_a_key_event_with_a_lone_surrogate_gives_no_text_and_never_loops(monkeypatch) -> None:
+    """A split pair is completed by one more unit; a lone surrogate can never decode, so that event's text is dropped
+    (it used to grow the buffer forever)."""
+    import Quartz
+    units, calls = ['a', '\ud800'], []
+
+    def unicode_string(event: Any, size: int, _a: Any, _b: Any) -> tuple[int, str]:
+        calls.append(size)
+        if len(calls) > 64:
+            raise RuntimeError('the adapter keeps asking')
+        if '\ud800' in units[:size]:
+            raise UnicodeDecodeError('utf-16-le', b'', 0, 1, 'unexpected end of data')
+        return len(units[:size]), ''.join(units[:size])
+    monkeypatch.setattr(Quartz, 'CGEventKeyboardGetUnicodeString', unicode_string)
+    assert key_text(object()) == '' and calls == [4, 5]
+
+
+def test_polls_read_no_accessibility_while_nothing_is_typed(monkeypatch) -> None:
+    """The 100 ms flush asks for the focused field only while typed text is held."""
+    screen = Screen()
+    assert capture(monkeypatch, screen, []) == []
+    assert screen.queried == []

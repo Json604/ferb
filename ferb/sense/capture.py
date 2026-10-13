@@ -67,6 +67,12 @@ class TypedFields:
         with self._lock:
             self._pending = None
 
+    @property
+    def holding(self) -> bool:
+        """Typed text is waiting for its field's flush."""
+        with self._lock:
+            return self._pending is not None
+
     def feed(self, field: Field | None, text: str, *, actor: str, now: float, secure: bool = False) -> None:
         with self._lock:
             if secure or field is None or not field.safe:

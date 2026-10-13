@@ -55,6 +55,17 @@ def test_a_show_password_checkbox_and_ordinary_fields_stay_readable() -> None:
     assert r({'role': 'AXPopUpButton', 'title': 'Password manager', 'value': '1Password'})['value'] == '1Password'
 
 
+def test_the_password_rule_covers_plain_text_fields_and_a_kindless_record_s_value_only() -> None:
+    r = Redactor()
+    policy = {'name': 'passwords-policy.md', 'content': 'Rotate every 90 days.'}
+    assert r(policy) == policy
+    for kind in ('email', 'tel', 'url'):
+        reset = {'type': kind, 'label': 'Where should I send the link to reset your password?', 'value': 'x@y.z'}
+        assert r(reset) == reset
+    assert r({'name': 'Passwd', 'value': 'Hunter2!x'})['value'] == REDACTED          # a kindless record's value
+    assert r({'type': 'text', 'label': 'Password', 'text': 'Hunter2!x'})['text'] == REDACTED
+
+
 def test_an_answer_to_a_question_about_passwords_is_the_owners_words(daemon) -> None:
     """A question is no password field: its words never hide the owner's answer."""
     action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
@@ -107,16 +118,20 @@ def extension(after: str) -> Any:
     secret_name = re.search(r'  const SECRET_NAME = .*\n', source).group()
     group = source[source.index('  function codeGroup('):source.index('\n\n  function formKind')]
     describe = source[source.index('  function describe('):source.index('  // Visible text nearest')]
+    fill = source[source.index('  function fill('):source.index('\n\n  window.__ferb =')]
     script = secret_name + r'''
-let sealedSplitDocument = false;
+class HTMLInputElement {}
+class HTMLTextAreaElement {}
+let sealedSplitDocument = false, target = null;
+const location = {origin: 'https://accounts.example'}, element = () => ({el: target}), setValue = (n, v) => n.value = v;
 const sealedFields = new WeakSet(), visible = () => true, maskedEditable = () => false, label = el => el.labelText;
 const implicitRole = () => 'textbox', hitTest = () => false, scrollerOf = () => null, round = n => n;
 const formKind = () => null, maskUrl = u => u, innerWidth = 1000, innerHeight = 1000, containers = new Map();
-const input = (attrs, labelText = '') => Object.assign({tagName: 'INPUT', type: 'text', name: '', id: '',
+const input = (attrs, labelText = '') => Object.assign(new HTMLInputElement(), {tagName: 'INPUT', type: 'text', name: '', id: '',
   autocomplete: '', value: '', maxLength: -1, inputMode: '', pattern: '', disabled: false, readOnly: false,
-  parentElement: null, labelText, getAttribute: () => null,
+  parentElement: null, labelText, getAttribute: () => null, isConnected: true,
   getBoundingClientRect: () => ({x: 0, y: 0, width: 10, height: 10, left: 0, top: 0, right: 10, bottom: 10})}, attrs);
-''' + group + '\n' + describe + after
+''' + group + '\n' + describe + fill + '\n' + after
     ran = subprocess.run([_node(), '-e', script], capture_output=True, text=True, check=True)
     return json.loads(ran.stdout)
 
@@ -129,13 +144,27 @@ const one = (attrs, text) => { const e = describe(input(Object.assign({value: 'H
 console.log(JSON.stringify({google: describe(google, 1), each: [one({autocomplete: 'current-password'}),
   one({autocomplete: 'new-password'}), one({name: 'Passwd'}), one({id: 'login_pwd'}), one({}, 'Enter your password')],
   checkbox: one({type: 'checkbox', checked: true}, 'Show password'), email: one({type: 'email', name: 'identifier'},
-  'Email or phone')}));
+  'Email or phone'), reset: one({type: 'email'}, 'Email to reset your password')}));
 ''')
     assert shown['google']['secret'] is True and shown['google']['value'] == 'filled'
     assert 'Hunter2!x' not in json.dumps(shown['google'])
     assert shown['each'] == [{'secret': True, 'value': 'filled'}] * 5
     assert shown['checkbox'] == {'secret': False, 'value': 'checked'}
     assert shown['email'] == {'secret': False, 'value': 'Hunter2!x'}
+    assert shown['reset'] == {'secret': False, 'value': 'Hunter2!x'}
+
+
+def test_a_login_code_fill_refuses_a_password_but_not_a_one_time_password_field() -> None:
+    """"passw" also matches "One-time password": a field marked as a code field stays one; a real password doesn't."""
+    filled = extension(r'''
+const code = (attrs, text) => { target = input(attrs, text); return fill(1, 1, location.origin, '482913', true).detail; };
+console.log(JSON.stringify({otp: code({}, 'One-time password'), otpName: code({name: 'one_time_password'}),
+  autocomplete: code({autocomplete: 'one-time-code', name: 'otp_pwd'}),
+  shown: code({autocomplete: 'current-password', name: 'Passwd'}, 'Enter your password'),
+  labelled: code({}, 'Password'), hidden: code({type: 'password'}, 'One-time password')}));
+''')
+    assert filled == {'otp': 'filled', 'otpName': 'filled', 'autocomplete': 'filled', 'shown': 'code_field_changed',
+                      'labelled': 'code_field_changed', 'hidden': 'code_field_changed'}
 
 
 def test_a_login_code_is_never_asked_for_a_shown_password_field(bd, monkeypatch) -> None:
@@ -153,3 +182,30 @@ def test_a_login_code_is_never_asked_for_a_shown_password_field(bd, monkeypatch)
                why='finish requested login')
     assert out['is_error'] and 'not a password' in json.dumps(out)
     assert not any(a.kind == 'owner_login_code' for a in d.daemon.state.approvals.pending())
+
+
+def test_a_login_code_is_asked_for_a_one_time_password_field(bd, monkeypatch) -> None:
+    """A "One-time password" field is a code field: browser.login_code asks the owner and fills it."""
+    import asyncio
+    import tests.fake_extension as fake
+    from ferb.identity.seal import seal
+    from tests.browserkit import call
+    from tests.chromelab import SHOP, _ready
+    monkeypatch.setattr(fake, 'page', lambda url: {'title': 'Sign in', 'text': 'Enter the code', 'elements': [
+        {'role': 'textbox', 'label': 'One-time password', 'secret': True, 'input_type': 'text', 'value': ''}]})
+    d, launched = bd
+    # Real sealing, as tests/test_owner_login.py does, without the installed signing helper.
+    monkeypatch.setattr(d.daemon.router, 'seal_value', lambda key, value, command, origin:
+                        seal(key, value, command, origin))
+    ext, grant = _ready(d, launched)
+    tab = call(d, grant, 'browser.open', url=f'{SHOP}/code')['content']['tab']
+    snap = call(d, grant, 'browser.snapshot', tab=tab)['content']
+    result = asyncio.run_coroutine_threadsafe(d.daemon.gateway.call(grant, 'browser.login_code',
+        {'tab': tab, 'element': snap['elements'][0]['id'], 'effect': 'edit', 'why': 'finish requested login'}), d.loop)
+    ext.wait_for(lambda: result.done() or any(a.kind == 'owner_login_code' for a in d.daemon.state.approvals.pending()))
+    assert not result.done(), result.result()
+    ap = next(a for a in d.daemon.state.approvals.pending() if a.kind == 'owner_login_code')
+    d.run(d.daemon._chat_answer(None, {'approval_id': ap.id, 'text': '482913'}))
+    out = result.result(10)
+    assert not out['is_error'], out
+    assert ext.fills and '482913' not in json.dumps(out)

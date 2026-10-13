@@ -49,13 +49,18 @@ class Screen:
 
 def capture(monkeypatch: pytest.MonkeyPatch, screen: Screen, events: list[Any], *, secure: bool = False) -> list[Any]:
     """Run the real watcher over `events` and return what it recorded once the hold window has passed."""
-    clock, checks = SimpleNamespace(now=0.0), SimpleNamespace(n=0)
+    clock, flushes, poll = SimpleNamespace(now=0.0), SimpleNamespace(n=0), text_input.poll
 
-    def secure_input() -> bool:               # every key and every flush asks this first: it counts the polls
-        checks.n += 1
-        return secure
+    async def counted_poll(interval_s: float, stop: asyncio.Event, step: Any) -> None:
+        def counted() -> Any:                  # the watcher's flush, counted once it has returned
+            try:
+                return step()
+            finally:
+                flushes.n += 1
+        await poll(interval_s, stop, counted)
+    monkeypatch.setattr(text_input, 'poll', counted_poll)
     monkeypatch.setattr(text_input, 'time', SimpleNamespace(monotonic=lambda: clock.now))
-    monkeypatch.setattr(text_input, 'secure_input', secure_input)
+    monkeypatch.setattr(text_input, 'secure_input', lambda: secure)
     monkeypatch.setattr(text_input, 'focused_app', lambda: screen.app)
     monkeypatch.setattr('ferb.act.mac.accessibility._attr', screen.attr)
 
@@ -67,8 +72,8 @@ def capture(monkeypatch: pytest.MonkeyPatch, screen: Screen, events: list[Any], 
         for event in events:
             tap.on_text(event, False)
         clock.now = 10.0                       # past the hold window: the next poll flushes the field
-        seen, deadline = checks.n, asyncio.get_running_loop().time() + 10
-        while checks.n < seen + 4 and asyncio.get_running_loop().time() < deadline:
+        seen, deadline = flushes.n, asyncio.get_running_loop().time() + 10
+        while flushes.n < seen + 2 and asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(0.01)          # at least one whole flush after the hold window, however slow
         await asyncio.sleep(0)                 # its emit, handed to this loop, runs
         stop.set()

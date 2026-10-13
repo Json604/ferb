@@ -53,12 +53,10 @@ OTP_LABEL = re.compile(r"(?i)\b(?:otp|totp|2fa|one[ _-]?time(?:[ _-]+(?:code|pas
 # A password field, also while a site's "Show password" makes it plain text (type=text, AXTextField): its own
 # metadata says so (autocomplete current-password/new-password, or a name, id, label, placeholder or title holding
 # "passw" or "pwd"). A secret class at the capture boundary like OTP_LABEL, never a judgement of intent. It covers
-# text-entry fields (their AX role, ARIA role or input type; "" when a record names none): a checkbox, a button or a
-# menu item ("Show password", "Passwords") is no text field, so its state stays readable.
+# plain text fields only (input type text, AX text field; "" when a record names no kind, and then only its value):
+# a checkbox, a menu item or an email field ("Show password", "Passwords", "…reset your password") stays readable.
 PASSWORD_FIELD = re.compile(r"(?i)passw|pwd")
-TEXT_FIELD_KINDS = frozenset({"", "text", "password", "email", "search", "tel", "url", "number", "textarea",
-                              "textbox", "searchbox", "combobox", "axtextfield", "axtextarea", "axcombobox",
-                              "axsearchfield"})
+TEXT_FIELD_KINDS = frozenset({"", "text", "password", "axtextfield"})
 FIELD_METADATA = ("autocomplete", "name", "id", "label", "placeholder", "title")
 
 
@@ -86,8 +84,9 @@ _REF_DIGITS = re.compile(r"[0-9]+(?:-[0-9]+)*")
 
 
 def _url_id_spans(s: str) -> list[tuple[int, int]]:
-    """Where each URL's scheme, host and path lie in `s`. Digits there are ids (a post, a message, a snowflake), not
-    a credential; a URL's query and fragment are not part of these spans."""
+    """Where each URL's scheme, host and path lie in `s` (its query and fragment are not part of these spans). The
+    URL pattern also runs on through , | ) or a JSON \\n, so only digits that start a path segment or host label
+    there are an id (a post, a message, a snowflake), never a credential."""
     spans = []
     for m in URL.finditer(s):
         tail = re.search(r"[?#]", m.group())
@@ -169,7 +168,7 @@ class Redactor:
               concealed: bool = False, metadata: tuple[str, ...] = ()) -> str:
         """Capture boundary for AX/DOM/clipboard fields; metadata never grants action permission."""
         if (secure_input or concealed or "secure" in role.casefold() or role.casefold() == "password"
-                or password_field(role, label, *metadata) or _labelled_code(label, text)):
+                or bool(role) and password_field(role, label, *metadata) or _labelled_code(label, text)):
             return REDACTED if text else text
         return self._str(text)
 
@@ -245,8 +244,8 @@ class Redactor:
         for p in SECRET_PATTERNS:
             s = p.sub(REDACTED, s)
         ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids
-        s = CARD.sub(lambda m: m.group() if any(a <= m.start() < b for a, b in ids) or not payment_card(m.group())
-                     else REDACTED, s)
+        s = CARD.sub(lambda m: m.group() if not payment_card(m.group()) or s[m.start() - 1] in "/." and
+                     any(a <= m.start() < b for a, b in ids) else REDACTED, s)
         s = OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
         return URL.sub(lambda m: self._url(m.group(0)), s)
 

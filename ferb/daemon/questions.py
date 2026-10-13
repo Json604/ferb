@@ -29,7 +29,7 @@ class Approval:
         matches = [i for i, o in enumerate(self.options, 1) if o.strip().casefold() == text.casefold()]
         if len(matches) == 1:
             return matches[0]
-        return int(text) if text.isdigit() and 1 <= int(text) <= len(self.options) else None
+        return int(text) if text.isdecimal() and 1 <= int(text) <= len(self.options) else None
 
 
 class Approvals:

@@ -54,8 +54,12 @@ def key_text(event: Any) -> str:
     while True:
         try:
             n, chars = Quartz.CGEventKeyboardGetUnicodeString(event, size, None, None)
-        except UnicodeDecodeError:          # the buffer cut a surrogate pair in two: more text follows
-            n, chars = size, None
+        except UnicodeDecodeError:          # the buffer cut a surrogate pair in two: one more unit completes it
+            size += 1
+            try:
+                n, chars = Quartz.CGEventKeyboardGetUnicodeString(event, size, None, None)
+            except UnicodeDecodeError:      # a lone surrogate never decodes: this event's text is dropped
+                return ""
         if n < size:
             if isinstance(chars, str):
                 return chars
@@ -103,6 +107,8 @@ class TextInputWatcher:
         def flush() -> None:
             if failure:
                 raise RuntimeError(f"text capture adapter failed: {failure[0]}")
+            if not fields.holding:
+                return                     # nothing typed since the last flush: no Accessibility reads
             if secure_input():
                 fields.clear()             # do not query AXValue while Secure Input is active
                 return
