@@ -113,7 +113,8 @@ def test_recent_history_does_not_silently_cut_owner_requirement(daemon):
     chat(daemon, request)
 
     async def context():
-        return daemon.daemon.supervisor.recent(conversation="s1")[0]
+        from tests.support.history import conversation_text
+        return conversation_text(daemon.daemon.supervisor, "s1")
 
     recent = daemon.run(context())
     assert request in recent or ("omitted" in recent.lower() and "chat.history" in recent)

@@ -54,8 +54,9 @@ class DailyActivity:
         today = self.now().astimezone().date().isoformat()
         first = next(self._rows(), None)
         if first is not None and first.get('day') != today:
-            self._generation += 1
-            self.path.write_text('', encoding='utf-8')
+            with self._lock:                                 # never under a search reading rows by offset
+                self._generation += 1
+                self.path.write_text('', encoding='utf-8')
         return today
 
     def record(self, event: dict[str, Any]) -> None:
@@ -74,7 +75,12 @@ class DailyActivity:
             out.write(separator + json.dumps(row, ensure_ascii=False) + '\n')
 
     def _rewrite(self, transform: Callable[[dict[str, Any]], dict[str, Any] | None]) -> None:
-        """Atomically update derived observations; never leave a second raw copy after replacement."""
+        """Atomically update derived observations; never leave a second raw copy after replacement. Waits for a search
+        in progress, so no search reads a row offset into the replaced file."""
+        with self._lock:
+            self._rewrite_locked(transform)
+
+    def _rewrite_locked(self, transform: Callable[[dict[str, Any]], dict[str, Any] | None]) -> None:
         if not self.path.exists():
             return
         fd, temporary = tempfile.mkstemp(prefix='.activity-', dir=self.path.parent)
@@ -117,19 +123,19 @@ class DailyActivity:
                 scores.update(index.postings.get(term, ()))
             best = sorted(((score, row) for row, score in scores.items() if index.days[row] == day), reverse=True)
             offsets = [index.rows[row] for _, row in best[:max(1, limit)]]
-        found: list[dict[str, Any]] = []
-        try:
-            with self.path.open('rb') as source:
-                for offset in offsets:
-                    source.seek(offset)
-                    try:
-                        row = json.loads(source.readline())
-                    except ValueError:
-                        continue
-                    if isinstance(row, dict):
-                        found.append(row)
-        except FileNotFoundError:            # replaced or rotated away since the lookup: nothing of today's to return
-            return []
+            found: list[dict[str, Any]] = []
+            try:
+                with self.path.open('rb') as source:  # under the lock: a rotation or rewrite waits for these reads
+                    for offset in offsets:
+                        source.seek(offset)
+                        try:
+                            row = json.loads(source.readline())
+                        except ValueError:
+                            continue
+                        if isinstance(row, dict):
+                            found.append(row)
+            except FileNotFoundError:                 # removed outside FERB since the lookup
+                return []
         return found
 
     def _refresh(self) -> _Index | None:

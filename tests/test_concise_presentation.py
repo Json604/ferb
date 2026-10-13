@@ -152,7 +152,9 @@ def test_changed_cleanup_report_invalidates_prior_display(daemon, monkeypatch):
     tree.outcome = Outcome(worker.id, 'done', 'Report ready.', [], [])
     tree.checked_display = 'Ready!'
     tree.recovery_display = 'All fixed.'
-    monkeypatch.setattr(supervisor, '_context', lambda tree: [])
+    async def no_context(tree):
+        return []
+    monkeypatch.setattr(supervisor, '_context', no_context)
     monkeypatch.setattr(supervisor, 'make_runtime', lambda *args, **kwargs: object())
     async def report(*args, **kwargs):
         return json.dumps({'status': 'failed', 'summary': 'Report was removed during cleanup.', 'artifacts': [], 'evidence': []})

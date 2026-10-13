@@ -115,13 +115,16 @@ def test_adapters_report_documented_limits_and_refuse_unknown_models(tmp_path):
     assert ClaudeRuntime("supervisor", None, str(tmp_path), model="opus").limits.context_window == 1_000_000
     with pytest.raises(ModelLimitsUnknown):
         ClaudeRuntime("supervisor", None, str(tmp_path), model=None).limits          # the SDK default is plan-dependent
+    assert openai_api.limits_for("gpt-5.6-sol").context_budget == 1_050_000 - 128_000
     home = tmp_path / "ferb"
     (home / "codex-home").mkdir(parents=True)
     (home / "codex-home" / "auth.json").write_text("{}")
     (home / "codex-home" / "models_cache.json").write_text(json.dumps(
-        {"models": [{"slug": "gpt-5.5", "context_window": 272000}]}))
-    codex = CodexRuntime(tmp_path / "codex", "supervisor", tmp_path, home, model="gpt-5.5").limits
-    assert (codex.context_window, codex.max_output) == (272_000, 128_000)
+        {"models": [{"slug": "gpt-5.6-sol", "context_window": 272000, "effective_context_window_percent": 95}]}))
+    codex = CodexRuntime(tmp_path / "codex", "supervisor", tmp_path, home).limits       # the default model
+    # Codex's docs don't say whether its window holds the reply: FERB uses the input window Codex itself reports
+    # (catalog window x effective percent), never subtracting the reply a second time
+    assert (codex.model, codex.context_budget, codex.max_output) == ("gpt-5.6-sol", 258_400, 128_000)
     with pytest.raises(ModelLimitsUnknown):
         CodexRuntime(tmp_path / "codex", "supervisor", tmp_path, home, model="gpt-6-astra").limits   # not in its catalog
 
@@ -292,3 +295,143 @@ def test_running_summary_never_folds_notice_text_and_cites_what_it_folded(daemon
         return gone, sv._summary(SESSION)
     gone, left = daemon.run(second_and_forget())
     assert gone == 2 and left is None
+
+
+def test_codex_default_is_gpt_5_6_sol():
+    """Owner decision 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins."""
+    import ferb.runtimes.codex_exec as cx
+    from ferb.runtimes.catalog import CATALOG
+    assert cx.MODEL == "gpt-5.6-sol" and CATALOG["codex"].default_model == "gpt-5.6-sol"
+
+
+def _fake_codex(tmp_path, monkeypatch, catalog: dict):
+    """A stand-in for the pinned binary: only `debug models --bundled`, run with an empty Codex home (no login)."""
+    import ferb.runtimes.codex_exec as cx
+    fake = tmp_path / "codex"
+    fake.write_text('#!/bin/sh\n[ "$1 $2 $3" = "debug models --bundled" ] || exit 2\n'
+                    '[ -z "$(ls -A "$CODEX_HOME")" ] || exit 3\n'
+                    f"cat <<'EOF'\n{json.dumps(catalog)}\nEOF\n")
+    fake.chmod(0o755)
+    monkeypatch.setattr(cx, "codex_binary", lambda ferb_home, repo=None: fake)
+    return fake
+
+
+def test_a_fresh_codex_login_reads_its_window_from_codexs_own_catalog(tmp_path, monkeypatch):
+    """A fresh install has FERB's Codex login but no cached catalog yet (Codex writes one only after a run): the window
+    comes from the catalog shipped with the pinned binary, dumped once through Codex itself, offline. Codex runs with
+    that same catalog."""
+    import ferb.runtimes.codex_exec as cx
+    from ferb.core.errors import Unsupported
+    home = tmp_path / "ferb"
+    (home / "codex-home").mkdir(parents=True)
+    (home / "codex-home" / "auth.json").write_text("{}")
+    fake = _fake_codex(tmp_path, monkeypatch, {"models": [
+        {"slug": "gpt-5.6-sol", "context_window": 272000, "effective_context_window_percent": 95, "tool_mode": "x"}]})
+    assert cx.CodexRuntime(fake, "supervisor", tmp_path, home).limits.context_budget == 258_400
+    locked = cx.locked_catalog(home)
+    assert locked is not None and json.loads(locked.read_text())["models"][0]["tool_mode"] is None
+    assert not (home / "codex-home" / "models_cache.json").exists()      # FERB's login home is left as it was
+
+    def missing(ferb_home, repo=None):
+        raise Unsupported("pinned Codex not installed")
+    monkeypatch.setattr(cx, "codex_binary", missing)
+    for dumped in (home / "run").glob("codex-bundled-*.json"):
+        dumped.unlink()
+    with pytest.raises(ModelLimitsUnknown, match="ferb setup --update"):  # the error names the real fix
+        cx.CodexRuntime(fake, "supervisor", tmp_path, home).limits
+
+
+def test_the_conversation_seam_is_the_timeline_only():
+    """`_recent` is gone: code that would still send the whole chat as one protected block breaks loudly (L28)."""
+    from ferb.orchestrator.supervisor import Supervisor
+    assert not hasattr(Supervisor, "_recent") and not hasattr(Supervisor, "recent")
+
+
+def test_running_summary_refreshes_only_when_uncovered_entries_fall_out(daemon, monkeypatch):
+    """Owner decision 2026-10-14: no fixed step and no new number. A refresh runs only when entries that fell out of
+    the window aren't covered by the latest summary."""
+    sv = daemon.daemon.supervisor
+    started: list[tuple[str, int]] = []
+
+    async def counted(conversation: str, count: int) -> None:
+        started.append((conversation, count))
+    monkeypatch.setattr(sv, "_summarize", counted)
+    install(daemon, [sup("reply", "detail " * 600) for _ in range(8)] + [sup("reply", "ok")] * 3)
+    for i in range(8):
+        chat(daemon, f"message {i} " + "filler " * 600)
+    assert started == []                                               # everything fit: nothing to fold
+    _window(monkeypatch, 22_000, 1_000)
+    chat(daemon, "now the window is small")
+    assert len(started) == 1 and started[0][1] > 0                    # uncovered entries fell out: one refresh
+    monkeypatch.setattr(FakeRuntime, "limits", ModelLimits("fake-model", 1_000_000, 100_000, "test double"))
+    chat(daemon, "a large window again")
+    assert len(started) == 1                                           # nothing fell out: no refresh
+
+
+def test_daily_log_rewrites_wait_for_a_search_in_progress(tmp_path):
+    import threading
+    from datetime import datetime, timezone
+    from ferb.sense.daily import DailyActivity
+    log = DailyActivity(tmp_path / "activity.jsonl", lambda: datetime(2026, 10, 3, tzinfo=timezone.utc))
+    log.record({"id": "a", "source": "window", "where": {"title": "tea"}})
+    log._lock.acquire()
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (log.forget_sources({"a"}), done.set()))
+    worker.start()
+    try:
+        assert not done.wait(0.3)                                      # held off while a search holds the log
+    finally:
+        log._lock.release()
+    worker.join(5)
+    assert done.is_set() and log.search("tea") == []
+
+
+def test_every_activity_search_runs_off_the_event_loop(daemon):
+    import threading
+    activity = daemon.daemon.daily_activity
+    original = activity.search
+    seen: list[str] = []
+
+    def counted(words: str, *args, **kwargs):
+        seen.append(threading.current_thread().name)
+        return original(words, *args, **kwargs)
+    activity.search = counted
+    install(daemon, [sup("task", "Doing.", task("find the tea shop page"))], {"worker": done("found")})
+    outcome(chat(daemon, "find the tea shop page"))
+    assert len(seen) >= 2 and daemon.thread.name not in seen          # the planner's and each worker context's
+
+
+def test_since_last_talk_payload_holds_only_the_answer_texts(daemon):
+    def worker(token: str) -> str:                       # the answer lands after the owner's message (frozen clock)
+        daemon.call_soon(daemon.daemon.clock.advance, 1)
+        return done("FIRST-JOB-ANSWER")
+    install(daemon, [sup("task", "Doing.", task("first job")), sup("task", "Doing.", task("second job"))],
+            {"worker": worker})
+    outcome(chat(daemon, "do the first job"))
+    result = outcome(chat(daemon, "do the second job"))
+
+    async def payloads():
+        return [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(
+            "SELECT output_json FROM spans WHERE kind='context.exposure' AND task_id=? "
+            "AND json_extract(output_json, '$.text') LIKE 'Layer 2 — situation:%'", (result["task_id"],))]
+    found = daemon.run(payloads())
+    assert found and "FIRST-JOB-ANSWER" in found[0]["payload"]
+    assert "a task finished" not in found[0]["payload"] and "ago" not in found[0]["payload"]
+
+
+def test_a_failed_query_embedding_is_not_retried_on_the_loop(daemon):
+    learning = daemon.daemon.learning
+    calls: list[str] = []
+
+    class Failing:
+        name = "failing"
+
+        def encode(self, text, *, query=False):
+            calls.append(text)
+            raise RuntimeError("model unavailable")
+    learning.embedder = Failing()
+    daemon.run(daemon.daemon._learning_candidates("tea shop"))
+
+    async def unavailable():
+        return daemon.daemon.journal.of_kind("memory.embedding_unavailable")
+    assert calls == ["tea shop"] and len(daemon.run(unavailable())) == 1

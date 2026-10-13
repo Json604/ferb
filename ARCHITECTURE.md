@@ -135,27 +135,11 @@ pending input. Claude uses UUID user-message replay to keep receiving through st
 adapters append ordered user messages at the next model decision, preserve started tool outcomes and skip stale
 unstarted tool calls. Neither path replaces the runtime to accept a correction.
 
-The planner's context (L28, owner 2026-10-14) uses the model's real window: the budget is the active runtime's
-documented `context_window − max_output` (`ModelLimits` in [`core/types.py`](ferb/core/types.py)); each adapter cites its
-source per model (`LIMITS` in `runtimes/openai_api.py`, `anthropic_api.py`, `google_api.py`; Codex reads the window from
-its own model catalog, `codex_exec.limits_for`; Claude resolves its aliases). A runtime that can't report its window is an
-explicit error: a `ServiceError` the owner is told at call time, `runtime.limits_unknown` at daemon start and a failing
-`context window <role>` line in `ferb doctor`; never a guessed number. Always in the prompt: the system prompt, the
-owner's message, Layer 2 (time, owner activity), Layer 3 today's matching activity, Layer 4 relevant memory, running tasks
-and open questions. The conversation then fills what is left newest-first, one block per entry, never with a gap; the
-entries that don't fit are counted in one omission note and folded in the background into FERB's running summary of
-the older conversation (`chat.summary` journal rows, model-written by `prompts/summary.md`, labelled with what they
-folded, citing them by handle; notices are never folded in; an explicit forget of a folded entry deletes the summary).
-The trail rows of the last ten minutes (`Layer 3 — recent activity`, measured at 119k-433k tokens on the owner's data)
-go in whole only when room is left after the conversation, otherwise as a fetch reference; the planner snapshot keeps
-them for the task. Order for prompt caching: system, Layer 1, the conversation (chat tags count from the oldest, `c1`, so
-earlier entries never change), then the per-turn blocks with the owner's message last; each turn's `model.turn` span
-records the provider's cached-token count. Resumable attempts keep their newest within `ATTEMPTS_TOKENS` (2000).
-The assembler counts each block once (`core/context.assemble`). Lineage is cited by handle: a turn cites the entries and
-tasks it was shown as `entry:<journal id>` / `task:<task id>` (`memory/lineage.py`), so replies and exposures no longer
-copy everything earlier replies cited; `Learning.capture_episode` resolves the handles when it writes an episode's source
-edges, so forgetting a source still reaches every card derived from it. The planner's snapshot and exposure spans are
-written right after the plan line. The Codex catalog lockdown sets
+As built in F1: chat history (`HISTORY_TOKENS` 12000) and resumable attempts (`ATTEMPTS_TOKENS` 2000) keep their newest
+entries whole (`ferb/orchestrator/supervisor.py`): history is listed oldest first with an omission note, attempts
+newest first with a note about the older ones. Blocks are ordered stable first: device facts (installed apps), then
+history, whose chat tags count from the oldest (`c1`) so earlier lines never change as the conversation grows; the
+owner's message is last and the budget report at the end (P20). The Codex catalog lockdown sets
 `supports_search_tool` false so FERB's tools are directly visible; a worker or checker whose runtime shows no FERB
 tool loaded is re-run once, traced as `runtime.tools_not_loaded` (`ferb/orchestrator/worker.py`).
 
@@ -492,9 +476,8 @@ in the stable identity context used by `Supervisor._system`.
 Every model call goes through one interface. `ModelRequest(system, parts, cacheable)` ([`core/types.py`](ferb/core/types.py))
 carries FERB's instructions and the context as ordered parts; the first `cacheable` parts repeat across a role's calls and
 adapters cache them (P20). `assemble_parts` ([`core/context.py`](ferb/core/context.py)) returns the parts and that count from
-the `ContextBlock`s whose `cache=True` leads the list. The supervisor marks the device facts, the conversation header
-and each conversation entry for the orchestrator, and the owner's original request and the task specification for task
-calls. The context budget is the runtime's documented window minus its reply limit (`AgentRuntime.limits`, L28)
+the `ContextBlock`s whose `cache=True` leads the list. The supervisor marks the device facts and the chat history for the
+orchestrator, and the owner's original request and the task specification for task calls
 ([`supervisor.py`](ferb/orchestrator/supervisor.py)). Everything model-specific stays in the adapter.
 
 | Runtime | Adapter | Billing | Cache |

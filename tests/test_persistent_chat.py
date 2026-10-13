@@ -126,8 +126,9 @@ def test_new_conversation_cannot_control_another_conversations_task(daemon):
     async def check():
         supervisor = daemon.daemon.supervisor
         assert supervisor.continuity.load(previous["task_id"], second) is None
-        assert "find notes" not in supervisor.recent(conversation=second)[0]
-        assert "find notes" in supervisor.recent(conversation=first)[0]
+        from tests.support.history import conversation_text
+        assert "find notes" not in conversation_text(supervisor, second)
+        assert "find notes" in conversation_text(supervisor, first)
     daemon.run(check())
 
 

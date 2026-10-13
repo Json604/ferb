@@ -24,11 +24,12 @@ DEFAULT_MODEL = "gpt-6.1-sol"
 EXPLICIT_CACHE = ("gpt-6", "gpt-5.6")
 BREAKPOINT = {"mode": "explicit"}
 # L28: each model's documented limits (context window, max output tokens), checked 2026-10-14 on
-# https://developers.openai.com/api/docs/models/<model id> (gpt-5.5, gpt-6-astra) and the model list at
-# https://developers.openai.com/api/docs/models (gpt-6.1-sol, gpt-6-luna). Facts, not FERB choices; a model missing
+# https://developers.openai.com/api/docs/models/<model id> (gpt-5.5, gpt-5.6-sol: "Maximum input is 922,000 tokens",
+# gpt-6-astra) and the model list at https://developers.openai.com/api/docs/models (gpt-6.1-sol, gpt-6-luna). Facts, not FERB choices; a model missing
 # here has no documented limits FERB knows of, and using it is an explicit error.
 LIMITS: dict[str, tuple[int, int]] = {
     "gpt-5.5": (1_050_000, 128_000),
+    "gpt-5.6-sol": (1_050_000, 128_000),
     "gpt-6-astra": (1_050_000, 128_000),
     "gpt-6.1-sol": (1_050_000, 128_000),
     "gpt-6-luna": (1_050_000, 128_000),

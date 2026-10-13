@@ -499,8 +499,9 @@ class Learning:
 
     def search(self, query: str, *, kind: str | None = None, app: str | None = None,
                person: str | None = None, since: str | None = None, until: str | None = None,
-               query_vector: list[int] | None = None) -> list[dict[str, Any]]:
-        """`query_vector`: the query's embedding, already computed off the event loop (L28); else computed here."""
+               query_vector: list[int] | None = None, embed: bool = True) -> list[dict[str, Any]]:
+        """`query_vector`: the query's embedding, already computed off the event loop (L28); else computed here.
+        `embed` False: keyword ranking only (the caller's encode already failed and was reported)."""
         terms = query_terms(query)
         rankings: list[list[str]] = []
         if terms:
@@ -513,7 +514,7 @@ class Learning:
                     ('"' + query.replace('"', '""') + '"',))])
         else:
             rankings.append([p['id'] for p in reversed(self.items(kind))])
-        if self.embedder is not None and query:
+        if self.embedder is not None and query and embed:
             from ferb.memory.embeddings import ranked
             try:
                 rankings.append(ranked(self.db, self.embedder, query, vector=query_vector))

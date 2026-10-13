@@ -1,5 +1,6 @@
 """One permanent record per task, composed by code from its trace (L1, D21, MP1)."""
 import json
+import time
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -384,12 +385,16 @@ def test_the_intake_planners_usage_is_in_the_tree(daemon: RunningDaemon) -> None
 
 
 def test_a_stopped_task_gets_an_episode(daemon: RunningDaemon) -> None:
-    install(daemon, [sup("task", "Working.", task("long job"))], {"worker": STALL})
+    script = install(daemon, [sup("task", "Working.", task("long job"))], {"worker": STALL})
     c = Client(daemon.sock, timeout=30)
     try:
         for ev in c.stream("chat.send", {"session_id": "s", "text": "long job"}):
-            # once the worker runs: the plan line now comes before the worker starts (L8)
+            # once the worker runs: the plan line now comes before the worker starts (L8), and the worker builds its
+            # context off the event loop first (L28)
             if ev["type"] == "subtask" and ev["status"] == "started":
+                deadline = time.monotonic() + 10
+                while not any(k == "worker" for _, k, _, _ in script.contexts) and time.monotonic() < deadline:
+                    time.sleep(0.02)
                 c2 = Client(daemon.sock)
                 c2.call("task.stop", {"task_ids": [ev["task_id"]]})
                 c2.close()

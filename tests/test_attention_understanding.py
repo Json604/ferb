@@ -269,7 +269,8 @@ def test_the_planner_sees_a_notice_in_the_chat_as_ferbs_message_with_its_origin(
     assert json.dumps(UPGRADE) in line and json.dumps(PRICE) in line
     assert '"origin": "external:observation"' in line                            # the quote keeps its own label
     assert d.supervisor is not None
-    _, _, origins = _on_loop(daemon, lambda: d.supervisor._recent("", "owner"))  # type: ignore[union-attr]
+    origins = _on_loop(daemon, lambda: {o for e in d.supervisor._timeline("", "owner")[0]  # type: ignore[union-attr]
+                                        for o in e.origins})
     assert "external:observation" in origins                                     # S3: the turn saw outside data
 
 

@@ -750,7 +750,7 @@ def test_uncertain_prior_actions_cover_the_whole_tree_and_running_rows(daemon: R
         daemon.daemon.state.requests.record(Request("req-ctx", "send it", Targets.of()))
         worker = Task("tr-1.worker", "tr-1", "send it", "dev", Identity.OWNER, set(), "worker", "req-ctx", [], None)
         tree = _Tree("tr-1", TaskSpec(goal="send it", identity="owner"), worker, prior_task="prior-1")
-        return next(b.text for b in sup._context(tree) if b.text.startswith("Uncertain prior actions"))
+        return next(b.text for b in await sup._context(tree) if b.text.startswith("Uncertain prior actions"))
     block = daemon.run(go())
     assert "inspect before deciding whether to retry" in block                    # the wording is kept
     listed = json.loads(block.split("\n")[1])

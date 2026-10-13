@@ -259,8 +259,7 @@ shows rules and labelled measurements. Notice receipts are marked delivered afte
 ## Privacy and debugging
 
 `~/.ferb/config.toml` holds configuration. `ferb.db` contains tasks, traces, reminders and memory.
-`activity/today.jsonl` holds redacted daily activity; it rotates on the next write after the local date changes, and a
-search only returns today's rows. The daemon keeps a term index of it in memory, read once per appended row.
+`activity/today.jsonl` holds redacted daily activity; it rotates on the next read/write after the local date changes.
 Memory retrieval, activity search and registry search supply relevant context each turn. Forgetting source-backed
 memory removes its corresponding daily-log copies too. This is single-device context, not cross-device sync.
 
@@ -391,9 +390,8 @@ Start with [OWNER_GUIDE](docs/OWNER_GUIDE.md), the [capability ledger](docs/CAPA
 [acceptance checklist](docs/OWNER_ACCEPTANCE.md) and [incident audit](docs/AUDIT_0_26.md).
 The [daemon RPC contract](docs/RPC.md) is the integration point for future clients.
 
-Full owner requests and artifact text are preserved. The planner's budget is the model's documented context window
-minus its reply limit; the situation, memory, today's activity and the request always go in, older chat is FERB's
-running summary, and context omitted for room has a visible fetch reference. Target/source ambiguity remains a question for the agent and owner; unsupported routes
+Full owner requests and artifact text are preserved. Optional context omitted under an explicit token budget has
+a visible fetch reference. Target/source ambiguity remains a question for the agent and owner; unsupported routes
 return facts. Final answers show every failed/unverified condition before outcome facts.
 
 Every task records desktop observations through cleanup, except while `ferb pause` is on (a read under way when you

@@ -36,7 +36,7 @@ from ferb.runtimes.usage import from_codex
 from ferb.runtimes.tooltrace import tools_in
 
 CODEX_VERSION = "0.157.1"
-MODEL = "gpt-5.5"
+MODEL = "gpt-5.6-sol"                 # owner decision 2026-10-14: GPT-5.5 retires from Codex for ChatGPT sign-ins
 _NATIVE_BIN = Path("node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex")
 DISABLED = ["shell_tool", "unified_exec", "shell_snapshot", "multi_agent", "multi_agent_v2", "apps", "plugins",
             "remote_plugin", "tool_suggest", "skill_search", "hooks", "browser_use", "browser_use_external",
@@ -71,17 +71,75 @@ CATALOG_LOCKDOWN: dict[str, Any] = {"tool_mode": None, "multi_agent_version": No
                                     "supports_search_tool": False}
 
 
-def locked_catalog(ferb_home: Path) -> Path | None:
-    """FERB's model catalog for Codex: Codex's own cached catalog with CATALOG_LOCKDOWN applied to every model. None
-    when no cached catalog exists (then nothing changes; a model that brings extra tools is still caught and stopped)."""
-    home = codex_home(ferb_home) or Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-    src = home / "models_cache.json"
+def bundled_catalog(ferb_home: Path) -> Path | None:
+    """The model catalog shipped with the pinned Codex (`codex debug models --bundled`), dumped once per Codex version
+    into FERB's run folder. Codex itself prints it: offline, with an empty Codex home (no login, no owner settings).
+    None when the pinned binary is missing or prints no catalog."""
+    out = ferb_home / "run" / f"codex-bundled-{CODEX_VERSION}.json"
+    if out.exists():
+        return out
     try:
-        data = json.loads(src.read_text())
+        from ferb.device.install import repo_root
+        binary = codex_binary(ferb_home, repo_root())
+    except Unsupported:
+        return None
+    import subprocess
+    with tempfile.TemporaryDirectory(prefix="ferb-codex-catalog-") as empty:
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("OPENAI_", "CODEX_"))}
+        env.update(HOME=empty, CODEX_HOME=empty)
+        try:
+            done = subprocess.run([str(binary), "debug", "models", "--bundled"], capture_output=True, env=env,
+                                  cwd=empty, check=False)
+        except OSError:
+            return None
+    try:
+        data = json.loads(done.stdout)
+    except ValueError:
+        return None
+    if done.returncode != 0 or not isinstance(data, dict) or not isinstance(data.get("models"), list):
+        return None
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data))
+    tmp.chmod(0o600)
+    tmp.replace(out)
+    return out
+
+
+def _catalog(ferb_home: Path) -> tuple[Any, str] | None:
+    """Codex's model catalog for FERB's runs, and where it came from: the catalog Codex last fetched for FERB's own
+    login (`codex-home/models_cache.json`), else the one shipped with the pinned binary. Never the owner's ~/.codex."""
+    home = codex_home(ferb_home)
+    sources = ([(home / "models_cache.json", "models_cache.json")] if home is not None else [])
+    for path, label in sources:
+        try:
+            return json.loads(path.read_text()), label
+        except (OSError, ValueError):
+            continue
+    bundled = bundled_catalog(ferb_home)
+    if bundled is None:
+        return None
+    try:
+        return json.loads(bundled.read_text()), "the catalog shipped with the pinned Codex (debug models --bundled)"
     except (OSError, ValueError):
         return None
+
+
+def _models(data: Any) -> list[Any] | None:
     models = data.get("models", data) if isinstance(data, dict) else data
-    if not isinstance(models, list):
+    return models if isinstance(models, list) else None
+
+
+def locked_catalog(ferb_home: Path) -> Path | None:
+    """FERB's model catalog for Codex: Codex's own catalog (`_catalog`) with CATALOG_LOCKDOWN applied to every model,
+    so Codex runs with exactly the catalog FERB reads each model's window from. None when Codex has none (then nothing
+    changes; a model that brings extra tools is still caught and stopped)."""
+    found = _catalog(ferb_home)
+    if found is None:
+        return None
+    data = found[0]
+    models = _models(data)
+    if models is None:
         return None
     for m in models:
         if isinstance(m, dict):
@@ -95,28 +153,33 @@ def locked_catalog(ferb_home: Path) -> Path | None:
 
 
 def limits_for(ferb_home: Path, model: str) -> ModelLimits:
-    """L28: the window Codex runs this model with is the `context_window` its own model catalog reports (served by
-    OpenAI to the pinned Codex, cached in FERB's Codex home as models_cache.json; Codex sets no larger window unless
-    configured, and FERB configures none). The reply limit is OpenAI's documented max output for the model
-    (openai_api.LIMITS). Either one missing is an explicit error, never a guess."""
+    """L28: the input window Codex runs this model with, as Codex reports it: its catalog's `context_window` times its
+    `effective_context_window_percent` (272,000 x 95 % = 258,400 for gpt-5.6-sol in Codex 0.157.1's bundled catalog,
+    the figure a Codex session reports as `model_context_window`:
+    https://community.openai.com/t/why-does-codex-report-a-258-400-token-context-window-for-gpt-5-6-sol/1394346).
+    Codex's docs don't say whether that window also holds the reply (https://learn.chatgpt.com/docs/config-file/
+    config-reference, `model_context_window`: "Context window tokens available to the active model"), so FERB uses it
+    as the input room and never subtracts the reply limit a second time. The reply limit itself is OpenAI's
+    documented max output for the model (openai_api.LIMITS). Anything missing is an explicit error, never a guess."""
     from ferb.runtimes.openai_api import LIMITS, LIMITS_SOURCE
-    home = codex_home(ferb_home)
-    try:
-        data = json.loads((home / "models_cache.json").read_text()) if home is not None else None
-    except (OSError, ValueError):
-        data = None
-    models = data.get("models", data) if isinstance(data, dict) else data
-    window = next((m.get("context_window") for m in models or [] if isinstance(m, dict) and m.get("slug") == model),
-                  None)
-    if not isinstance(window, int) or window <= 0:
-        raise ModelLimitsUnknown(f"Codex's model catalog reports no context window for {model!r}"
-                                 + ("" if home is not None else ": run `ferb setup --codex-login`"))
+    found = _catalog(ferb_home)
+    if found is None:
+        raise ModelLimitsUnknown("Codex's model catalog isn't available: the pinned Codex didn't print one; run "
+                                 "`ferb setup --update`")
+    data, label = found
+    entry = next((m for m in _models(data) or [] if isinstance(m, dict) and m.get("slug") == model), None)
+    window = entry.get("context_window") if entry else None
+    percent = entry.get("effective_context_window_percent") if entry else None
+    if not isinstance(window, int) or window <= 0 or not isinstance(percent, (int, float)) or not 0 < percent <= 100:
+        raise ModelLimitsUnknown(f"Codex's model catalog ({label}) reports no context window for {model!r}; choose a "
+                                 "model Codex lists in config.toml [models] codex")
     if model not in LIMITS:
         raise ModelLimitsUnknown(f"OpenAI documents no max output FERB knows for {model!r}; choose one of "
                                  f"{sorted(LIMITS)} in config.toml [models] codex")
-    return ModelLimits(model, window, LIMITS[model][1],
-                       f"Codex {CODEX_VERSION} model catalog (models_cache.json context_window); max output: "
-                       f"{LIMITS_SOURCE}")
+    return ModelLimits(model, int(window * percent / 100), LIMITS[model][1],
+                       f"Codex {CODEX_VERSION} model catalog ({label}): context_window {window} x "
+                       f"effective_context_window_percent {percent}; max output: {LIMITS_SOURCE}",
+                       window_includes_output=False)
 
 
 def codex_binary(ferb_home: Path, repo: Path | None = None) -> Path:

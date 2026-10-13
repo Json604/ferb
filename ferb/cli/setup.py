@@ -317,6 +317,10 @@ def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     env.say("Signing in FERB's own Codex (a browser window opens)…")
     rc = run([str(binary), "login"], env={**os.environ, "CODEX_HOME": str(home)}).returncode
     ok = (home / "auth.json").exists()
+    if ok:          # L28: Codex's own model catalog, so FERB knows each model's window before the first run
+        from ferb.runtimes.codex_exec import bundled_catalog
+        if bundled_catalog(env.inst.home) is None:
+            env.say("Codex didn't print its model catalog; run `ferb setup --update`.")
     env.say("Done: FERB now uses its own Codex home." if rc == 0 and ok else "Not signed in; nothing changed.")
     return 0 if ok else 1
 

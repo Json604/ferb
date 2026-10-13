@@ -1,12 +1,13 @@
 """Stable content first, changing content last, so prompt caching can reuse the prefix (P20)."""
 from ferb.core.context import ContextBlock, assemble_context
 from tests.conftest import RunningDaemon, chat, install, sup
+from tests.support.history import conversation_text
 
 
 def _recent(daemon: RunningDaemon) -> str:
     async def go():
-        return daemon.daemon.supervisor.recent(conversation="s1")
-    return daemon.run(go())[0]
+        return conversation_text(daemon.daemon.supervisor, "s1")
+    return daemon.run(go())
 
 
 def test_budget_report_comes_last() -> None:

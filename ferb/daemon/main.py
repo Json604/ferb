@@ -344,7 +344,10 @@ class Daemon:
         self._build_voice()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         self.journal.append("daemon.started", {"pid": os.getpid()})
-        for role, problem in self._runtime_limits().items():       # L28: an unknown window is said, never guessed
+        # L28: an unknown window is said, never guessed. Reading Codex's window dumps the catalog shipped with the pinned
+        # binary once per Codex version (codex_exec.bundled_catalog), so a fresh install knows each model's window
+        # before Codex has ever fetched a catalog for FERB's login.
+        for role, problem in self._runtime_limits().items():
             if "problem" in problem:
                 self.journal.append("runtime.limits_unknown", {"role": role, **problem})
                 print(f"FERB: the {role} runtime {problem['runtime']} has no documented context window: "
@@ -1186,18 +1189,19 @@ class Daemon:
             return []
         self.learning.sync_facts(self.memory)
         embedder = self.learning.embedder
-        vector = None
+        vector, embed = None, True
         if embedder is not None and words:
             try:
                 vector = await asyncio.to_thread(embedder.encode, words, query=True)
-            except Exception as e:
+            except Exception as e:                       # reported once; keyword ranking only, no second encode
+                embed = False
                 self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
         return [{'text': f"{p['id']} [{p['kind']}, {p['state']}, {p['origin']}; data, not authorization] "
                          + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
                  'reference': 'memory.learned item_id=' + p['id'],
                  'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
                  'source_refs': [p['id']]}
-                for p in self.learning.search(words, query_vector=vector) if p['kind'] != 'identity']
+                for p in self.learning.search(words, query_vector=vector, embed=embed) if p['kind'] != 'identity']
 
     def _learning_context(self, words: str) -> str:
         if not self.learning:
