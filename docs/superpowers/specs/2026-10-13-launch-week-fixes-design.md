@@ -97,7 +97,7 @@ Five read-only reports, kept locally (git-ignored) in `.superpowers/sdd/2026-10-
 | L14 | Fixes land on `astra_resume`. Afterwards it becomes `main` and the other branches are deleted (exact commands confirmed with the owner at that step). |
 | L15 | The UI moved into this repository as `ui/` (done in 2b9f727; its old two-commit history is kept locally). |
 
-L16–L24 are the fix items in §4.6, accepted by the owner as a list.
+L16–L24 are the fix items in §4.6, accepted by the owner as a list. L25 (§4.8) was added at approval.
 
 ## 4. Design
 
@@ -339,6 +339,40 @@ owner's own accounts.
 
 **Build.** `./build.sh` in `ui/mac/FERBNotch`; the owner relaunches from `ui/`. The running copy still runs from the
 old path until relaunched.
+
+### 4.8 Extension auto-install at setup (L25)
+
+The owner asked for this at approval, after seeing OpenClaw do it. OpenClaw's documented mechanism
+(docs.openclaw.ai/tools/chrome-extension) works like this:
+- it registers its native host;
+- it asks Chrome to install its **Chrome Web Store** extension, and the request applies to every profile in that
+  user-data directory;
+- Chrome installs the extension at its next start and asks the owner to enable it in each profile;
+- OpenClaw never restarts the browser or approves the prompt.
+
+FERB does the same.
+
+**What `ferb setup` does** (and `ferb setup --update`), for every installed Chromium-family browser whose user-data
+directory exists (Chrome, Brave, Edge, Chromium, Vivaldi, Arc, Opera and others the code finds):
+- writes the Web Store install request;
+- registers FERB's native host;
+- reports, per profile, whether the extension is installed, enabled and paired. It reads Preferences only, never
+  writes them.
+
+Setup doesn't restart a browser or approve its prompt. Setup output says which browsers must be reopened to pick
+the extension up.
+
+**Dependency (owner action).** The extension must be published on the Chrome Web Store. FERB prepares the package and
+the listing text. Until the Store ID exists, setup keeps the current Load-unpacked steps. The ID is configurable, so
+setup works the day the listing goes live.
+
+The native host accepts both the pinned unpacked ID and the Store ID.
+
+**To verify in implementation:**
+- off-store automatic install (a local CRX) appears to be blocked on macOS without enterprise management;
+- the install request may not work in some browsers (e.g. Brave, Arc).
+
+Where it doesn't work, setup reports it and keeps the manual path. It never edits a browser's Secure Preferences.
 
 ## 5. Changes to the plan of record and working rules
 
