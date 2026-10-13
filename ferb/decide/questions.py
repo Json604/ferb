@@ -2,7 +2,9 @@
 
 The typed questions FERB asks Jev. Each names its possible answers, the answer FERB's own logic gives
 today (the baseline), and which of Jev's answers may have an effect once the owner enables it — only ever stricter
-than the baseline (dropping a memory proposal). Attention questions remain shadow observations. Task decisions belong to the orchestrator."""
+than the baseline (dropping a memory proposal). `trail.attention` is live (Q4): a yes starts one attention
+consideration, recorded with its effect. Notification triage stays a shadow observation. Task decisions belong to the
+orchestrator."""
 
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -21,6 +23,7 @@ class Question:
     threshold: float = 0.5                     # noul: probability for "yes"
     effect: str = ""                           # what a stricter answer does, for the owner
     shadow_only: bool = False                  # cannot be enabled before owner-labelled measurements
+    live: bool = False                         # acts by the plan of record (Q4), recorded as 'live' with its effect
 
     def api(self) -> dict[str, Any]:
         q: dict[str, Any] = {"type": self.type, "instructions": self.instructions}
@@ -67,7 +70,8 @@ QUESTIONS: dict[str, Question] = {q.id: q for q in (
     Question("trail.attention", "noul",
              load_prompt("decide/prompts/attention.md"),
              {"true": "worth FERB's attention", "false": "routine activity"},
-             effect="recorded attention recommendation; never creates a task", shadow_only=True),
+             effect="yes -> one attention consideration; FERB may post a notice in chat. Never a task or a send",
+             live=True),
     Question("notification.attention", "noul",
              load_prompt("decide/prompts/notification.md"),
              {"true": "new information worth attention", "false": "muted, repetitive or not important"},

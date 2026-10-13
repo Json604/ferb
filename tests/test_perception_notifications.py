@@ -13,7 +13,7 @@ def test_notification_database_is_read_only_and_reports_redacted_conversation(tm
     with sqlite3.connect(path) as connection:
         connection.executescript("CREATE TABLE app(app_id INTEGER, identifier TEXT); CREATE TABLE record(uuid BLOB, app_id INTEGER, data BLOB);")
         connection.execute("INSERT INTO app VALUES(1, 'com.whatsapp.WhatsApp')")
-        payload = {"req": {"titl": "Message yourself", "body": "sk-ant-abcdefghijklmnopqrstuvwx", "thread": "self"}}
+        payload = {"req": {"titl": "Message yourself", "body": "sk-ant-abcdefghijklmnopqrstuvwx", "thre": "self"}}
         connection.execute("INSERT INTO record VALUES(?,?,?)", (b"abc", 1, plistlib.dumps(payload)))
     reader = NotificationDatabase(path, Redactor())
     rows = reader.read()

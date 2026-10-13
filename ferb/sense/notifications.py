@@ -26,8 +26,9 @@ class NotificationPolicy:
         return ident
 
     def rules(self, app: str, conversation: str) -> list[dict[str, Any]]:
-        rows = self.db.conn.execute("SELECT * FROM notification_rules WHERE app=? AND (conversation IS NULL OR conversation=?)",
-                                    (app, conversation))
+        # I4: bundle ids are case-insensitive; Notification Center stores them lowercase (net.whatsapp.whatsapp).
+        rows = self.db.conn.execute("SELECT * FROM notification_rules WHERE lower(app)=lower(?) AND "
+                                    "(conversation IS NULL OR conversation=?)", (app, conversation))
         from datetime import datetime
         return [dict(r) for r in rows if r["until_at"] is None or datetime.fromisoformat(r["until_at"]) > self.clock.now()]
 

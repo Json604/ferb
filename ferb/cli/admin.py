@@ -372,7 +372,8 @@ def decide(client: Client, args: Any, ask: Any, out: TextIO) -> int:
         for st in r["stats"]:
             if st["answered"] == 0 and st["asked"] == 0:
                 continue
-            head = f"{st['question']:<28} {'ENABLED' if st['enabled'] else 'shadow '}  answered {st['answered']}/{st['asked']}"
+            mode = st.get("mode") or ("enabled" if st["enabled"] else "shadow")     # live: acts by the plan (Q4)
+            head = f"{st['question']:<28} {mode if mode == 'shadow' else mode.upper():<7}  answered {st['answered']}/{st['asked']}"
             flag = f"{st['flag_rate']:.0%}" if st["flag_rate"] is not None else "-"
             head += f", flagged {flag}"
             if st["acted"]:

@@ -46,7 +46,7 @@ def test_batch_receipts_prevent_replay_and_notification_stays_shadow(tmp_path: P
     event = trail.record(Observation("notification", {"bundle_id": "com.whatsapp.WhatsApp", "conversation": "self", "body": "hi"}))
     calls = []
     class Jev:
-        async def shadow(self, state, asks):
+        async def answers(self, state, asks):
             calls.append((state, asks)); return {asks[0].key: "yes"}
     batcher = EventBatcher(db, clock, ids, lambda: Jev(), NotificationPolicy(db, clock, ids, Redactor()), lambda *args: None)
     asyncio.run(batcher.flush("interrupt"))

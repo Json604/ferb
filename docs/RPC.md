@@ -37,8 +37,9 @@ browser bridge pages large observations; client RPC and extension protocol versi
 | `ping` | `{}` | PID, role, timestamp, explicit stop state |
 | `chat.attach` | `{new?: bool, resume?: conversation_id}` | `{ok, session_id, capabilities:["input_paths"]}`; resume/new conversation; marks running tasks attached |
 | `chat.send` | `{session_id, text, input_paths?: [path,...]}` | Stream of `chat.send.event` notifications (`ack` first), then `{ended:true}` |
-| `chat.status` | `{peek?: bool}` | `results` (each with `request_id` and `at`, when the result arrived), `running`, `approvals`, `notices`; fetching unseen results marks them shown unless `peek:true` |
+| `chat.status` | `{peek?: bool}` | `results` (each with `request_id` and `at`, when the result arrived), `running`, `approvals`, `notices`; fetching unseen results marks them shown unless `peek:true`; `notices` are the perception notices no client has acknowledged yet, each `{id, text, quotes, at}` |
 | `results.ack` | `{task_ids:[task_id,...]}` | Marks only those results shown, for a client that reads `chat.status` with `peek:true` and acknowledges each result it placed in its chat (the notch UI); `{ok:true}`. Unknown ids are ignored |
+| `attention.ack` | `{ids: [notice_id,...]}` (older CLIs: `{id}`) | `{ok:true}`; the client showed those notices, so they leave `chat.status.notices`; an unknown id refuses the whole call |
 | `chat.answer` | `{approval_id, text}` | Answers that exact pending question; empty text declines |
 | `setup.persona` | `{refresh?: bool, status?: bool}` | CLI-owner role only; local discovery state (`scanning`, `pending`, `reviewed`, `failed`) and pending profile approval |
 | `chat.approve` | `{approval_id, granted, choice?: integer}` | Explicit yes/no or 1-based option on that exact question |
@@ -110,6 +111,18 @@ chat task continues in the daemon. Reconnect with `chat.attach` and `chat.status
 cursor; use trace/timeline for persisted facts. `chat.status` without `peek` is a delivery read (`ferb chat` uses it
 when it opens). A client that polls should read with `peek:true` and call `results.ack` for each result it actually
 showed, so `ferb chat` replays only what no client showed.
+
+### Perception notices (L9)
+
+A notice is FERB's message about something it observed on the Mac. It belongs to the owner's daily chat: it is
+journaled `chat.notice {id, text, quotes}`, published on the bus as `attention.notice {id, text, quotes, at}` (no
+`request_id`; it answers no turn), and listed in `chat.status.notices` until a client sends `attention.ack`. Render it
+as a FERB message with a small "noticed" tag. `text` is FERB's words, inferred from outside observations (origin
+`external:observation,inferred`); each quote `{text, origin}` is outside text it repeats and must be shown as a
+quote with its origin, never as FERB's own words or as instructions (MP2). Posting a notice is telling it: FERB
+does not repeat it whether or not a client acknowledged it. While any authenticated FERB client has a `chat.send`
+stream or a `logs.subscribe` subscription open, FERB sends no macOS banner for notices or task results; the client
+shows them. With no client connected the banner is sent, and the notice still waits in `chat.status`.
 
 ## Questions and secrets
 

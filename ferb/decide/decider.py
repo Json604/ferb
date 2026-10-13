@@ -7,8 +7,9 @@ Jev behind FERB's own decisions.
   the key from the Keychain; questions about the same state go in one request; 429 / 529 retry with backoff.
 - `ShadowDecider` asks both. A question in shadow mode never waits: a sample of its calls goes to a background queue
   and Jev's answer is only logged next to the baseline. A question the owner enabled waits at most `enabled_timeout_s`,
-  and only a stricter answer (questions.py) comes back to the caller. Jev down, slow, wrong-shaped, or without a key:
-  the baseline stands, the reason is logged, and nothing fails.
+  and only a stricter answer (questions.py) comes back to the caller. A live question (Q4: `trail.attention`) is
+  recorded as 'live', and its caller marks what the answer did (`mark_effect`). Jev down, slow, wrong-shaped, or
+  without a key: the baseline stands, the reason is logged, and nothing fails.
 
 What reaches Jev is built by callers from data that already passed exclusions and redaction, and is redacted once
 more here. Nothing sent is stored; decisions keep a reference to what was decided."""
@@ -89,6 +90,12 @@ class JevClient:
         raise JevUnavailable("rate limited")
 
 
+def _mode(a: Ask, on: set[str]) -> str:
+    """How a decision is recorded: 'live' for a question the plan of record made live (Q4), 'enabled' for one the
+    owner switched on, else 'shadow'."""
+    return "live" if a.question.live else "enabled" if base_id(a.key) in on else "shadow"
+
+
 @dataclass
 class _Job:
     state: Any
@@ -137,8 +144,10 @@ class ShadowDecider:
         answers = await self._call(state, asks, self.enabled_timeout_s, set())
         return answers
 
-    async def shadow(self, state: Any, asks: list[Ask]) -> dict[str, str]:
-        """A durable caller awaits its recorded shadow decisions without enabling any downstream action."""
+    async def answers(self, state: Any, asks: list[Ask]) -> dict[str, str]:
+        """A durable caller (perception batches) awaits its recorded decisions. Each is recorded in its question's
+        mode: a shadow question's answer enables nothing downstream; a live question's caller acts on it and marks the
+        effect (`mark_effect`)."""
         return await self._call(state, asks, 30.0, set())
 
     def mark_effect(self, key: str, ref: str | None, effect: str) -> None:
@@ -160,13 +169,13 @@ class ShadowDecider:
         except (JevUnavailable, asyncio.TimeoutError) as e:
             why = "timeout" if isinstance(e, asyncio.TimeoutError) else str(e)
             for a in asks:
-                self._record(a, None, None, None, why, "enabled" if base_id(a.key) in on else "shadow")
+                self._record(a, None, None, None, why, _mode(a, on))
             return {}
         ms = int((time.monotonic() - started) * 1000)
         out = {}
         for n, a in names.items():
             ans = data["answers"].get(n)
-            mode = "enabled" if base_id(a.key) in on else "shadow"
+            mode = _mode(a, on)
             try:
                 if not isinstance(ans, dict):
                     raise ValueError("no answer")
@@ -244,7 +253,9 @@ class ShadowDecider:
             out.append({"question": q.id, "asked": int(r["asked"] or 0), "answered": answered,
                         "flag_rate": (int(r["differ"] or 0) / answered) if answered else None,
                         "acted": int(r["acted"] or 0), "avg_ms": round(r["ms"]) if r["ms"] else None,
-                        "enabled": q.id in self.enabled() and not q.shadow_only, "effect": q.effect})
+                        "enabled": q.id in self.enabled() and not q.shadow_only, "effect": q.effect,
+                        "mode": "live" if q.live else "enabled" if q.id in self.enabled() and not q.shadow_only
+                        else "shadow"})
         return out
 
     def flagged_refs(self, question: str, n: int = 5) -> list[str]:

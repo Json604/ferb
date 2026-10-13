@@ -14,10 +14,11 @@ permanent daily summary. `purge` refuses any day that is not summarized."""
 
 import json
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterator, Literal
 
 from ferb.core.interfaces import Clock, IdSource
 from ferb.core.types import TrailEvent
@@ -42,14 +43,27 @@ class Observation:
 
 
 class Attribution:
-    """Who caused an observation. FERB's own actions report here as they happen (Mac driver app switches, file tools,
-    shell processes); tab ownership and the identity profile come in the observation's hints."""
+    """Who caused an observation. FERB's own actions report here as they happen (Mac driver app switches and actions in
+    an app, file tools, shell processes); tab ownership and the identity profile come in the observation's hints."""
 
     def __init__(self, now: Callable[[], float] = time.monotonic) -> None:
         self.now = now
         self._apps: dict[str, tuple[str | None, float]] = {}       # bundle id -> (task, until)
         self._paths: dict[str, tuple[str | None, float]] = {}      # path -> (task, until)
+        self._acting: dict[str, list[str | None]] = {}             # bundle id -> tasks with an action running there
         self.shell_cwds: Callable[[], list[tuple[str, str]]] = lambda: []   # (cwd, task) of FERB's running commands
+
+    @contextmanager
+    def acting(self, bundle_id: str, task_id: str | None) -> Iterator[None]:
+        """P4: while a FERB action runs in this app, events in it are FERB's. It ends with the action (no timer)."""
+        self._acting.setdefault(bundle_id, []).append(task_id)
+        try:
+            yield
+        finally:
+            tasks = self._acting[bundle_id]
+            tasks.remove(task_id)
+            if not tasks:
+                del self._acting[bundle_id]
 
     def ferb_activated(self, bundle_id: str, task_id: str | None) -> None:
         self._apps[bundle_id] = (task_id, self.now() + FERB_ACTIVATION_S)
@@ -63,13 +77,18 @@ class Attribution:
 
     def decide(self, o: Observation) -> tuple[Actor, str | None]:
         h, now = o.hints, self.now()
-        if h.get("actor") in ACTORS:                     # the watcher knows (idle: always the owner)
+        if h.get("actor") in ("owner", "ferb"):          # the watcher knows (idle, the owner-input tap)
             return h["actor"], h.get("task_id")
         if h.get("ferb_identity"):                       # FERB's own browser profile: all of it is FERB's
             return "ferb", h.get("task_id")
         if h.get("tab_task"):                            # a tab FERB opened for a task
             return "ferb", h["tab_task"]
         bundle = o.data.get("bundle_id")
+        # A FERB action is running in that app. A notification is an arrival from outside, never caused by it.
+        if bundle and o.source != "notification" and (acting := self._acting.get(str(bundle))):
+            return "ferb", acting[-1]
+        if h.get("actor") == "unknown":                  # the watcher can't tell (Accessibility, notifications)
+            return "unknown", h.get("task_id")
         if bundle and (hit := self._apps.get(bundle)) and hit[1] >= now:
             return "ferb", hit[0]
         path = o.data.get("path")

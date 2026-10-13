@@ -36,12 +36,27 @@ class Perception:
         excluded = lambda bundle, name: d._exclusions().app(bundle, name)
         return [WorkspaceWatcher(d.redact, excluded), AccessibilityWatcher(d.redact, excluded),
                 ClipboardWatcher(d.redact, excluded), TextInputWatcher(d.owner_input, d.redact, excluded),
-                NotificationWatcher(NotificationDatabase(DATABASE, d.redact, excluded), self.seen, self.notification),
+                NotificationWatcher(NotificationDatabase(DATABASE, d.redact, excluded), self.seen, self.notification,
+                                    floor=self.notification_floor),
                 SoftwareWatcher(self.installed, d.redact)]
 
     def seen(self, external_id: str) -> bool:
         return self.daemon.db.conn.execute("SELECT 1 FROM perception_seen WHERE source='notification' AND external_id=?",
                                            (external_id,)).fetchone() is not None
+
+    def notification_floor(self, observations: list[Observation]) -> list[Observation]:
+        """I1: the first Notification Center read after perception's install marks every record already there as seen
+        (never recorded, so never sent to Jev); every later read passes through."""
+        db = self.daemon.db
+        row = db.conn.execute("SELECT seq FROM perception_floor WHERE source='notification'").fetchone()
+        if row is None or row["seq"] is not None:
+            return observations
+        for observation in observations:
+            db.conn.execute("INSERT OR IGNORE INTO perception_seen VALUES('notification',?,NULL)",
+                            (str(observation.data["external_id"]),))
+        db.conn.execute("UPDATE perception_floor SET seq=?,at=? WHERE source='notification'",
+                        (len(observations), self.daemon.clock.now().isoformat()))
+        return []
 
     def notification(self, observation: Observation) -> None:
         d = self.daemon
@@ -75,7 +90,9 @@ class Perception:
             cap.on_write = mark_clipboard_write
 
     def purge_text(self) -> int:
-        """D14/P8: typed/clipboard text expires at seven days even without a daily summary. Keep source IDs."""
+        """D14/P8: typed/clipboard text expires at seven days even without a daily summary. Keep source IDs. Notice
+        text derived from those rows expires with them, wherever it was copied (I3)."""
+        from ferb.orchestrator.attention import expire_derived
         d = self.daemon
         cutoff = (d.clock.now() - timedelta(days=7)).isoformat()
         rows = d.db.conn.execute("SELECT id,data_json FROM trail WHERE source IN ('typed_text','clipboard') AND at < ? AND json_extract(data_json,'$.content_expired') IS NULL", (cutoff,)).fetchall()
@@ -85,6 +102,9 @@ class Perception:
             kept["content_expired"] = True
             d.db.conn.execute("UPDATE trail SET data_json=? WHERE id=?", (json.dumps(kept), row["id"]))
             d.daily_activity.redact_source(row["id"], kept)
+        if rows:
+            expire_derived(d.db, {"trail:" + row["id"] for row in rows},
+                           "This notice came from typed or copied text, which expires after 7 days.", d.clock.now().isoformat())
         return len(rows)
 
     def status(self) -> dict[str, Any]:

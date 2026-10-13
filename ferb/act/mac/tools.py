@@ -4,8 +4,9 @@ Native Mac capabilities. Agents choose actions; kinds/contact/effect values desc
 Drivers retain actual window/element/coordinate validity, background mechanics and privacy handling."""
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
-from typing import Any, Collection, Literal
+from typing import Any, Collection, ContextManager, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -50,7 +51,8 @@ class _Base:
         try:
             if error := self.precheck(args):
                 raise Refused(error)
-            return await self._run(args, ctx)
+            with self._in_app(args, ctx):
+                return await self._run(args, ctx)
         except (Refused, StaleRef) as e:
             return _err(str(e))
         except Yielded:
@@ -69,6 +71,15 @@ class _Base:
     def _bundle(self, args: BaseModel) -> str:
         a = self.driver.apps.find(str(getattr(args, "app")))
         return a.bundle_id if a else str(getattr(args, "app"))
+
+    def _in_app(self, args: BaseModel, ctx: ToolContext) -> ContextManager[None]:
+        """P4: a call that can change an app (input, a press, bringing it forward) tells the trail while it runs, so
+        events in that app meanwhile are FERB's. Reads tell nothing; a driver without attribution tracks nothing."""
+        acting = getattr(self.driver, "acting", None)
+        changes = not getattr(self, "observation", False) and (self.on_screen or not self.reversible)
+        if acting is None or not changes or not hasattr(args, "app"):
+            return contextlib.nullcontext()
+        return acting(self._bundle(args), ctx.task_id)  # type: ignore[no-any-return]
 
     def _shown(self, args: BaseModel) -> str:
         """The app's name as the owner knows it (for FERB's questions), else what the agent called it."""

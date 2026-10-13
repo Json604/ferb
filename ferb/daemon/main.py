@@ -825,6 +825,7 @@ class Daemon:
                            lambda: self.sense is not None and self.sense.paused, a)
         if self.mac is not None:
             self.mac.on_activate = a.ferb_activated
+            self.mac.acting = a.acting
         if self.gateway is not None:
             self.gateway.on_path = a.ferb_touched
         if self.hub is not None:
@@ -1472,7 +1473,8 @@ class Daemon:
     # ---------- chat continuity ----------
 
     async def _task_result(self, ev: dict[str, Any], shown: bool) -> None:
-        """What FERB told (or will tell) the owner about a task; a macOS notification if chat was closed."""
+        """What FERB told (or will tell) the owner about a task; a macOS notification only when chat was closed and no
+        FERB client is connected to show the result (L9)."""
         assert self.db is not None
         ev = self.redact(ev)
         answer = str(ev.get("answer") or ev.get("summary") or "")
@@ -1481,7 +1483,7 @@ class Daemon:
         self.db.conn.execute("INSERT OR REPLACE INTO task_results (task_id, at, status, goal, answer, shown) VALUES "
                              "(?, ?, ?, ?, ?, ?)", (ev["task_id"], at, ev.get("status", ""),
                                                     str(ev.get("goal", "")), answer, int(shown)))
-        if not shown and ev.get("status") != "cancelled":
+        if not shown and ev.get("status") != "cancelled" and not self._client_connected():
             await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", str(ev.get("display_text") or answer))
         if "request_id" not in ev:                  # a resumed plan or scheduled run: the request its task ran for
             row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (ev["task_id"],)).fetchone()
@@ -1559,7 +1561,7 @@ class Daemon:
         return {"results": results, "running": running, "approvals": self.redact(pending),
                 "persona": {'state': persona['state'], **({'error': persona['error']} if persona.get('error') else {})},
                 "memory_digest": self.learning.digest() if self.learning and not params.get("peek") else None,
-                "notices": self.attention_notices.list() if self.attention_notices else [],
+                "notices": self.attention_notices.unseen() if self.attention_notices else [],
                 "delegated_conversations": self.supervisor.conversations.list() if self.supervisor else []}
 
     async def _results_ack(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
@@ -1616,21 +1618,48 @@ class Daemon:
         return self.perception.policy.measurements()
 
     async def _attention_ack(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`attention.ack {ids}`: a client showed these notices (they leave `chat.status`). They were told when posted.
+        `{id}` is the single-notice form older CLIs send."""
         if self.attention_notices is None:
             raise ValueError('Owner notices are unavailable')
-        notice = self.attention_notices.acknowledge(str(params['id']))
-        if notice['delivered_at'] is None and self.perception is not None and self.db is not None:
+        ids = params['ids'] if 'ids' in params else [params['id']]
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+            raise ValueError('ids must be a nonempty list of notice ids')
+        self.attention_notices.acknowledge(ids)
+        return {'ok': True}
+
+    def _client_connected(self) -> bool:
+        """A FERB client (the notch UI, `ferb chat`) is connected: an authenticated chat stream or bus subscription is
+        open. Then it shows notices and results itself, and macOS banners stay off (L9)."""
+        return any(self.server.open_streams.get(method, 0) for method in ('chat.send', 'logs.subscribe'))
+
+    async def _post_notice(self, notice: dict[str, Any]) -> None:
+        """L9: a notice is a FERB message in the owner's chat: journaled `chat.notice`, published `attention.notice`, and
+        listed in `chat.status` until a client acknowledges it. Posting it is telling: a notification it cites gets its
+        told receipt now. A macOS banner (its text, never its outside quotes) only when no FERB client is connected."""
+        assert self.attention_notices is not None and self.db is not None
+        view = self.attention_notices.view(notice)
+        self._journal().append('chat.notice', {k: view[k] for k in ('id', 'text', 'quotes')}, origin=notice['origin'])
+        if self.perception is not None:
             for ref in json.loads(notice['source_refs_json']):
                 row = self.db.conn.execute('SELECT source,data_json FROM trail WHERE id=?', (ref.removeprefix('trail:'),)).fetchone()
                 if row and row['source'] == 'notification':
                     data = json.loads(row['data_json'])
                     self.perception.policy.told(data.get('bundle_id', ''), data.get('conversation', ''),
-                                               ref.removeprefix('trail:'), notice['text'])
-        return {'ok': True}
+                                               ref.removeprefix('trail:'), view['text'])
+        self._publish('attention.notice', view)
+        if not self._client_connected():
+            await self._notify('FERB noticed', view['text'])
+
+    def _attention_effect(self, decision: str, effect: str) -> None:
+        """Q4/C3: what Jev's live trail.attention yes led to, on its decision row (`ferb decide stats`)."""
+        if self.jev is not None:
+            self.jev.mark_effect('trail.attention', decision, effect)
 
     async def _consider_attention(self, event: dict[str, Any]) -> None:
         if self.supervisor is None or self.db is None or self.attention_notices is None:
             return
+        decision = 'batch:' + str(event.get('batch_id'))
         try:
             rows, refs = [], []
             for ref in event.get('source_refs', []):
@@ -1644,14 +1673,17 @@ class Daemon:
                 refs.append(ref)
             if not rows:
                 return
-            result = await self.supervisor.attention(refs, rows, self.attention_notices.list(pending=False))
+            result = await self.supervisor.attention(refs, rows, self.attention_notices.told())
             if result.get('tell') is not True or not str(result.get('text', '')).strip():
+                self._attention_effect(decision, 'considered; nothing told')
                 return
-            notice = self.attention_notices.add('batch:' + str(event['batch_id']), result['source_refs'], str(result['text']))
-            if notice['delivered_at'] is None:
-                self._publish('attention.notice', notice)
-                await self._notify('FERB noticed', notice['text'])
+            notice = self.attention_notices.add(decision, result['source_refs'], str(result['text']),
+                                                result.get('quotes'), refs)
+            if notice is not None:                    # posted once: a replayed batch never posts again
+                await self._post_notice(notice)
+                self._attention_effect(decision, 'told in chat: notice ' + notice['id'])
         except Exception as exc:
+            self._attention_effect(decision, 'consideration failed: ' + type(exc).__name__)
             self._journal().append('attention.failed', {'batch_id': event.get('batch_id'), 'error': type(exc).__name__})
 
     async def _chat_attach(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

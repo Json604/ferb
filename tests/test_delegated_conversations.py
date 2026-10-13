@@ -167,16 +167,20 @@ def test_conversation_tools_do_not_cross_task_trees(conversations):
     assert result.is_error
 
 
-def test_notice_told_only_after_display_ack_and_deduplicated(conversations):
+def test_notice_is_told_when_posted_deduplicated_and_shown_after_display_ack(conversations):
+    """L9: posting a notice to chat is telling it (no ack needed); the ack only records that a client showed it."""
     from ferb.orchestrator.attention import AttentionNotices
     notices = AttentionNotices(conversations.db, conversations.clock, lambda value: value)
-    notices.add('batch:1', ['trail:event'], 'Installed application requests additional permissions.')
-    notices.add('batch:1', ['trail:event'], 'Repeated summary')
+    assert notices.add('batch:1', ['trail:event'], 'Installed application requests additional permissions.')
+    assert notices.add('batch:1', ['trail:event'], 'Repeated summary') is None        # posted once
     assert len(notices.list()) == 1
+    assert [n['text'] for n in notices.told()] == ['Installed application requests additional permissions.']
     assert not notices.list(pending=False)
-    notices.acknowledge('batch:1')
-    assert not notices.list()
-    assert len(notices.list(pending=False)) == 1
+    with pytest.raises(ValueError):
+        notices.acknowledge(['batch:1', 'batch:unknown'])                              # all or nothing
+    notices.acknowledge(['batch:1'])
+    assert not notices.list() and not notices.unseen()
+    assert len(notices.list(pending=False)) == 1 and len(notices.told()) == 1
 
 
 def test_rpc_controls_are_owner_only():

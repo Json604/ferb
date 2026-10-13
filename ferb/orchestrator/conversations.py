@@ -255,11 +255,8 @@ class ConversationStore:
                 affected.update(row[0] for row in self.db.conn.execute(
                     'SELECT conversation_id FROM conversation_events WHERE source_id=?', (ref,)))
                 events += self.db.conn.execute('DELETE FROM conversation_events WHERE source_id=?', (ref,)).rowcount
-            for row in self.db.conn.execute('SELECT id,source_refs_json FROM attention_notices').fetchall():
-                if refs.intersection(json.loads(row['source_refs_json'])):
-                    self.db.conn.execute('UPDATE attention_notices SET text=?,delivered_at=COALESCE(delivered_at,?) WHERE id=?',
-                        ('Source evidence was forgotten.', self.clock.now().isoformat(), row['id']))
-                    notices += 1
+            from ferb.orchestrator.attention import expire_derived    # the notice and every copy of its text
+            notices = expire_derived(self.db, refs, 'Source evidence was forgotten.', self.clock.now().isoformat())
             for ident in affected:
                 self.db.conn.execute("UPDATE conversation_turns SET output_json=NULL,status='evidence_forgotten' WHERE conversation_id=?", (ident,))
                 self.db.conn.execute("UPDATE delegated_conversations SET handover_json=NULL,status='paused',updated_at=? WHERE id=?",

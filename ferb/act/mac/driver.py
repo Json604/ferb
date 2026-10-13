@@ -3,10 +3,11 @@ Agents choose methods and retries; this driver never substitutes targets, replay
 """
 
 import asyncio
+import contextlib
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Collection, Literal
+from typing import Any, Awaitable, Callable, Collection, ContextManager, Literal
 
 from ferb.act.mac import accessibility as axm
 from ferb.act.mac import apps as appsm
@@ -68,6 +69,8 @@ class MacComputerDriver:
         self.shots, self.web_password = shots, web_password     # web_password: the extension's check
         self.profiles = profiles if profiles is not None else Profiles(None)   # what landed per app, learned
         self.on_activate: Callable[[str, str | None], None] = lambda bundle, task: None   # the trail's attribution
+        # The trail's attribution (P4): while a call that changes an app runs, events in that app are FERB's.
+        self.acting: Callable[[str, str | None], ContextManager[None]] = lambda bundle, task: contextlib.nullcontext()
         self._state: dict[str, _AppState] = {}
         self.snapshot_images: Callable[[], bool] = lambda: True   # `[mac] snapshot_image` (owner request, 2026-10-01)
         self._exposed: set[int] = set()                 # app processes asked for their full tree (Electron)
