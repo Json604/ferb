@@ -15,6 +15,7 @@ from ferb.orchestrator.plans import Plan, Step
 from ferb.runtimes.codex_exec import CodexRuntime
 from ferb.store.db import Database
 from tests.conftest import chat, done, install, outcome, sup, task
+from tests.support.runtime_fakes import Process
 
 
 # ---------- L22: waits after sleep ----------
@@ -52,6 +53,31 @@ def test_time_wait_fires_at_wall_time_when_the_monotonic_clock_paused(tmp_path, 
     result = asyncio.run(run())
     assert result['status'] == 'done'
     assert store.steps('tree')['board']['output']['status'] == 'done'
+    db.close()
+
+
+def test_time_wait_ends_cancelled_when_stopped(tmp_path):
+    db = Database(tmp_path / 'state.db')
+    db.migrate()
+    store = PlanStore(db, lambda value: value)
+    store.create('tree', Plan(steps=[Step(id='board', kind='wait', goal='Wait until tomorrow',
+                                          until='2999-01-01T09:00:00+00:00')]), {}, 'chat')
+    stopped = {'on': False}
+
+    async def worker(step, inputs, prior):
+        raise AssertionError('a wait step never runs a worker')
+
+    async def run():
+        engine = PlanExecutor(store, worker, lambda: stopped['on'])
+        job = asyncio.create_task(engine.run('tree'))
+        while store.steps('tree')['board']['status'] != 'waiting':
+            await asyncio.sleep(0)
+        stopped['on'] = True
+        engine.wake()
+        return await asyncio.wait_for(job, 2)
+    result = asyncio.run(run())
+    assert result['status'] == 'cancelled'
+    assert store.steps('tree')['board']['output']['status'] == 'cancelled'
     db.close()
 
 
@@ -95,65 +121,32 @@ def test_slow_inventory_walk_leaves_rpcs_answering(daemon, monkeypatch, tmp_path
 
 # ---------- L21: Codex account-check failures reach chat ----------
 
-class _Lines:
-    def __init__(self):
-        self.queue: asyncio.Queue = asyncio.Queue()
-
-    async def readline(self):
-        return await self.queue.get()
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        line = await self.queue.get()
-        if not line:
-            raise StopAsyncIteration
-        return line
-
-
-class AppServer:
-    """A Codex app-server stub behind FERB's real Codex adapter: it answers initialize, then the account check
-    fails as told. No thread or model turn is ever started."""
+class AppServer(Process):
+    """The shared app-server fake, but the account check fails as told. Behind FERB's real Codex adapter, so no
+    thread or model turn is ever started."""
 
     def __init__(self, check):
+        super().__init__()
         self.check = check
-        self.stdout, self.stderr = _Lines(), _Lines()
-        self.stdin, self.returncode, self.methods = self, None, []
-        self.exited = asyncio.Event()
+
+    @property
+    def methods(self):
+        return [m['method'] for m in self.requests]
 
     def write(self, data):
         message = json.loads(data)
-        self.methods.append(message['method'])
-        if message['method'] == 'initialize':
-            self._say({'id': message['id'], 'result': {}})
-        elif message['method'] == 'account/read':
-            if self.check == 'error':                  # the shape 5b10afb named: an RPC error response
-                self._say({'id': message['id'], 'error': {'code': -32000, 'message': 'provider-private detail'}})
-            elif self.check == 'exits':                # the app-server ends before answering
-                self.kill()
-            # 'silent': never answers; the adapter's own startup timeout ends the check
-
-    async def drain(self):
-        pass
-
-    def _say(self, obj):
-        self.stdout.queue.put_nowait(json.dumps(obj).encode() + b'\n')
-
-    def kill(self):
-        if self.returncode is None:
-            self.returncode = -9
-            self.stdout.queue.put_nowait(b'')
-            self.stderr.queue.put_nowait(b'')
-            self.exited.set()
-
-    async def wait(self):
-        await self.exited.wait()
-        return self.returncode
+        if message['method'] != 'account/read':
+            return super().write(data)
+        self.requests.append(message)
+        if self.check == 'error':                      # the shape 5b10afb named: an RPC error response
+            self.stdout.put({'id': message['id'], 'error': {'code': -32000, 'message': 'provider-private detail'}})
+        elif self.check == 'exits':                    # the app-server ends before answering
+            self.kill()
+        # 'silent': never answers
 
 
-@pytest.mark.parametrize('check', ['error', 'exits', 'silent'])
-def test_account_check_failure_gets_a_named_reply_for_its_request(daemon, monkeypatch, tmp_path, check):
+def _codex_behind_stub(monkeypatch, tmp_path, check):
+    """FERB's real Codex adapter with FERB's own login file; only the app-server process is the stub."""
     import ferb.runtimes.codex_stream as stream
     (tmp_path / 'codex-home').mkdir()
     (tmp_path / 'codex-home' / 'auth.json').write_text('{"tokens":{"refresh_token":"test-only-fixture"}}')
@@ -167,9 +160,21 @@ def test_account_check_failure_gets_a_named_reply_for_its_request(daemon, monkey
         return await real_spawn(*cmd, **kwargs)
     monkeypatch.setattr(asyncio, 'create_subprocess_exec', spawn)
 
-    async def adapter_start(self, task_, request, run_token):   # the real adapter; only the process is a stub
+    async def adapter_start(self, task_, request, run_token):
         return await stream.start(self, task_, request, run_token)
     monkeypatch.setattr(CodexRuntime, 'start', adapter_start)
+    return servers
+
+
+def _journal(daemon, kind):
+    async def rows():
+        return [e.data for e in daemon.daemon._journal().entries() if e.kind == kind]
+    return daemon.run(rows())
+
+
+@pytest.mark.parametrize('check', ['error', 'exits', 'silent'])
+def test_account_check_failure_gets_a_named_reply_for_its_request(daemon, monkeypatch, tmp_path, check):
+    servers = _codex_behind_stub(monkeypatch, tmp_path, check)
     daemon.daemon.supervisor.make_runtime = lambda role, *, mode, tool_names, schema: CodexRuntime(
         Path('/fake/codex'), 'supervisor', tmp_path / 'work', tmp_path, output_schema=schema, model='test-model',
         timeout_s=0.5 if check == 'silent' else None)
@@ -186,8 +191,94 @@ def test_account_check_failure_gets_a_named_reply_for_its_request(daemon, monkey
     assert 'Codex could not check the account' in replies[0]['text'], replies[0]['text']
     assert 'provider-private detail' not in json.dumps(events)
     assert servers and not {'thread/start', 'turn/start'} & set(servers[0].methods)
-
-    async def failures():
-        return [e.data for e in daemon.daemon._journal().entries() if e.kind == 'chat.failed']
-    recorded = daemon.run(failures())
+    recorded = _journal(daemon, 'chat.failed')
     assert recorded[-1]['request_id'] == ack['request_id'] and recorded[-1]['why'] == 'ServiceError'
+    said = [r for r in _journal(daemon, 'chat.reply') if r.get('request_id') == ack['request_id']]
+    assert [r['text'] for r in said] == [replies[0]['text']]          # in the conversation record too
+
+
+def test_next_turn_sees_the_failed_turns_named_reply(daemon, monkeypatch):
+    """The owner can say "retry": the planner's next turn reads the failure FERB told them, not a silent gap."""
+    from ferb.runtimes.codex_stream import AccountError
+    from tests.conftest import FakeRuntime
+    script = install(daemon, [sup('reply', 'Trying again now.')])
+    fake_start, failed = FakeRuntime.start, []
+
+    async def first_fails(self, task_, request, token):
+        if not failed:
+            failed.append(task_.id)
+            raise AccountError('account_unavailable', -32000)
+        return await fake_start(self, task_, request, token)
+    monkeypatch.setattr(FakeRuntime, 'start', first_fails)
+    first = chat(daemon, 'set a timer for 8:20, the boarding starts at 8.25')
+    assert 'Codex could not check the account' in first[0]['text']
+    chat(daemon, 'retry')
+    planner_context = [c for mode, key, c, _ in script.contexts if key == 'supervisor'][-1]
+    assert 'FERB: ' + first[0]['text'] in planner_context
+
+
+def test_scheduled_run_account_failure_is_named_and_recorded(daemon, monkeypatch):
+    """Nobody is at chat for a scheduled run: its answer names the failure (never "say that again"), the cause is
+    journaled under the run's request_id, and the published result keeps that request_id."""
+    from datetime import timedelta
+    from ferb.policy.targets import Targets
+    from ferb.runtimes.codex_stream import AccountError
+    from tests.conftest import FakeRuntime
+    from tests.support.schedules import fire, make_schedule, results
+    notes: list[str] = []
+
+    async def note(title, text):
+        notes.append(text)
+    daemon.daemon.notify = note
+    published: list[dict] = []
+    publish = daemon.daemon._publish
+
+    def record(topic, data):
+        if topic == 'task.result':
+            published.append(data)
+        return publish(topic, data)
+    daemon.daemon._publish = record
+    install(daemon, [])
+
+    async def unavailable(self, task_, request, token):
+        raise AccountError('account_unavailable', -32000)
+    monkeypatch.setattr(FakeRuntime, 'start', unavailable)
+    make_schedule(daemon, 'post the launch thread', 'every day at 9 post the launch thread', Targets.of(),
+                  daemon.daemon.clock.now() + timedelta(minutes=1))
+    fire(daemon, 61)
+    run_id = _journal(daemon, 'schedule.run')[-1]['request_id']
+    answer = results(daemon)[-1]['answer']
+    assert 'Codex could not check the account' in answer and 'say that again' not in answer
+    assert notes and 'Codex could not check the account' in notes[-1]
+    failed = [r for r in _journal(daemon, 'chat.failed') if r.get('request_id') == run_id]
+    assert failed and failed[-1]['why'] == 'ServiceError'
+    assert 'Codex could not check the account' in failed[-1]['detail']
+    assert published and published[-1]['request_id'] == run_id
+
+
+def test_worker_whose_app_server_never_answers_the_account_check_ends_as_stalled(daemon, monkeypatch, tmp_path):
+    """A worker's Codex runtime has no startup timeout; the stall watchdog (stall_s) covers its startup too, so a
+    silent account check ends the attempt as a named stall instead of hanging until Stop."""
+    import time
+    servers = _codex_behind_stub(monkeypatch, tmp_path, 'silent')
+    s = daemon.daemon.supervisor
+    s.activity.now = time.monotonic                     # real seconds for liveness in this test
+    s.stall_s, s.heartbeat_poll_s = 0.3, 0.05            # test speed only: production uses STALL_S
+    install(daemon, [sup('task', 'Checking the report.', task('check the report'))])
+    scripted = s.make_runtime
+
+    def runtimes(role, *, mode, tool_names, schema):
+        if role.startswith('worker:'):
+            return CodexRuntime(Path('/fake/codex'), 'worker', tmp_path / 'work', tmp_path, shim_cmd=['/fake/shim'],
+                                tool_names=tool_names, output_schema=schema, model='test-model', timeout_s=None)
+        return scripted(role, mode=mode, tool_names=tool_names, schema=schema)
+    s.make_runtime = runtimes
+    turn: dict = {}
+    chatting = threading.Thread(target=lambda: turn.update(events=chat(daemon, 'check the report')), daemon=True)
+    chatting.start()
+    chatting.join(20)                                   # chat streams have no socket timeout: bound the wait here
+    assert 'events' in turn, 'the worker was still starting: its silent account check hung the attempt'
+    out = outcome(turn['events'])
+    assert out['status'] == 'failed' and 'stalled' in out['subtasks']['worker']['summary'], out
+    assert servers and all(proc.returncode is not None for proc in servers)
+    assert not any({'thread/start', 'turn/start'} & set(proc.methods) for proc in servers)

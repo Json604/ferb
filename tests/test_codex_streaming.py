@@ -7,85 +7,9 @@ import pytest
 
 from ferb.core.types import Identity, ModelRequest, Task
 from ferb.runtimes.codex_exec import CodexRuntime
+from tests.support.runtime_fakes import Process
 
 CODEX_START = CodexRuntime.start
-
-
-class Pipe:
-    def __init__(self):
-        self.queue = asyncio.Queue()
-
-    def put(self, obj):
-        self.queue.put_nowait(json.dumps(obj).encode() + b'\n')
-
-    async def readline(self):
-        return await self.queue.get()
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        value = await self.readline()
-        if not value:
-            raise StopAsyncIteration
-        return value
-
-
-class Process:
-    def __init__(self, account='chatgpt', tools=None, phase='final_answer', fail=False, catalog=True):
-        self.stdout, self.stderr = Pipe(), Pipe()
-        self.stdin = self
-        self.returncode = None
-        self.requests = []
-        self.account, self.phase, self.fail = account, phase, fail
-        self.tools = tools if tools is not None else [{'type': 'function', 'name': 'apply_patch'}]
-        self.finished = asyncio.Event()
-        self.catalog = catalog
-
-    def write(self, data):
-        msg = json.loads(data)
-        self.requests.append(msg)
-        method, ident = msg['method'], msg.get('id')
-        if method == 'initialize':
-            self.stdout.put({'id': ident, 'result': {}})
-        elif method == 'account/read':
-            self.stdout.put({'id': ident, 'result': {'account': {'type': self.account}}})
-        elif method == 'thread/start':
-            self.stdout.put({'id': ident, 'result': {'thread': {'id': 'th', 'ephemeral': True},
-                'model': 'test-model', 'modelProvider': 'openai', 'approvalPolicy': 'never',
-                'sandbox': {'type': 'readOnly', 'networkAccess': False}, 'instructionSources': []}})
-        elif method == 'turn/start':
-            if self.catalog:
-                self.stderr.queue.put_nowait(('TRACE {"tools":' + json.dumps(self.tools, separators=(',', ':')) + '}\n').encode())
-            self.stdout.put({'id': ident, 'result': {'turn': {'id': 'tu', 'status': 'inProgress'}}})
-            self.notify('item/started', {'item': {'type': 'agentMessage', 'id': 'a', 'phase': self.phase, 'text': ''}})
-            self.notify('item/agentMessage/delta', {'itemId': 'a', 'delta': '{"text":"Hello '})
-            self.notify('item/agentMessage/delta', {'itemId': 'a', 'delta': 'there"}'})
-
-    def complete(self):
-        self.notify('item/completed', {'item': {'type': 'agentMessage', 'id': 'a', 'phase': self.phase,
-                                               'text': '{"text":"Hello there"}'}})
-        self.notify('thread/tokenUsage/updated', {'tokenUsage': {'last': {'inputTokens': 8,
-                    'cachedInputTokens': 2, 'outputTokens': 4, 'reasoningOutputTokens': 1}}})
-        self.stdout.put({'method': 'turn/completed', 'params': {'threadId': 'th', 'turn': {
-            'id': 'tu', 'status': 'failed' if self.fail else 'completed', 'error': {'message': 'interrupted'} if self.fail else None}}})
-
-    def notify(self, method, params):
-        self.stdout.put({'method': method, 'params': {'threadId': 'th', 'turnId': 'tu', **params}})
-
-    async def drain(self):
-        pass
-
-    def kill(self):
-        if self.returncode is None:
-            self.returncode = -9
-            self.stdout.queue.put_nowait(b'')
-            self.stderr.queue.put_nowait(b'')
-            self.finished.set()
-
-    async def wait(self):
-        await self.finished.wait()
-        return self.returncode
 
 
 def runtime(tmp_path):

@@ -93,6 +93,7 @@ def _env_text(env: dict[str, Any]) -> str:
 
 
 SORRY = "Sorry — something went wrong on my side before I could start. Could you say that again?"
+SCHEDULED_SORRY = "Something went wrong on my side before this scheduled run could start."   # nobody to ask again
 REMINDER_NOT_SET = ("I couldn't set that reminder — a problem on my side, not with how you asked, so nothing is "
                     "scheduled for it. Could you ask again?")
 HISTORY_TOKENS = 12000      # the conversation's newest entries that fit; older ones stay in chat.history
@@ -350,11 +351,15 @@ class Supervisor(WorkerRuns):
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         try:
             out = await self._decide(session, sched.request + note, request_id)
-        except (RuntimeViolation, ValidationError, ValueError):
-            return {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
+        except (RuntimeViolation, ValidationError, ValueError) as e:      # the cause is kept and told (L21)
+            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__, "detail": str(e)})
+            answer = service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SCHEDULED_SORRY
+            return {"task_id": request_id, "request_id": request_id, "status": "failed", "answer": answer,
+                    "goal": sched.request}
         if out.kind != "task" or out.task is None:
             status = "done" if out.kind == "reply" else "needs_user"
-            return {"task_id": request_id, "status": status, "answer": out.text, "goal": sched.request}
+            return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
+                    "goal": sched.request}
         recorded = Targets.from_json(sched.targets)
         self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
         self.state.approvals.unattended.add(request_id)
@@ -446,6 +451,13 @@ class Supervisor(WorkerRuns):
             if held:
                 lock.release()
 
+    def _failure_reply(self, session_id: str, request_id: str, text: str) -> dict[str, Any]:
+        """A turn that failed before routing still answers its request, in the conversation record too, so the next
+        turn's history shows what FERB told the owner and "retry" has something to refer to (L21)."""
+        text = self.gateway.redact(text)
+        self.journal.append("chat.reply", {"session_id": session_id, "request_id": request_id, "text": text})
+        return {"type": "reply", "text": text}
+
     def _pending_input_paths(self, session_id: str) -> list[str]:
         """Carry selected source metadata across a clarification, including after a daemon restart."""
         row = self.journal.db.conn.execute(
@@ -508,13 +520,14 @@ class Supervisor(WorkerRuns):
         except RuntimeViolation as e:
             self.journal.append("chat.failed", {"request_id": request_id, "why": str(e)})
             self._env.pop(request_id, None)
-            yield {"type": "reply", "text": SORRY}
+            yield self._failure_reply(session_id, request_id, SORRY)
             return
         except (ValidationError, ValueError) as e:              # the reason is kept, and told plainly when it's the
             self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,   # service's
                                                 "detail": str(e)})
             self._env.pop(request_id, None)
-            yield {"type": "reply", "text": service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SORRY}
+            yield self._failure_reply(session_id, request_id,
+                                      service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SORRY)
             return
         authority_id = request_id
         turn_origins = self._env.get(request_id, {}).get("turn_origins", set())   # what this turn's planner saw

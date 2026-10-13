@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from pydantic import ValidationError
 
@@ -212,17 +212,36 @@ class WorkerRuns:
         request = ModelRequest(system, tuple(parts), cacheable)
         self.spans.update_input(parent_span, {"context": request.context, "system_prompt": system,
                                              "context_budget_tokens": self.context_budget_tokens})
+        start = asyncio.ensure_future(rt.start(task, request, token))
+        started: list[RunHandle] = []
+
+        async def stop() -> None:
+            if started:
+                await rt.cancel(started[0])
+            else:
+                start.cancel()
+        # The stall watchdog covers startup too: a worker runtime has no startup timeout, so an app-server that never
+        # answers its account check would otherwise hold the attempt until Stop.
+        watchdog = asyncio.create_task(self._watch(stop, worker_id)) if worker_id else None
         try:
-            run = await rt.start(task, request, token)
-        except RuntimeUnavailable as exc:
-            raise ServiceError(str(exc), rt.name) from None
+            run = await start
+        except BaseException as exc:
+            if watchdog is not None:
+                watchdog.cancel()
+            if isinstance(exc, RuntimeUnavailable):
+                raise ServiceError(str(exc), rt.name) from None
+            current = asyncio.current_task()
+            if (isinstance(exc, asyncio.CancelledError) and worker_id in self._stalled
+                    and not (current is not None and current.cancelling())):
+                raise Stalled() from None              # the watchdog's cancellation, not Stop or shutdown
+            raise
+        started.append(run)
         self._active[run.id] = (rt, run)
         if worker_id:
             self._worker_runs[worker_id] = (rt, run)
         if tree is not None:
             tree.steering.delivered[run.id] = revision
         final = ""
-        watchdog = asyncio.create_task(self._watch(rt, run, worker_id, tree)) if worker_id else None
         try:
             if tree is not None and tree.stop:
                 raise ValueError("task stopped while the runtime was starting")
@@ -276,11 +295,11 @@ class WorkerRuns:
             raise ValueError("runtime finished without an answer")
         return check_final(final, output_schema)
 
-    async def _watch(self, rt: AgentRuntime, run: RunHandle, worker_id: str, tree: "_Tree" | None) -> None:
-        """Cancel a silent worker; owner waits suspend liveness timing."""
+    async def _watch(self, stop: Callable[[], Awaitable[None]], worker_id: str) -> None:
+        """Stop a silent worker (starting or running); owner waits suspend liveness timing."""
         while True:
             await asyncio.sleep(self.heartbeat_poll_s)
             if self.activity.stalled(worker_id, self.stall_s):
                 self._stalled.add(worker_id)
-                await rt.cancel(run)
+                await stop()
                 return
