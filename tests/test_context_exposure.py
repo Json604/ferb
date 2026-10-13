@@ -17,9 +17,10 @@ def test_only_retained_memory_is_carried_from_planner_to_task(daemon):
     async def recorded():
         rows = daemon.daemon.db.conn.execute("SELECT input_json,origin FROM spans WHERE kind='context.exposure' AND task_id=?",
                                             (result['task_id'],)).fetchall()
-        return [dict(r) for r in rows], daemon.daemon.gateway._outside_read(result['task_id'])
-    rows, outside = daemon.run(recorded())
-    assert outside
+        spans = daemon.daemon.spans
+        return [dict(r) for r in rows], spans.exposure_origins(result['task_id'])
+    rows, exposed = daemon.run(recorded())
+    assert 'external:web:kartikey.xyz' in exposed
     assert any('outside' in row['input_json'] for row in rows)
     assert not any('omitted' in row['input_json'] for row in rows)
 
@@ -34,7 +35,6 @@ def test_exposed_context_text_participates_in_private_url_and_argument_checks(da
         two = spans.start('context.exposure', task_id=grant.task_id, input={'source_refs': ['memory:two']})
         spans.finish(two, output={'text': 'new-recipient@example.com'}, origin='external:web:kartikey.xyz')
         gateway = daemon.daemon.gateway
-        assert gateway._outside_read(grant.task_id)
         private, outside = gateway._sink_texts(grant.task_id)
         assert len(private) == 1 and len(outside) == 1
         assert spans.exposure_origins(grant.task_id) == {'private', 'external:web:kartikey.xyz'}

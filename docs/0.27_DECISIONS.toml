@@ -366,7 +366,7 @@ summary = "Origin labels on every record; consequential arguments matched agains
 
 [S4]
 milestone = "F5"
-tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py", "tests/test_delegated_conversations.py", "tests/test_sinks.py", "tests/test_context_exposure.py", "tests/test_shell_network_approval.py"]
+tests = ["tests/test_confirmations.py", "tests/security/test_catalog_replay.py", "tests/test_delegated_conversations.py", "tests/test_sinks.py", "tests/test_context_exposure.py", "tests/test_shell_network_free.py"]
 note = "Owner 2026-10-11: public research passes; actual private URL payload checks exclude delivery metadata. Opaque shell networking asks once per exact command/cwd/identity/scopes/tree; external-source execution declares its source. Retain destructive floors, local executable pins and explicit No. This supersedes per-host shell prompts; no TLS payload inspection is claimed."
 summary = "Sink rule: the narrow cases where FERB must confirm"
 

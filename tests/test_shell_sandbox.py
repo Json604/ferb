@@ -189,7 +189,7 @@ def test_shell_rules_lists_the_boundaries_and_what_is_liftable(daemon: RunningDa
     assert "escape" not in r["content"]                                       # Task 6 adds it
     # Derived from proxy_port(): the proxy runs (F5a Task 3), so the line names it and what it records
     port = daemon.daemon.proxy.port                                           # type: ignore[union-attr]
-    assert r["content"]["network"].startswith("remote access requires network=true and exact-command owner approval;")
+    assert r["content"]["network"].startswith("any remote host, without asking, only through FERB's proxy")
     assert f"only through FERB's proxy on 127.0.0.1:{port}, which records" in r["content"]["network"]
     daemon.daemon.sandbox.proxy_port = lambda: None                          # type: ignore[union-attr]
     r = call(daemon, g, "shell.rules")

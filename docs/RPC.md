@@ -163,11 +163,11 @@ and reconnects. Clients reconcile all roots and must not let an older status res
 events. Interrupted unbound streams are not running tasks. Supported Markdown is rendered as native text, tables,
 lists, links and code; raw HTML is not executed and remote images are not automatically fetched.
 
-Worker `shell.run`/`shell.start` accept `network: true` to request one exact-command network approval. Missing/false
-does not authorize remote egress; failure never automatically retries an uncertain command. The approval binds
-command, canonical cwd, identity, scopes and task tree; the process receives a code-owned grant, not a model token.
-The grant covers later input and children of that live process. Declare `external_source` for externally sourced
-code/instructions; the gateway requires concrete approval even for local-only execution. Semantic origin is a
-model responsibility, not complete detection by code. Use `shell.start` or `background: true` for a continuing
-network process. Approval is not an inspection of encrypted
-payloads, and does not lift executable-pinned local-service rules or prior explicit host refusals.
+Worker `shell.run`/`shell.start` reach any remote host through FERB's egress proxy without asking (L2); there is no
+`network` argument and no network approval. The proxy records each host, port and byte count per process (the
+`shell.network` journal row). A process FERB doesn't track gets nothing, a local service needs its executable-pinned
+permission, and the owner's No to a host in the task stays final. Declare `external_source` for externally sourced
+code/instructions; it is recorded with the call and adds no approval. Semantic origin is a model responsibility, not
+complete detection by code. Use `shell.start` or `background: true` for a continuing network process; failure never
+automatically retries an uncertain command. FERB does not inspect encrypted payloads. `owner.ask` has no
+`allow_destination` argument.

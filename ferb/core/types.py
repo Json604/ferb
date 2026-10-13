@@ -194,20 +194,6 @@ class EscapeGrant:
 
 
 @dataclass(frozen=True)
-class ShellCommandGrant:
-    """Gateway-issued approval for one exact shell invocation context; never model-supplied."""
-    confirmation_id: str
-    command: str
-    cwd: str
-    task_id: str
-    tree_id: str
-    identity: Identity
-    scopes: frozenset[str]
-    network: bool
-    external_source: str | None = None
-
-
-@dataclass(frozen=True)
 class ToolContext:
     task_id: str
     worker_id: str
@@ -225,7 +211,6 @@ class ToolContext:
     # the error to return when the lists close it, else None. None when the daemon has no lists (rule 10).
     path_closed: Callable[[Path, str], str | None] | None = None
     escape: EscapeGrant | None = None
-    shell_command: ShellCommandGrant | None = None
 
 
 @dataclass(frozen=True)

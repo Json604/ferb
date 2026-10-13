@@ -418,12 +418,6 @@ def test_a_shell_command_runs_when_no_snapshot_can_be_taken(daemon: RunningDaemo
     assert off.status == "warn" and off.detail.startswith("snapshots are turned off") and "failed" not in off.detail
 
 
-def test_a_worker_cannot_ask_about_a_host_no_command_tried(daemon: RunningDaemon) -> None:   # declared for Task 5
-    grant, _ = gateway_setup(daemon, set(), gateway_request("x"), [])
-    a = gateway_tool_call(daemon, grant, "owner.ask", question="let me", allow_destination="evil.example")
-    assert a["is_error"] and "no command of this task tried" in a["content"]["error"] and _asked(daemon) == []
-
-
 def test_a_typed_address_from_the_owners_words_is_fine(daemon: RunningDaemon) -> None:
     assert destination_shape("a@x.com") == "email" and destination_shape("+91 98765 43210") == "phone"
     assert destination_shape("https://kartikey.xyz/p") == "url" and destination_shape("hello there") is None

@@ -22,9 +22,6 @@ class OwnerAsk:
             "Only after FERB refused to repeat an action whose earlier outcome is unknown: the retry_action value from "
             "that refusal. Put what you found in question; FERB adds the exact action and Yes/No options, and only the "
             "owner's Yes lets that action run once more (returns retry_approved)."))
-        allow_destination: str = Field(default="", description=(
-            "Only after FERB refused a connection a command of this task made to a place the owner hasn't named: that "
-            "host, from the refusal. Put why the command needs it in question; FERB asks the owner with Yes/No."))
 
     def describe(self, args: BaseModel) -> ActionSpec:
         return ActionSpec(Kind.READ)

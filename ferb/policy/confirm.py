@@ -357,12 +357,7 @@ def _part(n: Need) -> str:
         read = f" ({v['read']})" if v.get("read") else ""
         return (f"this would open {v['destination']}, a place you haven't named, with your own data in the address "
                 f"({v['value']}), after this task read outside content{read}; saying yes lets FERB reach "
-                f"{v['destination']} from the browser, now and in later tasks; shell networking needs separate command approval")
-    if n.rule == "sink:shell_destination":
-        read = f" ({v['read']})" if v.get("read") else ""
-        return (f"a command of this task tried to reach {v['destination']}, a place you haven't named, after this task "
-                f"read outside content{read}; saying yes lets FERB reach {v['destination']} from shell commands and the "
-                f"browser, now and in later tasks")
+                f"{v['destination']} from the browser, now and in later tasks")
     if n.rule == "sink:outside_value" and v["what"] == "typed":
         return f"this types {v['value']}, which came from outside content ({v['origin']}), not from you"
     if n.rule == "sink:outside_value":

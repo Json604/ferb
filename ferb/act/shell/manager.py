@@ -25,7 +25,7 @@ from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.pty_proc import PtyProc
 from ferb.act.shell.sandbox import Sandbox
 from ferb.sanitize.redact import RedactionStream, Redactor
-from ferb.core.types import EscapeGrant, ShellCommandGrant
+from ferb.core.types import EscapeGrant
 from ferb.policy.protection import ADMIN
 from ferb.core.errors import Refused
 
@@ -67,7 +67,6 @@ class ProcInfo:
     lifted: str | None = None                 # the one rule an approved escape lifted for this run (D31)
     read_path: str | None = None
     sandbox_ms: float | None = None
-    network_approved: bool = False
 
 
 class ShellManager:
@@ -85,7 +84,6 @@ class ShellManager:
         self.redactor, self.on_escape = redactor, on_escape
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}   # connection closes, so a setsid child's late bytes count)
         self._owner_input: dict[str, str] = {}
-        self._command_grants: dict[str, ShellCommandGrant] = {}
         if proxy is not None:
             proxy.on_report = self._report
 
@@ -96,13 +94,9 @@ class ShellManager:
         return env
 
     async def start(self, command: str, cwd: Path, owner_task: str, long_lived: bool = False,
-                    *, lift: str | None = None, escape: EscapeGrant | None = None,
-                    command_grant: ShellCommandGrant | None = None) -> ProcHandle:
+                    *, lift: str | None = None, escape: EscapeGrant | None = None) -> ProcHandle:
         """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted)."""
         pid = "p-" + secrets.token_hex(4)
-        if command_grant is not None and (command_grant.command != command
-                or command_grant.cwd != str(cwd.resolve()) or command_grant.task_id != owner_task):
-            raise Refused("the command approval does not cover this exact command, working folder and task")
         if escape is not None:
             if escape.command != command or escape.cwd != str(cwd.resolve()) or escape.rule != lift:
                 raise Refused("the escape grant does not cover this exact command and working folder")
@@ -121,7 +115,6 @@ class ShellManager:
             self.redactor.retain_secret(secret)
         def finished() -> None:
             Sandbox.cleanup(profile)
-            self._command_grants.pop(pid, None)
             if secret and self.redactor is not None:
                 self.redactor.release_secret(secret)
         p = PtyProc(argv, cwd, self._env(pid), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory,
@@ -129,10 +122,7 @@ class ShellManager:
         entry = self.sandbox.protection.entry(lift) if self.sandbox is not None and lift else None
         self._procs[pid] = (p, ProcInfo(pid, owner_task, command, str(cwd), time.time(), True, None, long_lived,
                                       sandboxed=self.sandbox is not None, lifted=lift,
-                                      read_path=str(entry.path) if entry and entry.id.startswith("read:") else None,
-                                      network_approved=command_grant is not None and command_grant.network))
-        if command_grant is not None and command_grant.network:
-            self._command_grants[pid] = command_grant
+                                      read_path=str(entry.path) if entry and entry.id.startswith("read:") else None))
         try:
             await p.start()
         except BaseException:
@@ -215,19 +205,9 @@ class ShellManager:
         return ProcHandle(proc_id, owner_task)
 
     def owner_of(self, proc_id: str) -> str | None:
-        """The task that started this process (the gateway's per-task sink decisions, S4); None if it's unknown."""
+        """The task that started this process (the gateway attributes its destinations to it); None if it's unknown."""
         hit = self._procs.get(proc_id)
         return hit[1].owner_task if hit is not None else None
-
-    def command_of(self, proc_id: str) -> str | None:
-        """The command text this process ran (FERB names it to the owner when a destination needs approval)."""
-        hit = self._procs.get(proc_id)
-        return hit[1].command if hit is not None else None
-
-    def network_approved(self, proc_id: str) -> bool:
-        """Only the live process with the approved command's proxy credentials carries its grant."""
-        hit = self._procs.get(proc_id)
-        return hit is not None and hit[0].exit_code is None and proc_id in self._command_grants
 
     async def kill_id(self, proc_id: str) -> bool:
         hit = self._procs.get(proc_id)

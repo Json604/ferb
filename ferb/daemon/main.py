@@ -556,10 +556,8 @@ class Daemon:
         self.gateway.snapshots = self.snapshots
         self.gateway.confirmations = Confirmations(self.db, self.clock, self.ids, self.redact)     # D33, S4 (F5a)
         self.gateway.destinations = KnownDestinations(self.db, self.clock, self.ids, self.redact)  # SQ6
-        if self.shells is not None:                  # S4: the shell process's task and command, for a sink decision
+        if self.shells is not None:                  # the shell process's task: its destinations are attributed to it
             self.gateway.proc_task = self.shells.owner_of
-            self.gateway.proc_command = self.shells.command_of
-            self.gateway.proc_network = self.shells.network_approved
         self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
@@ -716,11 +714,13 @@ class Daemon:
         # 10): when sandbox-exec can't run, their tools are left out and `ferb doctor` says why, never uncontained (Q7)
         assert self.protection is not None
         # Its egress proxy is the shell's only way off the Mac (S2, D28): each process gets its own credentials, and
-        # every destination is asked about (the gateway) and recorded with its byte counts (F5a Task 3)
+        # every destination is checked by the gateway (L2: any remote host for a tracked process) and recorded with its
+        # byte counts (F5a Task 3). Every TLS hello's server name goes through the same check (S4 fronting: a tree's
+        # No to a host can't be passed through a differing SNI).
         self._loop = asyncio.get_running_loop()
         self.proxy = EgressProxy(self._allow_destination, redactor=self.redact if isinstance(self.redact, Redactor)
                                  else None, excluded=getattr(self.redact, "excluded_host", None),
-                                 inspect_sni=self._sni_enforce, on_reached=self._destination_reached,
+                                 inspect_sni=lambda proc, host, port: True,
                                  local_access=LocalAccess(self.protection) if self.protection.local_ports else None,
                                  allow_local=self._allow_local_destination)
         self.sandbox = Sandbox(self.protection, self.home / "run" / "sandbox",
@@ -760,20 +760,9 @@ class Daemon:
         except Exception:
             return False, "FERB could not check this destination"
 
-    def _sni_enforce(self, proc: str, host: str, port: int) -> bool:
-        """On a proxy thread (S4 fronting): whether to hold a CONNECT's TLS ClientHello and enforce the SNI — once the
-        tree has read outside content. Fails closed: anything that stops the gateway answering means hold, and then the
-        SNI must match the CONNECT host or a known or named host."""
-        try:
-            assert self.gateway is not None and self._loop is not None
-            fut = asyncio.run_coroutine_threadsafe(self.gateway.sni_enforced(proc), self._loop)
-            return bool(fut.result(10))
-        except Exception:
-            return True
-
     def _allow_local_destination(self, proc: str, host: str, port: int) -> tuple[bool, str]:
         """Only the proxy calls this, after verifying an explicit local connected peer against its configured pin.
-        Standing local permission skips a new-host question, never task ownership or an explicit No."""
+        The pin is the standing local permission; task ownership and an explicit No still apply."""
         try:
             assert self.gateway is not None and self._loop is not None
             fut = asyncio.run_coroutine_threadsafe(
@@ -781,16 +770,6 @@ class Daemon:
             return fut.result(10)
         except Exception:
             return False, "FERB could not check this local destination"
-
-    def _destination_reached(self, proc: str, host: str, port: int) -> None:
-        """On a proxy thread, before response bytes can become outside content: order a successful connection with
-        the tree's reads on the gateway loop. A reporting failure grants no earlier-host allowance."""
-        try:
-            assert self.gateway is not None and self._loop is not None
-            fut = asyncio.run_coroutine_threadsafe(self.gateway.destination_reached(proc, host, port), self._loop)
-            fut.result(10)
-        except Exception:
-            pass
 
     def _shell_network(self, info: ProcInfo, facts: dict[str, Any]) -> None:
         """A finished shell process's final network record (ferb trace / journal). The proxy may report it from a

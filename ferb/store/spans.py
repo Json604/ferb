@@ -49,6 +49,11 @@ class SpanStore:
     def __init__(self, db: Database, clock: Clock, ids: IdSource, redact: Redact) -> None:
         self._db, self._clock, self._ids, self._redact = db, clock, ids, redact
 
+    @property
+    def db(self) -> Database:
+        """The database the spans are kept in; records kept beside them (the journal) share it."""
+        return self._db
+
     def start(self, kind: str, *, input: dict[str, Any], task_id: str | None = None,
               parent_id: str | None = None, device_id: str | None = None) -> Span:
         span = Span(id=self._ids.new_id(), parent_id=parent_id, kind=kind, task_id=task_id, device_id=device_id,

@@ -82,9 +82,9 @@ def test_attachment_filename_data_keeps_external_origin_through_context(daemon, 
     task_id = outcome(events)['task_id']
     async def origins():
         spans = daemon.daemon.spans
-        return spans.request_origins(task_id) | spans.exposure_origins(task_id), daemon.daemon.gateway._outside_read(task_id)
-    labels, outside = daemon.run(origins())
-    assert 'external:paste' in labels and outside
+        return spans.request_origins(task_id) | spans.exposure_origins(task_id)
+    labels = daemon.run(origins())
+    assert 'external:paste' in labels
 
 
 def test_attaching_ferb_state_does_not_bypass_file_protection(daemon):

@@ -6,21 +6,22 @@ bodies, headers, paths or query strings (rule 14).
   connection is attributed to the process (and task) that made it. A wrong, missing or forgotten credential gets 407
   and nothing is forwarded. The token is a secret value: the redactor scrubs it from the process's output, logs and
   spans. Another contained process can't read it (its environment isn't readable: measured, F5a Task 3 report).
-- `allow(proc, host, port)` (the gateway: S4) is asked before any name is resolved, so a refused name never
-  reaches a DNS server; a refusal is 403 and is recorded under `refused` with FERB's reason.
+- `allow(proc, host, port)` (the gateway) is asked before any name is resolved, so a refused name never reaches a DNS
+  server; a refusal is 403 and is recorded under `refused` with FERB's reason. The gateway allows any remote host for a
+  process FERB tracks (L2); it refuses an untracked process, a local address without its pin and a host the owner said
+  no to in the task.
 - The proxy resolves names itself (the sandbox has no DNS) and connects only to an address it checked. This Mac's
   own addresses are refused unless the owner configured executable-pinned local ports. Those explicit local
   destinations are checked before dial and against the actual connected peer before forwarding; their address and
   executable are recorded. Contained servers also remain reachable directly (sandbox.py, listeners.py).
 - CONNECT tunnels any TCP port as opaque bytes (TLS stays end to end). Both directions start at once; the first
   client bytes are inspected inline. Non-TLS is forwarded with no delay. A TLS ClientHello's SNI (a hostname, a
-  destination fact like the CONNECT host, never content) is recorded; once the tree has read outside content (and,
-  failing closed, whenever FERB can't tell) the hello is held until reassembled (up to SNI_MAX, no timeout) and a
-  connection is refused whose SNI names a host the owner hasn't named, FERB doesn't know and this tree's shell hadn't
-  reached before that first outside read, or that has no readable SNI to a named host (domain fronting, S4). Residuals: an ECH outer name goes through refuse-then-ask like any other
-  host; fronting with a matching SNI and a Host header inside TLS stays undetectable. A plain http:// request is
-  forwarded byte for byte on its own connection, closed after the response, so each request is gated and recorded for
-  its own host.
+  destination fact like the CONNECT host, never content) is recorded; when `inspect_sni` says so (the daemon: always)
+  the hello is held until reassembled (up to SNI_MAX, no timeout), a differing SNI goes through `allow` like the
+  CONNECT host, and a connection with no readable SNI to a named host is refused (domain fronting, S4). Residuals: an
+  ECH outer name is checked like any other host; fronting with a matching SNI and a Host header inside TLS stays
+  undetectable. A plain http:// request is forwarded byte for byte on its own connection, closed after the response,
+  so each request is gated and recorded for its own host.
   Bytes are counted before they are passed on, so a record is complete by the time the client has the data. A
   connection that FERB's shell opened and a setsid child keeps after the shell exits goes on being counted: `forget`
   revokes the credential but the process's record is kept and reported only once its last connection closes.
@@ -60,9 +61,7 @@ HOP = {"proxy-authorization", "proxy-connection", "connection", "keep-alive", "t
 CHUNK = 65536
 # S4: FERB's reasons for refusing a destination (the gateway sets them; the shell tool tells the worker what to do by
 # matching these exact strings, so a sink refusal names the right host and a final No isn't offered as "ask again").
-DEST_REFUSED_NEW = "a place you haven't named, after this task read outside content"
 DEST_REFUSED_NO = "you said no to this place in this task"
-DEST_NETWORK_APPROVAL = "this shell command has no network approval; request network=true for this exact command"
 DEST_SNI_NONE = "a TLS connection whose server name FERB couldn't read"
 SNI_MAX = 16 * 1024                                         # the most of a client's ClientHello FERB reassembles (S4)
 UNAUTH_TIMEOUT = 10.0                                       # seconds from accept until a connection must authenticate
@@ -212,14 +211,12 @@ class EgressProxy:
     def __init__(self, allow: Allow, *, resolve: Resolve = addresses, redactor: Secrets | None = None,
                  excluded: Callable[[str], bool] | None = None, on_report: Report | None = None,
                  inspect_sni: Callable[[str, str, int], bool] | None = None,
-                 on_reached: Callable[[str, str, int], None] | None = None,
                  local_access: LocalAccess | None = None, allow_local: Allow | None = None) -> None:
         self.allow, self.resolve, self.redactor = allow, resolve, redactor
-        # S4: whether to hold a CONNECT's TLS ClientHello to enforce the SNI (after outside content); default off
+        # S4: whether to hold a CONNECT's TLS ClientHello to check its SNI (the daemon: always); default off
         self.inspect_sni = inspect_sni or (lambda proc, host, port: False)
         self.excluded = excluded or (lambda host: False)    # the owner's exclusion list: such a host is never shown
         self.on_report = on_report                          # a process is fully done: its final record (host/bytes)
-        self.on_reached = on_reached                        # successful connection/SNI, before bytes are forwarded
         self.local_access = local_access
         self.allow_local = allow_local or allow              # daemon: standing local permission, final No still wins
         self._tokens: dict[str, str] = {}                   # proc id -> token, while FERB tracks the process
@@ -362,7 +359,7 @@ class EgressProxy:
                     self.send_response(200, "Connection established")
                     self.end_headers()
                     # S4 fronting: both directions start at once (server-first bytes flow immediately); the first client
-                    # bytes are inspected inline (non-TLS forwarded with no delay; a TLS SNI checked after outside content)
+                    # bytes are inspected inline (non-TLS forwarded with no delay; a TLS SNI checked when inspect_sni says)
                     proxy._pump(self.connection, upstream, proc, host, port,
                                 sni_check=None if local else lambda: proxy.inspect_sni(proc, host, port))
                 finally:
@@ -653,8 +650,6 @@ class EgressProxy:
                 key = (host, port, local_peer.address, local_peer.executable)
                 records[key] = records.get(key, 0) + 1
             self._active[proc] = self._active.get(proc, 0) + 1
-        if self.on_reached is not None:
-            self.on_reached(proc, host, port)               # outside the proxy lock: the gateway runs on its loop
         return True
 
     def _closed(self, proc: str) -> None:
@@ -693,21 +688,19 @@ class EgressProxy:
             if f is None:
                 return
             f["destinations"].setdefault((sni, port), {"bytes_out": 0, "bytes_in": 0, "connections": 0})
-        if self.on_reached is not None:
-            self.on_reached(proc, sni, port)
 
     def _sni_gate(self, chunk: bytes, client: socket.socket, proc: str, host: str, port: int,
                   sni_check: Callable[[], bool]) -> bytes | None:
         """Inspect the first client bytes of a CONNECT (S4 fronting). Not TLS (SMTP/IMAP/FTP/MySQL/SSH): forwarded at
-        once. TLS before the tree read outside content: forwarded at once, the SNI recorded best-effort. TLS after:
-        the ClientHello is held (reassembled incrementally across records, up to SNI_MAX, no timeout) and the SNI
-        checked — forwarded if it matches the CONNECT host or is known/named, refused if it names an unknown host, if a
+        once. TLS when `sni_check` is false: forwarded at once, the SNI recorded best-effort. TLS when it is true: the
+        ClientHello is held (reassembled incrementally across records, up to SNI_MAX, no timeout) and the SNI
+        checked — forwarded if it matches the CONNECT host or `allow` passes it, refused if `allow` refuses it, if a
         complete record isn't a ClientHello, or if no SNI can be read. A complete hello without an SNI to an IP-literal
         CONNECT host is forwarded: RFC 6066 forbids an IP literal in the SNI. Returns the bytes to forward, or None."""
         if chunk[:1] != b"\x16":                         # not a TLS handshake: forward immediately
             return chunk
         reader = HelloReader()
-        if not sni_check():                              # before any outside content: never hold; best-effort record
+        if not sni_check():                              # not checked: never hold; best-effort record
             sni = reader.feed(chunk)
             if sni and sni != NOT_HELLO and sni.rstrip(".") != host:
                 self._record_sni(proc, sni, port)

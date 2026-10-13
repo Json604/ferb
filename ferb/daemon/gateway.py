@@ -32,7 +32,6 @@ import base64
 import dataclasses
 import ipaddress
 import logging
-import json
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -45,13 +44,13 @@ from ferb.act.fs import recovery
 from ferb.act.fs.files import normalize_path, owner_path, real_path as file_real_path
 from ferb.act.locks import ResourceLocks
 from ferb.act.mac.ax_browser import BROWSER_BUNDLES
-from ferb.act.shell.proxy import DEST_REFUSED_NO, DEST_NETWORK_APPROVAL
+from ferb.act.shell.proxy import DEST_REFUSED_NO
 from ferb.act.mac.driver import UNTRUSTED_APPS
 from ferb.clock import context
 from ferb.core import origin
 from ferb.core.errors import NoTarget, Refused
 from ferb.core.interfaces import Capability, Clock
-from ferb.core.types import ToolContext, EscapeGrant, ShellCommandGrant
+from ferb.core.types import ToolContext, EscapeGrant
 from ferb.policy.escape import escape_key
 from ferb.daemon.auth import RunGrant
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
@@ -116,8 +115,6 @@ UNATTENDED = "{line} This needs you, and nobody is at chat (a scheduled run); no
 NOT_RECORDED = "{line} FERB can't record your answer here, so it didn't ask; not done."
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
 NEEDS_OWNER_NEXT = "This step needs the owner; don't do it another way. Report that it is waiting for the owner."
-NO_SUCH_REFUSAL = ("no command of this task tried to reach {host} and was refused, so there is nothing to ask the owner "
-                   "about")
 REASON_CHARS = 200                        # the task's own words in FERB's question, clipped like a call excerpt
 
 
@@ -393,14 +390,8 @@ class Gateway:
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution
-        # S4: the shell process's task and command, for a per-task sink decision on a destination (set by the daemon)
+        # The task a shell process belongs to, so the proxy's destinations are attributed to it (set by the daemon)
         self.proc_task: Callable[[str], str | None] = lambda proc_id: None
-        self.proc_command: Callable[[str], str | None] = lambda proc_id: None
-        self.proc_network: Callable[[str], bool] = lambda proc_id: False
-        self._refused_hosts: dict[str, dict[str, str]] = {}   # root tree -> {refused host: the command that tried it}
-        # root tree -> the hosts its shell reached before the tree first read outside content: they stay allowed for
-        # the rest of the tree (owner, 2026-10-10). Decided by connection order, never by a list of hosts.
-        self._reached_hosts: dict[str, set[str]] = {}
         self.route_question: Any = None
         self.disturbance: Any = None
         self.test_send_allowlist: set[str] | None = None   # test mode only: send-class actions may reach just these
@@ -456,11 +447,11 @@ class Gateway:
 
     async def destination_allowed(self, proc_id: str, host: str, port: int, *,
                                   local_approved: bool = False) -> tuple[bool, str]:
-        """Remote access needs an exact-command grant on this live process, never a global host allowlist.
-        The proxy calls before DNS and again for differing TLS SNI. A prior tree-level host No remains final.
-        Local standing permission is supplied only after the proxy checks its executable pin; networking approval
-        never bypasses that check. The grant is not inherited by another process with its own proxy credentials.
-        """
+        """Any remote host for a shell process FERB tracks: shell networking never asks, and the proxy records each
+        host, port and byte count (L2, owner 2026-10-13). The proxy calls before DNS and again for a differing TLS SNI.
+        A process FERB can't attribute to a task gets nothing. A local address needs the proxy's executable-pinned
+        permission (`local_approved`, supplied only after the proxy checked the listener against its pin). The owner's
+        No to a host in this tree (the browser's S4 question; SQ6 shares the key) stays final for the shell too."""
         norm = KnownDestinations.normalize("host", host)
         task_id = self.proc_task(proc_id)
         root = self.tasks.tree_of(task_id) if task_id is not None else None
@@ -472,34 +463,13 @@ class Gateway:
                 return False, DEST_REFUSED_NO
         if local_approved:
             return True, ""
-        # Local addresses must pass the proxy's executable-pin check; a command approval cannot lift it.
         try:
             local = ipaddress.ip_address(norm).is_loopback
         except ValueError:
             local = norm == 'localhost' or norm.endswith('.localhost')
         if local:
             return False, "local services need the proxy's executable-pinned permission"
-        if self.proc_network(proc_id):
-            return True, ""
-        return False, DEST_NETWORK_APPROVAL
-
-    async def destination_reached(self, proc_id: str, host: str, port: int) -> None:
-        """On the loop, after the proxy establishes a connection (or observes its differing SNI), before forwarding
-        bytes: remember the host only if this live tree has not read outside content yet. Permission before DNS is
-        not evidence of reaching a site; a failed or delayed connection must not earn this allowance."""
-        task_id = self.proc_task(proc_id)
-        root = self.tasks.tree_of(task_id) if task_id is not None else None
-        if root is not None and self.tasks.get(root) is not None and not self._outside_read(root):
-            self._reached_hosts.setdefault(root, set()).add(KnownDestinations.normalize("host", host))
-
-    def _outside_read(self, root: str) -> bool:
-        """Whether this tree has read outside content: an outside tool result (a shell command's output included, S3)
-        or the request's own outside parts (Q3, the shell's gate)."""
-        return any(origin.is_external(o) for o in (self.spans.tool_origins(root) | self.spans.exposure_origins(root)) | self.spans.request_origins(root))
-
-    async def sni_enforced(self, proc_id: str) -> bool:
-        """A command grant never bypasses a prior host No through a differing TLS server name."""
-        return True
+        return True, ""
 
     def _host_named(self, host_norm: str, root: str) -> bool:
         """Whether the owner named this host (M4): a URL host in the request's own words or in an answer the owner gave
@@ -537,8 +507,6 @@ class Gateway:
         for task_id in task_ids:
             self._outside.pop(task_id, None)
             self._confirming.pop(task_id, None)
-            self._refused_hosts.pop(task_id, None)
-            self._reached_hosts.pop(task_id, None)
         for key in [k for k in self._looked if k[0] in task_ids]:
             del self._looked[key]
 
@@ -720,15 +688,7 @@ class Gateway:
             self._finish_call(span, name, covered.refused, True, error=error)
             return reply(covered.refused, True, {origin.FERB})
         escape = None
-        shell_command = None
         try:
-            if name in {"shell.run", "shell.start"} and (getattr(args, "network", False)
-                    or getattr(args, "external_source", None) is not None):
-                try:
-                    shell_command = await self._shell_approval(grant, rec, args, why)
-                except Refused as error:
-                    self._finish_call(span, name, {"error": str(error)}, True, error=str(error))
-                    return reply({"error": str(error)}, True, {origin.FERB})
             if name in {"shell.run", "shell.start"} and getattr(args, "escape", None):
                 try:
                     escape = await self._escape(grant, rec, args, why)
@@ -736,7 +696,7 @@ class Gateway:
                     self._finish_call(span, name, {"error": str(error)}, True, error=str(error))
                     return reply({"error": str(error)}, True, {origin.FERB})
             return await self._held(cap, name, args, spec, action, grant, rec, span, reply, real, claimed, arguments,
-                                    escape, shell_command)
+                                    escape)
         finally:
             if escape is not None and escape.secret and isinstance(self.redact, Redactor):
                 self.redact.release_secret(escape.secret)
@@ -746,8 +706,7 @@ class Gateway:
 
     async def _held(self, cap: Any, name: str, args: Any, spec: Any, action: ActionRequest, grant: RunGrant, rec: Any,
                     span: Any, reply: Callable[..., dict[str, Any]], real: Path | None, claimed: Claimed,
-                    arguments: dict[str, Any], escape: EscapeGrant | None = None,
-                    shell_command: ShellCommandGrant | None = None) -> dict[str, Any]:
+                    arguments: dict[str, Any], escape: EscapeGrant | None = None) -> dict[str, Any]:
         """The call under its resource locks, with the disturbance record around it."""
         lock_keys = cap.locks(args) if hasattr(cap, "locks") else []
         if name.startswith("fs.") and real is not None:
@@ -761,7 +720,7 @@ class Gateway:
                     await self.disturbance.before_action(grant.task_id, span.id, name, arguments, on_screen(cap))
                 try:
                     return await self._execute(cap, name, args, spec, action, grant, rec, span, reply, real, claimed,
-                                               escape, shell_command)
+                                               escape)
                 finally:
                     if self.disturbance is not None:
                         await self.disturbance.after_action(span.id)
@@ -983,34 +942,6 @@ class Gateway:
                             quoted(self.redact({"w": why})["w"]) if why.strip() else "")   # redacted, then clipped
         return " ".join(printable(self.redact({"q": text})["q"]).split())
 
-    async def _ask_destination(self, grant: RunGrant, rec: Any, allow: str, question: str) -> dict[str, Any]:
-        """owner.ask(allow_destination): FERB's own Yes/No about a host a command of this tree was refused (S4, SQ6,
-        D33). A worker can't invent one — only a host this tree's commands were refused is askable. A Yes makes the host
-        known (shell and browser, now and in later tasks); a No is final for the tree. Asked under the tree's lock, so
-        concurrent asks about one host ask once; the answer carries across the command's retries."""
-        root = rec.tree_id or grant.task_id
-        norm = KnownDestinations.normalize("host", allow)
-        read = sorted(o for o in (self.spans.tool_origins(root) | self.spans.exposure_origins(root)) | self.spans.request_origins(root)
-                      if origin.is_external(o))
-        need = confirm.Need("sink:shell_destination", confirm.destination_key(norm),
-                            {"destination": norm, "read": confirm.shown_origins(read)},
-                            destinations=(("host", norm),))
-        async with self._confirming.setdefault(root, asyncio.Lock()):
-            tried = self._refused_hosts.get(root, {})
-            cmd = lines.clip(" ".join(printable(self.redact({"c": tried.get(norm, "")})["c"]).split()), REASON_CHARS)
-            if self.confirmations is not None:
-                row = self.confirmations.find(root, need.key)
-                if row is not None:                      # already answered in this tree: a Yes allows, a No is final
-                    return {"answer": YES} if row["granted"] else {
-                        "error": ALREADY_NO.format(line=self._ferb_line([need], cmd, question)),
-                        "next": OWNER_DECIDED_NEXT}
-            if norm not in tried:                        # a worker can't ask about a host nothing tried
-                return {"error": NO_SUCH_REFUSAL.format(host=allow)}
-            answer = await self.ask_confirmation(grant, rec, [need], None, cmd, question)
-        if answer:
-            return {"answer": YES}
-        return {"error": answer.error} | ({"next": answer.next} if answer.next else {})
-
     async def ask_confirmation(self, grant: RunGrant, rec: Any, needs: list[confirm.Need], span: Any, call: str,
                                why: str) -> Answer:
         """FERB's own question to the owner, in chat with Yes / No, never through the orchestrator (D33): an owner.ask
@@ -1111,40 +1042,6 @@ class Gateway:
                                 input={"tool": lines.clip(name, 100), "worker_id": grant.worker_id})
         self.spans.finish(span, error=reason)
 
-    async def _shell_approval(self, grant: RunGrant, rec: Any, args: Any, why: str) -> ShellCommandGrant:
-        """Ask once for exact command/cwd/identity/scopes/tree, before spawning any process."""
-        cwd = file_real_path(args.cwd or self.roots.workspace, self.roots.workspace)
-        if not cwd.is_dir():
-            raise Refused("the command's working folder does not exist")
-        root = rec.tree_id or grant.task_id
-        network, external = bool(getattr(args, 'network', False)), getattr(args, 'external_source', None)
-        key = confirm.key('shell:command', args.command, str(cwd), grant.identity.value, sorted(grant.scopes), root,
-                          network, external)
-        if self.confirmations is None:
-            raise Refused("FERB cannot record this command's approval")
-        reasons = []
-        if external is not None:
-            reasons.append('run code or instructions declared as coming from outside content: ' + external)
-        if network:
-            reasons.append('allow this process, its later input and its children to contact remote hosts for its '
-                           'tracked lifetime through FERB’s proxy; local-service protections and prior refusals stay enforced')
-        need = confirm.Need('shell:command', key, {'text': '; '.join(reasons)})
-        async with self._confirming.setdefault(root, asyncio.Lock()):
-            row = self.confirmations.find(root, key)
-            if row is not None and not row['granted']:
-                raise Refused("you already said no to this exact command approval in this task")
-            if row is None:
-                answer = await self.ask_confirmation(grant, rec, [need], None,
-                    json.dumps(self.redact({'command': args.command, 'cwd': str(cwd),
-                        'identity': grant.identity.value, 'scopes': sorted(grant.scopes)}), ensure_ascii=False), why)
-                if not answer:
-                    raise Refused(answer.error)
-                confirmation_id = answer.ids[0]
-            else:
-                confirmation_id = row['id']
-        return ShellCommandGrant(confirmation_id, args.command, str(cwd), grant.task_id, root,
-                                 grant.identity, grant.scopes, network, external)
-
     async def _escape(self, grant: RunGrant, rec: Any, args: Any, why: str) -> EscapeGrant:
         rule, command = args.escape, args.command
         protection = self.roots.protection
@@ -1203,8 +1100,7 @@ class Gateway:
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
                        real: Path | None = None, claimed: Claimed | None = None,
-                       escape: EscapeGrant | None = None,
-                       shell_command: ShellCommandGrant | None = None) -> dict[str, Any]:
+                       escape: EscapeGrant | None = None) -> dict[str, Any]:
         intent_id = None
         if spec.kind not in REVERSIBLE:                  # consequential: ledger row BEFORE it runs
             try:
@@ -1223,8 +1119,7 @@ class Gateway:
                               scopes=grant.scopes, device_id=self.device_id, span_id=span.id,
                               workspace=self.roots.workspace, owner_roots=self.roots.owner_roots,
                               untrusted_roots=self.roots.untrusted_roots, intent_id=intent_id,
-                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape,
-                              shell_command=shell_command)
+                              observe_only=grant.observe_only, path_closed=self._path_closed(name), escape=escape)
             if spec.target.path is not None:             # file events it causes are FERB's: the file it really writes
                 self.on_path(str(real) if real is not None else spec.target.path, grant.task_id)
         except Exception as e:                           # nothing ran: failed, not unknown (it must not block a retry)
@@ -1662,9 +1557,6 @@ class Gateway:
         display_text = ""
         options = [str(o) for o in getattr(args, "options", []) if str(o).strip()]
         retry = str(getattr(args, "retry_action", "") or "").strip()
-        allow = str(getattr(args, "allow_destination", "") or "").strip()
-        if allow and not retry:                      # S4: FERB's own Yes/No about a refused host, never the orchestrator
-            return await self._ask_destination(grant, rec, allow, question)
         if retry:                                    # P19: only the owner decides; the orchestrator is not asked
             found = self._retry_row(grant, rec, retry)
             if isinstance(found, str):
