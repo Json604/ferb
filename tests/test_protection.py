@@ -628,3 +628,61 @@ def test_fs_write_never_makes_a_folder_inside_ferbs_state(tmp_path: Path) -> Non
     assert list(run.iterdir()) == []
     result = asyncio.run(tool.run(tool.Input(path="d/e/notes.txt", content="x"), _ctx(ws, Protection(home, ferb, [], [], []))))
     assert not result.is_error and (ws / "d" / "e" / "notes.txt").read_text() == "x"
+
+
+# ---------- FERB.app (L27): the daemon's own code is never FERB's tools' to change (rule 10) ----------
+
+def _app(root: Path) -> Path:
+    app = root / "FERB.app"
+    site = app / "Contents" / "Resources" / "python" / "lib" / "python3.12" / "site-packages"
+    (site / "ferb" / "policy").mkdir(parents=True)
+    (site / "ferb" / "policy" / "protection.py").write_text("# FERB's protection rules\n")
+    (app / "Contents" / "Helpers").mkdir(parents=True)
+    (app / "Contents" / "Helpers" / "ferb-secrets").write_bytes(b"helper")
+    return app
+
+
+def test_ferb_app_is_closed_to_writes_and_removes_and_never_liftable(tmp_path: Path) -> None:
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    for app in (_app(tmp_path / "Applications"), _app(home / "Applications")):      # /Applications or ~/Applications
+        p = Protection(home, ferb, [], ["/Applications"], [], app_bundle=app)
+        site = app / "Contents" / "Resources" / "python" / "lib" / "python3.12" / "site-packages"
+        for target in (site / "sitecustomize.py", site / "planted.pth", site / "ferb" / "policy" / "protection.py",
+                       app / "Contents" / "Helpers" / "ferb-secrets", app):
+            assert p.fs_denied(target, "write") == "ferb_app", target
+            assert p.fs_denied(target, "remove") == "ferb_app", target
+            assert p.write_denied(target) == "ferb_app", target
+        assert p.fs_denied(app.parent, Kind.TRASH) == "ferb_app"              # a folder that holds it, taken away
+        assert p.fs_denied(site / "ferb" / "policy" / "protection.py", "read") is None   # reading its code is fine
+        assert p.fs_denied(app.parent / "Other.app", "write") is None
+        link = tmp_path / f"link-{app.parent.parent.name}"
+        link.symlink_to(app)
+        assert p.fs_denied(link / "Contents" / "Helpers" / "ferb-secrets", "write") == "ferb_app"   # through a link
+        assert p.fs_denied(Path(str(app).upper()) / "Contents" / "x", "write") == "ferb_app"     # another spelling
+        assert not p.liftable("ferb_app") and p.liftable("write:/Applications")
+        assert {"id": "ferb_app", "kind": "write", "path": str(app), "liftable": False} in p.rules()
+    assert Protection(home, ferb, [], [], []).fs_denied(_app(tmp_path / "x"), "write") is None   # from a checkout
+
+
+def test_protection_load_closes_the_app_ferb_runs_from(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ferb.paths
+    home, ferb_home = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ferb_home.mkdir(parents=True)
+    app = _app(tmp_path / "Applications")
+    monkeypatch.setattr(ferb.paths, "app_bundle", lambda prefix=None: app)
+    p = protection.load(lambda section, key, default: default, home, ferb_home)
+    assert p.fs_denied(app / "Contents" / "Helpers" / "ferb-secrets", "write") == "ferb_app"
+
+
+def test_fs_write_into_ferb_app_is_refused(daemon: RunningDaemon, tmp_path: Path) -> None:
+    app = _app(tmp_path / "Applications")
+    prot = Protection(daemon.daemon.protection.home, daemon.daemon.home, [], [], [], app_bundle=app)
+    daemon.daemon.protection = daemon.daemon.gateway.roots.protection = prot
+    grant, _ = gateway_setup(daemon, {"fs:read", "fs:write"}, None, [])
+    site = app / "Contents" / "Resources" / "python" / "lib" / "python3.12" / "site-packages"
+    r = gateway_tool_call(daemon, grant, "fs.write", path=str(site / "sitecustomize.py"), content="import os")
+    assert r["is_error"] and "FERB's own code" in r["content"]["error"] and not (site / "sitecustomize.py").exists()
+    r = gateway_tool_call(daemon, grant, "fs.trash", path=str(app))
+    assert r["is_error"] and "FERB's own code" in r["content"]["error"] and app.exists()
+    assert "passwords" not in r["content"]["error"]                          # not the never-read store message

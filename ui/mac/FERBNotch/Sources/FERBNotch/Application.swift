@@ -47,5 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator?.showFromMenu()
         return true
     }
-    func applicationWillTerminate(_ notification: Notification) { coordinator?.tearDown() }
+    func applicationWillTerminate(_ notification: Notification) {
+        appSetup.stop()
+        coordinator?.tearDown()
+    }
 }

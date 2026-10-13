@@ -120,6 +120,12 @@ def _sysctl_int(name: bytes) -> int | None:
         return None
 
 
+def mcp_shim_command() -> list[str]:
+    """How runtimes start FERB's MCP shim. Isolated (-I): they start it in FERB's workspace, which workers write, and
+    `python -m` would otherwise put that folder first on sys.path, ahead of FERB's own package."""
+    return [sys.executable, "-I", "-m", "ferb.cli.mcp"]
+
+
 class _PurgePlan(NamedTuple):
     """One retention pass: its clock, its windows, the roots it handles and how many wait for the next pass."""
     now: datetime
@@ -2828,7 +2834,7 @@ class Daemon:
         if name not in self.registry.runtimes:
             raise FerbError(f"unknown runtime {name!r} in config.toml [runtimes]")
         model = self._model_for(name)
-        shim = [sys.executable, "-m", "ferb.cli.mcp"]
+        shim = mcp_shim_command()
         if name == "codex":
             from ferb.device.install import repo_root
             from ferb.core.errors import Unsupported

@@ -8,9 +8,11 @@ enum AppName {
 /// First launch of the packaged FERB.app (L27). It runs the app's own `ferb setup` — the same steps as in a terminal:
 /// the background service from inside this app, `ferb` on PATH, permissions guidance and the browser extension — and
 /// shows its output in a plain console with one line to answer setup's questions. After the app is replaced by a new
-/// build it runs `ferb setup --update` the same way (an ad-hoc build can lose its permissions in an update, and the
-/// console says so). Another installation (a checkout, or FERB.app elsewhere) is replaced only after the owner says
-/// so. A development build, which has no Python inside, never installs anything.
+/// build, or when launchd doesn't have FERB running, it runs `ferb setup --update` the same way (an ad-hoc build can
+/// lose its permissions in an update, and the console says so). Another installation (a checkout, or FERB.app
+/// elsewhere) is replaced only after the owner says so, from the menu too. Closing the window doesn't stop setup
+/// (Set Up FERB… shows it again); quitting FERB stops it, and setup finishes reinstalling the service first. A
+/// development build, which has no Python inside, never installs anything.
 @MainActor
 final class AppSetupController: NSObject, NSWindowDelegate {
     private let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath()
@@ -25,6 +27,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     private var exitStatus: Int32?
 
     private var python: URL { bundle.appendingPathComponent("Contents/Resources/python/bin/python3.12") }
+    private var agentExecutable: URL { bundle.appendingPathComponent("Contents/Helpers/FERB.app/Contents/MacOS/FERB") }
     private var launcher: URL { bundle.appendingPathComponent("Contents/Resources/bin/ferb") }
     private var agentPlist: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/com.ferb.daemon.plist")
@@ -32,21 +35,44 @@ final class AppSetupController: NSObject, NSWindowDelegate {
 
     var isPackaged: Bool {
         FileManager.default.isExecutableFile(atPath: launcher.path) && FileManager.default.fileExists(atPath: python.path)
+            && FileManager.default.isExecutableFile(atPath: agentExecutable.path)
     }
 
-    func startAtLaunch() {
+    func startAtLaunch() { start(fromMenu: false) }
+
+    func runSetupFromMenu() { start(fromMenu: true) }
+
+    private func start(fromMenu: Bool) {
         guard isPackaged else { return }
+        guard process == nil else { showWindow(); return }
         let agent = NSDictionary(contentsOf: agentPlist) as? [String: Any]
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        let action = AppSetupPlan.decide(agent: agent, bundlePython: python.path, build: build)
-        guard let arguments = AppSetupPlan.arguments(for: action) else { return }
+        let action = AppSetupPlan.decide(agent: agent, agentExecutable: agentExecutable.path, build: build,
+                                         daemonRunning: daemonRunning())
+        guard let arguments = AppSetupPlan.arguments(for: action, fromMenu: fromMenu) else { return }
         if case .confirmReplace(let current) = action, !confirmReplacing(current) { return }
         run(arguments)
     }
 
-    func runSetupFromMenu() {
-        guard isPackaged else { return }
-        run(["setup"])
+    /// Whether launchd has FERB's agent running now (`launchctl print` only reads launchd's state).
+    private func daemonRunning() -> Bool {
+        let launchctl = Process()
+        launchctl.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        launchctl.arguments = ["print", "gui/\(getuid())/com.ferb.daemon"]
+        let pipe = Pipe()
+        launchctl.standardOutput = pipe
+        launchctl.standardError = FileHandle.nullDevice
+        do { try launchctl.run() } catch { return false }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        launchctl.waitUntilExit()
+        return launchctl.terminationStatus == 0 && String(decoding: data, as: UTF8.self).contains("state = running")
+    }
+
+    /// FERB is quitting: stop setup; it finishes reinstalling the background service first (`_finish_install`).
+    func stop() {
+        guard let process, process.isRunning else { return }
+        try? answers?.close()
+        process.terminate()
     }
 
     private func confirmReplacing(_ current: String) -> Bool {
@@ -132,7 +158,7 @@ final class AppSetupController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        if answers != nil { process?.terminate() }            // the owner closed setup while it was waiting
+        // Setup keeps going: stopping it halfway could leave the background service unloaded. Set Up FERB… shows it.
     }
 
     private static let consoleAttributes: [NSAttributedString.Key: Any] = [

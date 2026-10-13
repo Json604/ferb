@@ -410,9 +410,10 @@ def test_setup_from_the_app_installs_from_the_bundle_and_says_where_ferb_is(app_
     env, out = make_env(app_world, ["", "", "", ""], daemon_up=False)
     assert S.setup(env) == 0, out.getvalue()
     text = out.getvalue()
-    assert f"from {app_world['app']}" in text and "venv" not in text
-    assert f"{app_world['app']}/Contents/Resources/python/bin/python3.12" in text   # what to grant permissions to
+    assert f"from {app_world['app']}" in text and "venv" not in text and "python3.12" not in text
+    assert f"switch on FERB ({app_world['app']}/Contents/Helpers/FERB.app)" in text   # what permissions go to
     assert f"`ferb` command: {app_world['inst'].cli_dir / 'ferb'}" in text
+    assert "PATH" not in text                              # the app is the product; the CLI is for development
     assert app_world["runner"].ran("uv") == 0
 
 
@@ -450,13 +451,45 @@ def test_voice_setup_from_the_app_uses_its_signed_helper_without_building(app_wo
     assert Config(app_world["home"]).get("voice", "requirement") == PINNED
 
 
+def test_closing_setup_while_it_installs_never_leaves_the_daemon_unloaded(app_world: dict[str, Any]) -> None:
+    """The app stops setup with SIGTERM when it quits: a stop that arrives while the background service is being
+    (re)installed waits until it is loaded again, then setup stops."""
+    import os
+    import signal
+    runner = app_world["runner"]
+    real = runner.__call__
+
+    def stop_midway(cmd: list[str]) -> Any:
+        if cmd[:2] == ["launchctl", "bootout"]:
+            os.kill(os.getpid(), signal.SIGTERM)           # the owner quits FERB between unload and load
+        return real(cmd)
+    app_world["inst"].run = stop_midway
+    env, out = make_env(app_world, [], daemon_up=False)
+    with pytest.raises(KeyboardInterrupt):
+        S.setup(env)
+    assert runner.loaded and runner.ran("launchctl", "bootstrap") == 1       # loaded before setup stopped
+    assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+
+def test_a_checkout_update_says_it_took_over_from_the_app(app_world: dict[str, Any], tmp_path: Path) -> None:
+    app_world["inst"].install()
+    source = Installer(app_world["home"], label="com.ferb.test", run=app_world["runner"], launch_agents=tmp_path / "LA")
+    app_world["runner"].requirement = 'identifier "com.ferb.secrets" and certificate leaf = H"local"'   # its own build
+    (source.venv / "bin").mkdir(parents=True)
+    (source.venv / "bin" / "python").write_text("")
+    app_world["inst"] = source
+    env, out = make_env(app_world, [])
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    assert f"now runs from {source.venv_python} (it ran from {app_world['app']}" in out.getvalue()
+
+
 def test_doctor_from_the_app_checks_the_bundled_interpreter_not_a_venv(app_world: dict[str, Any]) -> None:
     app_world["inst"].install()
     env, out = make_env(app_world, [])
     S.doctor(env)
     text = out.getvalue()
     assert f"✓ app: {app_world['app']}" in text
-    assert f"✓ interpreter: {app_world['app']}/Contents/Resources/python/bin/python3.12" in text
+    assert f"✓ interpreter: {app_world['app']}/Contents/Helpers/FERB.app/Contents/MacOS/FERB" in text
     assert "venv" not in text and "✓ LaunchAgent: installed" in text
 
 
@@ -486,17 +519,18 @@ def test_update_from_the_app_repins_hearing_to_the_new_helper_without_asking(app
     assert Config(app_world["home"]).get("voice", "requirement") is None     # push-to-talk stays as it was (off)
 
 
-def test_setup_from_the_app_refuses_a_voice_helper_that_isnt_signed(app_world: dict[str, Any]) -> None:
+def test_setup_from_the_app_refuses_a_voice_helper_its_signature_doesnt_seal(app_world: dict[str, Any]) -> None:
     runner = app_world["runner"]
 
-    def unsigned(cmd: list[str]) -> "subprocess.CompletedProcess[str]":
-        if cmd[0].endswith("codesign") and "-r-" in cmd and cmd[-1].endswith("FERB Voice.app"):
-            return subprocess.CompletedProcess(cmd, 0, "", "")         # no designated requirement: not signed
+    def swapped(cmd: list[str]) -> "subprocess.CompletedProcess[str]":
+        if cmd[0].endswith("codesign") and "-dv" in cmd and cmd[-1].endswith("FERB Voice.app"):
+            return subprocess.CompletedProcess(cmd, 0, "", f"Executable={cmd[-1]}\nCDHash={'0' * 40}\n"
+                                                           "Signature=adhoc\nTeamIdentifier=not set\n")
         return runner(cmd)
     Config(app_world["home"]).set("hearing", "requirement", "old")
     app_world["inst"].install()
-    app_world["inst"].run = unsigned
+    app_world["inst"].run = swapped
     env, out = make_env(app_world, [])
     assert S.setup(env, update=True) == 0, out.getvalue()
-    assert "voice helper isn't signed" in out.getvalue()
-    assert Config(app_world["home"]).get("hearing", "requirement") == "old"   # never pinned to unsigned code
+    assert "FERB Voice.app isn't the one FERB.app's signature seals" in out.getvalue()
+    assert Config(app_world["home"]).get("hearing", "requirement") == "old"   # never pinned to other code

@@ -56,7 +56,7 @@ from typing import Callable
 
 from ferb.act.shell import local
 from ferb.act.shell.listeners import outside_ports
-from ferb.policy.protection import ADMIN, FERB_STATE, NETWORK, TRUSTD, Entry, LocalPort, Protection
+from ferb.policy.protection import ADMIN, FERB_APP, FERB_STATE, NETWORK, TRUSTD, Entry, LocalPort, Protection
 
 SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 SECURITY_SERVER = "com.apple.SecurityServer"
@@ -125,7 +125,7 @@ class Sandbox:
         """The profile text, and the pinned local ports it allows directly."""
         p = self.protection
         if lift is not None:
-            if lift in (FERB_STATE, NETWORK):
+            if lift in (FERB_STATE, NETWORK, FERB_APP):
                 raise ValueError(f"{lift} is never lifted")
             if lift == ADMIN:
                 raise ValueError("admin is no profile change: sudo can't start under any sandbox profile")
@@ -154,6 +154,8 @@ class Sandbox:
         lines += [f"(deny file-read* file-write* (subpath {_q(f)}))" for f in _forms(p.uploads)]
         lines += [f"(allow file-read-metadata (literal {_q(f)}))" for root in (p.ferb_home, p.uploads)
                   for f in _forms(root)]
+        # FERB.app (L27): the daemon's code; after every lift, so an approved escape never reopens it
+        lines += [f"(deny file-write* (subpath {_q(f)}))" for app in p.app_entries() for f in _forms(app)]
         # An existing folder is denied as a literal. A missing one may still be made (a first install creates
         # ~/.cargo), but once made it can't be removed or renamed, and it can't be made as a link
         guarded = list(dict.fromkeys((*p.guarded_parents(), p.workspace)))

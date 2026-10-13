@@ -494,3 +494,35 @@ def test_a_missing_guarded_parent_cant_be_planted_as_a_link_or_renamed(tmp_path:
     # And the entry itself is still unreadable
     (cargo / "credentials.toml").write_text("token")
     assert run_under(sb, ["cat", str(cargo / "credentials.toml")]).returncode != 0
+
+
+def test_ferb_app_stays_closed_to_the_shell_even_when_its_folder_is_lifted(tmp_path: Path) -> None:
+    """FERB.app holds the daemon's code: a lifted never-write entry for its folder (an approved escape) still leaves
+    the app closed, wherever it is, and the app rule itself is never lifted."""
+    home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    apps = home / "Applications"
+    app = apps / "FERB.app"
+    (app / "Contents" / "Resources").mkdir(parents=True)
+    sb = Sandbox(Protection(home, ferb, [], ["~/Applications"], [], app_bundle=app), tmp_path / "p")
+    lifted = sb.profile("write:~/Applications")
+    real = app.resolve()
+    assert lifted.rindex(f'(deny file-write* (subpath "{real}"))') > lifted.index("(allow file-write* file-read-metadata")
+    assert f'(deny file-write* (literal "{apps.resolve()}"))' in lifted       # its folder can't be moved away
+    with pytest.raises(ValueError):
+        sb.profile("ferb_app")
+    planted = app / "Contents" / "Resources" / "planted.pth"
+    argv = sb.wrap(["/bin/sh", "-c", f"echo import os > '{planted}'; mv '{app}' '{apps}/Moved.app'"],
+                   "write:~/Applications")
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    finally:
+        sb.cleanup(sb.profile_path(argv))
+    assert not planted.exists() and app.is_dir() and "Operation not permitted" in r.stderr
+    other = apps / "Other.txt"                                               # the lift still works for the rest
+    argv = sb.wrap(["/bin/sh", "-c", f"echo ok > '{other}'"], "write:~/Applications")
+    try:
+        subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    finally:
+        sb.cleanup(sb.profile_path(argv))
+    assert other.read_text() == "ok\n"

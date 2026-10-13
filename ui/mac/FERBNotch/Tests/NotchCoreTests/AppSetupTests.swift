@@ -3,40 +3,59 @@ import XCTest
 
 /// First launch of the packaged FERB.app (L27): what to run, decided from the installed LaunchAgent alone.
 final class AppSetupTests: XCTestCase {
-    let python = "/Applications/FERB.app/Contents/Resources/python/bin/python3.12"
+    let agentExecutable = "/Applications/FERB.app/Contents/Helpers/FERB.app/Contents/MacOS/FERB"
 
     private func agent(_ program: String, build: String?) -> [String: Any] {
         var env = ["FERB_HOME": "/Users/o/.ferb"]
         if let build { env["FERB_APP_BUILD"] = build }
-        return ["ProgramArguments": [program, "-I", "-B", "-m", "ferb.daemon"], "EnvironmentVariables": env]
+        return ["ProgramArguments": [program, "-m", "ferb.daemon"], "EnvironmentVariables": env]
     }
 
     func testNoInstalledAgentRunsSetup() {
-        XCTAssertEqual(AppSetupPlan.decide(agent: nil, bundlePython: python, build: "202610140201"), .install)
+        XCTAssertEqual(AppSetupPlan.decide(agent: nil, agentExecutable: agentExecutable, build: "202610140201"), .install)
         XCTAssertEqual(AppSetupPlan.arguments(for: .install), ["setup"])
     }
 
     func testAgentFromThisAppAndBuildNeedsNothing() {
-        let installed = agent(python, build: "202610140201")
-        XCTAssertEqual(AppSetupPlan.decide(agent: installed, bundlePython: python, build: "202610140201"), .none)
+        let installed = agent(agentExecutable, build: "202610140201")
+        XCTAssertEqual(AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610140201"), .none)
         XCTAssertNil(AppSetupPlan.arguments(for: .none))
     }
 
     func testReplacedAppUpdatesWithoutAsking() {
-        let installed = agent(python, build: "202610140201")
-        XCTAssertEqual(AppSetupPlan.decide(agent: installed, bundlePython: python, build: "202610150900"), .update)
+        let installed = agent(agentExecutable, build: "202610140201")
+        XCTAssertEqual(AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610150900"), .update)
         XCTAssertEqual(AppSetupPlan.arguments(for: .update), ["setup", "--update"])
     }
 
     func testAnotherInstallationIsReplacedOnlyAfterTheOwnerSaysSo() {
         let source = agent("/Users/o/.ferb/venv/bin/python", build: nil)
-        let action = AppSetupPlan.decide(agent: source, bundlePython: python, build: "202610140201")
+        let action = AppSetupPlan.decide(agent: source, agentExecutable: agentExecutable, build: "202610140201")
         XCTAssertEqual(action, .confirmReplace(current: "/Users/o/.ferb/venv/bin/python"))
         XCTAssertEqual(AppSetupPlan.arguments(for: action), ["setup"])
     }
 
     func testAgentWithoutProgramIsTreatedAsMissing() {
-        XCTAssertEqual(AppSetupPlan.decide(agent: ["Label": "com.ferb.daemon"], bundlePython: python, build: "1"), .install)
+        XCTAssertEqual(AppSetupPlan.decide(agent: ["Label": "com.ferb.daemon"], agentExecutable: agentExecutable, build: "1"), .install)
+    }
+
+    func testAgentFromThisAppThatIsntRunningIsRepairedByAnUpdate() {
+        // e.g. setup was stopped while it reinstalled the service, or the daemon keeps failing to start
+        let installed = agent(agentExecutable, build: "202610140201")
+        XCTAssertEqual(AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610140201",
+                                           daemonRunning: false), .update)
+    }
+
+    func testMenuRunsFullSetupOnlyForThisAppAndAsksBeforeReplacingAnother() {
+        let installed = agent(agentExecutable, build: "202610140201")
+        let same = AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610140201")
+        XCTAssertEqual(AppSetupPlan.arguments(for: same, fromMenu: true), ["setup"])      // permissions again, etc.
+        let replaced = AppSetupPlan.decide(agent: installed, agentExecutable: agentExecutable, build: "202610150900")
+        XCTAssertEqual(AppSetupPlan.arguments(for: replaced, fromMenu: true), ["setup", "--update"])
+        let other = AppSetupPlan.decide(agent: agent("/Users/o/.ferb/venv/bin/python", build: nil),
+                                        agentExecutable: agentExecutable, build: "202610140201")
+        XCTAssertTrue(AppSetupPlan.needsConfirmation(other))
+        XCTAssertFalse(AppSetupPlan.needsConfirmation(same))
     }
 
     func testConsoleKeepsCharactersSplitAcrossReads() {

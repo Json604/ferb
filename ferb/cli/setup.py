@@ -7,13 +7,16 @@ flows are testable without touching the real Mac. Permissions are always checked
 Setup never opens, quits or kills a browser and never writes a browser's Preferences: per browser it writes only
 FERB's own files (the native host, the Web Store install request) and reads each profile's state (L25)."""
 
+import signal
 import subprocess
+import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, TextIO
+from typing import Any, Callable, Iterator, TextIO
 
 import ferb
 from ferb.act.browser import autoinstall, profiles
@@ -123,13 +126,43 @@ def device_id(config: Config) -> str:
 
 # ---------- setup ----------
 
+@contextmanager
+def _finish_install() -> Iterator[None]:
+    """A stop (SIGTERM from FERB.app quitting, or Ctrl-C) while the background service is being (re)installed waits
+    until it is loaded again, then stops setup: the daemon is never left unloaded halfway (M5)."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    caught: list[int] = []
+    previous = {sig: signal.signal(sig, lambda signum, frame: caught.append(signum))
+                for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    if caught:
+        raise KeyboardInterrupt
+
+
+def _install(env: Env, update: bool) -> None:
+    """Install, then say where FERB now runs when that changed (FERB.app and a checkout share one LaunchAgent)."""
+    inst = env.inst
+    before = inst.active_program()
+    with _finish_install():
+        inst.install(update_only=update)
+    now = inst.active_program()
+    if before and now and before != now:
+        env.say(f"     The background service now runs from {now} (it ran from {before}).")
+    _app_installed(env)
+
+
 def setup(env: Env, update: bool = False) -> int:
     inst = env.inst
     if update:
         env.say(f"Updating FERB from {inst.bundle} and restarting the daemon…" if inst.bundle else
                 "Updating FERB in its venv and restarting the daemon…")
-        inst.install(update_only=True)
-        _app_installed(env)
+        _install(env, update=True)
         client = wait_for_daemon(env)
         config = Config(inst.home)
         health = client.call("doctor.check", {"selftest": False})
@@ -165,11 +198,11 @@ def setup(env: Env, update: bool = False) -> int:
         env.say(f"1/4  Setting up FERB's background service from {inst.bundle}…")
     else:
         env.say("1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…")
-    inst.install()
-    _app_installed(env)
+    _install(env, update=False)
     client = wait_for_daemon(env)
-    binary = inst.granted_binary()
-    env.say(f"     Daemon running. Permissions must be granted to: {binary}")
+    binary = inst.grant_target()
+    env.say(f"     Daemon running. Permissions go to FERB ({binary}); macOS lists it as FERB." if inst.bundle else
+            f"     Daemon running. Permissions must be granted to: {binary}")
     extension_setup(env)
 
     env.say("2/4  Scanning this Mac's apps (Info.plist only)…")
@@ -270,8 +303,12 @@ def _status(client: Client, perm: str) -> str:
 def _grant(env: Env, client: Client, perm: str, binary: Path | None, required: bool) -> Client:
     label = perm.replace("_", " ").title()
     while _status(client, perm) != "granted":
-        env.say(f"     {label}: not granted. In the System Settings pane that just opened, click +, press ⌘⇧G,")
-        env.say(f"     paste {binary}, click Open and switch it on.")
+        if env.inst.bundle:
+            env.say(f"     {label}: not granted. In the System Settings pane that just opened, switch on FERB ({binary});")
+            env.say("     if it isn't listed, click +, press ⌘⇧G, paste that path, click Open and switch it on.")
+        else:
+            env.say(f"     {label}: not granted. In the System Settings pane that just opened, click +, press ⌘⇧G,")
+            env.say(f"     paste {binary}, click Open and switch it on.")
         env.open_pane(perm)
         answer = env.ask(f"     Press Enter when done{'' if required else ' (or type skip)'}, or 'skip' to continue "
                          "without it: ").strip().lower()
@@ -753,8 +790,9 @@ def uninstall(env: Env, purge: bool) -> int:
             r = subprocess.run(["security", "delete-generic-password", "-s", "ferb", "-a", key], capture_output=True)
             env.say(f"Keychain '{key}': {'deleted' if r.returncode == 0 else 'not found'}")
     if binary:
-        env.say(f"macOS can't remove permissions for a plain binary: in System Settings → Privacy & Security, remove "
-                f"{binary} from Accessibility, Screen Recording (and Input Monitoring / Automation if granted).")
+        what = f"FERB ({inst.grant_target()})" if inst.bundle else str(binary)
+        env.say(f"macOS can't remove permissions for you: in System Settings → Privacy & Security, remove "
+                f"{what} from Accessibility, Screen Recording (and Input Monitoring / Automation if granted).")
     return 0
 
 
@@ -793,12 +831,12 @@ def _shipped_app(env: Env) -> str | None:
     if not (app / "Contents" / "MacOS" / "FERB").is_file():
         env.say(f"{bundle} has no voice helper; download FERB again.")
         return None
-    shown = env.inst.run(["/usr/bin/codesign", "-d", "-r-", str(app)])
-    req = designated_requirement((shown.stdout or "") + (shown.stderr or ""))
-    if not trusted_requirement(req, pinned_ok=True):
-        env.say("FERB's voice helper isn't signed, so FERB won't use it.")
+    try:                                      # the very helper FERB.app's verified signature seals
+        env.inst.check_bundle()
+        return env.inst.sealed_requirement(app, "Helpers/FERB Voice.app")
+    except InstallError as e:
+        env.say(f"FERB won't use its voice helper: {e}")
         return None
-    return req
 
 
 def _voice_helper(env: Env, run: Callable[..., Any] | None = None) -> str | None:

@@ -12,6 +12,10 @@ built as recommended: until F5b's redaction is measured, a secret in a credentia
 or a site). That refusal is never lifted by the escape hatch, which is for FERB's shell: a secret a task needs comes
 through the sealed secret path (D8, D12, D28), and a file from a store is the owner's to send.
 
+FERB.app (L27), when FERB runs from one, holds the daemon's own code, its interpreter and its secret helper: it is
+closed to writes and removal by FERB's tools and its shell, wherever the app sits, and no escape hatch lifts that
+(rule 10). Reading it stays open.
+
 A path is checked as typed and as the OS reaches it now (links first, then `..`), against each entry as written and as
 it resolved when FERB started: a rule matching any of them applies. FERB's workspace is the literal folder in FERB's
 home: a link planted there never moves the exception (and the daemon won't start with one)."""
@@ -22,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from ferb import paths
 from ferb.act.fs.files import real_path
 from ferb.core.errors import FerbError
 from ferb.policy.rules import Kind
@@ -58,6 +63,7 @@ DEFAULT_TERMINAL_APPS = ("com.apple.Terminal", "com.googlecode.iterm2", "dev.war
                          "com.mitchellh.ghostty", "org.alacritty", "net.kovidgoyal.kitty", "com.github.wez.wezterm",
                          "co.zeit.hyper")
 FERB_STATE, NETWORK, ADMIN, TRUSTD = "ferb_state", "network", "admin", "trustd"
+FERB_APP = "ferb_app"                                   # the FERB.app the daemon runs from: never written, never lifted
 WORKSPACE, UPLOADS = "workspace", "uploads"
 READ, WRITE, REMOVE = "read", "write", "remove"         # FileAccess (ferb/core/types.py): what a call does to a file
 # A call that takes a path away with everything inside it: a folder holding protected content is protected for it.
@@ -188,8 +194,9 @@ def workspace_problem(ferb_home: Path) -> str | None:
 
 
 def load(get: Callable[[str, str, Any], Any], home: Path, ferb_home: Path) -> "Protection":
-    """The daemon's lists from config.toml's [protection] (`get` is Config.get), after checking the workspace. Raises
-    BadProtection with the reason, which the daemon shows by not starting and `ferb doctor` shows as a failed check."""
+    """The daemon's lists from config.toml's [protection] (`get` is Config.get), after checking the workspace, plus the
+    FERB.app this code runs from. Raises BadProtection with the reason, which the daemon shows by not starting and
+    `ferb doctor` shows as a failed check."""
     problem = workspace_problem(ferb_home)
     if problem:
         raise BadProtection(problem)
@@ -197,13 +204,13 @@ def load(get: Callable[[str, str, Any], Any], home: Path, ferb_home: Path) -> "P
                       get("protection", "never_write", DEFAULT_NEVER_WRITE),
                       get("protection", "terminal_apps", DEFAULT_TERMINAL_APPS),
                       get("protection", "fs_reads_never_read", True),
-                      local_ports=get("protection", "local_ports", []))
+                      local_ports=get("protection", "local_ports", []), app_bundle=paths.app_bundle())
 
 
 class Protection:
     def __init__(self, home: Path, ferb_home: Path, never_read: Iterable[str], never_write: Iterable[str],
                  terminal_apps: Iterable[str], fs_reads_never_read: bool = False, *,
-                 local_ports: Any = ()) -> None:
+                 local_ports: Any = (), app_bundle: Path | None = None) -> None:
         if not isinstance(fs_reads_never_read, bool):
             raise BadProtection("protection.fs_reads_never_read in config.toml must be true or false")
         self.home = home
@@ -219,6 +226,8 @@ class Protection:
         self.terminal_apps = frozenset(a.lower() for a in _strings(terminal_apps, "terminal_apps", "app bundle ids"))
         self.fs_reads_never_read = fs_reads_never_read
         self.local_ports = _local_ports(local_ports)
+        self.app_bundle = app_bundle
+        self._app_roots = _forms(app_bundle) if app_bundle is not None else ()   # resolved and as typed
 
     def _entries(self, prefix: str, items: list[str]) -> list[Entry]:
         out: dict[str, Entry] = {}
@@ -239,6 +248,10 @@ class Protection:
                    or (removes and (_under(home, p) or _under(up, p)))
                    for p in forms for home, ws, up in self._state_roots)
 
+    def _app(self, forms: tuple[Path, ...], removes: bool = False) -> bool:
+        """Inside FERB.app; for a call that removes, also a folder holding it."""
+        return any(_under(p, app) or (removes and _under(app, p)) for p in forms for app in self._app_roots)
+
     @staticmethod
     def _hit(entries: list[Entry], forms: tuple[Path, ...], removes: bool = False) -> str | None:
         """The first entry a path is inside (as typed or resolved, against the entry as written or resolved); for a
@@ -254,7 +267,8 @@ class Protection:
         return FERB_STATE if self._state(forms) else self._hit(self.reads, forms)
 
     def write_denied(self, path: Path) -> str | None:
-        return self.read_denied(path) or self._hit(self.writes, self._forms(path))
+        forms = self._forms(path)
+        return self.read_denied(path) or (FERB_APP if self._app(forms) else self._hit(self.writes, forms))
 
     def fs_denied(self, path: Path, access: str) -> str | None:
         """FERB's own tools that name files (`access`: read, write, remove; a trash or permanent-delete kind counts as
@@ -266,6 +280,8 @@ class Protection:
         forms, removes = self._forms(path), access in _REMOVES
         if self._state(forms, removes):
             return FERB_STATE
+        if access not in (READ, "metadata") and self._app(forms, removes):
+            return FERB_APP                         # the daemon's own code (L27, rule 10): read, never changed
         return None if access == "metadata" or self.fs_reads_never_read else self._hit(self.reads, forms, removes)
 
     def liftable(self, rule_id: str) -> bool:
@@ -282,12 +298,18 @@ class Protection:
         """(path, is_dir) pairs of the never-write list, resolved and as written, for the shell profile (Task 2)."""
         return [(p, _folder_or_missing(p)) for e in self.writes for p in dict.fromkeys((e.path, e.typed))]
 
+    def app_entries(self) -> list[Path]:
+        """FERB.app, resolved and as typed, for the shell profile's last write deny (never lifted)."""
+        return list(self._app_roots)
+
     def guarded_parents(self) -> list[Path]:
-        """Every folder above a listed entry and above FERB's upload staging (so the workspace and FERB's home too),
-        for the shell profile's `(deny file-write* (literal <folder>))`: moving or deleting such a folder would carry
-        the protected content to a path no rule names. Files can still be made inside them. The root is left out."""
+        """Every folder above a listed entry, above FERB's upload staging (so the workspace and FERB's home too) and
+        above FERB.app, for the shell profile's `(deny file-write* (literal <folder>))`: moving or deleting such a
+        folder would carry the protected content to a path no rule names. Files can still be made inside them. The
+        root is left out."""
         roots = [p for e in (*self.reads, *self.writes) for p in (e.path, e.typed)]
         roots += [up for _, _, up in self._state_roots]
+        roots += list(self._app_roots)
         return sorted({parent for r in roots for parent in r.parents if parent != parent.parent})
 
     def rules(self) -> list[dict[str, Any]]:
@@ -298,6 +320,8 @@ class Protection:
              "servers started inside FERB's shell, plus owner-approved executable-pinned local ports through "
              "FERB's proxy; the proxy records each host and is the way out "
              "(shell.rules says whether it is running)", "liftable": False},
+            *([{"id": FERB_APP, "kind": "write", "path": str(self.app_bundle), "liftable": False}]
+              if self.app_bundle is not None else []),
             {"id": ADMIN, "kind": "admin", "path": "a command that needs your Mac password (sudo)", "liftable": True},
             {"id": TRUSTD, "kind": "service", "path": "macOS certificate trust evaluation (trustd): enabling it "
              "lets the certificate service fetch certificate URLs outside FERB's proxy; Go TLS may need it",

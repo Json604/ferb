@@ -5,9 +5,10 @@ Dedicated interpreter + venv + LaunchAgent, `ferb setup --update`, and uninstall
 - The interpreter lives in ~/.ferb/python (uv-managed, used only by FERB). TCC grants attach to it (spike 8/15).
 - FERB is installed into ~/.ferb/venv as a copy (not a link to the repo): the daemon never runs code from the
   repo, and only changes when `ferb setup --update` reinstalls it.
-- From a packaged FERB.app (L27) nothing is built or downloaded: the daemon runs the app's own Python, the secret
-  helper and the pinned Codex come from the app, and `ferb` on PATH is a link to the app's launcher. The home,
-  logs and data are the same ~/.ferb, so switching between the two keeps everything.
+- From a packaged FERB.app (L27) nothing is built or downloaded: launchd starts the app's nested agent app (FERB, a
+  native stub embedding the app's own Python), so macOS names FERB in permission prompts and Privacy & Security; the
+  secret helper and the pinned Codex come from the app, exactly as its signature seals them; `ferb` is a link to the
+  app's launcher. The home, logs and data are the same ~/.ferb, so switching between the two keeps everything.
 - Uninstall removes only FERB's own things; `--purge` refuses a folder without the `.ferb-home` marker."""
 
 import hashlib
@@ -18,7 +19,6 @@ import re
 import shlex
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -27,6 +27,7 @@ from typing import Callable
 
 import ferb
 from ferb.core.errors import FerbError
+from ferb.paths import app_bundle as app_bundle   # FERB.app's own location (setup and the daemon ask it here)
 
 LABEL = "com.ferb.daemon"
 PYTHON_VERSION = "3.12"
@@ -41,8 +42,11 @@ BUNDLE_CLI = Path("Contents/Resources/bin/ferb")
 BUNDLE_NODE = Path("Contents/Resources/node")                 # holds node_modules/@openai/codex-darwin-arm64
 BUNDLE_SECRET_HELPER = Path("Contents/Helpers/ferb-secrets")
 BUNDLE_VOICE_APP = Path("Contents/Helpers/FERB Voice.app")    # macapp/FERB, nested until it merges into the app
-# The app's Python ignores PYTHON* variables and the owner's user site-packages, and never writes bytecode into the
-# sealed bundle (its .pyc files are compiled at build time).
+# The daemon: an app named FERB whose executable embeds the bundled Python, always isolated (no PYTHON* variables,
+# no user site-packages, no working folder on sys.path) and never writing bytecode into the sealed bundle
+BUNDLE_AGENT_APP = Path("Contents/Helpers/FERB.app")
+BUNDLE_AGENT = BUNDLE_AGENT_APP / "Contents" / "MacOS" / "FERB"
+# The same isolation for the app's plain interpreter (the `ferb` command and the native host)
 BUNDLE_PYTHON_FLAGS = ("-I", "-B")
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
@@ -60,16 +64,6 @@ def repo_root() -> Path:
     return Path(ferb.__file__).resolve().parent.parent
 
 
-def app_bundle(prefix: Path | None = None) -> Path | None:
-    """The FERB.app whose Python runs this code (its prefix is <app>/Contents/Resources/python); None from a checkout
-    or ~/.ferb/venv."""
-    p = Path(prefix if prefix is not None else sys.prefix).resolve()
-    contents = p.parent.parent
-    if (p.name, p.parent.name, contents.name) == ("python", "Resources", "Contents") and contents.parent.suffix == ".app":
-        return contents.parent
-    return None
-
-
 def voice_app(home: Path, bundle: Path | None) -> Path:
     """FERB's voice/speech app: nested in FERB.app when FERB runs from one, else built into ~/.ferb by setup."""
     return bundle / BUNDLE_VOICE_APP if bundle else home / "FERB.app"
@@ -82,6 +76,22 @@ def designated_requirement(codesign_output: str) -> str:
             if line.startswith(prefix):
                 return line[len(prefix):].strip()
     return ""
+
+
+def sealed_cdhash(bundle: Path, nested: str) -> str | None:
+    """The code hash FERB.app's own signature records for a nested helper (`Helpers/ferb-secrets`), from its seal."""
+    try:
+        seal = plistlib.loads((bundle / "Contents" / "_CodeSignature" / "CodeResources").read_bytes())
+        value = seal["files2"][nested]["cdhash"]
+    except (OSError, KeyError, TypeError, plistlib.InvalidFileException):
+        return None
+    return value.hex() if isinstance(value, bytes) else None
+
+
+def codesign_field(codesign_output: str, name: str) -> str:
+    """A `Name=value` line of `codesign -dv`; empty when absent."""
+    return next((line.split("=", 1)[1].strip() for line in codesign_output.splitlines()
+                 if line.startswith(name + "=")), "")
 
 
 def trusted_requirement(requirement: str, *, pinned_ok: bool) -> bool:
@@ -154,14 +164,31 @@ class Installer:
 
     @property
     def daemon_python(self) -> Path:
-        return self.bundle / BUNDLE_PYTHON if self.bundle else self.venv_python
+        """What runs the daemon: FERB.app's agent (it embeds the app's Python), or the venv's python."""
+        return self.bundle / BUNDLE_AGENT if self.bundle else self.venv_python
 
     def python_command(self) -> list[str]:
-        return [str(self.daemon_python), *BUNDLE_PYTHON_FLAGS] if self.bundle else [str(self.venv_python)]
+        """The interpreter for FERB's other processes (the native host)."""
+        return [str(self.bundle / BUNDLE_PYTHON), *BUNDLE_PYTHON_FLAGS] if self.bundle else [str(self.venv_python)]
+
+    def daemon_command(self) -> list[str]:
+        return [str(self.daemon_python), "-m", "ferb.daemon"]
 
     def granted_binary(self) -> Path | None:
         """The real executable TCC sees (the venv's python resolves to the dedicated interpreter)."""
         return self.daemon_python.resolve() if self.daemon_python.exists() else None
+
+    def grant_target(self) -> Path | None:
+        """What the owner switches on in Privacy & Security: the agent app FERB, or the dedicated interpreter."""
+        return self.bundle / BUNDLE_AGENT_APP if self.bundle else self.granted_binary()
+
+    def active_program(self) -> str | None:
+        """What the installed LaunchAgent runs now (another installation's, maybe)."""
+        try:
+            args = plistlib.loads(self.plist_path.read_bytes()).get("ProgramArguments") or [None]
+        except (OSError, plistlib.InvalidFileException):
+            return None
+        return str(args[0]) if args[0] else None
 
     def bundle_info(self) -> dict[str, object]:
         if self.bundle is None:
@@ -200,6 +227,8 @@ class Installer:
         from ferb.runtimes.codex_exec import CODEX_VERSION, _NATIVE_BIN
         node = self.home / "node"
         binary = node / _NATIVE_BIN
+        if not self.bundle and node.is_symlink():
+            node.unlink()                             # a link into FERB.app: a checkout keeps its own pinned Codex
         if binary.exists() and self.run([str(binary), "--version"]).stdout.split()[-1:] == [CODEX_VERSION]:
             return
         if self.bundle:
@@ -212,8 +241,6 @@ class Installer:
                 shutil.rmtree(node)                   # FERB's own npm install of another Codex version
             node.symlink_to(bundled)
             return
-        if node.is_symlink():
-            node.unlink()                             # a link into FERB.app: install a checkout's pin beside it
         self._ok(["npm", "install", "--prefix", str(node), "--save-exact", "--no-fund", "--no-audit",
                   f"@openai/codex@{CODEX_VERSION}"], "installing the pinned Codex")
 
@@ -227,12 +254,11 @@ class Installer:
     def plist(self) -> dict[str, object]:
         logs = self.home / "logs"
         env = {"FERB_HOME": str(self.home)}
-        if self.bundle:                     # which app build runs, and the same isolation for the daemon's children
-            env.update(FERB_APP_BUILD=str(self.bundle_info().get("CFBundleVersion", "")), PYTHONNOUSERSITE="1",
-                       PYTHONDONTWRITEBYTECODE="1")
+        if self.bundle:                     # which app build runs (the agent itself keeps the daemon's Python isolated)
+            env["FERB_APP_BUILD"] = str(self.bundle_info().get("CFBundleVersion", ""))
         agent: dict[str, object] = {
             "Label": self.label,
-            "ProgramArguments": [*self.python_command(), "-m", "ferb.daemon"],
+            "ProgramArguments": self.daemon_command(),
             "EnvironmentVariables": env,
             "WorkingDirectory": str(self.home),
             "RunAtLoad": True,
@@ -294,7 +320,9 @@ class Installer:
             self.install_secret_helper()
             self.ensure_codex()
             self.write_native_host()
-            self.restart() if self.loaded() else self.load()
+            # FERB.app may have pointed launchd at itself since: the agent runs this installation again
+            changed = self.write_plist()
+            self.load() if changed or not self.loaded() else self.restart()
             return
         interpreter = self.ensure_interpreter()
         self.ensure_venv(interpreter)
@@ -334,34 +362,63 @@ class Installer:
         if self.read_only(self.bundle):
             raise InstallError("FERB is running from its disk image: drag FERB.app to Applications, then open it from "
                                "there")
-        if not self.daemon_python.is_file():
-            raise InstallError(f"{self.bundle} is incomplete (no {BUNDLE_PYTHON}); download FERB again")
+        for part in (BUNDLE_AGENT, BUNDLE_PYTHON):
+            if not (self.bundle / part).is_file():
+                raise InstallError(f"{self.bundle} is incomplete (no {part}); download FERB again")
         self._ok(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(self.bundle)],
                  "checking FERB.app's signature (download FERB again if it was damaged)")
 
     def install_secret_helper(self) -> None:
         """Owner-invoked setup only. A checkout builds it and signs it with the stable local code-signing identity
         (no ad-hoc/unsigned fallback). FERB.app ships it signed; its requirement is then the app's signing
-        certificate (Developer ID) or, ad-hoc, the exact code hash, so any other binary there is refused."""
+        certificate's team (Developer ID) or, ad-hoc, the exact code hash, and only for the very helper FERB.app's
+        signature seals (sealed_requirement)."""
         binary = self.home / 'bin' / 'ferb-secrets'
         binary.parent.mkdir(parents=True, exist_ok=True)
         if self.bundle:
-            shipped = self.bundle / BUNDLE_SECRET_HELPER
-            self._ok(['/usr/bin/codesign', '--verify', '--strict', str(shipped)], 'checking the bundled secret helper')
             staged = binary.with_name('.ferb-secrets.new')
-            shutil.copyfile(shipped, staged)          # a byte copy keeps the embedded signature
+            shutil.copyfile(self.bundle / BUNDLE_SECRET_HELPER, staged)   # a byte copy keeps the embedded signature
+            try:
+                requirement = self.sealed_requirement(staged, 'Helpers/ferb-secrets')
+            except InstallError:
+                staged.unlink(missing_ok=True)
+                raise
             os.replace(staged, binary)
-        else:
-            source = Path(ferb.__file__).parent / 'identity' / 'secret_helper.swift'
-            self._ok(['xcrun', 'swiftc', '-O', '-o', str(binary), str(source), '-framework', 'Security',
-                      '-framework', 'CryptoKit'], 'building the secret helper')
-            self._ok(['/usr/bin/codesign', '--force', '--sign', 'FERB Local Code Signing', '--identifier',
-                      'com.ferb.secrets', str(binary)], 'signing the secret helper (create FERB Local Code Signing in Keychain Access if missing)')
+            self._record_requirement(binary, requirement)
+            return
+        source = Path(ferb.__file__).parent / 'identity' / 'secret_helper.swift'
+        self._ok(['xcrun', 'swiftc', '-O', '-o', str(binary), str(source), '-framework', 'Security',
+                  '-framework', 'CryptoKit'], 'building the secret helper')
+        self._ok(['/usr/bin/codesign', '--force', '--sign', 'FERB Local Code Signing', '--identifier',
+                  'com.ferb.secrets', str(binary)], 'signing the secret helper (create FERB Local Code Signing in Keychain Access if missing)')
         shown = self.run(['/usr/bin/codesign', '-d', '-r-', str(binary)])
         requirement = designated_requirement((shown.stdout or '') + (shown.stderr or ''))
-        if not trusted_requirement(requirement, pinned_ok=self.bundle is not None):
-            raise InstallError('the bundled secret helper has neither a certificate identity nor a pinned code hash'
-                               if self.bundle else 'the secret helper lacks a stable certificate identity')
+        if not trusted_requirement(requirement, pinned_ok=False):
+            raise InstallError('the secret helper lacks a stable certificate identity')
+        self._record_requirement(binary, requirement)
+
+    def sealed_requirement(self, code: Path, nested: str) -> str:
+        """The requirement to pin for `code`, a copy of FERB.app's nested `nested` (check_bundle verified the app's own
+        signature first): only if it is exactly the code that signature seals (the same code hash), and then its
+        code hash (ad-hoc) or a Developer ID requirement naming FERB.app's own team. A merely valid signature, or
+        another team's, is refused."""
+        assert self.bundle is not None
+        sealed = sealed_cdhash(self.bundle, nested)
+        shown = self.run(['/usr/bin/codesign', '-dv', '--verbose=4', str(code)])
+        if not sealed or codesign_field((shown.stdout or '') + (shown.stderr or ''), 'CDHash') != sealed:
+            raise InstallError(f"{code.name} isn't the one FERB.app's signature seals; download FERB again")
+        shown = self.run(['/usr/bin/codesign', '-d', '-r-', str(code)])
+        requirement = designated_requirement((shown.stdout or '') + (shown.stderr or ''))
+        app = self.run(['/usr/bin/codesign', '-dv', str(self.bundle)])
+        team = codesign_field((app.stdout or '') + (app.stderr or ''), 'TeamIdentifier')
+        if requirement == f'cdhash H"{sealed}"':
+            return requirement
+        if (team and team != 'not set' and 'anchor apple generic' in requirement
+                and re.search(rf'certificate leaf\[subject\.OU\] = "?{re.escape(team)}"?(\s|\)|$)', requirement)):
+            return requirement
+        raise InstallError(f"{code.name} is pinned by neither its exact code hash nor FERB.app's Developer ID team")
+
+    def _record_requirement(self, binary: Path, requirement: str) -> None:
         binary.chmod(0o700)
         dest = binary.with_suffix('.requirement')
         dest.write_text(requirement + '\n')
@@ -426,16 +483,15 @@ class Installer:
         os.replace(staged, link)
 
     def cli_status(self) -> str | None:
-        """Where the `ferb` command is, for setup to say (FERB.app only)."""
+        """Where the `ferb` command is, for setup to say (FERB.app only). The app is the product and the command is
+        for development (owner, 2026-10-14), so setup never edits shell profiles or asks about PATH."""
         link = self.cli_link
         if self.bundle is None or link is None:
             return None
         target = self.bundle / BUNDLE_CLI
         if not (link.is_symlink() and link.resolve() == target.resolve()):
             return f"`ferb` command: left {link} alone (it isn't a link FERB made); FERB's own is {target}"
-        on_path = str(link.parent) in os.environ.get("PATH", "").split(os.pathsep)
-        return f"`ferb` command: {link}" + ("" if on_path else
-                                             f" (add {link.parent} to your PATH, e.g. in ~/.zprofile)")
+        return f"`ferb` command: {link}"
 
     # ---------- uninstall ----------
 

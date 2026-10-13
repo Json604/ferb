@@ -1,7 +1,8 @@
 # FERB.app's one signing step (L27), sourced by build-app.sh and build-dmg.sh (zsh).
 #
-# SIGN_IDENTITY is "-" (ad-hoc, the default) or a codesign identity. A "Developer ID Application: …" identity also
-# gets a secure timestamp, notarization and a stapled ticket: the same bundle is signed again, never rebuilt
+# SIGN_IDENTITY is "-" (ad-hoc, the default) or a codesign identity: a certificate's name or its SHA-1 hash, as
+# `security find-identity -v -p codesigning` lists them. A Developer ID Application certificate also gets a secure
+# timestamp, notarization and a stapled ticket: the same bundle is signed again, never rebuilt
 # (`build-app.sh --sign-only APP`). Notary credentials come only from the environment, are passed to notarytool
 # and are never written to a file or printed:
 #   NOTARY_KEYCHAIN_PROFILE                      a profile saved with `xcrun notarytool store-credentials`, or
@@ -9,7 +10,19 @@
 
 : ${SIGN_IDENTITY:=-}
 
-ferb_developer_id() { [[ "$SIGN_IDENTITY" == "Developer ID Application:"* ]] }
+# The certificate SIGN_IDENTITY names, by its common name, looked up once when this file is sourced (a hash or a
+# partial name both work, as with codesign). Ad-hoc is "-"; an identity the keychain doesn't list stays as given.
+ferb_resolve_identity() {
+  FERB_IDENTITY_NAME="$SIGN_IDENTITY"
+  [[ "$SIGN_IDENTITY" == "-" ]] && return 0
+  local line
+  line=$(security find-identity -v -p codesigning 2>/dev/null | grep -F -i -- "$SIGN_IDENTITY" | head -1 || true)
+  if [[ "$line" == *'"'*'"'* ]]; then FERB_IDENTITY_NAME="${${line#*\"}%\"*}"; fi
+  return 0
+}
+ferb_resolve_identity
+
+ferb_developer_id() { [[ "$FERB_IDENTITY_NAME" == "Developer ID Application:"* ]] }
 
 ferb_check_notary_credentials() {
   ferb_developer_id || return 0
@@ -24,11 +37,12 @@ ferb_entitlements() {
   local -a keys
   case $1 in
     daemon) keys=(com.apple.security.automation.apple-events) ;;     # Automation checks and osascript (permissions.py)
+    python) keys=() ;;                                                # the `ferb` command and the native host
     app|voice) keys=(com.apple.security.device.audio-input) ;;       # dictation / push-to-talk microphone
   esac
   # Ad-hoc (or any non-Developer-ID) code has no Team ID, so library validation would refuse every extension module
   # the interpreter loads. One Developer ID team signs all of them, so validation stays on in that build.
-  if [[ $1 == daemon ]] && ! ferb_developer_id; then keys+=(com.apple.security.cs.disable-library-validation); fi
+  if [[ $1 == (daemon|python) ]] && ! ferb_developer_id; then keys+=(com.apple.security.cs.disable-library-validation); fi
   {
     print '<?xml version="1.0" encoding="UTF-8"?>'
     print '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
@@ -59,7 +73,7 @@ ferb_vendor_signed() {
   info=$(codesign -dv --verbose=2 "$f" 2>&1) || return 1
   [[ $info == *"Authority=Developer ID Application:"* ]] || return 1
   team=${${info##*TeamIdentifier=}%%$'\n'*}
-  [[ "$SIGN_IDENTITY" == *"($team)" ]] && return 1                  # our own team: sign it again
+  [[ "$FERB_IDENTITY_NAME" == *"($team)" ]] && return 1            # our own team: sign it again
   codesign --verify --strict "$f" 2>/dev/null
 }
 
@@ -68,6 +82,7 @@ ferb_sign_app() {
   local app=${1:A} work=$2 f main
   mkdir -p "$work"
   ferb_entitlements daemon "$work/daemon.entitlements"
+  ferb_entitlements python "$work/python.entitlements"
   ferb_entitlements app "$work/app.entitlements"
   ferb_entitlements voice "$work/voice.entitlements"
   main="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || print FERBNotch)"
@@ -80,16 +95,21 @@ ferb_sign_app() {
     ferb_vendor_signed "$f" && continue
     case $f in
       "$app/Contents/Resources/python/bin/python3.12")
-        ferb_sign "$f" --identifier com.ferb.daemon --entitlements "$work/daemon.entitlements" ;;
+        ferb_sign "$f" --identifier com.ferb.python --entitlements "$work/python.entitlements" ;;
       "$app/Contents/Helpers/ferb-secrets")
         ferb_sign "$f" --identifier com.ferb.secrets ;;
       *)
         ferb_sign "$f" ;;
     esac
   done
-  local nested
+  local nested id
   for nested in "$app"/Contents/Helpers/*.app(N); do
-    ferb_sign "$nested" --entitlements "$work/voice.entitlements"
+    id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$nested/Contents/Info.plist" 2>/dev/null || true)
+    if [[ $id == com.ferb.daemon ]]; then         # the agent app FERB: it runs the daemon
+      ferb_sign "$nested" --entitlements "$work/daemon.entitlements"
+    else                                          # the voice helper
+      ferb_sign "$nested" --entitlements "$work/voice.entitlements"
+    fi
   done
   ferb_sign "$app" --entitlements "$work/app.entitlements"
   codesign --verify --deep --strict --verbose=2 "$app"

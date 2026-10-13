@@ -19,20 +19,29 @@ disk image, or from source.
 
 1. Open `FERB-<version>.dmg` and drag FERB to Applications. Open it from Applications, not from the disk image.
 2. This build is ad-hoc signed, not yet signed with an Apple Developer ID, so macOS stops it the first time. Once:
-   open System Settings → Privacy & Security, scroll to Security, click **Open Anyway** next to the message about
-   FERB, then click **Open** in the dialog that follows. macOS remembers this choice for FERB.
-3. FERB opens a **Set Up FERB** window that runs `ferb setup` from inside the app: the background service, a `ferb`
-   command in `~/.local/bin` (add that folder to your PATH if your shell doesn't already have it), the browser
-   extension and the permission steps. Answer its questions in the window's line at the bottom.
+   open System Settings → Privacy & Security, scroll to Security and click **Open Anyway** next to the message about
+   FERB. The button is there for about an hour after the blocked attempt; if it's gone, open FERB again. macOS asks
+   for your login password, then FERB opens and macOS remembers the choice
+   ([Apple](https://support.apple.com/guide/mac-help/mh40616/mac)).
+3. FERB opens a **Set Up FERB** window that runs `ferb setup` from inside the app: the background service, the
+   browser extension and the permission steps. Answer its questions in the line at the bottom. Closing the window
+   doesn't stop setup; **Set Up FERB…** in FERB's menu bar shows it again.
+
+In Privacy & Security, FERB appears as **FERB**: the background service (Accessibility, Screen Recording, Full Disk
+Access, Automation) is FERB's agent app inside FERB.app, and dictation's Microphone and Speech Recognition belong to
+FERB.app itself. Push-to-talk, when you turn it on, appears as **FERB Voice** until it merges into FERB.app.
 
 FERB uses the same `~/.ferb` home as a source install, so an existing installation keeps its data; the app asks
-before it replaces one. After you replace FERB.app with a newer build, the next launch updates the background service
-in the same window. Until FERB is Developer ID signed, an update needs its macOS permissions granted again (the window
-says which; choose Set Up FERB… in FERB's menu bar for the steps), and the Keychain may ask once before FERB's secret
-helper reads an item stored by an earlier build. Build the app and disk image with
-`scripts/build-app.sh` and `scripts/build-dmg.sh`; set `SIGN_IDENTITY` to a Developer ID and the notary credentials
-described in `scripts/signing.sh` to sign, notarize and staple the same bundle (`scripts/build-app.sh --sign-only
-build/app/FERB.app` re-signs a built app without rebuilding it).
+before it replaces one, from its menu too. After you replace FERB.app with a newer build, the next launch updates the
+background service in the same window (and so does a launch that finds it not running). Until FERB is Developer ID
+signed, an update needs its macOS permissions granted again (the window says which; Set Up FERB… walks through them),
+and the Keychain may ask once before FERB's secret helper reads an item stored by an earlier build.
+
+The app is the product; the `ferb` command is for development. Setup links it at `~/.local/bin/ferb` and never edits
+your shell profile; to use it, add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile`. Build the app and disk
+image with `scripts/build-app.sh` and `scripts/build-dmg.sh`; set `SIGN_IDENTITY` to a Developer ID (its name or
+SHA-1 hash) and the notary credentials described in `scripts/signing.sh` to sign, notarize and staple the same bundle
+(`scripts/build-app.sh --sign-only build/app/FERB.app` re-signs a built app without rebuilding it).
 
 ### From source
 

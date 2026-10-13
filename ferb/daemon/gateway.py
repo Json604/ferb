@@ -60,7 +60,7 @@ from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger,
 from ferb.orchestrator.tree import TaskTree
 from ferb.policy import confirm, provenance
 from ferb.policy.destinations import Confirmations, KnownDestinations
-from ferb.policy.protection import FERB_STATE, Protection
+from ferb.policy.protection import FERB_APP, FERB_STATE, Protection
 from ferb.policy.rules import EFFECTS
 from ferb.orchestrator.tree import ExecutionState
 from ferb.policy.rules import READING_KINDS, REVERSIBLE, ActionRequest, Kind, payload_hash
@@ -95,6 +95,9 @@ NO_COPY = "{name} did not run: FERB couldn't keep a recovery copy of the file ({
 FS_FERB_STATE = ("{name} can't touch {path}: it is or holds FERB's own files (records, settings, tokens, recovery "
                  "copies, upload staging), which FERB's tools never read or change; only the owner changes them "
                  "(rule 10)")
+FS_FERB_APP = ("{name} can't change {path}: it is or holds FERB.app, FERB's own code (its interpreter, packages and "
+               "secret helper), which FERB's tools may read but never change; only the owner replaces FERB.app "
+               "(rule 10)")
 FS_UNDECLARED = ("{name} has file access but doesn't declare the files it names, so FERB can't check them against its "
                  "protection lists; it didn't run")
 FS_NEVER_READ = ("{name} can't open or change {path}: it is inside or holds {store}, where passwords, keys, sign-ins or "
@@ -1031,6 +1034,8 @@ class Gateway:
             return None
         if rule == FERB_STATE:
             return "FERB's own state", FS_FERB_STATE.format(name=name, path=recovery.short(path))
+        if rule == FERB_APP:
+            return "FERB's own code", FS_FERB_APP.format(name=name, path=recovery.short(path))
         entry = protection.entry(rule)
         return (f"a never-read store ({rule})",
                 FS_NEVER_READ.format(name=name, path=recovery.short(path), store=entry.shown if entry else rule))

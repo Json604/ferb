@@ -155,7 +155,7 @@ def test_native_host_manifest_goes_to_every_listed_folder_and_uninstall_removes_
 
 # ---------- packaged FERB.app (L27): the daemon, helpers and `ferb` run from inside the bundle ----------
 
-from tests.support.app_bundle import CODEX_BIN, PINNED, BundleRunner, make_ferb_app  # noqa: E402
+from tests.support.app_bundle import AGENT, CODEX_BIN, PINNED, BundleRunner, make_ferb_app  # noqa: E402
 
 
 def bundled(tmp_path: Path, **runner: object) -> Installer:
@@ -175,15 +175,17 @@ def test_app_bundle_is_found_only_from_the_interpreter_inside_ferb_app(tmp_path:
     assert app_bundle() is None                                                 # this checkout's own venv
 
 
-def test_bundle_plist_runs_the_bundled_python_isolated_and_records_the_build(tmp_path: Path) -> None:
+def test_bundle_plist_runs_the_daemon_as_the_nested_ferb_agent_app(tmp_path: Path) -> None:
+    """launchd starts FERB's agent app (a native stub that embeds the app's Python, isolated, never writing bytecode),
+    so macOS names FERB, not python3.12, in permission prompts, Privacy & Security and Login Items."""
     inst = bundled(tmp_path)
     p = inst.plist()
-    python = inst.bundle / "Contents" / "Resources" / "python" / "bin" / "python3.12"  # type: ignore[operator]
-    assert p["ProgramArguments"] == [str(python), "-I", "-B", "-m", "ferb.daemon"]
-    assert p["EnvironmentVariables"] == {"FERB_HOME": str(inst.home), "FERB_APP_BUILD": "202610140201",
-                                         "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    agent = inst.bundle / AGENT  # type: ignore[operator]
+    assert p["ProgramArguments"] == [str(agent), "-m", "ferb.daemon"]
+    assert p["EnvironmentVariables"] == {"FERB_HOME": str(inst.home), "FERB_APP_BUILD": "202610140201"}
     assert p["AssociatedBundleIdentifiers"] == ["com.ferb.FERB"]          # Login Items shows it under FERB
-    assert inst.granted_binary() == python.resolve()
+    assert inst.granted_binary() == agent.resolve()                         # what the daemon reports as its executable
+    assert inst.grant_target() == inst.bundle / "Contents" / "Helpers" / "FERB.app"  # type: ignore[operator]
     assert str(p["StandardErrorPath"]).startswith(str(inst.home / "logs"))   # the same ~/.ferb home and logs
 
 
@@ -245,18 +247,32 @@ def test_bundle_update_reloads_the_agent_when_the_app_build_changes(tmp_path: Pa
     assert r.ran("launchctl", "bootstrap") == 2 and r.ran("launchctl", "kickstart", "-k") == 1
 
 
-def test_bundle_secret_helper_refuses_unpinned_unsigned_code(tmp_path: Path) -> None:
+def test_bundle_secret_helper_must_be_exactly_the_code_ferb_apps_signature_seals(tmp_path: Path) -> None:
+    """A valid signature alone isn't enough: the helper copied into ~/.ferb must have the code hash FERB.app's own
+    (verified) signature records for it, and its pinned requirement is that hash (ad-hoc)."""
     from ferb.device.install import InstallError
     inst = bundled(tmp_path)
-    real = inst.run
+    inst.install_secret_helper()
+    assert (inst.home / "bin" / "ferb-secrets.requirement").read_text().strip() == PINNED
+    swapped = make_ferb_app(tmp_path / "Swapped", sealed="0" * 40)          # the app seals some other helper
+    inst.bundle = swapped
+    with pytest.raises(InstallError, match="isn't the one FERB.app's signature seals"):
+        inst.install_secret_helper()
+    inst = bundled(tmp_path / "idonly", requirement='identifier "com.ferb.secrets"')
+    with pytest.raises(InstallError, match="neither"):
+        inst.install_secret_helper()
 
-    def unsigned(cmd: list[str]) -> object:
-        result = real(cmd)
-        if "-r-" in cmd:
-            result.stderr = 'designated => identifier "com.ferb.secrets"\n'        # neither a certificate nor a hash
-        return result
-    inst.run = unsigned  # type: ignore[assignment]
-    with pytest.raises(InstallError, match="certificate identity nor a pinned code hash"):
+
+def test_bundle_secret_helper_with_a_developer_id_must_carry_the_apps_own_team(tmp_path: Path) -> None:
+    from ferb.device.install import InstallError
+    dev_id = ('identifier "com.ferb.secrets" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6]'
+              ' /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate '
+              'leaf[subject.OU] = {}')
+    inst = bundled(tmp_path, requirement=dev_id.format("TEAM123456"), team="TEAM123456")
+    inst.install_secret_helper()
+    assert "TEAM123456" in (inst.home / "bin" / "ferb-secrets.requirement").read_text()
+    inst = bundled(tmp_path / "other", requirement=dev_id.format("OTHERTEAM1"), team="TEAM123456")
+    with pytest.raises(InstallError, match="neither"):
         inst.install_secret_helper()
 
 
@@ -287,13 +303,41 @@ def test_existing_pinned_codex_is_kept_and_a_stale_one_is_replaced_by_the_apps(t
     assert (inst.home / "node").is_symlink()
 
 
-def test_source_codex_install_never_writes_through_a_link_into_ferb_app(tmp_path: Path, inst: Installer) -> None:
+def test_source_codex_install_replaces_a_link_into_ferb_app(tmp_path: Path, inst: Installer) -> None:
+    """A checkout install keeps its own pinned Codex: a link into FERB.app is replaced even when that Codex is the
+    pinned version, and npm never writes through it."""
+    from ferb.runtimes.codex_exec import CODEX_VERSION
     app = make_ferb_app(tmp_path / "Applications")
     (inst.home / "node").parent.mkdir(parents=True, exist_ok=True)
     (inst.home / "node").symlink_to(app / "Contents" / "Resources" / "node")
+    real = inst.run
+
+    def pinned(cmd: list[str]) -> object:
+        result = real(cmd)
+        if cmd[1:] == ["--version"]:
+            result.stdout = f"codex-cli {CODEX_VERSION}\n"
+        return result
+    inst.run = pinned  # type: ignore[assignment]
     inst.ensure_codex()                                                       # source mode: npm into its own folder
     assert not (inst.home / "node").is_symlink()
-    assert inst.run.ran("npm", "install") == 1  # type: ignore[attr-defined]
+    assert real.ran("npm", "install") == 1  # type: ignore[attr-defined]
+    assert (app / "Contents" / "Resources" / "node" / CODEX_BIN).read_bytes().startswith(b"fake")   # untouched
+
+
+def test_a_checkout_update_after_an_app_install_moves_launchd_back_to_the_checkout(tmp_path: Path) -> None:
+    import plistlib
+    app_inst = bundled(tmp_path)
+    app_inst.install()
+    source = Installer(app_inst.home, label="com.ferb.test", run=app_inst.run, launch_agents=tmp_path / "LaunchAgents")
+    app_inst.run.requirement = 'identifier "com.ferb.secrets" and certificate leaf = H"local"'  # type: ignore[attr-defined]
+    (source.venv / "bin").mkdir(parents=True)
+    (source.venv / "bin" / "python").write_text("")
+    before = app_inst.run.ran("launchctl", "bootstrap")  # type: ignore[attr-defined]
+    assert source.active_program() == str(app_inst.bundle / AGENT)  # type: ignore[operator]
+    source.install(update_only=True)
+    agent = plistlib.loads(source.plist_path.read_bytes())
+    assert agent["ProgramArguments"][0] == str(source.venv_python) and source.active_program() == str(source.venv_python)
+    assert app_inst.run.ran("launchctl", "bootstrap") == before + 1  # type: ignore[attr-defined]   # reloaded
 
 
 def test_uninstall_removes_the_cli_link_ferb_app_made(tmp_path: Path) -> None:
@@ -332,3 +376,16 @@ def test_daemon_running_from_ferb_app_uses_the_nested_voice_helper(tmp_path: Pat
     assert Daemon.voice_bundle.fget(home) == tmp_path / ".ferb" / "FERB.app"  # type: ignore[attr-defined]
     monkeypatch.setattr(install, "app_bundle", lambda prefix=None: app)
     assert Daemon.voice_bundle.fget(home) == app / "Contents" / "Helpers" / "FERB Voice.app"  # type: ignore[attr-defined]
+
+
+def test_mcp_shim_never_imports_a_ferb_package_planted_in_its_working_folder(tmp_path: Path) -> None:
+    """Runtimes start the shim in FERB's workspace, which workers write: `python -m` would put that folder first on
+    sys.path, so a planted ferb/ there would run instead of FERB's own (M9)."""
+    import subprocess
+    from ferb.daemon.main import mcp_shim_command
+    (tmp_path / "ferb" / "cli").mkdir(parents=True)
+    for rel in ("ferb/__init__.py", "ferb/cli/__init__.py", "ferb/cli/mcp.py"):
+        (tmp_path / rel).write_text("print('PLANTED')\n")
+    r = subprocess.run(mcp_shim_command(), cwd=tmp_path, capture_output=True, text=True, timeout=60,
+                       stdin=subprocess.DEVNULL, env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)})
+    assert "PLANTED" not in r.stdout + r.stderr and "FERB_RUN_TOKEN" in r.stderr     # FERB's own shim answered
