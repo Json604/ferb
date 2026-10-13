@@ -195,4 +195,4 @@ def test_protocol_14_adds_the_media_op_in_python_and_javascript_together() -> No
                         capture_output=True, text=True, timeout=10)
     assert json.loads(js.stdout) == {"v": 14, "media": True}
     assert ext_protocol.PROTOCOL_VERSION == 14 and "media" in ext_protocol.Op.__args__
-    assert ext_protocol.MIN_EXTENSION_VERSION == "0.15.2"            # the extension version is unchanged
+    assert ext_protocol.MIN_EXTENSION_VERSION == "0.15.3"            # protocol 14 ships with the unreleased 0.15.3 bundle
