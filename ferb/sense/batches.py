@@ -128,9 +128,9 @@ class EventBatcher:
                                                        "answers": answers})
                     if answers.get("trail.attention") == "yes":
                         # Q4: the live yes starts one consideration; the daemon marks its outcome on the decision.
-                        jev.mark_effect("trail.attention", "batch:" + ident, "attention consideration started")
                         self.publish("perception.attention", {"batch_id": ident, "source_refs": ["trail:" + ref for ref in refs],
                                      "authority": "observation_only", "reason": "trail.attention"})
+                        jev.mark_effect("trail.attention", "batch:" + ident, "attention consideration started")
                 except asyncio.CancelledError:
                     raise                      # pending is retried after restart
                 except Exception as error:

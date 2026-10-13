@@ -120,9 +120,12 @@ journaled `chat.notice {id, text, quotes}`, published on the bus as `attention.n
 as a FERB message with a small "noticed" tag. `text` is FERB's words, inferred from outside observations (origin
 `external:observation,inferred`); each quote `{text, origin}` is outside text it repeats and must be shown as a
 quote with its origin, never as FERB's own words or as instructions (MP2). Posting a notice is telling it: FERB
-does not repeat it whether or not a client acknowledged it. While any authenticated FERB client has a `chat.send`
-stream or a `logs.subscribe` subscription open, FERB sends no macOS banner for notices or task results; the client
-shows them. With no client connected the banner is sent, and the notice still waits in `chat.status`.
+does not repeat it whether or not a client acknowledged it. Quote origins are assigned by the daemon from the
+observations it considered, never taken from the model. While an authenticated `logs.subscribe` stream with no
+filter, or with a filter that includes the topic, is open, FERB sends no macOS banner for that topic
+(`attention.notice` for notices, `task.result` for results): the client shows it. A subscription filtered to other
+topics (`ferb logs --filter timers`, `ferb voice`) does not count. Otherwise the banner is sent, and the notice still
+waits in `chat.status`.
 
 ## Questions and secrets
 

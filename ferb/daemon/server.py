@@ -98,7 +98,6 @@ class Server:
         self.owner_uid = os.getuid() if owner_uid is None else owner_uid
         self.unary: dict[str, Unary] = {}
         self.streams: dict[str, Stream] = {}
-        self.open_streams: dict[str, int] = {}             # method -> streams open now (authenticated sessions only)
         self.native: Channel | None = None               # extension message channel
         self.extension_ids: Callable[[], frozenset[str]] = lambda: frozenset()
         # FERB.app: where it's installed and how to check its signature; unset = voice refused
@@ -230,14 +229,6 @@ class Server:
     async def _stream(self, session: Session, req: Request, reader: asyncio.StreamReader,
                       writer: asyncio.StreamWriter) -> None:
         """Send notifications until the stream ends or the client disconnects (client EOF ends it)."""
-        self.open_streams[req.method] = self.open_streams.get(req.method, 0) + 1
-        try:
-            await self._pump(session, req, reader, writer)
-        finally:
-            self.open_streams[req.method] -= 1
-
-    async def _pump(self, session: Session, req: Request, reader: asyncio.StreamReader,
-                    writer: asyncio.StreamWriter) -> None:
         async def pump() -> None:
             async with contextlib.aclosing(self.streams[req.method](session, req.params)) as stream:
                 async for item in stream:

@@ -91,7 +91,8 @@ class Perception:
 
     def purge_text(self) -> int:
         """D14/P8: typed/clipboard text expires at seven days even without a daily summary. Keep source IDs. Notice
-        text derived from those rows expires with them, wherever it was copied (I3)."""
+        text derived from any expired row (this pass's, or one expired before notices were purged too) expires with
+        it, wherever it was copied (I3); that reconciliation is idempotent. Returns the rows this pass expired."""
         from ferb.orchestrator.attention import expire_derived
         d = self.daemon
         cutoff = (d.clock.now() - timedelta(days=7)).isoformat()
@@ -102,9 +103,12 @@ class Perception:
             kept["content_expired"] = True
             d.db.conn.execute("UPDATE trail SET data_json=? WHERE id=?", (json.dumps(kept), row["id"]))
             d.daily_activity.redact_source(row["id"], kept)
-        if rows:
-            expire_derived(d.db, {"trail:" + row["id"] for row in rows},
-                           "This notice came from typed or copied text, which expires after 7 days.", d.clock.now().isoformat())
+        expired = {"trail:" + r["id"] for r in d.db.conn.execute(
+            "SELECT id FROM trail WHERE source IN ('typed_text','clipboard') "
+            "AND json_extract(data_json,'$.content_expired') IS NOT NULL")}
+        if expired:
+            expire_derived(d.db, expired, "This notice came from typed or copied text, which expires after 7 days.",
+                           d.clock.now().isoformat())
         return len(rows)
 
     def status(self) -> dict[str, Any]:

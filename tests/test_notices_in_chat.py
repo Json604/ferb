@@ -97,17 +97,20 @@ def _call(d: RunningDaemon, method: str, params: dict[str, Any] | None = None) -
 
 
 class Subscriber:
-    """An authenticated FERB client holding a bus subscription, as the notch UI and `ferb chat` do."""
+    """An authenticated FERB client holding a bus subscription: unfiltered, as the notch UI and `ferb chat` do, or
+    filtered, as `ferb logs --filter` and `ferb voice` do."""
 
-    def __init__(self, d: RunningDaemon) -> None:
+    def __init__(self, d: RunningDaemon, filters: list[str] | None = None) -> None:
         self.d, self.client, self.events = d, Client(d.sock), []          # type: list[dict[str, Any]]
+        self.filters = filters
+        before = len(d.daemon._log_subscriptions)
         self.thread = threading.Thread(target=self._read, daemon=True)
         self.thread.start()
-        _until(lambda: d.daemon._client_connected(), "the subscription to open")
+        _until(lambda: len(d.daemon._log_subscriptions) > before, "the subscription to open")
 
     def _read(self) -> None:
         try:
-            for event in self.client.stream("logs.subscribe", {}):
+            for event in self.client.stream("logs.subscribe", {"filters": self.filters} if self.filters else {}):
                 self.events.append(event)
         except Exception:
             return
@@ -116,10 +119,11 @@ class Subscriber:
         return [e["data"] for e in self.events if e["topic"] == topic]
 
     def close(self) -> None:
+        before = len(self.d.daemon._log_subscriptions)
         self.client.interrupt()
         self.client.close()
         self.thread.join(5)
-        _until(lambda: not self.d.daemon._client_connected(), "the subscription to close")
+        _until(lambda: len(self.d.daemon._log_subscriptions) < before, "the subscription to close")
 
 
 # ---------- delivery ----------
@@ -145,9 +149,49 @@ def test_a_notice_reaches_the_chat_journal_and_status_with_no_banner_while_a_cli
         assert notes == []                                                  # the client shows both, not osascript
         assert _call(daemon, "attention.ack", {"ids": [notice["id"]]}) == {"ok": True}
         assert _call(daemon, "chat.status", {"peek": True})["notices"] == []
-        assert daemon.daemon.mac is None or daemon.daemon.mac.acting == daemon.daemon.attribution.acting
     finally:
         client.close()
+
+
+def test_a_subscription_that_never_shows_notices_does_not_stop_banners(daemon: RunningDaemon) -> None:
+    """`ferb logs --filter timers` or `ferb voice` is connected but never shows a notice or a task result."""
+    notes = _notes(daemon)
+    _tell(daemon, UPGRADE, [])
+    timers, voice = Subscriber(daemon, ["timers"]), Subscriber(daemon, ["voice"])
+    try:
+        _consider(daemon, "b-filtered", _record(daemon, _brave("Claude - Upgrade to Max")))
+        daemon.run(daemon.daemon._task_result({"task_id": "t-filtered", "status": "done", "answer": "Done."},
+                                              shown=False))
+        assert notes == [("FERB noticed", UPGRADE), ("FERB finished", "Done.")]
+    finally:
+        timers.close()
+        voice.close()
+
+
+def test_quote_origins_come_from_the_considered_rows_never_from_the_model(daemon: RunningDaemon) -> None:
+    _notes(daemon)
+
+    async def attention(refs: list[str], rows: list[dict[str, Any]], already_told: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"tell": True, "text": UPGRADE, "source_refs": refs,
+                "quotes": [{"text": "Max 20x", "origin": "owner"}, {"text": "renews Nov 13"}]}
+    daemon.daemon.supervisor.attention = attention          # type: ignore[union-attr, method-assign]
+    _consider(daemon, "b-quotes", _record(daemon, _brave("Claude - Upgrade to Max")))
+    notice = _call(daemon, "chat.status", {"peek": True})["notices"][0]
+    assert notice["quotes"] == [{"text": "Max 20x", "origin": "external:observation"},
+                                {"text": "renews Nov 13", "origin": "external:observation"}]
+    assert _journal(daemon, "chat.notice")[0].data["quotes"] == notice["quotes"]
+
+
+def test_the_daemon_wires_ferbs_app_actions_into_the_trail(daemon: RunningDaemon) -> None:
+    d = daemon.daemon
+    assert d.mac is not None and d.mac.acting == d.attribution.acting
+
+    async def during() -> Any:
+        with d.mac.acting("com.apple.Notes", "task-wired"):                   # type: ignore[union-attr]
+            return d.trail.record(accessibility_observation(                    # type: ignore[union-attr]
+                "com.apple.Notes", "Notes", 77, "AXValueChanged", {"window_id": "3", "title": "milk"}, Redactor()))
+    row = daemon.run(during())
+    assert (row.actor, row.task_id) == ("ferb", "task-wired")
 
 
 def test_with_no_client_connected_the_banner_is_sent(daemon: RunningDaemon) -> None:
@@ -197,6 +241,56 @@ def test_trail_attention_decisions_are_recorded_live_with_their_effect(daemon: R
     assert notice["id"] in rows[0]["effect"]
     stats = next(s for s in daemon.run(_async(d.jev.stats)) if s["question"] == "trail.attention")
     assert stats["mode"] == "live" and stats["acted"] == 1
+
+
+def test_a_live_question_has_no_switch(daemon: RunningDaemon) -> None:
+    from ferb.cli.client import RpcError
+    import pytest
+    for on in (True, False):
+        with pytest.raises(RpcError, match="live"):
+            _call(daemon, "jev.enable", {"question": "trail.attention", "on": on})
+
+
+def test_a_consideration_that_ends_early_records_why_on_its_decision(daemon: RunningDaemon) -> None:
+    d = daemon.daemon
+
+    async def jev(url: str, headers: dict[str, str], body: dict[str, Any], timeout: float) -> tuple[int, Any]:
+        return 200, {"answers": {}}
+    d.jev_post = jev
+    daemon.run(d._build_jev())
+    arrival = _record(daemon, Observation("notification", {"external_id": "n-early", "bundle_id": "net.whatsapp.whatsapp",
+                                                           "title": "Family", "body": "hi"}, {"actor": "unknown"}))
+
+    async def decided() -> None:
+        d.db.conn.execute("INSERT INTO decisions (id, at, question, ref, baseline, jev, mode, effect) VALUES "
+                          "('d-early', 'x', 'trail.attention', 'batch:b-early', 'no', 'yes', 'live', "
+                          "'attention consideration started')")
+    daemon.run(decided())
+    _consider(daemon, "b-early", arrival)
+    effect = daemon.run(_async(lambda: d.db.conn.execute(
+        "SELECT effect FROM decisions WHERE id='d-early'").fetchone()["effect"]))
+    assert effect != "attention consideration started" and effect.startswith("not considered")
+
+
+def test_the_consideration_is_published_before_its_decision_says_it_started(tmp_path: Path) -> None:
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    clock, ids = FakeClock(), SequentialIds("o")
+    trail = Trail(db, clock, ids, Redactor(), Exclusions, lambda *args: None, lambda: "dev", lambda: False)
+    trail.record(Observation("window", {"bundle_id": "com.microsoft.VSCode", "title": "FERB"}))
+    order: list[str] = []
+
+    class Jev:
+        async def answers(self, state: Any, asks: Any) -> dict[str, str]:
+            return {asks[0].key: "yes"}
+
+        def mark_effect(self, key: str, ref: str | None, effect: str) -> None:
+            order.append("effect")
+    batcher = EventBatcher(db, clock, ids, lambda: Jev(), NotificationPolicy(db, clock, ids, Redactor()),
+                           lambda topic, data: order.append(topic))
+    asyncio.run(batcher.flush("age"))
+    assert order == ["perception.batch", "perception.attention", "effect"]
+    db.close()
 
 
 def _async(fn: Callable[[], Any]) -> Any:
@@ -273,6 +367,30 @@ def test_an_event_in_an_app_while_a_ferb_action_runs_there_is_ferbs(tmp_path: Pa
     assert actors[during["arrival"].id] == ("unknown", None)              # a notification arrives from outside
     assert actors[later.id] == ("unknown", None)                          # the action ended: no timer
     db.close()
+
+
+def test_the_owners_hidden_input_wait_is_not_ferbs_only_the_fill_is(tmp_path: Path) -> None:
+    from ferb.act.mac.tools import MacSecret
+    attribution, app = Attribution(), "com.example.Bank"
+    ax = accessibility_observation(app, "Bank", 88, "AXValueChanged", {"window_id": "1", "title": "Code"}, Redactor())
+    seen: dict[str, Any] = {}
+    node = SimpleNamespace(ref="field")
+
+    async def ask_secret(ctx: Any, where: str, handle: Any = None, remember: Any = None) -> str:
+        seen["waiting"] = attribution.decide(ax)                            # the owner typing into the app meanwhile
+        return "424242"
+
+    def set_value(ref: Any, value: str) -> bool:
+        seen["filling"] = attribution.decide(ax)
+        return True
+    driver = SimpleNamespace(apps=SimpleNamespace(find=lambda name: SimpleNamespace(bundle_id=app, name="Bank")),
+                             app=lambda name: SimpleNamespace(bundle_id=app, pid=88), node=lambda bundle, element: node,
+                             ask_secret=ask_secret, ax=SimpleNamespace(set_value=set_value),
+                             release_secret=lambda value: None, acting=attribution.acting)
+    tool = MacSecret(driver)                                             # type: ignore[arg-type]
+    ctx = ToolContext("task-2", "w1", "r1", Identity.OWNER, frozenset({"mac:act"}), "dev", None, "/tmp", (), ())
+    assert not asyncio.run(tool.run(tool.Input(app="Bank", element="s1e1"), ctx)).is_error
+    assert seen == {"waiting": ("unknown", None), "filling": ("ferb", "task-2")}
 
 
 # ---------- Notification Center ----------
@@ -354,10 +472,14 @@ def test_the_seven_day_purge_clears_notice_text_derived_from_a_clipboard_row(dae
                                                        Redactor()))
     copied = _record(daemon, Observation("clipboard", {"bundle_id": "com.apple.Notes", "text": "uniquecopiednote",
                                                        "change_count": 3}))
-    # The model cites only the focus row, but it saw the copied text too: the notice is derived from both.
+    later = _record(daemon, _brave("Claude - Settings"))
+    # The model cites only the focus row, but it saw the copied text too: the notice is derived from both. A later,
+    # unrelated consideration is told the notice (already_told), so its recorded context holds the text as well.
     install(daemon, [json.dumps({"tell": True, "text": "You copied uniquecopiednote.", "source_refs": ["trail:" + focus.id],
-                                 "quotes": [{"text": "uniquecopiednote", "origin": "external:observation"}]})])
+                                 "quotes": [{"text": "uniquecopiednote", "origin": "external:observation"}]}),
+                     json.dumps({"tell": False, "text": "", "source_refs": ["trail:" + later.id]})])
     _consider(daemon, "b9", focus, copied)
+    _consider(daemon, "b10", later)
     assert "uniquecopiednote" in json.dumps(_call(daemon, "chat.status", {"peek": True})["notices"])
 
     def copies() -> str:
@@ -365,11 +487,33 @@ def test_the_seven_day_purge_clears_notice_text_derived_from_a_clipboard_row(dae
             c = d.db.conn
             return json.dumps([[dict(r) for r in c.execute("SELECT * FROM attention_notices")],
                                [dict(r) for r in c.execute("SELECT * FROM journal WHERE kind='chat.notice'")],
-                               [dict(r) for r in c.execute("SELECT output_json FROM spans WHERE kind='attention.consider'")],
+                               [dict(r) for r in c.execute("SELECT input_json, output_json FROM spans "
+                                                           "WHERE kind='attention.consider'")],
                                [dict(r) for r in c.execute("SELECT * FROM notification_told")]])
         return daemon.run(go())  # type: ignore[no-any-return]
-    assert "uniquecopiednote" in copies()
+    spans = json.loads(copies())[2]
+    assert len(spans) == 2 and all("uniquecopiednote" in span["input_json"] for span in spans)
     daemon.call_soon(d.clock.advance, 7 * 86400 + 1)
     assert daemon.run(_async(d.perception.purge_text)) == 1
     assert "uniquecopiednote" not in copies()
     assert _call(daemon, "chat.status", {"peek": True})["notices"] == []
+    assert len(json.loads(copies())[2]) == 2                             # audit rows stay; only the text goes
+
+
+def test_notices_from_rows_that_expired_before_this_purge_reached_them_are_cleared(daemon: RunningDaemon) -> None:
+    d = daemon.daemon
+    _notes(daemon)
+    copied = _record(daemon, Observation("clipboard", {"bundle_id": "com.apple.Notes", "text": "olduniquecopy",
+                                                       "change_count": 5}))
+    install(daemon, [json.dumps({"tell": True, "text": "You copied olduniquecopy.", "source_refs": ["trail:" + copied.id]})])
+    _consider(daemon, "b11", copied)
+
+    async def expired_by_the_old_purge() -> None:                        # the row's text went; the notice's stayed
+        d.db.conn.execute("UPDATE trail SET data_json=? WHERE id=?",
+                          (json.dumps({"bundle_id": "com.apple.Notes", "change_count": 5, "content_expired": True}),
+                           copied.id))
+    daemon.run(expired_by_the_old_purge())
+    assert daemon.run(_async(d.perception.purge_text)) == 0               # no newly expired rows
+    assert "olduniquecopy" not in daemon.run(_async(lambda: json.dumps(
+        [dict(r) for r in d.db.conn.execute("SELECT * FROM attention_notices")] +
+        [dict(r) for r in d.db.conn.execute("SELECT * FROM journal WHERE kind='chat.notice'")])))

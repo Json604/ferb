@@ -43,6 +43,7 @@ class _Base:
     # the cursor, open a dialog); desktop changes near it may be FERB's (P26)
     on_screen = False
     target_args: tuple[str, ...] = ("app",)          # Target.site holds the app's normalized bundle id (P19 hash)
+    marks_own_input = False                          # True: _run tells the trail itself, around its input only (P4)
 
     def __init__(self, driver: MacComputerDriver, device_profile: Any = lambda: None) -> None:
         self.driver, self.device_profile = driver, device_profile
@@ -75,11 +76,14 @@ class _Base:
     def _in_app(self, args: BaseModel, ctx: ToolContext) -> ContextManager[None]:
         """P4: a call that can change an app (input, a press, bringing it forward) tells the trail while it runs, so
         events in that app meanwhile are FERB's. Reads tell nothing; a driver without attribution tracks nothing."""
-        acting = getattr(self.driver, "acting", None)
         changes = not getattr(self, "observation", False) and (self.on_screen or not self.reversible)
-        if acting is None or not changes or not hasattr(args, "app"):
+        if not changes or self.marks_own_input or not hasattr(args, "app") or getattr(self.driver, "acting", None) is None:
             return contextlib.nullcontext()
-        return acting(self._bundle(args), ctx.task_id)  # type: ignore[no-any-return]
+        return self._acting(self._bundle(args), ctx)
+
+    def _acting(self, bundle_id: str, ctx: ToolContext) -> ContextManager[None]:
+        acting = getattr(self.driver, "acting", None)
+        return contextlib.nullcontext() if acting is None else acting(bundle_id, ctx.task_id)  # type: ignore[no-any-return]
 
     def _shown(self, args: BaseModel) -> str:
         """The app's name as the owner knows it (for FERB's questions), else what the agent called it."""
@@ -508,6 +512,7 @@ class MacSecret(_Base):
     scopes = {"mac:act"}
     risk, reversible = RiskLevel.MEDIUM, False
     on_screen = False
+    marks_own_input = True             # the owner's hidden-input wait is not FERB acting in the app; the fill is
     description = ("Fill an exact native AX field using hidden owner input or an owner-saved Keychain handle. "
                    "No foreground typing fallback. remember asks the owner to save this item for this app.")
 
@@ -532,7 +537,8 @@ class MacSecret(_Base):
             current = self.driver.app(args.app)
             if current.pid != a.pid or self.driver.node(a.bundle_id, args.element) is not node:
                 raise StaleRef("the native secret destination changed while waiting")
-            accepted = await asyncio.to_thread(self.driver.ax.set_value, node.ref, value)
+            with self._acting(a.bundle_id, ctx):
+                accepted = await asyncio.to_thread(self.driver.ax.set_value, node.ref, value)
             return ToolResult({"ok": bool(accepted), "detail": "AX secret fill accepted" if accepted else "AX secret fill refused",
                                "handle": args.remember or args.secret}, is_error=not accepted)
         finally:

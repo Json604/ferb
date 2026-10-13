@@ -234,6 +234,7 @@ class Daemon:
         self._shutting_down = False
         self._turns: set[asyncio.Task[None]] = set()
         self._attached_trees: set[str] = set()
+        self._log_subscriptions: set[Any] = set()             # open `logs.subscribe` streams' bus subscriptions (L9)
         self._held: list[tuple[str, str]] = []               # notifications waiting for the owner to be back (13)
         self.schedules: Any = None                            # durable schedules
         self._runs: set[asyncio.Task[None]] = set()
@@ -1474,7 +1475,7 @@ class Daemon:
 
     async def _task_result(self, ev: dict[str, Any], shown: bool) -> None:
         """What FERB told (or will tell) the owner about a task; a macOS notification only when chat was closed and no
-        FERB client is connected to show the result (L9)."""
+        connected FERB client receives `task.result` to show it (L9)."""
         assert self.db is not None
         ev = self.redact(ev)
         answer = str(ev.get("answer") or ev.get("summary") or "")
@@ -1483,7 +1484,7 @@ class Daemon:
         self.db.conn.execute("INSERT OR REPLACE INTO task_results (task_id, at, status, goal, answer, shown) VALUES "
                              "(?, ?, ?, ?, ?, ?)", (ev["task_id"], at, ev.get("status", ""),
                                                     str(ev.get("goal", "")), answer, int(shown)))
-        if not shown and ev.get("status") != "cancelled" and not self._client_connected():
+        if not shown and ev.get("status") != "cancelled" and not self._client_shows("task.result"):
             await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", str(ev.get("display_text") or answer))
         if "request_id" not in ev:                  # a resumed plan or scheduled run: the request its task ran for
             row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (ev["task_id"],)).fetchone()
@@ -1628,15 +1629,17 @@ class Daemon:
         self.attention_notices.acknowledge(ids)
         return {'ok': True}
 
-    def _client_connected(self) -> bool:
-        """A FERB client (the notch UI, `ferb chat`) is connected: an authenticated chat stream or bus subscription is
-        open. Then it shows notices and results itself, and macOS banners stay off (L9)."""
-        return any(self.server.open_streams.get(method, 0) for method in ('chat.send', 'logs.subscribe'))
+    def _client_shows(self, topic: str) -> bool:
+        """A connected FERB client receives this topic (L9): an authenticated `logs.subscribe` stream with no filter
+        (the notch UI, `ferb chat`) or a filter that includes it. Then the client shows it and the macOS banner stays
+        off; a subscription filtered to other topics (`ferb logs --filter timers`, `ferb voice`) shows nothing."""
+        return any(sub.wants(topic) for sub in self._log_subscriptions)
 
     async def _post_notice(self, notice: dict[str, Any]) -> None:
         """L9: a notice is a FERB message in the owner's chat: journaled `chat.notice`, published `attention.notice`, and
         listed in `chat.status` until a client acknowledges it. Posting it is telling: a notification it cites gets its
-        told receipt now. A macOS banner (its text, never its outside quotes) only when no FERB client is connected."""
+        told receipt now. A macOS banner (its text, never its outside quotes) only when no connected FERB client
+        receives `attention.notice`."""
         assert self.attention_notices is not None and self.db is not None
         view = self.attention_notices.view(notice)
         self._journal().append('chat.notice', {k: view[k] for k in ('id', 'text', 'quotes')}, origin=notice['origin'])
@@ -1648,7 +1651,7 @@ class Daemon:
                     self.perception.policy.told(data.get('bundle_id', ''), data.get('conversation', ''),
                                                ref.removeprefix('trail:'), view['text'])
         self._publish('attention.notice', view)
-        if not self._client_connected():
+        if not self._client_shows('attention.notice'):
             await self._notify('FERB noticed', view['text'])
 
     def _attention_effect(self, decision: str, effect: str) -> None:
@@ -1657,9 +1660,10 @@ class Daemon:
             self.jev.mark_effect('trail.attention', decision, effect)
 
     async def _consider_attention(self, event: dict[str, Any]) -> None:
-        if self.supervisor is None or self.db is None or self.attention_notices is None:
-            return
         decision = 'batch:' + str(event.get('batch_id'))
+        if self.supervisor is None or self.db is None or self.attention_notices is None:
+            self._attention_effect(decision, 'not considered: the orchestrator is not running')
+            return
         try:
             rows, refs = [], []
             for ref in event.get('source_refs', []):
@@ -1672,13 +1676,15 @@ class Daemon:
                              'origin': 'external:observation'})
                 refs.append(ref)
             if not rows:
+                self._attention_effect(decision, 'not considered: no observation rows left (notifications stay shadow)')
                 return
             result = await self.supervisor.attention(refs, rows, self.attention_notices.told())
             if result.get('tell') is not True or not str(result.get('text', '')).strip():
                 self._attention_effect(decision, 'considered; nothing told')
                 return
             notice = self.attention_notices.add(decision, result['source_refs'], str(result['text']),
-                                                result.get('quotes'), refs)
+                                                result.get('quotes'), refs,
+                                                origin_.least_trusted(row['origin'] for row in rows))
             if notice is not None:                    # posted once: a replayed batch never posts again
                 await self._post_notice(notice)
                 self._attention_effect(decision, 'told in chat: notice ' + notice['id'])
@@ -1967,6 +1973,8 @@ class Daemon:
         q = str(params["question"])
         if q not in QUESTIONS:
             raise FerbError(f"unknown question {q}")
+        if QUESTIONS[q].live:
+            raise FerbError(f"{q} is live by the plan of record (Q4); it has no switch to turn on or off")
         if QUESTIONS[q].shadow_only and params.get("on", True):
             raise FerbError(f"{q} is measured in shadow; it cannot act before owner-reviewed measurement")
         enabled = set(self.config.get("jev", "enabled", [])) & QUESTIONS.keys()
@@ -2896,6 +2904,7 @@ class Daemon:
     async def _logs(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         wanted = {LOG_FILTERS[f] for f in params.get("filters", []) if f in LOG_FILTERS} or None
         sub = self.bus.subscribe(wanted, maxsize=int(params.get("maxsize", 1000)))
+        self._log_subscriptions.add(sub)
         try:
             async for ev in sub:
                 yield {"topic": ev.topic, "at": ev.at.isoformat(),
@@ -2904,6 +2913,7 @@ class Daemon:
             yield {"topic": "bus.overflow", "at": self.clock.now().isoformat(), "class": "notice",
                    "data": {"message": "fell behind on critical events; restart `ferb logs`"}}
         finally:
+            self._log_subscriptions.discard(sub)
             sub.close()
 
 

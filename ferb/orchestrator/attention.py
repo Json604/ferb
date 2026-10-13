@@ -10,13 +10,13 @@ from ferb.core import origin
 ORIGIN = origin.join({origin.external("observation"), origin.INFERRED})
 
 
-def _quotes(value: Any) -> list[dict[str, str]]:
-    """The shape a quote must have to be shown: {text, origin}, both non-empty strings; anything else is dropped."""
+def _quotes(value: Any, source: str) -> list[dict[str, str]]:
+    """Quotes as shown: their non-empty text, labelled by code with where the considered rows came from (MP2, rule 5).
+    An origin the model supplies is ignored; a quote without text is dropped."""
     if not isinstance(value, list):
         return []
-    return [{"text": q["text"], "origin": q["origin"]} for q in value
-            if isinstance(q, dict) and isinstance(q.get("text"), str) and q["text"].strip()
-            and isinstance(q.get("origin"), str) and q["origin"].strip()]
+    return [{"text": q["text"], "origin": source} for q in value
+            if isinstance(q, dict) and isinstance(q.get("text"), str) and q["text"].strip()]
 
 
 class AttentionNotices:
@@ -24,10 +24,11 @@ class AttentionNotices:
         self.db, self.clock, self.redact = db, clock, redact
 
     def add(self, ident: str, refs: list[str], text: str, quotes: Any = None,
-            considered: list[str] | None = None) -> dict[str, Any] | None:
+            considered: list[str] | None = None, quote_origin: str = origin.external("observation")) -> dict[str, Any] | None:
         """The new notice, or None when that id was already made (posted once: a replayed batch never posts again).
-        `refs` are the rows it cites; `considered` every row the consideration saw (the D14 purge reaches both)."""
-        clean = self.redact({"text": text, "quotes": _quotes(quotes)})
+        `refs` are the rows it cites; `considered` every row the consideration saw (the D14 purge reaches both);
+        `quote_origin` the least trusted origin of those rows, which every quote carries."""
+        clean = self.redact({"text": text, "quotes": _quotes(quotes, quote_origin)})
         made = self.db.conn.execute(
             "INSERT OR IGNORE INTO attention_notices (id, source_refs_json, text, origin, created_at, delivered_at, "
             "quotes_json, considered_refs_json) VALUES (?,?,?,?,?,NULL,?,?)",
@@ -63,15 +64,23 @@ class AttentionNotices:
             (' WHERE delivered_at IS NULL' if pending else ' WHERE delivered_at IS NOT NULL') + ' ORDER BY created_at')]
 
 
+CONTEXT_REMOVED = "Removed: this recorded context held text that has expired or that the owner forgot."
+
+
 def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     """Clear the text of every notice derived from these source rows (cited or considered), wherever it was copied:
-    the notice (taken out of `chat.status`), its `chat.notice` journal entry, the told receipts carrying its text and
-    the consideration's span output. Used by the D14 seven-day purge (I3) and by an explicit forget."""
-    cleared = 0
+    the notice (taken out of `chat.status`), its `chat.notice` journal entry, the told receipts carrying its text, and
+    the `attention.consider` spans. A consideration that saw one of the rows loses its recorded model context and its
+    answer's text; any other consideration that was told the notice (already_told) loses that notice's text. Audit
+    rows stay. Idempotent: a notice already carrying `replacement` is left as it is. Used by the D14 seven-day purge
+    (I3) and by an explicit forget. Returns how many notices it cleared."""
+    cleared, said = 0, []
     for row in db.conn.execute("SELECT * FROM attention_notices").fetchall():
         cited = json.loads(row["source_refs_json"])
-        if not refs.intersection(cited) and not refs.intersection(json.loads(row["considered_refs_json"])):
+        if row["text"] == replacement or (not refs.intersection(cited)
+                                          and not refs.intersection(json.loads(row["considered_refs_json"]))):
             continue
+        said += [row["text"], *(q["text"] for q in json.loads(row["quotes_json"]))]
         db.conn.execute("UPDATE attention_notices SET text=?,quotes_json='[]',delivered_at=COALESCE(delivered_at,?) "
                         "WHERE id=?", (replacement, now, row["id"]))
         db.conn.execute("DELETE FROM journal WHERE kind='chat.notice' AND json_extract(data_json,'$.id')=?", (row["id"],))
@@ -79,11 +88,26 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
             db.conn.execute("UPDATE notification_told SET text=? WHERE event_id=? AND text=?",
                             (replacement, ref.removeprefix("trail:"), row["text"]))
         cleared += 1
-    for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider' "
-                                "AND output_json IS NOT NULL").fetchall():
-        if refs.intersection(json.loads(span["input_json"]).get("source_refs") or []):
-            out = json.loads(span["output_json"])
-            if isinstance(out, dict) and (out.get("text") or out.get("quotes")):
-                db.conn.execute("UPDATE spans SET output_json=? WHERE id=?",
-                                (json.dumps(out | {"text": replacement, "quotes": []}), span["id"]))
+    # A told notice sits in a later consideration's context as a JSON "text" field (already_told, or a quote).
+    told = [('"text": ' + json.dumps(text), '"text": ' + json.dumps(replacement)) for text in said if text]
+    for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'").fetchall():
+        inp = json.loads(span["input_json"])
+        out = json.loads(span["output_json"]) if span["output_json"] else None
+        if refs.intersection(inp.get("source_refs") or []):
+            new_inp = inp | ({"context": CONTEXT_REMOVED} if "context" in inp else {})
+            new_out = out | {"text": replacement, "quotes": []} if isinstance(out, dict) and (
+                out.get("text") or out.get("quotes")) else out
+        else:
+            new_inp, new_out = {k: _without(v, told) for k, v in inp.items()}, out
+        if new_inp != inp or new_out != out:
+            db.conn.execute("UPDATE spans SET input_json=?,output_json=? WHERE id=?",
+                            (json.dumps(new_inp), None if new_out is None else json.dumps(new_out), span["id"]))
     return cleared
+
+
+def _without(value: Any, told: list[tuple[str, str]]) -> Any:
+    if not isinstance(value, str):
+        return value
+    for old, new in told:
+        value = value.replace(old, new)
+    return value
