@@ -1,6 +1,6 @@
 # Launch-week fixes — design
 
-Date: 2026-10-13. Branch: `astra_resume`. Status: written for the owner's review.
+Date: 2026-10-13. Branch: `astra_resume`. Status: owner's review answers applied (§8); awaiting approval.
 Decisions here come from the owner's discussion on 2026-10-13; IDs L1–L24 are new (to be registered in
 `docs/0.27_DECISIONS.toml` with milestone "L").
 
@@ -300,7 +300,7 @@ cuts go to the owner as a proposal.
 | ID | Fix |
 |---|---|
 | L16 | **Learning.** (a) Redaction never runs over internal ids: structured id fields (`source_refs`, node ids) are exempt, and the card pattern needs word boundaries so it can't match inside hex tokens (`redact.py:58,184`, `store/spans.py:49`). (b) Consolidator output schema made strict-compatible (`memory/consolidate.py:18-35`), with a test that constructs `Consolidator`. (c) `security_digest` accepts the string form of `network` (`policy/security_digest.py:12-13`); the hourly loop runs distill and consolidate in separate error scopes (`main.py:1295-1309`). |
-| L17 | **Typed text.** Fix the PyObjC call (`text_input.py:68-69`). In the same change, close the risks fixing it opens (I10): never capture secure text fields, terminal apps, or input while Secure Input is on, and redact a field value made only of 4–8 digits as an OTP in any field. |
+| L17 | **Typed text.** Fix the PyObjC call (`text_input.py:68-69`). In the same change, close the password risk fixing it opens (I10): never capture secure text fields, input while Secure Input is on, or terminal apps (a `sudo` password typed in a terminal has no secure field and would otherwise reach Jev). No digit-shape rule: the owner rejected guessing codes by pattern (2026-10-13). |
 | L18 | **2FA answer.** Only values entered through the sealed secret input become hidden secrets. Answers to choice questions never do (`main.py:2556-2558`, `redact.py:93-96`). |
 | L19 | **CLI auto-answer** removed (`live_chat.py:176-182`); covered in §4.1. |
 | L20 | **UI draft** is never written to preferences, only kept in memory (`NotchModel.swift:349`). Existing stored drafts are deleted on launch. |
@@ -414,16 +414,24 @@ Also deferred:
 - a late answer appears at the bottom;
 - a subscription-like event gives one understood chat notice;
 - the launch posting runs under standing permission (owner-approved);
-- learning writes episode cards and the hourly loop runs.
+- learning writes episode cards and the hourly loop runs;
+- a Zomato login with an OTP through sealed filling (§8.6).
 
 Results go into `docs/OWNER_ACCEPTANCE.md`.
 
-## 8. Defaults to confirm at review
+## 8. Owner answers at review (2026-10-13)
 
-1. **Question expiry.** Approvals expire after 600 s today (`daemon/questions.py:10`), which can fail a task while the
-   owner is away. Default: no expiry while the task waits; the question stays open.
-2. **D31 and P19 still wait** (§4.1).
+1. **Question expiry:** none. A question stays open while its task waits (replaces the 600 s expiry,
+   `daemon/questions.py:10`).
+2. **D31 and P19 keep waiting for the owner** (§4.1).
 3. **"Verified."** becomes a check mark (§4.4).
-4. **Banners only when no FERB client is connected** (§4.5).
-5. **OTP shape in typed text** (L17). A field value made only of 4–8 digits is redacted as a code in any field. Typed
-   years or amounts of that shape would be redacted too; the default prefers over-redacting.
+4. **macOS banners only when no FERB client is connected** (§4.5).
+5. **No digit-shape OTP rule** in typed text (L17).
+6. **Sealed filling stays as built** for codes and passwords (D8/D12/D28, rule 14 unchanged). The owner considered
+   removing it after the Zomato OTP failures, then chose to keep it and test it after these fixes:
+   - Zomato failed on 10-04, 10-11 00:30 and 10-11 14:16 because `browser.login_code` refused the split code boxes.
+   - On 10-11 14:16 the secret helper's signature check also failed.
+   - Astra's split-box fix (e14d691, 10-11 15:06) and the helper reinstall (10-11 15:38, verifies today) both came
+     after the last attempt and are untested live.
+
+   Live check: the owner runs a Zomato login with an OTP after install.
