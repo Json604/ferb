@@ -9,7 +9,11 @@ import math
 import re
 from typing import Callable
 from ferb.act.evidence.mask import Box, mask_secret_fields
-from ferb.sanitize.redact import OTP_LABEL, Redactor
+from ferb.sanitize.redact import OTP_LABEL, Redactor, payment_card
+
+# OCR often merges a label and its number into one region ("Card4111…", "visa-4111…"); text redaction leaves a card
+# glued to a word alone (L16). The mask decision checks digits and the card checksum alone: a false alarm only blurs.
+CARD_DIGITS = re.compile(r"\d(?:[ -]?\d){12,18}")
 
 
 @dataclass(frozen=True)
@@ -58,7 +62,8 @@ class ImageRedactor:
             code_frame = any(OTP_LABEL.search(r.text) for r in regions)
             for region in regions:
                 text = region.text
-                if self.redactor.text(text) != text or (code_frame and re.search(r'(?<!\d)\d(?:[ -]?\d){3,7}(?!\d)', text)):
+                if (self.redactor.text(text) != text or any(payment_card(m.group()) for m in CARD_DIGITS.finditer(text))
+                        or (code_frame and re.search(r'(?<!\d)\d(?:[ -]?\d){3,7}(?!\d)', text))):
                     boxes.append(region.box)
             return self.mask(image, boxes) if boxes else image
         except Exception:

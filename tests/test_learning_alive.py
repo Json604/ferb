@@ -83,6 +83,55 @@ def test_span_inputs_keep_structured_ids_and_still_redact_everything_else(stores
     assert json.loads(stored) == span.input
 
 
+# L16 hardening: id treatment never lets a secret through; cards stay redacted wherever they are a credential -------
+
+JWT = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'
+
+
+def luhn(prefix: str) -> str:
+    """`prefix` plus the check digit that makes it pass the payment-card checksum."""
+    return next(prefix + d for d in '0123456789' if payment_card(prefix + d))
+
+
+@pytest.mark.parametrize('secret', ['sk-ant-api03-a1B2c3D4e5F6g7H8i9J0', 'ghp_A1b2C3d4E5f6G7h8I9j0K1l2', 'AKIAABCDEFGHIJKLMNOP',
+                                    JWT, '4111111111111111', 'Zq9-hunter-77', 'pa5'])
+def test_a_secret_placed_in_source_refs_is_still_redacted(stores, secret) -> None:
+    db, r, spans, _ = stores
+    r.add_secret_value('Zq9-hunter-77')            # exact registered secret values (one sealed and short)
+    r.remember_hidden_secret('pa5')
+    rng = random.Random(12)
+    ids = [i for i in ('m-' + hashlib.sha256(rng.randbytes(32)).hexdigest() for _ in range(20000)) if card_shaped(i)]
+    real = [ids[0], 'trail:' + 'ab12cd34' * 4, 'episode:' + 'f00d' * 8 + '.1', 'journal:pa5pa5']
+    for ref in (secret, 'trail:' + secret):
+        span = spans.start('context.exposure', input={'source_refs': [*real, ref], 'reference': 'Layer 4'})
+        assert span.input['source_refs'][:4] == real            # FERB's own ids pass unchanged
+        assert secret not in span.input['source_refs'][4]
+        stored = db.conn.execute('SELECT input_json FROM spans WHERE id=?', (span.id,)).fetchone()[0]
+        assert json.loads(stored) == span.input
+
+
+@pytest.mark.parametrize('control', ['\x08', '\x0c', '\x0b', '\x1f'])
+def test_a_json_escape_before_a_card_still_separates_it(control) -> None:
+    text = json.dumps('Card:' + control + '4111111111111111')       # \b, \f and \uXXXX escapes in JSON text
+    assert '4111111111111111' not in Redactor().text(text)
+
+
+def test_cards_in_a_url_query_or_fragment_are_redacted_but_ids_in_its_path_are_not() -> None:
+    r = Redactor()
+    status = 'https://x.com/kartikey/status/' + luhn('187654321098765432')
+    discord = 'https://discord.com/channels/{}/{}/{}'.format(luhn('1100223344556677'), luhn('12233445566778899'),
+                                                            luhn('129384756473829101'))
+    assert all(payment_card(part) for part in discord.split('/')[-3:]) and payment_card(status.rsplit('/', 1)[1])
+    assert r.text(status) == status
+    assert r.text('see ' + discord + ' and ' + status + '.') == 'see ' + discord + ' and ' + status + '.'
+    assert r.text('https://4111111111111111.example/4111111111111111') == \
+        'https://4111111111111111.example/4111111111111111'
+    assert r.text('https://shop.example/pay?cc=4111111111111111') == 'https://shop.example/pay?cc=[redacted]'
+    assert r.text('https://shop.example/pay#4111111111111111') == 'https://shop.example/pay#[redacted]'
+    assert r.text('card 4111111111111111 ' + status) == 'card [redacted] ' + status
+    assert r.text(status + ' card 4111 1111 1111 1111') == status + ' card [redacted]'
+
+
 # (b) ---------------------------------------------------------------------------------------------------------------
 
 def test_episode_capture_with_refs_recorded_through_a_redacted_span_succeeds(stores) -> None:
@@ -149,7 +198,8 @@ def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks
             {'episode': card['id'], 'intent_signature': 'send report', 'slots': slot,
              'reflection': 'Sent on the first try.', 'narrative': 'Sent the weekly report.'},
             {'episode': card['id'], 'intent_signature': 'send report', 'reflection': '', 'narrative': '',
-             'slots': [{'name': 'recipient', 'value': 'a@kartikey.xyz'}]}],          # not JSON text: refused
+             'slots': [{'name': 'recipient', 'value': '"a@kartikey.xyz"'},
+                       {'name': 'recipient', 'value': '"b@kartikey.xyz"'}]}],         # a name given twice: refused
         'procedures': [{
             'intent': 'send the weekly report', 'slots': [{'name': 'recipient', 'value': 'string'}],
             'preconditions': {'apps': [{'name': 'com.apple.mail', 'value': '16.0'}]},
@@ -175,6 +225,22 @@ def test_consolidator_round_trip_returns_proposals_in_the_shapes_learning_checks
     assert kinds['identity_proposal'] == {'text': 'Sends the weekly report by mail'}
     assert learning.db.conn.execute("SELECT status FROM learning_jobs WHERE source_ref=?",
                                     (card['id'],)).fetchone()[0] == 'done'
+
+
+def test_a_value_that_is_not_json_text_is_kept_as_the_literal_string(stores) -> None:
+    """A model often writes a bare string where JSON text was asked for: it means that string, not a broken item."""
+    _, _, _, learning = stores
+    card = learning.put('episode', 't-2', {'task_id': 't-2', 'request': 'send it', 'verified': True, 'status': 'done',
+                                           'slots': {}, 'actions': []}, [], origin_label='ferb',
+                        made_by='code:evidence-card/1', state='active')
+    rt = ProposalRuntime({})
+    accepted, refused = Consolidator(learning, NoMemory(), rt.make).apply({'episodes': [
+        {'episode': card['id'], 'intent_signature': 'send', 'reflection': '', 'narrative': '',
+         'slots': [{'name': 'recipient', 'value': 'a@kartikey.xyz'}, {'name': 'count', 'value': '2'}]},
+        {'episode': card['id'], 'intent_signature': 'send', 'reflection': '', 'narrative': '',
+         'slots': [{'name': 'to', 'value': '"x"'}, {'name': 'to', 'value': '"y"'}]}]}, {card['id']}, 'b-1', 'fake')
+    assert refused == ['to is given twice']
+    assert [learning.get(i)['body']['slots'] for i in accepted] == [{'recipient': 'a@kartikey.xyz', 'count': 2}]
 
 
 # (d) ---------------------------------------------------------------------------------------------------------------

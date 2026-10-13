@@ -13,9 +13,11 @@ from ferb.policy.rules import REVERSIBLE
 from ferb.store.db import Database
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
-# A span input's structured id fields hold FERB's own record ids, built by code from stored rows, never content. Text
-# redaction never runs over an id there (L16): an altered ref breaks lineage ("unknown source"). A value that isn't a
-# single id token (words, a URL) is redacted like any other text.
+# A span input's structured id fields hold FERB's own record ids, built by code from stored rows. Text redaction's
+# substring and card scans never run inside an id there (L16): an altered ref breaks lineage ("unknown source").
+# Redactor.id_ref still redacts a ref that is itself a secret (a credential pattern, an exact secret value, a card
+# number). ID_TOKEN only picks which values get that id treatment, it is no safety check; a value that isn't a single
+# token (words, a URL) is redacted like any other text.
 ID_FIELDS = frozenset({"source_refs"})
 ID_TOKEN = re.compile(r"[A-Za-z0-9_.:-]+")
 OUTPUT_TEXT_CAP = 20000          # characters of each tool result matched for argument sources (S3)
@@ -67,13 +69,14 @@ class SpanStore:
 
     def _redact_input(self, input: dict[str, Any]) -> dict[str, Any]:
         out = self._redact({k: v for k, v in input.items() if k not in ID_FIELDS})
+        id_ref = getattr(self._redact, "id_ref", None)       # a Redactor; any other redact sees every ref as text
         for key in ID_FIELDS & input.keys():
             refs = input[key]
             if not isinstance(refs, (list, tuple)):
                 out[key] = self._redact({key: refs})[key]
                 continue
-            out[key] = [ref if isinstance(ref, str) and ID_TOKEN.fullmatch(ref) else self._redact({key: ref})[key]
-                        for ref in refs]
+            out[key] = [id_ref(ref) if callable(id_ref) and isinstance(ref, str) and ID_TOKEN.fullmatch(ref)
+                        else self._redact({key: ref})[key] for ref in refs]
         return out
 
     def finish(self, span: Span, *, output: dict[str, Any] | None = None, error: str | None = None,

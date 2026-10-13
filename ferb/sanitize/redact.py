@@ -56,9 +56,21 @@ OTP_CONTEXT_START = re.compile(r"(?i)\b(?:one[ _-]?time|verification|authenticat
 OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification code|authentication code|security code|login code|sign[ -]?in code|otp)\b[^\d\n]{0,40})(\d(?:[ -]?\d){3,7})(?!\d)")
 # A card number is a token of its own, never a digit run inside a longer hex/alphanumeric token such as an internal
 # id (m-8e953d2b8ca8f…, L16); a hyphen joining it to such a token doesn't free it. A JSON escape before it (\n, \t,
-# \r in a redacted JSON text) still separates it from the word before.
+# \r, \b, \f or \uXXXX in a redacted JSON text) still separates it from the word before.
 _ID_CHAR = "[0-9A-Za-z_]"
-CARD = re.compile(rf"(?:(?<!{_ID_CHAR})|(?<=\\[ntr]))(?<!{_ID_CHAR}-)(?:\d[ -]?){{12,18}}\d(?!{_ID_CHAR}|-{_ID_CHAR})")
+CARD = re.compile(rf"(?:(?<!{_ID_CHAR})|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!{_ID_CHAR}-)"
+                  rf"(?:\d[ -]?){{12,18}}\d(?!{_ID_CHAR}|-{_ID_CHAR})")
+_REF_DIGITS = re.compile(r"[0-9]+(?:-[0-9]+)*")
+
+
+def _url_id_spans(s: str) -> list[tuple[int, int]]:
+    """Where each URL's scheme, host and path lie in `s`. Digits there are ids (a post, a message, a snowflake), not
+    a credential; a URL's query and fragment are not part of these spans."""
+    spans = []
+    for m in URL.finditer(s):
+        tail = re.search(r"[?#]", m.group())
+        spans.append((m.start(), m.start() + tail.start() if tail else m.end()))
+    return spans
 
 
 def payment_card(value: str) -> bool:
@@ -140,6 +152,21 @@ class Redactor:
             return REDACTED if text else text
         return self._str(text)
 
+    def id_ref(self, ref: str) -> str:
+        """One of FERB's own record ids (m-<hex>, trail:<id>, …) as a span input's source_refs hold it. Text
+        redaction's substring and card scans never run inside it (L16: an altered ref breaks lineage), but a ref that
+        is itself a secret is still redacted: a credential pattern, or an exact secret value or card number as the
+        whole ref or as the id after its family prefix."""
+        if self.exclude_apps and ref.lower() in self.exclude_apps:
+            return EXCLUDED
+        ident = ref.rpartition(":")[2]
+        secrets = self.secret_values()
+        if ref in secrets or ident in secrets or (_REF_DIGITS.fullmatch(ident) and payment_card(ident)):
+            return REDACTED
+        for p in SECRET_PATTERNS:
+            ref = p.sub(REDACTED, ref)
+        return ref
+
     def excluded_host(self, host: str) -> bool:
         """A host on the owner's exclusion list (a domain covers its subdomains)."""
         host = host.lower()
@@ -187,7 +214,9 @@ class Redactor:
                 s = s.replace(v, REDACTED)
         for p in SECRET_PATTERNS:
             s = p.sub(REDACTED, s)
-        s = CARD.sub(lambda m: REDACTED if payment_card(m.group()) else m.group(), s)
+        ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids
+        s = CARD.sub(lambda m: m.group() if any(a <= m.start() < b for a, b in ids) or not payment_card(m.group())
+                     else REDACTED, s)
         s = OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
         return URL.sub(lambda m: self._url(m.group(0)), s)
 

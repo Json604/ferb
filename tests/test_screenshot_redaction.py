@@ -21,3 +21,16 @@ def test_ocr_error_never_returns_raw_pixels_or_exception_content() -> None:
     with pytest.raises(RuntimeError, match='image redaction unavailable') as error:
         ImageRedactor(Redactor(), recognize=fail)(b'raw')
     assert 'sensitive' not in str(error.value)
+
+
+def test_ocr_card_glued_to_its_label_is_still_masked() -> None:
+    """OCR often merges a label and its number into one region ("Card4111…"). Text redaction leaves a card glued to
+    a word alone (L16); pixel masking uses digits and the checksum alone, since a false alarm only blurs pixels."""
+    boxes = []
+    def mask(image, rects):
+        boxes.extend(rects)
+        return b'safe'
+    regions = [TextRegion('Card4111111111111111', (1, 1, 9, 9)), TextRegion('visa-4111 1111 1111 1111', (2, 2, 9, 9)),
+               TextRegion('Order4111111111111112 shipped', (3, 3, 9, 9))]
+    assert ImageRedactor(Redactor(), recognize=lambda _: regions, mask=mask)(b'raw') == b'safe'
+    assert boxes == [(1, 1, 9, 9), (2, 2, 9, 9)]                 # no checksum, no card: the order number stays

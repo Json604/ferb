@@ -58,16 +58,19 @@ PROPOSAL_SCHEMA: dict[str, Any] = {
 
 
 def _map(pairs: list[dict[str, Any]], *, json_text: bool = False) -> dict[str, Any]:
-    """The map a strict {name, value} list stands for. A repeated name or a value that isn't JSON text is refused."""
+    """The map a strict {name, value} list stands for. A repeated name is refused; a value that isn't JSON text is
+    the literal string (a model often writes a bare string where JSON text was asked for)."""
     out: dict[str, Any] = {}
     for pair in pairs:
-        name = pair['name']
+        name, value = pair['name'], pair['value']
         if name in out:
             raise LearningRefused(f'{name} is given twice')
-        try:
-            out[name] = json.loads(pair['value']) if json_text else pair['value']
-        except ValueError:
-            raise LearningRefused(f'the value of {name} is not JSON text') from None
+        if json_text:
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass                        # not JSON text: the string as written
+        out[name] = value
     return out
 
 
