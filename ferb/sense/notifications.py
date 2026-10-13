@@ -39,7 +39,8 @@ class NotificationPolicy:
         data = event["data"]
         app, chat = str(data.get("bundle_id", "")), str(data.get("conversation", ""))
         history = [{"id": r["id"], "at": r["at"], "data": json.loads(r["data_json"])} for r in self.db.conn.execute(
-            "SELECT id,at,data_json FROM trail WHERE source='notification' AND seq < COALESCE((SELECT seq FROM trail WHERE id=?), 9223372036854775807) AND "
+            "SELECT id,at,data_json FROM trail WHERE source='notification' AND actor!='ferb' AND "
+            "seq < COALESCE((SELECT seq FROM trail WHERE id=?), 9223372036854775807) AND "
             "json_extract(data_json,'$.bundle_id')=? AND json_extract(data_json,'$.conversation')=? ORDER BY seq",
             (event["id"], app, chat))]
         told = [dict(r) for r in self.db.conn.execute("SELECT event_id,text,at FROM notification_told WHERE app=? AND conversation=? ORDER BY at", (app, chat))]

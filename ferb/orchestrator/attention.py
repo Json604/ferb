@@ -5,9 +5,21 @@ keeps that origin, and outside text it repeats stays apart in `quotes` with its 
 import json
 from typing import Any
 
+from ferb.act.browser.profiles import BROWSERS
 from ferb.core import origin
 
 ORIGIN = origin.join({origin.external("observation"), origin.INFERRED})
+# A tab row names its browser ("brave"), an Accessibility row its bundle: both are the same app (L10).
+BROWSER_BUNDLES = {name: browser.bundle_id for name, browser in BROWSERS.items()} | {"safari": "com.apple.Safari"}
+
+
+def app_of(data: dict[str, Any]) -> str:
+    """The app an observation row is about: its bundle id, or the bundle of the browser a tab row names; "" when the
+    row names no app (files, idle). A fact recorded on the row, never inferred from its content."""
+    if data.get("bundle_id"):
+        return str(data["bundle_id"])
+    browser = str(data.get("browser") or "")
+    return BROWSER_BUNDLES.get(browser, browser)
 
 
 def _quotes(value: Any, source: str) -> list[dict[str, str]]:
@@ -44,9 +56,19 @@ class AttentionNotices:
     def unseen(self) -> list[dict[str, Any]]:
         return [self.view(r) for r in self.list()]
 
-    def told(self) -> list[dict[str, Any]]:
-        """Every notice FERB has told the owner: posting to chat is telling, shown or not."""
-        return [self.view(dict(r)) for r in self.db.conn.execute("SELECT * FROM attention_notices ORDER BY created_at")]
+    def told(self, apps: set[str] | None = None) -> list[dict[str, Any]]:
+        """The notices FERB has told the owner (posting to chat is telling, shown or not): every one, or with `apps`
+        those about any of those apps, by the rows each notice cited or considered (L10: a scope, not a number)."""
+        rows = [dict(r) for r in self.db.conn.execute("SELECT * FROM attention_notices ORDER BY created_at")]
+        if apps is not None:
+            about: dict[str, set[str]] = {}
+            rows_of = ("SELECT n.id, t.data_json FROM attention_notices n, json_each({}) ref "
+                       "JOIN trail t ON ref.value LIKE 'trail:%' AND t.id = substr(ref.value, 7)")
+            for r in self.db.conn.execute(rows_of.format("n.source_refs_json") + " UNION " +
+                                          rows_of.format("COALESCE(n.considered_refs_json, '[]')")):
+                about.setdefault(r[0], set()).add(app_of(json.loads(r[1])))
+            rows = [r for r in rows if about.get(r["id"], set()) & apps]
+        return [self.view(r) for r in rows]
 
     def acknowledge(self, idents: list[str]) -> list[dict[str, Any]]:
         """A client showed these notices. Unknown ids refuse the whole acknowledgement."""
@@ -69,11 +91,12 @@ CONTEXT_REMOVED = "Removed: this recorded context held text that has expired or 
 
 def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
     """Clear the text of every notice derived from these source rows (cited or considered), wherever it was copied:
-    the notice (taken out of `chat.status`), its `chat.notice` journal entry, the told receipts carrying its text, and
-    the `attention.consider` spans. A consideration that saw one of the rows loses its recorded model context and its
-    answer's text; any other consideration that was told the notice (already_told) loses that notice's text. Audit
-    rows stay. Idempotent: a notice already carrying `replacement` is left as it is. Used by the D14 seven-day purge
-    (I3) and by an explicit forget. Returns how many notices it cleared."""
+    the notice (taken out of `chat.status`), its `chat.notice` journal entry, the told receipts carrying its text, the
+    `attention.consider` spans, and any other recorded model context that was shown it in the chat history (L10). A
+    consideration that saw one of the rows loses its recorded model context and its answer's text; any other model
+    context that was told the notice (already_told, the chat history) loses that notice's text. Audit rows stay.
+    Idempotent: a notice already carrying `replacement` is left as it is. Used by the D14 seven-day purge (I3) and by
+    an explicit forget. Returns how many notices it cleared."""
     cleared, said = 0, []
     for row in db.conn.execute("SELECT * FROM attention_notices").fetchall():
         cited = json.loads(row["source_refs_json"])
@@ -88,8 +111,17 @@ def expire_derived(db: Any, refs: set[str], replacement: str, now: str) -> int:
             db.conn.execute("UPDATE notification_told SET text=? WHERE event_id=? AND text=?",
                             (replacement, ref.removeprefix("trail:"), row["text"]))
         cleared += 1
-    # A told notice sits in a later consideration's context as a JSON "text" field (already_told, or a quote).
+    # A told notice sits in a later consideration's context as a JSON "text" field (already_told, or a quote), and in
+    # the chat history the planner and later considerations were given (L10) in the same form.
     told = [('"text": ' + json.dumps(text), '"text": ' + json.dumps(replacement)) for text in said if text]
+    if told:                                              # one pass over the other spans, only when needed
+        holds = " OR ".join(["instr(input_json, ?) > 0"] * len(told))
+        for span in db.conn.execute(f"SELECT id,input_json FROM spans WHERE kind!='attention.consider' AND ({holds})",
+                                    [json.dumps(old)[1:-1] for old, _ in told]).fetchall():
+            inp = json.loads(span["input_json"])
+            new_inp = {k: _without(v, told) for k, v in inp.items()}
+            if new_inp != inp:
+                db.conn.execute("UPDATE spans SET input_json=? WHERE id=?", (json.dumps(new_inp), span["id"]))
     for span in db.conn.execute("SELECT id,input_json,output_json FROM spans WHERE kind='attention.consider'").fetchall():
         inp = json.loads(span["input_json"])
         out = json.loads(span["output_json"]) if span["output_json"] else None

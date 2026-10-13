@@ -34,13 +34,17 @@ class Continuity:
         elif new:
             conversation = "chat-" + secrets.token_hex(6)
         else:
-            row = self.db.conn.execute("SELECT conversation_id FROM current_conversation WHERE singleton = 1").fetchone()
-            conversation = row[0] if row else "owner"
+            conversation = self.current()
         self.ensure(conversation)
         self.db.conn.execute("INSERT OR REPLACE INTO current_conversation VALUES (1, ?)", (conversation,))
         if conversation == "owner":
             self._import_legacy(conversation)
         return conversation
+
+    def current(self) -> str:
+        """The conversation `ferb chat` last attached to; the owner's daily conversation until another is chosen."""
+        row = self.db.conn.execute("SELECT conversation_id FROM current_conversation WHERE singleton = 1").fetchone()
+        return str(row[0]) if row else "owner"
 
     def pending(self, conversation: str) -> tuple[str, str]:
         self.ensure(conversation)
@@ -112,7 +116,7 @@ class Continuity:
         for row in self.db.conn.execute("SELECT * FROM journal ORDER BY seq"):
             data = json.loads(row["data_json"])
             belongs = data.get("task_id") in tasks if row["kind"] == "task.answer" else data.get("session_id", "owner") == conversation
-            if belongs and row["kind"] in ("chat.message", "chat.reply", "chat.clarify", "task.answer"):
+            if belongs and row["kind"] in ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice"):
                 records.append({"id": row["id"], "at": row["at"], "kind": row["kind"], "data": data,
                                 "origin": row["origin"] or journal_origin(row["kind"], data)})
         if include_tasks:

@@ -15,6 +15,7 @@
 - On opening: answers that arrived while chat was closed, tasks still running, and any question waiting for the
   owner."""
 
+import json
 import re
 import sys
 import threading
@@ -288,6 +289,9 @@ class PlainReply:
             self.interrupt("The stream ended before FERB confirmed the response.")
 
 
+NOTICED = "ferb (noticed)>"                  # a perception notice: FERB's words about what it noticed (L10)
+
+
 class Chat:
     def __init__(self, connect: Callable[[], Client], out: TextIO, ask: Callable[[str], str],
                  verbose: bool = False, spinner_out: TextIO | None = None, speaker: Any = None,
@@ -307,8 +311,17 @@ class Chat:
     def say(self, line: str) -> None:
         line = printable(line)                            # model text never drives the owner's terminal
         self.write(line + "\n")
-        if line.lstrip().startswith(("ferb>", "📞", "✉️")):                 # FERB's words, never internals
+        if line.lstrip().startswith(("ferb>", NOTICED, "📞", "✉️")):       # FERB's words, never internals
             self.speaker.say(line)
+
+    def notice(self, notice: dict[str, Any]) -> None:
+        """A perception notice (L9/L10): FERB's words with a "noticed" tag, then each outside quote as quoted text with
+        its origin, never as FERB's own words (MP2). A quote stays one quoted string: its own line breaks can't start
+        a line that looks like FERB's."""
+        self.say(NOTICED + " " + str(notice.get("text", "")))
+        for quote in notice.get("quotes") or []:
+            text = json.dumps(str(quote.get("text", "")), ensure_ascii=False)
+            self.say(f'   quoted from {quote.get("origin", "")}: {text}')
 
     def call(self, method: str, params: dict[str, Any] | None = None) -> Any:
         c = self.connect()
@@ -360,8 +373,9 @@ class Chat:
             for proposal in digest.get('proposals', []):
                 self.say(f"   {proposal['text']} — /memory confirm {proposal['id']}")
         for notice in st.get('notices', []):
-            self.say('ferb> ' + notice['text'])
-            self.call('attention.ack', {'id': notice['id']})
+            self.notice(notice)
+        if st.get('notices'):
+            self.call('attention.ack', {'ids': [notice['id'] for notice in st['notices']]})
         for d in st.get("approvals", []):
             self.answer_approval(d)
         for q in st.get("questions", []):                    # asked while you were away (a scheduled run)

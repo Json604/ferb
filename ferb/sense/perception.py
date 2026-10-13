@@ -14,6 +14,9 @@ class Perception:
 
     def __init__(self, daemon: Any) -> None:
         self.daemon = daemon
+        # macOS banners FERB posted that Notification Center hasn't shown back yet: {title, body, at} (L10). Each one
+        # matches one record; they live with this process, so none is kept as another copy of FERB's words.
+        self.banners: list[dict[str, str]] = []
         self.policy = NotificationPolicy(daemon.db, daemon.clock, daemon.ids, daemon.redact)
         self.batches = EventBatcher(daemon.db, daemon.clock, daemon.ids, lambda: daemon.jev,
                                     self.policy, daemon._publish,
@@ -58,6 +61,22 @@ class Perception:
                         (len(observations), self.daemon.clock.now().isoformat()))
         return []
 
+    def banner_posted(self, shown: dict[str, str]) -> None:
+        """FERB is posting a macOS banner with this (redacted) title and body."""
+        self.banners.append({"title": shown["title"], "body": shown["body"], "at": self.daemon.clock.now().isoformat()})
+
+    def _own_banner(self, observation: Observation) -> Observation:
+        """A record showing a banner FERB posted (same title and body) is FERB's (P4), as a fact: recorded with actor
+        FERB, without the body (FERB's words stay with the notice or answer they came from), and never sent to Jev as
+        an outside arrival. Any other record is returned unchanged."""
+        data = observation.data
+        for banner in self.banners:
+            if (banner["title"], banner["body"]) == (data.get("title"), data.get("body")):
+                self.banners.remove(banner)
+                kept = {k: v for k, v in data.items() if k != "body"} | {"ferb_banner": {"posted_at": banner["at"]}}
+                return Observation(observation.source, kept, {"actor": "ferb"})
+        return observation
+
     def notification(self, observation: Observation) -> None:
         d = self.daemon
         if d.sense is not None and d.sense.paused:
@@ -68,7 +87,7 @@ class Perception:
         # Record first. If the daemon dies before receipt, the durable trail row itself prevents a duplicate.
         previous = d.db.conn.execute("SELECT id FROM trail WHERE source='notification' AND json_extract(data_json,'$.external_id')=?",
                                      (external_id,)).fetchone()
-        event = d.trail.record(observation) if previous is None else None
+        event = d.trail.record(self._own_banner(observation)) if previous is None else None
         event_id = previous["id"] if previous else event.id if event is not None else None
         if event_id is not None:
             d.db.conn.execute("INSERT OR IGNORE INTO perception_seen VALUES('notification',?,?)", (external_id, event_id))

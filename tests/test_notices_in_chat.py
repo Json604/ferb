@@ -472,9 +472,12 @@ def test_the_seven_day_purge_clears_notice_text_derived_from_a_clipboard_row(dae
                                                        Redactor()))
     copied = _record(daemon, Observation("clipboard", {"bundle_id": "com.apple.Notes", "text": "uniquecopiednote",
                                                        "change_count": 3}))
-    later = _record(daemon, _brave("Claude - Settings"))
+    later = _record(daemon, accessibility_observation("com.apple.Notes", "Notes", 77, "AXTitleChanged",
+                                                       {"window_id": "4", "role": "AXWindow", "title": "Shopping"},
+                                                       Redactor()))
     # The model cites only the focus row, but it saw the copied text too: the notice is derived from both. A later,
-    # unrelated consideration is told the notice (already_told), so its recorded context holds the text as well.
+    # unrelated consideration in the same app is told the notice (already_told is scoped to the app, L10), so its
+    # recorded context holds the text as well.
     install(daemon, [json.dumps({"tell": True, "text": "You copied uniquecopiednote.", "source_refs": ["trail:" + focus.id],
                                  "quotes": [{"text": "uniquecopiednote", "origin": "external:observation"}]}),
                      json.dumps({"tell": False, "text": "", "source_refs": ["trail:" + later.id]})])

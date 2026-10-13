@@ -235,6 +235,8 @@ class Daemon:
         self._turns: set[asyncio.Task[None]] = set()
         self._attached_trees: set[str] = set()
         self._log_subscriptions: set[Any] = set()             # open `logs.subscribe` streams' bus subscriptions (L9)
+        # L10: app -> Jev yes batches waiting for that app's next consideration; an app is a key while one runs
+        self._attention_waiting: dict[str, list[dict[str, Any]]] = {}
         self._held: list[tuple[str, str]] = []               # notifications waiting for the owner to be back (13)
         self.schedules: Any = None                            # durable schedules
         self._runs: set[asyncio.Task[None]] = set()
@@ -1501,6 +1503,10 @@ class Daemon:
         asyncio.get_running_loop().create_task(self._notify("FERB needs you", text, urgent=True))
 
     async def _notify_safely(self, title: str, text: str) -> None:
+        if self.perception is not None and self.notify is not _no_notify:
+            # FERB knows its own banners (L10): the Notification Center row they become is FERB's, not an arrival.
+            shown = {"title": self._redact_text(title), "body": self._redact_text(text)}     # as osascript shows it
+            self.perception.banner_posted(self.redact(shown))
         try:
             await self.notify(title, text)
         except Exception:
@@ -1660,38 +1666,82 @@ class Daemon:
         if self.jev is not None:
             self.jev.mark_effect('trail.attention', decision, effect)
 
-    async def _consider_attention(self, event: dict[str, Any]) -> None:
-        decision = 'batch:' + str(event.get('batch_id'))
+    def _attention_app(self, event: dict[str, Any]) -> str:
+        """The app a Jev yes batch is about: that of its first observation row (a batch never spans apps)."""
+        from ferb.orchestrator.attention import app_of
+        for ref in event.get('source_refs', []):
+            if self.db is not None and isinstance(ref, str) and ref.startswith('trail:'):
+                row = self.db.conn.execute('SELECT source,data_json FROM trail WHERE id=?', (ref[6:],)).fetchone()
+                if row is not None and row['source'] != 'notification':
+                    return app_of(json.loads(row['data_json']))
+        return ''
+
+    def _attention_arrived(self, event: dict[str, Any]) -> None:
+        """L10, one moment one message: at most one consideration runs per app. A yes batch for an app whose
+        consideration is running waits and merges into that app's next consideration; there is no timer."""
+        app = self._attention_app(event)
+        waiting = self._attention_waiting.get(app)
+        if waiting is not None:
+            waiting.append(event)
+            return
+        self._attention_waiting[app] = [event]
+        job = asyncio.create_task(self._attention_turns(app))
+        self._runs.add(job)
+        job.add_done_callback(self._runs.discard)
+
+    async def _attention_turns(self, app: str) -> None:
+        """Consider an app's waiting batches together, then whatever arrived meanwhile, until none waits."""
+        try:
+            while self._attention_waiting[app]:
+                events, self._attention_waiting[app] = self._attention_waiting[app], []
+                await self._consider_attention(*events)
+        finally:
+            del self._attention_waiting[app]
+
+    async def _consider_attention(self, *events: dict[str, Any]) -> None:
+        """One consideration of one or more yes batches about one app (merged, rows in the order they happened). Every
+        batch's decision records the outcome. Already told is scoped to the rows' app (L10)."""
+        from ferb.orchestrator.attention import app_of
+        decisions = list(dict.fromkeys('batch:' + str(event.get('batch_id')) for event in events))
+
+        def effect(text: str) -> None:
+            together = f' (one consideration for {len(decisions)} batches)' if len(decisions) > 1 else ''
+            for decision in decisions:
+                self._attention_effect(decision, text + together)
         if self.supervisor is None or self.db is None or self.attention_notices is None:
-            self._attention_effect(decision, 'not considered: the orchestrator is not running')
+            effect('not considered: the orchestrator is not running')
             return
         try:
-            rows, refs = [], []
-            for ref in event.get('source_refs', []):
+            found = []
+            for ref in dict.fromkeys(ref for event in events for ref in event.get('source_refs', [])):
                 if not isinstance(ref, str) or not ref.startswith('trail:'):
                     continue
                 row = self.db.conn.execute('SELECT * FROM trail WHERE id=?', (ref[6:],)).fetchone()
                 if row is None or row['source'] == 'notification':
                     continue                 # notification decisions remain hard shadow, including mixed batches
-                rows.append({'id': row['id'], 'source': row['source'], 'data': json.loads(row['data_json']),
-                             'origin': 'external:observation'})
-                refs.append(ref)
+                found.append((row['seq'], ref, {'id': row['id'], 'at': row['at'], 'source': row['source'],
+                                                'actor': row['actor'], 'task_id': row['task_id'],
+                                                'data': json.loads(row['data_json']), 'origin': 'external:observation'}))
+            found.sort(key=lambda item: item[0])                  # merged batches read in the order they happened
+            refs, rows = [ref for _, ref, _ in found], [row for _, _, row in found]
             if not rows:
-                self._attention_effect(decision, 'not considered: no observation rows left (notifications stay shadow)')
+                effect('not considered: no observation rows left (notifications stay shadow)')
                 return
-            result = await self.supervisor.attention(refs, rows, self.attention_notices.told())
+            told = self.attention_notices.told({app_of(row['data']) for row in rows})
+            result = await self.supervisor.attention(refs, rows, told)
             if result.get('tell') is not True or not str(result.get('text', '')).strip():
-                self._attention_effect(decision, 'considered; nothing told')
+                effect('considered; nothing told')
                 return
-            notice = self.attention_notices.add(decision, result['source_refs'], str(result['text']),
+            notice = self.attention_notices.add(decisions[0], result['source_refs'], str(result['text']),
                                                 result.get('quotes'), refs,
                                                 origin_.least_trusted(row['origin'] for row in rows))
             if notice is not None:                    # posted once: a replayed batch never posts again
                 await self._post_notice(notice)
-                self._attention_effect(decision, 'told in chat: notice ' + notice['id'])
+                effect('told in chat: notice ' + notice['id'])
         except Exception as exc:
-            self._attention_effect(decision, 'consideration failed: ' + type(exc).__name__)
-            self._journal().append('attention.failed', {'batch_id': event.get('batch_id'), 'error': type(exc).__name__})
+            effect('consideration failed: ' + type(exc).__name__)
+            self._journal().append('attention.failed', {'batch_ids': [str(e.get('batch_id')) for e in events],
+                                                        'error': type(exc).__name__})
 
     async def _chat_attach(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         """Chat is open again: approvals for running tasks are asked there, not by notification."""
@@ -2474,9 +2524,7 @@ class Daemon:
         if topic == 'trail.event' and self.supervisor is not None:
             self.supervisor.conversations.observe(self.redact(data))
         if topic == 'perception.attention' and not self._shutting_down:
-            job = asyncio.create_task(self._consider_attention(self.redact(data)))
-            self._runs.add(job)
-            job.add_done_callback(self._runs.discard)
+            self._attention_arrived(self.redact(data))
         self.bus.publish(topic, self.redact(data))
         if topic == "approval.requested":
             self._approval_notice(data)

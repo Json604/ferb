@@ -58,8 +58,8 @@ class LiveChat(Chat):
                     if not own_stream:
                         self.say('ferb> ' + str((None if self.verbose else data.get('display_text')) or data.get('answer', '')))
                 elif topic == 'attention.notice':
-                    self.say('ferb> ' + str(data.get('text', '')))
-                    self.call('attention.ack', {'id': data['id']})
+                    self.notice(data)
+                    self.call('attention.ack', {'ids': [data['id']]})
                 elif topic == 'task.resumed_event' and data.get('type') == 'reply':
                     self.say('ferb> ' + str(data.get('text', '')))
         except Exception:

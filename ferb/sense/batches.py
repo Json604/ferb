@@ -107,6 +107,7 @@ class EventBatcher:
             events = self.pending()
             ordinary = [e for e in events if e["source"] != "notification"]
             groups = [[e] for e in events if e["source"] == "notification"] + batch_events(ordinary)
+            moment: list[tuple[Any, str, list[str]]] = []      # this flush's live yes answers, published together
             for group in groups:
                 ident = self.ids.new_id()
                 refs = [e["id"] for e in group]
@@ -127,18 +128,24 @@ class EventBatcher:
                                                        "mode": "live" if asks[0].question.live else "shadow",
                                                        "answers": answers})
                     if answers.get("trail.attention") == "yes":
-                        # Q4: the live yes starts one consideration; the daemon marks its outcome on the decision.
-                        self.publish("perception.attention", {"batch_id": ident, "source_refs": ["trail:" + ref for ref in refs],
-                                     "authority": "observation_only", "reason": "trail.attention"})
-                        jev.mark_effect("trail.attention", "batch:" + ident, "attention consideration started")
+                        moment.append((jev, ident, refs))
                 except asyncio.CancelledError:
                     raise                      # pending is retried after restart
                 except Exception as error:
                     self.db.conn.execute("UPDATE perception_batches SET state='unavailable',error=? WHERE id=?",
                                          (type(error).__name__, ident))
+            # Q4: a live yes starts a consideration; the daemon marks its outcome on the decision. L10: one flush is one
+            # moment, so its yes batches are published together, once every batch of it has Jev's answer; batches about
+            # one app then merge into one consideration (no timer).
+            for jev, ident, refs in moment:
+                self.publish("perception.attention", {"batch_id": ident, "source_refs": ["trail:" + ref for ref in refs],
+                             "authority": "observation_only", "reason": "trail.attention"})
+                jev.mark_effect("trail.attention", "batch:" + ident, "attention consideration started")
 
     def _request(self, group: list[dict[str, Any]], ident: str) -> tuple[dict[str, Any], list[Ask]]:
         event = group[0]
+        if event["source"] == "notification" and event.get("actor") == "ferb":
+            return {"ferb_banner": True}, []   # FERB's own banner read back (L10): FERB's words, never an arrival
         if event["source"] == "notification":
             data = event["data"]
             if self.policy.muted(str(data.get("bundle_id", "")), str(data.get("conversation", ""))):
