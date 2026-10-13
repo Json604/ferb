@@ -200,8 +200,8 @@ struct NotchView: View {
                     }
                 }.frame(height: 28)
             }
-            if !model.visibleTurns.isEmpty {
-                ConversationTranscript(turns: model.visibleTurns, model: model)
+            if !model.visibleEntries.isEmpty {
+                ConversationTranscript(entries: model.visibleEntries, model: model)
             } else if !model.viewingToday {
                 Text("No messages on this day.").font(.system(size: 12)).foregroundStyle(Palette.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -229,7 +229,7 @@ struct NotchView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if model.visibleTurns.isEmpty { Text("Go ahead. I’m here.")
+            if model.visibleEntries.isEmpty { Text("Go ahead. I’m here.")
                 .font(.system(size: 14, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .frame(height: 24) }

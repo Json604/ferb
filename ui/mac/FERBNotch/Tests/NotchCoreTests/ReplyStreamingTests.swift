@@ -32,7 +32,7 @@ final class ReplyStreamingTests: XCTestCase {
         XCTAssertEqual(model.session.draft, "My next request")
     }
 
-    func testAuthoritativePlanClearsDraftAndRejectsLateDraftDeltas() {
+    func testAuthoritativePlanClearsDraftShowsPlanLineAndRejectsLateDraftDeltas() {
         let model = makeModel()
         let id = begin("Find my notes", in: model)
         model.receiveChatEvent(["type": "reply_delta", "text": "Provisional reply"], localID: id)
@@ -41,7 +41,10 @@ final class ReplyStreamingTests: XCTestCase {
         XCTAssertEqual(model.conversation.turns.first?.answer, "")
         XCTAssertEqual(model.conversation.turns.first?.backendTaskID, "real-task")
         XCTAssertEqual(model.conversation.turns.first?.status, "working")
-        XCTAssertEqual(model.session.activity.last?.title, "Finding your notes")
+        // L7: the plan line is a FERB line in the chat, not an entry in the hidden activity feed.
+        XCTAssertEqual(model.conversation.turns.first?.plan, "Finding your notes")
+        XCTAssertEqual(model.conversation.turns.first?.ferbLines, ["Finding your notes"])
+        XCTAssertFalse(model.session.activity.contains { $0.title == "Finding your notes" })
     }
 
     func testAbortClearsDraftAndPersistsInterruptionUntilAuthoritativeResult() throws {

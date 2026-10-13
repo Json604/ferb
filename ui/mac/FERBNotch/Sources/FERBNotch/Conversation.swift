@@ -11,7 +11,7 @@ extension NotchModel {
         if active.count > 1 { return "\(active.count) requests running" }
         return (session.activeTaskID != nil ? session : active.first)?.activity.last?.title ?? "Working…"
     }
-    var visibleTurns: [ConversationTurn] { conversation.turns(on: followsToday ? Date() : selectedDay) }
+    var visibleEntries: [TranscriptEntry] { conversation.transcript(on: followsToday ? Date() : selectedDay) }
     var viewingToday: Bool { followsToday || Calendar.current.isDateInToday(selectedDay) }
 
     /// Each stream owns a task session; the composer belongs to the window.
@@ -51,7 +51,7 @@ extension NotchModel {
         onPresentationChange?(true)
     }
 
-    func recordAnswer(announce: Bool, displayText: String? = nil) {
+    func recordAnswer(announce: Bool, displayText: String? = nil, verified: Bool = false) {
         guard let receipt = session.result else { return }
         let existing = conversation.turns.first { turn in
             turn.id == receipt.id || (receipt.backendTaskID != nil && turn.backendTaskID == receipt.backendTaskID)
@@ -59,7 +59,8 @@ extension NotchModel {
         let id = existing?.id ?? receipt.id
         conversation.begin(id: id, request: receipt.request, sources: receipt.sources, date: receipt.createdAt)
         if let taskID = receipt.backendTaskID { conversation.bind(id: id, taskID: taskID) }
-        conversation.finish(id: id, answer: receipt.answer, status: receipt.status, artifacts: receipt.artifacts, displayText: displayText)
+        conversation.finish(id: id, answer: receipt.answer, status: receipt.status, artifacts: receipt.artifacts,
+            displayText: displayText, verified: verified)
         saveConversation()
         onBackgroundChange?(true)
     }

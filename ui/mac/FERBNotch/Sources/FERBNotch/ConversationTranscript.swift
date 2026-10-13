@@ -7,67 +7,19 @@ private struct TranscriptHeight: PreferenceKey {
 }
 
 struct ConversationTranscript: View {
-    let turns: [ConversationTurn]
+    let entries: [TranscriptEntry]
     @ObservedObject var model: NotchModel
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(turns) { turn in
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack {
-                            Spacer(minLength: 28)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(turn.request).textSelection(.enabled)
-                                ForEach(turn.sources, id: \.self) { url in
-                                    Label(url.lastPathComponent, systemImage: "paperclip").font(.system(size: 10))
-                                }
-                            }
-                            .padding(.horizontal, 11).padding(.vertical, 8)
-                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 15))
-                            .help(turn.createdAt.formatted(date: .omitted, time: .shortened))
+                ForEach(entries) { entry in
+                    Group {
+                        switch entry {
+                        case let .turn(turn, answeredBelow): TurnView(turn: turn, answeredBelow: answeredBelow, model: model)
+                        case let .reply(_, turn): LateReplyView(turn: turn, model: model)
                         }
-                        if !turn.answer.isEmpty {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    MarkdownContent(turn.visibleAnswer).equatable()
-                                    if turn.displayText != nil && turn.visibleAnswer != turn.answer {
-                                        DisclosureGroup("Details") {
-                                            MarkdownContent(turn.answer).equatable()
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }.font(.system(size: 11))
-                                    }
-                                }
-                                    .padding(.horizontal, 11).padding(.vertical, 8)
-                                    .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 15))
-                                Spacer(minLength: 28)
-                            }
-                        }
-                        if turn.isProvisional {
-                            Text("Draft · still responding")
-                                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
-                                .accessibilityLabel("Provisional response. FERB is still responding.")
-                        }
-                        if let notice = turn.responseNotice {
-                            Text(notice).font(.system(size: 10)).foregroundStyle(Palette.secondary)
-                        }
-                        if turn.responseNotice == nil && turn.status != "done" && turn.status != "working" {
-                            Text(turn.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
-                        }
-                        ForEach(turn.artifacts, id: \.self) { url in
-                            Button { model.onOpenDocument?(url) } label: {
-                                Label(url.lastPathComponent, systemImage: "doc").lineLimit(1)
-                            }
-                            .buttonStyle(FerbButtonStyle(quiet: true))
-                            .onDrag { NSItemProvider(object: url as NSURL) }
-                            .contextMenu {
-                                Button("Open") { model.onOpenDocument?(url) }
-                                Button("Quick Look") { model.onQuickLook?(url) }
-                                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                            }
-                        }
-                    }.id(turn.id)
+                    }.id(entry.id)
                 }
             }
             .font(.system(size: 12))
@@ -100,6 +52,140 @@ struct ConversationTranscript: View {
             guard abs(model.measuredTranscriptHeight - height) > 1 else { return }
             model.measuredTranscriptHeight = height
             model.onBackgroundChange?(true)
+        }
+    }
+}
+
+/// The owner's request, then FERB's lines in arrival order: acknowledgement, plan line, live step, answer.
+private struct TurnView: View {
+    let turn: ConversationTurn
+    let answeredBelow: Bool
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Spacer(minLength: 28)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(turn.request).textSelection(.enabled)
+                    ForEach(turn.sources, id: \.self) { url in
+                        Label(url.lastPathComponent, systemImage: "paperclip").font(.system(size: 10))
+                    }
+                }
+                .padding(.horizontal, 11).padding(.vertical, 8)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 15))
+                .help(turn.createdAt.formatted(date: .omitted, time: .shortened))
+            }
+            ForEach(Array(turn.ferbLines.enumerated()), id: \.offset) { _, line in
+                FerbBubble { Text(line).textSelection(.enabled) }
+            }
+            if let live = turn.liveLine { LiveLineView(progress: live) }
+            if answeredBelow {
+                Text("Answered below").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            } else {
+                AnswerView(turn: turn, model: model)
+            }
+        }
+    }
+}
+
+/// A late answer (L6): a one-line quote of its question, then the answer.
+private struct LateReplyView: View {
+    let turn: ConversationTurn
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label {
+                Text(turn.quote).lineLimit(1).truncationMode(.tail)
+            } icon: {
+                Image(systemName: "arrowshape.turn.up.left")
+            }
+            .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            .help(turn.request)
+            .accessibilityLabel("Reply to: " + turn.quote)
+            AnswerView(turn: turn, model: model)
+        }
+    }
+}
+
+/// The current step and its elapsed time, replaced in place and removed when the answer arrives (L8).
+private struct LiveLineView: View {
+    let progress: LiveProgress
+
+    var body: some View {
+        // Ticks on whole elapsed seconds; a start time ahead of this Mac's clock ticks from now.
+        TimelineView(.periodic(from: min(progress.startedAt, Date()), by: 1)) { context in
+            Text(progress.text + " · " + progress.elapsedText(at: context.date))
+                .lineLimit(1).truncationMode(.tail)
+                .font(.system(size: 11)).foregroundStyle(Palette.secondary)
+        }
+        .accessibilityLabel("Current step: " + progress.text)
+    }
+}
+
+private struct AnswerView: View {
+    let turn: ConversationTurn
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        if !turn.answer.isEmpty {
+            FerbBubble(verified: turn.isVerified) {
+                VStack(alignment: .leading, spacing: 6) {
+                    MarkdownContent(turn.visibleAnswer).equatable()
+                    if turn.displayText != nil && turn.visibleAnswer != turn.answer {
+                        DisclosureGroup("Details") {
+                            MarkdownContent(turn.answer).equatable()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }.font(.system(size: 11))
+                    }
+                }
+            }
+        }
+        if turn.isProvisional {
+            Text("Draft · still responding")
+                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                .accessibilityLabel("Provisional response. FERB is still responding.")
+        }
+        if let notice = turn.responseNotice {
+            Text(notice).font(.system(size: 10)).foregroundStyle(Palette.secondary)
+        }
+        if turn.responseNotice == nil && turn.status != "done" && turn.status != "working" {
+            Text(turn.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+        }
+        ForEach(turn.artifacts, id: \.self) { url in
+            Button { model.onOpenDocument?(url) } label: {
+                Label(url.lastPathComponent, systemImage: "doc").lineLimit(1)
+            }
+            .buttonStyle(FerbButtonStyle(quiet: true))
+            .onDrag { NSItemProvider(object: url as NSURL) }
+            .contextMenu {
+                Button("Open") { model.onOpenDocument?(url) }
+                Button("Quick Look") { model.onQuickLook?(url) }
+                Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+            }
+        }
+    }
+}
+
+/// A neutral FERB message on the left; a verified answer carries a small check mark.
+private struct FerbBubble<Content: View>: View {
+    var verified = false
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 5) {
+            content
+                .padding(.horizontal, 11).padding(.vertical, 8)
+                .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 15))
+            if verified {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .semibold)).foregroundStyle(Palette.green)
+                    .padding(.bottom, 5)
+                    .help("Verified").accessibilityLabel("Verified")
+            }
+            Spacer(minLength: 28)
         }
     }
 }

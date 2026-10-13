@@ -23,12 +23,24 @@ final class ContinuousChatTests: XCTestCase {
         XCTAssertEqual(model.session.draft, "Still typing")
         XCTAssertEqual(model.session.backendTaskID, "second")
         XCTAssertEqual(model.conversation.turns[0].answer, "First answer")
+        // L6: the first answer arrived after the second request, so it appears at the bottom quoting its question.
+        XCTAssertEqual(model.visibleEntries.map(describe), ["First task (answered below)", "Second task", "reply to First task: First answer"])
         XCTAssertTrue(model.hasRunningWork)
         model.receiveOutcome(["task_id": "second", "status": "done", "answer": "Second answer"])
         XCTAssertEqual(model.session.draft, "Still typing")
         XCTAssertFalse(model.hasRunningWork)
         XCTAssertEqual(model.conversation.turns[1].answer, "Second answer")
+        // The second answer arrived after the first reply, so it goes below it: the chat reads in arrival order.
+        XCTAssertEqual(model.visibleEntries.map(describe), ["First task (answered below)", "Second task (answered below)",
+                                                            "reply to First task: First answer", "reply to Second task: Second answer"])
         model.disconnectDaemon()
+    }
+
+    private func describe(_ entry: TranscriptEntry) -> String {
+        switch entry {
+        case let .turn(turn, answeredBelow): return turn.request + (answeredBelow ? " (answered below)" : "")
+        case let .reply(_, answering): return "reply to " + answering.quote + ": " + answering.visibleAnswer
+        }
     }
 
     func testTranscriptHasReadableMinimumAndCapsLongConversations() {

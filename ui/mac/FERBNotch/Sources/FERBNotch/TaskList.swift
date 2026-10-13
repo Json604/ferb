@@ -84,7 +84,7 @@ extension NotchModel {
                    let turn = conversation.turns.first(where: { $0.backendTaskID == backend }) {
                     conversation.finish(id: turn.id, answer: result["answer"] as? String ?? result["summary"] as? String ?? turn.answer,
                         status: status, artifacts: (result["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) },
-                        displayText: result["display_text"] as? String)
+                        displayText: result["display_text"] as? String, verified: result["verified"] as? Bool ?? false)
                     saveConversation()
                 }
                 let url = try await taskRecordFiles.write(trace)

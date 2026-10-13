@@ -121,7 +121,7 @@ final class NotchModel: ObservableObject {
         if !pendingApprovals.isEmpty { return 260 }
         if showingSources { return 250 }
         if session.phase != .listening && !showingActivity {
-            return (visibleTurns.isEmpty ? 31 : chatTranscriptHeight) + composerHeight + 58 + (hasRunningWork ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0) + (promptError == nil ? 0 : 48) + (session.attachments.isEmpty ? 0 : 30)
+            return (visibleEntries.isEmpty ? 31 : chatTranscriptHeight) + composerHeight + 58 + (hasRunningWork ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0) + (promptError == nil ? 0 : 48) + (session.attachments.isEmpty ? 0 : 30)
         }
         if showingActivity { return 204 }
         switch session.phase {
