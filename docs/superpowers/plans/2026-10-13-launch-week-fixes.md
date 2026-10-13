@@ -188,6 +188,17 @@ Task 18 starts after Tasks 1, 7 and 13 are integrated; Task 19 after all others.
   (`ferb/act/browser/ext_bridge.py:1059-1061`). It captures with every secret field masked, using the field rects the
   extension reports for secret fields, queried directly rather than from the truncated element list. It withholds the
   image only when masking fails.
+- **No screenshot or recording is refused anywhere** (owner, 2026-10-14: "no screenshots should be refused and go with
+  redacted stuff"). That includes:
+  - native window captures of a browser that has a password field, which today `background.js` `window_password`
+    refuses through `ferb/act/mac/driver.py:295,336`, and which also misses shown passwords;
+  - `browser.screenshot`;
+  - `recording.*` frames.
+
+  Each is captured with every secret field masked. For a browser window the rects come from the content script's
+  `isSecret`/`passwordField` (the same fields the 0.15.3 bundle marks secret). For native apps they come from the AX
+  secure-field rects, now also covering AX password elements. An image is withheld only when the masking step itself
+  fails.
 - Browser snapshots report the state of media elements on the page: video/audio playing or paused, current time,
   duration, muted. This is read by the content script and needs no new permission. The worker can then check that a
   play/pause click took effect. The worker prompt says to confirm an action's effect before relying on it, e.g. that a
