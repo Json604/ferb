@@ -187,11 +187,13 @@ class WorkerRuns:
                 result = Outcome(task.id, "failed", f"stalled: no sign of life for {self.stall_s:g} s (not counting waits on the "
                                                     "owner)", [], [])
             else:
+                # Plain words, which the owner may read (L11); the exact failure is evidence for recovery
                 result = Outcome(task.id, "cancelled" if tree.stop else "failed",
-                                 tree.stop or f"worker's report wasn't usable ({type(e).__name__}: {e})", [], [])
+                                 tree.stop or "The report from this attempt wasn't usable (a problem on my side).", [],
+                                 [] if tree.stop else [failure])
         except Exception as e:
             failure = f"{type(e).__name__}: {e}"
-            result = Outcome(task.id, "blocked", f"Worker runtime unavailable: {type(e).__name__}: {e}", [], [])
+            result = Outcome(task.id, "blocked", "This attempt couldn't run (a problem on my side).", [], [failure])
         finally:
             self._stalled.discard(worker_id)
             self.activity.end(worker_id)

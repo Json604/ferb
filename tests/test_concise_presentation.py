@@ -59,7 +59,7 @@ def test_unverified_display_cannot_reuse_worker_success_claim(daemon):
     final = outcome(chat(daemon, 'review coding sessions'))
     assert final['status'] == 'failed'
     assert final['display_text'] != 'Done!' and 'Done!' not in final['display_text']
-    assert final['display_text'].startswith("I couldn't confirm the task was complete:")   # code's status label
+    assert final['display_text'].startswith("I couldn't confirm the task was complete")    # code's status label
     assert 'missing' not in final['display_text'] and 'missing' in final['answer']        # findings: Details (L11)
 
 
@@ -175,4 +175,5 @@ def test_dispatch_cannot_remove_or_replace_code_s_status_line():
                               'The payment page timed out; nothing was charged that I can see.')
     assert visible.split('\n')[0] == label
     assert 'Payment did not complete.' not in visible
-    assert outcome_display('failed', 'Full failure report.', 'Done!', label, '') == label     # never a success claim
+    # never a success claim; a label with nothing after it reads as a sentence
+    assert outcome_display('failed', 'Full failure report.', 'Done!', label, '') == label[:-1] + '.'

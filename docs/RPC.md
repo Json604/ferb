@@ -124,11 +124,15 @@ If absent/empty, fall back to `answer`. Do not invent a client summary or change
 `verified` (bool) is true only for `done`, when every condition was checked true; show it as a check mark. Neither
 `answer` nor `display_text` carries a "Verified." prefix (L11). For `failed`, `needs_user` and `done_unverified`,
 `display_text` starts with FERB's status line (such as "Done, but not confirmed:"), followed by the short text the
-orchestrator wrote from the check's verdict (without one: the open question, the reason work stopped and the files);
-the checker's findings stay in `answer`.
+orchestrator wrote from the check's verdict (without one: the reason work stopped and the files); a `needs_user`
+outcome then shows FERB's copy of the open question on its own `Question: …` line. The checker's findings stay in
+`answer`. A task that ended without the owner's stop says why in plain words, never an exception's name.
 When the task reached any site, `answer` ends with a code-built line `Sites contacted: host, host` (L2's list).
-A reply whose reminder or memory write FERB refused keeps its text and adds one line naming the refused part; on a
-task's turn that line arrives as a `timer` or `memory` event. A steering reply names the change ("Switched to: …").
+What FERB did with a turn's reminders and memory writes is said in code-built lines ("⏰ Reminder set for …",
+"Remembered: …", or one line naming what it refused), never by the planner's text: a `reply`/`clarify` gets them
+appended to `text` and `display_text`; on a task's turn refusals also arrive as `timer`/`memory` events (as set
+reminders and saved memories always do), and the outcome's `answer` and `display_text` carry every line. A steering
+reply names the change ("Switched to: …").
 
 Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.
 Append these already-redacted fragments to a **provisional** reply belonging to this connection's submitted turn.

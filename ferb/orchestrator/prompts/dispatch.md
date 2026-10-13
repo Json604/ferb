@@ -50,7 +50,8 @@ first. You have the check's verdict and findings above; turn them into plain wor
 - what was delivered, with its paths and links;
 - what isn't confirmed or didn't work, as a plain fact about their result, never the checker's wording or its
   reasoning;
-- what the owner can do, if anything: for ask, the direct question.
+- what the owner can do, if anything. For ask, FERB shows your question on its own line after this text: don't
+  repeat it here.
 Answer the owner's request as they asked it, and keep the fact their conversation is about. FERB adds the status line
 before your text (done but not confirmed, couldn't finish, needs your answer), so don't open with one of your own.
 The complete findings stay in the full answer under Details: never paste them here. Never assert success the

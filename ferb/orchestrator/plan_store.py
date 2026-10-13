@@ -53,6 +53,15 @@ class PlanStore:
             # Ended trees revoke standing grants. A resumed send plan must display/approve its scope again.
             self.db.conn.execute("UPDATE task_plans SET status='running', approved=0 WHERE task_id=?", (task_id,))
 
+    def replace(self, task_id: str, plan: Plan) -> None:
+        """A follow-up with a new goal brought its own plan for this ended task (L11): the new plan's steps start
+        fresh, so a finished step of the old plan never stands in for a new step with the same id. The task's other
+        records (its action ledger, spans and evidence) stay. Like reopen, a send plan must be approved again."""
+        with self.db.conn:
+            self.db.conn.execute('DELETE FROM plan_steps WHERE task_id=?', (task_id,))
+            self.db.conn.execute("UPDATE task_plans SET plan=?, status='running', approved=0 WHERE task_id=?",
+                                 (self._json(plan.model_dump()), task_id))
+
     def pending(self) -> list[str]:
         return [r[0] for r in self.db.conn.execute("SELECT task_id FROM task_plans WHERE status IN ('running','suspended','steps_done')")]
 

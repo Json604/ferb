@@ -95,7 +95,9 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
                          "quote": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
-                  "action": {"type": "string", "enum": ["stop", "retry", "continue"]}})]},
+                  "action": {"type": "string", "enum": ["stop", "retry", "continue"]},
+                  # continue only: the follow-up asks for a different result than the ended task's goal (L11)
+                  "new_goal": {"type": "boolean"}})]},
     "remember": {"type": "array", "items": REMEMBER_SCHEMA},
     "timers": {"type": "array", "items": TIMER_SCHEMA},
     "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
@@ -204,6 +206,9 @@ class Remember(BaseModel):
 class TaskControl(BaseModel):
     task_id: str
     action: Literal["stop", "retry", "continue", "steer"]
+    # continue on an ended task: the planner's judgment that the follow-up asks for a different result (a new goal),
+    # so FERB plans it afresh inside the same task; false resumes the saved goal and plan (L11, ef9e5d75)
+    new_goal: bool = False
 
 
 class SupervisorOutcome(BaseModel):

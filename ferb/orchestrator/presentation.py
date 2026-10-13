@@ -8,13 +8,18 @@ from collections.abc import Sequence
 
 
 def outcome_display(status: str, answer: str, checked_display: str, label: str, short: str,
-                    facts: Sequence[str] = ()) -> str:
+                    facts: Sequence[str] = (), question: str = "") -> str:
     """`label`: code's status line (the first line of the answer). `short`: the answer-writing model's short text.
-    `facts`: what code shows after the label when no model wrote a short text: the open question, the reason work
-    stopped, the files recorded; never a checker finding."""
+    `facts`: what code shows after the label when no model wrote a short text: the reason work stopped and the files
+    recorded; never a checker finding. `question`: code's copy of an open question, always on its own line. A label
+    with nothing after it reads as a sentence, never with a dangling colon."""
     if status == 'cancelled':
         return answer
     if status == 'done':
         return checked_display.strip() or answer
     body = short.strip() or '\n'.join(fact.strip() for fact in facts if fact.strip())
-    return '\n'.join(part for part in (label.strip(), body) if part) or answer
+    asked = 'Question: ' + question.strip() if question.strip() else ''
+    head = label.strip()
+    if head.endswith(':') and not (body or asked):
+        head = head[:-1] + '.'
+    return '\n'.join(part for part in (head, body, asked) if part) or answer
