@@ -47,9 +47,9 @@ current image illustrates the notch UI.
 
 **Small promo tile:** `promo-440x280.png`
 
-**Official URL / Homepage:** https://kartikey.xyz/ferb (or the GitHub repository once it's public on Oct 21)
+**Official URL / Homepage:** https://ferb.kartikey.xyz
 
-**Support URL:** the GitHub repository's Issues page (once public), or a contact page on kartikey.xyz
+**Support URL:** mailto:kartikey060105@gmail.com until the GitHub repository is public (then its Issues page)
 
 ## Privacy practices tab
 
@@ -97,7 +97,7 @@ script-evaluation command.
 - I do not use or transfer user data for purposes that are unrelated to my item's single purpose.
 - I do not use or transfer user data to determine creditworthiness or for lending purposes.
 
-**Privacy policy URL:** host `privacy.html` at, for example, https://kartikey.xyz/ferb/privacy
+**Privacy policy URL:** https://ferb.kartikey.xyz/privacy (the `site/` folder, deployed on Vercel)
 
 ## Distribution
 
