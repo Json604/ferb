@@ -10,7 +10,7 @@ sandbox (sandbox.py): the daemon never starts a command without it, and a child 
 outbound network (what each rule covers, and its measured residuals, is in sandbox.py and the F5a Task 2 and 3
 reports). Each process gets its own credentials for FERB's egress proxy (proxy.py), the only way off the Mac, so what
 it reached is a recorded fact (`network`); when the task ends, each finished process's record is reported
-(`on_network`, journaled by the daemon) and forgotten."""
+(`on_network`, journaled by the daemon) and forgotten, and a process still running then is reported when it exits."""
 
 import asyncio
 import dataclasses
@@ -84,6 +84,7 @@ class ShellManager:
         self.redactor, self.on_escape = redactor, on_escape
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}   # connection closes, so a setsid child's late bytes count)
         self._owner_input: dict[str, str] = {}
+        self._report_on_exit: set[str] = set()   # running when their task ended: their record is due when they exit
         if proxy is not None:
             proxy.on_report = self._report
 
@@ -115,6 +116,9 @@ class ShellManager:
             self.redactor.retain_secret(secret)
         def finished() -> None:
             Sandbox.cleanup(profile)
+            if self.proxy is not None and pid in self._report_on_exit:   # outlived its task: its record is due now
+                self._report_on_exit.discard(pid)
+                self.proxy.forget(pid)
             if secret and self.redactor is not None:
                 self.redactor.release_secret(secret)
         p = PtyProc(argv, cwd, self._env(pid), self.log_dir / f"{pid}.log", self.redact_text, self.stream_factory,
@@ -205,9 +209,15 @@ class ShellManager:
         return ProcHandle(proc_id, owner_task)
 
     def owner_of(self, proc_id: str) -> str | None:
-        """The task that started this process (the gateway attributes its destinations to it); None if it's unknown."""
+        """The task that started this process; None if it's unknown."""
         hit = self._procs.get(proc_id)
         return hit[1].owner_task if hit is not None else None
+
+    def live_owner(self, proc_id: str) -> str | None:
+        """The task of a process that is still running (the gateway's network gate, L2); None once it has ended, so
+        a descendant that outlives it with its proxy credentials reaches nothing new, and None if it's unknown."""
+        hit = self._procs.get(proc_id)
+        return hit[1].owner_task if hit is not None and hit[0].exit_code is None else None
 
     async def kill_id(self, proc_id: str) -> bool:
         hit = self._procs.get(proc_id)
@@ -238,11 +248,14 @@ class ShellManager:
     def _settle(self, which: Callable[[ProcInfo], bool]) -> None:
         """Finished processes: forget their credential (it stops working now). The proxy keeps the record and reports
         it through `_report` once the process's last connection closes, so a setsid child's late bytes still count.
-        A running process is left alone, so later reads still show it."""
+        A running process is left alone, so later reads still show it; it is forgotten, and its record reported, when
+        it exits."""
         if self.proxy is None:
             return
         for info in self.list():
-            if which(info) and not info.running:
+            if which(info) and info.running:
+                self._report_on_exit.add(info.id)
+            elif which(info):
                 self.proxy.forget(info.id)
 
     def _report(self, proc_id: str, facts: dict[str, Any]) -> None:

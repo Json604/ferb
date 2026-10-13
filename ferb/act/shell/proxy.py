@@ -8,8 +8,8 @@ bodies, headers, paths or query strings (rule 14).
   spans. Another contained process can't read it (its environment isn't readable: measured, F5a Task 3 report).
 - `allow(proc, host, port)` (the gateway) is asked before any name is resolved, so a refused name never reaches a DNS
   server; a refusal is 403 and is recorded under `refused` with FERB's reason. The gateway allows any remote host for a
-  process FERB tracks (L2); it refuses an untracked process, a local address without its pin and a host the owner said
-  no to in the task.
+  running process FERB tracks (L2); it refuses an ended or untracked process, a local address without its pin and a
+  host the owner said no to in the task.
 - The proxy resolves names itself (the sandbox has no DNS) and connects only to an address it checked. This Mac's
   own addresses are refused unless the owner configured executable-pinned local ports. Those explicit local
   destinations are checked before dial and against the actual connected peer before forwarding; their address and

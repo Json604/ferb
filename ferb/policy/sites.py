@@ -4,8 +4,9 @@ model's words, and must not judge a site.
 `sites_contacted(spans, tree_id)` reads two records:
 - each finished shell process's `shell.network` journal row (what FERB's egress proxy recorded it reaching, the row
   `ferb timeline` shows), for the processes of the tree's tasks;
-- the browser calls that loaded an address in one of the tree's own tabs (an open or a navigate that ran): the
-  http(s) address asked for and the address the tab reported.
+- the browser calls that asked to load an address in one of the tree's own tabs (an open or a navigate that ran, or
+  whose outcome is unknown, so it may have reached the site): the http(s) address asked for and the address the tab
+  reported. A borrowed owner tab whose address FERB didn't ask for is not counted.
 
 The answer's "Sites contacted" line is built from it by code. A host on the owner's exclusion list is already recorded
 as excluded (the proxy's host and the stored address both), so it never appears. A process still running is journaled
@@ -32,11 +33,13 @@ def sites_contacted(spans: SpanStore, tree_id: str) -> list[str]:
             f"WHERE kind = 'shell.network') WHERE {where}", params):
         hosts.update(str(d.get("host") or "") for d in json.loads(row["data_json"]).get("destinations") or [])
     for row in spans.db.conn.execute(
-            "SELECT input_json, output_json FROM spans WHERE kind = 'tool.call' AND error IS NULL "
-            f"AND output_json IS NOT NULL AND json_extract(input_json, '$.kind') IN (?, ?) AND {where}",
-            (Kind.NAVIGATE, Kind.OPEN_TAB, *params)):
+            "SELECT input_json, output_json FROM spans WHERE kind = 'tool.call' AND ended_at IS NOT NULL "
+            "AND (error IS NULL OR json_extract(input_json, '$.outcome') = 'unknown') "
+            f"AND json_extract(input_json, '$.kind') IN (?, ?) AND {where}", (Kind.NAVIGATE, Kind.OPEN_TAB, *params)):
         asked = (json.loads(row["input_json"]).get("args") or {}).get("url")
-        shown = json.loads(row["output_json"]).get("url")
+        if not _web_host(asked):                         # no address asked for (a borrowed tab): nothing FERB loaded
+            continue
+        shown = json.loads(row["output_json"] or "{}").get("url")
         hosts.update(_web_host(u) for u in (asked, shown))
     return sorted({h for h in (KnownDestinations.normalize("host", h) for h in hosts) if h and h != EXCLUDED})
 

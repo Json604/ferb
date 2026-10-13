@@ -390,7 +390,7 @@ class Gateway:
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
         self.on_path: Callable[[str, str], None] = lambda path, task_id: None   # trail attribution
-        # The task a shell process belongs to, so the proxy's destinations are attributed to it (set by the daemon)
+        # The task of a shell process while it runs (None once it ended), for the proxy's destinations (the daemon sets it)
         self.proc_task: Callable[[str], str | None] = lambda proc_id: None
         self.route_question: Any = None
         self.disturbance: Any = None
@@ -449,7 +449,7 @@ class Gateway:
                                   local_approved: bool = False) -> tuple[bool, str]:
         """Any remote host for a shell process FERB tracks: shell networking never asks, and the proxy records each
         host, port and byte count (L2, owner 2026-10-13). The proxy calls before DNS and again for a differing TLS SNI.
-        A process FERB can't attribute to a task gets nothing. A local address needs the proxy's executable-pinned
+        A process that has ended, or that FERB can't attribute to a task, gets nothing. A local address needs the proxy's executable-pinned
         permission (`local_approved`, supplied only after the proxy checked the listener against its pin). The owner's
         No to a host in this tree (the browser's S4 question; SQ6 shares the key) stays final for the shell too."""
         norm = KnownDestinations.normalize("host", host)
@@ -1159,6 +1159,7 @@ class Gateway:
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", ["cancelled while input may have been in flight"])
             self._observed(name, spec, action, grant, "unknown")
+            self.spans.update_input(span.id, {"outcome": "unknown"})   # the record says so, reversible calls too
             self._finish_call(span, name, {"error": "cancelled; outcome unknown"}, True, output=kept_out,
                               error="cancelled; outcome unknown")
             raise
@@ -1167,6 +1168,7 @@ class Gateway:
             if intent_id:
                 self.ledger.mark(intent_id, "unknown", [detail])
             self._observed(name, spec, action, grant, "unknown")
+            self.spans.update_input(span.id, {"outcome": "unknown"})
             self._finish_call(span, name, {"error": f"{type(e).__name__}: {e}"}, True, output=kept_out,
                               error=f"{type(e).__name__}: {e}")
             return reply({"error": f"{name} failed: {detail}; outcome unknown"} | (kept_out or {}), True)

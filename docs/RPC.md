@@ -165,7 +165,8 @@ lists, links and code; raw HTML is not executed and remote images are not automa
 
 Worker `shell.run`/`shell.start` reach any remote host through FERB's egress proxy without asking (L2); there is no
 `network` argument and no network approval. The proxy records each host, port and byte count per process (the
-`shell.network` journal row). A process FERB doesn't track gets nothing, a local service needs its executable-pinned
+`shell.network` journal row, written when the task ends or, for a process still running then, when it exits). A
+process that has ended, or that FERB doesn't track, gets nothing; a local service needs its executable-pinned
 permission, and the owner's No to a host in the task stays final. Declare `external_source` for externally sourced
 code/instructions; it is recorded with the call and adds no approval. Semantic origin is a model responsibility, not
 complete detection by code. Use `shell.start` or `background: true` for a continuing network process; failure never

@@ -9,6 +9,7 @@ import shlex
 import shutil
 import sys
 import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,8 @@ from typing import Any
 import pytest
 
 from ferb.act.ask import OwnerAsk
-from ferb.act.browser.tools import FERB_BROWSER, BrowserNavigate, BrowserOpen
+from ferb.act.browser.ext_bridge import OutcomeUnknown
+from ferb.act.browser.tools import OWNER_BROWSER, BrowserNavigate, BrowserOpen, BrowserUseTab
 from ferb.act.shell.manager import ProcInfo
 from ferb.act.shell.proxy import DEST_REFUSED_NO
 from ferb.act.shell.sandbox import SECURITY_SERVER
@@ -56,7 +58,10 @@ def origin() -> Iterator[int]:
 
 
 class _Tabs:
-    """A minimal browser driver: it opens and navigates the task's own tabs and reports each tab's address."""
+    """A minimal browser driver: it opens and navigates the task's own tabs and reports each tab's address; it lends
+    one of the owner's open tabs (`attach`), and a navigation to SLOW loses its connection mid-command."""
+    SLOW = "https://slow.example/page"
+
     def __init__(self) -> None:
         self.tabs: dict[str, tuple[TabRef, str]] = {}
 
@@ -79,7 +84,14 @@ class _Tabs:
         return self.tabs[tab_id][0]
 
     async def navigate(self, tab: TabRef, url: str) -> None:
+        if url == self.SLOW:
+            raise OutcomeUnknown("the connection dropped while the navigation was in flight")
         self.tabs[tab.tab_id] = (tab, url)
+
+    async def attach(self, tab_ref: str, owner: str) -> TabRef:
+        ref = TabRef("dev", "chrome", "Default", 1, "owner-tab")
+        self.tabs[ref.tab_id] = (ref, "https://mail.owners-open-tab.example/inbox")
+        return ref
 
     async def shutdown(self) -> None:
         self.tabs.clear()
@@ -142,6 +154,10 @@ def test_a_shell_command_reaches_a_site_after_outside_content_and_the_proxy_reco
     assert [d["host"] for d in network["destinations"]] == [TEST_HOST] and network["refused"] == []
     assert network["destinations"][0]["bytes_in"] > 0    # host, port and bytes recorded as before
 
+    async def known() -> bool:
+        return daemon.daemon.gateway.destinations.known("host", TEST_HOST)
+    assert not daemon.run(known())                        # reaching a host never makes it known: S4 still asks for it
+
 
 # ---------- (b) the proxy's gate: any remote host for a tracked process ----------
 
@@ -162,6 +178,10 @@ def test_any_remote_host_for_a_tracked_process_never_an_untracked_one_or_an_unpi
         assert daemon.run(gateway.destination_allowed(proc, "127.0.0.1", 5432, local_approved=True)) == (True, "")
     finally:
         gateway_tool_call(daemon, grant, "shell.kill", id=proc)
+    # An ended process (and any descendant that outlived it with its credentials) reaches nothing new.
+    for host, local in (("github.com", False), ("127.0.0.1", True)):
+        allowed, why = daemon.run(gateway.destination_allowed(proc, host, 443, local_approved=local))
+        assert not allowed and "which task" in why, host
 
 
 def test_an_owners_no_to_a_host_stays_final_for_the_shell(daemon: RunningDaemon) -> None:
@@ -210,9 +230,10 @@ def test_sites_contacted_lists_each_host_once_sorted_from_shell_records_and_brow
     from ferb.policy.sites import sites_contacted
     d = daemon.daemon
     tabs = _Tabs()
-    caps: list[Any] = [BrowserOpen(tabs, FERB_BROWSER), BrowserNavigate(tabs, FERB_BROWSER)]   # type: ignore[arg-type]
-    grant, _ = gateway_setup(daemon, {FERB_BROWSER.read}, gateway_request("research the release"), caps,
-                             identity=FERB_BROWSER.identity)
+    caps: list[Any] = [BrowserOpen(tabs, OWNER_BROWSER), BrowserNavigate(tabs, OWNER_BROWSER),   # type: ignore[arg-type]
+                       BrowserUseTab(tabs, OWNER_BROWSER)]                                         # type: ignore[arg-type]
+    grant, _ = gateway_setup(daemon, {OWNER_BROWSER.read}, gateway_request("research the release"), caps,
+                             identity=OWNER_BROWSER.identity)
 
     def finished(pid: str, task: str, *hosts: str) -> None:
         info = ProcInfo(pid, task, "curl", str(d.home), 0.0, False, 0, False)
@@ -223,14 +244,18 @@ def test_sites_contacted_lists_each_host_once_sorted_from_shell_records_and_brow
     daemon.call_soon(finished, "p-1", grant.task_id, "pypi.org", "github.com")
     daemon.call_soon(finished, "p-2", grant.task_id + ".verify", "GitHub.com.", "excluded")
     daemon.call_soon(finished, "p-3", "another-tree", "elsewhere.example")
-    tab = gateway_tool_call(daemon, grant, "ferb_browser.open", url="https://docs.python.org/3/")["content"]["tab"]
-    gateway_tool_call(daemon, grant, "ferb_browser.navigate", tab=tab, url="https://pypi.org/project/ferb/")
-    refused = gateway_tool_call(daemon, grant, "ferb_browser.navigate", tab="t9", url="https://not-opened.example/")
+    tab = gateway_tool_call(daemon, grant, "browser.open", url="https://docs.python.org/3/")["content"]["tab"]
+    gateway_tool_call(daemon, grant, "browser.navigate", tab=tab, url="https://pypi.org/project/ferb/")
+    refused = gateway_tool_call(daemon, grant, "browser.navigate", tab="t9", url="https://not-opened.example/")
     assert refused["is_error"]                            # a tab that isn't the task's: nothing was loaded
+    lost = gateway_tool_call(daemon, grant, "browser.navigate", tab=tab, url=_Tabs.SLOW)
+    assert lost["is_error"] and "outcome unknown" in lost["content"]["error"]   # it may have reached the site
+    borrowed = gateway_tool_call(daemon, grant, "browser.use_tab", tab_ref="owner-tab")
+    assert not borrowed["is_error"]                       # the owner's own tab: FERB requested no address
 
     async def sites() -> list[str]:
         return sites_contacted(d.spans, grant.task_id)
-    assert daemon.run(sites()) == ["docs.python.org", "github.com", "pypi.org"]
+    assert daemon.run(sites()) == ["docs.python.org", "github.com", "pypi.org", "slow.example"]
 
     async def none() -> list[str]:
         return sites_contacted(d.spans, "a-tree-with-no-records")
@@ -248,6 +273,34 @@ def test_a_host_a_shell_command_reached_is_listed_once_its_task_ends(daemon: Run
         await daemon.daemon.shells.end_task(grant.task_id)   # the task's processes end; each record is journaled
         return sites_contacted(daemon.daemon.spans, grant.task_id)
     assert daemon.run(ended()) == [TEST_HOST]
+
+
+@SANDBOX
+def test_a_background_process_that_ends_after_its_task_is_journaled_when_it_exits(
+        daemon: RunningDaemon, origin: int) -> None:
+    """Not only at daemon shutdown: the record of a process that outlived its task is written when it exits, so
+    `ferb timeline` and the sites list see it."""
+    from ferb.policy.sites import sites_contacted
+    go = daemon.daemon.home / "workspace" / "go"
+    grant = _setup(daemon)
+    pid = gateway_tool_call(daemon, grant, "shell.start", background=True, command=(
+        f"curl -s -o /dev/null http://{TEST_HOST}:{origin}/x; while [ ! -f go ]; do sleep 0.1; done"))["content"]["id"]
+    deadline = time.monotonic() + 10
+    while not daemon.daemon.proxy.facts(pid)["destinations"]:                       # type: ignore[union-attr]
+        assert time.monotonic() < deadline, "the background process never connected"
+        time.sleep(0.05)
+
+    async def sites() -> list[str]:
+        return sites_contacted(daemon.daemon.spans, grant.task_id)
+
+    async def end_task() -> list[str]:
+        await daemon.daemon.shells.end_task(grant.task_id)   # background: it keeps running past its task
+        return sites_contacted(daemon.daemon.spans, grant.task_id)
+    assert daemon.run(end_task()) == []                    # still running: nothing final to record yet
+    go.write_text("")
+    done = gateway_tool_call(daemon, grant, "shell.wait", id=pid, timeout_s=10)
+    assert done["content"]["exit_code"] == 0, done["content"]
+    assert daemon.run(sites()) == [TEST_HOST]
 
 
 # ---------- (e) the never-read protections hold without the approvals ----------

@@ -556,8 +556,8 @@ class Daemon:
         self.gateway.snapshots = self.snapshots
         self.gateway.confirmations = Confirmations(self.db, self.clock, self.ids, self.redact)     # D33, S4 (F5a)
         self.gateway.destinations = KnownDestinations(self.db, self.clock, self.ids, self.redact)  # SQ6
-        if self.shells is not None:                  # the shell process's task: its destinations are attributed to it
-            self.gateway.proc_task = self.shells.owner_of
+        if self.shells is not None:                  # a running shell process's task: its destinations are its own
+            self.gateway.proc_task = self.shells.live_owner
         self.gateway.app_window = self._app_window
         self.supervisor = Supervisor(make_runtime=self._make_runtime, gateway=self.gateway, state=self.state,
                                      tokens=self.tokens, tasks=self.tasks, spans=self.spans, journal=self.journal,
