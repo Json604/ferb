@@ -40,9 +40,11 @@ class ClaudeRuntime:
 
     def _options(self, run_id: str, run_token: str) -> Any:
         from claude_agent_sdk import ClaudeAgentOptions
+        # CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=0: Claude Code otherwise aborts a tool call that is silent for 30 minutes;
+        # an owner question waits as long as the owner takes (§8.1). "0 disables" is Claude Code's own wording.
         env = {"ANTHROPIC_BASE_URL": self.proxy.base_url(run_id), "DISABLE_TELEMETRY": "1",
                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_ERROR_REPORTING": "1",
-               "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""}
+               "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT": "0"}
         mcp: dict[str, Any] = {}
         if self.mode == "worker":
             if not self.shim_cmd:

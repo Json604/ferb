@@ -12,8 +12,9 @@ reports). Each process gets its own credentials for FERB's egress proxy (proxy.p
 it reached is a recorded fact (`network`); when the task ends, each finished process's record is reported
 (`on_network`, journaled by the daemon) and forgotten, and a process still running then is reported when it exits.
 An owner-pinned local port whose listener runs its pinned executable when the command starts is reachable directly
-(L24, local.py); the record lists each such port under `local_direct` (`local: true`) with the connections the kernel
-reported for this command (`DirectReports`), and so does the live `network` view."""
+(L24, local.py); the live `network` view lists each such port under `local_direct` (`local: true`) with the
+connections the kernel reported for this command (`DirectReports`), and the record keeps the ones it connected to, or
+all of them when the kernel's reports couldn't be read."""
 
 import asyncio
 import dataclasses
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ferb.act.shell.local import DirectReports
+from ferb.act.shell.local import DirectReports, report_tag
 from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.pty_proc import PtyProc
 from ferb.act.shell.sandbox import Sandbox
@@ -124,7 +125,10 @@ class ShellManager:
             # No to one of this Mac's addresses: that No stays final, checked per connection by the proxy
             rule = None if lift == ADMIN else lift
             if self.proxy is not None and not (self.local_refused is not None and self.local_refused(owner_task)):
-                argv, direct = await asyncio.to_thread(self.sandbox.contain, command, pid, rule)
+                tag = report_tag(pid)                 # in its profile only: the command can't read it there
+                argv, direct = await asyncio.to_thread(self.sandbox.contain, command, tag, rule)
+                if direct and self.reports is not None:
+                    self.reports.expect(pid, tag)
             else:
                 argv = await asyncio.to_thread(self.sandbox.argv, command, rule)
             profile = self.sandbox.profile_path(argv)
@@ -295,9 +299,11 @@ class ShellManager:
         if hit is None or self.on_network is None:
             return
         info = hit[1]
-        if info.direct:                           # what the kernel reported of its direct local connections (L24)
-            facts = {**facts, "local_direct": self._direct(info)}
-            if self.reports is not None:
-                self.reports.forget(proc_id)
-        if facts["destinations"] or facts["refused"] or info.direct:
+        # The direct local ports it connected to, as the kernel reported them, or all of them when that's unknown (L24)
+        used = [d for d in self._direct(info) if d["reported_connections"] is None or d["reported_connections"] > 0]
+        if info.direct and self.reports is not None:
+            self.reports.forget(proc_id)
+        if used:
+            facts = {**facts, "local_direct": used}
+        if facts["destinations"] or facts["refused"] or used:
             self.on_network(info, facts)

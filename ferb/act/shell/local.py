@@ -7,14 +7,19 @@ identifies their executable. Two routes reach a pinned port:
   payload. Each connection is recorded with its address, executable and byte counts (proxy.py).
 - Directly (psql, redis-cli, anything that ignores the proxy): `direct_ports` checks, when a shell command's profile
   is built, that every listener on the port runs its pinned executable; only then does the profile allow TCP to it
-  (sandbox.py). The allow rule asks the kernel to report each connection with the command's FERB process id, and
-  `DirectReports` reads those reports, so the command's `shell.network` record names the port, the executable and
-  the programs that connected (`local_direct`, each `local: true`).
+  (sandbox.py). The allow rule asks the kernel to report each connection with the command's own tag (`report_tag`:
+  its FERB process id and 128 random bits, written only into its profile, which the command can't read), and
+  `DirectReports` counts only kernel reports in the exact allow shape that carry a tag FERB issued and still expects,
+  so the command's `shell.network` record names the port, the executable and the programs that connected
+  (`local_direct`, each `local: true`). The kernel's deny reports carry text a program chooses (a file name), so
+  they can never parse as an allow report or name another command's tag (review 2026-10-14, measured).
 Unknown identities fail closed: no direct port, and the proxy refuses.
 
 Residuals: these are OS snapshots, not an atomic kernel executable constraint; a process can exec after inspection.
 A direct allowance lasts the command's life, so a program that takes the port over later (the pinned server stopped)
-is reachable by that command directly; the proxy route re-checks every connection. The kernel reports one
+is reachable by that command directly; the proxy route re-checks every connection. Likewise the tree's No to one of
+this Mac's addresses is checked when the profile is built: a No given while a command already runs doesn't take its
+direct ports away (the proxy route checks the No per connection). The kernel reports one
 connection per program at once and batches repeats, delivering the batch's count with a later report, so
 `reported_connections` is what was reported by the time of the record (at least one per program that connected),
 not an exact count, and bytes aren't counted on the direct route. An executable pin trusts that program's
@@ -26,9 +31,12 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import subprocess
+import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,12 +45,23 @@ from ferb.act.shell.listeners import NETSTAT, _PID, contained
 from ferb.policy.protection import LocalPort, Protection
 
 LOG = "/usr/bin/log"
-# The message a direct allow rule gives the kernel's report: "ferb <process id>" (sandbox.py writes it per command)
-REPORT_MESSAGE = "ferb {process}"
-# The kernel's own reports (process 0) that carry a FERB process id; a program can't log as the kernel
+# The kernel's own reports (process 0) that carry a FERB tag; a program can't log as the kernel
 STREAM = [LOG, "stream", "--style", "ndjson", "--predicate", 'processID == 0 AND eventMessage CONTAINS "ferb p-"']
-_REPORT = re.compile(r"(?:(\d+) duplicate reports? for )?Sandbox: (.+)\(\d+\) allow network-outbound \S*:(\d+)\n"
-                     r"ferb (p-[0-9a-f]+)")
+# An allow report and nothing else: the program's name can't hold parentheses or a line break, the address no
+# parentheses, and the message is a whole tag. A deny report ("…(pid) deny(1) file-write-create <path>") can't match
+_REPORT = re.compile(r"(?:(\d+) duplicate reports? for )?Sandbox: ([^()\n]+)\(\d+\) allow network-outbound "
+                     r"[^\s()]*:(\d+)\n(ferb p-[0-9a-f]+ [0-9a-f]{32})")
+# Ends the stream with FERB: its stdin is a pipe only the daemon holds, so a daemon that stops or crashes closes it
+# and this stops `log stream` (which never reads stdin itself), then exits with the stream's own exit code
+WATCH = ("import subprocess, sys, threading\n"
+         "stream = subprocess.Popen(sys.argv[1:], stdin=subprocess.DEVNULL)\n"
+         "threading.Thread(target=lambda: (sys.stdin.read(), stream.kill()), daemon=True).start()\n"
+         "sys.exit(stream.wait())\n")
+
+
+def report_tag(process: str) -> str:
+    """The message a command's direct allow rule gives the kernel's reports: its process id and 128 random bits."""
+    return f"ferb {process} {secrets.token_hex(16)}"
 
 
 class LocalRefused(Exception):
@@ -187,22 +206,32 @@ class DirectReports:
     """The kernel's reports of direct connections to pinned local ports, by FERB process id, read live from the
     system log for as long as FERB runs (started only when the owner has pinned local ports). A report is a fact the
     kernel states when the connection is made: which program connected, to which port, under which command's profile.
-    When the stream isn't running, or wasn't yet when a command started, that command's count is unknown (None)."""
+    Only a command FERB `expect`s, by its exact tag, is counted, until it is forgotten. When the stream isn't running,
+    or wasn't yet when a command started, that command's count is unknown (None); when it stops by itself, `ended`
+    says why and `on_end` is told once (`close` stops it without that)."""
 
-    def __init__(self, argv: list[str] | None = None) -> None:
-        self.argv = argv or STREAM
+    def __init__(self, argv: list[str] | None = None, on_end: Callable[[str], None] | None = None) -> None:
+        self.argv, self.on_end = argv or STREAM, on_end
         self._lock = threading.Lock()
+        self._tags: dict[str, str] = {}           # tag -> process, for the commands FERB expects reports of
         self._seen: dict[str, dict[int, tuple[int, set[str]]]] = {}   # process -> port -> (connections, programs)
         self._since: float | None = None          # when the stream started listening (wall clock)
-        self._ended = False
+        self._closing = False
+        self.ended: str | None = None             # why the stream stopped by itself
         self._proc: subprocess.Popen[str] | None = None
+
+    @property
+    def running(self) -> bool:
+        with self._lock:
+            return self._since is not None and self.ended is None and not self._closing
 
     def start(self) -> bool:
         try:
-            self._proc = subprocess.Popen(self.argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                          stderr=subprocess.DEVNULL, text=True, errors="replace")
-        except OSError:
-            self._ended = True
+            self._proc = subprocess.Popen([sys.executable, "-I", "-c", WATCH, *self.argv], stdin=subprocess.PIPE,
+                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                          errors="replace")
+        except OSError as e:
+            self._stopped(f"the system log stream couldn't start ({type(e).__name__}: {e})")
             return False
         threading.Thread(target=self._read, name="ferb-direct-reports", daemon=True).start()
         return True
@@ -223,29 +252,52 @@ class DirectReports:
                 match = _REPORT.fullmatch(str(event.get("eventMessage", "")).strip())
                 if match is None:
                     continue
-                repeats, program, port, process = match.groups()
+                repeats, program, port, tag = match.groups()
                 with self._lock:
+                    process = self._tags.get(tag)
+                    if process is None:            # a tag FERB didn't issue, or a command already forgotten
+                        continue
                     ports = self._seen.setdefault(process, {})
                     count, programs = ports.get(int(port), (0, set()))
                     ports[int(port)] = (count + int(repeats or 1), programs | {program})
         finally:                                   # from here on, what a command connected to is unknown
-            with self._lock:
-                self._ended = True
+            code = self._proc.wait()
+            self._stopped(f"the system log stream ended (exit {code})")
+
+    def _stopped(self, why: str) -> None:
+        with self._lock:
+            if self._closing or self.ended is not None:
+                return
+            self.ended = why
+        if self.on_end is not None:
+            self.on_end(why)
+
+    def expect(self, process: str, tag: str) -> None:
+        """Count the reports carrying `tag` (the command's `report_tag`) for `process`."""
+        with self._lock:
+            self._tags[tag] = process
 
     def connections(self, process: str, started: float) -> dict[int, dict[str, Any]] | None:
         """{port: {"reported_connections": n, "clients": [program, ...]}} reported so far for a command started at
         `started` (wall clock); None when the stream wasn't listening for all of its life."""
         with self._lock:
-            if self._ended or self._since is None or self._since > started:
+            if self.ended is not None or self._closing or self._since is None or self._since > started:
                 return None
             return {port: {"reported_connections": count, "clients": sorted(programs)}
                     for port, (count, programs) in self._seen.get(process, {}).items()}
 
     def forget(self, process: str) -> None:
+        """The command's record is written: its reports are neither kept nor counted any more."""
         with self._lock:
             self._seen.pop(process, None)
+            for tag in [tag for tag, p in self._tags.items() if p == process]:
+                del self._tags[tag]
 
     def close(self) -> None:
-        if self._proc is not None and self._proc.poll() is None:
-            self._proc.kill()
+        """Stop the stream (closing its stdin stops it, as a daemon that goes away does)."""
+        with self._lock:
+            self._closing = True
+        if self._proc is not None:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
             self._proc.wait()

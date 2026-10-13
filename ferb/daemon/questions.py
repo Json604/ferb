@@ -1,7 +1,9 @@
 """Own pending question transport and exact answers. Must not treat ambiguity or silence as consent.
 
 A question has no lifetime (spec §8.1, L3): it stays pending while its task waits, however long the owner takes, and
-closes when it is answered or when its task ends (`forget_request`, called as the task's request is forgotten)."""
+closes when it is answered or when its task ends (`forget_request`, called as the task's request is forgotten). An
+answer is `taken` once it reached a waiting call; until then a retry of the same call may wait on the same question
+(the gateway, when a worker's call dropped)."""
 
 import secrets
 from dataclasses import dataclass
@@ -22,6 +24,7 @@ class Approval:
     choice: str | None = None
     answer: str | None = None
     display_text: str = ""
+    taken: bool = False                       # its answer reached the call that waited for it
 
     def option_for(self, text: str) -> int | None:
         """The option (1-based) a typed answer picks: its exact words in any case, else its number."""
@@ -68,6 +71,10 @@ class Approvals:
 
     def get(self, approval_id: str) -> Approval | None:
         return self._items.get(approval_id)
+
+    def of_request(self, request_id: str) -> list[Approval]:
+        """Every question of this request still kept (open, or answered and not yet forgotten), oldest first."""
+        return [ap for ap in self._items.values() if ap.request_id == request_id]
 
     def forget_request(self, request_id: str) -> None:
         self.unattended.discard(request_id)

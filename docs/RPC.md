@@ -18,7 +18,11 @@ is mode 0600. Frames are UTF-8 JSON-RPC 2.0 objects followed by a newline. Every
 ```
 
 The daemon verifies the kernel peer UID for `cli`; the role string alone is not authentication. An MCP worker uses
-`mcp_shim` and an expiring, task-scoped run token rechecked on every call. The native host has extension-origin and
+`mcp_shim` and an expiring, task-scoped run token rechecked on every call. The shim makes one call per connection and
+waits with no transport cutoff; when its runtime gives up a call it closes that connection, and the daemon reads that
+as the caller leaving: the call is not cancelled, its result goes nowhere, and an owner question it waited on stays
+open, untaken, so the identical retry of that call in the same request waits on the same question (or receives the
+answer the owner gave meanwhile) instead of asking again. The native host has extension-origin and
 pairing/HMAC checks. `voice` requires the installed app’s expected executable and signature. The exact role method
 allowlists live in `ferb/daemon/auth.py`. Never give an external client a native-host or worker token to bypass CLI auth.
 
@@ -225,8 +229,11 @@ permission, and the owner's No to a host in the task stays final. A `protection.
 its pinned executable when a command starts is reachable directly by that command (L24); its `network` facts and
 `shell.network` row then carry `local_direct: [{host: "localhost", port, executable, local: true, direct: true,
 reported_connections, clients}]`, where `reported_connections` and `clients` are what the kernel reported for that
-command so far (a burst of repeats may be counted later; `null` when the system log can't be read). A tree's No to
-one of this Mac's addresses keeps its commands on the proxy route. Declare `external_source` for externally sourced
+command's own tag so far: a lower bound, at least one per program that connected (a burst of repeats may be counted
+later), and `null` when the system log can't be read. The journal row keeps only ports with a reported connection or
+an unknown count. A report stream that stops is journaled once as `shell.local_reports_stopped {why}` and shown by
+`ferb doctor`. A tree's No to one of this Mac's addresses, as it stands when a command starts, keeps that command on
+the proxy route. Declare `external_source` for externally sourced
 code/instructions; it is recorded with the call and adds no approval. Semantic origin is a model responsibility, not
 complete detection by code. Use `shell.start` or `background: true` for a continuing network process; failure never
 automatically retries an uncertain command. FERB does not inspect encrypted payloads. `owner.ask` has no

@@ -15,7 +15,7 @@ def harness(tmp_path, collector):
     clock = FakeClock()
     approvals = Approvals()
     saved, events = [], []
-    review = PersonaReview(config, approvals, clock, collector,
+    review = PersonaReview(config, approvals, collector,
         remember=lambda text: saved.append(text),
         publish=lambda topic, data: events.append((topic, data)),
         record=lambda kind, data: events.append((kind, data)))

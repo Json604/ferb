@@ -159,9 +159,8 @@ def test_a_slow_tool_call_isnt_reported_as_the_daemon_going_away(tmp_path: Path)
     import threading
 
     from ferb.cli.client import Client
-    from ferb.cli.mcp import SHIM_TIMEOUT_S
     from ferb.core.errors import NotRunning
-    assert SHIM_TIMEOUT_S >= 3600                                    # an unattended question can take an hour
+    # Workers' calls (the MCP shim) have no cutoff at all: tests/test_questions_persistence.py
     import tempfile
     path = tempfile.mkdtemp(prefix="ferb", dir="/tmp") + "/s.sock"            # macOS: socket paths stay short
     srv = so.socket(so.AF_UNIX, so.SOCK_STREAM)

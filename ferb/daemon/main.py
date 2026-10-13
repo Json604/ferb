@@ -784,9 +784,8 @@ class Daemon:
         add_hearing(self.registry, self.hearing,
                     lambda identity: self.identity_browser if identity is Identity.FERB else self.router)
         if contained is not None and self.protection.local_ports:   # pinned local ports: read the kernel's reports
-            self.direct_reports = DirectReports()
-            if not self.direct_reports.start():
-                self._journal().append("shell.local_reports_unavailable", {"why": "the system log can't be read"})
+            self.direct_reports = DirectReports(on_end=self._local_reports_stopped)
+            self.direct_reports.start()
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,
                                    stream_factory=getattr(self.redact, "stream", None), sandbox=self.sandbox,
                                    proxy=self.proxy, on_network=self._shell_network,
@@ -843,13 +842,26 @@ class Daemon:
                 return True
         return False
 
+    def _local_reports_stopped(self, why: str) -> None:
+        """The kernel's reports of direct local connections stopped by themselves (the stream ended or couldn't
+        start; told once, from the stream's thread): from now on those records say unknown. `ferb doctor` shows it."""
+        self._journal_from_any_thread("shell.local_reports_stopped", {"why": why})
+
+    def _local_reports_status(self) -> dict[str, Any] | None:
+        """For `ferb doctor`: whether the kernel's reports of direct local connections are being read (None: no
+        pinned local ports, nothing to read)."""
+        reports = self.direct_reports
+        return None if reports is None else {"running": reports.running, "stopped": reports.ended}
+
     def _shell_network(self, info: ProcInfo, facts: dict[str, Any]) -> None:
         """A finished shell process's final network record (ferb trace / journal). The proxy may report it from a
         tunnel's own thread when a setsid child closes it, so the write is scheduled on the daemon loop."""
-        record = {"task_id": info.owner_task, "process": info.id, **facts}
+        self._journal_from_any_thread("shell.network", {"task_id": info.owner_task, "process": info.id, **facts})
 
+    def _journal_from_any_thread(self, kind: str, record: dict[str, Any]) -> None:
+        """A journal row from the daemon loop or another thread (written on the loop)."""
         def write() -> None:
-            self._journal().append("shell.network", record)
+            self._journal().append(kind, record)
         try:
             on_loop = asyncio.get_running_loop() is self._loop
         except RuntimeError:                                  # a proxy thread
@@ -1834,7 +1846,7 @@ class Daemon:
             return {'state': 'closed'}
         from ferb.daemon.persona import PersonaReview
         if self.persona is None:
-            self.persona = PersonaReview(self.config, self.state.approvals, self.clock, None,
+            self.persona = PersonaReview(self.config, self.state.approvals, None,
                 remember=self._remember_persona, publish=self._publish,
                 record=lambda kind, data: self._journal().append(kind, data), redact=self.redact)
         if self.persona_scan is not None:
@@ -3022,6 +3034,7 @@ class Daemon:
                               "proxy": self.proxy is not None, "proxy_alive": bool(probe.get("alive")),
                               "proxy_restarted": bool(probe.get("restarted")),
                               "proxy_last_error": probe.get("last_error"),
+                              "local_reports": self._local_reports_status(),
                               "snapshots": bool(self.snapshots is not None and self.snapshots.take is not None),
                               # OPEN QUESTION 3: shell commands run without a snapshot when one can't be taken
                               "snapshot_failure": self.snapshots.last_failure() if self.snapshots else None}

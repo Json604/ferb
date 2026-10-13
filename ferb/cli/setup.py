@@ -355,6 +355,21 @@ def containment_check(c: dict[str, Any] | None) -> Check:
                  "restart the daemon after fixing it (`ferb setup --update`)")
 
 
+def local_reports_check(c: dict[str, Any] | None) -> Check | None:
+    """The kernel's reports of direct connections to owner-pinned local ports (L24), when there are pinned ports: a
+    stopped stream leaves those connections unrecorded (null) until the daemon restarts."""
+    status = (c or {}).get("local_reports")
+    if status is None:
+        return None
+    if status.get("running"):
+        return Check("local connections", "ok", "direct connections to pinned local ports are recorded from the "
+                     "kernel's reports")
+    why = status.get("stopped") or "not started"
+    return Check("local connections", "warn", f"the kernel's reports stopped ({why}): direct connections to pinned "
+                 "local ports are unrecorded (null) until FERB restarts",
+                 "restart the daemon (`ferb setup --update`); reading the system log may need an admin account")
+
+
 def snapshot_check(c: dict[str, Any] | None) -> Check:
     """S1 snapshots before shell work and permanent deletes (OPEN QUESTION 3: when one can't be taken the command
     still runs, and this says so)."""
@@ -450,6 +465,8 @@ def doctor(env: Env) -> int:
         for r in report["selftest"]:
             add(Check(f"self-test {r['name']}", "ok" if r["ok"] else "fail", r["detail"]))
         add(containment_check(report.get("containment")))
+        if (local_reports := local_reports_check(report.get("containment"))) is not None:
+            add(local_reports)
         add(snapshot_check(report.get("containment")))
         add_hearing_check(add, report.get("hearing"))
         voice = report.get("voice", {})

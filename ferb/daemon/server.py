@@ -1,10 +1,13 @@
 """Own authenticated local RPC transport. Must not plan tasks, truncate frames or choose recovery.
 
 The first request on a connection must be `auth.hello {role, token?}`; afterwards only the role's methods are
-allowed. A handler returns a result, or (streaming methods) an async iterator of notifications."""
+allowed. A handler returns a result, or (streaming methods) an async iterator of notifications. While an MCP shim's call
+runs, its connection is watched: a shim that leaves (its runtime gave up the call) is a fact the handler can read
+(`caller_left`), and its result goes nowhere."""
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import os
 import socket
@@ -47,6 +50,14 @@ class Session:
 
 
 Unary = Callable[[Session, dict[str, Any]], Awaitable[dict[str, Any]]]
+_CALLER_LEFT: contextvars.ContextVar[asyncio.Event | None] = contextvars.ContextVar("ferb_rpc_caller_left",
+                                                                                   default=None)
+
+
+def caller_left() -> bool:
+    """Whether the MCP shim call this code runs for has lost its caller (the connection closed mid-call)."""
+    left = _CALLER_LEFT.get()
+    return left is not None and left.is_set()
 Channel = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]
 Stream = Callable[[Session, dict[str, Any]], AsyncIterator[dict[str, Any]]]
 
@@ -158,7 +169,8 @@ class Server:
                         await self.native(reader, writer)   # the rest of the connection is extension messages
                         return
                     continue
-                await self._dispatch(session, req, reader, writer)
+                if await self._dispatch(session, req, reader, writer) is False:
+                    return
         except (ConnectionResetError, BrokenPipeError):
             return
         finally:
@@ -201,7 +213,8 @@ class Server:
         return session
 
     async def _dispatch(self, session: Session, req: Request, reader: asyncio.StreamReader,
-                        writer: asyncio.StreamWriter) -> None:
+                        writer: asyncio.StreamWriter) -> bool:
+        """Answer one request; False when the caller has left (the connection ends)."""
         if session.role is Role.MCP_SHIM:
             try:                                   # re-check on every call: revoked/expired tokens stop at once
                 if session.grant is None:
@@ -209,22 +222,49 @@ class Server:
                 session.grant = self.tokens.recheck(session.grant)
             except AuthError as e:
                 await self._send(writer, _error(req.id, UNAUTHORIZED, str(e)))
-                return
+                return True
         if not allowed(session.role, req.method):
             await self._send(writer, _error(req.id, UNAUTHORIZED, f"{req.method} not allowed for {session.role.value}"))
-            return
+            return True
         if req.method in self.unary:
             try:
-                await self._send(writer, _result(req.id, await self.unary[req.method](session, req.params)))
+                if session.role is Role.MCP_SHIM:
+                    result = await self._watched(session, req, reader)
+                    if result is None:
+                        return False
+                else:
+                    result = await self.unary[req.method](session, req.params)
+                await self._send(writer, _result(req.id, result))
             except FerbError as e:
                 await self._send(writer, _error(req.id, FAILED, str(e)))
             except Exception as e:                  # failures are values, never a crashed connection
                 await self._send(writer, _error(req.id, INTERNAL, f"{type(e).__name__}"))
-            return
+            return True
         if req.method in self.streams:
             await self._stream(session, req, reader, writer)
-            return
+            return True
         await self._send(writer, _error(req.id, METHOD_NOT_FOUND, f"no method {req.method}"))
+        return True
+
+    async def _watched(self, session: Session, req: Request, reader: asyncio.StreamReader) -> dict[str, Any] | None:
+        """An MCP shim's call, watching its connection (a shim sends one call and then only closes it). When the shim
+        leaves first, the call is not cancelled (an action already under way finishes and is recorded); it can see
+        `caller_left()`, and its result goes nowhere: None."""
+        left = asyncio.Event()
+        context = contextvars.copy_context()
+        context.run(_CALLER_LEFT.set, left)
+        call = asyncio.create_task(self.unary[req.method](session, req.params), context=context)
+        gone = asyncio.create_task(reader.read(1))
+        done, _ = await asyncio.wait({call, gone}, return_when=asyncio.FIRST_COMPLETED)
+        if call in done:
+            gone.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await gone                    # the reader must be free before the connection reads again
+            return call.result()
+        left.set()
+        with contextlib.suppress(Exception):
+            await call
+        return None
 
     async def _stream(self, session: Session, req: Request, reader: asyncio.StreamReader,
                       writer: asyncio.StreamWriter) -> None:

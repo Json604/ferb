@@ -8,6 +8,7 @@ Tool names the model sees use `_` instead of `.` (OpenAI function names allow on
 import json
 import os
 import sys
+import threading
 from typing import Any
 
 import anyio
@@ -22,9 +23,6 @@ from ferb.paths import socket_path
 
 def mcp_name(capability: str) -> str:
     return capability.replace(".", "_")
-
-
-SHIM_TIMEOUT_S = 3600.0
 
 
 class Shim:
@@ -42,19 +40,40 @@ class Shim:
         self._names: dict[str, str] = {}          # mcp name -> capability name
 
     def _client(self) -> Client:
-        # Tool calls can wait on the owner or an external process. This is a transport timeout;
-        # task progress and explicit cancellation are owned by the daemon.
-        return Client(socket_path(), role="mcp_shim", token=self._token, timeout=SHIM_TIMEOUT_S)
+        # No transport cutoff: a call may wait on the owner for as long as the owner takes (§8.1). Task progress,
+        # stop and cancellation are the daemon's; a call the runtime gives up closes its connection (`_rpc`).
+        return Client(socket_path(), role="mcp_shim", token=self._token, timeout=None)
 
-    def _call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        c = self._client()
+    async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """One daemon call on its own connection. When the runtime cancels the call (it gave up on the tool), the
+        connection closes at once, so the daemon sees its caller leave (an owner question stays open for a retry)
+        instead of answering nobody; a call cancelled before it was sent is never sent."""
+        lock = threading.Lock()
+        state: dict[str, Any] = {"client": None, "cancelled": False}
+
+        def run() -> dict[str, Any]:
+            c = self._client()
+            with lock:
+                if state["cancelled"]:
+                    c.close()
+                    raise NotRunning("the call was cancelled before FERB received it")
+                state["client"] = c
+            try:
+                return c.call(method, params or {})
+            finally:
+                c.close()
         try:
-            return c.call(method, params or {})
-        finally:
-            c.close()
+            return await anyio.to_thread.run_sync(run, abandon_on_cancel=True)
+        except anyio.get_cancelled_exc_class():
+            with lock:
+                state["cancelled"] = True
+                client = state["client"]
+            if client is not None:
+                client.interrupt()
+            raise
 
     async def list_tools(self, ctx: Any, params: Any) -> t.ListToolsResult:
-        tools = await anyio.to_thread.run_sync(lambda: self._call("tools.list")["tools"])
+        tools = (await self._rpc("tools.list"))["tools"]
         self._names = {mcp_name(x["name"]): x["name"] for x in tools}
         return t.ListToolsResult(tools=[t.Tool(name=mcp_name(x["name"]), description=x["description"],
                                                input_schema=x["input_schema"]) for x in tools])
@@ -62,10 +81,13 @@ class Shim:
     async def call_tool(self, ctx: Any, params: t.CallToolRequestParams) -> t.CallToolResult:
         name = self._names.get(params.name, params.name.replace("_", ".", 1))
         try:
-            r = await anyio.to_thread.run_sync(
-                lambda: self._call("tools.call", {"name": name, "arguments": params.arguments or {}}))
-        except (RpcError, NotRunning) as e:
+            r = await self._rpc("tools.call", {"name": name, "arguments": params.arguments or {}})
+        except RpcError as e:
             return t.CallToolResult(content=[t.TextContent(type="text", text=f"FERB refused: {e}")], is_error=True)
+        except (NotRunning, OSError, ValueError) as e:     # the connection broke: never a raw transport error
+            text = (f"FERB's connection broke during this call ({type(e).__name__}: {e}); the call's outcome is "
+                    "unknown. Check what it would have changed before trying it again.")
+            return t.CallToolResult(content=[t.TextContent(type="text", text=text)], is_error=True)
         text = json.dumps(r["content"], ensure_ascii=False) + "\n" + r["footer"]
         parts: list[t.TextContent | t.ImageContent | t.AudioContent | t.ResourceLink | t.EmbeddedResource] = [
             t.TextContent(type="text", text=text)]

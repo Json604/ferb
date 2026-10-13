@@ -270,7 +270,8 @@ class ShellRules(_Base):
         local = ("this Mac's own servers only if started inside FERB's shell (other programs' servers, as they were "
                  "when the command started, are out of reach directly); protection.local_ports allows approved "
                  "TCP services: directly when the port's listener runs its approved executable as the command "
-                 "starts (listed under the command's network local_direct; the kernel reports each connection), "
+                 "starts (listed under the command's network local_direct, with the connections the kernel "
+                 "reported: a lower bound, at least one per program that connected), "
                  "and through the proxy, which checks the executable for each connection and records its bytes. "
                  "With local ports configured, NO_PROXY is empty, so HTTP clients take the proxy route; contained "
                  "servers still accept direct connections when the client explicitly bypasses the proxy.")

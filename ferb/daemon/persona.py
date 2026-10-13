@@ -12,10 +12,10 @@ from ferb.policy.rules import ActionRequest
 
 
 class PersonaReview:
-    def __init__(self, config: Any, approvals: Any, clock: Any, collect: Callable[[], Any] | None,
+    def __init__(self, config: Any, approvals: Any, collect: Callable[[], Any] | None,
                  *, remember: Callable[[str], None], publish: Callable[[str, dict[str, Any]], None],
                  record: Callable[[str, dict[str, Any]], None], redact: Callable[[Any], Any] = lambda x: x) -> None:
-        self.config, self.approvals, self.clock, self.collect = config, approvals, clock, collect
+        self.config, self.approvals, self.collect = config, approvals, collect
         self.remember, self.publish, self.record = remember, publish, record
         self.redact = redact
         self.task: asyncio.Task[None] | None = None

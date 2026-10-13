@@ -53,6 +53,7 @@ from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext, EscapeGrant
 from ferb.policy.escape import escape_key
 from ferb.daemon.auth import RunGrant
+from ferb.daemon.server import caller_left
 from ferb.orchestrator.ledger import BadTransition, DuplicateUnresolved, Ledger, LedgerRow
 from ferb.orchestrator.tree import TaskTree
 from ferb.policy import confirm, provenance
@@ -390,6 +391,7 @@ class Gateway:
         self.locks = ResourceLocks()
         self._outside: dict[str, OutsideTexts] = {}       # by root task, until the task is forgotten
         self._in_flight: dict[asyncio.Task[Any], str] = {}
+        self._waiting: dict[str, int] = {}             # owner question id -> calls waiting on it now
         self._cancelled_tasks: set[str] = set()
         self.observer: Observer = Observer()
         self.conversation_guard: Callable[[Any, str, Any, Any], str | None] = lambda grant, name, cap, spec: None
@@ -979,9 +981,11 @@ class Gateway:
         ask = ActionRequest(capability=CONFIRM_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=text, effect="navigate")
-        ap = self.state.approvals.question(ask, text, [YES, NO])
-        self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK, "kind": "owner_question",
-                                            "reason": text, "options": [YES, NO], "task_id": grant.task_id})
+        ap, new = self._question(ask, text, [YES, NO])
+        if new:
+            self.publish("approval.requested", {"approval_id": ap.id, "capability": CONFIRM_ASK,
+                                                "kind": "owner_question", "reason": text, "options": [YES, NO],
+                                                "task_id": grant.task_id})
         self.observer.tool_call(grant, done=False)
         try:
             state = await self._wait_answer(grant, ap.id)
@@ -1624,11 +1628,14 @@ class Gateway:
         ask = ActionRequest(capability=OWNER_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=question, effect="navigate")
-        ap = self.state.approvals.question(ask, question, options)
-        ap.display_text = confirm.task_question(printable(self.redact(display_text))) if display_text.strip() else ""
-        self.publish("approval.requested", {"approval_id": ap.id, "capability": OWNER_ASK, "kind": "owner_question",
-                                            "reason": question, "options": options, "task_id": grant.task_id,
-                                            **({"display_text": ap.display_text} if ap.display_text else {})})
+        ap, new = self._question(ask, question, options)
+        if new:
+            ap.display_text = (confirm.task_question(printable(self.redact(display_text))) if display_text.strip()
+                               else "")
+            self.publish("approval.requested", {"approval_id": ap.id, "capability": OWNER_ASK,
+                                                "kind": "owner_question", "reason": question, "options": options,
+                                                "task_id": grant.task_id,
+                                                **({"display_text": ap.display_text} if ap.display_text else {})})
         self.observer.tool_call(grant, done=False)
         try:
             answer = await self._wait_answer(grant, ap.id)
@@ -1698,20 +1705,41 @@ class Gateway:
         return {"retry_approved": True}
 
 
+    def _question(self, ask: ActionRequest, text: str, options: list[str]) -> tuple[Any, bool]:
+        """The owner question for this call: the same question of the same request that a dropped call left untaken
+        (open, or answered while nobody waited: a worker's retry after its runtime gave up the call), else a new one.
+        True when it is new, to be published."""
+        for ap in self.state.approvals.of_request(ask.request_id):
+            if (ap.capability == ask.capability and ap.reason == text and ap.options == tuple(options)
+                    and not ap.taken and ap.state in ("pending", "granted", "denied") and not self._waiting.get(ap.id)):
+                return ap, False
+        return self.state.approvals.question(ask, text, options), True
+
     async def _wait_answer(self, grant: RunGrant, approval_id: str) -> str:
+        """The question's state once the owner answers; "gone" when it closed with its task; CALLER_LEFT when the call
+        lost its caller first (the worker's connection closed): the question then stays as it is, untaken, so the
+        owner's answer goes to a retry of the call rather than to nobody."""
         self.observer.waiting(grant.worker_id, True)
+        self._waiting[approval_id] = self._waiting.get(approval_id, 0) + 1
         try:
             while True:
                 ap = self.state.approvals.get(approval_id)
                 if ap is None:
                     return "gone"
+                if caller_left():
+                    return CALLER_LEFT
                 if ap.state != "pending":
+                    ap.taken = True
                     return ap.state
                 await asyncio.sleep(self.hold_poll_s)
         finally:
+            self._waiting[approval_id] -= 1
+            if not self._waiting[approval_id]:
+                del self._waiting[approval_id]
             self.observer.waiting(grant.worker_id, False)
 
 
+CALLER_LEFT = "caller_left"                  # a waiting call whose worker connection closed (server.caller_left)
 EFFECT_HELP = "Optional description of this action's effect for the activity log; it does not grant permission."
 WHY_HELP = "Optional short explanation of what this action does toward the owner's request."
 
