@@ -672,7 +672,7 @@ class Gateway:
                                | ({"why": why} if why else {}) | extra)
         self.publish("tool.called", {"tool": name, "task_id": grant.task_id, "worker_id": grant.worker_id,
                                      "effect": effect})
-        self.observer.tool_started(grant, name, arguments, spec.kind, spec.target.site)
+        self._started(grant, name, arguments, spec.kind, spec.target.site)
         shadow = getattr(self, "shadow_action", None)
         if consequential and shadow is not None:
             # Advice only: scheduling/completion/answers cannot authorize or refuse this call.
@@ -964,7 +964,7 @@ class Gateway:
                                                                                  for n in needs]},
                                          "ferb_question": True} | ({"for_span": span.id} if span is not None else {}))
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
-        self.observer.tool_started(grant, OWNER_ASK, {}, "owner_question", None)
+        self._started(grant, OWNER_ASK, {}, "owner_question", None)
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
             self._finish_call(q_span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
@@ -1039,6 +1039,14 @@ class Gateway:
             closed = self._closed(protection, name, path, access)
             return closed[1] if closed else None
         return check
+
+    def _started(self, grant: RunGrant, name: str, args: dict[str, Any], kind: str, site: str | None) -> None:
+        """Tells the observer a call starts (the task's live line, L8). The observer notes its own failures; one that
+        still escapes goes to the daemon's log, by type only, and never stops the call."""
+        try:
+            self.observer.tool_started(grant, name, args, kind, site)
+        except Exception as e:
+            logging.getLogger(__name__).warning("FERB live line failed: %s", error_name(e))
 
     def _refused(self, grant: RunGrant, rec: Any, name: str, reason: str) -> None:
         """A call refused before anything ran leaves a small span, so `ferb trace` shows it: a tool that doesn't
@@ -1600,7 +1608,7 @@ class Gateway:
                                 input={"tool": OWNER_ASK, "args": {"question": question, "options": options}
                                        | ({"retry_action": retry} if retry else {})})
         self.publish("tool.called", {"tool": OWNER_ASK, "task_id": grant.task_id, "worker_id": grant.worker_id})
-        self.observer.tool_started(grant, OWNER_ASK, {}, "owner_question", None)
+        self._started(grant, OWNER_ASK, {}, "owner_question", None)
         if rec.task.request_id in self.state.approvals.unattended:
             declined = {"declined": True, "unattended": True}
             self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))

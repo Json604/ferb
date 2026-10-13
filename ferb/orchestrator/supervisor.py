@@ -82,8 +82,8 @@ def checked_conditions(spec: TaskSpec) -> list[Condition]:
 
 
 async def _value(result: Any) -> Any:
-    """A context hook's result. A hook may be a coroutine function (the daemon's environment reads files in a thread),
-    so the event loop keeps serving acknowledgements and live lines while it runs (L8)."""
+    """The environment hook's result. It may be a coroutine function (the daemon's reads files in a thread), so the
+    event loop keeps serving acknowledgements and live lines while it runs (L8). Recall stays synchronous."""
     return await result if inspect.isawaitable(result) else result
 
 
@@ -228,8 +228,8 @@ class Supervisor(WorkerRuns):
         self.activity = Activity(clock.monotonic)
         # (owner last active, last trail event) for the time header; the daemon supplies them
         self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
-        # Memory, supplied by the daemon: recall for a turn; save what the owner stated (returns the
-        # confirmations shown to the owner)
+        # Memory, supplied by the daemon: recall for a turn (synchronous: intake and every worker's context call it);
+        # save what the owner stated (returns the confirmations shown to the owner)
         self.recall: Callable[[str], Any] = lambda words: ""
         self.timers: Any = None                  # clock.timers.Timers
         # Durable scheduling callbacks supplied by the daemon.
@@ -243,6 +243,7 @@ class Supervisor(WorkerRuns):
         self.environment: Callable[[str], dict[str, Any] | Awaitable[dict[str, Any]]] = lambda words: {}
         self._env: dict[str, dict[str, Any]] = {}
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
+        self.running_apps: Callable[[], list[tuple[str, str, int]]] = lambda: []   # (bundle id, name, pid) running now
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
         self.remember: Callable[[list[Any], str, str], list[str]] = lambda items, own_words, source: []
         self.heartbeat_poll_s, self.stall_s = HEARTBEAT_POLL_S, STALL_S
@@ -486,7 +487,8 @@ class Supervisor(WorkerRuns):
                                                      "text": m.for_model,
                                                      "untrusted_parts": len(m.untrusted) + bool(paths),
                                                      "input_paths": paths})
-        recalled, env = await asyncio.gather(_value(self.recall(words)), _value(self.environment(words)))
+        recalled = self.recall(words)           # synchronous: each worker's context reads it the same way (_context)
+        env = await _value(self.environment(words))
         self._env[request_id] = {**env, "words": words, "payload": payload,
                                  "input_paths": paths,
                                  "message_origin": origins_.split(entry.origin) | asked | carried, "message_source_ref": "journal:" + entry.id}

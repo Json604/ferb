@@ -1,12 +1,14 @@
 """Owns the live progress line (L8): what a task is doing right now, in a few plain words, built by code from the tool
-and its target. Must not use model text: the worker's `why`, typed text, message bodies, commands, queries and page
-content never appear, so injected text can't speak through the line. Describes; never gates or judges a call.
+and its target. Must not use model text: the worker's `why`, typed text, message bodies, commands, queries, page
+content and its own names for apps never appear, so injected text can't speak through the line. The one exception is a
+file's name the worker chose (its basename). Describes; never gates or judges a call.
 
-The target is the page's host (parsed as the browser opens it), an app's name or a file's name; every other argument
-is ignored. A tool not named here is described by the verb of its registry kind (W2)."""
+The target is the page's host (parsed as the browser opens it), an app's name as FERB knows it (`app_name`: the Mac's
+app list, never the worker's argument) or a file's name; every other argument is ignored. A tool not named here is
+described by the verb of its registry kind (W2)."""
 
 from pathlib import PurePosixPath
-from typing import Any, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from ferb.policy import urls
 from ferb.policy.rules import Kind
@@ -14,6 +16,8 @@ from ferb.sanitize.terminal import printable
 
 BROWSERS = ("browser", "ferb_browser")       # FERB's own browser and the owner's share their tools' verbs
 WORKING = "working"
+AN_APP = "an app"                            # an app FERB couldn't match to the Mac's apps
+FILE_KINDS = frozenset({Kind.WRITE_FILE, Kind.TRASH, Kind.DELETE_PERMANENT})   # what they change is a file
 
 # Known tools: (with a target, without one). "{}" is the target.
 TOOLS: dict[str, tuple[str, str]] = {
@@ -55,27 +59,49 @@ KINDS: dict[str, tuple[str, str]] = {
 }
 
 
-def describe(tool: str, args: Mapping[str, Any], *, kind: str = "", site: str | None = None) -> str:
+def describe(tool: str, args: Mapping[str, Any], *, kind: str = "", site: str | None = None,
+             app: str | None = None) -> str:
     """The live line for one tool call. `kind`: the registry kind its describe() reported; `site`: the host the
-    gateway derived for it (a tab's page), when the arguments name only a tab."""
+    gateway derived for a browser tool's tab; `app`: a Mac tool's app as `app_name` resolved it (without one, an app
+    the arguments name shows as "an app")."""
     family, _, verb = tool.rpartition(".")
     name = "browser." + verb if family in BROWSERS else tool
     with_target, alone = TOOLS.get(name) or KINDS.get(kind) or (WORKING, WORKING)
-    target = _target(family, args, site)
+    target = _target(family, args, kind, site, app)
     return with_target.format(target) if target and "{}" in with_target else alone
 
 
-def _target(family: str, args: Mapping[str, Any], site: str | None) -> str:
-    """The call's target as the owner knows it: a host for a page, an app's name, a file's name; else ""."""
-    host = site if family in BROWSERS and site else _host(args.get("url"))
-    if family in BROWSERS:
-        return _plain(host)
-    if family == "mac":
-        return _plain(args.get("app") or args.get("bundle_id"))
+def app_name(args: Mapping[str, Any], site: str | None, installed: Iterable[tuple[str, str]],
+             running: Callable[[], Iterable[tuple[str, str, int]]]) -> str | None:
+    """A Mac tool's app by the name FERB knows it by. The gateway's resolved bundle id (`site`) or the worker's
+    argument must match the Mac's apps exactly: a bundle id or a name in the device profile (`installed`: (bundle id,
+    name)), or a bundle id or `pid:` among the running apps (`running()`: (bundle id, name, pid), read only when
+    needed). "an app" when nothing matches; None when the call names no app."""
+    given = [str(v).strip() for v in (site, args.get("app"), args.get("bundle_id")) if isinstance(v, str) and v.strip()]
+    if not given:
+        return None
+    known = {key.casefold(): name for bundle, name in installed for key in (bundle, name) if key and name}
+    for value in given:
+        if value.casefold() in known:
+            return known[value.casefold()]
+    for bundle, name, pid in running():
+        if name and any(value.casefold() == bundle.casefold() or value == f"pid:{pid}" for value in given):
+            return name
+    return AN_APP
+
+
+def _target(family: str, args: Mapping[str, Any], kind: str, site: str | None, app: str | None) -> str:
+    """The call's target as the owner knows it: a host for a page, an app's name as resolved, a file's name; else
+    "". A site a non-browser tool reports is not shown: only a browser tool's is a host FERB derived."""
     path = args.get("path")
-    if isinstance(path, str) and path.strip():
-        return _plain(PurePosixPath(path.rstrip("/") or "/").name or path)
-    return _plain(host or site)
+    file = _plain(PurePosixPath(path.rstrip("/") or "/").name or path) if isinstance(path, str) and path.strip() else ""
+    if file and (kind in FILE_KINDS or family == "fs"):
+        return file
+    if family in BROWSERS:
+        return _plain(site or _host(args.get("url")))
+    if family == "mac":
+        return _plain(app) if app else (AN_APP if args.get("app") or args.get("bundle_id") else "")
+    return file or _plain(_host(args.get("url")))
 
 
 def _host(url: Any) -> str:

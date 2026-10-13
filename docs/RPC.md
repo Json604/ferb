@@ -62,8 +62,9 @@ plan or outcome to its submitted turn, even when it arrives after a later turn's
 - `ack {request_id, text, message, at}` comes first, on receipt and before the message waits for routing. `text` is one
   of the owner-approved P25 phrases (`ferb/orchestrator/acks.py`), never one of the last eight said; it claims nothing
   about what FERB will do. `message` is the owner's message as the daemon redacted it, the text `chat.message` records
-  (secret values replaced): a client keeps this copy, never the raw text it sent. Pasted or quoted parts appear as sent;
-  only `chat.message` wraps them in FERB's data markers. The ack is journaled as `chat.ack`, with `received_at`, when the
+  (secret values replaced): a client keeps this copy, never the raw text it sent. Pasted or quoted parts appear as sent,
+  including the terminal's bracketed-paste markers (`\x1b[200~` … `\x1b[201~`) around pasted text; only
+  `chat.message` wraps them in FERB's data markers. The ack is journaled as `chat.ack`, with `received_at`, when the
   message arrived. A second message on the same chat is acknowledged at once, while routing stays in arrival order
   (P29).
 - `plan {request_id, task_id, text, goal, at}` comes as soon as the planner returns a task, before the disturbance
@@ -72,8 +73,10 @@ plan or outcome to its submitted turn, even when it arrives after a later turn's
 - `progress {request_id, task_id, text, started_at, at}` comes each time a worker or the final checker starts a tool
   call, or when the task's question or FERB's own check goes to the owner. `text` is built by code from the tool and its target
   (`ferb/orchestrator/progress.py`): "reading github.com", "looking at Brave", "writing notes.md", "running a
-  command", "asking you", or the verb of the tool's kind. It never holds model text (the worker's `why`, typed text,
-  commands, page content). `started_at` is when that call started. Show one live line that each `progress` replaces,
+  command", "asking you", or the verb of the tool's kind. A page is its browser-parsed host; an app is named as FERB
+  knows it (the Mac's app list; "an app" when the worker's name for it matches none). It never holds model text (the
+  worker's `why`, typed text, commands, page content, its own names for apps), except a file name the worker chose
+  (the basename), which may appear. `started_at` is when that call started. Show one live line that each `progress` replaces,
   with the time elapsed since `started_at`; remove it at the `outcome` or when the stream ends. It is not an answer or
   a completion, and is not saved.
 - Task ids: `plan`, `progress` and `outcome` carry the tree id. `subtask` and `verification` carry the step's own task

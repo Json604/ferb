@@ -54,20 +54,24 @@ class Stalled(Exception):
 
 
 class WorkerRuns:
-    """Needs from the host: make_runtime, gateway, tokens, spans, tasks, publish, clock, ids, device_id, activity,
-    on_violation, heartbeat_poll_s, stall_s, _system(), _active, _tree_of, _stalled, _live, cancel_tree()."""
+    """Needs from the host: make_runtime, gateway, tokens, spans, tasks, publish, journal, clock, ids, device_id,
+    activity, on_violation, heartbeat_poll_s, stall_s, apps(), running_apps(), _system(), _active, _tree_of, _stalled,
+    _live, cancel_tree()."""
     make_runtime: Any
     gateway: Any
     tokens: Any
     spans: Any
     tasks: Any
     publish: Any
+    journal: Any
     clock: Any
     ids: Any
     device_id: str
     activity: Any
     signals: Any
     browser_context: Callable[[str], str]
+    apps: Callable[[], list[tuple[str, str]]]
+    running_apps: Callable[[], list[tuple[str, str, int]]]
     on_violation: Any
     heartbeat_poll_s: float
     stall_s: float
@@ -87,14 +91,19 @@ class WorkerRuns:
 
     def tool_progress(self, grant: Any, name: str, args: dict[str, Any], kind: str, site: str | None) -> None:
         """L8: a worker (or the final checker) started a tool call. Its task's live line says what it is doing, built
-        by code from the tool and its target (`progress.describe`), never from the worker's words."""
+        by code from the tool and its target (`progress.describe`), never from the worker's words: a Mac app by the
+        name FERB knows it by. A line that can't be built is noted in the journal; the call goes on."""
         tree = self._tree_of.get(grant.task_id)
         live = self._live.get(tree.id) if tree is not None else None
         if tree is None or live is None:        # no running task stream to show it on
             return
-        live.put_nowait({"type": "progress", "task_id": tree.id,
-                         "text": self.gateway.redact(progress.describe(name, args, kind=kind, site=site)),
-                         "started_at": self.clock.now().isoformat()})
+        try:
+            app = progress.app_name(args, site, self.apps(), self.running_apps) if name.startswith("mac.") else None
+            text = self.gateway.redact(progress.describe(name, args, kind=kind, site=site, app=app))
+        except Exception as e:
+            self.journal.append("progress.failed", {"task_id": grant.task_id, "tool": name, "error": type(e).__name__})
+            return
+        live.put_nowait({"type": "progress", "task_id": tree.id, "text": text, "started_at": self.clock.now().isoformat()})
 
     async def run_worker(self, tree: "_Tree", task: Task, prompt: str, ctx: list[ContextBlock], schema: dict[str, Any],
                          span: str) -> tuple[dict[str, Any] | Outcome, str]:

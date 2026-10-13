@@ -967,6 +967,7 @@ class Daemon:
                                    record_usage=self._record_distill_usage)
         if self.supervisor is not None:
             self.supervisor.apps = self._installed_apps
+            self.supervisor.running_apps = self._running_apps
             self.supervisor.pasted_is_data = lambda: bool(self.config.get("policy", "pasted_text_is_data", True))
             self.supervisor.environment = self._environment
             self.supervisor.availability = self._availability
@@ -2168,6 +2169,14 @@ class Daemon:
         """(bundle id, name) of the Mac's apps, for matching the names the owner uses."""
         p = self._device_profile()
         return [(a.bundle_id, a.name) for a in p.apps] if p is not None else []
+
+    def _running_apps(self) -> list[tuple[str, str, int]]:
+        """(bundle id, name, pid) of the apps running now; none when they can't be read."""
+        from ferb.act.mac import apps as appsm
+        try:
+            return [(a.bundle_id, a.name, a.pid) for a in appsm.running()]
+        except Exception:
+            return []
 
     def _device_profile(self) -> Any:
         from ferb.device.profile import ProfileStore
