@@ -726,13 +726,16 @@ def _build_app(env: Env, run: Callable[..., Any] | None = None) -> str | None:
     if built.returncode != 0:
         env.say("Build failed:\n" + ((built.stderr or built.stdout or "").strip()[-1500:]))
         return None
-    shown = run(["codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
+    shown = run(["/usr/bin/codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
     req = next((ln.split("=>", 1)[1].strip() for ln in ((shown.stdout or "") + (shown.stderr or "")).splitlines()
                 if ln.startswith("designated =>")), "")
     if "certificate leaf" not in req:
         env.say("FERB.app isn't signed with the local certificate, so FERB won't use it.")
         return None
-    Config(env.inst.home).set("hearing", "requirement", req)
+    config = Config(env.inst.home)
+    config.set("hearing", "requirement", req)
+    if config.get("voice", "requirement") not in (None, req):   # push-to-talk checks the same app's signature
+        config.set("voice", "requirement", req)
     return req
 
 
@@ -746,7 +749,7 @@ def hearing_setup(env: Env, client: Any) -> None:
         return
     app = env.inst.home / "FERB.app"
     env.say("     macOS will ask once for Speech Recognition for FERB — allow it.")
-    env.run(["open", "-n", "-W", str(app), "--args", "request-speech"])
+    env.run(["/usr/bin/open", "-n", "-W", str(app), "--args", "request-speech"])
     hearing = client.call("doctor.check", {"selftest": False, "hearing": True}).get("hearing", {})
     speech = hearing.get("speech")
     if speech == "granted":
@@ -770,7 +773,7 @@ def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     config = Config(env.inst.home)
     config.set("voice", "requirement", req)
     env.say("macOS will ask once for Microphone and Speech Recognition for FERB — allow both.")
-    run(["open", "-n", "-W", str(app), "--args", "request"])
+    run(["/usr/bin/open", "-n", "-W", str(app), "--args", "request"])
     config.set("voice", "push_to_talk", True)
     if config.get("voice", "mic") is None:
         config.set("voice", "mic", "auto")

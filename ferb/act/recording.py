@@ -1,8 +1,10 @@
 """Task-owned, sampled target videos and decoded-frame inspection. Never captures a display or moves focus.
 
 With sound (L26): `with_audio` also captures the target app's sound through Hearing (ferb/act/listen.py) from just
-after the first frame; stopping puts it in the video as its audio track and attaches the redacted, on-device
-transcript with segment times on the video's own timeline."""
+after the first frame. recording_stop attaches the redacted, on-device transcript with segment times on the video's own
+timeline, labelled with where the sound came from (outside content, MP2). The video keeps its frames only and the
+sound file is deleted once transcribed (owner decision, 2026-10-14). A recording the task's end or a shutdown stops is
+not transcribed; its sound is deleted."""
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -70,6 +72,7 @@ class _Recording:
     listening: Any = None                    # the sound being captured with it (with_audio), else None
     audio_at: float = 0.0                    # when that sound starts, in seconds of the video
     language: str | None = None
+    sources: tuple[tuple[str, str], ...] = ()   # where the sound came from: ('audio', bundle), a tab's page
 
     @property
     def receipt(self) -> Path:
@@ -105,8 +108,10 @@ class RecordingManager:
                 'running': not r.halt.is_set() and r.result is None}
 
     async def start(self, owner: str, target: dict[str, Any], path: Path, capture: Capture,
-                    fps: float = 2, audio: tuple[str, int] | None = None, language: str | None = None) -> dict[str, Any]:
-        """`audio`: (bundle id, pid) of the app whose sound is recorded with the frames (with_audio)."""
+                    fps: float = 2, audio: tuple[str, int] | None = None, language: str | None = None,
+                    sources: tuple[tuple[str, str], ...] = ()) -> dict[str, Any]:
+        """`audio`: (bundle id, pid) of the app whose sound is recorded with the frames (with_audio); `sources`: the
+        page it plays in, besides that app (its read sources once the transcript is attached)."""
         async with self._starts:
             executable('ffmpeg'); executable('ffprobe')
             if not math.isfinite(fps) or not 0.2 <= fps <= 10:
@@ -130,10 +135,12 @@ class RecordingManager:
                 folder = Path(tempfile.mkdtemp(prefix='.ferb-recording-', dir=path.parent))
             except BaseException:
                 if listening is not None:
-                    await self.hearing.finish(listening)
+                    await self.hearing.discard(listening)
                 raise
+            audio_at = max(0.0, self.now() - began - self.hearing.lag(listening)) if listening is not None else 0.0
             r = _Recording('rec-' + uuid4().hex[:12], owner, dict(target), path, folder, capture, fps, began,
-                           listening=listening, audio_at=max(0.0, self.now() - began), language=language)
+                           listening=listening, audio_at=audio_at, language=language,
+                           sources=tuple(sources) + (('audio', audio[0]),) if audio is not None else ())
             try:
                 (folder/'00000000.jpg').write_bytes(first)
                 r.times.append(0.0)
@@ -142,7 +149,7 @@ class RecordingManager:
             except BaseException:
                 shutil.rmtree(folder)
                 if listening is not None:
-                    await self.hearing.finish(listening)
+                    await self.hearing.discard(listening)
                 raise
             self.records[r.id] = r
             r.loop = asyncio.create_task(self._loop(r))
@@ -172,7 +179,8 @@ class RecordingManager:
             except asyncio.TimeoutError:
                 await self.sample(r.id, r.owner)
 
-    async def stop(self, rid: str, owner: str, reason: str | None = None) -> dict[str, Any]:
+    async def stop(self, rid: str, owner: str, reason: str | None = None, transcribe: bool = True) -> dict[str, Any]:
+        """`transcribe=False` (the task ended, shutdown): the sound is deleted untranscribed."""
         r = self._get(rid, owner)
         r.halt.set()
         if r.loop and r.loop is not asyncio.current_task():
@@ -201,13 +209,6 @@ class RecordingManager:
                               f'fps=25,tpad=stop_mode=clone:stop_duration={end}',
                               '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-fps_mode', 'cfr', '-r', '25',
                               '-t', str(end), '-movflags', '+faststart', str(video))
-                if heard is not None and heard.get('audio_s'):
-                    sound = r.folder/'with-sound.mp4'    # the captured sound as the video's audio track, in time
-                    await command(executable('ffmpeg'), '-v', 'error', '-nostdin', '-i', str(video),
-                                  '-itsoffset', f'{r.audio_at:.3f}', '-i', str(r.listening.path), '-map', '0:v',
-                                  '-map', '1:a', '-c:v', 'copy', '-c:a', 'aac', '-t', str(end),
-                                  '-movflags', '+faststart', str(sound))
-                    video = sound
                 os.link(video, r.path)              # atomic publication, never replaces an owner's existing file
                 result.update(capture_complete=r.error is None and not (heard or {}).get('error'),
                               bytes=r.path.stat().st_size)
@@ -216,7 +217,12 @@ class RecordingManager:
             finally:
                 shutil.rmtree(r.folder, ignore_errors=True)
             if heard is not None:
-                result.update(await self._sound(r, heard))
+                try:
+                    result.update(await self._sound(r, heard) if transcribe else {
+                        'audio_track': False, 'audio_note': 'not transcribed: the recording ended with its task, '
+                                                            'and its sound was deleted'})
+                finally:
+                    r.listening.path.unlink(missing_ok=True)   # owner decision: no sound is kept
             r.result = result
             try:
                 r.receipt.write_text(json.dumps(result | {'sample_times_s': r.times}, indent=2))
@@ -226,7 +232,7 @@ class RecordingManager:
 
     async def _sound(self, r: _Recording, heard: dict[str, Any]) -> dict[str, Any]:
         """What the sound added: its file and facts, and the redacted transcript on the video's timeline."""
-        out: dict[str, Any] = {'audio_path': str(r.listening.path), 'audio_s': round(float(heard.get('audio_s') or 0), 2),
+        out: dict[str, Any] = {'audio_track': False, 'audio_s': round(float(heard.get('audio_s') or 0), 2),
                                'audio_peak': heard.get('peak', 0.0), 'audio_offset_s': round(r.audio_at, 3)}
         if heard.get('error'):
             out['audio_error'] = self.hearing.redact(str(heard['error']))
@@ -238,7 +244,7 @@ class RecordingManager:
 
     async def end_task(self, owner: str) -> list[dict[str, Any]]:
         owned = [r for r in self.records.values() if r.owner == owner]
-        results = [await self.stop(r.id, owner, 'task ended before recording was explicitly stopped')
+        results = [await self.stop(r.id, owner, 'task ended before recording was explicitly stopped', transcribe=False)
                    for r in owned if r.result is None]
         for r in owned:
             self.records.pop(r.id, None)
@@ -307,8 +313,11 @@ class RecordingStop:
     def locks(self, args: Any) -> list[str]: return ['recording:'+args.id]
     def describe(self, args: Any) -> ActionSpec: return ActionSpec('write_file')
     async def run(self, args: Any, ctx: ToolContext) -> ToolResult:
+        rec = self.manager.records.get(args.id)
         result = await self.manager.stop(args.id, ctx.task_id)
-        return ToolResult(result, is_error=not result['capture_complete'])
+        # a transcript of what the target played is outside content (MP2): labelled with where the sound came from
+        sources = rec.sources if rec is not None and rec.listening is not None else ()
+        return ToolResult(result, is_error=not result['capture_complete'], read_sources=sources)
 
 
 def recording_id(video: Path) -> str:

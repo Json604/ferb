@@ -776,6 +776,7 @@ class Daemon:
         self.mac.release_secret = lambda value: self.gateway.release_secret(value)
         add_mac(self.registry, self.mac, self._device_profile, self.recordings, contained, self.protection)
         self.hearing.apps = self.mac.app                          # the Mac tools' exact app lookup (exclusions too)
+        self.hearing.sweep()                                      # sound and answers a restart left behind (L26)
         add_hearing(self.registry, self.hearing,
                     lambda identity: self.identity_browser if identity is Identity.FERB else self.router)
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,

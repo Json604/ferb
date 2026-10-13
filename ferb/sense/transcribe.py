@@ -4,18 +4,23 @@ not use a cloud recognizer, ask macOS for a permission from a task, or keep or l
 L26 (owner, 2026-10-14). Apple requires an app using the Speech framework to carry NSSpeechRecognitionUsageDescription
 in its Info.plist, or it crashes (developer.apple.com/documentation/speech/asking-permission-to-use-speech-recognition);
 FERB's daemon is a bare Python interpreter, so FERB.app (macapp/FERB, signed with FERB's local certificate) does it:
-- launched per transcription with `open -g -n -W FERB.app --args transcribe <audio> <answer>`: through LaunchServices
-  so macOS holds FERB.app (not the daemon) responsible for the permission, in the background (-g, an LSUIElement app),
-  waited on (-W); its signature is checked against the one `ferb setup` recorded before it is given anything;
+- launched per transcription with `/usr/bin/open -g -n -W --env FERB_HOME=… FERB.app --args transcribe <audio>
+  <answer>`: through LaunchServices so macOS holds FERB.app (not the daemon) responsible for the permission, in the
+  background (-g, an LSUIElement app), waited on (-W); its signature is checked against the one `ferb setup` recorded
+  before it is given anything;
 - FERB.app requires on-device recognition (`requiresOnDeviceRecognition`, after `supportsOnDeviceRecognition`) and
   otherwise answers on_device_unavailable: there is no cloud fallback;
-- it writes its answer to a 0600 file in FERB's private audio folder (renamed into place whole); this side reads it
-  once and deletes it. Nothing goes to stdout, stderr or a log.
+- the answer file is also FERB.app's lease. This side creates it empty (0600, in FERB's private audio folder) before
+  the launch; FERB.app accepts only such a file there, opens it without creating anything, and writes its answer into
+  it. Deleting the file means stop: FERB.app watches it and exits without answering. Killing `open -W` alone wouldn't
+  stop an app LaunchServices started, and an answer written after the deletion lands in an unlinked file, so no raw
+  transcript is left behind. This side reads the answer once and deletes it. Nothing goes to stdout, stderr or a log.
 `redacted` builds what a model may see: the transcript through the Redactor, and sentence segments cut from that
 redacted text only, so a secret spoken across several words never survives in any one segment."""
 
 import asyncio
 import json
+import os
 import secrets
 import subprocess
 from dataclasses import dataclass, field
@@ -48,7 +53,8 @@ class Transcript:
 
 
 def launch_args(app: Path, mode: str, *args: str) -> list[str]:
-    return ["open", "-g", "-n", "-W", str(app), "--args", mode, *args]
+    """FERB_HOME tells FERB.app which audio folder its answer and input files must be in."""
+    return ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={app.parent}", str(app), "--args", mode, *args]
 
 
 async def launch(argv: list[str]) -> int:
@@ -65,7 +71,7 @@ async def launch(argv: list[str]) -> int:
 
 def signed(app: Path, requirement: str) -> bool:
     """FERB.app's signature meets the requirement `ferb setup` recorded (bundle id + FERB's certificate)."""
-    r = subprocess.run(["codesign", "--verify", f"-R={requirement}", str(app)], capture_output=True)
+    r = subprocess.run(["/usr/bin/codesign", "--verify", "--strict", f"-R={requirement}", str(app)], capture_output=True)
     return r.returncode == 0
 
 
@@ -87,17 +93,20 @@ class Transcriber:
         folder.mkdir(parents=True, exist_ok=True)
         folder.chmod(0o700)
         answer = folder / f".{mode}-{secrets.token_hex(8)}.json"
+        os.close(os.open(answer, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))   # the lease
         try:
             code = await self.launch(launch_args(self.app, mode, *args[:1], str(answer), *args[1:]))
             try:
                 raw = answer.read_text()
             except OSError:
-                raise HearingUnavailable(f"FERB.app gave no answer (exit {code}); run `ferb doctor`") from None
+                raw = ""
+            if not raw:
+                raise HearingUnavailable(f"FERB.app gave no answer (exit {code}); run `ferb doctor`")
             data = json.loads(raw)
         except ValueError:
             raise HearingUnavailable("FERB.app's answer couldn't be read; run `ferb doctor`") from None
-        finally:
-            answer.unlink(missing_ok=True)        # the raw transcript is read once and never kept
+        finally:                                  # read once and never kept; a stop deletes it first (FERB.app exits)
+            answer.unlink(missing_ok=True)
         if not isinstance(data, dict):
             raise HearingUnavailable("FERB.app's answer couldn't be read; run `ferb doctor`")
         return data
@@ -120,16 +129,15 @@ class Transcriber:
 
 def _why(data: dict[str, Any], audio: Path) -> str:
     reason, locale = str(data.get("reason") or ""), str(data.get("locale") or "this language")
-    kept = f" The sound is kept at {audio}."
     if reason == "on_device_unavailable":
         return (f"On-device speech recognition isn't available for {locale} on this Mac, so FERB didn't transcribe it; "
-                f"it never sends sound to a cloud recognizer.{kept}")
+                "it never sends sound to a cloud recognizer.")
     if reason == "not_authorized":
         return (f"FERB.app isn't allowed to use Speech Recognition ({data.get('speech') or 'not allowed'}): run "
-                f"`ferb setup` and allow it.{kept}")
+                "`ferb setup` and allow it.")
     if reason == "unsupported_language":
-        return f"Apple speech recognition has no recognizer for {locale}.{kept}"
-    return f"FERB.app couldn't transcribe the sound: {data.get('error')}.{kept}"
+        return f"Apple speech recognition has no recognizer for {locale}."
+    return f"FERB.app couldn't transcribe the sound: {data.get('error')}."
 
 
 def redacted(t: Transcript, redact: Callable[[str], str], offset: float = 0.0) -> dict[str, Any]:

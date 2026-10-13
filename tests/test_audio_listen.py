@@ -73,7 +73,8 @@ def test_listen_returns_a_redacted_transcript_with_segments_and_the_trace_record
     assert [s["text"] for s in c["segments"]] == ["Here is the startup he means.",
                                                  "It is called Ferb Labs, and they build agents."]
     assert c["segments"][0]["start"] == 0 and c["segments"][1]["start"] > c["segments"][0]["end"] - 0.01
-    assert Path(c["audio_path"]).is_file() and Path(c["audio_path"]).parent == tmp_path / "workspace" / "audio"
+    # Owner decision (2026-10-14): the sound is deleted as soon as it is transcribed; only the transcript is kept.
+    assert "audio_path" not in c and not list((tmp_path / "workspace" / "audio").iterdir())
     assert capture.handles[0].bundle_id == "com.apple.Music" and capture.handles[0].pid == 77
     assert capture.handles[0].stopped
     # Trust follows origin: what the app played is outside content, data rather than instructions (MP2).
@@ -123,8 +124,9 @@ def test_on_device_unavailable_is_a_clear_error_and_nothing_reaches_the_network(
     assert r.is_error
     assert "On-device speech recognition isn't available for en-IN" in r.content["error"]
     assert "never" in r.content["error"] and "cloud" in r.content["error"]
-    assert Path(r.content["audio_path"]).is_file()               # the sound stays in FERB's workspace
-    assert fake.argv[0][6:] == ["transcribe", r.content["audio_path"], str(fake.raw_paths[0]), "en-IN"]
+    assert not list((tmp_path / "workspace" / "audio").iterdir())   # no sound is kept, transcribed or not
+    argv = fake.argv[0]
+    assert argv[8] == "transcribe" and argv[9].endswith(".wav") and argv[10:] == [str(fake.raw_paths[0]), "en-IN"]
 
 
 def test_ferb_app_transcribes_on_device_only_and_never_asks_for_permission_from_a_task() -> None:
@@ -210,7 +212,8 @@ def test_transcriber_launches_ferb_app_in_the_background_and_deletes_the_raw_ans
     fake = FakeApp(app, "hello there", [("hello", 0.0, 0.3), ("there", 0.4, 0.3)])
     t = Transcriber(app, lambda: "req", launch=fake, signed=lambda a, r: True)
     got = asyncio.run(t.transcribe(audio, None))
-    assert fake.argv[0][:7] == ["open", "-g", "-n", "-W", str(app), "--args", "transcribe"]   # -g: never takes focus
+    assert fake.argv[0][:9] == ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={tmp_path}", str(app),
+                                "--args", "transcribe"]                     # -g: never takes focus
     assert got.text == "hello there" and [w.text for w in got.words] == ["hello", "there"]
     assert got.words[1].start == 0.4 and abs(got.words[1].end - 0.7) < 1e-9
     assert not fake.raw_paths[0].exists()
@@ -232,32 +235,37 @@ def test_transcriber_refuses_a_missing_or_unsigned_ferb_app(tmp_path: Path) -> N
     assert fake.argv == []
 
 
-def test_transcriber_cancelled_kills_the_launch_and_leaves_no_raw_answer(tmp_path: Path) -> None:
+def test_a_cancelled_transcription_tells_ferb_app_to_stop_and_leaves_nothing_on_disk(tmp_path: Path) -> None:
+    """Killing `open -W` doesn't stop a LaunchServices-launched FERB.app. The answer file is its lease: the daemon
+    deletes it to say stop (FERB.app watches it and exits), and an answer written after that goes to an unlinked file."""
     from ferb.sense.transcribe import Transcriber
     app = tmp_path / "FERB.app"
     app.mkdir()
-    audio = tmp_path / "a.wav"
+    folder = tmp_path / "audio"
+    folder.mkdir()
+    audio = folder / "a.wav"
     audio.write_bytes(b"RIFF")
-    seen: list[list[str]] = []
-
-    async def hang(argv: list[str]) -> int:
-        seen.append(argv)
-        Path(argv[8]).write_text('{"text": "raw"}')
-        await asyncio.sleep(3600)
-        return 0
+    fake = FakeApp(app, CARD, words(CARD), late=True)
 
     async def go() -> None:
-        job = asyncio.create_task(Transcriber(app, lambda: "r", launch=hang, signed=lambda a, r: True).transcribe(audio, None))
-        while not seen:
+        job = asyncio.create_task(Transcriber(app, lambda: "r", launch=fake, signed=lambda a, r: True).transcribe(audio, None))
+        while not fake.raw_paths and not job.done():
             await asyncio.sleep(0.01)
+        assert not job.done(), job.exception()
+        await asyncio.sleep(0.05)                                    # FERB.app holds its answer file open
         job.cancel()
         with pytest.raises(asyncio.CancelledError):
             await job
+        assert not fake.raw_paths[0].exists()                        # the stop signal FERB.app watches for
     asyncio.run(go())
-    assert not Path(seen[0][8]).exists()
+    fake.release.set()                                               # it answers anyway, after the stop
+    assert fake.wrote.wait(5)
+    left = [p.name for p in folder.iterdir() if p.name != "a.wav"]
+    assert left == [] and not any("4111" in p.read_bytes().decode(errors="ignore") for p in folder.iterdir())
 
 
-def test_real_launch_waits_for_the_app_and_kills_it_when_cancelled(tmp_path: Path, monkeypatch) -> None:
+def test_real_launch_kills_the_open_wait_when_cancelled(tmp_path: Path, monkeypatch) -> None:
+    """The `open -W` process is killed on cancel; FERB.app itself is told to stop through its answer file (above)."""
     from ferb.sense import transcribe
     ran: list[tuple[str, ...]] = []
 
@@ -357,7 +365,11 @@ def _fake_frameworks(apps: list[Any]) -> tuple[Any, Any, dict[str, Any]]:
         CMSampleBufferGetDataBuffer=lambda b: b,
         CMBlockBufferGetDataLength=lambda bb: len(bb.data),
         CMBlockBufferCopyDataBytes=lambda bb, off, n, out: (0, bb.data[off:off + n]),
-        CMTimeMake=lambda v, s: (v, s))
+        CMTimeMake=lambda v, s: (v, s),
+        CMSampleBufferGetPresentationTimeStamp=lambda b: b.pts,
+        CMTimeGetSeconds=lambda t: t,
+        CMClockGetHostTimeClock=lambda: "host clock",
+        CMClockGetTime=lambda clock: 100.0)                         # the host clock when capture starts
     return sck, cm, seen
 
 
@@ -377,8 +389,8 @@ def test_capture_takes_one_apps_sound_without_ferbs_own_or_the_microphone(tmp_pa
     samples = sine(0.25)
     asbd = SimpleNamespace(mSampleRate=16000.0, mFormatFlags=1 | 8 | 32, mBitsPerChannel=32, mChannelsPerFrame=1,
                            mBytesPerFrame=4)
-    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=samples), 1)
-    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=b"\x00" * 64), 0)    # a video frame: ignored
+    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=samples, pts=100.0), 1)
+    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=b"\x00" * 64, pts=100.0), 0)    # a video frame: ignored
     facts = handle.stop()
     assert seen["stopped"] and facts["frames"] == 4000 and facts["sample_rate"] == 16000
     assert abs(facts["audio_s"] - 0.25) < 1e-6 and 0.45 < facts["peak"] <= 0.5
@@ -442,12 +454,13 @@ def test_browser_record_with_audio_attaches_a_time_aligned_transcript(tmp_path: 
     assert result["capture_complete"], result
     assert result["transcript"] == "Pay with [redacted] today. Thanks."
     assert result["segments"][0]["start"] == 0.5                   # shifted onto the video's own timeline
-    assert Path(result["audio_path"]).is_file()
+    assert "audio_path" not in result and not list((tmp_path / "workspace" / "audio").glob("*.wav"))
     receipt = (tmp_path / "reel.mp4.json").read_text()
     assert "4111" not in receipt and "[redacted]" in receipt        # the receipt on disk is redacted too
     streams = json.loads(subprocess.check_output([shutil.which("ffprobe") or "ffprobe", "-v", "error", "-show_entries",
                                                   "stream=codec_type", "-of", "json", str(tmp_path / "reel.mp4")]))
-    assert {s["codec_type"] for s in streams["streams"]} == {"video", "audio"}   # the video carries the sound
+    # Owner decision: the video keeps its frames only; the sound file goes once transcribed (no audio track).
+    assert {s["codec_type"] for s in streams["streams"]} == {"video"} and result["audio_track"] is False
 
 
 def test_recording_with_audio_needs_the_audio_scope(tmp_path: Path) -> None:
@@ -466,8 +479,9 @@ def test_recording_with_audio_needs_the_audio_scope(tmp_path: Path) -> None:
 def test_the_worker_prompt_says_how_to_hear_and_to_confirm_playback_first() -> None:
     words_ = " ".join((ROOT / "ferb" / "orchestrator" / "prompts" / "worker.md").read_text().split())
     assert ("Before recording or listening, confirm the media is actually playing and not muted: check the snapshot's "
-            "`media` (playing, muted, volume), use browser_media to play or unmute it, and check again") in words_
+            "`media` (playing, muted, volume), use browser_media / ferb_browser_media to play or unmute it, and check again") in words_
     assert "audio_listen" in words_ and "the whole browser" in words_
+    assert "browser_media / ferb_browser_media" in words_                  # FERB's own browser has its own tool
     assert "They are silent sampled videos" not in words_
 
 
@@ -533,7 +547,7 @@ def test_mac_record_with_audio_hears_the_pinned_windows_own_process(tmp_path: Pa
     r = asyncio.run(tool.run(tool.Input(app="Music", shot="s1", path=str(tmp_path / "m.mp4"), with_audio=True,
                                         language="hi-IN"), ctx))
     assert not r.is_error, r.content
-    assert got == {"audio": ("com.apple.Music", 77), "language": "hi-IN"}
+    assert got == {"audio": ("com.apple.Music", 77), "language": "hi-IN", "sources": ()}
     no_scope = ToolContext("task", "w", "r", Identity.OWNER, frozenset({"screen", "fs:write"}), "device", None,
                            str(tmp_path), (), ())
     r = asyncio.run(tool.run(tool.Input(app="Music", shot="s1", path=str(tmp_path / "n.mp4"), with_audio=True), no_scope))
@@ -573,3 +587,182 @@ def test_a_capture_that_cannot_start_is_a_clear_refusal_not_an_unknown_outcome(t
     r = asyncio.run(tool.run(tool.Input(app="Music", seconds=0.01), _ctx(tmp_path)))
     assert r.is_error and "Screen Recording" in r.content["error"] and "declined" in r.content["error"]
     assert not hearing.listening and fake.argv == []
+
+
+
+# ---------- fix round 1: the owner's decision and the reviewer's gaps ----------
+
+def test_after_a_listen_no_audio_file_remains_and_the_transcript_is_in_the_result(tmp_path: Path) -> None:
+    """Owner decision (2026-10-14): captured sound is deleted as soon as transcription finishes."""
+    hearing, _, capture = _hearing(tmp_path)
+    out = asyncio.run(hearing.listen("task", "com.apple.Music", 77, 0.01, None))
+    assert out["transcript"] == STARTUP and out["segments"]
+    assert not capture.handles[0].path.exists() and not list((tmp_path / "workspace" / "audio").iterdir())
+
+
+def test_recording_stop_with_audio_labels_the_transcript_outside_content(daemon: RunningDaemon, tmp_path: Path,
+                                                                         frames: list[bytes]) -> None:
+    from ferb.act.recording import RecordingManager, RecordingStop
+    hearing, _, _ = _hearing(tmp_path)
+    m = RecordingManager(sanitize=lambda image: image, hearing=hearing)
+    grant, _ = setup(daemon, {"fs:write"}, request("record the reel with its sound"), [RecordingStop(m)])
+
+    async def shot() -> bytes:
+        return frames[0]
+    started = daemon.run(m.start("task-1", {"kind": "tab", "tab": "t1"}, tmp_path / "r.mp4", shot, 1,
+                                 audio=("com.google.Chrome", 88), sources=(("web", "https://www.instagram.com/reel/x"),)))
+    r = call(daemon, grant, "recording.stop", id=started["id"])
+    assert not r["is_error"], r
+    assert r["content"]["transcript"] == STARTUP
+    assert "external:audio:com.google.Chrome" in r["footer"] and "external:web:www.instagram.com" in r["footer"]
+    assert "outside content" in r["footer"]
+
+
+def test_mac_record_with_audio_marks_its_sound_as_outside_content(tmp_path: Path) -> None:
+    from ferb.act.mac.tools import MacRecord
+    got: dict[str, Any] = {}
+
+    async def start(owner: str, target: dict[str, Any], path: Path, capture: Any, fps: float = 2, **kw: Any) -> dict:
+        got.update(kw)
+        return {"id": "rec-1"}
+    driver = SimpleNamespace(recording_source=lambda app, shot: ({"kind": "window", "app": "com.apple.Music", "pid": 77,
+                                                                  "window_id": 5}, None),
+                             apps=SimpleNamespace(find=lambda name: None))
+    tool = MacRecord(driver, SimpleNamespace(start=start, hearing=SimpleNamespace()))  # type: ignore[arg-type]
+    ctx = ToolContext("task", "w", "r", Identity.OWNER, frozenset({"screen", "fs:write", "audio"}), "device", None,
+                      str(tmp_path), (), ())
+    asyncio.run(tool.run(tool.Input(app="Music", shot="s1", path=str(tmp_path / "m.mp4"), with_audio=True), ctx))
+    assert got["sources"] == () and got["audio"] == ("com.apple.Music", 77)   # the manager adds ('audio', bundle)
+
+
+class _SlowStart(FakeCapture):
+    def start(self, bundle_id: str, pid: int, path: Path) -> Any:
+        import time as _t
+        _t.sleep(0.3)                                    # ScreenCaptureKit's shareable content + startCapture
+        return super().start(bundle_id, pid, path)
+
+
+def test_a_stop_while_the_capture_is_starting_still_stops_the_stream(tmp_path: Path) -> None:
+    hearing, _, capture = _hearing(tmp_path, capture=_SlowStart())
+
+    async def go() -> list[dict[str, Any]]:
+        job = asyncio.create_task(hearing.listen("task", "com.apple.Music", 77, 3600, None))
+        await asyncio.sleep(0.05)
+        job.cancel()                                     # task stop while the stream is still starting
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        return await hearing.end_task("task")            # the stream that was starting is stopped, not orphaned
+    ended = asyncio.run(asyncio.wait_for(go(), 10))
+    assert ended == [{"resource": "listen", "app": "com.apple.Music", "released": True}]
+    assert len(capture.handles) == 1 and capture.handles[0].stopped and not hearing.listening
+    assert not list((tmp_path / "workspace" / "audio").iterdir())
+
+
+def test_a_task_ending_while_the_capture_is_starting_stops_it(tmp_path: Path) -> None:
+    hearing, fake, capture = _hearing(tmp_path, capture=_SlowStart())
+
+    async def go() -> tuple[Any, Any]:
+        job = asyncio.create_task(hearing.listen("task", "com.apple.Music", 77, 3600, None))
+        await asyncio.sleep(0.05)
+        ended = await hearing.end_task("task")
+        return ended, await job
+    ended, result = asyncio.run(asyncio.wait_for(go(), 10))
+    assert ended and capture.handles[0].stopped and result["error"].startswith("listening stopped")
+    assert fake.argv == [] and not hearing.listening
+
+
+def test_a_recording_cancelled_while_its_sound_starts_leaves_no_stream(tmp_path: Path, frames: list[bytes]) -> None:
+    from ferb.act.recording import RecordingManager
+    hearing, _, capture = _hearing(tmp_path, capture=_SlowStart())
+    m = RecordingManager(sanitize=lambda image: image, hearing=hearing)
+
+    async def shot() -> bytes:
+        return frames[0]
+
+    async def go() -> None:
+        job = asyncio.create_task(m.start("task", {"kind": "tab", "tab": "t1"}, tmp_path / "x.mp4", shot, 1,
+                                          audio=("com.google.Chrome", 88)))
+        await asyncio.sleep(0.05)
+        job.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        await hearing.shutdown()                         # waits for the abandoned start, then stops it
+    asyncio.run(asyncio.wait_for(go(), 10))
+    assert capture.handles[0].stopped and not hearing.listening
+    assert not list((tmp_path / "workspace" / "audio").iterdir())
+
+
+def test_recordings_the_task_ends_are_not_transcribed_and_keep_no_sound(tmp_path: Path, frames: list[bytes]) -> None:
+    from ferb.act.recording import RecordingManager
+    hearing, fake, _ = _hearing(tmp_path)
+    m = RecordingManager(sanitize=lambda image: image, hearing=hearing)
+
+    async def shot() -> bytes:
+        return frames[0]
+
+    async def go() -> list[dict[str, Any]]:
+        await m.start("task", {"kind": "tab", "tab": "t1"}, tmp_path / "y.mp4", shot, 1, audio=("com.google.Chrome", 88))
+        return await m.end_task("task")
+    result = asyncio.run(go())[0]
+    assert fake.argv == [] and "transcript" not in result and "not transcribed" in result["audio_note"]
+    assert not list((tmp_path / "workspace" / "audio").iterdir())
+
+
+def test_capture_places_each_buffer_at_its_timestamp(tmp_path: Path, monkeypatch) -> None:
+    """A late first buffer and a silent gap keep their time: the transcript's segment times stay true."""
+    import array
+    from ferb.act.mac import audio
+    target = _Obj(processID=lambda: 77, bundleIdentifier=lambda: "com.apple.Music")
+    sck, cm, seen = _fake_frameworks([target])
+    monkeypatch.setattr(audio, "_frameworks", lambda: (sck, cm))
+    monkeypatch.setattr(audio, "_sink", lambda on_buffer: SimpleNamespace(on_buffer=on_buffer))
+    clock = [0.0]                                                       # when each buffer arrives
+    handle = audio.AppAudio(now=lambda: clock[0]).start("com.apple.Music", 77, tmp_path / "t.wav")
+    asbd = SimpleNamespace(mSampleRate=16000.0, mFormatFlags=1 | 8 | 32, mBitsPerChannel=32, mChannelsPerFrame=1,
+                           mBytesPerFrame=4)
+    clock[0] = 0.8
+    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=sine(0.25), pts=100.5), 1)   # 0.5 s after the start
+    clock[0] = 1.8
+    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=sine(0.25), pts=101.5), 1)   # after 0.75 s of silence
+    facts = handle.stop()
+    assert facts["frames"] == 28000 and abs(facts["audio_s"] - 1.75) < 1e-6
+    samples = array.array("f")
+    samples.frombytes((tmp_path / "t.wav").read_bytes()[44:])
+    assert not any(samples[:8000]) and any(samples[8000:12000])
+    assert not any(samples[12000:24000]) and any(samples[24000:])
+
+
+def test_hearing_sweeps_sound_and_answers_a_restart_left_behind(tmp_path: Path) -> None:
+    hearing, _, _ = _hearing(tmp_path)
+    folder = tmp_path / "workspace" / "audio"
+    folder.mkdir(parents=True)
+    for name in ("listen-1.wav", ".transcribe-ab.json", ".status-cd.json"):
+        (folder / name).write_text("left")
+    hearing.sweep()
+    assert not list(folder.iterdir())
+
+
+def test_ferb_app_writes_only_into_the_daemons_answer_file_and_stops_when_it_goes() -> None:
+    src = SWIFT.read_text()
+    body = src[src.index("// ---------- hearing (L26)"):src.index("// ---------- the service")]
+    opened = body[body.index("func answerFile("):body.index("func recognizer(")]
+    assert "O_CREAT" not in opened and "O_NOFOLLOW" in opened and "st_size" in opened   # never creates or replaces
+    assert "workspace/audio" in opened and "realpath" in opened                       # only FERB's audio folder
+    assert "makeFileSystemObjectSource" in body and ".delete" in body                 # deleting it means stop
+    assert "rename(" not in body                                                      # no file appears afterwards
+
+
+
+def test_a_buffer_is_never_placed_after_it_arrived(tmp_path: Path, monkeypatch) -> None:
+    """A presentation time on another clock can't make FERB write a long run of zeros: arrival time bounds it."""
+    from ferb.act.mac import audio
+    sck, cm, seen = _fake_frameworks([_Obj(processID=lambda: 77, bundleIdentifier=lambda: "com.apple.Music")])
+    monkeypatch.setattr(audio, "_frameworks", lambda: (sck, cm))
+    monkeypatch.setattr(audio, "_sink", lambda on_buffer: SimpleNamespace(on_buffer=on_buffer))
+    clock = [0.0]
+    handle = audio.AppAudio(now=lambda: clock[0]).start("com.apple.Music", 77, tmp_path / "u.wav")
+    asbd = SimpleNamespace(mSampleRate=16000.0, mFormatFlags=1 | 8 | 32, mBitsPerChannel=32, mChannelsPerFrame=1,
+                           mBytesPerFrame=4)
+    clock[0] = 0.25
+    seen["sink"].on_buffer(SimpleNamespace(asbd=asbd, data=sine(0.25), pts=900000.0), 1)
+    assert handle.stop()["frames"] == 4000 + 4000                     # placed at its arrival, 0.25 s in

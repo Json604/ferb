@@ -7,10 +7,11 @@
 // Usage: FERB                               run as the voice service (opened by the daemon)
 //        FERB request                       ask for Microphone + Speech Recognition, print the result (ferb setup --voice)
 //        FERB request-speech                ask for Speech Recognition only, print the result (ferb setup)
-//        FERB transcribe <audio> <out> [locale]  L26: a captured app's sound file to text, written to <out> (0600)
-//        FERB status <out>                  Speech Recognition state and on-device support, written to <out> (0600)
-// The daemon starts the last two per use with `open -g -n -W` (LaunchServices: FERB.app, not the daemon, is the app
-// macOS asks about); they never prompt and write nothing to stdout or any log.
+//        FERB transcribe <audio> <out> [locale]  L26: a captured app's sound file to text, written into <out>
+//        FERB status <out>                  Speech Recognition state and on-device support, written into <out>
+// The daemon starts the last two per use with `open -g -n -W --env FERB_HOME=…` (LaunchServices: FERB.app, not the
+// daemon, is the app macOS asks about). <out> is the daemon's empty answer file in $FERB_HOME/workspace/audio; deleting
+// it stops FERB.app. They never prompt and write nothing to stdout or any log.
 import AppKit
 import AVFoundation
 import CoreAudio
@@ -232,15 +233,42 @@ func requestPermissions() {
 
 // ---------- hearing (L26): a captured app's sound to text, on this Mac only ----------
 
-// The answer goes to the daemon's private folder: written to a 0600 file beside <out>, then renamed into place whole.
-func writeAnswer(_ out: String, _ answer: [String: Any]) {
-    guard let data = try? JSONSerialization.data(withJSONObject: answer) else { return }
-    let part = out + ".part"
-    let fd = open(part, O_WRONLY | O_CREAT | O_EXCL, 0o600)
-    if fd < 0 { return }
-    let wrote = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) }
+// The answer file is the daemon's lease. It creates the file empty (0600) in FERB's audio folder before launching
+// FERB.app; FERB.app only ever writes into such a file there, never creating or replacing one. Deleting it is the
+// daemon's stop: FERB.app exits at once without answering, and anything written after the deletion would land in an
+// unlinked file, so no transcript is left on disk.
+var leaseWatch: DispatchSourceFileSystemObject? = nil
+
+func answerFile(_ out: String) -> Int32? {
+    guard inAudioFolder(out) else { return nil }
+    let fd = open(out, O_WRONLY | O_NOFOLLOW)              // never creates a file: only the daemon's own
+    if fd < 0 { return nil }
+    var st = stat()
+    guard fstat(fd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG, st.st_size == 0, st.st_uid == getuid() else {
+        close(fd); return nil }                            // an existing answer is never replaced
+    let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.delete, .rename, .revoke],
+                                                          queue: .global())
+    watch.setEventHandler { exit(0) }                      // stopped: no answer, recognition ends with the process
+    watch.resume()
+    leaseWatch = watch
+    return fd
+}
+
+// FERB's private audio folder: $FERB_HOME/workspace/audio (the daemon passes FERB_HOME with `open --env`).
+func inAudioFolder(_ path: String) -> Bool {
+    let home = ProcessInfo.processInfo.environment["FERB_HOME"] ?? (NSHomeDirectory() + "/.ferb")
+    guard let folder = realpath(home + "/workspace/audio", nil) else { return false }
+    defer { free(folder) }
+    guard let parent = realpath((path as NSString).deletingLastPathComponent, nil) else { return false }
+    defer { free(parent) }
+    return String(cString: parent) == String(cString: folder)
+}
+
+func writeAnswer(_ fd: Int32, _ answer: [String: Any]) {
+    if let data = try? JSONSerialization.data(withJSONObject: answer) {
+        _ = data.withUnsafeBytes { write(fd, $0.baseAddress, data.count) }
+    }
     close(fd)
-    if wrote == data.count { rename(part, out) } else { unlink(part) }
 }
 
 func recognizer(_ language: String?) -> SFSpeechRecognizer? {
@@ -249,25 +277,29 @@ func recognizer(_ language: String?) -> SFSpeechRecognizer? {
 }
 
 func writeStatus(_ out: String) {
+    guard let fd = answerFile(out) else { return }
     let rec = recognizer(nil)
-    writeAnswer(out, ["speech": speechState(), "on_device": rec?.supportsOnDeviceRecognition ?? false,
-                      "locale": rec?.locale.identifier ?? Locale.current.identifier])
+    writeAnswer(fd, ["speech": speechState(), "on_device": rec?.supportsOnDeviceRecognition ?? false,
+                     "locale": rec?.locale.identifier ?? Locale.current.identifier])
 }
 
 func transcribe(audio: String, out: String, language: String?) {
+    guard let fd = answerFile(out) else { return }   // not the daemon's answer file: do nothing
     let locale = language ?? Locale.current.identifier
+    guard inAudioFolder(audio) else {
+        writeAnswer(fd, ["error": "the sound file isn't in FERB's audio folder", "reason": "failed"]); return }
     let state = speechState()
     guard state == "granted" else {                  // a task never prompts: `ferb setup` asks once
-        writeAnswer(out, ["error": "Speech Recognition isn't allowed for FERB", "reason": "not_authorized",
+        writeAnswer(fd, ["error": "Speech Recognition isn't allowed for FERB", "reason": "not_authorized",
                           "speech": state, "locale": locale]); return }
     guard let rec = recognizer(language) else {
-        writeAnswer(out, ["error": "no speech recognizer for \(locale)", "reason": "unsupported_language",
+        writeAnswer(fd, ["error": "no speech recognizer for \(locale)", "reason": "unsupported_language",
                           "locale": locale]); return }
     guard rec.supportsOnDeviceRecognition else {     // no cloud fallback: the sound never leaves the Mac
-        writeAnswer(out, ["error": "on-device recognition isn't available for \(rec.locale.identifier)",
+        writeAnswer(fd, ["error": "on-device recognition isn't available for \(rec.locale.identifier)",
                           "reason": "on_device_unavailable", "locale": rec.locale.identifier]); return }
     guard rec.isAvailable else {
-        writeAnswer(out, ["error": "speech recognition isn't available right now", "reason": "unavailable",
+        writeAnswer(fd, ["error": "speech recognition isn't available right now", "reason": "unavailable",
                           "locale": rec.locale.identifier]); return }
     rec.queue = OperationQueue()                     // answers off the main thread, which waits below
     let req = SFSpeechURLRecognitionRequest(url: URL(fileURLWithPath: audio))
@@ -296,7 +328,7 @@ func transcribe(audio: String, out: String, language: String?) {
     }
     sem.wait()
     _ = task
-    writeAnswer(out, answer ?? ["error": "no answer", "reason": "failed"])
+    writeAnswer(fd, answer ?? ["error": "no answer", "reason": "failed"])
 }
 
 // ---------- the service ----------

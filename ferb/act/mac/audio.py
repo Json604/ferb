@@ -11,11 +11,15 @@ screenshots (screenshot.py uses ScreenCaptureKit the same way, through PyObjC):
   video is a 2x2 picture that is ignored.
 - Mono float32 samples are written as they arrive (no recording is held in memory), so how long to listen stays the
   model's choice; the file's header is completed when capture stops.
+- On its true timeline: each buffer is placed at its presentation time (host clock) relative to the moment capture
+  started, and silence the app didn't send (a late first buffer, a pause) is written as zeros, so transcript times
+  match the media's. A buffer is never placed later than it arrived (a physical bound, not a FERB limit).
 Blocking PyObjC calls: callers run start() and stop() in a thread."""
 
 import array
 import struct
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -38,13 +42,18 @@ class WavWriter:
         self.frames, self.peak, self.rate = 0, 0.0, 0
         self.lock = threading.Lock()
 
-    def write(self, samples: bytes, rate: int) -> None:
+    def write(self, samples: bytes, rate: int, at: float | None = None) -> None:
+        """Append mono float32 samples; `at` (seconds from the file's start) zero-fills any silence before them."""
         values = array.array("f")
         values.frombytes(samples[: len(samples) - len(samples) % 4])
         with self.lock:
             if self.f.closed:
                 return
             self.rate = self.rate or rate
+            gap = round(at * self.rate) - self.frames if at is not None else 0
+            if gap > 0:
+                self.f.write(b"\0" * (4 * gap))
+                self.frames += gap
             self.f.write(values.tobytes())
             self.frames += len(values)
             if values:
@@ -105,9 +114,13 @@ def _done(start: Callable[[Callable[[Any], None]], None]) -> None:
 class AudioCapture:
     """One running app-audio stream into one file."""
 
-    def __init__(self, stream: Any, sink: Any, writer: WavWriter, cm: Any) -> None:
+    def __init__(self, stream: Any, sink: Any, writer: WavWriter, cm: Any,
+                 now: Callable[[], float] = time.monotonic) -> None:
         self.stream, self.sink, self.writer, self.cm = stream, sink, writer, cm   # held: a freed sink drops samples
+        self.now = now
         self.error: str | None = None
+        self.reference = 0.0                            # host-clock seconds at the file's time 0
+        self.started = now()                            # the same moment on FERB's monotonic clock
 
     def on_buffer(self, buf: Any, kind: int) -> None:
         if kind != 1:                                   # SCStreamOutputTypeAudio; the 2x2 video is ignored
@@ -127,7 +140,9 @@ class AudioCapture:
                 first = values[: len(values) // channels] if int(asbd.mFormatFlags) & NON_INTERLEAVED \
                     else values[::channels]
                 data = first.tobytes()
-            self.writer.write(data, int(asbd.mSampleRate))
+            pts = float(cm.CMTimeGetSeconds(cm.CMSampleBufferGetPresentationTimeStamp(buf)))
+            at = min(max(0.0, pts - self.reference), max(0.0, self.now() - self.started))
+            self.writer.write(data, int(asbd.mSampleRate), at)
         except Exception as e:                          # recorded, never raised into ScreenCaptureKit's queue
             self.error = self.error or f"{type(e).__name__}: {e}"
 
@@ -145,10 +160,13 @@ class AudioCapture:
 class AppAudio:
     """Starts app-audio capture: start(bundle_id, pid, path) -> AudioCapture (blocking; run it in a thread)."""
 
+    def __init__(self, now: Callable[[], float] = time.monotonic) -> None:
+        self.now = now
+
     def start(self, bundle_id: str, pid: int, path: Path) -> AudioCapture:
         sck, cm = _frameworks()
-        content = _wait(lambda h: sck.SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(
-            True, False, h))
+        listed = sck.SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_
+        content = _wait(lambda h: listed(True, False, h))
         app = next((a for a in content.applications()
                     if int(a.processID()) == pid and str(a.bundleIdentifier() or "") == bundle_id), None)
         if app is None:
@@ -175,7 +193,7 @@ class AppAudio:
         cfg.setShowsCursor_(False)
         writer = WavWriter(path)
         stream = sck.SCStream.alloc().initWithFilter_configuration_delegate_(flt, cfg, None)
-        capture = AudioCapture(stream, None, writer, cm)
+        capture = AudioCapture(stream, None, writer, cm, self.now)
         capture.sink = _sink(capture.on_buffer)
         try:
             for kind in (sck.SCStreamOutputTypeAudio, sck.SCStreamOutputTypeScreen):
@@ -183,6 +201,9 @@ class AppAudio:
                 ok, err = ok if isinstance(ok, tuple) else (ok, None)
                 if not ok:
                     raise Refused(f"screen capture refused the audio output: {err}")
+            # time 0 of the file: no buffer can be presented before capture starts
+            capture.reference = float(cm.CMTimeGetSeconds(cm.CMClockGetTime(cm.CMClockGetHostTimeClock())))
+            capture.started = self.now()
             _done(lambda h: stream.startCaptureWithCompletionHandler_(h))
         except BaseException:
             writer.close()

@@ -11,8 +11,11 @@ What happens:
   (browser.media), and you hear the sentence for a few seconds (owner accepted, L26). FERB listens with audio.listen,
   then mutes the Mac's output and listens again (your mute setting is restored afterwards), then records the tab
   with sound;
-- results and transcripts go to result.json in a temporary folder that the test prints. Report what you heard and
-  any focus, cursor or Space change; that is your verdict, separate from the automated result.
+- before each supervised action the test pauses (CLAUDE.md rule 17): press Enter to let it run, then type what you
+  saw or heard (cursor, focus, Space, sound), or just Enter for nothing. Each answer is recorded with its step, so a
+  disturbance is tied to one action;
+- results and transcripts go to result.json in a temporary folder that the test prints. Your verdict is separate
+  from the automated result. The captured sound is deleted once transcribed (owner decision, 2026-10-14).
 No installed daemon, personal browser profile, microphone or global input is used."""
 
 import http.server
@@ -68,7 +71,16 @@ def test_hear_a_tab_then_with_the_mac_muted_then_record_it_with_sound(tmp_path: 
     url = f"http://127.0.0.1:{server.server_port}/"
     input("Keep using another app; you will hear a spoken sentence a few times. Press Enter when ready. ")
     was_muted = _muted()
-    report: dict[str, Any] = {"owner_verdict": "pending"}
+    report: dict[str, Any] = {"owner_verdict": "pending", "owner_observations": []}
+
+    def supervised(step: str) -> None:
+        """Rule 17: one supervised action at a time; what the owner noticed is recorded against the previous step."""
+        input(f"\nNext: {step}. Press Enter to run it. ")
+        report["owner_observations"].append({"before": step})
+
+    def observed(step: str) -> None:
+        seen = input(f"Done: {step}. What did you see or hear (cursor, focus, Space, sound)? Enter for nothing: ")
+        report["owner_observations"].append({"after": step, "owner_saw": seen.strip() or "nothing"})
     try:
         with browser_lab() as (d, chrome, front):
             app = d.daemon.home / "FERB.app"
@@ -89,9 +101,12 @@ def test_hear_a_tab_then_with_the_mac_muted_then_record_it_with_sound(tmp_path: 
                 assert not result["is_error"], result
                 return result["content"]
             try:
+                supervised("open the disposable page in the lab Chrome (background)")
                 tab = invoke("browser.open", url=url)["tab"]
                 invoke("browser.wait", tab=tab, until="load")
+                observed("open the page")
                 report["before"] = invoke("browser.snapshot", tab=tab).get("media")
+                supervised("play and unmute the page's audio with browser.media (you should hear the sentence)")
                 media_play = d.run(d.daemon.gateway.call(grant, "browser.media", {"tab": tab, "action": "play"}))
                 media_unmute = d.run(d.daemon.gateway.call(grant, "browser.media", {"tab": tab, "action": "unmute"}))
                 report["media_calls"] = [media_play["content"], media_unmute["content"]]
@@ -102,19 +117,21 @@ def test_hear_a_tab_then_with_the_mac_muted_then_record_it_with_sound(tmp_path: 
                     report["needed_page_play_button"] = True
                     state = invoke("browser.snapshot", tab=tab)
                 report["playing"] = state["media"]
+                observed("play and unmute")
                 assert state["media"][0]["playing"] and not state["media"][0]["muted"], state["media"]
-                time.sleep(3)
-                print("\nListening for 8 seconds (output on)…")
+                supervised("listen to the tab for 8 seconds with audio.listen (output on)")
                 heard = invoke("audio.listen", timeout=120, tab=tab, seconds=8)
                 report["listen"] = heard
-                print("\nListening for 8 seconds with the Mac's output muted…")
+                observed("listen (output on)")
+                supervised("mute the Mac's output, listen for 8 seconds, then restore your mute setting")
                 _set_muted(True)
                 try:
                     muted = d.run(d.daemon.gateway.call(grant, "audio.listen", {"tab": tab, "seconds": 8}), timeout=120)
                 finally:
                     _set_muted(was_muted)
                 report["listen_with_output_muted"] = muted["content"]           # recorded either way (L26 ruling)
-                print("\nRecording the tab with sound for 6 seconds…")
+                observed("listen with output muted")
+                supervised("record the tab with sound for 6 seconds, then stop the recording")
                 rec = invoke("browser.record", tab=tab, path=str(tmp_path / "with-sound.mp4"), fps=2, with_audio=True)
                 time.sleep(6)
                 stopped = invoke("recording.stop", timeout=180, id=rec["id"])
@@ -122,19 +139,24 @@ def test_hear_a_tab_then_with_the_mac_muted_then_record_it_with_sound(tmp_path: 
                 if shutil.which("ffprobe"):
                     report["recording_streams"] = json.loads(subprocess.check_output(
                         ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", stopped["path"]]))
+                observed("record with sound")
+                supervised("pause the page's audio")
                 invoke("browser.media", tab=tab, action="pause")
+                observed("pause")
                 report["browser_took_focus"] = front.took_focus(chrome.pid)
                 report["focus_changes"] = front.changes
             finally:
                 d.run(d.daemon._task_end("hearing-check"), timeout=60)
                 (tmp_path / "result.json").write_text(json.dumps(report, indent=2, default=str))
-                print(f"\nResults in {tmp_path / 'result.json'} (the captured sound files are in the lab home).")
+                report["sound_files_left"] = [str(f) for f in d.daemon.hearing.folder.glob("*.wav")]   # expected: none
+                print(f"\nResults in {tmp_path / 'result.json'}.")
                 print("Heard (output on):", (report.get("listen") or {}).get("transcript"))
                 print("Heard (output muted):", (report.get("listen_with_output_muted") or {}).get("transcript"),
                       "| peak", (report.get("listen_with_output_muted") or {}).get("peak"))
             assert "startup" in heard["transcript"].lower(), heard
             assert heard["on_device"] is True and heard["segments"]
             assert stopped.get("transcript"), stopped
+            assert not report["sound_files_left"], report["sound_files_left"]      # owner decision: no sound kept
             assert not report["browser_took_focus"], report
     finally:
         if _muted() != was_muted:

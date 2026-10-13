@@ -414,8 +414,8 @@ class BrowserRecord(_Base):
     blurb = ('Start a sampled video of this exact task tab in {whose}, including while inactive/minimized. '
              'No tab selection or desktop focus change. Default 2 fps; one output per target. Silent unless '
              'with_audio=true: then the browser app\'s sound is recorded too (every tab of that browser making sound, '
-             'so pause other media first) and the stopped recording carries an on-device transcript with timed '
-             'segments; confirm the media is playing and unmuted first. '
+             'so pause other media first with {p}_media) and the stopped recording carries an on-device transcript '
+             'with timed segments (the video keeps no sound); confirm the media is playing and unmuted first. '
              'Use recording_stop to finalize, then recording_inspect to check saved content. Requires ffmpeg/ffprobe.')
     class Input(BaseModel):
         tab: str
@@ -447,9 +447,10 @@ class BrowserRecord(_Base):
             if audio[0] != BROWSERS[tab.browser].bundle_id:
                 raise Refused(f"the process showing that tab isn't {tab.browser}; FERB didn't record its sound")
         target, capture = self.driver.recording_source(tab, ctx.task_id)
+        page = self.driver.tab_url(tab.tab_id) or ''
         result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
-                                             audio=audio, language=args.language)
-        return ToolResult(result, read_sources=(('web', self.driver.tab_url(tab.tab_id) or ''),))
+                                             audio=audio, language=args.language, sources=(('web', page),))
+        return ToolResult(result, read_sources=(('web', page),))
 
 
 class BrowserMedia(_Base):

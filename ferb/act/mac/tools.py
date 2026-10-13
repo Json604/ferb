@@ -337,7 +337,7 @@ class MacRecord(_Base):
                    'window capture. Keeps the window id and process fixed across focus/Space changes; never '
                    'captures the whole display. Sampled video, default 2 fps, silent unless with_audio=true: then '
                    'that app\'s sound is recorded too and the stopped recording carries an on-device transcript with '
-                   'timed segments (confirm its media is playing first). Prefer browser_record for '
+                   'timed segments; the video keeps no sound (confirm its media is playing first). Prefer browser_record for '
                    'individual tabs. Stop with recording_stop and inspect decoded frames with recording_inspect.')
     scopes = {'screen', 'fs:write'}
     target_args = ("app", "path")                      # Target.site / Target.path, normalized (P19 hash)
@@ -364,7 +364,7 @@ class MacRecord(_Base):
                 raise Refused("recording with sound needs the audio scope (hearing); record without with_audio")
             audio = (str(target['app']), int(target['pid']))    # the pinned window's own process, never another
         result = await self.recordings.start(ctx.task_id, target, resolve(args.path, ctx, False), capture, args.fps,
-                                             audio=audio, language=args.language)
+                                             audio=audio, language=args.language, sources=())
         return ToolResult(result, read_sources=_sources(target['app']))
 
 

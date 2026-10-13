@@ -91,9 +91,9 @@ class FakeRun:
         if str(argv[0]).endswith("build.sh"):
             Path(argv[1]).mkdir(parents=True, exist_ok=True)
             return subprocess.CompletedProcess(argv, 0, "", "")
-        if argv[:3] == ["codesign", "-d", "-r-"]:
+        if argv[:3] == ["/usr/bin/codesign", "-d", "-r-"]:
             return subprocess.CompletedProcess(argv, 0, "", f"designated => {self.REQUIREMENT}\n")
-        if argv[0] == "open":
+        if argv[0] == "/usr/bin/open":
             return subprocess.CompletedProcess(argv, 0, "", "")
         raise AssertionError(argv)
 
@@ -330,8 +330,8 @@ def test_plain_setup_builds_ferb_app_and_asks_for_speech_recognition_only(world:
     run: FakeRun = world["run"]
     app = str(world["home"] / "FERB.app")
     assert [c[1] for c in run.calls if c[0].endswith("build.sh")] == [app]
-    assert run.ran("open", "-n", "-W", app, "--args", "request-speech")
-    assert not any(c[-1] == "request" for c in run.ran("open"))       # never the microphone without --voice
+    assert run.ran("/usr/bin/open", "-n", "-W", app, "--args", "request-speech")
+    assert not any(c[-1] == "request" for c in run.ran("/usr/bin/open"))   # never the microphone without --voice
     assert Config(world["home"]).get("hearing", "requirement") == FakeRun.REQUIREMENT
     assert ("doctor.check", {"selftest": False, "hearing": True}) in world["daemon"].calls
     assert "Speech Recognition" in out.getvalue() and "on this Mac" in out.getvalue()
@@ -368,7 +368,7 @@ def test_update_rebuilds_an_installed_ferb_app_without_asking_for_anything(world
     assert S.setup(env, update=True) == 0, out.getvalue()
     run: FakeRun = world["run"]
     assert [c for c in run.calls if c[0].endswith("build.sh")]       # the new transcribe mode is installed
-    assert not run.ran("open")                                        # no permission dialog during an update
+    assert not run.ran("/usr/bin/open")                               # no permission dialog during an update
     assert Config(world["home"]).get("hearing", "requirement") == FakeRun.REQUIREMENT
 
 
@@ -378,3 +378,13 @@ def test_doctor_says_nothing_about_hearing_it_did_not_probe() -> None:
     assert lines == []
     S.add_hearing_check(lines.append, {"installed": False})
     assert lines[0].status == "warn" and "isn't installed" in lines[0].detail
+
+
+def test_update_refreshes_the_voice_signature_when_ferb_apps_requirement_changes(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    (world["home"] / "FERB.app").mkdir()
+    Config(world["home"]).set("voice", "requirement", 'identifier "com.ferb.app" and certificate leaf = H"old"')
+    env, out = make_env(world, [])
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    assert Config(world["home"]).get("voice", "requirement") == FakeRun.REQUIREMENT
+    assert world["run"].ran("/usr/bin/codesign", "-d", "-r-")

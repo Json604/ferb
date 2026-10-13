@@ -2,6 +2,7 @@
 FERB.app launch that runs Apple's on-device speech recognition (ferb/sense/transcribe.py). Nothing here captures real
 sound, launches an app or asks macOS for a permission."""
 
+import asyncio
 import json
 import math
 import os
@@ -10,8 +11,6 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-
-APP = "/Applications/FERB.app"           # replaced by each test's own folder
 
 
 def sine(seconds: float = 0.5, rate: int = 16000, level: float = 0.5) -> bytes:
@@ -54,32 +53,50 @@ class FakeCapture:
 
 
 class FakeApp:
-    """FERB.app as `open -g -n -W FERB.app --args <mode> ...` runs it: writes its answer (0600) where it was told."""
+    """FERB.app as `/usr/bin/open -g -n -W --env FERB_HOME=… FERB.app --args <mode> …` runs it: it opens the empty
+    answer file the daemon created (never creating one) and writes its answer into it. `late`: it opens the file,
+    then writes only after `release` is set, as a slow recognition would."""
 
     def __init__(self, app: Path, text: str = "", words: list[tuple[str, float, float]] | None = None,
-                 error: dict[str, Any] | None = None, status: dict[str, Any] | None = None) -> None:
-        self.app, self.text, self.words, self.error = app, text, words or [], error
+                 error: dict[str, Any] | None = None, status: dict[str, Any] | None = None, late: bool = False) -> None:
+        self.app, self.text, self.words, self.error, self.late = app, text, words or [], error, late
         self.status_answer = status or {"speech": "granted", "on_device": True, "locale": "en-US"}
         self.argv: list[list[str]] = []
         self.raw_paths: list[Path] = []
+        self.release = threading.Event()
+        self.wrote = threading.Event()
+
+    PREFIX = 8                                         # argv[PREFIX] is the mode
 
     async def __call__(self, argv: list[str]) -> int:
         self.argv.append(list(argv))
-        assert argv[:6] == ["open", "-g", "-n", "-W", str(self.app), "--args"], argv
-        mode = argv[6]
+        assert argv[:8] == ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={self.app.parent}",
+                            str(self.app), "--args"], argv
+        mode = argv[8]
         if mode == "transcribe":
-            audio, out = Path(argv[7]), Path(argv[8])
+            audio, out = Path(argv[9]), Path(argv[10])
             assert audio.is_file(), "FERB.app is given the captured file"
-            answer = self.error or {"on_device": True, "text": self.text, "locale": argv[9] if len(argv) > 9 else "en-US",
+            answer = self.error or {"on_device": True, "text": self.text, "locale": argv[11] if len(argv) > 11 else "en-US",
                                     "segments": [{"text": t, "start": s, "duration": d} for t, s, d in self.words]}
         elif mode == "status":
-            out, answer = Path(argv[7]), self.status_answer
+            out, answer = Path(argv[9]), self.status_answer
         else:
             raise AssertionError(mode)
-        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(answer, f)
         self.raw_paths.append(out)
+        fd = os.open(out, os.O_WRONLY | os.O_NOFOLLOW)  # the daemon's answer file: never created, never replaced
+        assert os.fstat(fd).st_size == 0
+        if not self.late:
+            os.write(fd, json.dumps(answer).encode())
+            os.close(fd)
+            return 0
+
+        def later() -> None:                            # still recognizing after the daemon stopped waiting
+            self.release.wait(5)
+            os.write(fd, json.dumps(answer).encode())
+            os.close(fd)
+            self.wrote.set()
+        threading.Thread(target=later, daemon=True).start()
+        await asyncio.sleep(3600)
         return 0
 
 
