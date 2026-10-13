@@ -66,6 +66,27 @@ def test_the_password_rule_covers_plain_text_fields_and_a_kindless_record_s_valu
     assert r({'type': 'text', 'label': 'Password', 'text': 'Hunter2!x'})['text'] == REDACTED
 
 
+def test_a_shown_password_in_a_mac_accessibility_snapshot_is_redacted() -> None:
+    """FERB's mac snapshot names every AXTextField/AXTextArea "textbox" (and AXComboBox "combobox"), with no input
+    type: those are text fields. An extension element's input type comes first, so its email field stays readable."""
+    r = Redactor()
+    mac = {'id': 's1e3', 'role': 'textbox', 'label': 'Enter your password', 'value': 'Hunter2!x'}
+    assert r(mac)['value'] == REDACTED
+    assert 'Hunter2!x' not in json.dumps(r({'app': 'Safari', 'elements': [mac, {'id': 's1e4', 'role': 'combobox',
+                                                                              'label': 'Password', 'value': 'Hunter2!x'}]}))
+    email = {'id': 'e2', 'role': 'textbox', 'input_type': 'email', 'label': 'Email to reset your password',
+             'value': 'owner@kartikey.xyz'}
+    assert r(email) == email
+
+
+@pytest.mark.parametrize('kind', ['tel', 'number', 'text', 'email'])
+def test_password_autocomplete_marks_an_input_of_any_type(kind) -> None:
+    """A PIN-style password (type tel/number) still says autocomplete current-password/new-password."""
+    r = Redactor()
+    assert r({'type': kind, 'autocomplete': 'current-password', 'value': '4821'})['value'] == REDACTED
+    assert r({'type': kind, 'autocomplete': 'new-password', 'value': '4821'})['value'] == REDACTED
+
+
 def test_an_answer_to_a_question_about_passwords_is_the_owners_words(daemon) -> None:
     """A question is no password field: its words never hide the owner's answer."""
     action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
@@ -78,9 +99,13 @@ def test_an_answer_to_a_question_about_passwords_is_the_owners_words(daemon) -> 
 
 @pytest.mark.parametrize('attrs', [{'AXTitle': 'Enter your password'}, {'AXDescription': 'Enter your password'},
                                    {'AXPlaceholderValue': 'Password'}, {'AXIdentifier': 'Passwd'},
-                                   {'AXDOMIdentifier': 'login_pwd'}])
+                                   {'AXDOMIdentifier': 'login_pwd'},
+                                   {'AXRole': 'AXTextArea', 'AXDescription': 'Enter your password'},
+                                   {'AXRole': 'AXComboBox', 'AXTitle': 'Password'}])
 def test_typing_into_a_shown_password_field_records_nothing(monkeypatch, attrs) -> None:
-    assert texts(capture(monkeypatch, Screen(bundle_id='com.google.Chrome', label=''), [key_event('s')])) == ['s']
+    role = attrs.get('AXRole', 'AXTextField')
+    assert texts(capture(monkeypatch, Screen(bundle_id='com.google.Chrome', label='', role=role),
+                         [key_event('s')])) == ['s']
     shown = Screen(bundle_id='com.google.Chrome', label='', **attrs)
     assert capture(monkeypatch, shown, [key_event('Hunter2!x')]) == []
 
@@ -104,6 +129,8 @@ def test_value_changes_of_password_and_secure_fields_are_never_recorded() -> Non
     checkbox = Element(AXRole='AXCheckBox', AXTitle='Show password')
     assert element_facts('AXValueChanged', shown, Element.attr) is None
     assert element_facts('AXValueChanged', secure, Element.attr) is None
+    for role in ('AXTextArea', 'AXComboBox'):
+        assert element_facts('AXValueChanged', Element(AXRole=role, AXTitle='Password'), Element.attr) is None
     assert element_facts('AXValueChanged', search, Element.attr)['title'] == 'Search'
     assert element_facts('AXValueChanged', checkbox, Element.attr)['title'] == 'Show password'
     focused = element_facts('AXFocusedUIElementChanged', shown, Element.attr)
@@ -144,7 +171,8 @@ const one = (attrs, text) => { const e = describe(input(Object.assign({value: 'H
 console.log(JSON.stringify({google: describe(google, 1), each: [one({autocomplete: 'current-password'}),
   one({autocomplete: 'new-password'}), one({name: 'Passwd'}), one({id: 'login_pwd'}), one({}, 'Enter your password')],
   checkbox: one({type: 'checkbox', checked: true}, 'Show password'), email: one({type: 'email', name: 'identifier'},
-  'Email or phone'), reset: one({type: 'email'}, 'Email to reset your password')}));
+  'Email or phone'), reset: one({type: 'email'}, 'Email to reset your password'),
+  pins: [one({type: 'tel', autocomplete: 'current-password'}), one({type: 'number', autocomplete: 'new-password'})]}));
 ''')
     assert shown['google']['secret'] is True and shown['google']['value'] == 'filled'
     assert 'Hunter2!x' not in json.dumps(shown['google'])
@@ -152,6 +180,7 @@ console.log(JSON.stringify({google: describe(google, 1), each: [one({autocomplet
     assert shown['checkbox'] == {'secret': False, 'value': 'checked'}
     assert shown['email'] == {'secret': False, 'value': 'Hunter2!x'}
     assert shown['reset'] == {'secret': False, 'value': 'Hunter2!x'}
+    assert shown['pins'] == [{'secret': True, 'value': 'filled'}] * 2
 
 
 def test_a_login_code_fill_refuses_a_password_but_not_a_one_time_password_field() -> None:
@@ -161,10 +190,13 @@ const code = (attrs, text) => { target = input(attrs, text); return fill(1, 1, l
 console.log(JSON.stringify({otp: code({}, 'One-time password'), otpName: code({name: 'one_time_password'}),
   autocomplete: code({autocomplete: 'one-time-code', name: 'otp_pwd'}),
   shown: code({autocomplete: 'current-password', name: 'Passwd'}, 'Enter your password'),
-  labelled: code({}, 'Password'), hidden: code({type: 'password'}, 'One-time password')}));
+  labelled: code({}, 'Password'), hidden: code({type: 'password'}, 'One-time password'),
+  current: code({autocomplete: 'current-password'}, 'One-time password'),
+  pin: code({type: 'tel', autocomplete: 'new-password', name: 'otp'})}));
 ''')
     assert filled == {'otp': 'filled', 'otpName': 'filled', 'autocomplete': 'filled', 'shown': 'code_field_changed',
-                      'labelled': 'code_field_changed', 'hidden': 'code_field_changed'}
+                      'labelled': 'code_field_changed', 'hidden': 'code_field_changed',
+                      'current': 'code_field_changed', 'pin': 'code_field_changed'}
 
 
 def test_a_login_code_is_never_asked_for_a_shown_password_field(bd, monkeypatch) -> None:

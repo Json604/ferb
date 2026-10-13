@@ -168,13 +168,14 @@
     }
     return [];
   }
-  // A password field, also while a site's "Show password" makes it type=text (Google keeps autocomplete
-  // current-password and name Passwd): its autocomplete, name, id or label says so. Checkboxes and buttons
-  // ("Show password") are no text fields.
-  const passwordField = (el) => el.tagName === "INPUT" && ((el.type || "").toLowerCase() === "password" ||
+  // A real password: type=password, or a password autocomplete on an input of any type (a tel/number PIN). A
+  // password field is also one a site's "Show password" made type=text (Google keeps autocomplete current-password
+  // and name Passwd), named so by its name, id or label. Checkboxes, buttons and email fields are no such field.
+  const realPassword = (el) => (el.type || "").toLowerCase() === "password" ||
+    /\b(?:current|new)-password\b/.test(el.autocomplete || "");
+  const passwordField = (el) => el.tagName === "INPUT" && (realPassword(el) ||
     ["text", ""].includes((el.type || "").toLowerCase()) &&
-    (/\b(?:current|new)-password\b/.test(el.autocomplete || "") ||
-     /passw|pwd/i.test((el.name || "") + " " + (el.id || "") + " " + label(el))));
+    /passw|pwd/i.test((el.name || "") + " " + (el.id || "") + " " + label(el)));
   // A field that names itself a code field ("One-time password" holds "passw" too) stays one for a login code.
   const codeField = (el) => /one-time-code/.test(el.autocomplete || "") ||
     SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el)) || codeGroup(el).length > 1;
@@ -687,7 +688,7 @@
     const { el, error } = element(gen, id);
     if (error) return { ok: false, detail: error };
     if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return { ok: false, detail: "not_a_text_field" };
-    if (codeOnly && (!isSecret(el) || el.type === "password" || passwordField(el) && !codeField(el)))
+    if (codeOnly && (!isSecret(el) || realPassword(el) || passwordField(el) && !codeField(el)))
       return {ok: false, detail: "code_field_changed"};
     let group = codeGroup(el);
     if (splitIds !== null) {

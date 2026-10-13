@@ -136,6 +136,7 @@ def test_cards_in_a_url_query_or_fragment_are_redacted_but_ids_in_its_path_are_n
                                   'https://shop.example/checkout,4111 1111 1111 1111',
                                   'pay|https://shop.example/checkout|4111111111111111',
                                   '(https://shop.example/checkout)4111111111111111',
+                                  'https://shop.example/pay/4111 1111 1111 1111 exp 12/27',
                                   json.dumps('Pay here: https://shop.example/checkout\n4111 1111 1111 1111')])
 def test_a_card_after_a_url_is_redacted_even_where_the_url_pattern_runs_on(text) -> None:
     """The URL pattern runs on through , | ) and a JSON \\n; only a whole path segment or host label (right after

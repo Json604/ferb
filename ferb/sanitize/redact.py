@@ -52,11 +52,15 @@ OTP_LABEL = re.compile(r"(?i)\b(?:otp|totp|2fa|one[ _-]?time(?:[ _-]+(?:code|pas
                        r"(?:verification|authentication|security|login|sign[ _-]?in|access)[ _-]+(?:code|pin))\b")
 # A password field, also while a site's "Show password" makes it plain text (type=text, AXTextField): its own
 # metadata says so (autocomplete current-password/new-password, or a name, id, label, placeholder or title holding
-# "passw" or "pwd"). A secret class at the capture boundary like OTP_LABEL, never a judgement of intent. It covers
-# plain text fields only (input type text, AX text field; "" when a record names no kind, and then only its value):
-# a checkbox, a menu item or an email field ("Show password", "Passwords", "…reset your password") stays readable.
+# "passw" or "pwd"). A secret class at the capture boundary like OTP_LABEL, never a judgement of intent. The name and
+# label match covers text fields only: an input of type text, the AX text roles and their mac snapshot kinds
+# (textbox, combobox), or "" when a record names no kind (then only its value). A checkbox, a menu item or an email
+# field ("Show password", "Passwords", "…reset your password") stays readable. A password autocomplete marks an
+# input of any type (a tel/number PIN).
 PASSWORD_FIELD = re.compile(r"(?i)passw|pwd")
-TEXT_FIELD_KINDS = frozenset({"", "text", "password", "axtextfield"})
+PASSWORD_AUTOCOMPLETE = re.compile(r"(?i)\b(?:current|new)-password\b")
+TEXT_FIELD_KINDS = frozenset({"", "text", "password", "textbox", "combobox", "axtextfield", "axtextarea",
+                              "axcombobox"})
 FIELD_METADATA = ("autocomplete", "name", "id", "label", "placeholder", "title")
 
 
@@ -165,10 +169,12 @@ class Redactor:
         return self._str(s)
 
     def field(self, text: str, *, role: str = "", label: str = "", secure_input: bool = False,
-              concealed: bool = False, metadata: tuple[str, ...] = ()) -> str:
-        """Capture boundary for AX/DOM/clipboard fields; metadata never grants action permission."""
+              concealed: bool = False, metadata: tuple[str, ...] = (), kind: str | None = None) -> str:
+        """Capture boundary for AX/DOM/clipboard fields; metadata never grants action permission. `kind` is the
+        field's input type or role for the password rule (its role when not given); none named, no password rule."""
+        kind = role if kind is None else kind
         if (secure_input or concealed or "secure" in role.casefold() or role.casefold() == "password"
-                or bool(role) and password_field(role, label, *metadata) or _labelled_code(label, text)):
+                or bool(kind) and password_field(kind, label, *metadata) or _labelled_code(label, text)):
             return REDACTED if text else text
         return self._str(text)
 
@@ -215,10 +221,11 @@ class Redactor:
         return obj
 
     def _dict(self, d: dict[Any, Any]) -> dict[Any, Any]:
-        secret_field = (str(d.get("type", "")).lower() == "password"
-                        or "one-time-code" in str(d.get("autocomplete", "")).lower()
-                        or password_field(str(d.get("input_type") or d.get("type") or d.get("role") or ""),
-                                          *(d.get(k) for k in FIELD_METADATA)))
+        kind = str(d.get("input_type") or d.get("type") or d.get("role") or "")     # an input type before a role
+        autocomplete = str(d.get("autocomplete", ""))
+        secret_field = (str(d.get("type", "")).lower() == "password" or "one-time-code" in autocomplete.lower()
+                        or PASSWORD_AUTOCOMPLETE.search(autocomplete) is not None
+                        or password_field(kind, *(d.get(k) for k in FIELD_METADATA)))
         input_event = isinstance(d.get("method"), str) and d["method"].startswith("Input.")
         out: dict[Any, Any] = {}
         for k, v in d.items():
@@ -230,7 +237,7 @@ class Redactor:
             elif input_event and ks == "params" and isinstance(v, dict):
                 out[k] = {pk: (REDACTED if pk in INPUT_TEXT_FIELDS else self._walk(pv)) for pk, pv in v.items()}
             else:
-                out[k] = (self.field(v, role=str(d.get("role", d.get("type", ""))),
+                out[k] = (self.field(v, role=str(d.get("role", d.get("type", ""))), kind=kind,
                                      label=str(d.get("label", d.get("name", d.get("autocomplete", "")))))
                           if ks in {"value", "text", "content"} and isinstance(v, str) else self._walk(v, ks))
         return out
@@ -245,7 +252,7 @@ class Redactor:
             s = p.sub(REDACTED, s)
         ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids
         s = CARD.sub(lambda m: m.group() if not payment_card(m.group()) or s[m.start() - 1] in "/." and
-                     any(a <= m.start() < b for a, b in ids) else REDACTED, s)
+                     any(a <= m.start() and m.end() <= b for a, b in ids) else REDACTED, s)
         s = OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
         return URL.sub(lambda m: self._url(m.group(0)), s)
 
