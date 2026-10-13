@@ -835,8 +835,8 @@ def test_the_question_names_the_tool_the_worker_really_called_not_the_shared_key
 def test_a_target_of_several_fields_reads_as_one_short_target(ferb_yes: FerbAnswers, daemon: RunningDaemon) -> None:
     """One readable target, but every consequential identifier stays: all recipients, the amount and the account; the
     site (and a contact beside recipients) go."""
-    ferb_yes.expect("floor:new_recipient")   # FERB's own question(s) on the way (F5a floor)
-    ferb_yes.expect("sink:irreversible_bulk")  # the declared send names three recipients
+    ferb_yes.expect("floor:new_recipient")   # FERB's own question(s) on the way (F5a floor): the contact Ann
+    # no bulk question (S4(c), L4): the three recipients are in the owner's words, so they are already authorized
     from ferb.core.types import ActionSpec, Target
 
     class Mail(FakeCap):

@@ -5,7 +5,6 @@ the tree, browser and shell. Scenarios: #2 (CometJacking POST), #6/#7 (data-bear
 import asyncio
 import base64
 import http.server
-import json
 import shutil
 import threading
 from collections.abc import Iterator
@@ -13,13 +12,14 @@ from typing import Any
 
 import pytest
 
-from ferb.act.browser.tools import FERB_BROWSER, OWNER_BROWSER, BrowserNavigate, BrowserOpen, Family
+from ferb.act.browser.tools import FERB_BROWSER, OWNER_BROWSER, Family
 from ferb.act.shell.proxy import DEST_REFUSED_NO
 from ferb.core.errors import Refused
-from ferb.core.types import ActionSpec, Identity, TabRef, Target
+from ferb.core.types import Identity
 from ferb.policy import confirm, provenance
 from ferb.policy.destinations import KnownDestinations
 from tests.conftest import Answers, FakeCap, RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
+from tests.support.browser_sink import asked as _asked, browser_grant as _browser_grant
 from tests.mackit import grant_task
 
 SHELL = {"shell", "probe"}
@@ -54,15 +54,6 @@ def _caps() -> list[FakeCap]:
                     content={"text": "aws_access_key_id = AKIAEXAMPLE7"}),
             FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/report"),),
                     content={"text": "summarize"})]
-
-
-def _asked(daemon: RunningDaemon) -> list[dict[str, Any]]:
-    async def go() -> list[dict[str, Any]]:
-        rows = daemon.daemon.db.conn.execute(
-            "SELECT input_json FROM spans WHERE kind = 'tool.call' AND "
-            "json_extract(input_json, '$.ferb_question') = 1 ORDER BY rowid").fetchall()
-        return [json.loads(r["input_json"])["args"] for r in rows]
-    return daemon.run(go())
 
 
 def _known(daemon: RunningDaemon, kind: str, value: str) -> bool:
@@ -117,50 +108,6 @@ def _wait_refused(daemon: RunningDaemon, pid: str, timeout: float = 10.0) -> lis
 
 
 # ---------- browser URLs ----------
-
-class FakeBrowser:
-    """A minimal identity-browser driver for the sink tests: it tracks tabs and counts real opens/navigates, so a
-    refusal (which returns before the tool runs) leaves the count and the tab untouched."""
-    def __init__(self) -> None:
-        self.tabs: dict[str, tuple[TabRef, str]] = {}
-        self.n = 0
-        self.calls = 0
-
-    async def open_for(self, url: str, owner: str, profile: str | None = None, *, window_id: int | None = None,
-                       allow_foreground: bool = False) -> TabRef:
-        self.calls += 1
-        self.n += 1
-        ref = TabRef("dev", "chrome", profile or "FERB", 1, f"t{self.n}")
-        self.tabs[ref.tab_id] = (ref, url)
-        return ref
-
-    def tab_url(self, tab_id: str) -> str | None:
-        hit = self.tabs.get(tab_id)
-        return hit[1] if hit is not None else None
-
-    def claim(self, tab: TabRef, owner: str) -> None:
-        pass
-
-    def owned_by(self, tab_id: str, owner: str, borrow: bool = True) -> TabRef:
-        hit = self.tabs.get(tab_id)
-        if hit is None:
-            raise Refused(f"no tab {tab_id}")
-        return hit[0]
-
-    async def navigate(self, tab: TabRef, url: str) -> None:
-        self.calls += 1
-        self.tabs[tab.tab_id] = (tab, url)
-
-    async def shutdown(self) -> None:
-        self.tabs.clear()
-
-
-def _browser_grant(daemon: RunningDaemon, family: Family, words: str, extra: list[FakeCap]) -> tuple[Any, FakeBrowser]:
-    fb = FakeBrowser()
-    caps: list[Any] = [BrowserOpen(fb, family), BrowserNavigate(fb, family)] + extra   # type: ignore[arg-type]
-    grant, _ = gateway_setup(daemon, {family.read, "probe"}, gateway_request(words), caps, identity=family.identity)
-    return grant, fb
-
 
 @pytest.mark.parametrize("family", [FERB_BROWSER, OWNER_BROWSER], ids=["ferb", "owner"])
 def test_opening_a_url_with_a_private_value_to_a_new_host_asks(daemon: RunningDaemon, family: Family) -> None:   # items 8, 9

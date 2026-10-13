@@ -14,6 +14,9 @@ account-security changes ask anyway (SQ1).
   new-recipient question already covers it.
 - The sink rule (b): a recipient or an amount that came only from outside content (never from the owner's words or
   answers) asks, unless the recipient is a destination FERB already knows.
+- The sink rule (c): irreversible bulk work (a send to two or more recipients, a permanent delete of a folder) asks
+  once, shown concretely: the count, the total size and a sample. Recipients and paths in the owner's words are
+  already authorized and don't count. The sample's size (SHOWN) is display only.
 FERB's question (`line`) comes first and is labelled, in the owner's terms (P27): the concrete action, then the call."""
 
 import base64
@@ -22,7 +25,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 from urllib.parse import unquote_plus
 
 import idna
@@ -36,7 +39,9 @@ ALWAYS = {Kind.PAY: "floor:pay", Kind.ACCOUNT_SECURITY: "floor:account_security"
 SEND_CLASS = frozenset({Kind.SEND, Kind.REPLY, Kind.POST, Kind.MAILBOX_SEND, Kind.SUBMIT, Kind.CALL})
 OWNER_SOURCES = frozenset({"owner_words", "owner_answer"})
 SINK_DESTINATION = "sink:destination"     # the shared rule/key for a host: one Yes/No covers it, shell and browser
-SHOWN_ORIGINS = 3                         # outside sources named in one question; the rest are counted
+BULK = "sink:irreversible_bulk"
+SHOWN = 3                                 # display only: items one question names (outside sources, recipients,
+                                          # paths); the rest are counted. It decides nothing.
 FROM_TASK = "(from the task) "            # a task's text that reads like FERB's own (D33)
 TASK_QUESTION = "Question from the task: "
 _BUNDLE_LIKE = re.compile(r"[a-z0-9-]+(?:\.[a-z0-9-]+){2,}", re.I)   # an app's id (com.apple.MobileSMS): internal
@@ -65,6 +70,23 @@ def _who(target: Target) -> list[tuple[str, str]]:
 
 def _owner(sources: list[str]) -> bool:
     return bool(OWNER_SOURCES & set(sources))
+
+
+def owner_named(sources: list[str]) -> bool:
+    """Whether an argument appears in the owner's words or answers (provenance.arg_sources): already authorized."""
+    return _owner(sources)
+
+
+def sample(items: Iterable[str]) -> str:
+    """Up to SHOWN items named and the rest counted ("a, b, c and 2 more"). Display only."""
+    listed = list(items)
+    if len(listed) <= SHOWN:
+        return ", ".join(listed)
+    return ", ".join(listed[:SHOWN]) + f" and {len(listed) - SHOWN} more"
+
+
+def _counted(n: int, thing: str) -> str:
+    return f"{n} {thing}" + ("" if n == 1 else "s")
 
 
 def shown_amount(amount: float | None) -> str:
@@ -123,11 +145,11 @@ def from_task_lines(text: str) -> str:
 
 
 def shown_origins(labels: Iterable[str]) -> str:
-    """The outside sources in the owner's terms, the first SHOWN_ORIGINS named and the rest counted."""
+    """The outside sources in the owner's terms, the first SHOWN named and the rest counted."""
     items = list(dict.fromkeys(shown_origin(o) for o in sorted(set(labels))))
-    if len(items) <= SHOWN_ORIGINS:
+    if len(items) <= SHOWN:
         return "; ".join(items)
-    return "; ".join(items[:SHOWN_ORIGINS]) + f"; and {len(items) - SHOWN_ORIGINS} more"
+    return "; ".join(items[:SHOWN]) + f"; and {len(items) - SHOWN} more"
 
 
 def destination_key(host: str) -> str:
@@ -228,21 +250,37 @@ def _url_pieces(url: str) -> list[str]:
     return pieces
 
 
-def _variants(piece: str) -> set[str]:
-    """A URL piece's forms to match: itself and its trailing-punctuation-stripped form, lowercased, plus base64/hex
-    decodings (N2)."""
-    forms: set[str] = set()
+_WORD_JOINERS = frozenset(".-_'\u2019")                   # inside words, names and file names: index.html, about-us
+
+
+def _is_value(form: str) -> bool:
+    """Whether a URL piece's form is a value rather than an ordinary word (L4): it holds a digit or a character other
+    than a letter and the joiners inside words, names and file names — an email's @, a path's /, a number, a code. A
+    word ("search", "playlist", "about-us", "index.html", "entry_id") is navigation and wrapper vocabulary, never the
+    owner's private value. Shape only, never a meaning (rule 6)."""
+    return any(not (c.isalpha() or c in _WORD_JOINERS or unicodedata.category(c).startswith("M")) for c in form)
+
+
+def _variants(piece: str) -> tuple[set[str], set[str]]:
+    """A URL piece's forms to match: (its values as written: itself and its trailing-punctuation-stripped form,
+    lowercased, when they are values, not words; its base64/hex decodings (N2), words included, since hiding a word
+    in an encoding is how data is smuggled, scenario #2)."""
+    shown: set[str] = set()
+    decoded: set[str] = set()
     for base in (piece.strip(), piece.strip().rstrip(_TRAIL)):
         if len(base) >= provenance.MIN_LEN:
-            forms.add(base.lower())
-            forms |= _decodings(base)
-    return forms
+            if _is_value(base.lower()):
+                shown.add(base.lower())
+            decoded |= _decodings(base)
+    return shown, decoded
 
 
 def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
                         outside: list[tuple[int, provenance.Text]], owner: provenance.Text) -> list[str]:
-    """The sink rule for navigation (S4, SQ6, carried item 8, Q8, N1): the pieces of `url` that are a token of the
-    owner's own data (a private tool result) and are not the owner's typed words and were not already public. `private`
+    """The sink rule for navigation (S4, SQ6, carried item 8, Q8, N1, L4): the pieces of `url` that are a token of the
+    owner's own data (a private tool result) and are not the owner's typed words and were not already public. Only a
+    value counts, never an ordinary word (`_is_value`), unless it is hidden in base64/hex: the words of FERB's context
+    wrapper and of the pages the owner reads ("search", "history", "about-us") are not the owner's data. `private`
     and `outside` are (span order, prepared text) in read order; a value is public only if it appeared in an
     outside-only result read *before* that value was first read privately (laundering by later echo doesn't count), and
     a record labelled both outside and private counts as private, never making a value public (that split is the
@@ -266,7 +304,8 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
     for piece in _url_pieces(url):
         value = piece.strip()
         # the owner-word exclusion is per matched form, so a typed word inside a decoded blob can't excuse the rest
-        matched = {m for m in _variants(piece) & set(first_private) if m not in owner_toks and not laundered(m)}
+        shown, decoded = _variants(piece)
+        matched = {m for m in (shown | decoded) & set(first_private) if m not in owner_toks and not laundered(m)}
         if matched and value and value not in [v for v, _ in hits]:
             hits.append((value, min(first_private[m] for m in matched)))
     if not hits:
@@ -280,12 +319,13 @@ def url_carries_private(url: str, private: list[tuple[int, provenance.Text]],
 
 def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[str, list[str]], *,
            read_private: bool, read_external: bool, known: Known, outside_read: Iterable[str] = (),
-           place: str | None = None) -> list[Need]:
+           place: str | None = None, content: str | None = None) -> list[Need]:
     """The needs of one call, in the order the owner reads them. `kind` is the physical kind; `declared` the
     purpose-derived one (SEND / CALL), which only widens what is checked. `arg_sources` is provenance.arg_sources of
     the target; `known(kind, value)` says whether a destination is known; `outside_read` is the outside content the
     tree read (origin labels), named in the sink question; `place` is where the call happens as the owner knows it
-    (an app's name), else the target's site."""
+    (an app's name), else the target's site; `content` is what a send carries, sized in the bulk question. A permanent
+    delete of a folder (S4(c)) needs the folder counted: the gateway adds it (`bulk_delete`)."""
     kinds = {kind} | ({declared} if declared else set())
     who = _who(target)
     where = place or target.site or ""
@@ -317,6 +357,13 @@ def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[st
             needs.append(Need("sink:new_destination", key("sink:new_destination", target.site),
                               {"destination": target.site or "", "read": shown_origins(outside_read)},
                               destinations=(("host", target.site or ""),)))
+        # S4 (c): a send to two or more recipients the owner didn't name, one question with count, size and a sample
+        unnamed = sorted({v for k, v in who if k.startswith("recipient:") and not _owner(arg_sources.get(k, []))})
+        if len(unnamed) > 1:
+            needs.append(Need(BULK, key(BULK, unnamed, content),
+                              {"what": "call" if calls else "send", "count": str(len(unnamed)),
+                               "bytes": _counted(len((content or "").encode()), "byte"), "sample": sample(unnamed),
+                               "covers": "floor:new_recipient" if set(new) <= set(unnamed) else ""}))
     values = who + ([("amount", str(target.amount))] if target.amount is not None else [])
     for k, value in values:                     # S4 (b): a value that came only from outside content
         outside = [s for s in arg_sources.get(k, []) if s != "unknown"]
@@ -331,6 +378,20 @@ def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[st
                            "origin": shown_origins(outside)},
                           destinations=(dest,) if dest is not None else ()))
     return needs
+
+
+def bulk_delete(path: str, facts: dict[str, Any]) -> Need:
+    """S4 (c): a permanent delete of a folder the owner didn't name (fs.usage `facts`, counted with details), one
+    question: the folder, how many files and folders it holds, their total size and a sample of what is inside. One
+    answer covers exactly the folder as counted."""
+    listed = [str(p) for p in facts.get("paths", [])]
+    root = listed[0] if listed and listed[0].endswith("/") else ""
+    inside = [p[len(root):] if root and p.startswith(root) else p for p in listed[1:]]
+    return Need(BULK, key(BULK, facts),
+                {"what": "delete", "path": path, "files": _counted(int(facts["files"]), "file"),
+                 "folders": _counted(int(facts["directories"]), "folder"),
+                 "bytes": _counted(int(facts["bytes"]), "byte"), "sample": sample(inside),
+                 "covers": "floor:delete_permanent"})
 
 
 def _part(n: Need) -> str:
@@ -362,6 +423,13 @@ def _part(n: Need) -> str:
         return f"this types {v['value']}, which came from outside content ({v['origin']}), not from you"
     if n.rule == "sink:outside_value":
         return f"the {v['what']} {v['value']} came from outside content ({v['origin']}), not from you"
+    if n.rule == BULK and v.get("what") == "delete":
+        return (f"this permanently deletes {v['path']} (it skips the Trash): {v['files']} in {v['folders']}, "
+                f"{v['bytes']}" + (f", for example {v['sample']}" if v["sample"] else ""))
+    if n.rule == BULK and v.get("what") == "call":
+        return f"this calls {v['count']} recipients you didn't name in this request: {v['sample']}"
+    if n.rule == BULK and v.get("what") == "send":
+        return f"this sends {v['bytes']} to {v['count']} recipients you didn't name in this request: {v['sample']}"
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
 
 
@@ -369,7 +437,9 @@ def line(needs: list[Need], call: str, why: str) -> str:
     """FERB's own words, first and labelled (P27: second person, the concrete action), then the call, the reason the
     task gave (quoted) and the question. The gateway collapses whitespace, strips control characters, maps the
     reason's double quotes to single ones and clips what goes in."""
-    text = "FERB: " + "; ".join(_part(n) for n in needs) + (f". The step: {call}." if call else ".")
+    said = {n.values.get("covers") for n in needs if n.rule == BULK}   # a bulk part already says the floor's words
+    parts = "; ".join(_part(n) for n in needs if n.rule not in said)
+    text = "FERB: " + parts + (f". The step: {call}." if call else ".")
     if why:
         text += f' Reason given: "{why}".'
     return text + " Go ahead?"

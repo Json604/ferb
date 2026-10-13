@@ -35,6 +35,14 @@ def least_trusted(origins: Iterable[str]) -> str:
     return max(items, key=lambda o: (rank(o), o)) if items else FERB
 
 
+def stored_outside(origins: Iterable[str]) -> bool:
+    """Whether a record's stored origin is outside content: it holds labels and every one is outside (an unknown label
+    counts as outside). A record that also holds the owner's, FERB's, private or inferred label is the owner's or
+    FERB's own (memory, history, device facts), whatever outside labels it inherited from what it was made from."""
+    items = [o for o in origins if o]
+    return bool(items) and all(rank(o) == OUTSIDE_RANK for o in items)
+
+
 def join(origins: Iterable[str]) -> str:
     return ",".join(sorted({o for o in origins if o}))
 

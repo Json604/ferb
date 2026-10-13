@@ -475,6 +475,14 @@ class Gateway:
             return False, "local services need the proxy's executable-pinned permission"
         return True, ""
 
+    def _outside_read(self, root: str) -> list[str]:
+        """The outside content this tree read, sorted (S3, S4, L4): the external labels of its tool results and of the
+        request's own parts, and of the context given to its models whose stored origin is outside. FERB's own memory,
+        history and device facts don't count, whatever they inherited from what they were made from."""
+        spans = self.spans
+        read = spans.tool_origins(root) | spans.outside_exposure_origins(root) | spans.request_origins(root)
+        return sorted(o for o in read if origin.is_external(o))
+
     def _host_named(self, host_norm: str, root: str) -> bool:
         """Whether the owner named this host (M4): a URL host in the request's own words or in an answer the owner gave
         (`KnownDestinations.from_words`, so only real URL hosts authorize — a bare token like README.md never does)."""
@@ -795,30 +803,29 @@ class Gateway:
     async def _confirmed(self, grant: RunGrant, rec: Any, name: str, arguments: dict[str, Any], spec: Any, why: str,
                          sources: dict[str, list[str]], ident: tuple[str, str] | None = None) -> Covered:
         """D23 floor, D33, S4: whether this call may run as far as the owner is concerned. The needs come from facts
-        (confirm.decide): the kinds, the targets' provenance, what this tree has read (its own tool results and the
-        request's pasted parts and content actually retrieved into model context), the known destinations. An answer recorded in
-        this tree covers its need (a No refuses); the rest are asked at once, in one question, while nothing is held.
-        One question at a time per tree, so two workers' identical calls ask once."""
+        (confirm.decide): the kinds, the targets' provenance, what this tree has read (its own tool results, the
+        request's pasted parts and private or outside content actually retrieved into model context; L4: only context
+        whose stored origin is outside counts as outside), the known destinations. A permanent delete of a folder is
+        counted first: one FERB can't fully count is refused, named or not; one the owner didn't name asks with its
+        count, size and a sample (S4(c)). An answer recorded in this tree covers its need (a No refuses); the rest are
+        asked at once, in one question, while nothing is held. One question at a time per tree, so two workers'
+        identical calls ask once."""
         root = rec.tree_id or grant.task_id
         read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
-        outside = sorted(o for o in read | self.spans.request_origins(root) if origin.is_external(o))
+        outside = self._outside_read(root)
         known = self.destinations.known if self.destinations is not None else _nothing_known
         needs = confirm.decide(spec.kind, spec.declared, spec.target, sources, read_private=origin.PRIVATE in read,
-                               read_external=bool(outside), known=known, outside_read=outside, place=spec.place)
-        kinds = {spec.kind, spec.declared}
-        if Kind.DELETE_PERMANENT in kinds and spec.target.path:
+                               read_external=bool(outside), known=known, outside_read=outside, place=spec.place,
+                               content=spec.content)
+        if Kind.DELETE_PERMANENT in {spec.kind, spec.declared} and spec.target.path:
             from ferb.act.fs.usage import usage
             path = file_real_path(spec.target.path, self.roots.workspace)
             if path.is_dir():
                 facts = await asyncio.to_thread(usage, path, self._path_closed(name), True)
                 if not facts['complete']:
                     return Covered(refused={"error": "bulk deletion could not be fully enumerated; inspect the exact target first"})
-                needs.append(confirm.Need("sink:irreversible_bulk", confirm.key("sink:irreversible_bulk", facts),
-                    {"text": f"permanently delete {facts['files']} files and {facts['directories']} directories ({facts['bytes']} bytes) under {path}; paths: {facts['paths']}"}))
-        if kinds & confirm.SEND_CLASS and len(spec.target.recipients) > 1:
-            recipients = sorted(set(spec.target.recipients))
-            needs.append(confirm.Need("sink:irreversible_bulk", confirm.key("sink:irreversible_bulk", recipients, spec.content),
-                {"text": f"send {len((spec.content or '').encode())} content bytes to {len(recipients)} recipients: " + ', '.join(recipients)}))
+                if not confirm.owner_named(sources.get("path", [])):
+                    needs.append(confirm.bulk_delete(spec.target.path, facts))
         if not needs:
             return Covered()
         call = call_excerpt({"input": {"tool": name, "args": self.redact(arguments)}})   # redacted, then clipped
@@ -908,8 +915,7 @@ class Gateway:
                 return None
         except ValueError:
             pass
-        read = (self.spans.tool_origins(root) | self.spans.exposure_origins(root))
-        outside_labels = sorted(o for o in read | self.spans.request_origins(root) if origin.is_external(o))
+        outside_labels = self._outside_read(root)
         if not outside_labels:
             return None                                  # no outside content read: not a sink
         if self.destinations is not None and self.destinations.known("host", host):
