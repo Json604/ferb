@@ -17,7 +17,7 @@ import httpx
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import FerbError, Unsupported
-from ferb.core.types import Capabilities, ModelRequest, RunHandle, RuntimeEvent, Task
+from ferb.core.types import Capabilities, ModelLimits, ModelRequest, RunHandle, RuntimeEvent, Task
 from ferb.runtimes.usage import Usage
 
 RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
@@ -133,6 +133,15 @@ class ApiRuntime:
         self.mode, self.role, self.tool_names, self.output_schema = mode, role, list(tool_names or []), output_schema
         self.bridge, self.key, self.transport, self.sleep = bridge, key, transport, sleep
         self.retries, self.backoff_s, self.timeout_s = retries, backoff_s, timeout_s
+
+    @property
+    def limits(self) -> ModelLimits:
+        """The provider's documented limits for its model (L28); ModelLimitsUnknown when it documents none."""
+        from ferb.core.errors import ModelLimitsUnknown
+        limits = getattr(self.provider, "limits", None)
+        if limits is None:
+            raise ModelLimitsUnknown(f"the {self.name} adapter reports no context window for {self.provider.model!r}")
+        return limits  # type: ignore[no-any-return]
 
     async def start(self, task: Task, request: ModelRequest, run_token: str) -> RunHandle:
         key = await self.key(self.name)

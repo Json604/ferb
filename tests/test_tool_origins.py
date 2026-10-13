@@ -562,8 +562,8 @@ def test_a_pasted_text_task_keeps_external_paste_in_everything_derived_from_it(d
 
 
 def _trim_history(daemon: RunningDaemon) -> list[set[str]]:
-    """From now on the planner's history block holds only its newest entry, a FERB reply recorded before F3 (labeled
-    only `ferb`), so the shown history can't supply external:paste. Returns the origins each trimmed history carried."""
+    """From now on the planner's history holds only its newest entry, a FERB reply recorded before F3 (labeled only
+    `ferb`), so the shown history can't supply external:paste. Returns the origins each trimmed history carried."""
     sup_ = daemon.daemon.supervisor
     seen: list[set[str]] = []
 
@@ -571,13 +571,13 @@ def _trim_history(daemon: RunningDaemon) -> list[set[str]]:
         daemon.daemon.clock.advance(1)
         daemon.daemon.journal.append("chat.reply", {"session_id": "s1", "request_id": "r-old", "text": "Noted."})
     _on_loop(daemon, older_reply)
-    full = sup_._recent
+    full = sup_._timeline
 
-    def trimmed(current_request: str = "", conversation: str | None = None, max_tokens: int = 0) -> Any:
-        text, ages, origins = full(current_request, conversation, 1)
-        seen.append(origins)
-        return text, ages, origins
-    sup_._recent = trimmed                                           # type: ignore[method-assign]
+    def trimmed(current_request: str, conversation: Any, summary: Any = None) -> Any:
+        entries, ages = full(current_request, conversation, summary)
+        seen.append({o for e in entries[-1:] for o in e.origins})
+        return entries[-1:], ages
+    sup_._timeline = trimmed                                         # type: ignore[method-assign]
     return seen
 
 
@@ -671,10 +671,10 @@ def test_a_clarify_continuation_carries_the_earlier_pasted_text(daemon: RunningD
 def test_history_and_attempt_lines_carry_their_tasks_origins(daemon: RunningDaemon) -> None:
     first = _pasted_task(daemon)
     sup_ = daemon.daemon.supervisor
-    # The history budget keeps only the newest timeline entry: at this frozen clock, the task line.
-    text, _, history = _on_loop(daemon, lambda: sup_._recent("none", "s1", 1))
-    assert f"Task {first}:" in text and "Owner:" not in text and "FERB" not in text
-    assert "external:paste" in history
+    # The newest timeline entry: at this frozen clock, the task line.
+    newest = _on_loop(daemon, lambda: sup_._timeline("none", "s1")[0][-1])
+    assert f"Task {first}:" in newest.text and "Owner:" not in newest.text and "FERB" not in newest.text
+    assert "external:paste" in newest.origins
     # The resumable-attempts block: with the history trimmed to an older FERB reply, the planner's reply can inherit
     # the paste only through the task line that block shows.
     seen = _trim_history(daemon)

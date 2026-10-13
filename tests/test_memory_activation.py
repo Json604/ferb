@@ -37,6 +37,9 @@ def test_distiller_sees_pending_observed_proposals(daemon: RunningDaemon) -> Non
     seen: dict[str, str] = {}
 
     class Capture:
+        from ferb.core.types import ModelLimits
+        limits = ModelLimits("fake-model", 1_000_000, 100_000, "test double")
+
         async def start(self, task: Any, request: Any, token: str) -> None:
             seen["context"] = request.context
             raise RuntimeError("stop after capturing the context")

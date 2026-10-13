@@ -428,8 +428,8 @@ def test_quote_origins_read_as_plain_words_and_the_tag_is_not_spoken() -> None:
 # ---------- purge reaches the new copies ----------
 
 def test_the_seven_day_purge_clears_a_notice_from_every_recorded_copy_of_the_chat_history(daemon: RunningDaemon) -> None:
-    """The planner's recorded context (`model.turn`), and for a turn that starts a task the history block it keeps as
-    a `context.exposure` output (task.evidence can return it). The history line also names the notice's source rows,
+    """The planner's recorded context (`model.turn`), and for a turn that starts a task the history entries it keeps
+    as a `context.exposure` output (task.evidence can return it). The history line also names the notice's source rows,
     so what a task learns from it traces back to them (forget)."""
     from ferb.sense.trail import Observation as Obs
     from tests.conftest import done, outcome, task
@@ -451,8 +451,9 @@ def test_the_seven_day_purge_clears_a_notice_from_every_recorded_copy_of_the_cha
             "SELECT kind, input_json, output_json FROM spans" + (" WHERE kind=?" if kind else ""),
             (kind,) if kind else ())])
     before = _on_loop(daemon, spans)
+    # L28: the conversation entries the planner was shown are one exposure, referenced `chat.history`
     history = [(json.loads(inp), out) for kind, inp, out in json.loads(_on_loop(daemon, lambda: spans("context.exposure")))
-               if json.loads(out)["text"].startswith("Layer 5 — conversation")]
+               if json.loads(inp)["reference"] == "chat.history" and "noticed" in json.loads(out)["text"]]
     assert history and "uniquenoticeword" in history[0][1] and "uniquequotedline" in history[0][1]  # task kept it
     assert "trail:" + copied.id in history[0][0]["source_refs"]                 # ...naming the notice's rows
     assert "uniquenoticeword" in before

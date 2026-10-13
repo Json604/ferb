@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any, Callable
 
-from ferb.core.context import ContextBlock, assemble_parts, count_tokens
+from ferb.core.context import ContextBlock, assemble_parts, count_tokens, runtime_limits
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import check_final
 from ferb.core.types import Identity, ModelRequest, Task
@@ -236,6 +236,7 @@ class Consolidator:
         task = Task('sleep-' + digest([c['id'] for c in cards]), None, 'memory consolidation', 'local',
                     Identity.OWNER, set(), 'verifier', 'sleep', [], None)
         parts, cacheable = assemble_parts([ContextBlock(ctx, 'redacted learning evidence', protected=True)],
+                                          budget_tokens=runtime_limits(rt).context_budget,   # the model's window (L28)
                                           reserved_tokens=count_tokens(system))
         run = await rt.start(task, ModelRequest(system, tuple(parts), cacheable), '')
         final = ''

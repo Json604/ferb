@@ -172,10 +172,11 @@ class Learning:
         ep = episodes.get(self.db, task_id)
         if ep is None:
             return None
+        from ferb.store.spans import tree_where
+        where, params = tree_where(task_id)
         rows = self.db.conn.execute("SELECT id,kind,input_json,output_json,error FROM spans "
-                                    "WHERE kind IN ('tool.call','context.exposure') "
-                                    "AND (task_id=? OR task_id LIKE ? ESCAPE '\\') ORDER BY started_at,id",
-                                    (task_id, task_id.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '.%'))
+                                    f"WHERE kind IN ('tool.call','context.exposure') AND {where} ORDER BY started_at,id",
+                                    params)
         actions = []
         source_refs = {'episode:' + task_id}
         used_apps: set[str] = set()
@@ -226,6 +227,7 @@ class Learning:
                 'status': ep['status'], 'verified': valid, 'conditions': ep['conditions'],
                 'feedback': feedback, 'narrative': ep['answer'], 'problems': ep['problems'],
                 'started_at': ep['started_at'], 'ended_at': ep['ended_at'], 'usage': ep['usage']}
+        source_refs = self.resolve(source_refs)          # L28: lineage handles become their complete refs
         old = next((n for n in self.items('episode') if n['key'] == task_id), None)
         if old and apps is None:
             # A verdict/retention refresh keeps the versions actually captured at completion.
@@ -245,8 +247,25 @@ class Learning:
         # put() validates these refs; retained cards already preserve expired-source origins.
         return call_sources(inp, result)
 
+    def resolve(self, refs: Iterable[str]) -> set[str]:
+        """Lineage handles (`entry:`, `task:`; memory/lineage.py) expanded into the refs they stand for, reading each
+        conversation entry and each task's lineage once."""
+        from ferb.memory.lineage import resolve
+        tasks: dict[str, list[str]] = {}
+
+        def entry(ident: str) -> dict[str, Any] | None:
+            row = self.db.conn.execute('SELECT data_json FROM journal WHERE id=?', (ident,)).fetchone()
+            return json.loads(row[0]) if row else None
+
+        def task(ident: str) -> list[str]:
+            if ident not in tasks:
+                tasks[ident] = self.task_sources(ident)
+            return tasks[ident]
+        return resolve(refs, entry, task)
+
     def task_sources(self, task_id: str) -> list[str]:
-        """Code-recorded lineage for a displayed task/history answer, never inferred from its prose."""
+        """Code-recorded lineage for a displayed task/history answer, never inferred from its prose. It may hold lineage
+        handles; `resolve` expands them."""
         refs: set[str] = set()
         if self.db.conn.execute('SELECT 1 FROM episodes WHERE task_id=?', (task_id,)).fetchone():
             refs.add('episode:' + task_id)
@@ -257,10 +276,10 @@ class Learning:
         forgotten = 'key-' + digest(['episode', task_id])
         if self.db.conn.execute('SELECT 1 FROM learning_forgotten WHERE id=?', (forgotten,)).fetchone():
             refs.add(forgotten)  # Keep this missing-source marker so a retained answer cannot recreate its card.
-        pattern = task_id.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '.%'
+        from ferb.store.spans import tree_where
+        where, params = tree_where(task_id)      # the task_id index range, never a LIKE scan of every span (L28)
         rows = self.db.conn.execute("SELECT kind,input_json,output_json FROM spans WHERE "
-            "kind IN ('tool.call','context.exposure') AND (task_id=? OR task_id LIKE ? ESCAPE '\\')",
-            (task_id, pattern))
+            f"kind IN ('tool.call','context.exposure') AND {where}", params)
         for row in rows:
             inp = json.loads(row['input_json'])
             if row['kind'] == 'context.exposure':
@@ -479,7 +498,9 @@ class Learning:
         return changed
 
     def search(self, query: str, *, kind: str | None = None, app: str | None = None,
-               person: str | None = None, since: str | None = None, until: str | None = None) -> list[dict[str, Any]]:
+               person: str | None = None, since: str | None = None, until: str | None = None,
+               query_vector: list[int] | None = None) -> list[dict[str, Any]]:
+        """`query_vector`: the query's embedding, already computed off the event loop (L28); else computed here."""
         terms = query_terms(query)
         rankings: list[list[str]] = []
         if terms:
@@ -495,7 +516,7 @@ class Learning:
         if self.embedder is not None and query:
             from ferb.memory.embeddings import ranked
             try:
-                rankings.append(ranked(self.db, self.embedder, query))
+                rankings.append(ranked(self.db, self.embedder, query, vector=query_vector))
             except Exception as e:
                 self.publish('memory.embedding_unavailable', {'error': self.redact(str(e))})
         # Reciprocal ranks fuse retrieval methods; age is only a tie-break, never deletion.

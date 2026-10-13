@@ -12,6 +12,14 @@ Each entry names the commits it covers, so `git show <hash>` takes you to the co
 
 ## 0.27.0.dev1 — 2026-10-11 — integrated prerelease, owner acceptance pending
 
+- L28 (owner, 2026-10-14): the planner's context uses each model's documented window minus its reply limit instead of a
+  hidden 32,768-token cap; an undocumented window is an explicit error (call time, daemon start, `ferb doctor`). The
+  situation, running tasks and questions, relevant memory and today's activity are always in; chat fills the rest
+  newest-first and older chat becomes FERB's running summary (`chat.summary`). Stable prefix first for caching; cached
+  tokens recorded per turn. Latency: lineage cited by handle (no copied refs), indexed `task_sources`, one indexed
+  activity search off the loop, embeddings off the loop, each block counted once, big span writes after the plan line.
+  Replay on the owner's data: message to plan line 9.9–14.4 s → 0.9–1.5 s (FERB side; provider time excluded).
+
 - Surface Codex account-check failures with safe diagnostics and relevant recovery instructions instead of the
   generic request-repeat apology. Publish refreshed credentials before starting model work; preserve newer owner
   logins and independent startup checks. No failed call or other task is automatically replayed.

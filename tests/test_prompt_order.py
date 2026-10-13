@@ -11,22 +11,24 @@ def _recent(daemon: RunningDaemon) -> str:
 
 def test_budget_report_comes_last() -> None:
     out = assemble_context([ContextBlock("stable block", "a", protected=True),
-                            ContextBlock("changing block", "b", protected=True)])
+                            ContextBlock("changing block", "b", protected=True)], budget_tokens=1000)
     assert out.startswith("stable block")
     assert out.rsplit("\n\n", 1)[1].startswith("Context budget: ")
 
 
-def test_supervisor_orders_labeled_layers_with_identity_first_and_task_state_last(daemon) -> None:
+def test_supervisor_orders_stable_layers_first_and_the_new_message_last(daemon) -> None:
+    """L28: system, Layer 1 and the append-only conversation first (cacheable), then the blocks that change every turn:
+    the situation, activity, memory, running tasks and questions, and the owner's new message last."""
     script = install(daemon, [sup("reply", "first"), sup("reply", "second")])
     chat(daemon, "an earlier message")
     chat(daemon, "the new message")
     ctx = [c for _, k, c, _ in script.contexts if k == "supervisor"][-1]
     body = ctx.rsplit("\n\nContext budget: ", 1)[0]
     assert body.startswith("Layer 1 — stable device and capabilities:\nThis Mac: ")
-    assert body.index("Layer 1 —") < body.index("Layer 2 —") < body.index("Layer 3 —")
-    assert body.index("Layer 3 —") < body.index("Layer 5 —") < body.index("Layer 6 —")
-    assert "Layer 5 — owner's complete new message:\nthe new message" in body
-    assert body.index("Conversation so far") < body.index("owner's complete new message")
+    assert body.index("Layer 1 —") < body.index("Layer 5 — conversation:") < body.index("an earlier message")
+    assert body.index("an earlier message") < body.index("Layer 2 —") < body.index("Layer 3 —")
+    assert body.index("Layer 3 —") < body.index("Layer 6 — running tasks") < body.index("Layer 5 — owner's complete")
+    assert body.endswith("Layer 5 — owner's complete new message:\nthe new message")
 
 
 def test_history_only_grows_at_the_end_as_the_conversation_continues(daemon: RunningDaemon) -> None:

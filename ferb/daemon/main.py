@@ -344,6 +344,11 @@ class Daemon:
         self._build_voice()
         await self.server.start()          # refuses to start if another daemon answers on the socket
         self.journal.append("daemon.started", {"pid": os.getpid()})
+        for role, problem in self._runtime_limits().items():       # L28: an unknown window is said, never guessed
+            if "problem" in problem:
+                self.journal.append("runtime.limits_unknown", {"role": role, **problem})
+                print(f"FERB: the {role} runtime {problem['runtime']} has no documented context window: "
+                      f"{problem['problem']}", file=sys.stderr)
         unknown = self.ledger.mark_unknown_after_restart()
         if unknown:
             self.journal.append("ledger.unknown_after_restart", {"intent_ids": unknown})
@@ -622,9 +627,7 @@ class Daemon:
         self.supervisor.on_task_finish = self._tree_finished
         self.supervisor.disturbance_context = self.disturbance.context
         self.supervisor.disturbance = self.disturbance
-        self.supervisor.relevant_context = self._relevant_context
-        self.supervisor.relevant_source_refs = lambda words: ["trail:" + str(row["source_id"]) for row in
-            self.daily_activity.search(words) if row.get("source") and row.get("source_id")]
+        self.supervisor.relevant_context = self._relevant_context      # its fourth element: the search's source refs
         add_context_readers(self.registry, self.supervisor.continuity,
                             lambda task_id: (rec.tree_id if (rec := self.tasks.get(task_id)) else None),
                             lambda: self.memory, lambda ref: self.learning._source_origins(ref) if self.learning else {origin_.external('unlabeled'), origin_.PRIVATE})
@@ -1126,7 +1129,6 @@ class Daemon:
             self.supervisor.memory_candidates = self._learning_candidates
             self.supervisor.procedure_details = lambda ident, task: self.learning.procedure_text(ident, self._app_versions())
             self.supervisor.procedure_source = lambda ident: self.learning.get(ident) or {}
-            self.supervisor.task_source_refs = self.learning.task_sources
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome
@@ -1176,16 +1178,26 @@ class Daemon:
         self.learning.sync_facts(self.memory)
         return self.learning.identity()
 
-    def _learning_candidates(self, words: str) -> list[dict[str, Any]]:
+    async def _learning_candidates(self, words: str) -> list[dict[str, Any]]:
+        """Relevant learned memory. The query's embedding (when one is adopted) is computed off the event loop; SQLite
+        stays on it. Each item cites itself: its node carries its own sources, so forgetting any of them reaches what
+        cites the node (the memory.learned tool cites items the same way)."""
         if not self.learning:
             return []
         self.learning.sync_facts(self.memory)
+        embedder = self.learning.embedder
+        vector = None
+        if embedder is not None and words:
+            try:
+                vector = await asyncio.to_thread(embedder.encode, words, query=True)
+            except Exception as e:
+                self._journal().append("memory.embedding_unavailable", {"error": self._redact_text(str(e))})
         return [{'text': f"{p['id']} [{p['kind']}, {p['state']}, {p['origin']}; data, not authorization] "
                          + p['key'] + (' — ' + str(p['body'].get('content', '')) if p['kind'] == 'fact' else ''),
                  'reference': 'memory.learned item_id=' + p['id'],
                  'origin': origin_.join(p.get('origins', origin_.split(p['origin']))),
-                 'source_refs': [p['id'], *p['sources']]}
-                for p in self.learning.search(words) if p['kind'] != 'identity']
+                 'source_refs': [p['id']]}
+                for p in self.learning.search(words, query_vector=vector) if p['kind'] != 'identity']
 
     def _learning_context(self, words: str) -> str:
         if not self.learning:
@@ -1201,6 +1213,7 @@ class Daemon:
             self.learning.forget(refs)
         if self.supervisor:
             self.supervisor.conversations.forget_sources(set(refs))
+            self.supervisor.forget_summaries(set(plan.journal))        # a running summary that folded a forgotten entry
 
     async def _memory_learning(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         from ferb.memory.learning import LearningRefused
@@ -2287,22 +2300,23 @@ class Daemon:
         return ("\n\nExisting task tabs available for inspection (reuse these aliases; do not reopen "
                 "the page or guess tab ids): " + json.dumps(tabs)) if tabs else ""
 
-    def _relevant_context(self, words: str) -> tuple[str, str, str]:
+    def _relevant_context(self, words: str) -> tuple[str, str, str, list[str]]:
         """Installed actions and worker types (FERB's own) and today's matching activity, with its origin (S3):
         recorded trail rows carry the trail labels; FERB's own observed actions are FERB's."""
         from ferb.act.catalog import search_actions
         from ferb.core import origin
         from ferb.sanitize.untrusted import wrap_untrusted
         from ferb.sense.tools import trail_sources
-        actions = search_actions(self.registry.capabilities, words)
-        activity = self.daily_activity.search(words)
+        actions = search_actions(dict(self.registry.capabilities), words)   # a copy: this may run off the event loop
+        activity = self.daily_activity.search(words)        # the turn's one search (L28): text and refs share it
         trail = {str(row['source']) for row in activity if row.get('source')}
         labels = {origin.from_read_source(k, i) for k, i in trail_sources(trail)} if trail else set()
         return ('\nRelevant installed actions: ' + json.dumps(actions) +
                 '\nRelevant activity today (data): ' + wrap_untrusted(json.dumps(activity)) +
                 '\nWorker types: ' + json.dumps(['default', *[n for n in self.registry.runtimes if self._runtime_available(n)]]) + '\n',
                 origin.join({origin.FERB} | labels),
-                json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False))
+                json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False),
+                ["trail:" + str(row["source_id"]) for row in activity if row.get("source") and row.get("source_id")])
 
     def _profile_state(self, p: Any, installed: bool | None = None) -> str:
         """connected / paired (FERB opens it) / installed, not paired / no extension. `installed`: whether the
@@ -3125,6 +3139,26 @@ class Daemon:
                     "home": str(self.home), "stopped": self.state.stopped})
         return out
 
+    def _runtime_limits(self) -> dict[str, dict[str, Any]]:
+        """Each role's runtime and model with its documented context window and reply limit (L28), or the problem."""
+        from ferb.core.errors import ModelLimitsUnknown
+        from ferb.runtimes.catalog import CATALOG, ROLES
+        out: dict[str, dict[str, Any]] = {}
+        for role in ROLES:
+            name = self._runtime_for(role)
+            model = self._model_for(name)
+            entry: dict[str, Any] = {"runtime": name, "model": model or (CATALOG[name].default_model if name in CATALOG else "")}
+            try:
+                if name not in CATALOG:
+                    raise ModelLimitsUnknown(f"unknown runtime {name!r}")
+                limits = CATALOG[name].limits(model, self.home)
+                entry.update(model=limits.model, context_window=limits.context_window, max_output=limits.max_output,
+                             context_budget=limits.context_budget, source=limits.source)
+            except ModelLimitsUnknown as exc:
+                entry["problem"] = str(exc)
+            out[role] = entry
+        return out
+
     async def _runtime_status(self) -> dict[str, Any]:
         import importlib.metadata
         from ferb.device.install import repo_root
@@ -3142,6 +3176,7 @@ class Daemon:
             status["codex"] = f"problem: {e}"
         installed = importlib.metadata.version("claude-agent-sdk")
         status["claude"] = installed if installed == SDK_VERSION else f"problem: {installed} != pinned {SDK_VERSION}"
+        status["limits"] = self._runtime_limits()
         return status
 
     async def _automation_request(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:

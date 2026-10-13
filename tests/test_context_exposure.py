@@ -2,27 +2,27 @@
 from ferb.core.context import ContextBlock
 
 
-def test_only_retained_memory_is_carried_from_planner_to_task(daemon):
-    from tests.conftest import chat, done, install, outcome, sup, task
+def test_memory_always_reaches_the_planner_and_only_shown_chat_is_carried_to_the_task(daemon, monkeypatch):
+    """L28: relevant memory is always in the planner's prompt; older chat that didn't fit the window was never read."""
+    from ferb.core.types import ModelLimits
+    from tests.conftest import FakeRuntime, chat, done, install, outcome, sup, task
     supervisor = daemon.daemon.supervisor
-    supervisor.context_budget_tokens = 30_000
     supervisor.memory_candidates = lambda words: [
         {'text': 'A remembered outside instruction.', 'reference': 'memory.learned id=outside',
-         'origin': 'external:web:kartikey.xyz', 'source_refs': ['outside']},
-        {'text': 'OMITTED ' * 100_000, 'reference': 'memory.learned id=omitted',
-         'origin': 'private', 'source_refs': ['omitted']},
-    ]
-    install(daemon, [sup('task', 'Checking.', task('Inspect the source'))], {'worker': done('Inspected.')})
+         'origin': 'external:web:kartikey.xyz', 'source_refs': ['outside']}]
+    install(daemon, [sup('reply', 'Noted. ' + 'detail ' * 3000), sup('task', 'Checking.', task('Inspect the source'))],
+            {'worker': done('Inspected.')})
+    chat(daemon, 'An old long note. ' + 'filler ' * 3000)
+    monkeypatch.setattr(FakeRuntime, 'limits', ModelLimits('fake-model', 16_000, 1_000, 'test double'))
     result = outcome(chat(daemon, 'Inspect the source'))
     async def recorded():
-        rows = daemon.daemon.db.conn.execute("SELECT input_json,origin FROM spans WHERE kind='context.exposure' AND task_id=?",
-                                            (result['task_id'],)).fetchall()
-        spans = daemon.daemon.spans
-        return [dict(r) for r in rows], spans.exposure_origins(result['task_id'])
+        rows = daemon.daemon.db.conn.execute("SELECT input_json,output_json FROM spans WHERE kind='context.exposure' "
+                                            "AND task_id=?", (result['task_id'],)).fetchall()
+        return [dict(r) for r in rows], daemon.daemon.spans.exposure_origins(result['task_id'])
     rows, exposed = daemon.run(recorded())
     assert 'external:web:kartikey.xyz' in exposed
     assert any('outside' in row['input_json'] for row in rows)
-    assert not any('omitted' in row['input_json'] for row in rows)
+    assert not any('An old long note.' in (row['output_json'] or '') for row in rows)
 
 
 def test_exposed_context_text_participates_in_private_url_and_argument_checks(daemon):
@@ -46,7 +46,6 @@ def test_activity_then_displayed_history_preserves_forget_edges(daemon):
     from tests.conftest import chat, done, install, outcome, sup, task
     supervisor = daemon.daemon.supervisor
     supervisor.memory_candidates = lambda _: []
-    supervisor.context_budget_tokens = 1_000_000
     async def record():
         return daemon.daemon.trail.record(Observation('clipboard', {'text': 'Owner session comparison note'}, {'actor': 'owner'})).id
     source = daemon.run(record())
@@ -82,9 +81,11 @@ def test_recent_and_relevant_activity_both_keep_labels_and_source_refs(daemon):
         return [dict(row) for row in daemon.daemon.db.conn.execute(
             "SELECT input_json,origin FROM spans WHERE kind='context.exposure'")]
     rows = daemon.run(exposure())
+    # L28: today's matching activity and the recent trail rows are two reads, each with its own labels and refs
     matched = [row for row in rows if 'trail:matching' in row['input_json']]
-    assert matched and any('trail:recent' in row['input_json'] for row in matched)
-    assert any('private' in row['origin'] and 'external:clipboard' in row['origin'] for row in matched)
+    recent = [row for row in rows if 'trail:recent' in row['input_json']]
+    assert matched and all('private' in row['origin'] for row in matched)
+    assert recent and all('external:clipboard' in row['origin'] for row in recent)
 
 
 def test_context_payload_omits_catalogue_but_preserves_recorded_memory(daemon):

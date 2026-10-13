@@ -6,6 +6,10 @@ import json
 import os
 import re
 import tempfile
+import threading
+from array import array
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -15,9 +19,24 @@ def terms(text: str) -> set[str]:
     return {t for t in re.findall(r"\w+", text.casefold()) if len(t) > 2}
 
 
+@dataclass
+class _Index:
+    """Terms of each row of today's log, read once as rows are appended (L28): a search looks terms up instead of
+    decoding and re-encoding every row. Rebuilt when the log is replaced, rotated or rewritten."""
+    inode: int
+    generation: int
+    offset: int = 0                                          # bytes of complete lines indexed so far
+    rows: "array[int]" = field(default_factory=lambda: array("Q"))     # each row's byte offset
+    days: list[str] = field(default_factory=list)
+    postings: dict[str, "array[int]"] = field(default_factory=dict)
+
+
 class DailyActivity:
     def __init__(self, path: Path, now: Callable[[], datetime]) -> None:
         self.path, self.now = path, now
+        self._index: _Index | None = None
+        self._generation = 0                                 # bumped by every rotation or rewrite of the log
+        self._lock = threading.Lock()                        # searches may run off the event loop (L28)
 
     def _rows(self) -> Iterator[dict[str, Any]]:
         if not self.path.exists():
@@ -35,6 +54,7 @@ class DailyActivity:
         today = self.now().astimezone().date().isoformat()
         first = next(self._rows(), None)
         if first is not None and first.get('day') != today:
+            self._generation += 1
             self.path.write_text('', encoding='utf-8')
         return today
 
@@ -66,6 +86,7 @@ class DailyActivity:
                         out.write(json.dumps(updated, ensure_ascii=False) + '\n')
                 out.flush()
                 os.fsync(out.fileno())
+            self._generation += 1
             os.replace(temporary, self.path)
         finally:
             Path(temporary).unlink(missing_ok=True)
@@ -82,14 +103,63 @@ class DailyActivity:
         self._rewrite(update)
 
     def search(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
-        day, wanted = self._rotate(), terms(query)
+        """Today's rows sharing the most terms with the query, best first (ties: the later row). Read-only: the log
+        rotates when the next row is recorded, so a search that finds yesterday's rows only filters them out."""
+        day, wanted = self.now().astimezone().date().isoformat(), terms(query)
         if not wanted:
             return []
-        best: list[tuple[int, int, dict[str, Any]]] = []
-        for sequence, row in enumerate(self._rows()):
-            score = len(wanted & terms(json.dumps(row, ensure_ascii=False)))
-            if row.get('day') == day and score:
-                best.append((score, sequence, row))
-                best.sort(key=lambda hit: hit[:2], reverse=True)
-                del best[max(1, limit):]
-        return [row for _, _, row in best]
+        with self._lock:
+            index = self._refresh()
+            if index is None:
+                return []
+            scores: Counter[int] = Counter()
+            for term in wanted:
+                scores.update(index.postings.get(term, ()))
+            best = sorted(((score, row) for row, score in scores.items() if index.days[row] == day), reverse=True)
+            offsets = [index.rows[row] for _, row in best[:max(1, limit)]]
+        found: list[dict[str, Any]] = []
+        try:
+            with self.path.open('rb') as source:
+                for offset in offsets:
+                    source.seek(offset)
+                    try:
+                        row = json.loads(source.readline())
+                    except ValueError:
+                        continue
+                    if isinstance(row, dict):
+                        found.append(row)
+        except FileNotFoundError:            # replaced or rotated away since the lookup: nothing of today's to return
+            return []
+        return found
+
+    def _refresh(self) -> _Index | None:
+        """Index the complete rows appended since the last search; start over after a rotation or rewrite."""
+        try:
+            stat = os.stat(self.path)
+        except FileNotFoundError:
+            self._index = None
+            return None
+        index = self._index
+        if (index is None or index.inode != stat.st_ino or index.generation != self._generation
+                or stat.st_size < index.offset):
+            index = self._index = _Index(stat.st_ino, self._generation)
+        if stat.st_size > index.offset:
+            with self.path.open('rb') as source:
+                source.seek(index.offset)
+                data = source.read(stat.st_size - index.offset)
+            end = data.rfind(b'\n') + 1                     # a partial last line waits for its newline
+            position = index.offset
+            for line in data[:end].splitlines(keepends=True):
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    row = None
+                if isinstance(row, dict):
+                    number = len(index.rows)
+                    index.rows.append(position)
+                    index.days.append(str(row.get('day')))
+                    for term in terms(json.dumps(row, ensure_ascii=False)):
+                        index.postings.setdefault(term, array('I')).append(number)
+                position += len(line)
+            index.offset += end
+        return index

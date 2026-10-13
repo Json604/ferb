@@ -7,14 +7,6 @@ import json
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def orchestration_context_budget(request):
-    """These tests exercise dispatch, not tokenizer capacity; byte fallback must fit the same full context."""
-    if 'daemon' in request.fixturenames:
-        daemon = request.getfixturevalue('daemon')
-        daemon.daemon.supervisor.context_budget_tokens = 1_000_000
-
-
 @pytest.mark.parametrize('owner_words', [
     "Use FERB's verified profile to read the page in the background; leave my desktop alone.",
     "You can use my desktop throughout this task, including retries. Use FERB's verified profile to read the page.",

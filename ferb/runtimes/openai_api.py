@@ -14,7 +14,8 @@ Verified 2026-10-07 (https://developers.openai.com/api/reference/resources/respo
 import json
 from typing import Any
 
-from ferb.core.types import Capabilities, ModelRequest
+from ferb.core.errors import ModelLimitsUnknown
+from ferb.core.types import Capabilities, ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
 from ferb.runtimes.usage import from_openai
 
@@ -22,6 +23,25 @@ URL = "https://api.openai.com/v1/responses"
 DEFAULT_MODEL = "gpt-6.1-sol"
 EXPLICIT_CACHE = ("gpt-6", "gpt-5.6")
 BREAKPOINT = {"mode": "explicit"}
+# L28: each model's documented limits (context window, max output tokens), checked 2026-10-14 on
+# https://developers.openai.com/api/docs/models/<model id> (gpt-5.5, gpt-6-astra) and the model list at
+# https://developers.openai.com/api/docs/models (gpt-6.1-sol, gpt-6-luna). Facts, not FERB choices; a model missing
+# here has no documented limits FERB knows of, and using it is an explicit error.
+LIMITS: dict[str, tuple[int, int]] = {
+    "gpt-5.5": (1_050_000, 128_000),
+    "gpt-6-astra": (1_050_000, 128_000),
+    "gpt-6.1-sol": (1_050_000, 128_000),
+    "gpt-6-luna": (1_050_000, 128_000),
+}
+LIMITS_SOURCE = "https://developers.openai.com/api/docs/models (checked 2026-10-14)"
+
+
+def limits_for(model: str) -> ModelLimits:
+    if model not in LIMITS:
+        raise ModelLimitsUnknown(f"OpenAI documents no context window FERB knows for model {model!r}; "
+                                 f"choose one of {sorted(LIMITS)} in config.toml [models]")
+    window, output = LIMITS[model]
+    return ModelLimits(model, window, output, LIMITS_SOURCE)
 
 
 def capabilities_for(model: str) -> Capabilities:
@@ -36,6 +56,10 @@ class OpenAIProvider:
         self.model = model
         self.capabilities = capabilities_for(model)
         self.explicit = model.startswith(EXPLICIT_CACHE)
+
+    @property
+    def limits(self) -> ModelLimits:
+        return limits_for(self.model)
 
     def _text(self, text: str, mark: bool) -> dict[str, Any]:
         block: dict[str, Any] = {"type": "input_text", "text": text}

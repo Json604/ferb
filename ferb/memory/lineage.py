@@ -1,6 +1,43 @@
-"""Source IDs from FERB's structured readers, including paged evidence replay. Never parses arbitrary prose."""
+"""Source IDs from FERB's structured readers, including paged evidence replay. Never parses arbitrary prose.
+
+L28 lineage handles: a planner turn cites a conversation entry it was shown as `entry:<journal id>` and a task as
+`task:<task id>`, instead of copying everything those already cite into every reply and exposure. Where lineage becomes
+a source edge (an episode card), `resolve` expands the handles transitively, so forgetting a source still reaches every
+card derived from it."""
 import json
-from typing import Any
+from typing import Any, Callable, Iterable
+
+ENTRY, TASK = "entry:", "task:"
+
+
+def resolve(refs: Iterable[str], entry: Callable[[str], dict[str, Any] | None],
+            task: Callable[[str], Iterable[str]]) -> set[str]:
+    """The complete refs behind `refs`: an entry handle becomes the entry itself (`journal:<id>`) plus what it cites (a
+    task answer also cites its task); a task handle becomes the task's recorded lineage. Each handle is expanded once;
+    other refs are kept as they are."""
+    out: set[str] = set()
+    expanded: set[str] = set()
+    stack = list(refs)
+    while stack:
+        ref = stack.pop()
+        if not ref.startswith((ENTRY, TASK)):
+            out.add(ref)
+            continue
+        if ref in expanded:
+            continue
+        expanded.add(ref)
+        ident = ref.partition(":")[2]
+        if ref.startswith(TASK):
+            stack.extend(r for r in task(ident) if r not in out)
+            continue
+        out.add("journal:" + ident)
+        data = entry(ident)
+        if data is None:
+            continue                     # a deleted entry keeps its own ref: a card never drops that edge
+        stack.extend(str(r) for r in data.get("source_refs", []) if r not in out)
+        if data.get("task_id"):
+            stack.append(TASK + str(data["task_id"]))
+    return out
 
 
 def record_sources(record: dict[str, Any]) -> set[str]:

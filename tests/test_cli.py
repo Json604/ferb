@@ -105,7 +105,9 @@ def test_daemon_process_lifecycle_writes_journal(home: Path) -> None:
     entries = Journal(db, SystemClock(), RandomIds(), lambda d: d).entries()
     # A fresh home records the owner's limits decision once (nothing to change: the defaults are the decided values),
     # so a value the owner sets later is never replaced; then the lifecycle.
-    assert [e.kind for e in entries] == ["config.upgraded", "daemon.started", "daemon.stopped"]
+    # A home without FERB's Codex login can't report the model's window: said at start, once per role (L28)
+    assert [e.kind for e in entries] == ["config.upgraded", "daemon.started", *["runtime.limits_unknown"] * 3,
+                                         "daemon.stopped"]
     assert entries[0].data["changes"] == []
 
 

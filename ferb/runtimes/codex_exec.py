@@ -30,8 +30,8 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Literal
 
 from ferb.cli.mcp import mcp_name
-from ferb.core.errors import Unsupported
-from ferb.core.types import ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
+from ferb.core.errors import ModelLimitsUnknown, Unsupported
+from ferb.core.types import ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.usage import from_codex
 from ferb.runtimes.tooltrace import tools_in
 
@@ -94,6 +94,31 @@ def locked_catalog(ferb_home: Path) -> Path | None:
     return out
 
 
+def limits_for(ferb_home: Path, model: str) -> ModelLimits:
+    """L28: the window Codex runs this model with is the `context_window` its own model catalog reports (served by
+    OpenAI to the pinned Codex, cached in FERB's Codex home as models_cache.json; Codex sets no larger window unless
+    configured, and FERB configures none). The reply limit is OpenAI's documented max output for the model
+    (openai_api.LIMITS). Either one missing is an explicit error, never a guess."""
+    from ferb.runtimes.openai_api import LIMITS, LIMITS_SOURCE
+    home = codex_home(ferb_home)
+    try:
+        data = json.loads((home / "models_cache.json").read_text()) if home is not None else None
+    except (OSError, ValueError):
+        data = None
+    models = data.get("models", data) if isinstance(data, dict) else data
+    window = next((m.get("context_window") for m in models or [] if isinstance(m, dict) and m.get("slug") == model),
+                  None)
+    if not isinstance(window, int) or window <= 0:
+        raise ModelLimitsUnknown(f"Codex's model catalog reports no context window for {model!r}"
+                                 + ("" if home is not None else ": run `ferb setup --codex-login`"))
+    if model not in LIMITS:
+        raise ModelLimitsUnknown(f"OpenAI documents no max output FERB knows for {model!r}; choose one of "
+                                 f"{sorted(LIMITS)} in config.toml [models] codex")
+    return ModelLimits(model, window, LIMITS[model][1],
+                       f"Codex {CODEX_VERSION} model catalog (models_cache.json context_window); max output: "
+                       f"{LIMITS_SOURCE}")
+
+
 def codex_binary(ferb_home: Path, repo: Path | None = None) -> Path:
     """The pinned native binary: ~/.ferb/node (installed daemon) or the repo's node_modules (development).
     The native binary, not the node wrapper: launchd has no node on PATH."""
@@ -127,6 +152,10 @@ class CodexRuntime:
         # cancellation (measured, 0.157.1), so the daemon would otherwise keep waiting for a caller that is gone
         self.on_abandoned = on_abandoned
         self.allowed = BASE_TOOLS | {f"mcp__ferb.{mcp_name(n)}" for n in (tool_names or [])}
+
+    @property
+    def limits(self) -> ModelLimits:
+        return limits_for(self.ferb_home, self.model)
 
     def _mcp_settings(self, token_file: Path | None) -> list[str]:
         if not self.shim_cmd:

@@ -169,6 +169,22 @@ class ModelImage:
 
 
 @dataclass(frozen=True)
+class ModelLimits:
+    """A model's documented token limits (L28): provider facts, each adapter citing where it found them. FERB never
+    picks or guesses these; a runtime that can't report them fails explicitly (ModelLimitsUnknown)."""
+    model: str
+    context_window: int                  # tokens the model holds
+    max_output: int                      # the longest reply it can write
+    source: str                          # where the numbers are documented
+    window_includes_output: bool = True  # False: the provider documents an input limit, with the reply counted apart
+
+    @property
+    def context_budget(self) -> int:
+        """Room for FERB's prompt: the window minus room for the reply (an input limit is already that room)."""
+        return self.context_window - self.max_output if self.window_includes_output else self.context_window
+
+
+@dataclass(frozen=True)
 class ModelRequest:
     """What FERB sends any model runtime (D32): its instructions and the context in order, stable parts first (P20),
     and any images, which each adapter places after the text so the cacheable prefix stays the same."""

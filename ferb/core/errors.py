@@ -18,6 +18,10 @@ class Unsupported(FerbError):
     """A guarantee this component can't provide; it fails explicitly instead of approximating."""
 
 
+class ModelLimitsUnknown(Unsupported):
+    """A runtime can't report its model's documented context window and reply limit (L28); never guessed."""
+
+
 class AuthError(FerbError):
     """A connection or run token failed authentication or asked for a method its role doesn't allow."""
 

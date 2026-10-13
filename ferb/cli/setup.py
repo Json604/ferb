@@ -492,6 +492,11 @@ def doctor(env: Env) -> int:
             rname = str(cfg.get("runtimes", role, default))
             usable, fix = CATALOG[rname].available(inst.home) if rname in CATALOG else (False, "check config.toml [runtimes]")
             add(Check(f"runtime {role}", "ok", rname) if usable else Check(f"runtime {role}", "warn", f"{rname} not usable", fix))
+        for role, lim in rs.get("limits", {}).items():          # L28: the model's documented window, or why not
+            add(Check(f"context window {role}", "fail", f"{lim.get('runtime')} {lim.get('model')}: {lim['problem']}",
+                      "set a documented model in config.toml [models]") if "problem" in lim else
+                Check(f"context window {role}", "ok", f"{lim.get('runtime')} {lim.get('model')}: "
+                      f"{lim['context_window']} tokens, {lim['max_output']} for the reply"))
         if rs:
             add(Check("roles", "ok", f"supervisor {rs.get('orchestrator')}, worker {rs.get('worker')}"))
         for name, why in rs.get("unregistered", {}).items():

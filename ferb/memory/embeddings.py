@@ -128,8 +128,10 @@ def index(learning: Any, model: Any) -> int:
     return count
 
 
-def ranked(db: Any, model: Any, query: str) -> list[str]:
-    vector = model.encode(query, query=True)
+def ranked(db: Any, model: Any, query: str, *, vector: list[int] | None = None) -> list[str]:
+    """Nodes nearest the query. `vector`: the query's embedding when the caller already computed it off the event
+    loop (L28); otherwise it is computed here."""
+    vector = vector if vector is not None else model.encode(query, query=True)
     # sqlite-vec performs int8 distance locally; Python's exact cosine is a portable offline fallback.
     try:
         import sqlite_vec

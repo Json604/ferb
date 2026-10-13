@@ -19,8 +19,8 @@ from pydantic import BaseModel
 from ferb.cli.client import Client
 from ferb.clock.clock import FakeClock
 from ferb.core.ids import SequentialIds
-from ferb.core.types import (ActionSpec, Identity, RiskLevel, ModelRequest, RunHandle, RuntimeEvent, Capabilities, Target,
-                             Task, ToolContext, ToolResult)
+from ferb.core.types import (ActionSpec, Identity, RiskLevel, ModelLimits, ModelRequest, RunHandle, RuntimeEvent,
+                             Capabilities, Target, Task, ToolContext, ToolResult)
 from ferb.daemon.main import Daemon
 from ferb.orchestrator.tree import TaskRecord
 from ferb.policy.targets import Request, Targets
@@ -207,6 +207,9 @@ def trail_row(d: RunningDaemon, day: str, actor: str = "owner", source: str = "b
 
 
 class FakeDistillRuntime:
+    name = "fake"
+    limits = ModelLimits("fake-model", 1_000_000, 100_000, "test double")
+
     def __init__(self, answer: Any) -> None:
         self.answer, self.contexts = answer, []
 
@@ -354,6 +357,7 @@ def complete_report_verdict(script: "Script", context: str, final: str) -> str:
 class FakeRuntime:
     name = "fake"
     capabilities = Capabilities("direct", "prefix", False, "native", False, False, False, False, "api")
+    limits: Any = ModelLimits("fake-model", 1_000_000, 100_000, "test double")   # tests narrow it with monkeypatch
 
     def __init__(self, script: Script, mode: str, tools: list[str]) -> None:
         self.script, self.mode, self.tools = script, mode, tools

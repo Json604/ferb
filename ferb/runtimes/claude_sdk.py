@@ -16,8 +16,8 @@ from contextlib import suppress
 from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
-from ferb.core.errors import Unsupported
-from ferb.core.types import ModelImage, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
+from ferb.core.errors import ModelLimitsUnknown, Unsupported
+from ferb.core.types import ModelImage, ModelLimits, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.usage import from_anthropic
 
@@ -36,6 +36,24 @@ async def _with_images(text: str, images: tuple[ModelImage, ...]) -> AsyncIterat
                for i in images)]}}
 
 
+# L28: with ANTHROPIC_BASE_URL set (FERB's proxy), Claude Code gives recognized models the Anthropic API's window, and its
+# aliases resolve on the Anthropic API to these models (https://code.claude.com/docs/en/model-config, checked
+# 2026-10-14). The limits themselves are Anthropic's documented ones (anthropic_api.LIMITS). No model configured means
+# the account's plan-dependent default, whose window FERB can't know: an explicit error, never a guess.
+ALIASES = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5",
+           "fable": "claude-fable-5-1"}
+
+
+def limits_for(model: str | None) -> ModelLimits:
+    from ferb.runtimes.anthropic_api import limits_for as documented
+    if not model:
+        raise ModelLimitsUnknown("the Claude runtime has no model set, so its context window is the account's "
+                                 "plan-dependent default: set [models] claude in config.toml")
+    resolved = documented(ALIASES.get(model, model))
+    return ModelLimits(model, resolved.context_window, resolved.max_output,
+                       resolved.source + "; aliases: https://code.claude.com/docs/en/model-config")
+
+
 class ClaudeRuntime:
     name = "claude"
     capabilities = Capabilities("direct", "prefix", False, "native", False, True, True, True, "subscription")
@@ -48,6 +66,10 @@ class ClaudeRuntime:
         self.allowed = {f"mcp__ferb__{mcp_name(n)}" for n in (tool_names or [])}
         if output_schema:
             self.allowed.add(STRUCTURED_OUTPUT)        # the SDK's carrier for typed output (inert)
+
+    @property
+    def limits(self) -> ModelLimits:
+        return limits_for(self.model)
 
     def _options(self, run_id: str, run_token: str) -> Any:
         from claude_agent_sdk import ClaudeAgentOptions

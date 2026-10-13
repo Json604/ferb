@@ -15,7 +15,8 @@ Verified 2026-10-07 (https://platform.claude.com/docs/en/build-with-claude/promp
 import json
 from typing import Any
 
-from ferb.core.types import Capabilities, ModelRequest
+from ferb.core.errors import ModelLimitsUnknown
+from ferb.core.types import Capabilities, ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
 from ferb.runtimes.usage import from_anthropic
 
@@ -25,6 +26,26 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 MAX_TOKENS = 32000
 NO_EFFORT = ("claude-haiku-4-5",)
 CACHE = {"type": "ephemeral"}
+# L28: each model's documented limits (context window, max output on the synchronous Messages API), checked 2026-10-14
+# on https://platform.claude.com/docs/en/about-claude/models/overview (Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) and
+# https://platform.claude.com/docs/en/models/haiku-4-5/overview (Haiku 4.5, legacy). Facts, not FERB choices.
+LIMITS: dict[str, tuple[int, int]] = {
+    "claude-fable-5-1": (1_000_000, 128_000),
+    "claude-opus-5-5": (1_000_000, 128_000),
+    "claude-sonnet-5-5": (1_000_000, 128_000),
+    "claude-haiku-5-5": (1_000_000, 128_000),
+    "claude-haiku-4-5": (200_000, 64_000),
+    "claude-haiku-4-5-20251001": (200_000, 64_000),
+}
+LIMITS_SOURCE = "https://platform.claude.com/docs/en/about-claude/models/overview (checked 2026-10-14)"
+
+
+def limits_for(model: str) -> ModelLimits:
+    if model not in LIMITS:
+        raise ModelLimitsUnknown(f"Anthropic documents no context window FERB knows for model {model!r}; "
+                                 f"choose one of {sorted(LIMITS)} in config.toml [models]")
+    window, output = LIMITS[model]
+    return ModelLimits(model, window, output, LIMITS_SOURCE)
 
 
 class AnthropicProvider:
@@ -33,6 +54,10 @@ class AnthropicProvider:
 
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.model = model
+
+    @property
+    def limits(self) -> ModelLimits:
+        return limits_for(self.model)
 
     def begin(self, request: ModelRequest, tools: list[ToolSpec], schema: dict[str, Any] | None, effort: str | None,
               cache_key: str) -> dict[str, Any]:

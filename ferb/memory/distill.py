@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from ferb.core.interfaces import Clock
-from ferb.core.context import ContextBlock, assemble_parts, count_tokens
+from ferb.core.context import ContextBlock, assemble_parts, count_tokens, runtime_limits
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import check_final
 from ferb.core.types import Identity, ModelRequest, Task
@@ -158,6 +158,7 @@ class Distiller:
         # Distillation has no read tools. Preserve its evidence in full and disclose an overage
         # rather than silently cut a source it cannot fetch back during the run.
         parts, cacheable = assemble_parts([ContextBlock(ctx, f"daily evidence {day}", protected=True)],
+                                          budget_tokens=runtime_limits(rt).context_budget,   # the model's window (L28)
                                           reserved_tokens=count_tokens(system))
         run = await rt.start(task, ModelRequest(system, tuple(parts), cacheable), "")
         final = ""

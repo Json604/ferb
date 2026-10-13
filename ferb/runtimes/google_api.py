@@ -14,12 +14,29 @@ Google now also promotes a newer Interactions API; generateContent remains docum
 
 from typing import Any
 
-from ferb.core.types import Capabilities, ModelRequest
+from ferb.core.errors import ModelLimitsUnknown
+from ferb.core.types import Capabilities, ModelLimits, ModelRequest
 from ferb.runtimes.api import ProviderError, ToolCall, ToolOutcome, ToolSpec, Turn
 from ferb.runtimes.usage import from_gemini
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 DEFAULT_MODEL = "gemini-3.8-flash"
+# L28: each model's documented input and output token limits, checked 2026-10-14 on
+# https://ai.google.dev/gemini-api/docs/models/<model code>. Google documents the input limit itself, with the reply
+# counted apart, so the whole input limit is FERB's room. Facts, not FERB choices.
+LIMITS: dict[str, tuple[int, int]] = {
+    "gemini-3.8-flash": (1_048_576, 65_536),
+    "gemini-3.1-pro-preview": (1_048_576, 65_536),
+}
+LIMITS_SOURCE = "https://ai.google.dev/gemini-api/docs/models (checked 2026-10-14)"
+
+
+def limits_for(model: str) -> ModelLimits:
+    if model not in LIMITS:
+        raise ModelLimitsUnknown(f"Google documents no token limits FERB knows for model {model!r}; "
+                                 f"choose one of {sorted(LIMITS)} in config.toml [models]")
+    window, output = LIMITS[model]
+    return ModelLimits(model, window, output, LIMITS_SOURCE, window_includes_output=False)
 
 
 class GoogleProvider:
@@ -28,6 +45,10 @@ class GoogleProvider:
 
     def __init__(self, model: str = DEFAULT_MODEL) -> None:
         self.model = model
+
+    @property
+    def limits(self) -> ModelLimits:
+        return limits_for(self.model)
 
     def begin(self, request: ModelRequest, tools: list[ToolSpec], schema: dict[str, Any] | None, effort: str | None,
               cache_key: str) -> dict[str, Any]:

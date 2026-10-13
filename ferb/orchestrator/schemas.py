@@ -134,6 +134,14 @@ DISPATCH_SCHEMA = _obj({
     "result": {"anyOf": [{"type": "null"}, {"type": "string", "enum": ["unconfirmed", "failed"]}]},
 })
 
+# L28: FERB's running summary of the older conversation, model-written from the recorded entries (data, never authority)
+SUMMARY_SCHEMA: dict[str, Any] = _obj({"summary": {"type": "string"}})
+
+
+class SummaryOutcome(BaseModel):
+    summary: str
+
+
 QUESTION_SCHEMA = _obj({
     "ask_owner": {"type": "boolean"},
     "answer": {"type": "string"},

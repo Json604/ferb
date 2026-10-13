@@ -65,6 +65,12 @@ class Journal:
         rows = self._db.conn.execute("SELECT * FROM journal ORDER BY seq").fetchall()
         return [e for e in map(_entry, rows) if since is None or e.at >= since]
 
+    def entries_of(self, *kinds: str) -> list[JournalEntry]:
+        """These kinds' rows, oldest first, read through the journal_kind index (not the whole journal)."""
+        rows = self._db.conn.execute(f"SELECT * FROM journal WHERE kind IN ({','.join('?' * len(kinds))}) ORDER BY seq",
+                                     kinds)
+        return [_entry(r) for r in rows]
+
     def of_kind(self, kind: str, field: str = "", equals: str = "", missing: str | None = None) -> list[JournalEntry]:
         """One kind's rows, oldest first, read through the journal_kind index; with `field`, only rows whose data holds
         `equals` there (`missing`: what a row without that field counts as, e.g. "owner" for a pre-session chat)."""

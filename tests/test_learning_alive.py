@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from ferb.core.ids import SequentialIds
-from ferb.core.types import RuntimeEvent
+from ferb.core.types import ModelLimits, RuntimeEvent
 from ferb.memory.consolidate import PROPOSAL_SCHEMA, Consolidator
 from ferb.memory.learning import Learning
 from ferb.orchestrator import episodes
@@ -178,6 +178,7 @@ class NoMemory:
 class ProposalRuntime:
     """A model runtime that answers one consolidation with a fixed strict-shaped JSON answer."""
     name, model = 'fake', 'fake-model'
+    limits = ModelLimits('fake-model', 1_000_000, 100_000, 'test double')
 
     def __init__(self, answer: dict[str, Any]) -> None:
         self.answer, self.schemas = answer, []

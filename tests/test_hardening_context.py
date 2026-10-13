@@ -233,10 +233,12 @@ def test_cleanup_success_without_any_inspection_is_not_reported_done(daemon):
     assert 'Everything is complete.' not in result['answer']
 
 
-def test_optional_planner_environment_is_saved_as_fetchable_task_evidence(daemon):
+def test_optional_planner_environment_is_saved_as_fetchable_task_evidence(daemon, monkeypatch):
+    from ferb.core.types import ModelLimits
+    from tests.conftest import FakeRuntime
     source = 'Unique device fact ' * 500 + ' IMPORTANT INVENTORY TAIL'
     supervisor = daemon.daemon.supervisor
-    supervisor.context_budget_tokens = 300
+    monkeypatch.setattr(FakeRuntime, 'limits', ModelLimits('fake-model', 1300, 1000, 'test double'))
     supervisor.environment = lambda _: {'live': source}  # P3 stable identity/device layer is protected now
     install(daemon, [sup('task', 'Inspecting', task())], {'worker': done('Inspected')})
     result = outcome(chat(daemon, 'Inspect the available devices.'))
@@ -326,12 +328,13 @@ def test_cancelled_cleanup_is_recorded_before_observer_finishes(daemon):
     daemon.run(check())
 
 
-def test_every_runtime_role_accounts_for_complete_appended_evidence_once(daemon):
-    from tests.conftest import tool
+def test_every_runtime_role_accounts_for_complete_appended_evidence_once(daemon, monkeypatch):
+    from tests.conftest import FakeRuntime, tool
     from ferb.core.context import count_tokens
+    from ferb.core.types import ModelLimits
     report = 'Complete required report and evidence. ' * 400
     supervisor = daemon.daemon.supervisor
-    supervisor.context_budget_tokens = 500
+    monkeypatch.setattr(FakeRuntime, 'limits', ModelLimits('fake-model', 1500, 1000, 'test double'))
     async def cleanup(_):
         return [{'tab': 'temporary', 'closed': True}]
     supervisor.on_task_end = cleanup
