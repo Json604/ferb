@@ -350,11 +350,14 @@ Task 18 starts after Tasks 1, 7 and 13 are integrated; Task 19 after all others.
 
 **Added 2026-10-14 (owner's task 2dd99563):** you asked FERB to use Mole, a tool that isn't installed. The planner
 framed the job as "inspection only" and the worker stopped rather than install it.
-- **Rule:** a tool the owner names is part of the request, so installing it with the usual package manager (Homebrew,
-  npm, pip) is part of the task. It runs and is recorded, and it is not a question (L1/L3).
+- **Rule (owner correction, 2026-10-14):** when a tool the owner named isn't installed, FERB asks once as a courtesy
+  ("<tool> isn't installed — should I install it?"), with the concrete install command prepared. The answer carries for
+  the task (rule 9). On Yes it installs with the usual package manager and continues. On No it reports, and doesn't
+  silently fall back to another tool. This is an owner-requested addition to L3's ask list.
 - **Scope:** the planner never narrows the owner's request to read-only unless the owner said so.
 - **Where:** the planner and worker prompts.
-- **Test:** a prompt-contract test for both rules.
+- **Tests:** a prompt-contract test for both rules, and a test that the install question is asked once and carried
+  across retries.
 
 - [ ] Tests:
   - (a) an open payment confirmation plus a planner clarify, then owner "Yes" routed by id → only the identified one
