@@ -4,7 +4,10 @@ With sound (L26): `with_audio` also captures the target app's sound through Hear
 after the first frame. recording_stop attaches the redacted, on-device transcript with segment times on the video's own
 timeline, labelled with where the sound came from (outside content, MP2). The video keeps its frames only and the
 sound file is deleted once transcribed (owner decision, 2026-10-14). A recording the task's end or a shutdown stops is
-not transcribed; its sound is deleted."""
+not transcribed; its sound is deleted.
+
+Each frame comes from its driver with its secret fields painted over (L13); a frame that couldn't be is withheld
+(Withheld) and skipped, and the recording goes on: its result counts the withheld frames and says why."""
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,7 +24,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from ferb.act.fs.files import resolve
-from ferb.core.errors import Refused
+from ferb.core.errors import Refused, Withheld
 from ferb.core.types import ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 
 Capture = Callable[[], Awaitable[bytes]]
@@ -64,6 +67,8 @@ class _Recording:
     at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     times: list[float] = field(default_factory=list)
     error: str | None = None
+    withheld: int = 0                    # frames skipped because their secret fields couldn't be painted over (L13)
+    withheld_reason: str | None = None
     ended: float | None = None
     loop: asyncio.Task[None] | None = None
     halt: asyncio.Event = field(default_factory=asyncio.Event)
@@ -105,6 +110,7 @@ class RecordingManager:
                 'last_frame_s': r.times[-1] if r.times else None,
                 'duration_s': max(0, (r.ended if r.ended is not None else self.now()) - r.started),
                 'capture_complete': False, 'content_reviewed': False, 'error': r.error,
+                'frames_withheld': r.withheld, 'withheld_reason': r.withheld_reason,
                 'running': not r.halt.is_set() and r.result is None}
 
     async def start(self, owner: str, target: dict[str, Any], path: Path, capture: Capture,
@@ -167,6 +173,9 @@ class RecordingManager:
                 at = self.now() - r.started
                 (r.folder/f'{len(r.times):08d}.jpg').write_bytes(image)
                 r.times.append(at)
+            except Withheld as exc:              # this frame only: the recording goes on
+                r.withheld += 1
+                r.withheld_reason = str(exc)
             except Exception as exc:
                 r.error = f'{type(exc).__name__}: {exc}'
                 r.ended = self.now()

@@ -4,6 +4,7 @@ Agents choose methods and retries; this driver never substitutes targets, replay
 
 import asyncio
 import contextlib
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,7 +18,7 @@ from ferb.act.mac.window_input import load_route
 from ferb.act.mac.input import (KEYCODES, PointerInterrupted, RealInput, Step, click_steps, key_steps,
                                 normalize, pointer_steps, type_steps, valid_combo, wheel_steps)
 from ferb.act.mac.profile import Profiles
-from ferb.core.errors import NoTarget, Refused, StaleRef
+from ferb.core.errors import NoTarget, Refused, StaleRef, Withheld
 from ferb.core.types import ActionResult, ComputerAction
 
 UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "net.whatsapp.WhatsApp": "message",
@@ -25,7 +26,84 @@ UNTRUSTED_APPS = {"com.apple.mail": "email", "com.apple.MobileSMS": "message", "
                   "ru.keepcoder.Telegram": "message", "com.microsoft.teams2": "message"}
 
 
-PASSWORD_REFUSED = "that window shows a password field; FERB doesn't capture it (the frame was dropped)"
+Rect = tuple[float, float, float, float]          # x, y, w, h
+
+# L13: a capture is never refused for what it shows; it is withheld only when its secret fields can't be painted over.
+INVENTORY_INCOMPLETE = "the window's secret-field inventory is incomplete; pixels withheld"
+PAGE_UNPLACED = ("the page's secret fields can't be placed on the window (Accessibility shows no page area); pixels "
+                 "withheld")
+UNPAINTABLE = "the capture couldn't be painted over; pixels withheld"
+
+
+@dataclass(frozen=True)
+class WebSecrets:
+    """What the browser extension says about the page a browser window shows (L13): the secret-field rects of its
+    active tab (isSecret: password and code fields), in that tab's viewport CSS px, and the viewport's size.
+    `complete` False: the profile owns the window but couldn't read the page (a browser page scripts can't reach)."""
+    rects: tuple[Rect, ...] = ()
+    viewport: tuple[float, float] | None = None
+    complete: bool = False
+
+    @classmethod
+    def from_reply(cls, r: dict[str, Any]) -> "WebSecrets":
+        """A `window_secrets` answer from the profile that owns the window. Anything malformed is a page nobody could
+        read, never a page without secrets."""
+        raw = r.get("rects")
+        viewport = _numbers(r.get("viewport"), 2) if r.get("complete") is True else None
+        rects = [_numbers(x, 4) for x in raw] if isinstance(raw, list) else None
+        if viewport is None or min(viewport) <= 0 or rects is None:
+            return cls()
+        boxes = tuple((x[0], x[1], x[2], x[3]) for x in rects if x is not None)
+        return cls(boxes, (viewport[0], viewport[1]), True) if len(boxes) == len(rects) else cls()
+
+
+def _numbers(values: Any, n: int) -> tuple[float, ...] | None:
+    if not isinstance(values, (list, tuple)) or len(values) != n or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values):
+        return None
+    return tuple(float(v) for v in values)
+
+
+def window_masks(tree: axm.AxTree | None, web: WebSecrets | None) -> list[Rect]:
+    """Screen-point boxes to paint over on a capture of a window (L13): the secret fields its Accessibility walk found
+    (AXSecureTextField, and text fields whose metadata names a password field) and, for a browser, the fields the
+    extension marks secret in the page it shows. Withheld when that can't be done: Accessibility can't read the
+    window, a secret field has no box, or the walk was cut short where nobody else looked (a page the extension read
+    covers the walk's depth inside it)."""
+    page = web is not None and web.complete
+    if tree is None or ((tree.secure is None or "depth" in tree.truncated_by) and not page):
+        raise Withheld(INVENTORY_INCOMPLETE)
+    boxes = list(tree.secret_rects) if tree.secret_rects is not None else [n.rect for n in tree.nodes if n.secret]
+    if (tree.secure and not boxes) or any(w <= 0 or h <= 0 for _, _, w, h in boxes):
+        raise Withheld(INVENTORY_INCOMPLETE)
+    return boxes + (page_on_screen(web, tree.web_areas) if web is not None and page else [])
+
+
+def page_on_screen(web: WebSecrets, areas: list[Rect]) -> list[Rect]:
+    """The page's secret-field rects in screen points: its viewport's CSS px scaled onto the AX web area that draws it
+    (of the outermost areas, the one whose shape fits the viewport best: a side panel or docked tools are others).
+    Withheld when there are fields and no area to place them on."""
+    if not web.rects or web.viewport is None:
+        return []
+    vw, vh = web.viewport
+    fits = [a for a in axm.outermost(areas) if a[2] > 0 and a[3] > 0]
+    if not fits:
+        raise Withheld(PAGE_UNPLACED)
+    ax, ay, aw, ah = min(fits, key=lambda a: (abs(math.log((a[2] / vw) / (a[3] / vh))), -a[2] * a[3]))
+    kx, ky = aw / vw, ah / vh
+    return [(ax + x * kx, ay + y * ky, w * kx, h * ky) for x, y, w, h in web.rects]
+
+
+async def painted(jpeg: bytes, masks: list[Rect], bounds: Rect, size: tuple[int, int]) -> bytes:
+    """The window capture with every box painted over opaque (in a worker thread); withheld when it can't be."""
+    from ferb.act.evidence.mask import mask_secret_fields, to_image_boxes
+    boxes = to_image_boxes(masks, bounds, size)
+    if not boxes:
+        return jpeg
+    try:
+        return await asyncio.to_thread(mask_secret_fields, jpeg, boxes)
+    except (ValueError, RuntimeError):
+        raise Withheld(UNPAINTABLE) from None
 
 
 SETTLE_S = 0.4                # after background events, before reading what changed (one read, from the walker)
@@ -63,10 +141,10 @@ class MacComputerDriver:
 
     def __init__(self, device_id: str, real_input: RealInput, excluded: Callable[[], Collection[str]] = frozenset,
                  ax: Any = axm, apps: Any = appsm, shots: Any = shotm,
-                 web_password: Callable[[str, tuple[float, float, float, float]], Awaitable[bool | None]] | None = None,
+                 web_secrets: Callable[[str, Rect], Awaitable[WebSecrets | None]] | None = None,
                  profiles: Profiles | None = None) -> None:
         self.device_id, self.input, self.excluded, self.ax, self.apps = device_id, real_input, excluded, ax, apps
-        self.shots, self.web_password = shots, web_password     # web_password: the extension's check
+        self.shots, self.web_secrets = shots, web_secrets       # web_secrets: the extension's page inventory (L13)
         self.profiles = profiles if profiles is not None else Profiles(None)   # what landed per app, learned
         self.on_activate: Callable[[str, str | None], None] = lambda bundle, task: None   # the trail's attribution
         # The trail's attribution (P4): while a call that changes an app runs, events in that app are FERB's.
@@ -222,29 +300,38 @@ class MacComputerDriver:
 
     # ---------- screenshots ----------
 
-    async def _secure(self, a: Any, bounds: tuple[float, float, float, float], fresh: bool) -> bool | None:
-        """Is there a password field in the captured window? From the walk just made for the snapshot when it's
-        recent and of that window (one walk serves both), else a new walk."""
+    async def _window_tree(self, a: Any, bounds: Rect, fresh: bool) -> axm.AxTree | None:
+        """The Accessibility walk of the captured window: the walk just made for the snapshot when it's recent and of
+        that window (one walk serves both), else a new walk. None: Accessibility has no window at these bounds (it
+        moved, or can't be read)."""
         st = self._state.get(a.bundle_id)
         if not fresh and st is not None and st.tree is not None and st.tree_unread \
                 and time.monotonic() - st.tree_at <= TREE_FRESH_S:
             st.tree_unread = False
             f = await asyncio.to_thread(self.ax.frame, st.tree.window)
             if f is not None and _same(f, bounds):
-                return None if 'depth' in st.tree.truncated_by else st.tree.secure
+                return st.tree
         win = await asyncio.to_thread(self.ax.window_with_frame, a.pid, bounds)
         if win is None:
             return None
-        tree = await self._walk(a, win)
-        return None if 'depth' in tree.truncated_by else tree.secure
+        return await self._walk(a, win)
+
+    async def _masks(self, a: Any, bounds: Rect, fresh: bool) -> list[Rect]:
+        """What to paint over on a capture of the window at `bounds` now (`window_masks`): its Accessibility walk and,
+        for a browser, the extension's page inventory for that window."""
+        tree = await self._window_tree(a, bounds, fresh)
+        browser = BROWSER_BUNDLES.get(a.bundle_id)
+        web = await self.web_secrets(browser, bounds) if tree is not None and browser and self.web_secrets else None
+        return window_masks(tree, web)
 
     async def screenshot(self, name_or_bundle: str,
                          marks: list[tuple[str, tuple[float, float, float, float]]] | None = None,
                          window: str | None = None, native_resolution: bool = False
                          ) -> tuple[Any, Shot, bytes]:
-        """The app's front window only, in memory. A password field the Accessibility tree shows (or, for a browser,
-        the extension reports in the tab on screen), before or after capture, is masked only with complete geometry.
-        Unknown inventory withholds the frame. The capture becomes the app's latest shot (mac.click / pointer / record)."""
+        """The app's front window only, in memory, with every secret field painted over (L13): the password fields
+        the Accessibility tree shows (and, for a browser, the fields the extension marks secret in the tab on screen),
+        found before and after the capture. Withheld only when they can't be painted over (`window_masks`). The capture
+        becomes the app's latest shot (mac.click / pointer / record)."""
         a, w, jpeg, size = await self._capture(name_or_bundle, marks, window, native_resolution)
         st = self._state.setdefault(a.bundle_id, _AppState())
         st.shots += 1
@@ -254,8 +341,8 @@ class MacComputerDriver:
 
     async def window_image(self, name_or_bundle: str, window: str | None = None) -> tuple[Any, Shot, bytes]:
         """FERB's own picture of the app's front window for the evidence store (D26, D29), or of the exact window id
-        `window` (L12: the owner's front window at send): the same capture and password-field rule as `screenshot`,
-        but it never becomes the app's latest shot, so a worker's pending mac.click / pointer / record keeps its own."""
+        `window` (L12: the owner's front window at send): the same capture and masking as `screenshot`, but it
+        never becomes the app's latest shot, so a worker's pending mac.click / pointer / record keeps its own."""
         a, w, jpeg, size = await self._capture(name_or_bundle, None, window, False)
         return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid), jpeg
 
@@ -272,7 +359,6 @@ class MacComputerDriver:
     async def _capture(self, name_or_bundle: str, marks: list[tuple[str, tuple[float, float, float, float]]] | None,
                        window: str | None, native_resolution: bool) -> tuple[Any, Any, bytes, tuple[int, int]]:
         a = self.app(name_or_bundle)
-        browser = BROWSER_BUNDLES.get(a.bundle_id)
 
         def find() -> Any:
             if window and window.isdigit():
@@ -288,16 +374,6 @@ class MacComputerDriver:
                 raise NoTarget(f"{a.name} has no unique capture target; choose an exact window id from mac.snapshot")
             return w
 
-        secret_rects: list[tuple[float, float, float, float]] = []
-        async def check(w: Any, fresh: bool) -> None:
-            secure = await self._secure(a, w.bounds, fresh)
-            boxes = self.secret_fields(a.bundle_id)
-            if secure is None or (secure and (not boxes or any(w <= 0 or h <= 0 for _, _, w, h in boxes))):
-                raise Refused("the window's secret-field inventory is incomplete; pixels withheld")
-            secret_rects.extend(boxes)
-            if browser and self.web_password is not None and await self.web_password(browser, w.bounds):
-                raise Refused(PASSWORD_REFUSED)
-
         def grab(w: Any) -> tuple[bytes, int, int]:
             try:
                 if native_resolution:
@@ -310,41 +386,33 @@ class MacComputerDriver:
             except (RuntimeError, TimeoutError) as e:
                 raise Refused(f"couldn't capture {a.name}'s window: {e}") from None
         w = await asyncio.to_thread(find)
-        await check(w, fresh=False)
+        masks = await self._masks(a, w.bounds, fresh=False)
         jpeg, width, height = await asyncio.to_thread(grab, w)
-        await check(w, fresh=True)                            # appeared while capturing: the frame is dropped
-        if secret_rects:
-            from ferb.act.evidence.mask import mask_secret_fields, to_image_boxes
-            jpeg = await asyncio.to_thread(mask_secret_fields, jpeg, to_image_boxes(secret_rects, w.bounds, (width, height)))
-        return a, w, jpeg, (width, height)
+        masks += await self._masks(a, w.bounds, fresh=True)   # a field that appeared while capturing: painted too
+        return a, w, await painted(jpeg, masks, w.bounds, (width, height)), (width, height)
 
     def recording_source(self, name: str, shot_id: str) -> tuple[dict[str, Any], Any]:
-        """Pin the window the worker actually saw; repeated captures never replace its action references."""
+        """Pin the window the worker actually saw; repeated captures never replace its action references. Each frame is
+        painted over like a screenshot (L13); a frame that can't be is withheld (Withheld), never the recording."""
         a = self.app(name)
         st = self._state.get(a.bundle_id)
         shot = st.shot if st else None
         if shot is None or shot.id != shot_id or shot.pid != a.pid or time.monotonic() - shot.at > 30:
             raise Refused('take a fresh mac_screenshot to select the recording window')
-        browser = BROWSER_BUNDLES.get(a.bundle_id)
 
         async def current() -> Any:
             w = await asyncio.to_thread(self.shots.window, shot.window)
             if w is None or w.pid != a.pid or self.app(a.bundle_id).pid != a.pid:
                 raise Refused('recording window closed or changed owner')
-            secure = await self._secure(a, w.bounds, fresh=True)
-            if secure is None:
-                raise Refused("the window's secret-field inventory is incomplete; recording pixels withheld")
-            if secure:
-                raise Refused(PASSWORD_REFUSED)
-            if browser and self.web_password and await self.web_password(browser, w.bounds):
-                raise Refused(PASSWORD_REFUSED)
             return w
 
         async def capture() -> bytes:
             w = await current()
-            image, _, _ = await asyncio.to_thread(self.shots.capture, w)
+            masks = await self._masks(a, w.bounds, fresh=True)
+            image, width, height = await asyncio.to_thread(self.shots.capture, w)
             await current()
-            return image
+            masks += await self._masks(a, w.bounds, fresh=True)   # moved meanwhile: no window there, withheld
+            return await painted(image, masks, w.bounds, (width, height))
         return {'kind': 'window', 'app': a.bundle_id, 'pid': a.pid, 'window_id': shot.window}, capture
 
     async def pointer_at(self, name: str, shot_id: str, x: float, y: float, kind: str,

@@ -10,6 +10,9 @@ after an action. Elements are controls by their available actions (AXUIElementCo
 an AXGroup with AXPress is a control; roles are reported as facts.
 
 Password fields (AXSecureTextField, role or subrole) are reported only as filled/empty: their value is never read.
+The masking inventory (`secret_rects`, L13) also holds a text field whose own metadata names it a password field (a
+"Show password" field is a plain AXTextField), by the same rule as typed-text capture (Task 12, L17), and `web_areas`
+holds where a browser draws its pages, so the extension's secret-field rects can be placed on a window capture.
 A browser's web area is built on demand: when the window shows a web area that is still empty, re-read for ~2 s."""
 
 import re
@@ -36,6 +39,12 @@ ACTION_NAMES = {"AXPress": "press", "AXShowMenu": "menu", "AXIncrement": "increm
                 "AXRaise": "raise"}
 TEXT_KINDS = ("textbox", "searchbox", "combobox")
 DIALOG_SUBROLES = {"AXDialog", "AXSystemDialog"}
+# A text field whose own metadata names it a password field (L13 masking; the same rule as typed-text capture, L17):
+# a secret class at the capture boundary, never a judgement of intent. Only text-entry roles: a "Show password"
+# checkbox or a "Passwords" menu item is no field.
+PASSWORD_ROLES = {"AXTextField", "AXTextArea", "AXComboBox"}
+PASSWORD_METADATA = re.compile(r"(?i)passw|pwd")
+PASSWORD_ATTRS = ("AXTitle", "AXDescription", "AXPlaceholderValue", "AXIdentifier", "AXDOMIdentifier")
 # AXMenuItemCmdModifiers (AXMenuItem.h): 0 = ⌘ alone; bits: shift 1, option 2, control 4, 8 = no ⌘
 MENU_MODIFIER_BITS = {"shift": 1, "alt": 2, "ctrl": 4}
 
@@ -68,6 +77,7 @@ class AxTree:
     # Collected by the complete walk, independently of the page of nodes exposed to the model. None denotes a
     # synthetic/legacy tree whose node list is its only inventory; production walks always initialize this list.
     secret_rects: list[tuple[float, float, float, float]] | None = None
+    web_areas: list[tuple[float, float, float, float]] = field(default_factory=list)   # AXWebArea frames, screen points
     headings: list[str] = field(default_factory=list)
     windows: list[dict[str, Any]] = field(default_factory=list)
     containers: list[str] = field(default_factory=list)     # what else was included: sheet / menu / dialog / popover
@@ -333,7 +343,6 @@ def _mark(tree: AxTree, why: str) -> None:
 
 
 def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | None, seen: list[int]) -> None:
-    import ApplicationServices as AX
     import CoreFoundation as CF
     key = int(CF.CFHash(el)) if hasattr(el, "__c_void_p__") else id(el)
     bucket = tree._visited.setdefault(key, [])
@@ -345,15 +354,14 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | 
     if tree.secret_rects is None:
         tree.secret_rects = []
     secret = "AXSecureTextField" in (role, subrole)
-    if secret:
+    if secret or password_element(role, el):
         tree.secure = True
-        x, y = _point(_attr(el, 'AXPosition'), AX.kAXValueCGPointType)
-        w, h = _point(_attr(el, 'AXSize'), AX.kAXValueCGSizeType)
-        tree.secret_rects.append((x, y, w, h))
+        tree.secret_rects.append(_frame_of(el))
     children = _attr(el, "AXChildren") or []
     if role == "AXWebArea":
         tree.has_web = True
         tree.web_empty = tree.web_empty or not children
+        tree.web_areas.append(_frame_of(el))
     if role == "AXSheet" and container is None:
         container = "sheet"
         tree.containers.append("sheet")
@@ -378,6 +386,27 @@ def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | 
         tree.next_offset = tree.offset + len(tree.nodes)
     for child in children:
         _walk(child, tree, texts, depth + 1, container, seen)
+
+
+def password_element(role: str, el: Any) -> bool:
+    """A text field whose own AX metadata names it a password field: masked on every capture (L13)."""
+    return role in PASSWORD_ROLES and any(isinstance(v := _attr(el, a), str) and PASSWORD_METADATA.search(v)
+                                          for a in PASSWORD_ATTRS)
+
+
+def _frame_of(el: Any) -> tuple[float, float, float, float]:
+    import ApplicationServices as AX
+    x, y = _point(_attr(el, "AXPosition"), AX.kAXValueCGPointType)
+    w, h = _point(_attr(el, "AXSize"), AX.kAXValueCGSizeType)
+    return x, y, w, h
+
+
+def outermost(areas: list[tuple[float, float, float, float]]) -> list[tuple[float, float, float, float]]:
+    """The web areas no other one holds: a browser's pages, without the frames inside them (each once)."""
+    def holds(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> bool:
+        return a[0] <= b[0] and a[1] <= b[1] and a[0] + a[2] >= b[0] + b[2] and a[1] + a[3] >= b[1] + b[3]
+    unique = list(dict.fromkeys(areas))
+    return [b for b in unique if not any(a != b and holds(a, b) for a in unique)]
 
 
 def _node(el: Any, role: str, subrole: str, secret: bool, acts: list[str], container: str | None,

@@ -149,15 +149,14 @@ def test_page_search_reads_child_frames_and_does_not_clip_long_hits() -> None:
     assert len(result['hits'][0]['text']) > 12000
 
 
-def test_coincident_browser_windows_leave_password_check_unknown() -> None:
+def test_coincident_browser_windows_leave_the_secret_field_answer_unknown() -> None:
     result = worker('''(async () => {
       chrome.windows = {getAll:async()=>[{id:1,left:0,top:0,width:100,height:100},
         {id:2,left:0,top:0,width:100,height:100}]};
       let queried = false; chrome.tabs.query=async()=>{queried=true;return [{id:1}];};
-      const response=await commands.window_password({bounds:[0,0,100,100]}); return {response,queried};
+      const response=await commands.window_secrets({bounds:[0,0,100,100]}); return {response,queried};
     })()''')
-    assert result['response']['password'] is None
-    assert result['response']['reason'] == 'ambiguous_window'
+    assert result['response'] == {'matched': False, 'reason': 'ambiguous_window'}
     assert not result['queried']
 
 

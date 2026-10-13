@@ -212,11 +212,12 @@ def test_a_worker_reads_the_window_from_the_image_and_the_frame_is_only_in_the_e
 from tests.chromelab import lab, wait_for  # noqa: E402,F401
 
 
-def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(lab: Any) -> None:
-    """The lab Chrome's own window is captured without activating any installed browser window."""
+def test_the_extension_reports_a_web_password_field_and_the_frame_is_masked(lab: Any) -> None:
+    """The lab Chrome's own window is captured without activating any installed browser window; a page with a
+    password field is captured with that field's rect painted over (L13), never dropped."""
     import http.server
     import json
-    from ferb.core.errors import Refused
+    from ferb.act.mac.driver import WebSecrets
 
     rd, chrome, _ = lab
     pages = {"/login": b"<!doctype html><title>Login probe</title><input placeholder=User><input type=password>",
@@ -240,27 +241,28 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_dropped(lab
         def find(self, name: str) -> RunningApp | None:
             return RunningApp("com.google.Chrome", "Chrome Lab", chrome.pid, False) if name == "Chrome Lab" else None
 
-    async def password(browser: str, bounds: Any) -> bool | None:
-        result = await br.call("window_password", {"bounds": list(bounds)}, timeout=4)
-        return result.get("password")
+    answers: list[WebSecrets] = []
 
-    driver = MacComputerDriver(d.mac.device_id, d.mac.input, apps=LabApps(), web_password=password)
+    async def secrets(browser: str, bounds: Any) -> WebSecrets | None:
+        result = await br.call("window_secrets", {"bounds": list(bounds)}, timeout=4)
+        answers.append(WebSecrets.from_reply(result))
+        return answers[-1] if result.get("matched") else None
+
+    driver = MacComputerDriver(d.mac.device_id, d.mac.input, apps=LabApps(), web_secrets=secrets)
     created: list[int] = []
     try:
-        for path, refused in (("/login", True), ("/plain", False)):
+        for path, secret in (("/login", True), ("/plain", False)):
             url = f"http://127.0.0.1:{srv.server_port}{path}"
             window = chrome.evaluate(chrome.sw, "chrome.windows.create(" + json.dumps(
                 {"url": url, "focused": False, "state": "normal"}) + ")")
             created.append(window["id"])
-            title = "Login probe" if refused else "Plain probe"
+            title = "Login probe" if secret else "Plain probe"
             wait_for(lambda: any(title in w["kCGWindowName"] for w in shotm._info_windows(True)
                                 if int(w.get("kCGWindowOwnerPID", 0)) == chrome.pid), 10, "lab window did not render")
-            if refused:
-                with pytest.raises(Refused, match="password"):
-                    rd.run(driver.screenshot("Chrome Lab"), timeout=30)
-            else:
-                _, _, jpeg = rd.run(driver.screenshot("Chrome Lab"), timeout=30)
-                assert jpeg.startswith(b"\xff\xd8")
+            answers.clear()
+            _, _, jpeg = rd.run(driver.screenshot("Chrome Lab"), timeout=30)
+            assert jpeg.startswith(b"\xff\xd8") and answers and all(a.complete for a in answers)
+            assert all(len(a.rects) == (1 if secret else 0) for a in answers), answers
             chrome.evaluate(chrome.sw, f"chrome.windows.remove({created.pop()})")
     finally:
         for window_id in created:

@@ -6,20 +6,19 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
 
 from ferb.act.evidence import mask
 from ferb.act.evidence.store import EvidenceStore
 from ferb.act.mac.accessibility import AxNode, AxTree
 from ferb.act.mac.apps import RunningApp
 from ferb.config import Config
-from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, Task, ToolResult
+from ferb.core.types import Identity, Task
 from ferb.orchestrator.tree import TaskRecord
-from ferb.policy.rules import Kind
 from ferb.policy.targets import Request
 from ferb.sanitize.redact import Redactor
 from tests.conftest import RunningDaemon, gateway_request, gateway_setup, gateway_tool_call
 from tests.mackit import _fake_mac, gateway_call, grant_task
+from tests.support.images import ImageTool as _ImageTool, black as _black, solid_jpeg as _solid_jpeg, white as _white
 
 
 def test_put_and_read_round_trip(daemon: RunningDaemon) -> None:
@@ -150,7 +149,10 @@ def test_a_tool_image_is_kept_as_evidence_and_the_trace_points_at_it(daemon: Run
     assert [r["kind"] for r in daemon.run(_list(daemon.daemon.evidence, "task-1"))] == ["screenshot", "snapshot"]
 
 
-def test_an_image_beside_a_secret_field_or_from_an_excluded_host_is_not_kept(daemon: RunningDaemon) -> None:
+def test_an_image_beside_a_secret_field_is_kept_masked_but_one_from_an_excluded_host_is_not(
+        daemon: RunningDaemon) -> None:
+    """L13: a tool's image had its secret fields painted over where it was captured, so the evidence keeps what the
+    model got; a site on the owner's exclusion list still keeps facts only."""
     img = _solid_jpeg(16, 12)
     secret = _ImageTool("probe.snapshot", img, {"elements": [{"id": "e1", "role": "textbox", "label": "Password",
                                                               "sensitive": True, "filled": True}]})
@@ -161,10 +163,10 @@ def test_an_image_beside_a_secret_field_or_from_an_excluded_host_is_not_kept(dae
     gateway_tool_call(daemon, grant, "probe.snapshot")
     gateway_tool_call(daemon, grant, "probe.screenshot")
     rows = daemon.run(_list(daemon.daemon.evidence, "task-1"))
-    assert [(r["kind"], r["has_image"]) for r in rows] == [("snapshot", False), ("screenshot", False)]
-    assert rows[0]["data"]["image_withheld"] == "secret field without a maskable rect"
+    assert [(r["kind"], r["has_image"]) for r in rows] == [("snapshot", True), ("screenshot", False)]
+    assert daemon.run(_read(daemon.daemon.evidence, rows[0]["id"]))[1] == img
     assert rows[1]["origin"] == "external:web:excluded" and rows[1]["data"]["image_withheld"]
-    assert not [p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]
+    assert len([p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]) == 1
 
 
 # ---------- one picture of the app a worker starts on (D26, D29) ----------
@@ -260,28 +262,28 @@ def test_a_failed_app_window_capture_is_logged_and_never_fails_the_call(daemon: 
 
 # ---------- fix round 1: what never gets pixels on disk, and store hardening ----------
 
-def test_a_browser_window_a_hostless_page_or_a_recording_contact_sheet_keeps_facts_only(
+def test_a_browser_window_a_hostless_page_and_a_recording_contact_sheet_keep_their_pixels(
         daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
-    # D29: a browser's window shows the owner's own tab (an excluded or private page included); a contact sheet
-    # duplicates the recording file, which is the evidence itself.
+    # L13 (D29 clarified): a browser's window, a page with no known host and a recording's contact sheet reach the
+    # model and the evidence store like any other image, masked and sanitized. Formerly facts only.
     _fake_mac(daemon, monkeypatch)
     assert isinstance(daemon.daemon.redact, Redactor)
     daemon.daemon.redact.configure({"bank.example"}, set())
     g = grant_task(daemon, "b", Identity.OWNER, {"screen"}, {"use_app"})
     r = gateway_call(daemon, g, "mac.screenshot", app="Brave")
-    assert not r["is_error"] and "image" not in r
+    assert not r["is_error"] and "image" in r
     img = _solid_jpeg(16, 12)
     sheet = _ImageTool("recording.inspect", img, {"path": "/tmp/r.mp4", "duration_s": 3.0},
                        reads=(("recording", "rec-1"),))
     hostless = _ImageTool("probe.screenshot", img, {"shot": "bs-3"}, reads=(("web", ""),))
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [sheet, hostless])
-    gateway_tool_call(daemon, grant, "recording.inspect")
-    gateway_tool_call(daemon, grant, "probe.screenshot")
+    assert "image" in gateway_tool_call(daemon, grant, "recording.inspect")
+    assert "image" in gateway_tool_call(daemon, grant, "probe.screenshot")
     rows = daemon.run(_list(daemon.daemon.evidence, "b")) + daemon.run(_list(daemon.daemon.evidence, "task-1"))
-    assert [(r["kind"], r["has_image"]) for r in rows] == [("screenshot", False), ("recording", False),
-                                                          ("screenshot", False)]
-    assert all(r["data"]["image_withheld"] for r in rows) and rows[1]["data"]["path"] == "/tmp/r.mp4"
-    assert not [p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]
+    assert [(r["kind"], r["has_image"]) for r in rows] == [("screenshot", True), ("recording", True),
+                                                          ("screenshot", True)]
+    assert not any(r["data"].get("image_withheld") for r in rows) and rows[1]["data"]["path"] == "/tmp/r.mp4"
+    assert len([p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]) == 3
 
 
 def test_messaging_and_mail_apps_use_f5_sanitizer(daemon: RunningDaemon,
@@ -302,7 +304,7 @@ def test_messaging_and_mail_apps_use_f5_sanitizer(daemon: RunningDaemon,
     assert len([p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]) == 2
 
 
-def test_a_first_look_waits_for_the_window_but_a_password_refusal_counts(daemon: RunningDaemon,
+def test_a_first_look_waits_for_the_window_but_a_withheld_picture_counts(daemon: RunningDaemon,
                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
     shots, _ = _fake_mac(daemon, monkeypatch)
     _menus(daemon)
@@ -313,11 +315,11 @@ def test_a_first_look_waits_for_the_window_but_a_password_refusal_counts(daemon:
     del shots.front_window                                          # the window appeared
     gateway_call(daemon, g, "mac.menu", app="Notes")
     assert [r["kind"] for r in daemon.run(_list(daemon.daemon.evidence, "w"))] == ["app_window"]
-    daemon.daemon.mac.ax.secure = [True]                            # type: ignore[union-attr]
+    daemon.daemon.mac.ax.secure = [True]       # type: ignore[union-attr]   # a password field with no box to paint
     p = grant_task(daemon, "p", Identity.OWNER, {"mac:read", "screen"}, "look at my notes")
     first = gateway_call(daemon, p, "mac.menu", app="Notes")
     second = gateway_call(daemon, p, "mac.menu", app="Notes")
-    assert first["content"]["image_withheld"] == "initial window capture unavailable"
+    assert first["content"]["image_withheld"] == "the window's secret-field inventory is incomplete; pixels withheld"
     assert "image_withheld" not in second["content"]             # attempted only once
 
 
@@ -531,26 +533,6 @@ def test_the_store_needs_an_origin_writes_no_orphan_file_and_never_deletes_outsi
 
 # ---------- helpers ----------
 
-class _ImageTool:
-    """A reading tool that returns an image, as mac.screenshot / browser.screenshot / mac.snapshot do."""
-    identities = {Identity.OWNER, Identity.FERB}
-    risk, reversible = RiskLevel.LOW, True
-
-    class Input(BaseModel):
-        pass
-
-    def __init__(self, name: str, image: bytes, content: dict[str, Any],
-                 reads: tuple[tuple[str, str], ...] = (("app", "com.example.App"),)) -> None:
-        self.name, self.description, self.scopes = name, name, {"probe"}
-        self.image, self.content, self.reads = image, content, reads
-
-    def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec(Kind.READ, Target(site="x.example"))
-
-    async def run(self, args: Any, ctx: Any) -> ToolResult:
-        return ToolResult(dict(self.content), read_sources=self.reads, image=self.image)
-
-
 def _worker_and_checker(d: RunningDaemon) -> tuple[Task, Any]:
     """A registered worker and the checker of its result (same request, identity, device and tree)."""
     deadline = d.daemon.clock.now() + timedelta(minutes=10)
@@ -570,14 +552,6 @@ def _worker_and_checker(d: RunningDaemon) -> tuple[Task, Any]:
 
 def _menus(d: RunningDaemon) -> None:
     d.daemon.mac.ax.menus = lambda pid: [{"title": "File", "items": ["New Note"]}]   # type: ignore[union-attr]
-
-
-def _black(px: tuple[int, int, int]) -> bool:
-    return max(px) <= 8
-
-
-def _white(px: tuple[int, int, int]) -> bool:
-    return min(px) >= 247
 
 
 async def _put(store: EvidenceStore, task_id: str, span_id: str, kind: str, *, image: bytes | None = None,
@@ -619,19 +593,3 @@ async def _all(daemon: RunningDaemon, sql: str) -> list[Any]:
 
 async def _raw(daemon: RunningDaemon, eid: str) -> dict[str, Any]:
     return dict(daemon.daemon.db.conn.execute("SELECT data_json FROM evidence WHERE id = ?", (eid,)).fetchone())
-
-
-def _solid_jpeg(w: int, h: int) -> bytes:
-    """An all-white JPEG made with Quartz (the screenshot path's image library; FERB has no Pillow)."""
-    import Quartz
-    from Foundation import NSMutableData
-    ctx = Quartz.CGBitmapContextCreate(None, w, h, 8, 0, Quartz.CGColorSpaceCreateDeviceRGB(),
-                                       Quartz.kCGImageAlphaNoneSkipLast)
-    Quartz.CGContextSetRGBFillColor(ctx, 1.0, 1.0, 1.0, 1.0)
-    Quartz.CGContextFillRect(ctx, Quartz.CGRectMake(0, 0, w, h))
-    data = NSMutableData.data()
-    dest = Quartz.CGImageDestinationCreateWithData(data, "public.jpeg", 1, None)
-    Quartz.CGImageDestinationAddImage(dest, Quartz.CGBitmapContextCreateImage(ctx),
-                                      {Quartz.kCGImageDestinationLossyCompressionQuality: 0.95})
-    assert Quartz.CGImageDestinationFinalize(dest)
-    return bytes(data)

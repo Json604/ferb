@@ -1,6 +1,7 @@
 """Shared synthetic Mac controls/captures and task helpers. No native input is sent by these fakes."""
 
 import asyncio
+import dataclasses
 import os
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -189,8 +190,8 @@ class VisionAx(FakeAx):
 
     def read_tree(self, pid: int, browser: bool = False, window: Any = None) -> AxTree:
         secure = self.secure.pop(0) if self.secure else False
-        return AxTree(self.tree.nodes, f"{self.tree.text} clicks={self.clicks}", self.tree.title, secure=secure,
-                      window="win")
+        return dataclasses.replace(self.tree, text=f"{self.tree.text} clicks={self.clicks}", secure=secure,
+                                   window="win")          # the tree's masking inventory (secret rects, web areas) too
 
     def app_window(self, pid: int) -> Any:
         return "win"

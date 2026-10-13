@@ -9,6 +9,7 @@ WakeServer serves only the temporary local pairing page; ordinary wake launches 
 
 import asyncio
 import json
+import math
 import os
 import secrets
 from dataclasses import dataclass, field
@@ -31,7 +32,7 @@ from ferb.act.fs.recovery import sha256_fd
 from ferb.identity.mailbox import FEED_URL, GmailFeedMailbox
 from ferb.identity.seal import seal, seal_key, unseal
 from ferb.identity.secrets import KeychainSecretStore, SecretUnavailable, normalize_origin, origin_allowed
-from ferb.core.errors import DriverError, Refused, StaleRef
+from ferb.core.errors import DriverError, Refused, StaleRef, Withheld
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, SecretSpec, TabRef, ToolContext, WaitCondition)
 from ferb.orchestrator.ledger import Ledger
@@ -510,6 +511,34 @@ class WakeServer:
 
 
 # ---------- what the browser tools drive ----------
+
+def painted(jpeg: bytes, reply: dict[str, Any]) -> bytes:
+    """A tab capture with every secret field the extension reported painted over (L13): its rects are in the page's
+    viewport CSS px, scaled onto the image (device pixels, page zoom included). Withheld when the extension couldn't
+    locate them (its `withheld` says why, in its own words, never page content), didn't say, or the image can't be
+    painted."""
+    from ferb.act.evidence import mask
+    if reply.get("withheld"):
+        raise Withheld(f"pixels withheld: {reply['withheld']}")
+    m = reply.get("mask")
+    rects, viewport = (m.get("rects"), m.get("viewport")) if isinstance(m, dict) else (None, None)
+    if not (isinstance(rects, list) and _box_list(rects) and _box_list([viewport], 2) and min(viewport) > 0):
+        raise Withheld("pixels withheld: the extension didn't say where the page's secret fields are")
+    if not rects:
+        return jpeg
+    try:
+        boxes = mask.to_image_boxes([tuple(r) for r in rects], (0.0, 0.0, float(viewport[0]), float(viewport[1])),
+                                    mask.size(jpeg))
+        return mask.mask_secret_fields(jpeg, boxes) if boxes else jpeg
+    except (ValueError, RuntimeError):
+        raise Withheld("pixels withheld: the capture couldn't be painted over") from None
+
+
+def _box_list(values: list[Any], n: int = 4) -> bool:
+    """Each value a list of `n` finite numbers."""
+    return all(isinstance(v, list) and len(v) == n and all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                                                            and math.isfinite(x) for x in v) for v in values)
+
 
 class _NoSecrets:
     """Owner profiles never get FERB's secrets."""
@@ -1076,16 +1105,20 @@ class _TabDriver:
 
     async def screenshot(self, tab: TabRef) -> bytes:
         """A jpeg of the tab (works minimized / in the background, 2.7), fetched in parts when one message would
-        come near the 1 MB native-messaging line."""
+        come near the 1 MB native-messaging line, with every secret field the extension reports painted over before
+        anything else sees it (`painted`, L13). Never refused for what the page shows; withheld (Withheld) only when
+        the masking can't be done."""
         import base64
         t = self._tab(tab)
         v = await t.bridge.call("screenshot", {"tab_id": t.chrome_id, "snap": t.snap_gen})
+        if v.get("withheld"):
+            return painted(b"", v)                       # raises: nothing was captured
         if "data" in v:
-            return base64.b64decode(v["data"])
+            return painted(base64.b64decode(v["data"]), v)
         parts = []
         for i in range(int(v.get("parts", 0))):
             parts.append(str((await t.bridge.call("screenshot_part", {"tab_id": t.chrome_id, "part": i}))["data"]))
-        return base64.b64decode("".join(parts))
+        return painted(base64.b64decode("".join(parts)), v)
 
     def browser_pid(self, tab: TabRef) -> int | None:
         """The process of the browser showing this tab (its native host's parent), so hearing the tab (L26) captures
@@ -1102,23 +1135,23 @@ class _TabDriver:
             if self._tab(tab) is not t:
                 raise Refused('recording tab identity changed')
             result = await t.bridge.call('record_frame', {'tab_id': t.chrome_id})
+            if result.get('withheld'):
+                return painted(b'', result)              # raises: this frame only (the recording goes on)
             if 'data' in result:
-                return base64.b64decode(result['data'])
+                return painted(base64.b64decode(result['data']), result)
             parts = []
             for i in range(int(result['parts'])):
                 part = await t.bridge.call('record_frame', {'tab_id': t.chrome_id, 'part': i,
                                                            'capture_id': result['capture_id']})
                 parts.append(part['data'])
-            return base64.b64decode(''.join(parts))
+            return painted(base64.b64decode(''.join(parts)), result)
         return {'kind': 'tab', 'browser': tab.browser, 'profile': tab.profile, 'tab_id': t.chrome_id,
                 'tab': tab.tab_id}, capture
 
     async def visual_snapshot(self, tab: TabRef) -> tuple[str, bytes, int, int]:
         import Quartz
-        snapshot = await self.snapshot(tab)
-        if snapshot.truncated or any(e.secret for e in snapshot.elements):
-            raise Refused("cannot capture a page with sensitive fields or an incomplete field inventory")
-        jpeg = await self.screenshot(tab)
+        await self.snapshot(tab)            # the generation the shot's points resolve against
+        jpeg = await self.screenshot(tab)   # secret fields painted from the extension's own rects, not this list (L13)
         image = Quartz.CGImageSourceCreateWithData(jpeg, None)
         props = Quartz.CGImageSourceCopyPropertiesAtIndex(image, 0, None)
         width, height = int(props["PixelWidth"]), int(props["PixelHeight"])

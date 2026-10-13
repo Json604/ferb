@@ -107,6 +107,7 @@ def test_explicit_split_replacement_nodes_remain_masked_in_snapshot_and_capture(
  const document = {querySelectorAll:()=>nodes}, documentId='same-document';
  const implicitRole=()=> 'textbox', hitTest=()=>false, scrollerOf=()=>null, round=n=>n, formKind=()=>null;
  const innerWidth=1000, innerHeight=1000;
+ const getComputedStyle=()=>({}), chrome={runtime:{getFrameId:()=>-1}};
  nodes.forEach(n=>{n.getBoundingClientRect=()=>({x:0,y:0,width:10,height:10,left:0,top:0,right:10,bottom:10});n.getAttribute=()=>null;});
  const shown=nodes.map(describe), capture=captureState();
  const search=Object.assign(new HTMLInputElement(),nodes[0],{value:'',type:'search',focus:()=>{}});
@@ -118,24 +119,33 @@ def test_explicit_split_replacement_nodes_remain_masked_in_snapshot_and_capture(
     assert result['result']['ok']
     assert result['typed']['ok']
     assert all(not e['secret'] and e['value'] == 'filled' for e in result['shown'])
-    assert result['capture']['secret'] and result['afterRemoval']['secret']
+    assert result['capture']['rects'] == [[0, 0, 10, 10]] * 6         # every editable field painted over (L13)
+    assert result['afterRemoval']['rects'] == []                       # nothing left in the document to paint
 
 
-@pytest.mark.parametrize('failure', ['before_secret', 'after_secret', 'incomplete', 'navigation'])
-def test_screenshot_refuses_sensitive_or_changed_document_before_publishing_bytes(failure):
+@pytest.mark.parametrize('failure', ['before_secret', 'after_secret', 'unreadable', 'navigation'])
+def test_screenshot_masks_secret_fields_and_withholds_a_changed_document_before_publishing_bytes(failure):
+    """L13: a page with a secret field (before or after the capture) is captured with its rect in the mask; a page
+    that can't be read, or changed document during capture, publishes no bytes."""
     result = worker('''(async () => {
       attach = async id => tabState(id); let reads=0, captures=0;
-      recordingState = async () => {
-        reads++; return [{frameId:0, documentId: CASE==='navigation' && reads>1 ? 'new':'doc',
-          secret:CASE==='before_secret' || CASE==='after_secret' && reads>1, complete:CASE!=='incomplete'}];
+      maskState = async () => {
+        reads++;
+        if (CASE==='unreadable') return {withheld: "the page's top frame can't be read"};
+        const secret = CASE==='before_secret' && reads===1 || CASE==='after_secret' && reads>1;
+        return {documents: [[0, CASE==='navigation' && reads>1 ? 'new':'doc']], viewport: [100, 50],
+                rects: secret ? [[1, 2, 3, 4]] : []};
       };
-      cdp=async()=>{captures++;return {data:'must-not-escape'};};
+      cdp=async()=>{captures++;return {data:'picture'};};
       const st=tabState(19);st.shot='previous-shot';st.visual={snap:7};
-      try {return await commands.screenshot({tab_id:19});}
-      catch(e) {return {error:e.message,captures,shot:st.shot,visual:st.visual};}
+      const out=await commands.screenshot({tab_id:19});
+      return {out,captures,shot:st.shot,visual:st.visual};
     })()'''.replace('CASE', json.dumps(failure)))
-    assert 'error' in result and 'data' not in result
-    assert result['captures'] == (0 if failure in {'before_secret', 'incomplete'} else 1)
+    if failure.endswith('secret'):
+        assert result['out']['data'] == 'picture' and result['out']['mask']['rects'] == [[1, 2, 3, 4]]
+    else:
+        assert 'data' not in result['out'] and result['out']['withheld']
+    assert result['captures'] == (0 if failure == 'unreadable' else 1)
     assert result['shot'] is None and result['visual'] is None
 
 

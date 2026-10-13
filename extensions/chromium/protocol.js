@@ -298,7 +298,7 @@ async function unseal(pairingKeyB64, sealed, commandId, origin) {
 const FEED_URL = "https://mail.google.com/mail/feed/atom";   // the only page read_source may return
 
 const OPS = ["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
-             "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
+             "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media"];
 

@@ -1,6 +1,6 @@
-"""Owns masking of accessibility-known secret fields on a stored screenshot (V1, rule 14). Must not decide what is
-secret: the boxes come from the accessibility tree (a password field's frame); full screenshot redaction (OTP digits,
-notification-matched codes, CSS-masked fields) is F5.
+"""Owns masking of known secret fields on a screenshot (V1, rule 14, L13). Must not decide what is secret: the boxes
+come from the accessibility tree (a password field's frame) or the browser extension's secret-field rects; OCR
+redaction of what a picture shows (OTP digits, card numbers) is F5's (ferb/sanitize/images.py).
 
 Decoded, filled and re-encoded in memory with Quartz, the image library the screenshot path already uses
 (ferb/act/mac/screenshot.py; FERB has no Pillow). The masked area is filled opaque black before encoding, so nothing
@@ -43,6 +43,13 @@ def to_image_boxes(rects: list[tuple[float, float, float, float]], bounds: tuple
         px, py = math.floor((left - bx) * kx), math.floor((top - by) * ky)
         out.append((px, py, math.ceil((right - bx) * kx) - px, math.ceil((bottom - by) * ky) - py))
     return out
+
+
+def size(image: bytes) -> tuple[int, int]:
+    """The image's width and height in pixels. ValueError when it can't be decoded."""
+    import Quartz
+    img = _decode(image)
+    return int(Quartz.CGImageGetWidth(img)), int(Quartz.CGImageGetHeight(img))
 
 
 def pixel(image: bytes, x: int, y: int) -> tuple[int, int, int]:

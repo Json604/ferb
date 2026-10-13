@@ -325,18 +325,35 @@
     return out;
   }
 
+  // What a screenshot or recording frame must paint over in this frame (L13), in its viewport CSS px: every secret
+  // field isSecret marks (password and code fields, sealed fills) and, after a split sealed fill, every editable field
+  // of this document; and where each child frame sits (its frame id, box and content origin), so the background places
+  // their fields on the page. Geometry only, never a value. A separate inventory: a capture never replaces the
+  // snapshot/point bindings the worker acts with.
   function captureState() {
-    // A separate field inventory: recording must not replace snapshot/point bindings while the worker acts.
-    let secret = sealedSplitDocument, frames = 0;
+    const rects = [], frames = [];
+    const box = r => [r.x, r.y, r.width, r.height];
     const walk = root => {
       for (const el of root.querySelectorAll('*')) {
-        if (isSecret(el) && visible(el)) secret = true;
-        if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') frames++;
+        if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') {
+          const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+          let frameId = -1;                       // no document in it (not loaded): the background paints it whole
+          try { frameId = chrome.runtime.getFrameId(el); } catch (_) { /* not a frame with a document */ }
+          frames.push({frame_id: frameId, rect: box(r),
+                       inner: [r.x + el.clientLeft + (parseFloat(cs.paddingLeft) || 0),
+                               r.y + el.clientTop + (parseFloat(cs.paddingTop) || 0)],
+                       // transformed: its content can't be placed by offset (frameRect), so it is painted whole
+                       scaled: Math.abs(r.width - el.offsetWidth) > 1 || Math.abs(r.height - el.offsetHeight) > 1});
+        } else if (isSecret(el) || maskedEditable(el)) {
+          const r = el.getBoundingClientRect();     // painted, even when aria-hidden: masking errs on the safe side
+          if (r.width > 0 && r.height > 0 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true})))
+            rects.push(box(r));
+        }
         if (el.shadowRoot) walk(el.shadowRoot);
       }
     };
     walk(document);
-    return {documentId, secret, frames, complete: true};
+    return {documentId, rects, frames, viewport: [innerWidth, innerHeight]};
   }
 
   function snapshot(gen) {

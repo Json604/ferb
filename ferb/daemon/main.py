@@ -28,7 +28,7 @@ from ferb.act.fs import recovery
 from ferb.act.browser.pairing import Pairings
 from ferb.act.browser.resolver import Resolver
 from ferb.act.gui_lock import GuiLock
-from ferb.act.mac.driver import MacComputerDriver, profiles_dir
+from ferb.act.mac.driver import MacComputerDriver, WebSecrets, profiles_dir
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ProcInfo, ShellManager
@@ -731,19 +731,19 @@ class Daemon:
         return self.hub is not None and any(br.conn is not None and br.binding.browser == browser
                                             and br.binding.identity is Identity.OWNER for br in self.hub.bridges.values())
 
-    async def _web_password(self, browser: str, bounds: tuple[float, float, float, float]) -> bool | None:
-        """Ask each connected profile of this browser whether its window at these bounds shows a password field in
-        its active tab; the profile that owns the window answers. None: no profile could tell."""
+    async def _web_secrets(self, browser: str, bounds: tuple[float, float, float, float]) -> WebSecrets | None:
+        """For a native capture of a browser window (L13): ask each connected profile of this browser for the
+        secret-field rects of the active tab of its window at these bounds; the profile that owns the window answers
+        (a WebSecrets). None: no profile could tell."""
         for br in list(self.hub.bridges.values()) if self.hub else []:
             if br.conn is None or br.binding.browser != browser:
                 continue
             try:
-                r = await br.call("window_password", {"bounds": list(bounds)}, timeout=4)
+                r = await br.call("window_secrets", {"bounds": list(bounds)}, timeout=4)
             except FerbError:
                 continue
             if isinstance(r, dict) and r.get("matched"):
-                p = r.get("password")
-                return p if isinstance(p, bool) else None
+                return WebSecrets.from_reply(r)
         return None
 
     async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
@@ -818,7 +818,7 @@ class Daemon:
             return self.owner_input.active()
         self.mac = MacComputerDriver(device, RealInput(owner_active, self.gui, on_wait=owner_wait,
                                                        available=available),
-                                     excluded=self.config.exclude_apps, web_password=self._web_password,
+                                     excluded=self.config.exclude_apps, web_secrets=self._web_secrets,
                                      profiles=Profiles(profiles_dir(self.home)))   # what landed per app, learned
         self.mac.snapshot_images = lambda: bool(self.config.get("mac", "snapshot_image", True))   # image + tree
         # FERB's shell and AppleScript run only inside its sandbox, built from the protection lists (S2, D27, rule

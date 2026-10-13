@@ -42,6 +42,11 @@ class NoTarget(Refused):
     """What was asked for isn't there right now (e.g. an app with no window yet); nothing was attempted."""
 
 
+class Withheld(Refused):
+    """A capture whose secret fields couldn't be painted over: only that image's pixels are withheld (L13). Every other
+    capture reaches the model masked; the message says why, never what the image showed."""
+
+
 class DriverError(FerbError):
     """A driver failed or needs an explicit route; optional facts contain observations, not command arguments."""
 

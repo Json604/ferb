@@ -3,7 +3,10 @@
 Agents decide intent and authorization. Worker questions go through the orchestrator before owner chat.
 Optional effect/why annotations never gate execution; OS and transport failures remain factual results.
 A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
-worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29).
+worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29). No image is withheld
+for what it shows (L13, D29 clarified): browser windows, tab captures and recording frames included, every image has
+its secret fields painted over where it is captured, then passes the F5 sanitizer here; only an image whose masking or
+sanitizing fails (or from a site on the owner's exclusion list) keeps facts only.
 The final checker's token is observe-only: it is offered, and may run, only capabilities marked `observation` (V3, W4).
 P19: a consequential action identical to one in the same task tree whose outcome is unknown (or that is still running)
 is refused by code, never retried on its own. The only way past is the owner's Yes to the question FERB attaches to
@@ -36,7 +39,6 @@ import logging
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -44,12 +46,10 @@ from ferb.act import aftercheck
 from ferb.act.fs import recovery
 from ferb.act.fs.files import normalize_path, owner_path, real_path as file_real_path
 from ferb.act.locks import ResourceLocks
-from ferb.act.mac.ax_browser import BROWSER_BUNDLES
 from ferb.act.shell.proxy import DEST_REFUSED_NO
-from ferb.act.mac.driver import UNTRUSTED_APPS
 from ferb.clock import context
 from ferb.core import origin
-from ferb.core.errors import NoTarget, Refused
+from ferb.core.errors import NoTarget, Refused, Withheld
 from ferb.core.interfaces import Capability, Clock
 from ferb.core.types import ToolContext, EscapeGrant
 from ferb.policy.escape import escape_key
@@ -76,12 +76,6 @@ OWNER_ASK = "owner.ask"
 CONFIRM_ASK = "ferb.confirm"             # the approval behind FERB's own question (D33): journaled apart from a worker's
 _SEND_KINDS = confirm.SEND_CLASS | {Kind.PAY}           # what the test-mode allowlist covers (calls included)
 APP_WINDOW_TIMEOUT_S = 10.0              # a first look that takes longer is dropped (logged); the call goes on
-SECRET_WITHHELD = "secret field without a maskable rect"
-RECORDING_WITHHELD = "a recording's frames: the recording file itself is the evidence"
-BROWSER_WITHHELD = "a browser window or a page with no known host: it may show the owner's own tabs"
-MESSAGES_WITHHELD = "a messaging or mail app, where one-time codes arrive: facts only until F5's screenshot redaction"
-_BROWSERS = {b.lower() for b in BROWSER_BUNDLES}
-_MESSAGE_APPS = {b.lower() for b in UNTRUSTED_APPS}
 IMAGE_FACTS = ("app", "bundle_id", "window", "title", "url", "tab", "shot", "width", "height", "window_id", "path",
                "duration_s", "sample_times_s")
 CHECKER_READ_ONLY = ("the final check is read-only: this tool acts and is not available to a checker; report what you "
@@ -150,38 +144,10 @@ def image_facts(tool: str, content: dict[str, Any]) -> dict[str, Any]:
     return facts
 
 
-def pixels_withheld(tool: str, app: str | None, read_sources: tuple[tuple[str, str], ...]) -> str | None:
-    """Why an image keeps facts only, with no pixels on disk; None keeps it. `app`: a mac.* tool's target bundle id.
-    - A recording's contact sheet: the recording file is the evidence, and its frames can show excluded pages.
-    - D29: a browser app's window, or a web source with no host: it can show the owner's own tab, excluded or private
-      (the host the exclusion list needs is unknown).
-    Mail and messaging pixels pass the shared F5 OCR sanitizer; failed sanitization still withholds the image."""
-    bundle = (app or "").lower() if tool.startswith("mac.") else ""
-    if tool.startswith("recording."):
-        return RECORDING_WITHHELD
-    if bundle in _BROWSERS or any(kind == "web" and not _host(ident) for kind, ident in read_sources):
-        return BROWSER_WITHHELD
-    return None
-
-
-def _host(url: str) -> str | None:
-    try:
-        return urlsplit(url).hostname if "://" in url else None
-    except ValueError:                                 # a malformed URL from outside content has no known host
-        return None
-
-
 def error_name(e: BaseException) -> str:
     """An error for the trace by type (and errno) only: its text can hold an absolute path."""
     errno = getattr(e, "errno", None) if isinstance(e, OSError) else None
     return type(e).__name__ + (f" (errno {errno})" if errno is not None else "")
-
-
-def shows_secret_field(content: dict[str, Any]) -> bool:
-    """A result that lists a password / code field (mac and browser snapshots mark it `sensitive`)."""
-    elements = content.get("elements")
-    return isinstance(elements, list) and any(isinstance(e, dict) and (e.get("sensitive") or e.get("secret"))
-                                              for e in elements)
 
 
 def result_origins(read_sources: tuple[tuple[str, str], ...], declared: str | None, kind: str) -> set[str]:
@@ -1255,9 +1221,7 @@ class Gateway:
             self._looked.setdefault((grant.task_id, "initial"), set()).add("provided")
             from ferb.sanitize.images import ImageRedactor
             from ferb.sanitize.redact import Redactor
-            withheld = pixels_withheld(name, spec.target.site, result.read_sources)
-            if self.excluded_host(spec.target.site or ""):
-                withheld = "excluded destination"
+            withheld = "excluded destination" if self.excluded_host(spec.target.site or "") else None
             try:
                 if withheld:
                     raise Refused(withheld)
@@ -1335,6 +1299,8 @@ class Gateway:
         except NoTarget:
             looked.clear()  # no window yet; first actual working window can still supply the initial image
             return result
+        except Withheld as e:                            # its secret fields couldn't be painted over (L13): FERB's words
+            return dataclasses.replace(result, content={**result.content, "image_withheld": str(e)})
         except Exception:
             return dataclasses.replace(result, content={**result.content, "image_withheld": "initial window capture unavailable"})
 
@@ -1438,22 +1404,17 @@ class Gateway:
     async def _keep_image(self, name: str, spec: Any, grant: RunGrant, span_id: str, content: dict[str, Any],
                           result: Any, origins: set[str]) -> dict[str, str]:
         """V1: the image a tool produced is kept as evidence the checker can re-inspect (on the owner's Mac for
-        retention.evidence_days, 7); the span's output names it. The capture floor already drops a frame showing an
-        accessibility-known password field. Facts only, no pixels: a site on the owner's exclusion list (never
-        recorded), what `pixels_withheld` names, and a result that still lists a secret field (no image-pixel box to
-        mask it with). Never fatal: the result reaches the worker anyway. The file is written in a worker thread."""
+        retention.evidence_days, 7); the span's output names it. It is the image the model got: its secret fields
+        were painted over where it was captured and it passed the F5 sanitizer (L13). Facts only, no pixels: a site on
+        the owner's exclusion list (never recorded), and an image already withheld. Never fatal: the result reaches
+        the worker anyway. The file is written in a worker thread."""
         initial = content.get("initial_image")
         facts = dict(initial) if isinstance(initial, dict) else image_facts(name, content)
         if content.get("image_withheld"):
             facts["image_withheld"] = content["image_withheld"]
         kept: bytes | None = result.image
-        withheld = pixels_withheld(name, spec.target.site, result.read_sources)
         if origin.external("web", "excluded") in origins:
             kept, facts = None, {"tool": name, "image_withheld": "a site on the owner's exclusion list"}
-        elif withheld:
-            kept, facts["image_withheld"] = None, withheld
-        elif shows_secret_field(content):
-            kept, facts["image_withheld"] = None, SECRET_WITHHELD
         try:
             kind = "app_window" if isinstance(initial, dict) and name.startswith("mac.") else evidence_kind(name)
             eid = await self.evidence.put_async(grant.task_id, span_id, kind, image=kept, data=facts,
@@ -1497,8 +1458,9 @@ class Gateway:
         """One picture of the app's window (`_look_later`). Background only: one window, never the desktop, never
         brought forward, never the worker's shot. Best effort: a failure is recorded on its own span, and a cancel
         (a stop, shutdown) finishes the span as "cancelled". Nothing to take (no screen scope, images off, a browser)
-        records nothing; no window yet (NoTarget) records nothing and leaves the first look to a later call. A refusal
-        (a password field) counts. `looked` is the worker's set, kept even after its task ended."""
+        records nothing; no window yet (NoTarget) records nothing and leaves the first look to a later call. A
+        withheld picture (its secret fields couldn't be painted over, L13) counts. `looked` is the worker's set, kept
+        even after its task ended."""
         window = self.app_window
         if window is None:
             return
@@ -1521,9 +1483,6 @@ class Gateway:
                 origins = without_excluded_hosts(result_origins(shot.read_sources, None, Kind.READ),
                                                  self.excluded_host)
                 facts, image = dict(shot.facts), shot.image
-                withheld = pixels_withheld(name, app, shot.read_sources)
-                if withheld:                                        # second layer: the capture helper drops these too
-                    facts["image_withheld"], image = withheld, None
                 if image is not None:
                     from ferb.sanitize.images import ImageRedactor
                     image = await asyncio.to_thread(ImageRedactor(self.redact), image, shot.rects)

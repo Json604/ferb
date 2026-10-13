@@ -74,25 +74,26 @@ def test_known_secret_does_not_make_depth_truncated_inventory_complete(monkeypat
     assert not shots.captured
 
 
-def test_a_browser_tab_the_extension_reports_with_a_password_field_drops_the_frame(
+def test_a_browser_tab_the_extension_reports_with_a_password_field_is_painted_not_dropped(
         monkeypatch: pytest.MonkeyPatch) -> None:
+    """L13: the frame is captured with the page's secret fields painted over (tests/test_pixels_to_model.py has the
+    pixels); only browsers are asked, before and after the capture; no profile that can tell: the AX inventory alone."""
+    from ferb.act.mac.driver import WebSecrets
+    from tests.support.images import solid_jpeg
     d, ax, shots, *_ = vision(monkeypatch)
-    answers: list[bool | None] = []
+    shots.jpeg = solid_jpeg(*IMG)
+    ax.tree = AxTree(secret_rects=[], web_areas=[(100.0, 130.0, 800.0, 520.0)])
+    answers: list[Any] = []
     asked: list[tuple[str, Any]] = []
 
-    async def web(browser: str, bounds: Any) -> bool | None:
+    async def web(browser: str, bounds: Any) -> Any:
         asked.append((browser, bounds))
         return answers.pop(0) if answers else None
-    d.web_password = web
-    answers[:] = [True]
-    with pytest.raises(Refused, match="password"):
-        asyncio.run(d.screenshot("Brave"))
-    assert shots.captured == [] and asked == [("brave", BOUNDS)]
-    answers[:] = [False, True]                                           # appeared while capturing
-    with pytest.raises(Refused, match="password"):
-        asyncio.run(d.screenshot("Brave"))
-    answers[:] = [None, None]                                            # no profile could tell: captured
-    asyncio.run(d.screenshot("Brave"))
+    d.web_secrets = web
+    answers[:] = [WebSecrets(((20.0, 40.0, 100.0, 20.0),), (800.0, 520.0), True)] * 2
+    _, _, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert shots.captured == [120] and asked == [("brave", BOUNDS)] * 2 and jpeg != shots.jpeg
+    asyncio.run(d.screenshot("Brave"))                                   # no profile could tell: captured
     asked.clear()
     asyncio.run(d.screenshot("Notes"))
     assert asked == []                                                   # only browsers are asked

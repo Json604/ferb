@@ -111,14 +111,17 @@ def test_window_recording_stays_on_observed_window_without_invalidating_pointer(
     asyncio.run(check())
 
 
-def test_window_recording_drops_frame_if_password_appears_during_capture(monkeypatch):
+def test_window_recording_withholds_a_frame_whose_new_password_field_has_no_box(monkeypatch):
+    """L13: a field that appears while capturing is painted over from the walk after it; one with no box to paint
+    withholds that frame (tests/test_pixels_to_model.py: frames are masked, and the recording goes on)."""
+    from ferb.core.errors import Withheld
     from tests.mackit import vision
     d, ax, shots, *_ = vision(monkeypatch)
     async def check():
         _, shot, _ = await d.screenshot('Notes')
         _, capture = d.recording_source('Notes', shot.id)
         ax.secure = [False, True]
-        with pytest.raises(Refused, match='password'):
+        with pytest.raises(Withheld, match='inventory'):
             await capture()
     asyncio.run(check())
 
@@ -140,32 +143,16 @@ def test_window_recording_withholds_unknown_secret_inventory(monkeypatch, unknow
 def test_extension_record_frame_preserves_action_references_and_never_activates():
     out = worker('''(async () => {
       attach = async id => tabState(id);
-      recordingState = async id => [{frameId:0, documentId:'doc', secret:false, complete:true}];
+      maskState = async id => ({documents: [[0, 'doc']], rects: [], viewport: [100, 50]});
       let calls = []; cdp = async (id, method, args) => {calls.push({id,method,args}); return {data:'jpeg'};};
       const st = tabState(19); st.visual = {snap:7}; st.shot = 'other screenshot';
       const frame = await commands.record_frame({tab_id:19});
       return {frame,calls,visual:st.visual,shot:st.shot};
     })()''')
-    assert out['frame']['data'] == 'jpeg'
+    assert out['frame'] == {'data': 'jpeg', 'mask': {'rects': [], 'viewport': [100, 50]}}
     assert out['visual'] == {'snap':7} and out['shot'] == 'other screenshot'
     assert out['calls'] == [{'id':19, 'method':'Page.captureScreenshot',
                             'args':{'format':'jpeg','quality':70,'fromSurface':True,'captureBeyondViewport':False}}]
-
-
-@pytest.mark.parametrize('failure', ['secret','incomplete','navigation'])
-def test_extension_record_frame_drops_unsafe_or_changed_capture(failure):
-    out = worker('''(async () => {
-      attach = async id => tabState(id); let reads=0, captures=0;
-      recordingState = async () => {
-        reads++; return [{frameId:0, documentId: CASE==='navigation' && reads>1 ? 'new':'doc',
-           secret:CASE==='secret' && reads>1, complete:CASE!=='incomplete'}];
-      };
-      cdp = async () => {captures++; return {data:'must not escape'};};
-      try {return await commands.record_frame({tab_id:19});}
-      catch(e) {return {error:e.message,captures};}
-    })()'''.replace('CASE',json.dumps(failure)))
-    assert 'error' in out and 'data' not in out
-    assert out['captures'] == (0 if failure=='incomplete' else 1)
 
 
 def test_cleanup_stops_recording_before_releasing_browser():
@@ -194,7 +181,8 @@ def test_browser_recording_source_preserves_refs_and_checks_ownership():
     from unittest.mock import AsyncMock
     import base64
     ref = TabRef('device','brave','Default',1,'t1')
-    bridge = SimpleNamespace(gen=1, conn=object(), call=AsyncMock(return_value={'data':base64.b64encode(b'target pixels').decode()}))
+    bridge = SimpleNamespace(gen=1, conn=object(), call=AsyncMock(return_value={
+        'data': base64.b64encode(b'target pixels').decode(), 'mask': {'rects': [], 'viewport': [100, 50]}}))
     tab = _Tab(ref,bridge,19,'task','https://example.test',snap_gen=3,visual=('keep',))
     d = _TabDriver(None,lambda:[]); d._tabs['t1'] = tab
     target,capture=d.recording_source(ref,'task')
@@ -208,7 +196,7 @@ def test_browser_recording_source_preserves_refs_and_checks_ownership():
 def test_extension_recording_chunks_do_not_consume_click_screenshot():
     out=worker('''(async () => {
       attach=async id=>tabState(id);
-      recordingState=async()=>[{frameId:0,documentId:'doc',complete:true,secret:false}];
+      maskState=async()=>({documents:[[0,'doc']],rects:[],viewport:[100,50]});
       cdp=async()=>({data:'x'.repeat(SHOT_PART+10)});
       const st=tabState(8); st.shot='click image';
       const start=await commands.record_frame({tab_id:8});
@@ -220,16 +208,20 @@ def test_extension_recording_chunks_do_not_consume_click_screenshot():
     assert out == {'parts':2,'size':out['expected'],'expected':out['expected'],'wrong':True,'shot':'click image','cleared':True}
 
 
-def test_recording_frame_inventory_requires_every_embedded_frame():
+def test_recording_frame_masks_cover_every_embedded_frame():
+    """An embedded frame that can't be read (not loaded yet, or out of the extension's reach) is painted whole: its
+    content is never in a frame unmasked (L13; formerly the whole frame was dropped)."""
     out=worker('''(async()=>{
       inject=async()=>{};
-      let rows=[{frameId:0,result:{documentId:'top',frames:1,complete:true,secret:false}}];
+      let rows=[{frameId:0,result:{documentId:'top',viewport:[100,100],rects:[],
+        frames:[{frame_id:2,rect:[10,10,20,20],inner:[10,10],scaled:false}]}}];
       chrome.scripting={executeScript:async()=>rows};
-      let missing; try{await recordingState(9);}catch(e){missing=e.message;}
-      rows.push({frameId:2,result:{documentId:'child',frames:0,complete:true,secret:false}});
-      return {missing,complete:await recordingState(9)};
+      const unread=await maskState(9);
+      rows.push({frameId:2,result:{documentId:'child',viewport:[20,20],rects:[],frames:[]}});
+      return {unread,read:await maskState(9)};
     })()''')
-    assert 'incomplete' in out['missing'] and len(out['complete'])==2
+    assert out['unread']['rects'] == [[10,10,20,20]] and out['read']['rects'] == []
+    assert [d[0] for d in out['read']['documents']] == [0,2]
 
 
 def test_restarted_app_cannot_reuse_old_recording_selection(monkeypatch):

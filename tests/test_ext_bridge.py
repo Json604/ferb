@@ -481,16 +481,21 @@ def test_worker_keeps_the_new_key_and_orders_seqs_when_sends_race_the_paired_rep
     assert [m["seq"] for m in after] == list(range(1, len(after) + 1)), after
 
 
-def test_the_profile_that_owns_a_window_says_whether_its_tab_has_a_password_field(bd: Any) -> None:
-    """Step 9 screenshot check (9.4 window_password): every connected profile of that browser is asked; only the
-    one whose window has exactly those bounds answers; nobody matching means "can't tell"."""
+def test_the_profile_that_owns_a_window_gives_its_tabs_secret_field_rects(bd: Any) -> None:
+    """A native capture of a browser window (L13, window_secrets): every connected profile of that browser is asked;
+    only the one whose window has exactly those bounds answers, with its active tab's secret-field rects; nobody
+    matching means "can't tell"."""
+    from ferb.act.mac.driver import WebSecrets
     d, launched = bd
     work, personal = pair(d, launched, "Work"), pair(d, launched, "Personal")
-    personal.windows[(10, 20, 800, 600)] = True
-    work.windows[(0, 0, 500, 400)] = False
-    ask = d.daemon._web_password
-    assert d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0))) is True
-    assert d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0))) is False
+    personal.windows[(10, 20, 800, 600)] = [[20, 40, 100, 20]]
+    work.windows[(0, 0, 500, 400)] = []
+    work.windows[(5, 5, 300, 200)] = None
+    ask = d.daemon._web_secrets
+    assert d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0))) == WebSecrets(((20.0, 40.0, 100.0, 20.0),),
+                                                                          (1280.0, 900.0), True)
+    assert d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0))) == WebSecrets((), (1280.0, 900.0), True)
+    assert d.run(ask("chrome", (5.0, 5.0, 300.0, 200.0))) == WebSecrets()     # its page can't be read
     assert d.run(ask("chrome", (1.0, 1.0, 5.0, 5.0))) is None
     assert d.run(ask("brave", (10.0, 20.0, 800.0, 600.0))) is None
 

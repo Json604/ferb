@@ -11,7 +11,13 @@ without clipping. Protocol 12 marks secret fills unknown when input began but a 
 so P19 requires reconciliation or owner-approved retry rather than treating partial input as a known failure.
 Protocol 13 adds caller-selected exact split-code fields to sealed fill; older extensions must not ignore the group.
 Protocol 14 adds `media` (L26): play/pause/mute/unmute/seek one video/audio element of the latest snapshot through the
-content script, and each snapshot frame lists its media elements' state."""
+content script, and each snapshot frame lists its media elements' state.
+
+Protocol 14 (L13) stops refusing captures of pages with secret fields: `screenshot` and `record_frame` return the
+picture with a `mask` (every secret field's rect, top-viewport CSS px) that the daemon paints over before anything else
+sees it, or `withheld` when the rects can't be known; `window_secrets` (was `window_password`) returns those rects for
+the active tab of a window a native capture shows. An older daemon would pass such a picture on unpainted, and a newer
+one can't mask an older extension's, so neither side accepts the other."""
 
 import base64
 import hashlib
@@ -28,7 +34,7 @@ MAX_MESSAGE = 1024 * 1024                      # same cap as the daemon socket
 
 ExtType = Literal["hello", "pair", "result", "error", "tab_event", "event"]
 Op = Literal["open", "navigate", "close", "list_tabs", "snapshot", "act", "wait", "screenshot", "screenshot_part", "record_frame",
-             "wake_close", "frame_origin", "fill", "read_source", "window_password", "scroll", "find",
+             "wake_close", "frame_origin", "fill", "read_source", "window_secrets", "scroll", "find",
              "upload", "result_part", "command_part", "dialog", "ping", "point", "pointer", "pointer_cancel", "release_tab",
              "download_part", "disarm", "open_plain", "popup_ready", "open_seen", "media"]
 

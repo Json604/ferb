@@ -391,7 +391,8 @@ class BrowserScreenshot(_Base):
     verb = "screenshot"
     observation = True                                 # only reads: the final checker may use it (V3, W4)
     blurb = ("See this exact task tab as an image. Use when the AX/DOM snapshot misses a visible control. "
-             "Returns a shot id for {p}_point. Sensitive fields and incomplete inventories block capture.")
+             "Returns a shot id for {p}_point. Password and code fields are painted over; the image is withheld "
+             "only when they can't be located.")
     Input = _Tab
 
     def describe(self, args: BaseModel) -> ActionSpec:
