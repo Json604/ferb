@@ -7,6 +7,10 @@ from ferb.orchestrator.plans import Plan
 from ferb.store.db import Database
 
 
+# Where a replaced plan's finished results stay (L11): a step-row prefix no planner step id carries (ids are slugs).
+EARLIER = 'earlier plan: '
+
+
 class PlanStore:
     def __init__(self, db: Database, redact: Callable[[Any], Any]) -> None:
         self.db, self.redact = db, redact
@@ -54,13 +58,30 @@ class PlanStore:
             self.db.conn.execute("UPDATE task_plans SET status='running', approved=0 WHERE task_id=?", (task_id,))
 
     def replace(self, task_id: str, plan: Plan) -> None:
-        """A follow-up with a new goal brought its own plan for this ended task (L11): the new plan's steps start
-        fresh, so a finished step of the old plan never stands in for a new step with the same id. The task's other
-        records (its action ledger, spans and evidence) stay. Like reopen, a send plan must be approved again."""
+        """A follow-up with a new goal brought its own plan for this ended task (L11). A finished step the new plan
+        keeps unchanged (same id and definition) stays done, so it is never redone; the old plan's other finished
+        results are kept as data under EARLIER (see earlier()), and its unfinished steps are dropped, so a new step
+        with a reused id starts fresh. The task's action ledger, spans and evidence stay. Like reopen, a send plan
+        must be approved again."""
+        kept = {step.id for step in plan.steps if step in self.load(task_id)['plan'].steps}
         with self.db.conn:
-            self.db.conn.execute('DELETE FROM plan_steps WHERE task_id=?', (task_id,))
+            for key, state in self.steps(task_id).items():
+                if key.startswith(EARLIER) or (key.split(':', 1)[0] in kept and state['status'] == 'done'):
+                    continue
+                if state['status'] == 'done':
+                    self.db.conn.execute('DELETE FROM plan_steps WHERE task_id=? AND step_id=?',
+                                         (task_id, EARLIER + key))
+                    self.db.conn.execute('UPDATE plan_steps SET step_id=? WHERE task_id=? AND step_id=?',
+                                         (EARLIER + key, task_id, key))
+                else:
+                    self.db.conn.execute('DELETE FROM plan_steps WHERE task_id=? AND step_id=?', (task_id, key))
             self.db.conn.execute("UPDATE task_plans SET plan=?, status='running', approved=0 WHERE task_id=?",
                                  (self._json(plan.model_dump()), task_id))
+
+    def earlier(self, task_id: str) -> dict[str, Any]:
+        """Results of an earlier plan's finished steps that a replacing plan didn't keep, by their old step id."""
+        return {key[len(EARLIER):]: state['output'] for key, state in self.steps(task_id).items()
+                if key.startswith(EARLIER)}
 
     def pending(self) -> list[str]:
         return [r[0] for r in self.db.conn.execute("SELECT task_id FROM task_plans WHERE status IN ('running','suspended','steps_done')")]

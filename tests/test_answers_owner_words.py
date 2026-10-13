@@ -18,6 +18,7 @@ from ferb.act.shell.manager import ProcInfo
 from ferb.core.types import RuntimeEvent
 from ferb.orchestrator.plans import Plan, Step
 from tests.conftest import FakeRuntime, RunningDaemon, chat, cond, done, install, outcome, sup, task
+from datetime import timedelta
 
 FINDING = ('Recorded step results state that before your correction FERB used the existing playing YouTube tab '
            'instead of opening a new one.')
@@ -116,6 +117,27 @@ def test_a_worker_report_failure_never_shows_an_exception_name(daemon: RunningDa
     assert final['status'] == 'failed'
     for name in ('JSONDecodeError', 'ValueError', 'ValidationError', 'runtime'):
         assert name not in final['display_text'] and name not in final['answer']
+
+
+def test_a_runtime_stop_is_told_in_plain_words(daemon: RunningDaemon) -> None:
+    install(daemon, [sup('task', 'Booking.', task('book the table'))],
+            {'worker': RuntimeEvent('violation', {'unexpected_tools': ['mcpToolCall']})})
+    final = outcome(chat(daemon, 'book the table'))
+    for text in (final['display_text'], final['answer']):
+        assert 'runtime' not in text and 'unexpected_tools' not in text and 'mcpToolCall' not in text
+
+
+def test_a_failed_check_keeps_its_failure_for_the_orchestrator(daemon: RunningDaemon) -> None:
+    """The checker's own failure is worded as a check, and its exact detail still reaches the orchestrator."""
+    script = install(daemon, [sup('task', 'On it.', task('write the report'))],
+                     {'worker': _worker('The report is written.', 'Report ready.'), 'worker.verify': 'not a verdict',
+                      'worker.dispatch': _dispatch('finish', 'I wrote the report but couldn\'t check it.',
+                                                   instructions='Stop here.', result='failed')})
+    final = outcome(chat(daemon, 'write the report'))
+    assert all(v['evidence'].startswith("The check couldn't finish: ") for v in final['verification'])
+    findings = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker.dispatch').split('Inspection findings')[1]
+    assert 'Expecting value' in findings                               # the exact failure, for recovery
+    assert 'Expecting value' not in final['display_text']
 
 
 def test_an_interrupted_task_says_so_in_plain_words(daemon: RunningDaemon) -> None:
@@ -219,6 +241,93 @@ def test_continue_toward_the_same_goal_in_new_words_reopens_the_saved_plan(daemo
     assert second['task_id'] == tree and second['goal'] == OLD_GOAL
 
 
+def test_a_plan_whose_step_failed_ends_as_failed_not_as_a_crash(daemon: RunningDaemon) -> None:
+    """Found while building the next test: a plan left blocked by a failed step reported "blocked" as the task's
+    status, which the task records refuse, so the owner got "Sorry — something went wrong" instead of an answer."""
+    old = task(OLD_GOAL)
+    old['plan'] = Plan(steps=[Step(id='submit', kind='do', goal='Submit the application')]).model_dump()
+    install(daemon, [sup('task', 'Submitting.', old)], {'step.submit': json.dumps(
+        {'status': 'blocked', 'summary': 'The submit button was disabled.', 'artifacts': [], 'evidence': []})})
+    final = outcome(chat(daemon, 'submit the application'))
+    assert final['status'] == 'failed'
+
+
+def test_a_new_goal_without_a_plan_never_reruns_the_old_plan_s_unfinished_steps(daemon: RunningDaemon) -> None:
+    """[fill done, submit blocked] + "don't submit it, just rewrite the origins field" (new goal, no plan): one worker
+    runs the new goal in the same task, with the old steps' results as data; the unfinished submit never runs."""
+    old = task(OLD_GOAL)
+    old['plan'] = Plan(steps=[Step(id='fill', kind='do', goal='Fill the Origins field'),
+                              Step(id='submit', kind='do', goal='Submit the application', depends_on=['fill'])]
+                       ).model_dump()
+    blocked = json.dumps({'status': 'blocked', 'summary': 'The submit button was disabled.', 'artifacts': [],
+                          'evidence': []})
+    install(daemon, [sup('task', 'Filling it in.', old)],
+            {'step.fill': done('Filled the Origins field.'), 'step.submit': blocked, 'worker': done('Filled.')})
+    tree = outcome(chat(daemon, 'fill the Origins field and submit', session='origins'))['task_id']
+    script = install(daemon, [_continue(tree, NEW_GOAL, True)], {'worker': done('Rewrote the Origins field.'),
+                                                                 'step.submit': done('Submitted.')})
+    second = outcome(chat(daemon, "don't submit it, just rewrite the origins field", session='origins'))
+    assert second['task_id'] == tree
+    assert not any(key.startswith('step.') for _, key, _, _ in script.contexts)
+    context = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker')
+    assert 'Filled the Origins field.' in context and 'The submit button was disabled.' in context
+
+    async def pending() -> list[str]:
+        return daemon.daemon.supervisor.plans.pending()
+    assert tree not in daemon.run(pending())                         # a restart never resumes the old plan either
+
+
+def test_a_new_plan_keeps_an_unchanged_finished_step_and_shows_the_others_as_data(daemon: RunningDaemon) -> None:
+    """A finished send that the new plan keeps unchanged isn't redone and stays visible; a finished step the new plan
+    drops is handed to the new steps as data."""
+    old = task(OLD_GOAL)
+    send = Step(id='send', kind='do', goal='Send the application to admissions')
+    old['plan'] = Plan(steps=[Step(id='fill', kind='do', goal='Fill the Origins field'), send]).model_dump()
+    install(daemon, [sup('task', 'Filling it in.', old)],
+            {'step.fill': done('Filled the Origins field.'), 'step.send': done('Sent the application.'),
+             'worker': done('Filled and sent.')})
+    tree = outcome(chat(daemon, 'fill the Origins field and send it', session='origins'))['task_id']
+    plan = Plan(steps=[send, Step(id='note', kind='do', goal='Write a note about the Origins wording')])
+    script = install(daemon, [_continue(tree, NEW_GOAL, True, plan)],
+                     {'step.note': done('Wrote the note.'), 'step.send': done('Sent again.'), 'worker': done('Done.')})
+    second = outcome(chat(daemon, 'now write a note about the wording', session='origins'))
+    assert second['task_id'] == tree
+    assert not any(key == 'step.send' for _, key, _, _ in script.contexts)          # the finished send isn't redone
+    note = next(ctx for _, key, ctx, _ in script.contexts if key == 'step.note')
+    assert 'Filled the Origins field.' in note                                    # the dropped step's result, as data
+    final = next(ctx for _, key, ctx, _ in script.contexts if key == 'worker')
+    assert 'Sent the application.' in final
+
+
+def test_continue_without_a_new_goal_on_a_task_without_a_plan_stays_in_that_task(daemon: RunningDaemon) -> None:
+    install(daemon, [sup('task', 'Starting.', task('send the application on shop.example', 'owner'))],
+            {'worker': json.dumps({'status': 'needs_user', 'summary': 'Login required', 'artifacts': [],
+                                   'evidence': []})})
+    tree = outcome(chat(daemon, 'send the application', session='apply'))['task_id']
+
+    async def lost() -> None:
+        assert daemon.daemon.ledger is not None
+        intent = daemon.daemon.ledger.intend(tree + '.worker', 'browser.act', {'site': 'shop.example'}, 'sent')
+        daemon.daemon.ledger.mark(intent.id, 'unknown')
+    daemon.run(lost())
+    refusals: list[Any] = []
+
+    def worker(token: str) -> str:
+        grant = daemon.daemon.tokens.validate(token)
+
+        async def check() -> Any:
+            assert daemon.daemon.ledger is not None
+            return daemon.daemon.ledger.refusal(grant.task_id, 'browser.act', 'sent')
+        refusals.append(daemon.run(check()))
+        return done('Logged in and checked the application.')
+
+    install(daemon, [_continue(tree, 'carry on with the application', False)], {'worker': worker})
+    second = outcome(chat(daemon, 'I logged in, carry on', session='apply'))
+    assert second['task_id'] == tree
+    assert second['goal'].startswith('send the application on shop.example')
+    assert refusals and refusals[0] is not None                                   # P19 follows the task
+
+
 def test_a_new_goal_with_its_own_plan_runs_that_plan_in_the_same_task(daemon: RunningDaemon) -> None:
     """A step of the new plan runs even when a finished step of the old plan had the same id."""
     tree = _filled_origins(daemon)
@@ -313,6 +422,17 @@ def test_a_clarify_question_is_kept_without_code_lines(daemon: RunningDaemon) ->
     assert daemon.run(asked()) == 'Which gate?'                         # the question an answer continues
 
 
+@pytest.mark.parametrize('quote, line', [('every day at 9 write report.md', '🗓 scheduled ('),
+                                         ('words the owner never said', "I couldn't set that up")])
+def test_a_schedule_is_stated_by_code_in_the_reply(daemon: RunningDaemon, quote: str, line: str) -> None:
+    from tests.support.schedules import schedule_reply
+    install(daemon, [schedule_reply(daemon, 'write report.md', quote,
+                                    daemon.daemon.clock.now() + timedelta(minutes=5), repeat='daily')])
+    reply = next(e for e in chat(daemon, 'every day at 9 write report.md') if e['type'] == 'reply')
+    lines = reply['text'].split('\n')
+    assert lines[0] == 'Scheduled.' and len(lines) == 2 and lines[1].startswith(line)
+
+
 # ---------- (e) reminder provenance: the owner's words in this chat ----------
 
 def test_a_reminder_asked_for_in_an_earlier_message_of_the_same_chat_is_set(daemon: RunningDaemon) -> None:
@@ -351,10 +471,48 @@ def test_an_earlier_message_authorizes_its_reminder_once(daemon: RunningDaemon, 
         elif then == 'delivered':
             daemon.daemon.db.conn.execute("UPDATE timers SET state = 'delivered' WHERE id = ?", (timer_id,))
     daemon.run(change())
+    async def fire_at() -> str:
+        timer = daemon.daemon.timers.get(timer_id)
+        assert timer is not None
+        return f'{timer.fire_at.astimezone():%a %d %b %H:%M}'
+    when = daemon.run(fire_at())
     install(daemon, [_reply_with_timer('set a timer for 8:20')])
     reply = next(e for e in chat(daemon, 'did you set the boarding timer?', session='boarding') if e['type'] == 'reply')
     assert len(_reminders(daemon)) == 1
-    assert "I couldn't set the reminder “boarding starts at 8.25”" in reply['text']
+    told = reply['text'].split('\n')[-1]
+    assert told == {'pending': f'⏰ The reminder “boarding starts at 8.25” is already set for {when}.',
+                    'cancelled': f'⏰ The reminder “boarding starts at 8.25” for {when} was cancelled; I didn\'t set it '
+                                 'again.',
+                    'delivered': f'⏰ The reminder “boarding starts at 8.25” already went off ({when}).'}[then]
+
+
+def test_an_overlapping_quote_from_the_same_message_is_the_same_reminder(daemon: RunningDaemon) -> None:
+    install(daemon, [_reply_with_timer('set a timer for 8:20')])
+    chat(daemon, 'set a timer for 8:20, the boarding starts at 8.25', session='boarding')
+    install(daemon, [_reply_with_timer('timer for 8:20')])
+    chat(daemon, 'did you set it?', session='boarding')
+    assert len(_reminders(daemon)) == 1
+
+
+def test_two_distinct_reminders_from_one_earlier_message_are_both_set(daemon: RunningDaemon) -> None:
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Noted.', 'remember': [], 'timers': []})])
+    chat(daemon, 'remind me in 10 minutes to stretch and remind me in 10 minutes to drink water', session='water')
+    install(daemon, [json.dumps({'kind': 'reply', 'text': 'Okay.', 'remember': [], 'timers': [
+        {'when': _in_minutes(10), 'message': 'stretch', 'quote': 'remind me in 10 minutes to stretch'},
+        {'when': _in_minutes(10), 'message': 'drink water', 'quote': 'remind me in 10 minutes to drink water'}]})])
+    chat(daemon, 'did you set those?', session='water')
+    assert len(_reminders(daemon)) == 2
+
+
+def test_a_clarified_message_authorizes_its_reminder_once_too(daemon: RunningDaemon) -> None:
+    """The answer to FERB's question carries the earlier message's words; they stay that message's, used once."""
+    install(daemon, [sup('clarify', 'Morning or evening?')])
+    chat(daemon, 'set a timer for 8:20 for boarding', session='boarding')
+    install(daemon, [_reply_with_timer('set a timer for 8:20')])
+    chat(daemon, 'evening', session='boarding')
+    install(daemon, [_reply_with_timer('set a timer for 8:20')])
+    chat(daemon, 'is it set?', session='boarding')
+    assert len(_reminders(daemon)) == 1
 
 
 def test_a_recovered_reminder_is_not_set_twice(daemon: RunningDaemon) -> None:
@@ -488,7 +646,7 @@ def test_the_answer_prompts_require_the_question_as_asked_and_no_internal_terms(
 
 
 def test_the_planner_is_not_told_to_confirm_a_reminder_it_cannot_know_was_set() -> None:
-    assert 'Reply confirming it' not in _prompt('supervisor.md')
+    assert 'Reply confirming' not in _prompt('supervisor.md')        # reminders and schedules alike
 
 
 def _in_minutes(n: int) -> dict[str, Any]:

@@ -120,6 +120,16 @@ def _not_set(messages: list[str]) -> str:
             f"is scheduled for {it}. Could you ask again?")
 
 
+def _already_set(timer: Any) -> str:
+    """What exists for a reminder its message already had set (L11): no "ask again", since nothing went wrong."""
+    what, at = _quoted([timer.message]), f"{timer.fire_at.astimezone():%a %d %b %H:%M}"
+    if timer.state == "cancelled":
+        return f"⏰ The reminder {what} for {at} was cancelled; I didn't set it again."
+    if timer.state == "delivered":
+        return f"⏰ The reminder {what} already went off ({at})."
+    return f"⏰ The reminder {what} is already set for {at}."
+
+
 def _not_saved(contents: list[str]) -> str:
     """The one line saying which memory writes code refused (L11); "" when none."""
     if not contents:
@@ -319,25 +329,30 @@ class Supervisor(WorkerRuns):
         return build_availability(set().union(*(c.scopes for c in self.gateway.caps.values())), {})
 
     def _set_timers(self, items: list[Any], said: list[tuple[str, str]],
-                    request_id: str) -> tuple[list[Any], list[str]]:
+                    request_id: str) -> tuple[list[Any], list[str], list[Any]]:
         """Reminders the owner asked for in chat: kept only when the quote is within one of the owner's own messages
         and the time is in the future. `said`: (request id, the owner's words, never pasted text) of the current
         message first, then this chat's earlier messages, newest first. An earlier message authorizes its reminder
-        once (L11): a reminder already set from it for the same words, in any state, refuses another. Each reminder
-        records the request that asked for it. Returns the reminders set and the messages of those refused."""
+        once (L11): a reminder already set from it for the same words (one quote within the other), in any state,
+        refuses another. Each reminder records the request that asked for it. Returns the reminders set, the messages
+        of those refused for a problem, and the reminders that already existed for the others."""
         if self.timers is None:
-            return [], [str(it.message) for it in items]
+            return [], [str(it.message) for it in items], []
         out: list[Any] = []
         refused: list[str] = []
+        existing: list[Any] = []
         for it in items:
             quote = " ".join(str(it.quote).lower().split())
             try:
                 asked = [source for source, words in said if quote and quote in " ".join(words.lower().split())]
                 if not asked:
                     raise ValueError("the reminder isn't in the owner's own words")
-                source = next((s for s in asked if s == request_id or not self._reminder_used(s, quote)), None)
-                if source is None:
-                    raise ValueError("the message that asked for this reminder already had it set")
+                found = {s: None if s == request_id else self._reminder_set(s, quote) for s in asked}
+                source = next((s for s in asked if found[s] is None), None)
+                if source is None:                     # each message that asked for it already had it set
+                    self.journal.append("timer.refused", {"why": "already set from that message"})
+                    existing.append(found[asked[0]])
+                    continue
                 at = when.resolve(it.when, self.clock.now())                     # code computes the date, not the model
                 t = self.timers.add("reminder", at, it.message, request_id=source)
                 self.journal.append("timer.set", {"timer_id": t.id, "request_id": source, "quote": quote,
@@ -347,16 +362,21 @@ class Supervisor(WorkerRuns):
                 refused.append(str(it.message))
                 continue
             out.append(t)
-        return out, refused
+        return out, refused, existing
 
-    def _reminder_used(self, source: str, quote: str) -> bool:
-        """Whether a reminder was already set from request `source` for these words, whatever became of it (pending,
-        cancelled, delivered). One set before FERB recorded the words counts for any words."""
-        quoted = {e.data.get("timer_id"): e.data.get("quote")
+    def _reminder_set(self, source: str, quote: str) -> Any:
+        """The reminder already set from request `source` for these words, whatever became of it (pending, cancelled,
+        delivered), else None. Words one of which contains the other are the same reminder; one set before FERB
+        recorded its words counts for any words."""
+        quoted = {e.data.get("timer_id"): str(e.data.get("quote") or "")
                   for e in self.journal.of_kind("timer.set", "request_id", source)}
-        rows = self.timers.db.conn.execute("SELECT id FROM timers WHERE kind = 'reminder' AND request_id = ?",
-                                           (source,))
-        return any(quoted.get(row["id"], quote) == quote for row in rows)
+        rows = self.timers.db.conn.execute("SELECT id FROM timers WHERE kind = 'reminder' AND request_id = ? "
+                                           "ORDER BY created_at", (source,))
+        for row in rows:
+            earlier = quoted.get(row["id"])
+            if earlier is None or earlier in quote or quote in earlier:
+                return self.timers.get(row["id"])
+        return None
 
     def _owner_words_in_chat(self, session_id: str, current: str) -> list[tuple[str, str]]:
         """(request id, the owner's own words) of each earlier message in this chat, newest first (MP2): only messages
@@ -681,32 +701,44 @@ class Supervisor(WorkerRuns):
                 self._env.pop(request_id, None)
                 return
             prior_spec, prior_request, prior_state = prior
-            # Carried on in place, so completed work, uncertain effects (P19's repeat check is per tree), the task's
-            # history and its sites stay the same records:
-            # - a continue the planner marked as a new goal (L11, ef9e5d75): its spec replaces the saved one and is
-            #   planned afresh; the saved plan resumes when the follow-up brings it unchanged or none, and a new plan
-            #   replaces it;
-            # - a saved plan the follow-up doesn't change, even when the planner supplies a generic retry task.
+            # Carried on in place (resume_id), so completed work, uncertain effects (P19's repeat check is per tree),
+            # the task's history and its sites stay the same records (L11):
+            # - a continue with a new goal (the planner's control.new_goal; ef9e5d75): the planner's spec replaces the
+            #   saved one. The saved plan reopens only when the new spec carries it unchanged; a new plan replaces it
+            #   (finished steps it keeps unchanged stay done, the others' results become its data); with no plan, one
+            #   worker runs the new goal with the old steps' results as data, and none of those steps runs again;
+            # - any other continue: the saved goal and plan resume, however the planner worded the goal;
+            # - a retry keeps the saved plan's tree when the planner's task leaves that plan as it was.
             if control.action == 'continue' and control.new_goal and out.task is not None:
                 resumed = out.task
                 resumed.goal += (f"\nEarlier goal of this task: {prior_spec.goal}\n"
                                  f"Last recorded result (verify afresh): {prior_state}")
-                if prior_spec.plan is not None and resumed.plan in (None, prior_spec.plan):
-                    resumed.plan = prior_spec.plan
+                if prior_spec.plan is not None and resumed.plan == prior_spec.plan:
                     self.plans.reopen(control.task_id)
                 elif prior_spec.plan is not None and resumed.plan is not None:
                     self.plans.replace(control.task_id, resumed.plan)
+                elif prior_spec.plan is not None:
+                    self.plans.set_status(control.task_id, 'replaced')    # never resumed, now or after a restart
+            elif control.action == 'continue':
+                resumed = prior_spec.model_copy(deep=True)
+                if prior_spec.plan is not None:
+                    self.plans.reopen(control.task_id)
+                else:
+                    resumed.goal += f"\nLast recorded result (verify afresh): {prior_state}"
             elif prior_spec.plan is not None and (out.task is None or out.task.plan is None or
                                                   out.task.plan == prior_spec.plan):
                 resumed = prior_spec
                 self.plans.reopen(control.task_id)
             if resumed is not None:
+                words = prior_request.words + "\n" + words
                 continued = Request(request_id, prior_request.words + "\n" + authority, self._targets(resumed),
                                     payload=prior_request.payload + "\n\nOwner follow-up:\n" + payload)
                 self.state.requests.record(continued)
                 resumed_payload = continued.payload
                 turn_origins = turn_origins | self.spans.task_origins(control.task_id)
                 self._env[request_id]['message_origin'] |= self.spans.request_origins(control.task_id)
+                self._env[request_id].update({**(await _value(self.environment(words))), "words": words,
+                                              "payload": resumed_payload})
             else:
                 turn_origins = turn_origins | self.spans.task_origins(control.task_id) | \
                     self._request_origins(prior_request.request_id)   # the retry carries the earlier request and result
@@ -745,12 +777,14 @@ class Supervisor(WorkerRuns):
         self._env[request_id]["intake_receipts"] = receipts
         for receipt in receipts:             # the owner's words, quote-checked
             yield {"type": "memory", "text": receipt}
+        changed: list[str] = []          # code's own lines about cancelled reminders and schedules
         for rc in out.reminder_cancels:                        # before new ones: a corrected date replaces the old
-            yield {"type": "timer", "text": self.on_reminder_cancel(rc, typed)}
+            changed.append(self.on_reminder_cancel(rc, typed))
+            yield {"type": "timer", "text": changed[-1]}
         # A reminder's quote may come from the current message or, once, from an earlier owner message of this chat
         # (L11: the 19:52 boarding timer recovered at 20:10).
-        said = [(request_id, typed), *self._owner_words_in_chat(session_id, request_id)] if out.timers else []
-        set_timers, unset = self._set_timers(out.timers, said, request_id)
+        said = [(request_id, m.own_words), *self._owner_words_in_chat(session_id, request_id)] if out.timers else []
+        set_timers, unset, existing = self._set_timers(out.timers, said, request_id)
         for t in set_timers:
             yield {"type": "timer", "text": f"⏰ reminder {t.id} set for {t.fire_at.astimezone():%a %d %b %H:%M}: "
                                             f"{t.message}"}
@@ -758,10 +792,18 @@ class Supervisor(WorkerRuns):
         # code set or refused anything): a refusal never replaces the reply. A reply or question gets the lines (so
         # they reach the conversation's history too); a task's turn sends refusals as events, and its outcome carries
         # every line (clients may show those events only in passing).
-        refused = {"timer": _not_set(unset), "memory": _not_saved(unsaved)}
-        side_lines = ([f"⏰ Reminder set for {t.fire_at.astimezone():%a %d %b %H:%M}: {t.message}" for t in set_timers]
-                      + [f"Remembered: {' '.join(content.split())}" for content in saved]
-                      + [line for line in refused.values() if line])
+        if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
+            changed.append(self.on_schedule(out.schedule, typed, request_id, {origins_.INFERRED} | turn_origins))
+            yield {"type": "timer", "text": changed[-1]}
+        for ch in out.schedule_changes:
+            changed.append(self.on_schedule_change(ch, typed))
+            yield {"type": "timer", "text": changed[-1]}
+        refused = [("timer", line) for line in [_not_set(unset), *map(_already_set, existing)] if line] + \
+            [("memory", line) for line in [_not_saved(unsaved)] if line]
+        side_lines = ([f"Remembered: {' '.join(content.split())}" for content in saved] + changed
+                      + [f"⏰ Reminder set for {t.fire_at.astimezone():%a %d %b %H:%M}: {t.message}"
+                         for t in set_timers]
+                      + [line for _, line in refused])
         question = out.text                                    # the planner's own question, before code's lines
         runs_task = resumed is not None or not (out.kind in ("reply", "clarify") or out.task is None)
         if side_lines and not runs_task:
@@ -769,14 +811,8 @@ class Supervisor(WorkerRuns):
             out = out.model_copy(update={"text": "\n".join([out.text.rstrip(), *side_lines]), "display_text": shown})
         elif side_lines:
             self._env[request_id]["side_lines"] = side_lines
-            for kind, line in refused.items():
-                if line:
-                    yield {"type": kind, "text": line}
-        if out.schedule is not None:                            # the planner wrote the scheduled request from its turn
-            yield {"type": "timer", "text": self.on_schedule(out.schedule, typed, request_id,
-                                                             {origins_.INFERRED} | turn_origins)}
-        for ch in out.schedule_changes:
-            yield {"type": "timer", "text": self.on_schedule_change(ch, typed)}
+            for kind, line in refused:
+                yield {"type": kind, "text": line}
         if out.kind == "clarify":                               # the answer will continue this request
             session.pending, session.asked = owner_words, question
             session.payload = payload
@@ -1292,7 +1328,8 @@ class Supervisor(WorkerRuns):
                 '\nStart? You can correct the plan before saying Yes.', ['Yes', 'No'])
             if answer.get('answer') != 'Yes':
                 self.plans.set_status(tree.id, 'blocked')
-                return Outcome(tree.worker.id, 'blocked', 'I have not started the plan.', [], [])
+                # an unfinished task is failed: "blocked" is a step state, never a task's (the records refuse it)
+                return Outcome(tree.worker.id, 'failed', 'I have not started the plan.', [], [])
             self.plans.db.conn.execute('UPDATE task_plans SET approved=1 WHERE task_id=?', (tree.id,))
             from ferb.orchestrator.plans import SendScope
             safe_scopes = [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
@@ -1314,6 +1351,7 @@ class Supervisor(WorkerRuns):
                 steering=tree.steering,
                 required_inputs=inputs if ':' in step.id else [],
                 step_context=json.dumps({'step': step.model_dump(), 'inputs': inputs, 'prior': prior,
+                    **({'earlier_plan_results': earlier} if (earlier := self.plans.earlier(tree.id)) else {}),
                     'requirement': 'Write one input_notes entry per input with the complete note and evidence references.'}))
             self._tree_of[child.id] = member
             self.tasks.add(TaskRecord(child, self.clock.now(), span, tree.id), status='planned')
@@ -1373,7 +1411,8 @@ class Supervisor(WorkerRuns):
                                'Write evidence report and owner answer. '
                                'Include a concise digest of the messages actually sent, failed, or still unconfirmed; inspect evidence.'})
             return await self._worker(tree, span)
-        return Outcome(tree.worker.id, result['status'], 'The plan needs attention before I can finish.', artifacts, evidence)
+        return Outcome(tree.worker.id, 'failed' if result['status'] == 'blocked' else result['status'],
+                       'The plan needs attention before I can finish.', artifacts, evidence)
 
     def change_conversation(self, ident: str, action: str, words: str) -> None:
         row = self.conversations.get(ident)
@@ -1817,12 +1856,25 @@ class Supervisor(WorkerRuns):
         if spec.plan:
             parts.append(ContextBlock('Layer 6 — durable plan state (data):\n' + wrap_untrusted(
                          json.dumps(self.plans.steps(tree.id))), 'task.evidence', protected=True))
+        elif not tree.step_context and tree.worker.id == f"{tree.id}.{WORKER}" and (saved := self._saved_plan(tree.id)):
+            # L11: a new goal without a plan replaced this task's plan; its steps' results are data, never steps to run
+            parts.append(ContextBlock("Layer 6 — this task's earlier plan and its step results (data; the current "
+                                      "task replaces that plan, and none of its steps runs again):\n" +
+                                      wrap_untrusted(json.dumps(saved)), 'task.evidence', protected=True))
         confirmations = [dict(row) for row in self.journal.db.conn.execute(
             'SELECT rule,granted,used,at FROM confirmations WHERE tree_id=?', (tree.id,))]
         if confirmations:
             parts.append(ContextBlock('Layer 6 — recorded confirmations (data):\n' + json.dumps(confirmations),
                                       'task.evidence', protected=True))
         return parts
+
+    def _saved_plan(self, tree_id: str) -> dict[str, Any]:
+        """This task's saved plan and its step states, when it has one."""
+        try:
+            saved = self.plans.load(tree_id)
+        except KeyError:
+            return {}
+        return {'plan': saved['plan'].model_dump(), 'steps': self.plans.steps(tree_id)}
 
     def _context_exposure(self, task: Task, blocks: list[ContextBlock], parts: list[str], tree: _Tree | None) -> None:
         """Only bytes actually handed to a model become reads; omitted full-source snapshots are not reads."""
@@ -1955,7 +2007,8 @@ class Supervisor(WorkerRuns):
             if isinstance(raw, Outcome):
                 self.tasks.set_status(vtask.id, "cancelled" if raw.status == "cancelled" else "failed",
                                       {"summary": raw.summary})
-                return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {raw.summary}")
+                detail = "; ".join(raw.evidence) or raw.summary         # the exact failure, for recovery
+                return [ConditionResult(i, c.text, None, UNCHECKED, f"The check couldn't finish: {detail}")
                         for i, c in judged]
             verdict = VerifierOutcome.model_validate(raw)
             tree.checked_display = tree.owner_display

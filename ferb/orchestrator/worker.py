@@ -177,17 +177,17 @@ class WorkerRuns:
                 raise ValueError("not an object")
         except RuntimeViolation as e:
             failure = f"{type(e).__name__}: {e}"
-            result = Outcome(task.id, "failed", f"worker runtime stopped: {e}", [], [])
+            # Plain words, which the owner may read (L11); the exact failure is evidence for recovery
+            result = Outcome(task.id, "failed", "This attempt was stopped (a problem on my side).", [], [failure])
         except ServiceError as e:
             failure = f"{e.runtime}: {type(e).__name__}: {e}"
             result = Outcome(task.id, "blocked", service_problem(str(e), e.runtime), [], [])
         except (ValidationError, ValueError, Stalled) as e:
             failure = f"{type(e).__name__}: {e}"
             if worker_id in self._stalled:
-                result = Outcome(task.id, "failed", f"stalled: no sign of life for {self.stall_s:g} s (not counting waits on the "
-                                                    "owner)", [], [])
+                result = Outcome(task.id, "failed", "This attempt stopped responding (a problem on my side).", [],
+                                 [f"no sign of life for {self.stall_s:g} s, not counting waits on the owner"])
             else:
-                # Plain words, which the owner may read (L11); the exact failure is evidence for recovery
                 result = Outcome(task.id, "cancelled" if tree.stop else "failed",
                                  tree.stop or "The report from this attempt wasn't usable (a problem on my side).", [],
                                  [] if tree.stop else [failure])

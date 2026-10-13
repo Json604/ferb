@@ -137,7 +137,8 @@ def test_a_stalled_worker_is_cancelled_but_waiting_on_the_owner_is_not_a_stall(d
     ticker = Ticker(daemon)
     install(daemon, [sup("task", "x", task("write a.md", paths=("a.md",)))], {"worker": STALL})
     out = outcome(chat(daemon, "write a.md"))
-    assert out["status"] == "failed" and "stalled" in out["subtasks"]["worker"]["summary"]
+    summary = out["subtasks"]["worker"]["summary"]
+    assert out["status"] == "failed" and "stopped responding" in summary and "stalled" not in summary  # plain (L11)
 
     def waits_for_owner(token: str) -> str:
         worker = daemon.daemon.tokens.validate(token).worker_id

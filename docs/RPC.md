@@ -128,11 +128,12 @@ orchestrator wrote from the check's verdict (without one: the reason work stoppe
 outcome then shows FERB's copy of the open question on its own `Question: …` line. The checker's findings stay in
 `answer`. A task that ended without the owner's stop says why in plain words, never an exception's name.
 When the task reached any site, `answer` ends with a code-built line `Sites contacted: host, host` (L2's list).
-What FERB did with a turn's reminders and memory writes is said in code-built lines ("⏰ Reminder set for …",
-"Remembered: …", or one line naming what it refused), never by the planner's text: a `reply`/`clarify` gets them
-appended to `text` and `display_text`; on a task's turn refusals also arrive as `timer`/`memory` events (as set
-reminders and saved memories always do), and the outcome's `answer` and `display_text` carry every line. A steering
-reply names the change ("Switched to: …").
+What FERB did with a turn's reminders, memory writes, reminder cancels and schedules is said in code-built lines
+("⏰ Reminder set for …", "Remembered: …", "🗓 scheduled …", what already exists for a reminder its message already
+had set, or one line naming what it refused), never by the planner's text: a `reply`/`clarify` gets them appended to
+`text` and `display_text`; on a task's turn refusals also arrive as `timer`/`memory` events (as the other lines always
+do), and the outcome's `answer` and `display_text` carry every line. A steering reply names the change
+("Switched to: …").
 
 Conversational replies/clarifications can also emit `reply_delta` with `{text}` while the model is generating.
 Append these already-redacted fragments to a **provisional** reply belonging to this connection's submitted turn.

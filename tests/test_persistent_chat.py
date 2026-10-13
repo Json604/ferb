@@ -57,7 +57,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
 
         script = install(d, [json.dumps(retry)], {"worker": worker})
         result = outcome(chat(d, "try the lunch task again", session=session))
-        assert result["task_id"] != first["task_id"]
+        assert result["task_id"] == first["task_id"]        # a continue carries on in the same task (L11, P19)
         assert "Work profile" in seen[0][0] and "Login required" in seen[0][0]
         assert "shop.example" in seen[0][1].words
         assert seen[0][2]["profile_test"] == "Work"
