@@ -66,12 +66,12 @@ final class Microphone: VoiceCapturing {
         permissionTask = Task { [weak self] in
             let microphone = await AVCaptureDevice.requestAccess(for: .audio)
             guard let self, self.generation == token, !Task.isCancelled else { return }
-            guard microphone else { self.fail("Allow Microphone access for FERB Notch in System Settings → Privacy & Security."); return }
+            guard microphone else { self.fail("Allow Microphone access for \(AppName.current) in System Settings → Privacy & Security."); return }
             let speech = await withCheckedContinuation { continuation in
                 SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
             }
             guard self.generation == token, !Task.isCancelled else { return }
-            guard speech == .authorized else { self.fail("Allow Speech Recognition for FERB Notch in System Settings → Privacy & Security."); return }
+            guard speech == .authorized else { self.fail("Allow Speech Recognition for \(AppName.current) in System Settings → Privacy & Security."); return }
             self.capture(token: token, update: update)
         }
     }

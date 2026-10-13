@@ -167,9 +167,10 @@ class Daemon:
         from ferb.act.recording import RecordingManager
         from ferb.sanitize.images import ImageRedactor
         from ferb.sense.transcribe import Transcriber
-        # L26: hearing an app's sound during a task (ScreenCaptureKit), transcribed on this Mac by FERB.app
+        # L26: hearing an app's sound during a task (ScreenCaptureKit), transcribed on this Mac by FERB.app (the voice
+        # helper nested in FERB.app when the daemon runs from the packaged app, L27)
         self.hearing = Hearing(self.home / "workspace" / AUDIO_FOLDER, AppAudio(),
-                               Transcriber(self.home / "FERB.app", self._hearing_requirement), self._redact_text,
+                               Transcriber(self.voice_bundle, self._hearing_requirement), self._redact_text,
                                excluded_host=lambda host: bool(getattr(self.redact, "excluded_host", lambda h: False)(host)))
         self.recordings = RecordingManager(sanitize=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()),
                                            hearing=self.hearing)
@@ -476,7 +477,9 @@ class Daemon:
 
     @property
     def voice_bundle(self) -> Path:
-        return self.home / "FERB.app"
+        """~/.ferb/FERB.app from a checkout install; the voice helper nested in FERB.app when the daemon runs from it."""
+        from ferb.device import install
+        return install.voice_app(self.home, install.app_bundle())
 
     def _hearing_requirement(self) -> str | None:
         """FERB.app's signature as `ferb setup` recorded it (hearing), or as `ferb setup --voice` did (same app)."""

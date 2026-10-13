@@ -12,7 +12,31 @@ The [changelog](CHANGELOG.md) records changes; [architecture](ARCHITECTURE.md) e
 
 ## Setup
 
-Requires macOS on Apple silicon, Python 3.12 through `uv`, Node/npm, and a signed-in Codex or Claude account.
+Requires macOS 14.2 or later on Apple silicon and a signed-in Codex or Claude account. Install the app from the
+disk image, or from source.
+
+### FERB.app (disk image)
+
+1. Open `FERB-<version>.dmg` and drag FERB to Applications. Open it from Applications, not from the disk image.
+2. This build is ad-hoc signed, not yet signed with an Apple Developer ID, so macOS stops it the first time. Once:
+   open System Settings → Privacy & Security, scroll to Security, click **Open Anyway** next to the message about
+   FERB, then click **Open** in the dialog that follows. macOS remembers this choice for FERB.
+3. FERB opens a **Set Up FERB** window that runs `ferb setup` from inside the app: the background service, a `ferb`
+   command in `~/.local/bin` (add that folder to your PATH if your shell doesn't already have it), the browser
+   extension and the permission steps. Answer its questions in the window's line at the bottom.
+
+FERB uses the same `~/.ferb` home as a source install, so an existing installation keeps its data; the app asks
+before it replaces one. After you replace FERB.app with a newer build, the next launch updates the background service
+in the same window. Until FERB is Developer ID signed, an update needs its macOS permissions granted again (the window
+says which; choose Set Up FERB… in FERB's menu bar for the steps), and the Keychain may ask once before FERB's secret
+helper reads an item stored by an earlier build. Build the app and disk image with
+`scripts/build-app.sh` and `scripts/build-dmg.sh`; set `SIGN_IDENTITY` to a Developer ID and the notary credentials
+described in `scripts/signing.sh` to sign, notarize and staple the same bundle (`scripts/build-app.sh --sign-only
+build/app/FERB.app` re-signs a built app without rebuilding it).
+
+### From source
+
+Requires Python 3.12 through `uv` and Node/npm. A `git clone` install never involves Gatekeeper.
 The pinned runtime versions/model are in `package.json` and `ferb/runtimes/codex_exec.py`.
 
 ```sh

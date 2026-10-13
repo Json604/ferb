@@ -15,12 +15,13 @@ struct FERBNotchApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coordinator: PanelCoordinator?
+    private let appSetup = AppSetupController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let menu = NSMenu()
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit FERB Notch", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit \(AppName.current)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
         menu.addItem(appMenuItem)
         let editItem = NSMenuItem()
@@ -34,7 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(editItem)
         NSApp.mainMenu = menu
         coordinator = PanelCoordinator()
+        if appSetup.isPackaged {
+            coordinator?.onSetUp = { [appSetup] in appSetup.runSetupFromMenu() }
+        }
         coordinator?.start()
+        appSetup.startAtLaunch()                 // packaged FERB.app only: first-launch setup or a quiet update
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

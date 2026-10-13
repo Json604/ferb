@@ -16,7 +16,9 @@ LOG_FLAGS = ("tasks", "trail", "tools", "browsers", "policy", "actions", "timers
 
 
 def main(argv: list[str] | None = None) -> int:
+    import ferb
     p = argparse.ArgumentParser(prog="ferb")
+    p.add_argument("--version", action="version", version=f"ferb {ferb.__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     from ferb.cli.conversations import register
@@ -257,7 +259,9 @@ def main(argv: list[str] | None = None) -> int:
         from ferb.cli import setup as setup_cmd
         from ferb.act.browser.profiles import SUPPORT
         from ferb.device.install import InstallError
-        inst = setup_cmd.installer(ferb_home(), SUPPORT, every_browser=args.cmd == "uninstall")
+        from pathlib import Path
+        inst = setup_cmd.installer(ferb_home(), SUPPORT, every_browser=args.cmd == "uninstall",
+                                   cli_dir=Path.home() / ".local" / "bin")       # where FERB.app links `ferb`
         env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout, browser_support=SUPPORT)
         try:
             if args.cmd == "setup" and args.key:

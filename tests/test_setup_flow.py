@@ -388,3 +388,115 @@ def test_update_refreshes_the_voice_signature_when_ferb_apps_requirement_changes
     assert S.setup(env, update=True) == 0, out.getvalue()
     assert Config(world["home"]).get("voice", "requirement") == FakeRun.REQUIREMENT
     assert world["run"].ran("/usr/bin/codesign", "-d", "-r-")
+
+
+# ---------- packaged FERB.app (L27) ----------
+
+from tests.support.app_bundle import PINNED, BundleRunner, make_ferb_app  # noqa: E402
+
+
+@pytest.fixture
+def app_world(world: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
+    """The same Mac, with FERB installed from a packaged FERB.app instead of a checkout."""
+    app = make_ferb_app(tmp_path / "Applications")
+    runner = BundleRunner(world["home"])
+    world.update(app=app, runner=runner, inst=Installer(world["home"], label="com.ferb.test", run=runner,
+                                                        launch_agents=tmp_path / "LA", bundle=app,
+                                                        cli_dir=tmp_path / "bin"))
+    return world
+
+
+def test_setup_from_the_app_installs_from_the_bundle_and_says_where_ferb_is(app_world: dict[str, Any]) -> None:
+    env, out = make_env(app_world, ["", "", "", ""], daemon_up=False)
+    assert S.setup(env) == 0, out.getvalue()
+    text = out.getvalue()
+    assert f"from {app_world['app']}" in text and "venv" not in text
+    assert f"{app_world['app']}/Contents/Resources/python/bin/python3.12" in text   # what to grant permissions to
+    assert f"`ferb` command: {app_world['inst'].cli_dir / 'ferb'}" in text
+    assert app_world["runner"].ran("uv") == 0
+
+
+def test_setup_from_the_app_repins_push_to_talk_to_the_bundled_voice_helper(app_world: dict[str, Any]) -> None:
+    config = Config(app_world["home"])
+    config.set("voice", "requirement", 'identifier "com.ferb.app" and certificate leaf = H"old"')
+    app_world["inst"].install()
+    env, out = make_env(app_world, [])
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    assert Config(app_world["home"]).get("voice", "requirement") == PINNED   # the app's own helper, not the old build
+    assert "Set Up FERB… in FERB's menu bar" in out.getvalue()               # an ad-hoc update can lose permissions
+
+
+def test_voice_setup_from_the_app_uses_its_signed_helper_without_building(app_world: dict[str, Any]) -> None:
+    import subprocess
+    ran: list[list[str]] = []
+
+    def run(cmd: list[str], **kw: Any) -> "subprocess.CompletedProcess[str]":
+        ran.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", f"# designated => {PINNED}\n" if "-r-" in cmd else "")
+
+    class VoiceClient(FakeClient):
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            if method == "voice.reload":
+                return {"push_to_talk": True}
+            if method == "doctor.check":
+                return {"voice": {"connected": True, "permissions": {"microphone": "granted", "speech": "granted"}}}
+            return super().call(method, params)
+    env, out = make_env(app_world, [])
+    env.connect = lambda: VoiceClient(app_world["daemon"])
+    assert S.voice_setup(env, run=run) == 0, out.getvalue()
+    helper = str(app_world["app"] / "Contents" / "Helpers" / "FERB Voice.app")
+    assert not any(c[0] == "security" or c[0].endswith("build.sh") for c in ran)   # no local certificate, no build
+    assert ["/usr/bin/open", "-n", "-W", helper, "--args", "request"] in ran     # integrated: L26 runs /usr/bin/open
+    assert Config(app_world["home"]).get("voice", "requirement") == PINNED
+
+
+def test_doctor_from_the_app_checks_the_bundled_interpreter_not_a_venv(app_world: dict[str, Any]) -> None:
+    app_world["inst"].install()
+    env, out = make_env(app_world, [])
+    S.doctor(env)
+    text = out.getvalue()
+    assert f"✓ app: {app_world['app']}" in text
+    assert f"✓ interpreter: {app_world['app']}/Contents/Resources/python/bin/python3.12" in text
+    assert "venv" not in text and "✓ LaunchAgent: installed" in text
+
+
+# ---------- packaged FERB.app × hearing (L26 + L27 integration) ----------
+
+def test_plain_setup_from_the_app_hears_through_its_shipped_helper_without_building(app_world: dict[str, Any]) -> None:
+    env, out = make_env(app_world, ["", "", "", ""], daemon_up=False)
+    assert S.setup(env) == 0, out.getvalue()
+    run: FakeRun = app_world["run"]
+    helper = str(app_world["app"] / "Contents" / "Helpers" / "FERB Voice.app")
+    assert not any(c[0] == "security" or c[0].endswith("build.sh") for c in run.calls)   # no certificate, no build
+    assert run.ran("/usr/bin/open", "-n", "-W", helper, "--args", "request-speech")
+    assert not any(c[-1] == "request" for c in run.ran("/usr/bin/open"))   # never the microphone without --voice
+    assert Config(app_world["home"]).get("hearing", "requirement") == PINNED   # the shipped helper's signature
+    assert not (app_world["home"] / "FERB.app").exists()
+    assert "Speech Recognition for FERB Voice" in out.getvalue()
+
+
+def test_update_from_the_app_repins_hearing_to_the_new_helper_without_asking(app_world: dict[str, Any]) -> None:
+    Config(app_world["home"]).set("hearing", "requirement", 'identifier "com.ferb.app" and certificate leaf = H"old"')
+    app_world["inst"].install()
+    env, out = make_env(app_world, [])
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    run: FakeRun = app_world["run"]
+    assert not run.calls                                              # nothing built, no permission dialog
+    assert Config(app_world["home"]).get("hearing", "requirement") == PINNED
+    assert Config(app_world["home"]).get("voice", "requirement") is None     # push-to-talk stays as it was (off)
+
+
+def test_setup_from_the_app_refuses_a_voice_helper_that_isnt_signed(app_world: dict[str, Any]) -> None:
+    runner = app_world["runner"]
+
+    def unsigned(cmd: list[str]) -> "subprocess.CompletedProcess[str]":
+        if cmd[0].endswith("codesign") and "-r-" in cmd and cmd[-1].endswith("FERB Voice.app"):
+            return subprocess.CompletedProcess(cmd, 0, "", "")         # no designated requirement: not signed
+        return runner(cmd)
+    Config(app_world["home"]).set("hearing", "requirement", "old")
+    app_world["inst"].install()
+    app_world["inst"].run = unsigned
+    env, out = make_env(app_world, [])
+    assert S.setup(env, update=True) == 0, out.getvalue()
+    assert "voice helper isn't signed" in out.getvalue()
+    assert Config(app_world["home"]).get("hearing", "requirement") == "old"   # never pinned to unsigned code

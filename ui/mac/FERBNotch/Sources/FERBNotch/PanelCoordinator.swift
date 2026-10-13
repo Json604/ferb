@@ -75,6 +75,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     /// five times a second costs far below a percent of one core. A responsiveness detail, not a behaviour cap.
     /// A pinned FERB is always on screen, so it polls continuously while the displays are awake.
     private static let yieldPollInterval: Duration = .milliseconds(200)
+    var onSetUp: (() -> Void)?                   // set by the packaged FERB.app: run `ferb setup` again
 
     override init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -529,6 +530,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         addItem("Dictate a request", action: #selector(voicePreview), to: menu)
         addItem("Conversation history", action: #selector(recentExamples), to: menu)
         addItem("Settings…", action: #selector(showSettings), to: menu, key: ",")
+        if onSetUp != nil { addItem("Set Up FERB…", action: #selector(setUpFromMenu), to: menu) }
         menu.addItem(.separator())
         let gestures = NSMenuItem(title: "Double-tap right ⌥ · Hold right ⌘ + ⌥ for voice", action: nil, keyEquivalent: "")
         gestures.isEnabled = false
@@ -537,7 +539,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         preview.isEnabled = false
         menu.addItem(preview)
         menu.addItem(.separator())
-        addItem("Quit FERB Notch", action: #selector(quit), to: menu, key: "q")
+        addItem("Quit \(AppName.current)", action: #selector(quit), to: menu, key: "q")
         item.menu = menu
         statusItem = item
         if let appMenu = NSApp.mainMenu?.items.first?.submenu {
@@ -559,6 +561,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     @objc private func voicePreview() { beginInteraction(); model.startDictation() }
     @objc private func recentExamples() { beginInteraction(); model.history() }
     @objc private func quit() { NSApp.terminate(nil) }
+    @objc private func setUpFromMenu() { onSetUp?() }
 
     private func registerShortcut() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))

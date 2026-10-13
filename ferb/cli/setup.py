@@ -22,7 +22,8 @@ from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning
 from ferb.device import permissions
-from ferb.device.install import MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, code_hash, repo_root
+from ferb.device.install import (MARKER, NATIVE_HOST_MANIFEST, InstallError, Installer, app_bundle, code_hash,
+                                 designated_requirement, repo_root, trusted_requirement, voice_app)
 from ferb.device.profile import ProfileStore, diff, summarize
 from ferb.device.scan import scan
 from ferb.device.persona import app_usage, setup_persona
@@ -73,7 +74,8 @@ def wait_for_daemon(env: Env, timeout: float = 30) -> Client:
 
 def installer(home: Path, support: Path, every_browser: bool = False, **kwargs: Any) -> Installer:
     """The installer with FERB's native host going to each installed browser (every known one when removing it),
-    accepting both the pinned unpacked id and the Web Store id."""
+    accepting both the pinned unpacked id and the Web Store id. Run from FERB.app, it installs from that app."""
+    kwargs.setdefault("bundle", app_bundle())
     browsers = list(profiles.BROWSERS) if every_browser else profiles.installed(support)
     try:
         ids = autoinstall.accepted_extension_ids(Config(home))
@@ -124,8 +126,10 @@ def device_id(config: Config) -> str:
 def setup(env: Env, update: bool = False) -> int:
     inst = env.inst
     if update:
-        env.say("Updating FERB in its venv and restarting the daemon…")
+        env.say(f"Updating FERB from {inst.bundle} and restarting the daemon…" if inst.bundle else
+                "Updating FERB in its venv and restarting the daemon…")
         inst.install(update_only=True)
+        _app_installed(env)
         client = wait_for_daemon(env)
         config = Config(inst.home)
         health = client.call("doctor.check", {"selftest": False})
@@ -133,14 +137,15 @@ def setup(env: Env, update: bool = False) -> int:
         missing = [f"{name}={grants.get(name, 'unknown')}" for name in SETUP_PERMISSIONS
                    if grants.get(name) != "granted"]
         if missing:
-            env.say(f"Permission setup deferred: {', '.join(missing)}. Run `ferb setup` when you want its permission dialogs.")
+            again = "Run `ferb setup`" + (" (or Set Up FERB… in FERB's menu bar)" if inst.bundle else "")
+            env.say(f"Permission setup deferred: {', '.join(missing)}. {again} when you want its permission dialogs.")
         if not missing:
             config.set('setup', 'permissions_version', max(27, config.get('setup', 'permissions_version', 0)))
             env.say("All macOS permissions are granted (checked by the running daemon).")
         _review_persona(env, client)
         client.close()
-        if (inst.home / "FERB.app").exists():          # L26: its new modes, no permission dialog during an update
-            _build_app(env)
+        if inst.bundle is not None or (inst.home / "FERB.app").exists():
+            _voice_helper(env)        # L26: its new modes; L27: the new app's own helper; no permission dialog either way
         extension_setup(env)
         env.say("Done.")
         return 0
@@ -156,8 +161,12 @@ def setup(env: Env, update: bool = False) -> int:
     except NotRunning:
         pass
 
-    env.say("1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…")
+    if inst.bundle:
+        env.say(f"1/4  Setting up FERB's background service from {inst.bundle}…")
+    else:
+        env.say("1/4  Installing FERB's dedicated Python, its venv and the LaunchAgent…")
     inst.install()
+    _app_installed(env)
     client = wait_for_daemon(env)
     binary = inst.granted_binary()
     env.say(f"     Daemon running. Permissions must be granted to: {binary}")
@@ -194,6 +203,17 @@ def setup(env: Env, update: bool = False) -> int:
     env.say("     Connect the accounts/profiles you want available; macOS permissions and logins still apply.")
     env.say("Setup complete." if ok else "Setup finished with problems — `ferb doctor` shows what to fix.")
     return 0 if ok else 1
+
+
+def _app_installed(env: Env) -> None:
+    """After installing from FERB.app: say where `ferb` is. Hearing and push-to-talk are pinned to this app's own
+    voice helper by `_voice_helper` (an update replaces it, and an ad-hoc signature pins the exact code)."""
+    inst = env.inst
+    if inst.bundle is None:
+        return
+    status = inst.cli_status()
+    if status:
+        env.say(f"     {status}")
 
 
 def persona_setup(env: Env) -> int:
@@ -435,9 +455,14 @@ def doctor(env: Env) -> int:
     except InsecureConfig as e:
         add(Check("config permissions", "fail", str(e), "chmod 600 ~/.ferb/config.toml; chmod 700 ~/.ferb"))
     add(protection_check(inst.home))
-    add(Check("interpreter", "ok" if inst.interpreter() else "fail", str(inst.interpreter() or "missing"),
-              "run `ferb setup`"))
-    add(Check("venv", "ok" if inst.venv_python.exists() else "fail", str(inst.venv), "run `ferb setup`"))
+    if inst.bundle:
+        add(Check("app", "ok", str(inst.bundle)))
+        add(Check("interpreter", "ok" if inst.daemon_python.is_file() else "fail", str(inst.daemon_python),
+                  "download FERB again"))
+    else:
+        add(Check("interpreter", "ok" if inst.interpreter() else "fail", str(inst.interpreter() or "missing"),
+                  "run `ferb setup`"))
+        add(Check("venv", "ok" if inst.venv_python.exists() else "fail", str(inst.venv), "run `ferb setup`"))
     import plistlib
     current = plistlib.loads(inst.plist_path.read_bytes()) if inst.plist_path.exists() else None
     add(Check("LaunchAgent", "ok" if current == inst.plist() else "fail",
@@ -736,10 +761,9 @@ def uninstall(env: Env, purge: bool) -> int:
 CERTIFICATE = "FERB Local Code Signing"
 
 
-def _build_app(env: Env, run: Callable[..., Any] | None = None) -> str | None:
-    """Build FERB.app into ~/.ferb and sign it with the local certificate (so its permissions survive rebuilds); record
-    its signature for the daemon's checks (hearing, L26). Returns the signature requirement, or None (said why)."""
-    run = run or env.run
+def _build_app(env: Env, run: Callable[..., Any]) -> str | None:
+    """From a checkout: build FERB.app into ~/.ferb and sign it with the local certificate (so its permissions survive
+    rebuilds). Returns its signature requirement, or None (said why)."""
     # not `-v`: that lists only certificates macOS trusts, and a self-made one never is (it still signs fine)
     found = run(["security", "find-identity", "-p", "codesigning"], capture_output=True, text=True)
     if CERTIFICATE not in (found.stdout or ""):
@@ -753,10 +777,36 @@ def _build_app(env: Env, run: Callable[..., Any] | None = None) -> str | None:
         env.say("Build failed:\n" + ((built.stderr or built.stdout or "").strip()[-1500:]))
         return None
     shown = run(["/usr/bin/codesign", "-d", "-r-", str(app)], capture_output=True, text=True)
-    req = next((ln.split("=>", 1)[1].strip() for ln in ((shown.stdout or "") + (shown.stderr or "")).splitlines()
-                if ln.startswith("designated =>")), "")
-    if "certificate leaf" not in req:
+    req = designated_requirement((shown.stdout or "") + (shown.stderr or ""))
+    if not trusted_requirement(req, pinned_ok=False):
         env.say("FERB.app isn't signed with the local certificate, so FERB won't use it.")
+        return None
+    return req
+
+
+def _shipped_app(env: Env) -> str | None:
+    """From the packaged FERB.app: its own shipped, signed voice helper, used as is (nothing is built and no local
+    certificate is needed). Returns its signature requirement, or None (said why)."""
+    bundle = env.inst.bundle
+    assert bundle is not None
+    app = voice_app(env.inst.home, bundle)
+    if not (app / "Contents" / "MacOS" / "FERB").is_file():
+        env.say(f"{bundle} has no voice helper; download FERB again.")
+        return None
+    shown = env.inst.run(["/usr/bin/codesign", "-d", "-r-", str(app)])
+    req = designated_requirement((shown.stdout or "") + (shown.stderr or ""))
+    if not trusted_requirement(req, pinned_ok=True):
+        env.say("FERB's voice helper isn't signed, so FERB won't use it.")
+        return None
+    return req
+
+
+def _voice_helper(env: Env, run: Callable[..., Any] | None = None) -> str | None:
+    """FERB's voice/speech app (hearing, L26; push-to-talk): built from a checkout, or the packaged FERB.app's shipped
+    helper (L27). Records its signature for the daemon's checks: hearing always, push-to-talk when it is set up (the
+    same app). Returns the requirement, or None (said why)."""
+    req = _shipped_app(env) if env.inst.bundle is not None else _build_app(env, run or env.run)
+    if req is None:
         return None
     config = Config(env.inst.home)
     config.set("hearing", "requirement", req)
@@ -765,16 +815,22 @@ def _build_app(env: Env, run: Callable[..., Any] | None = None) -> str | None:
     return req
 
 
+def _voice_name(env: Env) -> str:
+    """The name macOS shows for the voice/speech app in permission prompts."""
+    return "FERB Voice" if env.inst.bundle is not None else "FERB"
+
+
 def hearing_setup(env: Env, client: Any) -> None:
-    """L26: FERB hears app sound during tasks. Build FERB.app and ask once for Speech Recognition only (never the
-    microphone: that is `ferb setup --voice`). Speech is recognized on this Mac only; without it FERB can't turn
-    sound into text, but setup still finishes."""
+    """L26: FERB hears app sound during tasks. Set up FERB's voice/speech app (built from a checkout, shipped in the
+    packaged FERB.app) and ask once for Speech Recognition only (never the microphone: that is `ferb setup --voice`).
+    Speech is recognized on this Mac only; without it FERB can't turn sound into text, but setup still finishes."""
     env.say("     Hearing: FERB turns an app's sound into text during a task, on this Mac only.")
-    if _build_app(env) is None:
+    if _voice_helper(env) is None:
         env.say("     Hearing isn't set up; `ferb doctor` will remind you.")
         return
-    app = env.inst.home / "FERB.app"
-    env.say("     macOS will ask once for Speech Recognition for FERB — allow it.")
+    app = voice_app(env.inst.home, env.inst.bundle)
+    name = _voice_name(env)
+    env.say(f"     macOS will ask once for Speech Recognition for {name} — allow it.")
     env.run(["/usr/bin/open", "-n", "-W", str(app), "--args", "request-speech"])
     hearing = client.call("doctor.check", {"selftest": False, "hearing": True}).get("hearing", {})
     speech = hearing.get("speech")
@@ -783,22 +839,23 @@ def hearing_setup(env: Env, client: Any) -> None:
             f"but on-device recognition isn't available for {hearing.get('locale')}, so FERB won't transcribe"
         env.say(f"     Speech Recognition: granted ✓ ({line})")
     else:
-        env.say(f"     Speech Recognition: {speech or 'not checked'}. Allow FERB in System Settings → Privacy & Security → "
-                "Speech Recognition, then run `ferb setup` again. Until then FERB can't turn sound into text.")
+        env.say(f"     Speech Recognition: {speech or 'not checked'}. Allow {name} in System Settings → Privacy & "
+                "Security → Speech Recognition, then run `ferb setup` again. Until then FERB can't turn sound into text.")
 
 
 def voice_setup(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     """Push-to-talk: build FERB.app into ~/.ferb, sign it with the local certificate (so its permissions
     survive rebuilds), record its signature for the daemon's check, ask for Microphone and Speech Recognition once,
-    turn push-to-talk on. The daemon is not restarted."""
-    req = _build_app(env, run)
+    turn push-to-talk on. The daemon is not restarted. From the packaged FERB.app, its own signed voice helper is
+    used as shipped: nothing is built and no local certificate is needed."""
+    req = _voice_helper(env, run)
     if req is None:
         env.say("Push-to-talk stays off.")
         return 1
-    app = env.inst.home / "FERB.app"
+    app = voice_app(env.inst.home, env.inst.bundle)
     config = Config(env.inst.home)
     config.set("voice", "requirement", req)
-    env.say("macOS will ask once for Microphone and Speech Recognition for FERB — allow both.")
+    env.say(f"macOS will ask once for Microphone and Speech Recognition for {_voice_name(env)} — allow both.")
     run(["/usr/bin/open", "-n", "-W", str(app), "--args", "request"])
     config.set("voice", "push_to_talk", True)
     if config.get("voice", "mic") is None:

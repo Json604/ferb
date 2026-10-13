@@ -2,6 +2,7 @@
 uninstall and the purge safety rules. Nothing real is installed here (see test_launchd_real.py)."""
 
 import json
+import shlex
 from pathlib import Path
 
 import pytest
@@ -150,3 +151,184 @@ def test_native_host_manifest_goes_to_every_listed_folder_and_uninstall_removes_
     inst.uninstall()
     assert not any((d / NATIVE_HOST_MANIFEST).exists() for d in dirs)
     assert Installer(tmp_path / "x").write_native_host() == []               # no folders given: writes nothing
+
+
+# ---------- packaged FERB.app (L27): the daemon, helpers and `ferb` run from inside the bundle ----------
+
+from tests.support.app_bundle import CODEX_BIN, PINNED, BundleRunner, make_ferb_app  # noqa: E402
+
+
+def bundled(tmp_path: Path, **runner: object) -> Installer:
+    app = make_ferb_app(tmp_path / "Applications")
+    home = tmp_path / ".ferb"
+    return Installer(home, label="com.ferb.test", run=BundleRunner(home, **runner),  # type: ignore[arg-type]
+                     launch_agents=tmp_path / "LaunchAgents", bundle=app, cli_dir=tmp_path / "bin",
+                     native_hosts_dirs=(tmp_path / "Chrome" / "NativeMessagingHosts",), extension_ids=("abc",))
+
+
+def test_app_bundle_is_found_only_from_the_interpreter_inside_ferb_app(tmp_path: Path) -> None:
+    from ferb.device.install import app_bundle
+    app = make_ferb_app(tmp_path / "Applications")
+    assert app_bundle(app / "Contents" / "Resources" / "python") == app
+    assert app_bundle(tmp_path / ".ferb" / "venv") is None                     # the source install
+    assert app_bundle(tmp_path / "python") is None
+    assert app_bundle() is None                                                 # this checkout's own venv
+
+
+def test_bundle_plist_runs_the_bundled_python_isolated_and_records_the_build(tmp_path: Path) -> None:
+    inst = bundled(tmp_path)
+    p = inst.plist()
+    python = inst.bundle / "Contents" / "Resources" / "python" / "bin" / "python3.12"  # type: ignore[operator]
+    assert p["ProgramArguments"] == [str(python), "-I", "-B", "-m", "ferb.daemon"]
+    assert p["EnvironmentVariables"] == {"FERB_HOME": str(inst.home), "FERB_APP_BUILD": "202610140201",
+                                         "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1"}
+    assert p["AssociatedBundleIdentifiers"] == ["com.ferb.FERB"]          # Login Items shows it under FERB
+    assert inst.granted_binary() == python.resolve()
+    assert str(p["StandardErrorPath"]).startswith(str(inst.home / "logs"))   # the same ~/.ferb home and logs
+
+
+def test_bundle_install_needs_no_uv_swiftc_or_npm_and_installs_from_the_bundle(tmp_path: Path) -> None:
+    inst = bundled(tmp_path)
+    r: BundleRunner = inst.run  # type: ignore[assignment]
+    inst.install()
+    ran = [c[0] for c in r.cmds]
+    assert not {"uv", "xcrun", "npm"} & set(ran), r.cmds
+    assert r.ran("/usr/bin/codesign", "--verify", "--deep", "--strict", str(inst.bundle)) == 1
+    assert r.ran("launchctl", "bootstrap") == 1 and inst.plist_path.exists() and (inst.home / MARKER).exists()
+    helper = inst.home / "bin" / "ferb-secrets"                               # copied, signature intact
+    assert helper.read_bytes() == (inst.bundle / "Contents" / "Helpers" / "ferb-secrets").read_bytes()  # type: ignore[operator]
+    assert helper.stat().st_mode & 0o777 == 0o700
+    assert helper.with_suffix(".requirement").read_text().strip() == PINNED   # ad-hoc: the exact code is pinned
+    launcher = inst.native_host_launcher.read_text()
+    python = shlex.quote(f"{inst.bundle}/Contents/Resources/python/bin/python3.12")
+    assert f"exec {python} -I -B -m ferb.native_host.main" in launcher
+    link = tmp_path / "bin" / "ferb"
+    assert link.is_symlink() and link.resolve() == (inst.bundle / "Contents" / "Resources" / "bin" / "ferb").resolve()  # type: ignore[operator]
+    node = inst.home / "node"                                                  # the pinned Codex ships in the app
+    assert node.is_symlink() and (node / CODEX_BIN).read_bytes().startswith(b"fake")
+    assert (inst.home / "extensions" / "chromium" / "manifest.json").is_file()
+
+
+def test_bundle_install_refuses_a_temporary_read_only_or_damaged_copy(tmp_path: Path) -> None:
+    from ferb.device.install import InstallError
+    moved = make_ferb_app(tmp_path / "AppTranslocation" / "1A2B" / "d")
+    home = tmp_path / ".ferb"
+    inst = Installer(home, label="com.ferb.test", run=BundleRunner(home), launch_agents=tmp_path / "LA", bundle=moved)
+    with pytest.raises(InstallError, match="move FERB.app to Applications"):
+        inst.install()
+    inst = bundled(tmp_path / "dmg")
+    inst.read_only = lambda path: True                                        # the mounted disk image
+    with pytest.raises(InstallError, match="disk image"):
+        inst.install()
+    inst = bundled(tmp_path / "bad", bad_signature=True)
+    with pytest.raises(InstallError, match="signature"):
+        inst.install()
+    assert not inst.plist_path.exists() and not (tmp_path / "bad" / "bin" / "ferb").exists()
+    assert not inst.home.exists()                                             # nothing written before the checks
+
+
+def test_bundle_update_reloads_the_agent_when_the_app_build_changes(tmp_path: Path) -> None:
+    import plistlib
+    from ferb.device.install import InstallError
+    inst = bundled(tmp_path)
+    r: BundleRunner = inst.run  # type: ignore[assignment]
+    with pytest.raises(InstallError, match="run `ferb setup` first"):
+        inst.install(update_only=True)
+    inst.install()
+    info = inst.bundle / "Contents" / "Info.plist"  # type: ignore[operator]
+    data = plistlib.loads(info.read_bytes())
+    info.write_bytes(plistlib.dumps({**data, "CFBundleVersion": "202610150900"}))   # the owner replaced FERB.app
+    inst.install(update_only=True)
+    assert plistlib.loads(inst.plist_path.read_bytes())["EnvironmentVariables"]["FERB_APP_BUILD"] == "202610150900"
+    assert r.ran("launchctl", "bootstrap") == 2
+    inst.install(update_only=True)                                            # nothing changed: a restart only
+    assert r.ran("launchctl", "bootstrap") == 2 and r.ran("launchctl", "kickstart", "-k") == 1
+
+
+def test_bundle_secret_helper_refuses_unpinned_unsigned_code(tmp_path: Path) -> None:
+    from ferb.device.install import InstallError
+    inst = bundled(tmp_path)
+    real = inst.run
+
+    def unsigned(cmd: list[str]) -> object:
+        result = real(cmd)
+        if "-r-" in cmd:
+            result.stderr = 'designated => identifier "com.ferb.secrets"\n'        # neither a certificate nor a hash
+        return result
+    inst.run = unsigned  # type: ignore[assignment]
+    with pytest.raises(InstallError, match="certificate identity nor a pinned code hash"):
+        inst.install_secret_helper()
+
+
+def test_cli_link_never_replaces_a_ferb_that_ferb_app_did_not_make(tmp_path: Path) -> None:
+    inst = bundled(tmp_path)
+    (tmp_path / "bin").mkdir()
+    other = tmp_path / "bin" / "ferb"
+    other.write_text("#!/bin/sh\necho mine\n")                               # e.g. the owner's own script
+    inst.install()
+    assert other.read_text() == "#!/bin/sh\necho mine\n"
+    assert "left" in (inst.cli_status() or "") and str(other) in (inst.cli_status() or "")
+    other.unlink()
+    other.symlink_to(tmp_path / "elsewhere" / "ferb")                       # someone else's link: left too
+    inst.install()
+    assert other.readlink() == tmp_path / "elsewhere" / "ferb"
+
+
+def test_existing_pinned_codex_is_kept_and_a_stale_one_is_replaced_by_the_apps(tmp_path: Path) -> None:
+    from ferb.runtimes.codex_exec import CODEX_VERSION
+    inst = bundled(tmp_path, codex_version=f"codex-cli {CODEX_VERSION}\n")
+    pinned = inst.home / "node" / CODEX_BIN
+    pinned.parent.mkdir(parents=True)
+    pinned.write_text("owner's npm install")
+    inst.ensure_codex()
+    assert not (inst.home / "node").is_symlink() and pinned.read_text() == "owner's npm install"
+    inst.run.codex_version = "codex-cli 0.1.0\n"  # type: ignore[attr-defined]
+    inst.ensure_codex()
+    assert (inst.home / "node").is_symlink()
+
+
+def test_source_codex_install_never_writes_through_a_link_into_ferb_app(tmp_path: Path, inst: Installer) -> None:
+    app = make_ferb_app(tmp_path / "Applications")
+    (inst.home / "node").parent.mkdir(parents=True, exist_ok=True)
+    (inst.home / "node").symlink_to(app / "Contents" / "Resources" / "node")
+    inst.ensure_codex()                                                       # source mode: npm into its own folder
+    assert not (inst.home / "node").is_symlink()
+    assert inst.run.ran("npm", "install") == 1  # type: ignore[attr-defined]
+
+
+def test_uninstall_removes_the_cli_link_ferb_app_made(tmp_path: Path) -> None:
+    inst = bundled(tmp_path)
+    inst.install()
+    removed = inst.uninstall()
+    assert not (tmp_path / "bin" / "ferb").exists() and str(tmp_path / "bin" / "ferb") in removed
+
+
+def test_voice_app_lives_in_the_bundle_when_ferb_runs_from_one(tmp_path: Path) -> None:
+    from ferb.device.install import voice_app
+    app = make_ferb_app(tmp_path / "Applications")
+    assert voice_app(tmp_path / ".ferb", None) == tmp_path / ".ferb" / "FERB.app"
+    assert voice_app(tmp_path / ".ferb", app) == app / "Contents" / "Helpers" / "FERB Voice.app"
+
+
+def test_designated_requirement_reads_explicit_and_implicit_lines() -> None:
+    from ferb.device.install import designated_requirement, trusted_requirement
+    assert designated_requirement('Executable=/x\n# designated => cdhash H"ab"\n') == 'cdhash H"ab"'
+    assert designated_requirement('designated => identifier "x" and certificate leaf = H"cd"\n') == \
+        'identifier "x" and certificate leaf = H"cd"'
+    assert designated_requirement("no signature\n") == ""
+    assert trusted_requirement('identifier "x" and certificate leaf = H"cd"', pinned_ok=False)
+    assert not trusted_requirement(PINNED, pinned_ok=False)                   # a source install keeps its certificate
+    assert trusted_requirement(PINNED, pinned_ok=True)
+    assert not trusted_requirement('identifier "com.ferb.secrets"', pinned_ok=True)
+    assert not trusted_requirement('cdhash H"ab" or identifier "x"', pinned_ok=True)
+
+
+def test_daemon_running_from_ferb_app_uses_the_nested_voice_helper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+    import ferb.device.install as install
+    from ferb.daemon.main import Daemon
+    app = make_ferb_app(tmp_path / "Applications")
+    home = SimpleNamespace(home=tmp_path / ".ferb")
+    assert Daemon.voice_bundle.fget(home) == tmp_path / ".ferb" / "FERB.app"  # type: ignore[attr-defined]
+    monkeypatch.setattr(install, "app_bundle", lambda prefix=None: app)
+    assert Daemon.voice_bundle.fget(home) == app / "Contents" / "Helpers" / "FERB Voice.app"  # type: ignore[attr-defined]
