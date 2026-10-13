@@ -1098,10 +1098,7 @@ class Supervisor(WorkerRuns):
         self.journal.append('plan.question', {'task_id': tree.id, 'approval_id': approval.id, 'question': question})
         self.publish('approval.requested', {'approval_id': approval.id, 'capability': 'plan.ask',
                      'kind': 'owner_question', 'reason': question, 'options': options, 'task_id': task.id})
-        while approval.state == 'pending' and not tree.stop:
-            if self.clock.monotonic() >= approval.expires_at:
-                approval.state = 'expired'
-                break
+        while approval.state == 'pending' and not tree.stop:          # no expiry: it waits for the owner (§8.1)
             await asyncio.sleep(self.gateway.hold_poll_s)
         if tree.stop and approval.state == 'pending':
             approval.state = 'denied'

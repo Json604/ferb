@@ -5,19 +5,16 @@ import sys
 import time
 
 import anyio
-import pytest
 
 from ferb.core.types import Identity
 from tests.conftest import Answers, RunningDaemon, GatewayCap as FakeCap, gateway_request as request, gateway_setup as setup, gateway_tool_call as call
 from tests.support.confirm import FerbAnswers
 
 
-def test_owner_questions_accept_choices_free_text_and_expire():
-    from ferb.clock.clock import FakeClock
+def test_owner_questions_accept_choices_and_free_text_and_close_with_their_request():
     from ferb.daemon.questions import Approvals
     from ferb.policy.rules import ActionRequest
-    clock = FakeClock()
-    questions = Approvals(clock, ttl_s=60)
+    questions = Approvals()
     action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
     choice = questions.question(action, 'Which account?', ['a@x', 'b@x'])
     questions.resolve(choice.id, True, text='2')
@@ -25,10 +22,8 @@ def test_owner_questions_accept_choices_free_text_and_expire():
     free = questions.question(action, 'Which account?', ['a@x', 'b@x'])
     questions.resolve(free.id, True, text='the work one')
     assert free.answer == 'the work one' and free.choice is None
-    expired = questions.question(action, 'Continue?', [])
-    clock.advance(61)
-    with pytest.raises(ValueError, match='expired'):
-        questions.resolve(expired.id, True)
+    open_question = questions.question(action, 'Continue?', [])
+    assert questions.pending() == [open_question]        # no lifetime: tests/test_questions_persistence.py
     questions.forget_request('r')
     assert not questions.pending() and questions.get(choice.id) is None
 

@@ -11,7 +11,6 @@ from typing import Any
 
 from ferb.core.types import Task
 from ferb.store.db import Database
-from ferb.core.interfaces import Clock
 from ferb.daemon.questions import Approvals
 from ferb.policy.targets import Requests
 
@@ -19,9 +18,9 @@ from ferb.policy.targets import Requests
 class ExecutionState:
     """Live request context, waiting owner input and explicit stop state."""
 
-    def __init__(self, clock: Clock) -> None:
+    def __init__(self) -> None:
         self.requests = Requests()
-        self.approvals = Approvals(clock)
+        self.approvals = Approvals()
         self.stopped = False
 
     def forget_request(self, request_id: str) -> None:

@@ -959,8 +959,8 @@ class Gateway:
         """FERB's own question to the owner, in chat with Yes / No, never through the orchestrator (D33): an owner.ask
         span marked `ferb_question` whose args carry the needs it confirms (`confirm`), and, when given, the call
         span it is about (`for_span`). Yes or No is recorded per need for this task tree (a skipped question is a
-        No); a Yes also makes each need's destinations known to later tasks (SQ6). A scheduled run, an expired
-        question or an answer that is neither Yes nor No records nothing and isn't Yes."""
+        No); a Yes also makes each need's destinations known to later tasks (SQ6). A scheduled run, a question
+        closed by the end of its task, or an answer that is neither Yes nor No records nothing and isn't Yes."""
         root = rec.tree_id or grant.task_id
         text = self._ferb_line(needs, call, why)
         if self.confirmations is None:
@@ -1530,7 +1530,7 @@ class Gateway:
         ap.kind = "owner_secret"
         self.publish("approval.requested", {"approval_id": ap.id, "kind": ap.kind,
                      "capability": ask.capability, "reason": question, "task_id": ctx.task_id})
-        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, ap.expires_at)
+        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         delivered = False
         try:
             state = await self._wait_answer(grant, ap.id)
@@ -1565,7 +1565,7 @@ class Gateway:
         ap.kind = "owner_login_code"
         self.publish("approval.requested", {"approval_id": ap.id, "capability": ask.capability, "kind": ap.kind,
                                             "reason": question, "task_id": ctx.task_id})
-        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, ap.expires_at)
+        grant = RunGrant(ctx.task_id, ctx.worker_id, ctx.scopes, ctx.identity, float("inf"))
         try:
             state = await self._wait_answer(grant, ap.id)
             return ap.answer if state == "granted" else None
@@ -1707,9 +1707,6 @@ class Gateway:
                     return "gone"
                 if ap.state != "pending":
                     return ap.state
-                if self.clock.monotonic() >= ap.expires_at:
-                    ap.state = "expired"
-                    return "expired"
                 await asyncio.sleep(self.hold_poll_s)
         finally:
             self.observer.waiting(grant.worker_id, False)

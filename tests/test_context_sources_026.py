@@ -59,7 +59,7 @@ def test_long_memory_keys_do_not_collapse_to_same_fact():
 
 
 def test_duplicate_question_label_does_not_choose_first_candidate():
-    q = Approvals(FakeClock())
+    q = Approvals()
     action = ActionRequest("owner.ask", "owner_question", Identity.OWNER, frozenset(), "t", "w", "r", frozenset())
     pending = q.question(action, "Which candidate?", ["Report.pdf", "report.pdf"])
     q.resolve(pending.id, True, text="report.pdf")

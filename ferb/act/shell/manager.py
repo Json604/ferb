@@ -10,7 +10,10 @@ sandbox (sandbox.py): the daemon never starts a command without it, and a child 
 outbound network (what each rule covers, and its measured residuals, is in sandbox.py and the F5a Task 2 and 3
 reports). Each process gets its own credentials for FERB's egress proxy (proxy.py), the only way off the Mac, so what
 it reached is a recorded fact (`network`); when the task ends, each finished process's record is reported
-(`on_network`, journaled by the daemon) and forgotten, and a process still running then is reported when it exits."""
+(`on_network`, journaled by the daemon) and forgotten, and a process still running then is reported when it exits.
+An owner-pinned local port whose listener runs its pinned executable when the command starts is reachable directly
+(L24, local.py); the record lists each such port under `local_direct` (`local: true`) with the connections the kernel
+reported for this command (`DirectReports`), and so does the live `network` view."""
 
 import asyncio
 import dataclasses
@@ -21,12 +24,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from ferb.act.shell.local import DirectReports
 from ferb.act.shell.proxy import EgressProxy
 from ferb.act.shell.pty_proc import PtyProc
 from ferb.act.shell.sandbox import Sandbox
 from ferb.sanitize.redact import RedactionStream, Redactor
 from ferb.core.types import EscapeGrant
-from ferb.policy.protection import ADMIN
+from ferb.policy.protection import ADMIN, LocalPort
 from ferb.core.errors import Refused
 
 CLEAN_ENV_KEYS = ("PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "SHELL", "TMPDIR")
@@ -67,6 +71,8 @@ class ProcInfo:
     lifted: str | None = None                 # the one rule an approved escape lifted for this run (D31)
     read_path: str | None = None
     sandbox_ms: float | None = None
+    # owner-pinned local ports it may reach directly, as checked when it started: ({"port", "executable"}, ...) (L24)
+    direct: tuple[dict[str, Any], ...] = ()
 
 
 class ShellManager:
@@ -75,13 +81,17 @@ class ShellManager:
                  proxy: EgressProxy | None = None,
                  on_network: Callable[[ProcInfo, dict[str, Any]], None] | None = None,
                  redactor: Redactor | None = None,
-                 on_escape: Callable[[str, EscapeGrant], None] | None = None) -> None:
+                 on_escape: Callable[[str, EscapeGrant], None] | None = None,
+                 reports: DirectReports | None = None,
+                 local_refused: Callable[[str], bool] | None = None) -> None:
         self.log_dir, self.redact_text = log_dir, redact_text
         self.stream_factory = stream_factory
         self.sandbox = sandbox                    # None only in unit tests of the PTY plumbing; the daemon always sets it
         self.proxy = proxy                        # FERB's egress proxy (None: no network beyond this Mac)
         self.on_network = on_network              # a finished process's final network record (reported when its last
         self.redactor, self.on_escape = redactor, on_escape
+        self.reports = reports                    # the kernel's reports of direct local connections (None: unread)
+        self.local_refused = local_refused        # whether a task's tree said No to one of this Mac's addresses
         self._procs: dict[str, tuple[PtyProc, ProcInfo]] = {}   # connection closes, so a setsid child's late bytes count)
         self._owner_input: dict[str, str] = {}
         self._report_on_exit: set[str] = set()   # running when their task ended: their record is due when they exit
@@ -98,6 +108,7 @@ class ShellManager:
                     *, lift: str | None = None, escape: EscapeGrant | None = None) -> ProcHandle:
         """Run the command text through /bin/sh, under the sandbox profile (with `lift`'s one rule lifted)."""
         pid = "p-" + secrets.token_hex(4)
+        direct: tuple[LocalPort, ...] = ()
         if escape is not None:
             if escape.command != command or escape.cwd != str(cwd.resolve()) or escape.rule != lift:
                 raise Refused("the escape grant does not cover this exact command and working folder")
@@ -108,8 +119,14 @@ class ShellManager:
                 raise Refused("no sandbox here to lift a rule from")
             argv, profile = ["/bin/sh", "-c", command], None
         else:
-            # Building the profile runs netstat and sandbox_check (listeners.py): off the event loop
-            argv = await asyncio.to_thread(self.sandbox.argv, command, None if lift == ADMIN else lift)
+            # Building the profile runs netstat and sandbox_check (listeners.py): off the event loop. Pinned local
+            # ports are direct only for a command whose record goes out with the proxy's, and never after its tree's
+            # No to one of this Mac's addresses: that No stays final, checked per connection by the proxy
+            rule = None if lift == ADMIN else lift
+            if self.proxy is not None and not (self.local_refused is not None and self.local_refused(owner_task)):
+                argv, direct = await asyncio.to_thread(self.sandbox.contain, command, pid, rule)
+            else:
+                argv = await asyncio.to_thread(self.sandbox.argv, command, rule)
             profile = self.sandbox.profile_path(argv)
         secret = escape.secret if escape is not None else None
         if secret and self.redactor is not None:
@@ -126,7 +143,9 @@ class ShellManager:
         entry = self.sandbox.protection.entry(lift) if self.sandbox is not None and lift else None
         self._procs[pid] = (p, ProcInfo(pid, owner_task, command, str(cwd), time.time(), True, None, long_lived,
                                       sandboxed=self.sandbox is not None, lifted=lift,
-                                      read_path=str(entry.path) if entry and entry.id.startswith("read:") else None))
+                                      read_path=str(entry.path) if entry and entry.id.startswith("read:") else None,
+                                      direct=tuple({"port": pin.port, "executable": str(pin.executable)}
+                                                   for pin in direct)))
         try:
             await p.start()
         except BaseException:
@@ -191,7 +210,19 @@ class ShellManager:
         return self._facts(h.id)
 
     def _facts(self, proc_id: str) -> dict[str, Any]:
-        return self.proxy.facts(proc_id) if self.proxy is not None else {"destinations": [], "refused": []}
+        facts = self.proxy.facts(proc_id) if self.proxy is not None else {"destinations": [], "refused": []}
+        hit = self._procs.get(proc_id)
+        if hit is not None and hit[1].direct:
+            facts["local_direct"] = self._direct(hit[1])
+        return facts
+
+    def _direct(self, info: ProcInfo) -> list[dict[str, Any]]:
+        """Each pinned local port this process may reach directly, with the connections the kernel reported for it
+        so far and the programs that made them; None for both when the kernel's reports couldn't be read."""
+        seen = self.reports.connections(info.id, info.started) if self.reports is not None else None
+        return [{"host": "localhost", "port": d["port"], "executable": d["executable"], "local": True, "direct": True,
+                 **({"reported_connections": None, "clients": None} if seen is None else
+                    seen.get(d["port"], {"reported_connections": 0, "clients": []}))} for d in info.direct]
 
     def list(self) -> list[ProcInfo]:
         out = []
@@ -261,5 +292,12 @@ class ShellManager:
     def _report(self, proc_id: str, facts: dict[str, Any]) -> None:
         """The proxy's final record for a forgotten process (from the daemon loop, or a tunnel's thread at close)."""
         hit = self._procs.get(proc_id)
-        if hit is not None and self.on_network is not None and (facts["destinations"] or facts["refused"]):
-            self.on_network(hit[1], facts)
+        if hit is None or self.on_network is None:
+            return
+        info = hit[1]
+        if info.direct:                           # what the kernel reported of its direct local connections (L24)
+            facts = {**facts, "local_direct": self._direct(info)}
+            if self.reports is not None:
+                self.reports.forget(proc_id)
+        if facts["destinations"] or facts["refused"] or info.direct:
+            self.on_network(info, facts)

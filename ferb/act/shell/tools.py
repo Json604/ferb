@@ -269,9 +269,11 @@ class ShellRules(_Base):
         port = self.shells.sandbox.proxy_port() if self.shells.sandbox is not None else None
         local = ("this Mac's own servers only if started inside FERB's shell (other programs' servers, as they were "
                  "when the command started, are out of reach directly); protection.local_ports allows approved "
-                 "TCP services through the proxy with executable checks and connection records. With local ports "
-                 "configured, NO_PROXY is empty; contained servers still accept direct connections when the client "
-                 "explicitly bypasses the proxy. A configured local port always requires the proxy.")
+                 "TCP services: directly when the port's listener runs its approved executable as the command "
+                 "starts (listed under the command's network local_direct; the kernel reports each connection), "
+                 "and through the proxy, which checks the executable for each connection and records its bytes. "
+                 "With local ports configured, NO_PROXY is empty, so HTTP clients take the proxy route; contained "
+                 "servers still accept direct connections when the client explicitly bypasses the proxy.")
         network = (f"no network beyond this Mac; FERB's proxy is not running; {local}" if port is None else
                    f"any remote host, without asking, only through FERB's proxy on 127.0.0.1:{port}, which records "
                    f"each host, port and byte count (clients that ignore HTTPS_PROXY/HTTP_PROXY get no network; no "

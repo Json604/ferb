@@ -168,8 +168,9 @@ include `display_text`; retain the complete reason under Details. Secret, retry 
 keep their concrete full text; clients must not compress them. Keep full option labels and free-text answers;
 duplicate labels must not become a first-match selection. Ordinary typed chat text is a message, never an answer:
 even when it matches an option of the only open question (a lone "Yes"), send it with `chat.send` and let the planner
-route it. Only an explicit answer to a shown question uses `chat.answer`/`chat.approve`. Pending questions expire
-after 600 seconds; timeout is not consent. Scheduled unattended work cannot wait indefinitely for an answer and reports what remains unresolved.
+route it. Only an explicit answer to a shown question uses `chat.answer`/`chat.approve`. Pending questions never
+expire (L3): a question stays open while its task waits and closes when it is answered or its task ends; silence is
+never consent. Scheduled unattended work cannot wait indefinitely for an answer and reports what remains unresolved.
 
 A secret question is marked `owner_login_code`, `owner_secret` or `owner_admin_password`. Collect it with hidden input and send it only through its
 question ID. Do not put it into chat history, telemetry, screenshots or speech. The daemon redacts before persistence
@@ -179,9 +180,10 @@ and fills only the origin/task-bound secret destination. Account and OTP candida
 First `chat.attach` starts a missing setup profile scan asynchronously. The shared `setup.persona` owner question
 uses the existing approval channel with a concise reason, concrete proposal and full `evidence` list. Clients should
 offer that evidence for review; it is not a task completion. Save, an explicit free-text edit, or Skip resolves the
-question through `chat.approve`/`chat.answer`. Timeout does not confirm it. Reconnect reuses collected evidence;
-confirmed or skipped profiles do not prompt again unless the owner explicitly requests refresh. `chat.status`
-includes the discovery state and enriched approval. Unconfirmed metadata stays local; confirmed text enters the
+question through `chat.approve`/`chat.answer`. Silence does not confirm it. The question is created once (one
+`approval_id` and one `approval.requested` for any number of `chat.status` polls) and never posts a macOS banner.
+Reconnect reuses collected evidence; confirmed or skipped profiles do not prompt again unless the owner explicitly
+requests refresh. `chat.status` includes the discovery state and enriched approval. Unconfirmed metadata stays local; confirmed text enters the
 owner's ordinary preference memory and stable identity context.
 
 ## Outcomes, observations and errors
@@ -219,7 +221,12 @@ Worker `shell.run`/`shell.start` reach any remote host through FERB's egress pro
 `network` argument and no network approval. The proxy records each host, port and byte count per process (the
 `shell.network` journal row, written when the task ends or, for a process still running then, when it exits). A
 process that has ended, or that FERB doesn't track, gets nothing; a local service needs its executable-pinned
-permission, and the owner's No to a host in the task stays final. Declare `external_source` for externally sourced
+permission, and the owner's No to a host in the task stays final. A `protection.local_ports` port whose listener runs
+its pinned executable when a command starts is reachable directly by that command (L24); its `network` facts and
+`shell.network` row then carry `local_direct: [{host: "localhost", port, executable, local: true, direct: true,
+reported_connections, clients}]`, where `reported_connections` and `clients` are what the kernel reported for that
+command so far (a burst of repeats may be counted later; `null` when the system log can't be read). A tree's No to
+one of this Mac's addresses keeps its commands on the proxy route. Declare `external_source` for externally sourced
 code/instructions; it is recorded with the call and adds no approval. Semantic origin is a model responsibility, not
 complete detection by code. Use `shell.start` or `background: true` for a continuing network process; failure never
 automatically retries an uncertain command. FERB does not inspect encrypted payloads. `owner.ask` has no

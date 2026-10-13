@@ -95,6 +95,12 @@ class Confirmations:
                                    "ORDER BY rowid DESC LIMIT 1", (tree_id, key)).fetchone()
         return dict(row) if row is not None else None
 
+    def refused(self, tree_id: str) -> list[str]:
+        """The keys whose latest answer in this task tree is No."""
+        latest = {row["key"]: row["granted"] for row in self.db.conn.execute(
+            "SELECT key, granted FROM confirmations WHERE tree_id = ? ORDER BY rowid", (tree_id,))}
+        return [key for key, granted in latest.items() if not granted]
+
     def covers(self, cid: str, key: str) -> bool:
         """Whether row `cid` is a Yes to the question `key` names (never for a key holding a secret)."""
         if _redacted(self.redact, key) != key:

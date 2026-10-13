@@ -1,13 +1,13 @@
-"""Own pending question transport and exact answers. Must not treat timeout or ambiguity as consent."""
+"""Own pending question transport and exact answers. Must not treat ambiguity or silence as consent.
+
+A question has no lifetime (spec §8.1, L3): it stays pending while its task waits, however long the owner takes, and
+closes when it is answered or when its task ends (`forget_request`, called as the task's request is forgotten)."""
 
 import secrets
 from dataclasses import dataclass
 from typing import Literal
 
-from ferb.core.interfaces import Clock
 from ferb.policy.rules import ActionRequest
-
-APPROVAL_TTL_S = 600.0
 
 
 @dataclass
@@ -15,10 +15,9 @@ class Approval:
     id: str
     capability: str
     reason: str
-    expires_at: float
     request_id: str
     kind: str = "owner_question"
-    state: Literal["pending", "granted", "denied", "used", "expired"] = "pending"
+    state: Literal["pending", "granted", "denied", "used"] = "pending"
     options: tuple[str, ...] = ()
     choice: str | None = None
     answer: str | None = None
@@ -33,14 +32,13 @@ class Approval:
 
 
 class Approvals:
-    def __init__(self, clock: Clock, ttl_s: float = APPROVAL_TTL_S) -> None:
-        self._clock, self._ttl = clock, ttl_s
+    def __init__(self) -> None:
         self._items: dict[str, Approval] = {}
         self.unattended: set[str] = set()
 
     def question(self, action: ActionRequest, question: str, options: list[str]) -> Approval:
-        ap = Approval("ap-" + secrets.token_hex(6), action.capability, question,
-                      self._clock.monotonic() + self._ttl, action.request_id, options=tuple(options))
+        ap = Approval("ap-" + secrets.token_hex(6), action.capability, question, action.request_id,
+                      options=tuple(options))
         self._items[ap.id] = ap
         return ap
 
@@ -48,9 +46,6 @@ class Approvals:
         ap = self._items[approval_id]
         if ap.state != "pending":
             raise ValueError(f"question {approval_id} is {ap.state}")
-        if self._clock.monotonic() >= ap.expires_at:
-            ap.state = "expired"
-            raise ValueError(f"question {approval_id} expired")
         if ap.kind in {"owner_admin_password", "owner_secret"}:
             if text and any(c in text for c in "\r\n\x00"):
                 raise ValueError("the hidden password must be one line")
@@ -69,8 +64,7 @@ class Approvals:
         return ap
 
     def pending(self) -> list[Approval]:
-        now = self._clock.monotonic()
-        return [ap for ap in self._items.values() if ap.state == "pending" and now < ap.expires_at]
+        return [ap for ap in self._items.values() if ap.state == "pending"]
 
     def get(self, approval_id: str) -> Approval | None:
         return self._items.get(approval_id)

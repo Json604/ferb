@@ -32,8 +32,8 @@ from ferb.act.mac.driver import MacComputerDriver, profiles_dir
 from ferb.act.mac.profile import Profiles
 from ferb.act.mac.input import RealInput
 from ferb.act.shell.manager import ProcInfo, ShellManager
-from ferb.act.shell.proxy import EgressProxy
-from ferb.act.shell.local import LocalAccess
+from ferb.act.shell.proxy import EgressProxy, local_host
+from ferb.act.shell.local import DirectReports, LocalAccess
 from ferb.act.shell.sandbox import SANDBOX_EXEC, Sandbox
 from ferb.registry import add_context_readers, add_hearing, add_recording, add_evidence, add_recovery, add_identity_browser, add_mac, add_owner_browsers, add_shell, add_time, add_trail
 from ferb.sense.watchers.owner_input import OwnerInput
@@ -56,7 +56,7 @@ from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
 from ferb.trace import compose
 from ferb.paths import ferb_home, socket_path
-from ferb.policy import protection as protection_lists
+from ferb.policy import confirm, protection as protection_lists
 from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.protection import Protection
 from ferb.orchestrator.tree import ExecutionState
@@ -152,7 +152,7 @@ class Daemon:
         self.bus = Bus(self.clock)
         self.tokens = RunTokens(self.clock)
         self.server = Server(socket_path(self.home), self.tokens, owner_uid)
-        self.state = ExecutionState(self.clock)
+        self.state = ExecutionState()
         self.stop_control = StopControl(self.tokens.revoke_all, self._set_blocked)
         self.db: Database | None = None
         self.journal: Journal | None = None
@@ -182,6 +182,7 @@ class Daemon:
         self.supervisor: Supervisor | None = None
         self._proxy: ToolListProxy | None = None              # the Claude runtime's tool-list relay
         self.proxy: EgressProxy | None = None                 # FERB's shell's egress proxy: its only way off the Mac
+        self.direct_reports: DirectReports | None = None      # the kernel's reports of direct local connections (L24)
         self._loop: asyncio.AbstractEventLoop | None = None
         # Owner browser profiles through the extension. Tests override the data dirs and the launcher.
         self.browser_data_dirs: dict[str, Path] | None = None
@@ -390,6 +391,8 @@ class Daemon:
             await self.shells.kill_all()                     # reports each process's network record first
         if self.proxy is not None:
             self.proxy.close()
+        if self.direct_reports is not None:                  # after the proxy's last records went out
+            self.direct_reports.close()
         if self.jev is not None:
             self.jev.close()
         if self.sense is not None:
@@ -780,13 +783,18 @@ class Daemon:
         self.hearing.sweep()                                      # sound and answers a restart left behind (L26)
         add_hearing(self.registry, self.hearing,
                     lambda identity: self.identity_browser if identity is Identity.FERB else self.router)
+        if contained is not None and self.protection.local_ports:   # pinned local ports: read the kernel's reports
+            self.direct_reports = DirectReports()
+            if not self.direct_reports.start():
+                self._journal().append("shell.local_reports_unavailable", {"why": "the system log can't be read"})
         self.shells = ShellManager(self.home / "logs" / "shell", self._redact_text,
                                    stream_factory=getattr(self.redact, "stream", None), sandbox=self.sandbox,
                                    proxy=self.proxy, on_network=self._shell_network,
                                    redactor=self.redact if isinstance(self.redact, Redactor) else None,
                                    on_escape=lambda task, grant: self._journal().append("escape.used", {
                                        "task_id": task, "rule": grant.rule, "command": grant.command,
-                                       "cwd": grant.cwd, "confirmation": grant.confirmation_id}))
+                                       "cwd": grant.cwd, "confirmation": grant.confirmation_id}),
+                                   reports=self.direct_reports, local_refused=self._local_refused)
         if contained is not None:
             add_shell(self.registry, self.shells, self.protection)
         else:
@@ -816,6 +824,24 @@ class Daemon:
             return fut.result(10)
         except Exception:
             return False, "FERB could not check this local destination"
+
+    def _local_refused(self, task_id: str) -> bool:
+        """Whether this task's tree has the owner's No to one of this Mac's addresses (the shared host key, SQ6): its
+        shell commands then reach pinned local ports only through the proxy, which keeps that No final for each
+        connection (L24). A task FERB can't place counts as refused."""
+        root = self.tasks.tree_of(task_id)
+        if root is None:
+            return True
+        confirmations = self.gateway.confirmations if self.gateway is not None else None
+        for key in confirmations.refused(root) if confirmations is not None else []:
+            try:
+                rule, host = json.loads(key)
+            except (ValueError, TypeError):
+                continue
+            if rule == confirm.SINK_DESTINATION and isinstance(host, str) and (
+                    local_host(host) or host.rstrip(".").endswith(".localhost")):
+                return True
+        return False
 
     def _shell_network(self, info: ProcInfo, facts: dict[str, Any]) -> None:
         """A finished shell process's final network record (ferb trace / journal). The proxy may report it from a
@@ -1537,9 +1563,10 @@ class Daemon:
         self._publish('task.result', {**ev, 'at': at, 'shown': shown})
 
     def _approval_notice(self, data: dict[str, Any]) -> None:
-        """An approval is waiting and no chat is open for that task: tell the owner (notification)."""
+        """An approval is waiting and no chat is open for that task: tell the owner (notification). The setup profile
+        question is never a banner (L3): an open client (`chat.attach`, `ferb setup`) started it and shows it inline."""
         tid = str(data.get("task_id") or "")
-        if tid.split(".", 1)[0] in self._attached_trees:
+        if tid.split(".", 1)[0] in self._attached_trees or data.get("capability") == "setup.persona":
             return
         text = f"FERB needs your OK: {str(data.get('reason', ''))} — open ferb chat"
         asyncio.get_running_loop().create_task(self._notify("FERB needs you", text, urgent=True))

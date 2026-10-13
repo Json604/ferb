@@ -1,22 +1,48 @@
-"""Verify a local proxy destination against the owner's executable-pinned ports (S2, D28).
+"""Verify local destinations against the owner's executable-pinned ports (S2, D28, owner Q1, L24).
 
 No command/content inspection: the listener and connected TCP peer are kernel socket facts, and proc_pidpath
-identifies their executable. Verify before dial and again against the exact established peer before sending bytes;
-a different program that replaces a listener in between gets no payload. Unknown identities fail closed.
+identifies their executable. Two routes reach a pinned port:
+- Through FERB's proxy (HTTP clients, which use the proxy environment): verified before dial and again against the
+  exact established peer before sending bytes; a different program that replaces a listener in between gets no
+  payload. Each connection is recorded with its address, executable and byte counts (proxy.py).
+- Directly (psql, redis-cli, anything that ignores the proxy): `direct_ports` checks, when a shell command's profile
+  is built, that every listener on the port runs its pinned executable; only then does the profile allow TCP to it
+  (sandbox.py). The allow rule asks the kernel to report each connection with the command's FERB process id, and
+  `DirectReports` reads those reports, so the command's `shell.network` record names the port, the executable and
+  the programs that connected (`local_direct`, each `local: true`).
+Unknown identities fail closed: no direct port, and the proxy refuses.
 
-Residual: these are OS snapshots, not an atomic kernel executable constraint; a process can exec after inspection.
-An executable pin trusts that program's scripts/plugins too. An approved service can itself fetch outside FERB's
-proxy (owner accepted); FERB records only its own connection to that service, never the service's later traffic.
+Residuals: these are OS snapshots, not an atomic kernel executable constraint; a process can exec after inspection.
+A direct allowance lasts the command's life, so a program that takes the port over later (the pinned server stopped)
+is reachable by that command directly; the proxy route re-checks every connection. The kernel reports one
+connection per program at once and batches repeats, delivering the batch's count with a later report, so
+`reported_connections` is what was reported by the time of the record (at least one per program that connected),
+not an exact count, and bytes aren't counted on the direct route. An executable pin trusts that program's
+scripts/plugins too. An approved service can itself fetch outside FERB's proxy (owner accepted); FERB records only
+its own connections to that service, never the service's later traffic.
 """
 import ctypes
 import ipaddress
+import json
 import os
+import re
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ferb.act.shell.listeners import NETSTAT, _PID, contained
-from ferb.policy.protection import Protection
+from ferb.policy.protection import LocalPort, Protection
+
+LOG = "/usr/bin/log"
+# The message a direct allow rule gives the kernel's report: "ferb <process id>" (sandbox.py writes it per command)
+REPORT_MESSAGE = "ferb {process}"
+# The kernel's own reports (process 0) that carry a FERB process id; a program can't log as the kernel
+STREAM = [LOG, "stream", "--style", "ndjson", "--predicate", 'processID == 0 AND eventMessage CONTAINS "ferb p-"']
+_REPORT = re.compile(r"(?:(\d+) duplicate reports? for )?Sandbox: (.+)\(\d+\) allow network-outbound \S*:(\d+)\n"
+                     r"ferb (p-[0-9a-f]+)")
 
 
 class LocalRefused(Exception):
@@ -138,3 +164,88 @@ class LocalAccess:
                 and row.local == server and row.remote == source]
         executable = self._verified(rows, target[1])
         return LocalPeer(server[0], str(executable))
+
+
+def direct_ports(protection: Protection) -> tuple[LocalPort, ...]:
+    """The owner-pinned ports a shell command starting now may reach directly: each port whose every listening TCP
+    socket belongs to a process running its pinned executable at this moment. None of them when the sockets can't be
+    read; a port with no listener, a listener netstat can't name, or any other executable is left out."""
+    if not protection.local_ports:
+        return ()
+    sockets = tcp_snapshot()
+    if sockets is None:
+        return ()
+    allowed = []
+    for pin in protection.local_ports:
+        pids = [row.pid for row in sockets if row.state == "LISTEN" and row.local[1] == pin.port]
+        if pids and all(pid is not None and executable_of(pid) == pin.executable for pid in pids):
+            allowed.append(pin)
+    return tuple(allowed)
+
+
+class DirectReports:
+    """The kernel's reports of direct connections to pinned local ports, by FERB process id, read live from the
+    system log for as long as FERB runs (started only when the owner has pinned local ports). A report is a fact the
+    kernel states when the connection is made: which program connected, to which port, under which command's profile.
+    When the stream isn't running, or wasn't yet when a command started, that command's count is unknown (None)."""
+
+    def __init__(self, argv: list[str] | None = None) -> None:
+        self.argv = argv or STREAM
+        self._lock = threading.Lock()
+        self._seen: dict[str, dict[int, tuple[int, set[str]]]] = {}   # process -> port -> (connections, programs)
+        self._since: float | None = None          # when the stream started listening (wall clock)
+        self._ended = False
+        self._proc: subprocess.Popen[str] | None = None
+
+    def start(self) -> bool:
+        try:
+            self._proc = subprocess.Popen(self.argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                          stderr=subprocess.DEVNULL, text=True, errors="replace")
+        except OSError:
+            self._ended = True
+            return False
+        threading.Thread(target=self._read, name="ferb-direct-reports", daemon=True).start()
+        return True
+
+    def _read(self) -> None:
+        assert self._proc is not None and self._proc.stdout is not None
+        try:
+            for line in self._proc.stdout:
+                if self._since is None:            # `log stream` names its filter once it listens
+                    with self._lock:
+                        self._since = time.time()
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(event, dict) or event.get("processID") != 0:
+                    continue
+                match = _REPORT.fullmatch(str(event.get("eventMessage", "")).strip())
+                if match is None:
+                    continue
+                repeats, program, port, process = match.groups()
+                with self._lock:
+                    ports = self._seen.setdefault(process, {})
+                    count, programs = ports.get(int(port), (0, set()))
+                    ports[int(port)] = (count + int(repeats or 1), programs | {program})
+        finally:                                   # from here on, what a command connected to is unknown
+            with self._lock:
+                self._ended = True
+
+    def connections(self, process: str, started: float) -> dict[int, dict[str, Any]] | None:
+        """{port: {"reported_connections": n, "clients": [program, ...]}} reported so far for a command started at
+        `started` (wall clock); None when the stream wasn't listening for all of its life."""
+        with self._lock:
+            if self._ended or self._since is None or self._since > started:
+                return None
+            return {port: {"reported_connections": count, "clients": sorted(programs)}
+                    for port, (count, programs) in self._seen.get(process, {}).items()}
+
+    def forget(self, process: str) -> None:
+        with self._lock:
+            self._seen.pop(process, None)
+
+    def close(self) -> None:
+        if self._proc is not None and self._proc.poll() is None:
+            self._proc.kill()
+            self._proc.wait()

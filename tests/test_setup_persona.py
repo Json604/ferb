@@ -13,7 +13,7 @@ from ferb.daemon.persona import PersonaReview
 def harness(tmp_path, collector):
     config = Config(tmp_path / 'home')
     clock = FakeClock()
-    approvals = Approvals(clock)
+    approvals = Approvals()
     saved, events = [], []
     review = PersonaReview(config, approvals, clock, collector,
         remember=lambda text: saved.append(text),
@@ -39,9 +39,14 @@ def test_pending_scan_is_reused_across_reconnect_expiry_and_restart(tmp_path):
         assert '3733' in pending['approval']['evidence'][1]
         assert review.start()['approval']['approval_id'] == ident
         clock.advance(601)
-        assert review.status()['approval']['approval_id'] != ident
-        again, _, _, saved_again, _, _ = harness(tmp_path, lambda: (_ for _ in ()).throw(AssertionError('rescan')))
-        assert again.start()['state'] == 'pending'
+        assert review.status()['approval']['approval_id'] == ident      # never expires, never asked again (L3)
+        again, _, approvals_again, saved_again, events_again, _ = harness(
+            tmp_path, lambda: (_ for _ in ()).throw(AssertionError('rescan')))
+        restarted = again.start()                     # a restart asks about the stored scan once
+        assert restarted['state'] == 'pending'
+        assert [ap.id for ap in approvals_again.pending()] == [restarted['approval']['approval_id']]
+        assert again.start()['approval'] == again.status()['approval'] == restarted['approval']
+        assert [topic for topic, _ in events_again] == ['approval.requested']
         assert not saved_again
     asyncio.run(scenario())
 

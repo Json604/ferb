@@ -1,4 +1,7 @@
-"""One local P28 proposal shared by setup and chat; only owner review creates memory."""
+"""One local P28 proposal shared by setup and chat; only owner review creates memory.
+
+Its question ("Getting to know you") is asked once (L3): when the scan finishes, or when FERB starts with a scan still
+unreviewed. `status()` (polled by `chat.status`) only reads it; the question never expires, so nothing re-asks it."""
 import asyncio
 import inspect
 from typing import Any, Callable
@@ -32,9 +35,12 @@ class PersonaReview:
             self.approval_id = None
             self.config.set('setup', 'persona_reviewed', False)
             self.config.set('setup', 'persona_pending', {})
-        if not self.config.get('setup', 'persona_reviewed', False) and not self._proposal():
-            self.error = None
-            self.task = asyncio.create_task(self._discover())
+        if not self.config.get('setup', 'persona_reviewed', False):
+            if not self._proposal():
+                self.error = None
+                self.task = asyncio.create_task(self._discover())
+            elif self.approval_id is None:              # a scan this daemon hasn't asked about yet (a restart)
+                self._ask()
         return self.status()
 
     async def _discover(self) -> None:
@@ -46,7 +52,7 @@ class PersonaReview:
             proposal = self.redact(await collected if inspect.isawaitable(collected) else collected)
             self.config.set('setup', 'persona_pending', proposal)
             self.record('setup.persona_scanned', {k: proposal[k] for k in ('scanned_at', 'apps', 'used_apps')})
-            self._approval()
+            self._ask()
         except Exception as exc:
             self.error = str(self.redact(f'{type(exc).__name__}: {exc}'))
             self.record('setup.persona_failed', {'error': self.error})
@@ -54,10 +60,8 @@ class PersonaReview:
     def _proposal(self) -> dict[str, Any]:
         return dict(self.config.get('setup', 'persona_pending', {}))
 
-    def _approval(self) -> Any:
-        ap = self.approvals.get(self.approval_id) if self.approval_id else None
-        if ap is not None and ap in self.approvals.pending():
-            return ap
+    def _ask(self) -> None:
+        """The one question for this proposal, published once."""
         proposal = self._proposal()
         options = (['Save app-use profile'] if proposal['used_apps'] else []) + ['Skip']
         action = ActionRequest('setup.persona', 'owner_question', Identity.OWNER, frozenset(),
@@ -65,7 +69,6 @@ class PersonaReview:
         ap = self.approvals.question(action, proposal['reason'], options)
         self.approval_id = ap.id
         self.publish('approval.requested', self.describe(ap))
-        return ap
 
     def describe(self, ap: Any) -> dict[str, Any]:
         return {'approval_id': ap.id, 'capability': ap.capability, 'kind': ap.kind,
@@ -79,7 +82,8 @@ class PersonaReview:
         if self.config.get('setup', 'persona_reviewed', False):
             return {'state': 'reviewed'}
         if self._proposal():
-            return {'state': 'pending', 'approval': self.describe(self._approval())}
+            ap = self.approvals.get(self.approval_id) if self.approval_id else None
+            return {'state': 'pending', **({'approval': self.describe(ap)} if ap is not None else {})}
         if self.error:
             return {'state': 'failed', 'error': self.error}
         return {'state': 'scanning' if self.task is not None and not self.task.done() else 'not_started'}
