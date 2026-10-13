@@ -143,13 +143,14 @@ def test_window_recording_withholds_unknown_secret_inventory(monkeypatch, unknow
 def test_extension_record_frame_preserves_action_references_and_never_activates():
     out = worker('''(async () => {
       attach = async id => tabState(id);
-      maskState = async id => ({documents: [[0, 'doc']], rects: [], viewport: [100, 50]});
+      maskState = async id => ({top: 'doc', viewport: [0, 0, 100, 50], items: []});
       let calls = []; cdp = async (id, method, args) => {calls.push({id,method,args}); return {data:'jpeg'};};
       const st = tabState(19); st.visual = {snap:7}; st.shot = 'other screenshot';
       const frame = await commands.record_frame({tab_id:19});
       return {frame,calls,visual:st.visual,shot:st.shot};
     })()''')
-    assert out['frame'] == {'data': 'jpeg', 'mask': {'rects': [], 'viewport': [100, 50]}}
+    page = {'top': 'doc', 'viewport': [0, 0, 100, 50], 'items': []}
+    assert out['frame'] == {'data': 'jpeg', 'mask': {'before': page, 'after': page}}
     assert out['visual'] == {'snap':7} and out['shot'] == 'other screenshot'
     assert out['calls'] == [{'id':19, 'method':'Page.captureScreenshot',
                             'args':{'format':'jpeg','quality':70,'fromSurface':True,'captureBeyondViewport':False}}]
@@ -181,8 +182,9 @@ def test_browser_recording_source_preserves_refs_and_checks_ownership():
     from unittest.mock import AsyncMock
     import base64
     ref = TabRef('device','brave','Default',1,'t1')
+    page = {'top': 'doc', 'viewport': [0, 0, 100, 50], 'items': []}
     bridge = SimpleNamespace(gen=1, conn=object(), call=AsyncMock(return_value={
-        'data': base64.b64encode(b'target pixels').decode(), 'mask': {'rects': [], 'viewport': [100, 50]}}))
+        'data': base64.b64encode(b'target pixels').decode(), 'mask': {'before': page, 'after': page}}))
     tab = _Tab(ref,bridge,19,'task','https://example.test',snap_gen=3,visual=('keep',))
     d = _TabDriver(None,lambda:[]); d._tabs['t1'] = tab
     target,capture=d.recording_source(ref,'task')
@@ -196,7 +198,7 @@ def test_browser_recording_source_preserves_refs_and_checks_ownership():
 def test_extension_recording_chunks_do_not_consume_click_screenshot():
     out=worker('''(async () => {
       attach=async id=>tabState(id);
-      maskState=async()=>({documents:[[0,'doc']],rects:[],viewport:[100,50]});
+      maskState=async()=>({top:'doc',viewport:[0,0,100,50],items:[]});
       cdp=async()=>({data:'x'.repeat(SHOT_PART+10)});
       const st=tabState(8); st.shot='click image';
       const start=await commands.record_frame({tab_id:8});
@@ -209,19 +211,21 @@ def test_extension_recording_chunks_do_not_consume_click_screenshot():
 
 
 def test_recording_frame_masks_cover_every_embedded_frame():
-    """An embedded frame that can't be read (not loaded yet, or out of the extension's reach) is painted whole: its
+    """An embedded frame no child frame claims (not loaded yet, or out of the extension's reach) is painted whole: its
     content is never in a frame unmasked (L13; formerly the whole frame was dropped)."""
     out=worker('''(async()=>{
       inject=async()=>{};
-      let rows=[{frameId:0,result:{documentId:'top',viewport:[100,100],rects:[],
-        frames:[{frame_id:2,rect:[10,10,20,20],inner:[10,10],scaled:false}]}}];
-      chrome.scripting={executeScript:async()=>rows};
+      let rows=[{frameId:0,result:{documentId:'top',parent:null,viewport:[0,0,100,100],rects:[],
+        frames:[{token:'t',rect:[10,10,20,20],inner:[10,10],scaled:false}]}}];
+      chrome.scripting={executeScript:async args=>args.func.toString().includes('linkFrames')?[]:rows};
       const unread=await maskState(9);
-      rows.push({frameId:2,result:{documentId:'child',viewport:[20,20],rects:[],frames:[]}});
+      rows.push({frameId:2,result:{documentId:'child',parent:{doc:'top',token:'t'},viewport:[0,0,20,20],
+        rects:[],frames:[]}});
       return {unread,read:await maskState(9)};
     })()''')
-    assert out['unread']['rects'] == [[10,10,20,20]] and out['read']['rects'] == []
-    assert [d[0] for d in out['read']['documents']] == [0,2]
+    assert [i['rect'] for i in out['unread']['items'] if i['paint']] == [[10,10,20,20]]
+    assert [i for i in out['read']['items'] if i['paint']] == []
+    assert out['read']['items'] == [{'key':'frame|top|t','rect':[10,10,20,20],'paint':False,'child':'child'}]
 
 
 def test_restarted_app_cannot_reuse_old_recording_selection(monkeypatch):

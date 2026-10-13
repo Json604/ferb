@@ -14,7 +14,7 @@ def split_script(after: str) -> dict:
     group = source[source.index('  function codeGroup('):source.index('\n\n  function formKind')]
     describe = source[source.index('  function describe('):source.index('  // Visible text nearest')]
     act = source[source.index('  function act('):source.index('  function rect(')]
-    capture = source[source.index('  function captureState('):source.index('  function snapshot(')]
+    capture = source[source.index('  // Frame links for capture masks'):source.index('  function snapshot(')]
     fill = source[source.index('  function fill('):source.index('\n\n  window.__ferb =')]
     script = r'''
 const secret = /otp|one.?time|verification.?code/i;
@@ -26,6 +26,8 @@ let nodes=Array.from({length:6},()=>Object.assign(new HTMLInputElement(), {tagNa
  inputMode:'numeric',pattern:'',name:'',id:'',autocomplete:'',isConnected:true,ownerDocument:1,value:''}));
 let parent={querySelectorAll:()=>nodes, parentElement:null}; nodes.forEach(n=>n.parentElement=parent);
 let location={origin:'https://www.zomato.com'}, element=()=>({el:nodes[0]}), setValue=(n,v)=>n.value=v;
+const addEventListener=()=>{}, top={}, window={}, chrome={runtime:{}}, getComputedStyle=()=>({});
+let ids=0; const randomId=()=>'id'+(++ids);
 ''' + capture_text + group + describe + capture + act + fill + after
     ran = subprocess.run([_node(), '-e', script], capture_output=True, text=True, check=True)
     return json.loads(ran.stdout)
@@ -107,7 +109,6 @@ def test_explicit_split_replacement_nodes_remain_masked_in_snapshot_and_capture(
  const document = {querySelectorAll:()=>nodes}, documentId='same-document';
  const implicitRole=()=> 'textbox', hitTest=()=>false, scrollerOf=()=>null, round=n=>n, formKind=()=>null;
  const innerWidth=1000, innerHeight=1000;
- const getComputedStyle=()=>({}), chrome={runtime:{getFrameId:()=>-1}};
  nodes.forEach(n=>{n.getBoundingClientRect=()=>({x:0,y:0,width:10,height:10,left:0,top:0,right:10,bottom:10});n.getAttribute=()=>null;});
  const shown=nodes.map(describe), capture=captureState();
  const search=Object.assign(new HTMLInputElement(),nodes[0],{value:'',type:'search',focus:()=>{}});
@@ -119,22 +120,23 @@ def test_explicit_split_replacement_nodes_remain_masked_in_snapshot_and_capture(
     assert result['result']['ok']
     assert result['typed']['ok']
     assert all(not e['secret'] and e['value'] == 'filled' for e in result['shown'])
-    assert result['capture']['rects'] == [[0, 0, 10, 10]] * 6         # every editable field painted over (L13)
+    assert [r['rect'] for r in result['capture']['rects']] == [[0, 0, 10, 10]] * 6   # every editable field (L13)
     assert result['afterRemoval']['rects'] == []                       # nothing left in the document to paint
 
 
-@pytest.mark.parametrize('failure', ['before_secret', 'after_secret', 'unreadable', 'navigation'])
-def test_screenshot_masks_secret_fields_and_withholds_a_changed_document_before_publishing_bytes(failure):
-    """L13: a page with a secret field (before or after the capture) is captured with its rect in the mask; a page
-    that can't be read, or changed document during capture, publishes no bytes."""
+@pytest.mark.parametrize('failure', ['before_secret', 'after_secret', 'unreadable'])
+def test_screenshot_carries_the_page_before_and_after_and_publishes_no_bytes_for_an_unreadable_page(failure):
+    """L13: a page with a secret field (before or after the capture) is captured with both looks in the mask (the
+    daemon paints, or withholds a capture whose fields moved: tests/test_pixels_to_model.py); a page that can't be
+    read publishes no bytes."""
     result = worker('''(async () => {
       attach = async id => tabState(id); let reads=0, captures=0;
       maskState = async () => {
         reads++;
         if (CASE==='unreadable') return {withheld: "the page's top frame can't be read"};
         const secret = CASE==='before_secret' && reads===1 || CASE==='after_secret' && reads>1;
-        return {documents: [[0, CASE==='navigation' && reads>1 ? 'new':'doc']], viewport: [100, 50],
-                rects: secret ? [[1, 2, 3, 4]] : []};
+        return {top: 'doc', viewport: [0, 0, 100, 50],
+                items: secret ? [{key: 'field|doc|f', rect: [1, 2, 3, 4], paint: true}] : []};
       };
       cdp=async()=>{captures++;return {data:'picture'};};
       const st=tabState(19);st.shot='previous-shot';st.visual={snap:7};
@@ -142,7 +144,8 @@ def test_screenshot_masks_secret_fields_and_withholds_a_changed_document_before_
       return {out,captures,shot:st.shot,visual:st.visual};
     })()'''.replace('CASE', json.dumps(failure)))
     if failure.endswith('secret'):
-        assert result['out']['data'] == 'picture' and result['out']['mask']['rects'] == [[1, 2, 3, 4]]
+        looks = [len(result['out']['mask'][k]['items']) for k in ('before', 'after')]
+        assert result['out']['data'] == 'picture' and looks == ([1, 0] if failure == 'before_secret' else [0, 1])
     else:
         assert 'data' not in result['out'] and result['out']['withheld']
     assert result['captures'] == (0 if failure == 'unreadable' else 1)
@@ -170,7 +173,7 @@ def test_accessibility_names_cannot_replace_capture_masked_dom_labels():
 def test_editable_text_capture_and_labels_omit_replacement_secret_characters():
     source = Path('extensions/chromium/content.js').read_text()
     capture_text = source[source.index('  function maskedEditable('):source.index('  function codeGroup(')]
-    page_text = source[source.index('  function pageText('):source.index('  function captureState(')]
+    page_text = source[source.index('  function pageText('):source.index('  // Frame links for capture masks')]
     script = r'''
 const sealedSplitDocument=true, SKIP_TEXT=new Set(), labelText=s=>s.trim();
 const NodeFilter={SHOW_TEXT:4,FILTER_REJECT:2,FILTER_ACCEPT:1};

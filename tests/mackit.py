@@ -180,9 +180,14 @@ class FakeShots:
         return self.jpeg, *IMG
 
 
+PAGE_AREA = (100.0, 130.0, 800.0, 520.0)           # where a browser window at BOUNDS draws its page (80-pt toolbar)
+
+
 class VisionAx(FakeAx):
     def __init__(self) -> None:
-        super().__init__(AxTree())
+        # The window's tree shows a page Accessibility has read, as a browser's does (L13: a browser page nobody read
+        # withholds its capture); a native app ignores it.
+        super().__init__(AxTree(has_web=True, web_areas=[PAGE_AREA]))
         self.secure: list[bool | None] = []        # the password-field answer of each walk, in order (then False)
         self.hit_answer: Any = None                # None: Accessibility can't hit-test (the window list decides)
         self.hit_el: Any = None                    # the app's own hit test: the element under the point

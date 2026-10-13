@@ -149,24 +149,25 @@ def test_a_tool_image_is_kept_as_evidence_and_the_trace_points_at_it(daemon: Run
     assert [r["kind"] for r in daemon.run(_list(daemon.daemon.evidence, "task-1"))] == ["screenshot", "snapshot"]
 
 
-def test_an_image_beside_a_secret_field_is_kept_masked_but_one_from_an_excluded_host_is_not(
-        daemon: RunningDaemon) -> None:
-    """L13: a tool's image had its secret fields painted over where it was captured, so the evidence keeps what the
-    model got; a site on the owner's exclusion list still keeps facts only."""
+def test_an_image_beside_a_secret_field_or_from_an_excluded_host_is_kept(daemon: RunningDaemon) -> None:
+    """L13 (owner: "Yes, no exceptions"): a tool's image had its secret fields painted over where it was captured, so
+    the evidence keeps what the model got, a page on the owner's excluded sites too (the list governs perception
+    recording); the origin label still never names that host."""
     img = _solid_jpeg(16, 12)
     secret = _ImageTool("probe.snapshot", img, {"elements": [{"id": "e1", "role": "textbox", "label": "Password",
                                                               "sensitive": True, "filled": True}]})
-    hidden = _ImageTool("probe.screenshot", img, {"shot": "bs-2"}, reads=(("web", "https://bank.example/login"),))
+    hidden = _ImageTool("probe.screenshot", img, {"shot": "bs-2"}, reads=(("web", "https://bank.example/login"),),
+                        site="bank.example")
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("look"), [secret, hidden])
     assert isinstance(daemon.daemon.redact, Redactor)
     daemon.daemon.redact.configure({"bank.example"}, set())
     gateway_tool_call(daemon, grant, "probe.snapshot")
-    gateway_tool_call(daemon, grant, "probe.screenshot")
+    assert "image" in gateway_tool_call(daemon, grant, "probe.screenshot")
     rows = daemon.run(_list(daemon.daemon.evidence, "task-1"))
-    assert [(r["kind"], r["has_image"]) for r in rows] == [("snapshot", True), ("screenshot", False)]
+    assert [(r["kind"], r["has_image"]) for r in rows] == [("snapshot", True), ("screenshot", True)]
     assert daemon.run(_read(daemon.daemon.evidence, rows[0]["id"]))[1] == img
-    assert rows[1]["origin"] == "external:web:excluded" and rows[1]["data"]["image_withheld"]
-    assert len([p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]) == 1
+    assert rows[1]["origin"] == "external:web:excluded" and not rows[1]["data"].get("image_withheld")
+    assert len([p for p in daemon.daemon.evidence.root.rglob("*") if p.is_file()]) == 2
 
 
 # ---------- one picture of the app a worker starts on (D26, D29) ----------

@@ -471,7 +471,8 @@ class FakeExtension:
         rects = self.windows[b]
         if rects is None:
             return {"matched": True, "complete": False, "reason": "the page can't be read"}
-        return {"matched": True, "complete": True, "rects": rects, "viewport": [1280, 900]}
+        return {"matched": True, "complete": True, "state": {"top": "doc", "viewport": [0, 0, 1280, 900], "items": [
+            {"key": f"field|doc|{i}", "rect": r, "paint": True} for i, r in enumerate(rects)]}}
 
     def op_frame_origin(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
         url = self.tabs[a["tab_id"]]
@@ -543,11 +544,13 @@ class FakeExtension:
         return {"ok": True, "detail": f"{len(a['paths'])} file(s) attached"}
 
     def op_screenshot(self, a: dict[str, Any], cid: str) -> dict[str, Any]:
-        """Like the real extension (protocol 14, L13): the picture and the rect of every secret field to paint over."""
+        """Like the real extension (protocol 14, L13): the picture and the page's mask state before and after it."""
         self._attach(a["tab_id"])
         data = base64.b64encode(os.urandom(self.screenshot_bytes)).decode()
-        mask = {"rects": [[0, 0, 10, 10] for e in page(self.tabs[a["tab_id"]])["elements"] if e.get("secret")],
-                "viewport": [1280, 900]}
+        state = {"top": "doc", "viewport": [0, 0, 1280, 900], "items": [
+            {"key": f"field|doc|{i}", "rect": [0, 0, 10, 10], "paint": True}
+            for i, e in enumerate(page(self.tabs[a["tab_id"]])["elements"]) if e.get("secret")]}
+        mask = {"before": state, "after": state}
         if len(data) <= SHOT_PART:
             return {"data": data, "format": "jpeg", "mask": mask}
         self._shot = data

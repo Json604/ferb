@@ -12,7 +12,9 @@ an AXGroup with AXPress is a control; roles are reported as facts.
 Password fields (AXSecureTextField, role or subrole) are reported only as filled/empty: their value is never read.
 The masking inventory (`secret_rects`, L13) also holds a text field whose own metadata names it a password field (a
 "Show password" field is a plain AXTextField), by the same rule as typed-text capture (Task 12, L17), and `web_areas`
-holds where a browser draws its pages, so the extension's secret-field rects can be placed on a window capture.
+holds where a browser draws its pages, so the extension's secret-field rects can be placed on a window capture. The
+node list stops at MAX_DEPTH; the masking inventory walks the whole tree (iteratively below it), so a deep tree is
+still masked, never left unknown.
 A browser's web area is built on demand: when the window shows a web area that is still empty, re-read for ~2 s."""
 
 import re
@@ -78,6 +80,7 @@ class AxTree:
     # synthetic/legacy tree whose node list is its only inventory; production walks always initialize this list.
     secret_rects: list[tuple[float, float, float, float]] | None = None
     web_areas: list[tuple[float, float, float, float]] = field(default_factory=list)   # AXWebArea frames, screen points
+    empty_web_areas: list[tuple[float, float, float, float]] = field(default_factory=list)   # of them, with nothing in
     headings: list[str] = field(default_factory=list)
     windows: list[dict[str, Any]] = field(default_factory=list)
     containers: list[str] = field(default_factory=list)     # what else was included: sheet / menu / dialog / popover
@@ -328,8 +331,6 @@ def read_tree(pid: int, browser: bool = False, window: Any = None, offset: int =
             tree.containers.append(kind)
             _walk(child, tree, texts, 1, kind, seen)
         tree.text = _text(" ".join(texts))
-        if tree.secure is False and "depth" in tree.truncated_by:
-            tree.secure = None                                 # not every corner was looked at
         tree.truncated = bool(tree.truncated_by)
         tree.windows = windows(pid, win)
         if not browser or not (tree.has_web and tree.web_empty) or time.monotonic() >= deadline:
@@ -342,31 +343,64 @@ def _mark(tree: AxTree, why: str) -> None:
         tree.truncated_by = ", ".join(x for x in (tree.truncated_by, why) if x)
 
 
-def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | None, seen: list[int]) -> None:
+def _repeated(el: Any, tree: AxTree) -> bool:
+    """Seen before in this walk (an element some app lists twice, or a cycle): counted, never walked again."""
     import CoreFoundation as CF
     key = int(CF.CFHash(el)) if hasattr(el, "__c_void_p__") else id(el)
     bucket = tree._visited.setdefault(key, [])
     if any(prior is el or _same(prior, el) for prior in bucket):
         tree.repeated_nodes += 1
-        return
+        return True
     bucket.append(el)
-    role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
+    return False
+
+
+def _inventory(el: Any, role: str, subrole: str, children: list[Any], tree: AxTree) -> bool:
+    """One element's part of the masking inventory (L13): a secret field's frame, a web area's (and whether it has
+    nothing in it). True for a secure text field."""
     if tree.secret_rects is None:
         tree.secret_rects = []
     secret = "AXSecureTextField" in (role, subrole)
     if secret or password_element(role, el):
         tree.secure = True
         tree.secret_rects.append(_frame_of(el))
+    if role == "AXWebArea":
+        frame = _frame_of(el)
+        tree.web_areas.append(frame)
+        if not children:
+            tree.empty_web_areas.append(frame)
+    return secret
+
+
+def _inventory_below(children: list[Any], tree: AxTree) -> None:
+    """Past the node list's MAX_DEPTH only the masking inventory goes on, iteratively (Electron trees are deeper than
+    any recursion): a secret field down there is still painted over. Each element once (`_repeated`)."""
+    stack = list(reversed(children))
+    while stack:
+        el = stack.pop()
+        if _repeated(el, tree):
+            continue
+        role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
+        kids = _attr(el, "AXChildren") or []
+        _inventory(el, role, subrole, kids, tree)
+        stack.extend(reversed(kids))
+
+
+def _walk(el: Any, tree: AxTree, texts: list[str], depth: int, container: str | None, seen: list[int]) -> None:
+    if _repeated(el, tree):
+        return
+    role, subrole = role_of(el), str(_attr(el, "AXSubrole") or "")
     children = _attr(el, "AXChildren") or []
+    secret = _inventory(el, role, subrole, children, tree)
     if role == "AXWebArea":
         tree.has_web = True
         tree.web_empty = tree.web_empty or not children
-        tree.web_areas.append(_frame_of(el))
     if role == "AXSheet" and container is None:
         container = "sheet"
         tree.containers.append("sheet")
     if depth > MAX_DEPTH:
-        _mark(tree, "depth")
+        _mark(tree, "depth")                          # the node list stops; the masking inventory doesn't
+        _inventory_below(children, tree)
         return
     index = seen[0]
     seen[0] += 1
@@ -444,13 +478,12 @@ def _node(el: Any, role: str, subrole: str, secret: bool, acts: list[str], conta
 
 
 def has_secure_field(win: Any, browser: bool = False) -> bool | None:
-    """True if the window holds a password field, False if a full walk found none, None if it couldn't tell."""
+    """True if the window holds a password field, False if the walk (the whole tree) found none, None without a
+    window."""
     if win is None:
         return None
     tree = AxTree()
     _walk(win, tree, [], 0, None, [0])
-    if tree.secure is False and "depth" in tree.truncated_by:
-        return None
     return tree.secure
 
 

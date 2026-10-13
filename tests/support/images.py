@@ -44,12 +44,12 @@ class ImageTool:
         pass
 
     def __init__(self, name: str, image: bytes, content: dict[str, Any],
-                 reads: tuple[tuple[str, str], ...] = (("app", "com.example.App"),)) -> None:
+                 reads: tuple[tuple[str, str], ...] = (("app", "com.example.App"),), site: str = "x.example") -> None:
         self.name, self.description, self.scopes = name, name, {"probe"}
-        self.image, self.content, self.reads = image, content, reads
+        self.image, self.content, self.reads, self.site = image, content, reads, site
 
     def describe(self, args: Any) -> ActionSpec:
-        return ActionSpec(Kind.READ, Target(site="x.example"))
+        return ActionSpec(Kind.READ, Target(site=self.site))
 
     async def run(self, args: Any, ctx: Any) -> ToolResult:
         return ToolResult(dict(self.content), read_sources=self.reads, image=self.image)

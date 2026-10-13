@@ -9,7 +9,6 @@ WakeServer serves only the temporary local pairing page; ordinary wake launches 
 
 import asyncio
 import json
-import math
 import os
 import secrets
 from dataclasses import dataclass, field
@@ -513,31 +512,27 @@ class WakeServer:
 # ---------- what the browser tools drive ----------
 
 def painted(jpeg: bytes, reply: dict[str, Any]) -> bytes:
-    """A tab capture with every secret field the extension reported painted over (L13): its rects are in the page's
-    viewport CSS px, scaled onto the image (device pixels, page zoom included). Withheld when the extension couldn't
-    locate them (its `withheld` says why, in its own words, never page content), didn't say, or the image can't be
-    painted."""
+    """A tab capture with every secret field the extension reported painted over (L13). Its `mask` is the page's mask
+    state before and after the capture (mask.page_masks merges them), in visual-viewport CSS px, scaled onto the
+    image (device pixels; page and pinch zoom included). Withheld when the extension couldn't read the page (its
+    `withheld` says why, in its own words, never page content), didn't say, a field's place in the picture is
+    unknown, or the image can't be painted."""
     from ferb.act.evidence import mask
     if reply.get("withheld"):
         raise Withheld(f"pixels withheld: {reply['withheld']}")
     m = reply.get("mask")
-    rects, viewport = (m.get("rects"), m.get("viewport")) if isinstance(m, dict) else (None, None)
-    if not (isinstance(rects, list) and _box_list(rects) and _box_list([viewport], 2) and min(viewport) > 0):
+    before, after = (mask.PageState.parse(m.get("before")), mask.PageState.parse(m.get("after"))) \
+        if isinstance(m, dict) else (None, None)
+    if before is None or after is None:
         raise Withheld("pixels withheld: the extension didn't say where the page's secret fields are")
+    rects, viewport = mask.page_masks(before, after)
     if not rects:
         return jpeg
     try:
-        boxes = mask.to_image_boxes([tuple(r) for r in rects], (0.0, 0.0, float(viewport[0]), float(viewport[1])),
-                                    mask.size(jpeg))
+        boxes = mask.to_image_boxes(rects, viewport, mask.size(jpeg))
         return mask.mask_secret_fields(jpeg, boxes) if boxes else jpeg
     except (ValueError, RuntimeError):
         raise Withheld("pixels withheld: the capture couldn't be painted over") from None
-
-
-def _box_list(values: list[Any], n: int = 4) -> bool:
-    """Each value a list of `n` finite numbers."""
-    return all(isinstance(v, list) and len(v) == n and all(isinstance(x, (int, float)) and not isinstance(x, bool)
-                                                            and math.isfinite(x) for x in v) for v in values)
 
 
 class _NoSecrets:

@@ -238,9 +238,10 @@ async def app_window(driver: MacComputerDriver, app: str, scopes: Collection[str
     if is_browser(a.bundle_id):
         return None
     a, shot, jpeg = await driver.window_image(f"pid:{a.pid}")
-    return AppWindow(jpeg, to_image_boxes(driver.secret_fields(a.bundle_id), shot.bounds, shot.size),
-                     {"app": a.name, "bundle_id": a.bundle_id, "window_id": shot.window, "width": shot.size[0],
-                      "height": shot.size[1]}, _sources(a.bundle_id))
+    facts = {"app": a.name, "bundle_id": a.bundle_id, "window_id": shot.window, "width": shot.size[0],
+             "height": shot.size[1]} | ({"masking": shot.masking} if shot.masking else {})
+    return AppWindow(jpeg, to_image_boxes(driver.secret_fields(a.bundle_id), shot.bounds, shot.size), facts,
+                     _sources(a.bundle_id))
 
 
 TYPED = ("type", "set_value", "edit")                  # mac.act actions whose text is typed into the app
@@ -326,11 +327,13 @@ class MacScreenshot(_Base):
     async def _run(self, args: BaseModel, ctx: ToolContext) -> ToolResult:
         a, shot, jpeg = await self.driver.screenshot(str(getattr(args, "app")), window=getattr(args, "window"),
                                                      native_resolution=getattr(args, "native_resolution"))
-        return ToolResult({"app": a.name, "bundle_id": a.bundle_id, "shot": shot.id, "width": shot.size[0],
-                           "height": shot.size[1], "window_id": shot.window, "pid": shot.pid,
-                           "bounds_points": shot.bounds, "native_resolution": getattr(args, "native_resolution"),
-                           "jpeg_quality": 0.8, "next": "mac_click with this shot id and x, y in image pixels"},
-                          read_sources=_sources(a.bundle_id), image=jpeg)
+        out = {"app": a.name, "bundle_id": a.bundle_id, "shot": shot.id, "width": shot.size[0],
+               "height": shot.size[1], "window_id": shot.window, "pid": shot.pid,
+               "bounds_points": shot.bounds, "native_resolution": getattr(args, "native_resolution"),
+               "jpeg_quality": 0.8, "next": "mac_click with this shot id and x, y in image pixels"}
+        if shot.masking:                                # a browser page masked from Accessibility alone (L13)
+            out["masking"] = shot.masking
+        return ToolResult(out, read_sources=_sources(a.bundle_id), image=jpeg)
 
 
 class MacRecord(_Base):

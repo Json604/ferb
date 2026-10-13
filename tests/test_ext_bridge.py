@@ -481,23 +481,26 @@ def test_worker_keeps_the_new_key_and_orders_seqs_when_sends_race_the_paired_rep
     assert [m["seq"] for m in after] == list(range(1, len(after) + 1)), after
 
 
-def test_the_profile_that_owns_a_window_gives_its_tabs_secret_field_rects(bd: Any) -> None:
+def test_the_profile_that_owns_a_window_gives_its_tabs_page(bd: Any) -> None:
     """A native capture of a browser window (L13, window_secrets): every connected profile of that browser is asked;
-    only the one whose window has exactly those bounds answers, with its active tab's secret-field rects; nobody
-    matching means "can't tell"."""
-    from ferb.act.mac.driver import WebSecrets
+    exactly one must own a window with those bounds, and it answers with its active tab's mask state; none, or two
+    (whose page is on screen can't be told), means "can't tell"."""
     d, launched = bd
     work, personal = pair(d, launched, "Work"), pair(d, launched, "Personal")
     personal.windows[(10, 20, 800, 600)] = [[20, 40, 100, 20]]
     work.windows[(0, 0, 500, 400)] = []
     work.windows[(5, 5, 300, 200)] = None
     ask = d.daemon._web_secrets
-    assert d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0))) == WebSecrets(((20.0, 40.0, 100.0, 20.0),),
-                                                                          (1280.0, 900.0), True)
-    assert d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0))) == WebSecrets((), (1280.0, 900.0), True)
-    assert d.run(ask("chrome", (5.0, 5.0, 300.0, 200.0))) == WebSecrets()     # its page can't be read
+    page = d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0)))
+    assert page.complete and [i.rect for i in page.state.items] == [(20.0, 40.0, 100.0, 20.0)]
+    assert page.state.viewport == (0.0, 0.0, 1280.0, 900.0)
+    blank = d.run(ask("chrome", (0.0, 0.0, 500.0, 400.0)))
+    assert blank.complete and blank.state.items == ()
+    assert not d.run(ask("chrome", (5.0, 5.0, 300.0, 200.0))).complete     # its page can't be read
     assert d.run(ask("chrome", (1.0, 1.0, 5.0, 5.0))) is None
     assert d.run(ask("brave", (10.0, 20.0, 800.0, 600.0))) is None
+    work.windows[(10, 20, 800, 600)] = []                                    # two profiles, same bounds
+    assert d.run(ask("chrome", (10.0, 20.0, 800.0, 600.0))) is None
 
 
 @pytest.mark.parametrize("driver_name", ["router", "ferb_identity"])

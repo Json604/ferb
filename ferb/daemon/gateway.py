@@ -4,9 +4,10 @@ Agents decide intent and authorization. Worker questions go through the orchestr
 Optional effect/why annotations never gate execution; OS and transport failures remain factual results.
 A tool's image goes to the model and to the evidence store (V1), never into a span, the journal or a log; when a
 worker starts on a Mac app, one picture of that app's window is kept as evidence too (D26, D29). No image is withheld
-for what it shows (L13, D29 clarified): browser windows, tab captures and recording frames included, every image has
-its secret fields painted over where it is captured, then passes the F5 sanitizer here; only an image whose masking or
-sanitizing fails (or from a site on the owner's exclusion list) keeps facts only.
+for what it shows or where it is from (L13, D29 clarified; owner: "Yes, no exceptions"): browser windows, tab captures,
+recording frames and pages on the owner's excluded sites included (that list governs perception recording, and origin
+labels never name such a host), every image has its secret fields painted over where it is captured, then passes the
+F5 sanitizer here; only an image whose masking or sanitizing fails keeps facts only.
 The final checker's token is observe-only: it is offered, and may run, only capabilities marked `observation` (V3, W4).
 P19: a consequential action identical to one in the same task tree whose outcome is unknown (or that is still running)
 is refused by code, never retried on its own. The only way past is the owner's Yes to the question FERB attaches to
@@ -1221,10 +1222,7 @@ class Gateway:
             self._looked.setdefault((grant.task_id, "initial"), set()).add("provided")
             from ferb.sanitize.images import ImageRedactor
             from ferb.sanitize.redact import Redactor
-            withheld = "excluded destination" if self.excluded_host(spec.target.site or "") else None
             try:
-                if withheld:
-                    raise Refused(withheld)
                 image = await asyncio.to_thread(ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()), result.image)
                 result = dataclasses.replace(result, image=image)
             except asyncio.CancelledError:
@@ -1232,7 +1230,7 @@ class Gateway:
                 self._finish_call(span, name, done, False, output=done | {"image_withheld": "redaction cancelled"}, origins=origins)
                 raise
             except Exception:
-                raw = {**raw, "image_withheld": withheld or "image redaction unavailable"}
+                raw = {**raw, "image_withheld": "image redaction unavailable"}
                 result = dataclasses.replace(result, image=None)
         origins = without_excluded_hosts(result_origins(result.read_sources, getattr(cap, "origin", None), spec.kind),
                                          self.excluded_host)
@@ -1405,16 +1403,14 @@ class Gateway:
                           result: Any, origins: set[str]) -> dict[str, str]:
         """V1: the image a tool produced is kept as evidence the checker can re-inspect (on the owner's Mac for
         retention.evidence_days, 7); the span's output names it. It is the image the model got: its secret fields
-        were painted over where it was captured and it passed the F5 sanitizer (L13). Facts only, no pixels: a site on
-        the owner's exclusion list (never recorded), and an image already withheld. Never fatal: the result reaches
-        the worker anyway. The file is written in a worker thread."""
+        were painted over where it was captured and it passed the F5 sanitizer (L13), wherever it came from (its
+        origin label never names an excluded host). Facts only for an image already withheld. Never fatal: the result
+        reaches the worker anyway. The file is written in a worker thread."""
         initial = content.get("initial_image")
         facts = dict(initial) if isinstance(initial, dict) else image_facts(name, content)
         if content.get("image_withheld"):
             facts["image_withheld"] = content["image_withheld"]
         kept: bytes | None = result.image
-        if origin.external("web", "excluded") in origins:
-            kept, facts = None, {"tool": name, "image_withheld": "a site on the owner's exclusion list"}
         try:
             kind = "app_window" if isinstance(initial, dict) and name.startswith("mac.") else evidence_kind(name)
             eid = await self.evidence.put_async(grant.task_id, span_id, kind, image=kept, data=facts,

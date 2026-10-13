@@ -325,35 +325,74 @@
     return out;
   }
 
+  // Frame links for capture masks (L13). Chromium can't name the frame inside a frame element (no
+  // chrome.runtime.getFrameId), so each frame tells its child frames which of its elements holds them: a token per
+  // frame element, posted to that element's window (linkFrames). A child keeps the last link its own parent window
+  // sent: event.source is set by the browser, so no other window can send one. A page script in the parent can still
+  // send a wrong token; the background then finds a token claimed twice, or the true element's token unclaimed, and
+  // paints those elements whole: a lie can add black, never move a secret field out from under it.
+  const LINK = "__ferbFrameLink";
+  const frameTokens = new WeakMap();               // frame element -> token
+  const fieldIds = new WeakMap();                  // secret field -> id, stable while this document lives
+  let parentLink = null;                           // {doc, token}: what this frame's parent said about it
+  addEventListener("message", (e) => {
+    const d = e.data;
+    if (window === top || e.source !== parent || !d || typeof d !== "object" || typeof d[LINK] !== "string"
+        || typeof d.doc !== "string") return;
+    parentLink = {doc: d.doc, token: d[LINK]};
+  }, true);
+  const shadowOf = (el) => {                       // closed shadow roots too (content scripts may open them)
+    try {
+      return chrome.dom && chrome.dom.openOrClosedShadowRoot ? chrome.dom.openOrClosedShadowRoot(el) : el.shadowRoot;
+    } catch (_) { return el.shadowRoot; }
+  };
+  function eachElement(root, visit) {
+    for (const el of root.querySelectorAll("*")) {
+      visit(el);
+      const sr = shadowOf(el);
+      if (sr) eachElement(sr, visit);
+    }
+  }
+  const isFrame = (el) => el.tagName === "IFRAME" || el.tagName === "FRAME";
+  function linkFrames() {
+    eachElement(document, (el) => {
+      if (!isFrame(el)) return;
+      let token = frameTokens.get(el);
+      if (!token) { token = randomId(); frameTokens.set(el, token); }
+      try { if (el.contentWindow) el.contentWindow.postMessage({[LINK]: token, doc: documentId}, "*"); }
+      catch (_) { /* nothing loaded in it: its element is painted whole */ }
+    });
+    return true;
+  }
+
   // What a screenshot or recording frame must paint over in this frame (L13), in its viewport CSS px: every secret
-  // field isSecret marks (password and code fields, sealed fills) and, after a split sealed fill, every editable field
-  // of this document; and where each child frame sits (its frame id, box and content origin), so the background places
-  // their fields on the page. Geometry only, never a value. A separate inventory: a capture never replaces the
-  // snapshot/point bindings the worker acts with.
+  // field isSecret marks (password and code fields, sealed fills), keyed so a field is known again after the capture,
+  // and, after a split sealed fill, every editable field of this document; each frame element with its token, box
+  // and content origin; the link its parent sent; and the visual viewport (what a capture shows, pinch zoom
+  // included). Geometry only, never a value. A separate inventory: a capture never replaces the snapshot/point
+  // bindings the worker acts with.
   function captureState() {
     const rects = [], frames = [];
-    const box = r => [r.x, r.y, r.width, r.height];
-    const walk = root => {
-      for (const el of root.querySelectorAll('*')) {
-        if (el.tagName === 'IFRAME' || el.tagName === 'FRAME') {
-          const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-          let frameId = -1;                       // no document in it (not loaded): the background paints it whole
-          try { frameId = chrome.runtime.getFrameId(el); } catch (_) { /* not a frame with a document */ }
-          frames.push({frame_id: frameId, rect: box(r),
-                       inner: [r.x + el.clientLeft + (parseFloat(cs.paddingLeft) || 0),
-                               r.y + el.clientTop + (parseFloat(cs.paddingTop) || 0)],
-                       // transformed: its content can't be placed by offset (frameRect), so it is painted whole
-                       scaled: Math.abs(r.width - el.offsetWidth) > 1 || Math.abs(r.height - el.offsetHeight) > 1});
-        } else if (isSecret(el) || maskedEditable(el)) {
-          const r = el.getBoundingClientRect();     // painted, even when aria-hidden: masking errs on the safe side
-          if (r.width > 0 && r.height > 0 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true})))
-            rects.push(box(r));
+    eachElement(document, (el) => {
+      if (isFrame(el)) {
+        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        frames.push({token: frameTokens.get(el) || null, rect: [r.x, r.y, r.width, r.height],
+                     inner: [r.x + el.clientLeft + (parseFloat(cs.paddingLeft) || 0),
+                             r.y + el.clientTop + (parseFloat(cs.paddingTop) || 0)],
+                     // transformed: its content can't be placed by offset (frameRect), so it is painted whole
+                     scaled: Math.abs(r.width - el.offsetWidth) > 1 || Math.abs(r.height - el.offsetHeight) > 1});
+      } else if (isSecret(el) || maskedEditable(el)) {
+        const r = el.getBoundingClientRect();     // painted, even when aria-hidden: masking errs on the safe side
+        if (r.width > 0 && r.height > 0 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true}))) {
+          let id = fieldIds.get(el);
+          if (!id) { id = randomId(); fieldIds.set(el, id); }
+          rects.push({id, rect: [r.x, r.y, r.width, r.height]});
         }
-        if (el.shadowRoot) walk(el.shadowRoot);
       }
-    };
-    walk(document);
-    return {documentId, rects, frames, viewport: [innerWidth, innerHeight]};
+    });
+    const vv = window.visualViewport;
+    return {documentId, parent: parentLink, rects, frames,
+            viewport: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height] : [0, 0, innerWidth, innerHeight]};
   }
 
   function snapshot(gen) {
@@ -780,7 +819,7 @@
     return { ok, unknown: !ok, detail: ok ? "filled" : "field_state_changed_after_input" };
   }
 
-  window.__ferb = { snapshot, media, uploadFiles, adopt, point, frameRect, visualState, captureState,
+  window.__ferb = { snapshot, media, uploadFiles, adopt, point, frameRect, visualState, captureState, linkFrames,
     supportsSplitSecretFill: true,
     pointerArm: () => { pointerSeen = null; }, pointerSeen: () => pointerSeen || [],
     viewport: () => [innerWidth, innerHeight], act, fill, origin: () => location.origin, rect, focus, isActive, stamp, unstamp, scroller,

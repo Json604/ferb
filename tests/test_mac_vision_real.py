@@ -262,7 +262,8 @@ def test_the_extension_reports_a_web_password_field_and_the_frame_is_masked(lab:
             answers.clear()
             _, _, jpeg = rd.run(driver.screenshot("Chrome Lab"), timeout=30)
             assert jpeg.startswith(b"\xff\xd8") and answers and all(a.complete for a in answers)
-            assert all(len(a.rects) == (1 if secret else 0) for a in answers), answers
+            assert all(len([i for i in a.state.items if i.key.startswith("field|")]) == (1 if secret else 0)
+                       for a in answers if a.state is not None), answers
             chrome.evaluate(chrome.sw, f"chrome.windows.remove({created.pop()})")
     finally:
         for window_id in created:

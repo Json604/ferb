@@ -732,19 +732,20 @@ class Daemon:
                                             and br.binding.identity is Identity.OWNER for br in self.hub.bridges.values())
 
     async def _web_secrets(self, browser: str, bounds: tuple[float, float, float, float]) -> WebSecrets | None:
-        """For a native capture of a browser window (L13): ask each connected profile of this browser for the
-        secret-field rects of the active tab of its window at these bounds; the profile that owns the window answers
-        (a WebSecrets). None: no profile could tell."""
-        for br in list(self.hub.bridges.values()) if self.hub else []:
-            if br.conn is None or br.binding.browser != browser:
-                continue
+        """For a native capture of a browser window (L13): ask every connected profile of this browser, together, for
+        the mask state of the active tab of its (not minimized) window at these bounds. Exactly one profile must own
+        such a window, and its answer is the WebSecrets. None: no profile, or more than one (whose page is on screen
+        can't be told), so nobody could tell."""
+        async def ask(br: Any) -> Any:
             try:
-                r = await br.call("window_secrets", {"bounds": list(bounds)}, timeout=4)
+                return await br.call("window_secrets", {"bounds": list(bounds)}, timeout=4)
             except FerbError:
-                continue
-            if isinstance(r, dict) and r.get("matched"):
-                return WebSecrets.from_reply(r)
-        return None
+                return None
+        bridges = [br for br in (self.hub.bridges.values() if self.hub else []) if br.conn is not None
+                   and br.binding.browser == browser]
+        answers = await asyncio.gather(*(ask(br) for br in bridges))
+        owners = [r for r in answers if isinstance(r, dict) and r.get("matched")]
+        return WebSecrets.from_reply(owners[0]) if len(owners) == 1 else None
 
     async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
         """L12: the owner's front window as this message arrived (ferb/sense/front_window.py): the topmost window that

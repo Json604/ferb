@@ -380,64 +380,55 @@ async function inFrame(tabId, frameId, func, args) {
   return r.result;
 }
 
-// What a capture of this tab must paint over (L13), in top-viewport CSS px: every frame's secret-field rects
-// (content.js captureState), placed through the frame element that holds the frame (chrome.runtime.getFrameId) and
-// clipped to it. A frame that can't be read (not loaded, a page scripts can't reach) or whose element is transformed
-// is painted over whole. Withheld only when the top frame can't be read or a frame's fields can't be placed.
-// Geometry only, never page content.
+// What a capture of this tab must paint over (L13), in top-viewport CSS px. Each frame first tells its child frames
+// which of its elements holds them (content.js linkFrames), then reports its secret fields, its frame elements and
+// the link it heard (captureState). A child frame is placed through the element whose token it uniquely claims, and
+// clipped to it; a frame element no child uniquely claims (nothing loaded, out of reach, a token claimed twice) or
+// that is transformed is painted whole. Never withheld for an unplaced frame: it sits inside such an element. Items
+// carry keys, so the daemon can tell what moved between the looks before and after a capture. Withheld only when the
+// page can't be read at all. Geometry only, never page content.
 async function maskState(tabId) {
   let results;
   try {
     await inject(tabId);
-    results = await chrome.scripting.executeScript({target: {tabId, allFrames: true},
-      func: () => window.__ferb.captureState()});
+    const target = {tabId, allFrames: true};
+    await chrome.scripting.executeScript({target, func: () => window.__ferb.linkFrames()});
+    results = await chrome.scripting.executeScript({target, func: () => window.__ferb.captureState()});
   } catch (_) { return {withheld: "the page can't be read, so its secret fields can't be found"}; }
-  const byId = new Map(results.filter(r => r && r.result).map(r => [r.frameId, r.result]));
-  const top = byId.get(0);
+  const frames = results.filter(r => r && r.result).map(r => ({frameId: r.frameId, ...r.result}));
+  const top = frames.find(f => f.frameId === 0);
   if (!top) return {withheld: "the page's top frame can't be read, so its secret fields can't be found"};
-  const rects = [], placed = new Set([0]), whole = new Set();
+  const claims = new Map();            // "<parent document>|<token>" -> the one frame that heard it; null: two did
+  for (const f of frames) {
+    if (f.frameId === 0 || !f.parent) continue;
+    const k = `${f.parent.doc}|${f.parent.token}`;
+    claims.set(k, claims.has(k) ? null : f);
+  }
   const cut = (r, c) => {
     const x = Math.max(r[0], c[0]), y = Math.max(r[1], c[1]);
     const right = Math.min(r[0] + r[2], c[0] + c[2]), bottom = Math.min(r[1] + r[3], c[1] + c[3]);
     return right > x && bottom > y ? [x, y, right - x, bottom - y] : null;
   };
-  const cover = id => {                          // inside a box painted whole (or off the page): nothing to place
-    const f = byId.get(id);
-    if (!f || whole.has(id)) return;
-    whole.add(id);
-    for (const c of f.frames) cover(c.frame_id);
-  };
-  const place = (id, ox, oy, clip) => {
-    const f = byId.get(id);
-    for (const r of f.rects) { const m = cut([r[0] + ox, r[1] + oy, r[2], r[3]], clip); if (m) rects.push(m); }
-    for (const c of f.frames) {
-      const box = cut([c.rect[0] + ox, c.rect[1] + oy, c.rect[2], c.rect[3]], clip);
-      if (box && byId.has(c.frame_id) && !c.scaled && !placed.has(c.frame_id)) {
-        placed.add(c.frame_id);
-        place(c.frame_id, c.inner[0] + ox, c.inner[1] + oy, box);
-      } else {
-        if (box) rects.push(box);
-        cover(c.frame_id);
-      }
+  const items = [], placed = new Set([top.documentId]);
+  const place = (f, ox, oy, clip) => {
+    for (const r of f.rects) {
+      const m = cut([r.rect[0] + ox, r.rect[1] + oy, r.rect[2], r.rect[3]], clip);
+      if (m) items.push({key: `field|${f.documentId}|${r.id}`, rect: m, paint: true});
     }
+    f.frames.forEach((c, i) => {
+      const box = cut([c.rect[0] + ox, c.rect[1] + oy, c.rect[2], c.rect[3]], clip);
+      if (!box) return;                                   // off the page or clipped away: nothing of it shows
+      const key = `frame|${f.documentId}|${c.token || "#" + i}`;
+      const child = c.token && !c.scaled ? claims.get(`${f.documentId}|${c.token}`) : null;
+      if (child && !placed.has(child.documentId)) {
+        placed.add(child.documentId);
+        items.push({key, rect: box, paint: false, child: child.documentId});
+        place(child, c.inner[0] + ox, c.inner[1] + oy, box);
+      } else items.push({key, rect: box, paint: true});
+    });
   };
-  place(0, 0, 0, [0, 0, top.viewport[0], top.viewport[1]]);
-  for (const [id, f] of byId) {                  // answered, but no frame element we read holds it (a closed shadow root)
-    if (placed.has(id) || whole.has(id)) continue;
-    if (f.rects.length || f.frames.some(c => !byId.has(c.frame_id) || c.scaled))
-      return {withheld: "a frame's secret fields can't be placed on the page"};
-  }
-  return {documents: [...byId].map(([id, f]) => [id, f.documentId]).sort((a, b) => a[0] - b[0]), rects,
-          viewport: top.viewport};
-}
-
-// One capture's masks: before and after it, so a field that appeared or moved meanwhile is painted too. Withheld when
-// the page changed document or size during the capture (the rects may not be this picture's).
-function captureMasks(before, after) {
-  if (before.withheld || after.withheld) return {withheld: before.withheld || after.withheld};
-  if (JSON.stringify([before.documents, before.viewport]) !== JSON.stringify([after.documents, after.viewport]))
-    return {withheld: "the page changed during capture"};
-  return {rects: before.rects.concat(after.rects), viewport: before.viewport};
+  place(top, 0, 0, top.viewport);
+  return {top: top.documentId, viewport: top.viewport, items};
 }
 
 // ---------- the debugger session: attached on a task tab's first action, kept for its life ----------
@@ -1370,9 +1361,9 @@ const commands = {
     return { met: false, detail: "timeout" };
   },
   // jpeg, and split into parts when one message would come near the 1 MB native-messaging line. Never refused for
-  // what the page shows (L13): the reply's `mask` names every secret field's rect (maskState, before and after the
-  // capture) and the daemon paints them over before anything else sees the picture. `withheld` (no picture) only
-  // when they can't be known.
+  // what the page shows (L13): the reply's `mask` is the page's mask state before and after the capture (maskState)
+  // and the daemon paints the secret fields over before anything else sees the picture, or withholds it when it
+  // can't tell where they were. `withheld` (no picture) only when the page can't be read.
   async screenshot({ tab_id, format, quality, snap }) {
     await attach(tab_id);
     const st = tabState(tab_id);
@@ -1381,8 +1372,9 @@ const commands = {
     if (first.withheld) return {withheld: first.withheld};
     const before = snap == null ? null : JSON.stringify(await visualStates(tab_id));
     const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: format || "jpeg", quality: quality || 70 });
-    const mask = captureMasks(first, await maskState(tab_id));
-    if (mask.withheld) return {withheld: mask.withheld};
+    const last = await maskState(tab_id);
+    if (last.withheld) return {withheld: last.withheld};
+    const mask = {before: first, after: last};
     if (before !== null) {
       if (before !== JSON.stringify(await visualStates(tab_id))) throw new Error("page_changed_during_screenshot");
       st.visual = {at: Date.now(), snap, states: before, points: new Map()};
@@ -1402,12 +1394,13 @@ const commands = {
       return {data};
     }
     await attach(tab_id);
-    const first = await maskState(tab_id);     // as a screenshot (L13): masks, or this frame withheld
+    const first = await maskState(tab_id);     // as a screenshot (L13): the page before and after, or withheld
     if (first.withheld) return {withheld: first.withheld};
     const {data} = await cdp(tab_id, 'Page.captureScreenshot',
       {format:'jpeg', quality:70, fromSurface:true, captureBeyondViewport:false});
-    const mask = captureMasks(first, await maskState(tab_id));
-    if (mask.withheld) return {withheld: mask.withheld};
+    const last = await maskState(tab_id);
+    if (last.withheld) return {withheld: last.withheld};
+    const mask = {before: first, after: last};
     if (data.length <= SHOT_PART) return {data, mask};
     const id = crypto.randomUUID(); st.recordFrame = {id, data};
     return {parts:Math.ceil(data.length/SHOT_PART), capture_id:id, mask};
@@ -1455,20 +1448,20 @@ const commands = {
     if (!st.key) throw new Error("not paired");
     return { sealed: await seal(st.key, (r && r.result) || "", id, FEED_URL) };   // email content never in clear
   },
-  // A native capture of this browser's window (L13): the secret-field rects of the active tab of this profile's
-  // window at exactly these screen bounds (maskState, in that tab's viewport CSS px) and the viewport's size, for the
-  // daemon to paint over. Geometry only, never page content. complete:false: the page can't be read.
+  // A native capture of this browser's window (L13): the mask state (maskState) of the active tab of this profile's
+  // window at exactly these screen bounds, for the daemon to paint over. A minimized window is never the one on
+  // screen. Geometry only, never page content. complete:false: the page can't be read.
   async window_secrets({ bounds }) {
     const [x, y, w, h] = bounds;
     const wins = await chrome.windows.getAll({ windowTypes: ["normal", "popup"] });
-    const matches = wins.filter((v) => Math.abs(v.left - x) <= 2 && Math.abs(v.top - y) <= 2 &&
-                                 Math.abs(v.width - w) <= 2 && Math.abs(v.height - h) <= 2);
+    const matches = wins.filter((v) => v.state !== "minimized" && Math.abs(v.left - x) <= 2 &&
+                                 Math.abs(v.top - y) <= 2 && Math.abs(v.width - w) <= 2 && Math.abs(v.height - h) <= 2);
     if (matches.length !== 1) return {matched: false, reason: matches.length ? "ambiguous_window" : "window_not_found"};
     const [tab] = await chrome.tabs.query({ active: true, windowId: matches[0].id });
     if (!tab) return {matched: true, complete: false, reason: "no_active_tab"};
-    const page = await maskState(tab.id);
-    if (page.withheld) return {matched: true, complete: false, reason: page.withheld};
-    return {matched: true, complete: true, rects: page.rects, viewport: page.viewport};
+    const state = await maskState(tab.id);
+    if (state.withheld) return {matched: true, complete: false, reason: state.withheld};
+    return {matched: true, complete: true, state};
   },
   async wake_close({ url }) {            // close exactly the unique wake page (spike 13)
     const tabs = (await chrome.tabs.query({})).filter((t) => (t.url || t.pendingUrl) === url);

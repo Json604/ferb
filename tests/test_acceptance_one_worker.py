@@ -28,6 +28,7 @@ class StubShot:
     window: int = 1
     pid: int = 16
     bounds: tuple[int, int, int, int] = (0, 0, 800, 600)
+    masking: str = ""                                   # the driver's Shot: how its secret fields were found (L13)
 
 
 @dataclass

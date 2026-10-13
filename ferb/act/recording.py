@@ -7,7 +7,8 @@ sound file is deleted once transcribed (owner decision, 2026-10-14). A recording
 not transcribed; its sound is deleted.
 
 Each frame comes from its driver with its secret fields painted over (L13); a frame that couldn't be is withheld
-(Withheld) and skipped, and the recording goes on: its result counts the withheld frames and says why."""
+(Withheld) and skipped, and the recording goes on: its result counts the withheld frames and says why, and repeats
+any note a driver gave about how frames were masked (a browser page masked from Accessibility alone)."""
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -27,7 +28,11 @@ from ferb.act.fs.files import resolve
 from ferb.core.errors import Refused, Withheld
 from ferb.core.types import ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 
-Capture = Callable[[], Awaitable[bytes]]
+Capture = Callable[[], Awaitable[bytes | tuple[bytes, str]]]   # a frame, or a frame and a note on its masking
+
+
+def _frame(got: bytes | tuple[bytes, str]) -> tuple[bytes, str]:
+    return (got, "") if isinstance(got, (bytes, bytearray)) else (bytes(got[0]), str(got[1]))
 
 
 def executable(name: str) -> str:
@@ -69,6 +74,7 @@ class _Recording:
     error: str | None = None
     withheld: int = 0                    # frames skipped because their secret fields couldn't be painted over (L13)
     withheld_reason: str | None = None
+    masking: set[str] = field(default_factory=set)     # the drivers' notes on how frames were masked
     ended: float | None = None
     loop: asyncio.Task[None] | None = None
     halt: asyncio.Event = field(default_factory=asyncio.Event)
@@ -110,7 +116,7 @@ class RecordingManager:
                 'last_frame_s': r.times[-1] if r.times else None,
                 'duration_s': max(0, (r.ended if r.ended is not None else self.now()) - r.started),
                 'capture_complete': False, 'content_reviewed': False, 'error': r.error,
-                'frames_withheld': r.withheld, 'withheld_reason': r.withheld_reason,
+                'frames_withheld': r.withheld, 'withheld_reason': r.withheld_reason, 'masking': sorted(r.masking),
                 'running': not r.halt.is_set() and r.result is None}
 
     async def start(self, owner: str, target: dict[str, Any], path: Path, capture: Capture,
@@ -131,7 +137,8 @@ class RecordingManager:
             if any(r.target == target and r.result is None for r in self.records.values()):
                 raise Refused('this target already has an active recording')
             # Capture before allocating files; no video should exist if the target cannot be reached.
-            first = await asyncio.to_thread(self.sanitize, await capture())
+            raw, note = _frame(await capture())
+            first = await asyncio.to_thread(self.sanitize, raw)
             began = self.now()
             if audio is not None and self.hearing is None:
                 raise Refused('FERB has no way to hear sound here; record without with_audio')
@@ -147,6 +154,7 @@ class RecordingManager:
             r = _Recording('rec-' + uuid4().hex[:12], owner, dict(target), path, folder, capture, fps, began,
                            listening=listening, audio_at=audio_at, language=language,
                            sources=tuple(sources) + (('audio', audio[0]),) if audio is not None else ())
+            r.masking.update({note} - {''})
             try:
                 (folder/'00000000.jpg').write_bytes(first)
                 r.times.append(0.0)
@@ -167,12 +175,14 @@ class RecordingManager:
             if r.halt.is_set():
                 return
             try:
-                image = await asyncio.to_thread(self.sanitize, await r.capture())
+                raw, note = _frame(await r.capture())
+                image = await asyncio.to_thread(self.sanitize, raw)
                 if r.halt.is_set():
                     return
                 at = self.now() - r.started
                 (r.folder/f'{len(r.times):08d}.jpg').write_bytes(image)
                 r.times.append(at)
+                r.masking.update({note} - {''})
             except Withheld as exc:              # this frame only: the recording goes on
                 r.withheld += 1
                 r.withheld_reason = str(exc)

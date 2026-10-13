@@ -63,26 +63,31 @@ def test_password_without_geometry_or_unknown_inventory_withholds_pixels(monkeyp
         asyncio.run(d.screenshot("Notes"))
 
 
-def test_known_secret_does_not_make_depth_truncated_inventory_complete(monkeypatch):
+def test_a_node_list_cut_at_depth_still_masks_the_secret_fields_found(monkeypatch):
+    """The masking inventory walks the whole tree (L13), whatever the node list's depth: a depth-cut list is no
+    longer an incomplete inventory, so the field is painted, not the frame withheld."""
     from ferb.act.mac.accessibility import AxNode
+    from tests.support.images import black, solid_jpeg
+    from ferb.act.evidence.mask import pixel
     d, ax, shots, *_ = vision(monkeypatch)
-    ax.tree = AxTree(nodes=[AxNode(None, 'textbox', '', 'filled', (1, 2, 30, 10), True, True)],
+    shots.jpeg = solid_jpeg(*IMG)
+    ax.tree = AxTree(nodes=[AxNode(None, 'textbox', '', 'filled', (150.0, 100.0, 100.0, 50.0), True, True)],
                      secure=True, truncated=True, truncated_by='depth')
     monkeypatch.setattr(ax, 'read_tree', lambda *args: ax.tree)
-    with pytest.raises(Refused, match='secret-field inventory'):
-        asyncio.run(d.screenshot('Notes'))
-    assert not shots.captured
+    _, _, jpeg = asyncio.run(d.screenshot('Notes'))
+    assert shots.captured == [110] and black(pixel(jpeg, 200, 150))
 
 
 def test_a_browser_tab_the_extension_reports_with_a_password_field_is_painted_not_dropped(
         monkeypatch: pytest.MonkeyPatch) -> None:
     """L13: the frame is captured with the page's secret fields painted over (tests/test_pixels_to_model.py has the
-    pixels); only browsers are asked, before and after the capture; no profile that can tell: the AX inventory alone."""
+    pixels); only browsers are asked, before and after the capture; no profile that can tell: the AX inventory alone,
+    and the shot says so."""
+    from ferb.act.evidence.mask import PageState
     from ferb.act.mac.driver import WebSecrets
     from tests.support.images import solid_jpeg
     d, ax, shots, *_ = vision(monkeypatch)
     shots.jpeg = solid_jpeg(*IMG)
-    ax.tree = AxTree(secret_rects=[], web_areas=[(100.0, 130.0, 800.0, 520.0)])
     answers: list[Any] = []
     asked: list[tuple[str, Any]] = []
 
@@ -90,10 +95,13 @@ def test_a_browser_tab_the_extension_reports_with_a_password_field_is_painted_no
         asked.append((browser, bounds))
         return answers.pop(0) if answers else None
     d.web_secrets = web
-    answers[:] = [WebSecrets(((20.0, 40.0, 100.0, 20.0),), (800.0, 520.0), True)] * 2
-    _, _, jpeg = asyncio.run(d.screenshot("Brave"))
-    assert shots.captured == [120] and asked == [("brave", BOUNDS)] * 2 and jpeg != shots.jpeg
-    asyncio.run(d.screenshot("Brave"))                                   # no profile could tell: captured
+    page = WebSecrets(PageState.parse({"top": "d", "viewport": [0, 0, 800, 520],
+                                       "items": [{"key": "field|d|f", "rect": [20, 40, 100, 20], "paint": True}]}))
+    answers[:] = [page, page]
+    _, shot, jpeg = asyncio.run(d.screenshot("Brave"))
+    assert shots.captured == [120] and asked == [("brave", BOUNDS)] * 2 and jpeg != shots.jpeg and not shot.masking
+    _, shot, _ = asyncio.run(d.screenshot("Brave"))                     # no profile could tell: AX alone, said
+    assert "Accessibility only" in shot.masking
     asked.clear()
     asyncio.run(d.screenshot("Notes"))
     assert asked == []                                                   # only browsers are asked
