@@ -6,7 +6,9 @@ The request is the browser's documented per-user preference file (developer.chro
 distribute/install-extensions): `<user data>/External Extensions/<store id>.json` naming the Web Store's update URL.
 The browser installs the extension at its next start, for every profile of that user-data folder, and asks the owner
 to turn it on in each. macOS refuses off-store files (a local CRX) since Chrome 44, so only the Web Store id is ever
-requested. Removing the file uninstalls it; one the owner removed is never added again by the browser."""
+requested. Removing the file uninstalls it; one the owner removed is never added again by the browser.
+FERB records each request file it writes in its own home (REQUEST_RECORD), never in a browser folder, so a changed or
+cleared store id, and `ferb uninstall`, remove exactly the files FERB wrote."""
 
 import json
 import os
@@ -23,6 +25,7 @@ from ferb.config import Config
 
 WEB_STORE_UPDATE_URL = "https://clients2.google.com/service/update2/crx"
 STORE_EXTENSION_ID = ""          # FERB's Web Store id once the listing is live; `[browser] store_extension_id` overrides
+REQUEST_RECORD = "extension-requests.json"      # in FERB's home: the request files FERB wrote
 _EXTENSION_ID = re.compile(r"[a-p]{32}")
 
 # Where a source supports the request (the L25 report has the sources). Chrome documents the folder, and Chromium's
@@ -34,8 +37,9 @@ UNCONFIRMED = {"brave": "Brave doesn't document this folder; it loads extensions
 DOCUMENTED = frozenset({"chrome", "chrome-beta", "chrome-dev", "chrome-canary", "chromium"})
 # Any other browser (Vivaldi, Arc, Opera): no source supports the request, so setup keeps Load unpacked there.
 
-# Brave looks for native hosts in Google Chrome's folder (github.com/brave/brave-browser/issues/5074).
-ALSO_READS = {"brave": "chrome"}
+# Browsers that look for native hosts in Google Chrome's folder: Brave (github.com/brave/brave-browser/issues/5074),
+# Opera (help.opera.com/en/extensions/message-passing/ gives Chrome's folder for macOS).
+ALSO_READS = {"brave": "chrome", "opera": "chrome"}
 
 
 def valid_id(value: str) -> bool:
@@ -48,10 +52,12 @@ def store_extension_id(config: Config) -> str:
 
 
 def accepted_extension_ids(config: Config) -> tuple[str, ...]:
-    """The pinned unpacked id (or the owner's `[browser] extension_ids`), then the Web Store id when it's valid."""
-    ids = [str(i) for i in config.get("browser", "extension_ids", [FERB_EXTENSION_ID])]
+    """The owner's `[browser] extension_ids` that are extension ids, the pinned unpacked id (always), then the Web
+    Store id when it's valid. They become the native host's allowed origins and the daemon's accepted callers."""
+    configured = config.get("browser", "extension_ids", [])
+    ids = [str(i) for i in (configured if isinstance(configured, list) else []) if valid_id(str(i))]
     store = store_extension_id(config)
-    return tuple(dict.fromkeys(ids + ([store] if valid_id(store) else [])))
+    return tuple(dict.fromkeys(ids + [FERB_EXTENSION_ID] + ([store] if valid_id(store) else [])))
 
 
 def native_host_dirs(support: Path, browsers: Iterable[str]) -> tuple[Path, ...]:
@@ -74,19 +80,73 @@ def write_request(browser: str, support: Path, store_id: str) -> Path:
     path.parent.mkdir(exist_ok=True)                 # inside an existing user-data folder; never creates one
     if not path.is_file() or path.read_text() != body:
         fd, tmp = tempfile.mkstemp(prefix=".ferb-", suffix=".json", dir=path.parent)
-        with os.fdopen(fd, "w") as f:
-            f.write(body)
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, path)
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(body)
+            os.chmod(tmp, 0o644)
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
     return path
 
 
-def remove_requests(support: Path, store_id: str) -> list[Path]:
-    """Uninstall: the browser removes the extension at its next start once the file is gone."""
-    if not valid_id(store_id):
+def _recorded(home: Path) -> list[Path]:
+    try:
+        data = json.loads((home / REQUEST_RECORD).read_text())
+    except (OSError, ValueError):
         return []
-    removed = []
-    for browser in profiles.BROWSERS:
+    return [Path(p) for p in data if isinstance(p, str)] if isinstance(data, list) else []
+
+
+def _save_record(home: Path, paths: Iterable[Path]) -> None:
+    record = home / REQUEST_RECORD
+    unique = sorted({str(p) for p in paths})
+    if not unique:
+        record.unlink(missing_ok=True)
+        return
+    fd, tmp = tempfile.mkstemp(prefix=".extension-requests.", suffix=".json", dir=home)      # created 0600
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(unique, indent=2) + "\n")
+        os.replace(tmp, record)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _is_request(path: Path) -> bool:
+    """Only a file shaped like a request is ever removed: `.../External Extensions/<extension id>.json`."""
+    return path.is_absolute() and path.parent.name == "External Extensions" and path.suffix == ".json" \
+        and valid_id(path.stem)
+
+
+def withdraw(home: Path, keep: str = "") -> list[Path]:
+    """Remove the request files FERB recorded, except those for `keep` (the current valid store id). One that can't
+    be removed stays recorded for the next run. Returns what was removed."""
+    removed, kept = [], []
+    for path in _recorded(home):
+        if not _is_request(path):
+            continue
+        if path.stem == keep:
+            kept.append(path)
+            continue
+        try:
+            if path.is_file():
+                path.unlink()
+                removed.append(path)
+        except OSError:
+            kept.append(path)
+    if (home / REQUEST_RECORD).exists():
+        _save_record(home, kept)
+    return removed
+
+
+def remove_requests(home: Path, support: Path, store_id: str) -> list[Path]:
+    """Uninstall: every request FERB recorded, plus the current id's in every known browser. The browser removes the
+    extension at its next start once the file is gone."""
+    removed = withdraw(home)
+    for browser in profiles.BROWSERS if valid_id(store_id) else ():
         path = request_file(browser, support, store_id)
         if path.is_file():
             path.unlink()
@@ -110,6 +170,7 @@ class BrowserState:
     browser: str
     request: Path | None     # the install request written, if any
     profiles: tuple[ProfileStatus, ...]
+    error: str = ""          # why the request couldn't be written
 
 
 def _enabled(entry: dict[str, Any]) -> bool:
@@ -128,17 +189,25 @@ def profile_status(p: profiles.BrowserProfile, ids: tuple[str, ...], data_dir: P
                          None if paired is None else (p.browser, p.folder) in paired)
 
 
-def prepare(support: Path, store_id: str, ids: tuple[str, ...],
-            paired: set[tuple[str, str]] | None) -> list[BrowserState]:
+def prepare(support: Path, store_id: str, ids: tuple[str, ...], paired: set[tuple[str, str]] | None,
+            home: Path | None = None) -> list[BrowserState]:
     """For every installed browser: write the Web Store request where a source supports it (only when `store_id` is
-    a valid id), and read each profile's state."""
+    a valid id; a browser whose folder refuses it is reported, the others go on), and read each profile's state.
+    With `home`, each request written is recorded there."""
     out = []
     for browser in profiles.installed(support):
-        request = write_request(browser, support, store_id) \
-            if valid_id(store_id) and (browser in DOCUMENTED or browser in UNCONFIRMED) else None
+        request, error = None, ""
+        if valid_id(store_id) and (browser in DOCUMENTED or browser in UNCONFIRMED):
+            try:
+                request = write_request(browser, support, store_id)
+            except OSError as e:
+                error = e.strerror or str(e)
         data = profiles.data_dir(browser, support)
         out.append(BrowserState(browser, request, tuple(profile_status(p, ids, data, paired, store_id)
-                                                        for p in profiles.discover(browser, data))))
+                                                        for p in profiles.discover(browser, data)), error))
+    written = [s.request for s in out if s.request is not None]
+    if home is not None and written:
+        _save_record(home, _recorded(home) + written)
     return out
 
 
@@ -155,17 +224,23 @@ def _profile_line(p: ProfileStatus, store_id: str) -> str:
     return f"    “{p.name}” ({p.folder}): {state}"
 
 
-def describe(states: list[BrowserState], store_id: str, extension_dir: Path) -> list[str]:
+def describe(states: list[BrowserState], store_id: str, extension_dir: Path,
+             withdrawn: Iterable[Path] = ()) -> list[str]:
     """What setup tells the owner: per browser what was requested, per profile its state, which browsers to reopen,
-    and the Load-unpacked steps wherever the request isn't available."""
+    the Load-unpacked steps wherever the request isn't available, and earlier requests removed."""
     valid = valid_id(store_id)
+    removed = [f"  Removed FERB's earlier install request {p}" for p in withdrawn]
     if not states:
         return ["Browser extension: no Chromium-family browser has been started on this Mac yet; run "
-                "`ferb setup --update` after starting one."]
-    if valid:
-        lines = ["Browser extension: FERB asked these browsers to install it from the Chrome Web Store. Each installs "
-                 "it at its next start, for all its profiles, and asks you to turn it on in each profile. FERB never "
-                 "restarts a browser or answers its prompts."]
+                "`ferb setup --update` after starting one.", *removed]
+    asked = [profiles.BROWSERS[s.browser].label for s in states if s.request is not None]
+    if valid and asked:
+        lines = [f"Browser extension: FERB asked {', '.join(asked)} to install it from the Chrome Web Store. Each "
+                 "installs it at its next start, for all its profiles, and asks you to turn it on in each profile. "
+                 "FERB never restarts a browser or answers its prompts."]
+    elif valid:
+        lines = ["Browser extension: no browser here took FERB's Chrome Web Store install request; use Load unpacked "
+                 "(below)."]
     elif store_id:
         lines = [f"Browser extension: [browser] store_extension_id {store_id!r} in config.toml isn't a Chrome "
                  "extension id (32 letters a-p), so no browser was asked to install FERB."]
@@ -177,6 +252,8 @@ def describe(states: list[BrowserState], store_id: str, extension_dir: Path) -> 
         label = profiles.BROWSERS[s.browser].label
         if not valid:
             note = ""
+        elif s.error:
+            note, manual = f": couldn't write the install request ({s.error}); use Load unpacked (below)", True
         elif s.request is None:
             note, manual = ": no documented way to request the install here; use Load unpacked (below)", True
         elif s.browser in UNCONFIRMED:
@@ -195,12 +272,13 @@ def describe(states: list[BrowserState], store_id: str, extension_dir: Path) -> 
                      f"click “Load unpacked” and choose {extension_dir}")
     if any(p.paired is not True for s in states for p in s.profiles):
         lines.append('  Then pair each profile: `ferb browsers pair --browser <browser> "<profile>"`.')
-    return lines
+    return lines + removed
 
 
 def package(source: Path, out_dir: Path) -> tuple[Path, list[str]]:
     """The Web Store upload: every bundle file with manifest.json at the zip's root, minus the development `key`
-    (the store assigns the listing its own). Returns the zip and what the listing still needs."""
+    (the store assigns the listing its own) and Markdown (notes such as listing text, never extension code).
+    Returns the zip and what the listing still needs."""
     manifest = json.loads((source / "manifest.json").read_text())
     missing = [k for k in ("name", "version", "description") if not manifest.get(k)]
     if missing:
@@ -210,7 +288,7 @@ def package(source: Path, out_dir: Path) -> tuple[Path, list[str]]:
                                               "(at least a 128x128 PNG)"]
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"ferb-extension-{manifest['version']}.zip"
-    files = sorted(p for p in source.rglob("*") if p.is_file() and not p.is_symlink()
+    files = sorted(p for p in source.rglob("*") if p.is_file() and not p.is_symlink() and p.suffix != ".md"
                    and not any(part.startswith(".") for part in p.relative_to(source).parts))
     fd, tmp = tempfile.mkstemp(prefix=".ferb-extension-", suffix=".zip", dir=out_dir)
     os.close(fd)

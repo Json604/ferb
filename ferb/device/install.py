@@ -13,6 +13,7 @@ import os
 import plistlib
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -252,7 +253,15 @@ class Installer:
         written = []
         for d in self.native_hosts_dirs:
             d.mkdir(parents=True, exist_ok=True)
-            (d / NATIVE_HOST_MANIFEST).write_text(manifest)
+            fd, tmp = tempfile.mkstemp(prefix=".ferb-", suffix=".json", dir=d)   # a browser never reads half a file
+            try:
+                with os.fdopen(fd, "w") as f:
+                    f.write(manifest)
+                os.chmod(tmp, 0o644)
+                os.replace(tmp, d / NATIVE_HOST_MANIFEST)
+            except BaseException:
+                Path(tmp).unlink(missing_ok=True)
+                raise
             written.append(d / NATIVE_HOST_MANIFEST)
         return written
 

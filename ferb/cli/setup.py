@@ -102,8 +102,10 @@ def extension_setup(env: Env) -> None:
     except InsecureConfig as e:
         env.say(f"Browser extension: not set up, config.toml can't be trusted ({e}); `ferb doctor` shows the fix.")
         return
-    states = autoinstall.prepare(env.browser_support, store, ids, paired)
-    for line in autoinstall.describe(states, store, extension_path(env.inst.home)):
+    # requests FERB wrote for another id (changed, cleared, mistyped) go before the current one is written
+    withdrawn = autoinstall.withdraw(env.inst.home, store if autoinstall.valid_id(store) else "")
+    states = autoinstall.prepare(env.browser_support, store, ids, paired, home=env.inst.home)
+    for line in autoinstall.describe(states, store, extension_path(env.inst.home), withdrawn):
         env.say(line)
 
 
@@ -573,8 +575,13 @@ def identity_setup(env: Env, name: str | None = None, chrome_data: Path = seed.C
 def _identity_pair(env: Env, name: str) -> bool:
     """Pair the extension in FERB's profile as identity FERB. Re-pairing asks the owner first."""
     from ferb.device.extensions import extension_path
-    env.ask(f"     Load the FERB extension in the “{name}” profile (chrome://extensions → Developer mode → Load "
-            f"unpacked → {extension_path(env.inst.home)}), then press Enter ")
+    store = autoinstall.store_extension_id(Config(env.inst.home))
+    if autoinstall.valid_id(store):             # setup asked Chrome to install the Web Store copy (L25)
+        env.ask(f"     Turn FERB on in the “{name}” profile when Chrome offers it (or add it from "
+                f"https://chromewebstore.google.com/detail/{store}), then press Enter ")
+    else:
+        env.ask(f"     Load the FERB extension in the “{name}” profile (chrome://extensions → Developer mode → Load "
+                f"unpacked → {extension_path(env.inst.home)}), then press Enter ")
     confirm = False
     for _ in range(2):
         try:
@@ -646,17 +653,20 @@ def uninstall(env: Env, purge: bool) -> int:
     if env.browser_support is not None:
         try:
             store = autoinstall.store_extension_id(Config(inst.home))
-        except InsecureConfig:
+        except InsecureConfig:                  # the record in FERB's home still lists every request FERB wrote
             store = ""
-    requests = autoinstall.remove_requests(env.browser_support, store) if env.browser_support is not None else []
+    requests = autoinstall.remove_requests(inst.home, env.browser_support, store) \
+        if env.browser_support is not None else []
+    for path in requests:                       # reported before anything else can fail
+        env.say(f"removed {path}")
     try:
-        removed = [str(r) for r in requests] + inst.uninstall(purge=purge)
+        removed = inst.uninstall(purge=purge)
     except InstallError as e:
         env.say(str(e))
         return 1
     for r in removed:
         env.say(f"removed {r}")
-    if not removed:
+    if not removed and not requests:
         env.say("Nothing to remove.")
     for key in secret_keys:
         if env.ask(f"Also delete FERB's Keychain item '{key}'? [y/N] ").strip().lower() == "y":

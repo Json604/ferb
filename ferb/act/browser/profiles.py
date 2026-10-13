@@ -48,11 +48,11 @@ BROWSERS: dict[str, Browser] = {
 }
 
 
-def data_dir(browser: str, support: Path = SUPPORT) -> Path:
-    return support / BROWSERS[browser].data
+def data_dir(browser: str, support: Path | None = None) -> Path:
+    return (support or SUPPORT) / BROWSERS[browser].data
 
 
-def installed(support: Path = SUPPORT) -> list[str]:
+def installed(support: Path | None = None) -> list[str]:
     """The browsers that have created their user-data folder, in BROWSERS order."""
     return [b for b in BROWSERS if (data_dir(b, support) / "Local State").is_file()]
 

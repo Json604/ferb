@@ -210,6 +210,7 @@ def test_package_writes_a_store_ready_zip(tmp_path: Path) -> None:
     (source / "background.js").write_text("// worker")
     (source / "lib" / "x.js").write_text("// x")
     (source / ".DS_Store").write_text("junk")
+    (source / "STORE_LISTING.md").write_text("listing text, not extension code")
     path, notes = autoinstall.package(source, tmp_path / "out")
     assert path == tmp_path / "out" / "ferb-extension-1.2.3.zip"
     with zipfile.ZipFile(path) as z:
@@ -268,3 +269,152 @@ def test_the_daemon_accepts_the_store_copy_and_pairs_it_by_its_own_id(bd: Any) -
         c.close()
     assert url.startswith(f"chrome-extension://{STORE}/pair.html")
     assert out.get("paired") is True, out
+
+
+# ---------- fix round 1 ----------
+
+OTHER = "ponmlkjihgfedcbaponmlkjihgfedcba"                  # a second valid Web Store id
+
+
+def requests_for(support: Path, store: str) -> list[Path]:
+    return sorted(support.rglob(f"External Extensions/{store}.json"))
+
+
+def test_a_cleared_store_id_removes_the_requests_ferb_wrote(world: dict[str, Any]) -> None:
+    Config(world["home"]).set("browser", "store_extension_id", STORE)
+    run_setup(world)
+    assert len(requests_for(world["support"], STORE)) == 3
+    Config(world["home"]).set("browser", "store_extension_id", "")
+    text = run_setup(world)
+    assert requests_for(world["support"], STORE) == []
+    assert "Removed" in text and f"{STORE}.json" in text
+
+
+def test_a_changed_store_id_replaces_the_old_requests(world: dict[str, Any]) -> None:
+    Config(world["home"]).set("browser", "store_extension_id", STORE)
+    run_setup(world)
+    Config(world["home"]).set("browser", "store_extension_id", OTHER)
+    run_setup(world)
+    assert requests_for(world["support"], STORE) == [] and len(requests_for(world["support"], OTHER)) == 3
+
+
+def uninstall(world: dict[str, Any], **patch: Any) -> tuple[int, str]:
+    home, support = world["home"], world["support"]
+    inst = S.installer(home, support, every_browser=True, label="com.ferb.test", run=FakeRunner(home),
+                       launch_agents=world["tmp"] / "LaunchAgents")
+    for name, value in patch.items():
+        setattr(inst, name, value)
+    out = io.StringIO()
+    env = S.Env(inst, Daemon(set()).client, input, out, browser_support=support)  # type: ignore[arg-type]
+    return S.uninstall(env, purge=False), out.getvalue()
+
+
+def test_uninstall_after_the_id_was_cleared_or_config_distrusted_still_removes_requests(world: dict[str, Any]) -> None:
+    Config(world["home"]).set("browser", "store_extension_id", STORE)
+    run_setup(world)
+    Config(world["home"]).set("browser", "store_extension_id", "")
+    (world["home"] / "config.toml").chmod(0o644)                 # and FERB no longer trusts config.toml
+    code, text = uninstall(world)
+    assert code == 0 and requests_for(world["support"], STORE) == []
+
+
+def test_uninstall_reports_removed_requests_even_when_the_installer_then_fails(world: dict[str, Any]) -> None:
+    from ferb.device.install import InstallError
+    Config(world["home"]).set("browser", "store_extension_id", STORE)
+    run_setup(world)
+
+    def fails(purge: bool = False) -> list[str]:
+        raise InstallError("launchctl said no")
+    code, text = uninstall(world, uninstall=fails)
+    assert code == 1 and "launchctl said no" in text
+    assert text.count(f"removed ") >= 3 and f"{STORE}.json" in text
+
+
+def test_one_browser_that_cant_take_the_request_doesnt_stop_setup(world: dict[str, Any]) -> None:
+    Config(world["home"]).set("browser", "store_extension_id", STORE)
+    (world["support"] / "Google" / "Chrome" / "External Extensions").write_text("not a folder")
+    text = run_setup(world)
+    assert len(requests_for(world["support"], STORE)) == 2              # Brave and Edge still asked
+    assert "Google Chrome: couldn't write the install request" in text and "Load unpacked" in text
+
+
+def test_a_failed_request_write_leaves_no_temp_file(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(src: Any, dst: Any) -> None:
+        raise OSError("disk full")
+    monkeypatch.setattr(autoinstall.os, "replace", refuse)
+    states = autoinstall.prepare(world["support"], STORE, (PINNED, STORE), None)
+    assert all(s.request is None for s in states) and any("disk full" in s.error for s in states)
+    assert not [p for p in world["support"].rglob(".ferb-*")]
+
+
+def test_configured_extension_ids_are_validated_and_the_pinned_id_always_stays(world: dict[str, Any]) -> None:
+    c = Config(world["home"])
+    c.set("browser", "extension_ids", ["../../x", "chrome-extension://abc/", OTHER])
+    c.set("browser", "store_extension_id", STORE)
+    assert autoinstall.accepted_extension_ids(c) == (OTHER, PINNED, STORE)
+    run_setup(world)
+    assert manifest(world["support"] / "Google" / "Chrome")["allowed_origins"] == [
+        f"chrome-extension://{i}/" for i in (OTHER, PINNED, STORE)]
+
+
+def test_the_headline_names_only_the_browsers_actually_asked(tmp_path: Path) -> None:
+    support = tmp_path / "Application Support"
+    (support / "Vivaldi").mkdir(parents=True)
+    (support / "Vivaldi" / "Local State").write_text("{}")
+    text = "\n".join(autoinstall.describe(autoinstall.prepare(support, STORE, (PINNED, STORE), None), STORE,
+                                          Path("/x")))
+    assert "asked" not in text.splitlines()[0] and "Load unpacked" in text
+    world = fake_support(tmp_path / "w")
+    first = autoinstall.describe(autoinstall.prepare(world, STORE, (PINNED, STORE), None), STORE, Path("/x"))[0]
+    assert "asked Google Chrome, Brave, Microsoft Edge to install it" in first
+
+
+def test_opera_reads_native_hosts_from_chromes_folder(tmp_path: Path) -> None:
+    """help.opera.com/en/extensions/message-passing/ gives Chrome's folder for macOS."""
+    dirs = autoinstall.native_host_dirs(tmp_path, ["opera"])
+    assert tmp_path / "Google" / "Chrome" / "NativeMessagingHosts" in dirs
+
+
+def test_the_native_host_manifest_is_replaced_atomically(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ferb.device.install as install_mod
+    d = tmp_path / "NativeMessagingHosts"
+    d.mkdir()
+    (d / NATIVE_HOST_MANIFEST).write_text("OLD")
+    inst = install_mod.Installer(tmp_path / ".ferb", native_hosts_dirs=(d,), extension_ids=(PINNED,))
+
+    def refuse(src: Any, dst: Any) -> None:
+        raise OSError("disk full")
+    monkeypatch.setattr(install_mod.os, "replace", refuse)
+    with pytest.raises(OSError):
+        inst.write_native_host()
+    assert (d / NATIVE_HOST_MANIFEST).read_text() == "OLD" and sorted(p.name for p in d.iterdir()) == [
+        NATIVE_HOST_MANIFEST]
+
+
+def test_profile_paths_follow_support_when_called(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(profiles, "SUPPORT", tmp_path)
+    assert profiles.data_dir("chrome") == tmp_path / "Google" / "Chrome"
+    assert profiles.installed() == []
+
+
+def test_the_identity_prompt_offers_the_store_copy_once_listed(world: dict[str, Any]) -> None:
+    prompts: list[str] = []
+
+    class Pairs:
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            return {"paired": True}
+
+        def close(self) -> None:
+            pass
+    inst = S.installer(world["home"], world["support"], run=FakeRunner(world["home"]))
+
+    def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        return ""
+    env = S.Env(inst, Pairs, ask, io.StringIO())  # type: ignore[arg-type]
+    assert S._identity_pair(env, "FERB")
+    assert "Load unpacked" in prompts[-1]
+    Config(world["home"]).set("browser", "store_extension_id", STORE)
+    assert S._identity_pair(env, "FERB")
+    assert "Load unpacked" not in prompts[-1] and "turn ferb on" in prompts[-1].lower()
+    assert f"chromewebstore.google.com/detail/{STORE}" in prompts[-1]
