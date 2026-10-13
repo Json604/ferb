@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <defs>
+    <linearGradient id="wall" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#23263A"/>
+      <stop offset="1" stop-color="#0D0E16"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="0.12" stop-color="#0E0E10" stop-opacity="0.97"/>
+      <stop offset="1" stop-color="#16161A" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="800" fill="url(#wall)"/>
+  <!-- browser window -->
+  <rect x="90" y="150" width="1100" height="610" rx="12" fill="#F4F4F6"/>
+  <rect x="90" y="150" width="1100" height="44" rx="12" fill="#E3E3E8"/>
+  <rect x="90" y="182" width="1100" height="12" fill="#E3E3E8"/>
+  <circle cx="116" cy="172" r="6" fill="#FF5F57"/><circle cx="136" cy="172" r="6" fill="#FEBC2E"/><circle cx="156" cy="172" r="6" fill="#28C840"/>
+  <rect x="300" y="161" width="680" height="22" rx="11" fill="#FFFFFF"/>
+  <text x="318" y="177" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#6B6B73">github.com/your-org/your-repo/issues</text>
+  <rect x="140" y="240" width="420" height="22" rx="4" fill="#D9D9DF"/>
+  <rect x="140" y="280" width="980" height="12" rx="3" fill="#E4E4E9"/>
+  <rect x="140" y="304" width="900" height="12" rx="3" fill="#E4E4E9"/>
+  <rect x="140" y="328" width="940" height="12" rx="3" fill="#E4E4E9"/>
+  <rect x="140" y="380" width="300" height="160" rx="8" fill="#E9E9EE"/>
+  <rect x="470" y="380" width="300" height="160" rx="8" fill="#E9E9EE"/>
+  <rect x="800" y="380" width="300" height="160" rx="8" fill="#E9E9EE"/>
+  <!-- FERB notch panel -->
+  <path d="M370 0 H910 V300 Q910 330 880 330 H400 Q370 330 370 300 Z" fill="url(#panel)"/>
+  <text x="396" y="40" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="18" fill="#FFFFFF">ferb</text>
+  <circle cx="440" cy="35" r="4" fill="#F5A524"/>
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="15">
+    <rect x="566" y="66" width="320" height="34" rx="17" fill="#2C2C33"/>
+    <text x="584" y="88" fill="#FFFFFF">sum up the open issues in my repo</text>
+    <text x="396" y="130" fill="#A9A9B2">On it.</text>
+    <text x="396" y="160" fill="#FFFFFF">Reading the issue list on GitHub and grouping it by area.</text>
+    <text x="396" y="186" fill="#8A8A94" font-size="13">· reading github.com · 0:18</text>
+    <rect x="396" y="214" width="488" height="1" fill="#2E2E35"/>
+    <text x="396" y="250" fill="#FFFFFF">12 open issues: 5 browser, 4 setup, 3 docs. Two block</text>
+    <text x="396" y="274" fill="#FFFFFF">the release; links for each are under Details.</text>
+    <text x="396" y="304" fill="#5FD38D" font-size="13">✓</text>
+  </g>
+</svg>

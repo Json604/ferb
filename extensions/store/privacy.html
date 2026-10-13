@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FERB Privacy Policy</title>
+<style>
+  body { font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; max-width: 720px;
+         margin: 40px auto; padding: 0 16px; color: #1d1d1f; background: #fff; }
+  h1 { font-size: 28px; } h2 { font-size: 19px; margin-top: 28px; }
+  code { background: #f2f2f4; padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>FERB Privacy Policy</h1>
+<p>Last updated: 14 October 2026</p>
+
+<p>FERB is an open-source personal assistant for macOS. It is made of the FERB app, which runs on your Mac, and the
+FERB browser extension. This policy covers both.</p>
+
+<h2>What the extension does with your data</h2>
+<p>The extension connects only to the FERB app on the same Mac, through the browser's native messaging. It has no
+servers, sends no analytics and runs no code from the internet. It acts only in browser profiles you pair with FERB,
+and only on tabs a FERB task opened or took over. To carry out a task you asked for, it reads the task's pages
+(text, accessibility tree, URL and title, and screenshots of that tab) and performs clicks, typing, scrolling,
+uploads and downloads. It passes what it reads to the FERB app, and to nothing else.</p>
+
+<h2>What the FERB app does with your data</h2>
+<ul>
+  <li><strong>Stored on your Mac.</strong> FERB keeps its records (tasks, what it did, memory) in a local database on
+    your Mac. Nothing is uploaded to a FERB server; there isn't one.</li>
+  <li><strong>Sent to the AI provider you connect.</strong> To understand and carry out a task, FERB sends the task's
+    context to the AI model service you set up in FERB (for example OpenAI or Anthropic), under that provider's own
+    terms. This can include page text and screenshots of the window FERB works in.</li>
+  <li><strong>Secrets are removed first.</strong> Before anything leaves your Mac, FERB removes known secret types
+    (passwords, one-time codes, API keys, tokens, card numbers). Passwords and one-time codes you give FERB are
+    filled into pages through a sealed path and are never shown to the AI model.</li>
+  <li><strong>Not sold or shared.</strong> Your data is never sold, never used for advertising, never used to judge
+    creditworthiness, and never used for anything except the tasks you ask FERB to do.</li>
+</ul>
+
+<h2>Your control</h2>
+<p>You choose which browser profiles to pair, and you can remove the extension at any time. You can see everything
+FERB did with <code>ferb trace</code> and <code>ferb timeline</code>, and you can delete FERB's local data by
+uninstalling it (<code>ferb uninstall</code>).</p>
+
+<h2>Contact</h2>
+<p>Questions: <a href="mailto:CONTACT_EMAIL">CONTACT_EMAIL</a></p>
+</body>
+</html>
