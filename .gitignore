@@ -37,3 +37,6 @@ calls.log
 *.pem
 *.key
 tests/.distill_usage.json
+
+# Vercel CLI link for site/
+.vercel/
