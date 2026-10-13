@@ -90,7 +90,7 @@ Every event on a `chat.send` stream and the matching bus topic carries `request_
 | P: perception | 9 → 10 | `sense/*`, attention region of `main.py` and `supervisor.py`, `daemon/questions.py` (`trail.attention` row only) |
 | B: broken features | 11 → 12 → 13 | `sanitize/redact.py`, `store/spans.py`, `memory/*`, `policy/security_digest.py`, `sense/watchers/text_input.py`, `plan_executor.py`, `plans.py`, runtime account errors, `main.py` distill loop |
 | U: UI | 15 → 16 | `ui/mac/FERBNotch` |
-| X: extension | 17 | `ferb/act/browser/*` setup/install, `ferb/cli/*` setup, extension bundle |
+| X: extension | 17 → 20 | `ferb/act/browser/*` setup/install, `ferb/cli/*` setup, extension bundle |
 | Final | 18 → 19 → whole-branch review | tests through the gateway, docs |
 
 Task 18 starts after Tasks 1, 7 and 13 are integrated; Task 19 after all others.
@@ -199,13 +199,8 @@ Task 18 starts after Tasks 1, 7 and 13 are integrated; Task 19 after all others.
   `isSecret`/`passwordField` (the same fields the 0.15.3 bundle marks secret). For native apps they come from the AX
   secure-field rects, now also covering AX password elements. An image is withheld only when the masking step itself
   fails.
-- Browser snapshots report the state of media elements on the page: video/audio playing or paused, current time,
-  duration, muted. This is read by the content script and needs no new permission. The worker can then check that a
-  play/pause click took effect. The worker prompt says to confirm an action's effect before relying on it, e.g. that a
-  video is playing before recording it.
-- Tests:
-  - a truncated snapshot with a secret field yields a masked screenshot, not a refusal;
-  - a page with a playing `<video>` reports `playing`, current time and duration; a paused one reports `paused`.
+- Tests: a truncated snapshot with a secret field yields a masked screenshot, not a refusal; a native capture of a browser
+  window with a shown password has that field masked.
 
 - [ ] Implement, validate, commit `fix(L13): browser windows and recordings reach the model, redacted (D29 clarified)`.
 
@@ -663,6 +658,51 @@ Arc and Opera on macOS:
 
   All fail first.
 - [ ] Implement, validate, commit `feat(L25): setup requests the extension in every Chromium browser and profile`.
+
+### Task 20: Hearing system sound during tasks; media control (L26)
+
+**Files:**
+- Create:
+  - `ferb/act/mac/audio.py` (ScreenCaptureKit app-audio capture; PyObjC, following `ferb/act/mac/screenshot.py`'s use
+    of ScreenCaptureKit);
+  - `ferb/sense/transcribe.py` (Apple on-device speech: `SFSpeechRecognizer` with `requiresOnDeviceRecognition`, on
+    the captured file).
+- Modify:
+  - the action registry and worker tools (`audio.listen`);
+  - the browser tools and extension `content.js`/`background.js` (`browser.media`, plus media state in snapshots);
+  - recording tools (`with_audio`, transcript in the result);
+  - setup/doctor (speech permission);
+  - `ferb/orchestrator/prompts/worker.md` (how to hear, and to confirm playback);
+  - `docs/RPC.md`, if the extension protocol changes. Keep the extension version 0.15.3, unreleased; if the protocol
+    changes, bump `PROTOCOL_VERSION` and the JS protocol together per CLAUDE.md.
+- Test: `tests/test_audio_listen.py`, `tests/test_browser_media.py` (new), and a `-m real` live test the owner runs.
+
+**Interfaces:**
+- `audio.listen {app? | tab?, seconds}` → `{transcript, segments:[{start, end, text}], audio_path, app, seconds,
+  on_device: true}`.
+- `browser.media {tab, action: play|pause|mute|unmute|seek, to?}` → `{state}`.
+- Snapshot `media: [{index, playing, current_time, duration, muted}]`.
+
+**Behaviour:**
+- Spec §4.9 exactly.
+- The model chooses the duration. There is no FERB cap, and none may be introduced.
+- Listening stops when the task ends or is stopped.
+- The transcript goes through the Redactor and carries the app content's origin label.
+- On-device recognition unavailable → a clear error, never a cloud call.
+- Capture excludes FERB's own audio.
+
+- [ ] Tests first, using fakes for ScreenCaptureKit and Speech at the adapter boundary:
+  - `audio.listen` on a fake app stream returns a redacted transcript with segments and records a span (app, seconds);
+  - a secret spoken in the audio (a card number in the fake transcript) is redacted;
+  - on-device unavailable → error, and no network call;
+  - task stop ends a listen in progress;
+  - `browser.media play` on a page with a paused `<video>` → `playing: true` in the next snapshot;
+  - `unmute` sets `muted: false`;
+  - `browser.record with_audio` attaches a transcript;
+  - the worker prompt tells the worker to confirm playback before recording or listening.
+
+  All fail first.
+- [ ] Implement, validate (full suite, mypy, diff-check), commit `feat(L26): FERB hears app sound during tasks, on-device transcripts; media control`.
 
 ### Task 18: Launch campaign path through the gateway (D30, L22)
 

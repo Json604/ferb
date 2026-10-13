@@ -97,7 +97,8 @@ Five read-only reports, kept locally (git-ignored) in `.superpowers/sdd/2026-10-
 | L14 | Fixes land on `astra_resume`. Afterwards it becomes `main` and the other branches are deleted (exact commands confirmed with the owner at that step). |
 | L15 | The UI moved into this repository as `ui/` (done in 2b9f727; its old two-commit history is kept locally). |
 
-L16–L24 are the fix items in §4.6, accepted by the owner as a list. L25 (§4.8) was added at approval.
+L16–L24 are the fix items in §4.6, accepted by the owner as a list. L25 (§4.8) was added at approval; L26 (§4.9)
+on 2026-10-14.
 
 ## 4. Design
 
@@ -373,6 +374,35 @@ The native host accepts both the pinned unpacked ID and the Store ID.
 - the install request may not work in some browsers (e.g. Brave, Arc).
 
 Where it doesn't work, setup reports it and keeps the manual path. It never edits a browser's Secure Preferences.
+
+### 4.9 Hearing system sound during tasks (L26)
+
+The owner decided this on 2026-10-14. FERB recorded an Instagram reel to find "the startup he's talking about", but
+it can't hear: recordings are silent by design, so it guessed from a caption. The owner said FERB must hear system
+sound, and chose **during tasks**, not 24/7.
+
+**`audio.listen`** (a worker tool):
+- It captures the sound of one app, or of the app showing a task's tab, for a duration the model chooses. Capture uses
+  ScreenCaptureKit app audio and excludes FERB's own process.
+- It transcribes the audio on the Mac with Apple on-device speech recognition (on-device required). There is no cloud
+  fallback: if on-device transcription isn't available, the tool says so.
+- Only the transcript reaches the model, redacted for secret classes and labelled with the app content's origin
+  (outside content, MP2). The audio file stays in FERB's workspace.
+- Every listen is in the trace (app, duration).
+- Listening ends with the task.
+
+**Recording with sound.** `browser.record` and `recording.*` can capture sound alongside frames and attach a
+time-aligned transcript to the recording result.
+
+**Media control.** `browser.media` plays, pauses, mutes, unmutes or seeks a page's video or audio through the content
+script. Browser snapshots report each media element's state (playing or paused, current time, duration, muted), so the
+worker confirms the video is playing before recording or listening.
+
+**Background note (owner accepted).** The sound has to actually play, so FERB may unmute or play a tab, and the owner
+hears it briefly. This is recorded like any other on-screen action.
+
+**Permission.** Speech recognition needs a one-time macOS permission for FERB. `ferb setup` asks for it and
+`ferb doctor` reports it. Screen Recording, already granted for screenshots, covers app audio.
 
 ## 5. Changes to the plan of record and working rules
 
