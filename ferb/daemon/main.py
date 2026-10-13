@@ -22,7 +22,7 @@ from ferb.act.browser.tools import IdentityDriver
 from ferb.core.types import Identity
 from ferb.act.browser import downloads, profiles as browser_profiles, uploads
 from ferb.act.browser.ext_bridge import FerbIdentity, Hub, Router, WakeServer
-from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+from ferb.act.browser.autoinstall import accepted_extension_ids
 from ferb.act.evidence.store import EvidenceStore
 from ferb.act.fs import recovery
 from ferb.act.browser.pairing import Pairings
@@ -2058,9 +2058,8 @@ class Daemon:
         if b is not None:
             br = self.hub.bridges.get((p.browser, p.folder)) if self.hub else None
             return "connected" if br is not None and br.conn else "paired"
-        ids = frozenset(self.config.get("browser", "extension_ids", [FERB_EXTENSION_ID]))
         data = (self.browser_data_dirs or {}).get(p.browser)
-        return "installed" if has_extension(p, ids, data) else "missing"
+        return "installed" if has_extension(p, frozenset(accepted_extension_ids(self.config)), data) else "missing"
 
     def _time_meanings(self) -> list[tuple[str, str]]:
         """The owner's own meanings of fuzzy time words ("next friday", "evening"), stored when they corrected FERB."""
@@ -2229,8 +2228,8 @@ class Daemon:
         # Browser/profile selection is an agent decision, not a phrase-derived permission gate.
         self._attach_identity_if_paired()
         self.server.native = self.hub.serve
-        self.server.extension_ids = lambda: frozenset(self.config.get("browser", "extension_ids",
-                                                                      [FERB_EXTENSION_ID]))
+        # the pinned unpacked id and, once configured, the Chrome Web Store id (L25)
+        self.server.extension_ids = lambda: frozenset(accepted_extension_ids(self.config))
 
     def _attach_identity_if_paired(self) -> bool:
         """FERB's tools exist only once its identity profile is paired as FERB."""
@@ -2287,7 +2286,10 @@ class Daemon:
             wake = self.wake.url()
             browser_profiles.open_known_profile(browser, folder, wake, known, background=False, **kwargs)
             await asyncio.sleep(self.pair_load_wait_s)
-        ext = sorted(self.server.extension_ids())[0]
+        ids = accepted_extension_ids(self.config)          # the copy installed in that profile: unpacked or store
+        p = next((p for p in known if (p.browser, p.folder) == (browser, folder)), None)
+        found = browser_profiles.extension_entry(p, ids, (self.browser_data_dirs or {}).get(browser)) if p else None
+        ext = found[0] if found else ids[0]
         browser_profiles.open_known_profile(browser, folder, f"chrome-extension://{ext}/pair.html#token={token}",
                                             known, background=False, **kwargs)   # the owner must see this page
         return wake

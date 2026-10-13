@@ -2,9 +2,10 @@
 
 `ferb setup [--update]`, `ferb doctor`, `ferb uninstall [--purge]`.
 
-Interactive but injectable (installer, daemon connection, prompts, System Settings opener) so the flows are
-testable without touching the real Mac. Permissions are always checked by the daemon, never by this process.
-Setup never quits or kills a browser and never touches Brave."""
+Interactive but injectable (installer, daemon connection, prompts, System Settings opener, browser folders) so the
+flows are testable without touching the real Mac. Permissions are always checked by the daemon, never by this process.
+Setup never opens, quits or kills a browser and never writes a browser's Preferences: per browser it writes only
+FERB's own files (the native host, the Web Store install request) and reads each profile's state (L25)."""
 
 import subprocess
 import time
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any, Callable, TextIO
 
 import ferb
+from ferb.act.browser import autoinstall, profiles
+from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
 from ferb.cli.client import Client
 from ferb.config import Config, InsecureConfig
 from ferb.core.errors import FerbError, NotRunning
@@ -42,6 +45,7 @@ class Env:
     sleep: Callable[[float], None] = time.sleep
     running_apps: Callable[[], set[str]] = lambda: _running_bundle_ids()
     persona_usage: Callable[[list[Any]], list[dict[str, Any]]] = app_usage
+    browser_support: Path | None = None      # ~/Library/Application Support (the CLI's); None: no browser step
 
     def say(self, line: str = "") -> None:
         print(line, file=self.out, flush=True)
@@ -64,6 +68,43 @@ def wait_for_daemon(env: Env, timeout: float = 30) -> Client:
             if time.monotonic() > end:
                 raise NotRunning("the daemon didn't come up; see ~/.ferb/logs/daemon.err.log") from None
             env.sleep(0.3)
+
+
+def installer(home: Path, support: Path, every_browser: bool = False, **kwargs: Any) -> Installer:
+    """The installer with FERB's native host going to each installed browser (every known one when removing it),
+    accepting both the pinned unpacked id and the Web Store id."""
+    browsers = list(profiles.BROWSERS) if every_browser else profiles.installed(support)
+    try:
+        ids = autoinstall.accepted_extension_ids(Config(home))
+    except InsecureConfig:                      # doctor reports it; setup and the daemon refuse such a config anyway
+        ids = (FERB_EXTENSION_ID,)
+    return Installer(home, native_hosts_dirs=autoinstall.native_host_dirs(support, browsers), extension_ids=ids,
+                     **kwargs)
+
+
+def extension_setup(env: Env) -> None:
+    """Every installed Chromium-family browser: the Web Store install request once the store id is set, and each
+    profile's state (installed and enabled from its Preferences, read only; paired from the daemon when it answers).
+    The native host is registered by the installer."""
+    if env.browser_support is None:
+        return
+    from ferb.device.extensions import extension_path
+    try:
+        c = env.connect()
+        listed = c.call("browsers.list")["profiles"]
+        c.close()
+        paired: set[tuple[str, str]] | None = {(p["browser"], p["folder"]) for p in listed if p["paired"]}
+    except (NotRunning, FerbError, OSError):      # no daemon to ask: pairing is reported as not checked
+        paired = None
+    config = Config(env.inst.home)
+    try:
+        store, ids = autoinstall.store_extension_id(config), autoinstall.accepted_extension_ids(config)
+    except InsecureConfig as e:
+        env.say(f"Browser extension: not set up, config.toml can't be trusted ({e}); `ferb doctor` shows the fix.")
+        return
+    states = autoinstall.prepare(env.browser_support, store, ids, paired)
+    for line in autoinstall.describe(states, store, extension_path(env.inst.home)):
+        env.say(line)
 
 
 def device_id(config: Config) -> str:
@@ -95,6 +136,7 @@ def setup(env: Env, update: bool = False) -> int:
             env.say("All macOS permissions are granted (checked by the running daemon).")
         _review_persona(env, client)
         client.close()
+        extension_setup(env)
         env.say("Done.")
         return 0
 
@@ -114,6 +156,7 @@ def setup(env: Env, update: bool = False) -> int:
     client = wait_for_daemon(env)
     binary = inst.granted_binary()
     env.say(f"     Daemon running. Permissions must be granted to: {binary}")
+    extension_setup(env)
 
     env.say("2/4  Scanning this Mac's apps (Info.plist only)…")
     config = Config(inst.home)
@@ -599,8 +642,15 @@ def uninstall(env: Env, purge: bool) -> int:
             except InsecureConfig:
                 secret_keys = []
     binary = inst.granted_binary()
+    store = ""
+    if env.browser_support is not None:
+        try:
+            store = autoinstall.store_extension_id(Config(inst.home))
+        except InsecureConfig:
+            store = ""
+    requests = autoinstall.remove_requests(env.browser_support, store) if env.browser_support is not None else []
     try:
-        removed = inst.uninstall(purge=purge)
+        removed = [str(r) for r in requests] + inst.uninstall(purge=purge)
     except InstallError as e:
         env.say(str(e))
         return 1

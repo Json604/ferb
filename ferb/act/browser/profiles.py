@@ -1,22 +1,60 @@
 """Owns Chromium profile metadata discovery, candidate matching and explicit profile launch.
 Must not choose between plausible names/accounts or launch a visible URL as a background action.
 Discovery reads Local State only; exact configured folders prevent accidental creation of profiles.
-Name, account and saved-alias matches are returned together, never resolved by tier priority."""
+Name, account and saved-alias matches are returned together, never resolved by tier priority.
+Every Chromium-family browser FERB knows is listed in BROWSERS; one counts as installed once it has created its
+user-data folder (its Local State). Profile settings (Preferences, Secure Preferences) are only ever read."""
 
 import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Callable, Literal
 
 SUPPORT = Path.home() / "Library" / "Application Support"
-BUNDLES = {"chrome": "com.google.Chrome", "brave": "com.brave.Browser"}
-BROWSERS: dict[str, tuple[Path, str, str]] = {   # browser -> (data dir, binary, process name)
-    "chrome": (SUPPORT / "Google" / "Chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-               "Google Chrome"),
-    "brave": (SUPPORT / "BraveSoftware" / "Brave-Browser",
-              "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser", "Brave Browser"),
+
+
+@dataclass(frozen=True)
+class Browser:
+    label: str          # as the owner knows it
+    data: str           # its user-data folder, relative to ~/Library/Application Support
+    bundle_id: str
+    app: str            # /Applications/<app>.app; also its executable's and process's name
+
+    @property
+    def binary(self) -> str:
+        return f"/Applications/{self.app}.app/Contents/MacOS/{self.app}"
+
+
+# User-data folders: Chromium's docs/user_data_dir.md (Chrome, its channels, Chromium), Microsoft's Edge docs (Edge
+# and its channels); Brave, Vivaldi, Arc and Opera as those browsers create them.
+BROWSERS: dict[str, Browser] = {
+    "chrome": Browser("Google Chrome", "Google/Chrome", "com.google.Chrome", "Google Chrome"),
+    "chrome-beta": Browser("Google Chrome Beta", "Google/Chrome Beta", "com.google.Chrome.beta", "Google Chrome Beta"),
+    "chrome-dev": Browser("Google Chrome Dev", "Google/Chrome Dev", "com.google.Chrome.dev", "Google Chrome Dev"),
+    "chrome-canary": Browser("Google Chrome Canary", "Google/Chrome Canary", "com.google.Chrome.canary",
+                             "Google Chrome Canary"),
+    "chromium": Browser("Chromium", "Chromium", "org.chromium.Chromium", "Chromium"),
+    "brave": Browser("Brave", "BraveSoftware/Brave-Browser", "com.brave.Browser", "Brave Browser"),
+    "edge": Browser("Microsoft Edge", "Microsoft Edge", "com.microsoft.edgemac", "Microsoft Edge"),
+    "edge-beta": Browser("Microsoft Edge Beta", "Microsoft Edge Beta", "com.microsoft.edgemac.Beta",
+                         "Microsoft Edge Beta"),
+    "edge-dev": Browser("Microsoft Edge Dev", "Microsoft Edge Dev", "com.microsoft.edgemac.Dev", "Microsoft Edge Dev"),
+    "edge-canary": Browser("Microsoft Edge Canary", "Microsoft Edge Canary", "com.microsoft.edgemac.Canary",
+                           "Microsoft Edge Canary"),
+    "vivaldi": Browser("Vivaldi", "Vivaldi", "com.vivaldi.Vivaldi", "Vivaldi"),
+    "arc": Browser("Arc", "Arc/User Data", "company.thebrowser.Browser", "Arc"),
+    "opera": Browser("Opera", "com.operasoftware.Opera", "com.operasoftware.Opera", "Opera"),
 }
+
+
+def data_dir(browser: str, support: Path = SUPPORT) -> Path:
+    return support / BROWSERS[browser].data
+
+
+def installed(support: Path = SUPPORT) -> list[str]:
+    """The browsers that have created their user-data folder, in BROWSERS order."""
+    return [b for b in BROWSERS if (data_dir(b, support) / "Local State").is_file()]
 
 
 @dataclass(frozen=True)
@@ -28,7 +66,7 @@ class BrowserProfile:
 
 
 def discover(browser: str, data_dir: Path | None = None) -> list[BrowserProfile]:
-    local_state = (data_dir or BROWSERS[browser][0]) / "Local State"
+    local_state = (data_dir or SUPPORT / BROWSERS[browser].data) / "Local State"
     try:
         cache = json.loads(local_state.read_text()).get("profile", {}).get("info_cache", {})
     except (OSError, ValueError):
@@ -38,7 +76,7 @@ def discover(browser: str, data_dir: Path | None = None) -> list[BrowserProfile]
 
 
 def discover_all(data_dirs: dict[str, Path] | None = None) -> list[BrowserProfile]:
-    dirs = data_dirs or {b: v[0] for b, v in BROWSERS.items()}
+    dirs = data_dirs or {b: SUPPORT / v.data for b, v in BROWSERS.items()}
     return [p for b, d in dirs.items() for p in discover(b, d)]
 
 
@@ -80,7 +118,7 @@ def resolve(spoken: str, profiles: list[BrowserProfile], aliases: dict[str, tupl
 
 
 def running(browser: str) -> bool:
-    return subprocess.run(["pgrep", "-x", BROWSERS[browser][2]], capture_output=True).returncode == 0
+    return subprocess.run(["pgrep", "-x", BROWSERS[browser].app], capture_output=True).returncode == 0
 
 
 Launch = Callable[[list[str]], None]
@@ -110,23 +148,41 @@ def open_known_profile(browser: str, folder: str, url: str | None, known: list[B
     if background and url is not None:
         raise ValueError("needs_foreground: URL launch requires an explicit foreground setup step")
     if background and url is None and is_running(browser):
-        launch([BROWSERS[browser][1], f"--profile-directory={folder}", "--no-startup-window"])
+        launch([BROWSERS[browser].binary, f"--profile-directory={folder}", "--no-startup-window"])
     elif background:
-        launch(["open", "-g", "-b", BUNDLES[browser], "--args", f"--profile-directory={folder}",
+        launch(["open", "-g", "-b", BROWSERS[browser].bundle_id, "--args", f"--profile-directory={folder}",
                 url or "--no-startup-window"])
     else:
-        launch([BROWSERS[browser][1], f"--profile-directory={folder}", url or "--no-startup-window"])
+        launch([BROWSERS[browser].binary, f"--profile-directory={folder}", url or "--no-startup-window"])
+
+
+def extension_prefs(folder: Path) -> list[dict[str, Any]]:
+    """The `extensions` sections of a profile's two settings files (Chromium keeps them in both), read only."""
+    out = []
+    for name in ("Secure Preferences", "Preferences"):
+        try:
+            doc = json.loads((folder / name).read_text())
+        except (OSError, ValueError):
+            continue
+        section = doc.get("extensions") if isinstance(doc, dict) else None
+        if isinstance(section, dict):
+            out.append(section)
+    return out
+
+
+def extension_entry(p: BrowserProfile, extension_ids: tuple[str, ...] | frozenset[str],
+                    data_dir: Path | None = None) -> tuple[str, dict[str, Any]] | None:
+    """The first of `extension_ids` installed in this profile, with its settings from both files merged."""
+    folder = (data_dir or SUPPORT / BROWSERS[p.browser].data) / p.folder
+    sections = [s.get("settings") for s in extension_prefs(folder)]
+    for i in extension_ids:
+        found = [s[i] for s in sections if isinstance(s, dict) and isinstance(s.get(i), dict)]
+        if found:
+            return i, {k: v for entry in found for k, v in entry.items()}
+    return None
 
 
 def has_extension(p: BrowserProfile, extension_ids: frozenset[str], data_dir: Path | None = None) -> bool:
     """Is the FERB extension installed in this profile? Read from the profile's own settings on disk (both files
     Chromium uses), so it's known before the extension ever says hello."""
-    folder = (data_dir or BROWSERS[p.browser][0]) / p.folder
-    for name in ("Secure Preferences", "Preferences"):
-        try:
-            settings = json.loads((folder / name).read_text()).get("extensions", {}).get("settings", {})
-        except (OSError, ValueError):
-            continue
-        if any(i in settings for i in extension_ids):
-            return True
-    return False
+    return extension_entry(p, extension_ids, data_dir) is not None

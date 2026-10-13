@@ -26,10 +26,6 @@ PYTHON_VERSION = "3.12"
 MARKER = ".ferb-home"
 NATIVE_HOST_NAME = "com.ferb.native_host"            # extensions/chromium/protocol.js FERB_HOST
 NATIVE_HOST_MANIFEST = NATIVE_HOST_NAME + ".json"
-_SUPPORT = Path.home() / "Library" / "Application Support"
-# Chrome's folder is read by Chrome and Brave (verified during native-host installation tests); Brave's own is a harmless extra copy.
-NATIVE_HOSTS_DIRS = (_SUPPORT / "Google" / "Chrome" / "NativeMessagingHosts",
-                     _SUPPORT / "BraveSoftware" / "Brave-Browser" / "NativeMessagingHosts")
 
 Runner = Callable[[list[str]], "subprocess.CompletedProcess[str]"]
 
@@ -242,8 +238,8 @@ class Installer:
         return self.home / "bin" / "ferb-native-host"        # outside macOS-protected folders
 
     def write_native_host(self) -> list[Path]:
-        """Launcher + manifest in each folder: Chrome's (read by Chrome and Brave) and Brave's own (in case a Brave
-        update switches folders)."""
+        """Launcher + manifest in each folder the CLI lists: every installed browser's own, plus Chrome's for Brave,
+        which reads it (verified during native-host installation tests; ferb.act.browser.autoinstall)."""
         if not self.native_hosts_dirs:
             return []
         launcher = self.native_host_launcher

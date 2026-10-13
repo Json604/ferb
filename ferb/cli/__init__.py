@@ -118,13 +118,17 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("resume", help="start the watchers again after `ferb pause`")
     bp = sub.add_parser("browsers", help="browser profiles, pairing and connection status")
     bsub = bp.add_subparsers(dest="bcmd")
-    extension = bsub.add_parser("extension", help="prepare or locate FERB's managed browser extension")
-    extension.add_argument("action", choices=["install", "path"], nargs="?", default="path")
+    extension = bsub.add_parser("extension", help="prepare, locate or package FERB's browser extension")
+    extension.add_argument("action", choices=["install", "path", "package"], nargs="?", default="path",
+                           help="install: native host, Web Store request and each profile's state; path: the managed "
+                                "folder; package: the Chrome Web Store zip")
+    extension.add_argument("--out", help="with package: the folder for the zip (default: FERB's extensions folder)")
+    from ferb.act.browser.profiles import BROWSERS
     for name, help_ in (("pair", "connect a profile (the FERB extension must be loaded there)"),
                         ("unpair", "forget a profile's pairing")):
         x = bsub.add_parser(name, help=help_)
         x.add_argument("profile", help="the profile's name as shown in the browser (or its email)")
-        x.add_argument("--browser", choices=["chrome", "brave"])
+        x.add_argument("--browser", choices=list(BROWSERS))
 
     sub.add_parser("ps", help="background processes FERB started")
     kp = sub.add_parser("kill", help="stop one of FERB's background processes")
@@ -222,25 +226,39 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             return 130
     if args.cmd == "browsers" and args.bcmd == "extension":
-        from ferb.device.extensions import extension_path, install_extension
-        from ferb.device.install import NATIVE_HOSTS_DIRS, Installer
-        from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
+        from ferb.act.browser.profiles import SUPPORT
+        from ferb.device.extensions import extension_path, extension_source, install_extension
+        if args.action == "package":
+            from pathlib import Path
+            from ferb.act.browser.autoinstall import package
+            try:
+                out_dir = Path(args.out) if args.out else extension_path(ferb_home()).parent
+                target, notes = package(extension_source(), out_dir)
+            except (OSError, ValueError) as e:
+                print(f"ferb: cannot package the extension: {e}", file=sys.stderr)
+                return 1
+            print(f"Chrome Web Store package: {target}")
+            for note in notes:
+                print(f"  Before uploading: {note}")
+            return 0
         if args.action == "install":
+            from ferb.cli import setup as setup_cmd
             target = install_extension(ferb_home())
-            Installer(ferb_home(), native_hosts_dirs=NATIVE_HOSTS_DIRS,
-                      extension_ids=(FERB_EXTENSION_ID,)).write_native_host()
+            inst = setup_cmd.installer(ferb_home(), SUPPORT)
+            inst.write_native_host()
             print(f"Extension files and native host prepared: {target}")
-            print("Existing managed installations reload when idle. For a new profile, open chrome://extensions, "
-                  "enable Developer mode and Load unpacked from this path, then `ferb browsers pair <profile>`.")
+            print("Existing managed installations reload when idle.")
+            setup_cmd.extension_setup(setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout,
+                                                    browser_support=SUPPORT))
             return 0
         print(extension_path(ferb_home()))
         return 0
     if args.cmd in ("setup", "doctor", "uninstall"):
         from ferb.cli import setup as setup_cmd
-        from ferb.act.browser.ext_protocol import FERB_EXTENSION_ID
-        from ferb.device.install import NATIVE_HOSTS_DIRS, InstallError, Installer
-        inst = Installer(ferb_home(), native_hosts_dirs=NATIVE_HOSTS_DIRS, extension_ids=(FERB_EXTENSION_ID,))
-        env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout)
+        from ferb.act.browser.profiles import SUPPORT
+        from ferb.device.install import InstallError
+        inst = setup_cmd.installer(ferb_home(), SUPPORT, every_browser=args.cmd == "uninstall")
+        env = setup_cmd.Env(inst, lambda: Client(socket_path()), input, sys.stdout, browser_support=SUPPORT)
         try:
             if args.cmd == "setup" and args.key:
                 return setup_cmd.key_setup(env, args.key)
