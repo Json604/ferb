@@ -183,6 +183,19 @@ Task 18 starts after Tasks 1, 7 and 13 are integrated; Task 19 after all others.
   - a forced sanitizer failure still withholds.
 
   All fail first.
+**Added 2026-10-14 (owner's task 252d2a9d: FERB recorded a reel but never got it playing, and couldn't see it):**
+- `browser.screenshot` no longer refuses a page because its snapshot was truncated or it has secret fields
+  (`ferb/act/browser/ext_bridge.py:1059-1061`). It captures with every secret field masked, using the field rects the
+  extension reports for secret fields, queried directly rather than from the truncated element list. It withholds the
+  image only when masking fails.
+- Browser snapshots report the state of media elements on the page: video/audio playing or paused, current time,
+  duration, muted. This is read by the content script and needs no new permission. The worker can then check that a
+  play/pause click took effect. The worker prompt says to confirm an action's effect before relying on it, e.g. that a
+  video is playing before recording it.
+- Tests:
+  - a truncated snapshot with a secret field yields a masked screenshot, not a refusal;
+  - a page with a playing `<video>` reports `playing`, current time and duration; a paused one reports `paused`.
+
 - [ ] Implement, validate, commit `fix(L13): browser windows and recordings reach the model, redacted (D29 clarified)`.
 
 ### Task 4: Event contract, daemon acknowledgement, no CLI auto-answer (L7, L19)
