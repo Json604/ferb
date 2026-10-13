@@ -540,8 +540,9 @@ class Gateway:
 
     def _read_texts(self, root: str) -> OutsideTexts:
         """The tree's tool results so far, prepared; only results not seen before are read and prepared. A call still
-        running holds the floor below it, so its result is picked up once it finishes. Context keeps its external
-        provenance here; URL transfer checks use the separately recorded direct source payloads."""
+        running holds the floor below it, so its result is picked up once it finishes. Context whose stored origin is
+        outside keeps its external provenance here; FERB's own memory, history and device facts are not outside content
+        (L4). URL transfer checks use the separately recorded direct source payloads."""
         known = self._outside.setdefault(root, OutsideTexts())
         running = self.spans.first_open_tool_call(root, known.floor, include_context=True)
         for rowid, origins, text in self.spans.tool_outputs(root, known.floor, include_context=True):
@@ -839,7 +840,7 @@ class Gateway:
                 for need in needs:
                     row = confirmations.find(root, need.key)
                     standing = getattr(self, 'standing', None)
-                    if (row is None and need.rule in ('floor:new_recipient', 'sink:new_destination') and
+                    if (row is None and need.rule in ('floor:new_recipient', 'sink:new_destination', confirm.BULK) and
                         standing is not None and standing.covers(root, name, grant.identity.value, spec)):
                         recorded = self.spans.start('standing.covered', task_id=grant.task_id,
                             parent_id=rec.span_id, input={'tool': name, 'target': _target_dict(spec.target),

@@ -170,14 +170,21 @@ class SpanStore:
     def tool_outputs(self, root_id: str, after_rowid: int = 0, *, include_context: bool = False) -> list[tuple[int, set[str], str]]:
         """(rowid, origins, text) of this task tree's finished tool calls after `after_rowid`, in call order. The text
         is every string value of the decoded output (numbers as strings) joined by newlines, capped at 20000
-        characters while it is joined; past the cap stays unsearched."""
+        characters while it is joined; past the cap stays unsearched. `include_context` adds the context given to
+        its models whose stored origin is outside content (L4, `origin.stored_outside`): FERB's own memory, history
+        and device facts are not outside content, whatever they inherited."""
         where, params = self._tree_where(root_id)
         kinds = "('tool.call','context.exposure')" if include_context else "('tool.call')"
-        rows = self._db.conn.execute(f"SELECT rowid, origin, output_json FROM spans WHERE kind IN {kinds} AND "
+        rows = self._db.conn.execute(f"SELECT rowid, kind, origin, output_json FROM spans WHERE kind IN {kinds} AND "
                                      f"{where} AND rowid > ? AND output_json IS NOT NULL ORDER BY rowid",
                                      (*params, after_rowid))
-        return [(r["rowid"], origin.split(r["origin"]), _joined(json.loads(r["output_json"]), OUTPUT_TEXT_CAP))
-                for r in rows]
+        out: list[tuple[int, set[str], str]] = []
+        for r in rows:
+            labels = origin.split(r["origin"])
+            if r["kind"] == "context.exposure" and not origin.stored_outside(labels):
+                continue
+            out.append((r["rowid"], labels, _joined(json.loads(r["output_json"]), OUTPUT_TEXT_CAP)))
+        return out
 
     def payload_outputs(self, root_id: str, after_rowid: int = 0, *, seen: set[int] | None = None) -> list["PayloadOutput"]:
         """New actual source data, using capability schemas rather than globally dropping field names.

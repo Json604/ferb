@@ -78,8 +78,9 @@ def owner_named(sources: list[str]) -> bool:
 
 
 def sample(items: Iterable[str]) -> str:
-    """Up to SHOWN items named and the rest counted ("a, b, c and 2 more"). Display only."""
-    listed = list(items)
+    """Up to SHOWN items named, each quoted (a name from a disk or a page is data inside FERB's labelled sentence,
+    D33), and the rest counted ('"a", "b", "c" and 2 more'). Display only."""
+    listed = [json.dumps(i, ensure_ascii=False) for i in items]
     if len(listed) <= SHOWN:
         return ", ".join(listed)
     return ", ".join(listed[:SHOWN]) + f" and {len(listed) - SHOWN} more"
@@ -357,13 +358,13 @@ def decide(kind: str, declared: str | None, target: Target, arg_sources: dict[st
             needs.append(Need("sink:new_destination", key("sink:new_destination", target.site),
                               {"destination": target.site or "", "read": shown_origins(outside_read)},
                               destinations=(("host", target.site or ""),)))
-        # S4 (c): a send to two or more recipients the owner didn't name, one question with count, size and a sample
+        # S4 (c): a send to two or more recipients the owner didn't name, one question with count and size; the
+        # new-recipient part beside it names every new one (L3: a Yes makes each known, SQ6), else a sample
         unnamed = sorted({v for k, v in who if k.startswith("recipient:") and not _owner(arg_sources.get(k, []))})
         if len(unnamed) > 1:
             needs.append(Need(BULK, key(BULK, unnamed, content),
                               {"what": "call" if calls else "send", "count": str(len(unnamed)),
-                               "bytes": _counted(len((content or "").encode()), "byte"), "sample": sample(unnamed),
-                               "covers": "floor:new_recipient" if set(new) <= set(unnamed) else ""}))
+                               "bytes": _counted(len((content or "").encode()), "byte"), "sample": sample(unnamed)}))
     values = who + ([("amount", str(target.amount))] if target.amount is not None else [])
     for k, value in values:                     # S4 (b): a value that came only from outside content
         outside = [s for s in arg_sources.get(k, []) if s != "unknown"]
@@ -387,14 +388,17 @@ def bulk_delete(path: str, facts: dict[str, Any]) -> Need:
     listed = [str(p) for p in facts.get("paths", [])]
     root = listed[0] if listed and listed[0].endswith("/") else ""
     inside = [p[len(root):] if root and p.startswith(root) else p for p in listed[1:]]
+    counted = str(facts.get("path") or path)
     return Need(BULK, key(BULK, facts),
-                {"what": "delete", "path": path, "files": _counted(int(facts["files"]), "file"),
+                {"what": "delete", "path": path, "counted": "" if counted == path else counted,
+                 "files": _counted(int(facts["files"]), "file"),
                  "folders": _counted(int(facts["directories"]), "folder"),
                  "bytes": _counted(int(facts["bytes"]), "byte"), "sample": sample(inside),
                  "covers": "floor:delete_permanent"})
 
 
-def _part(n: Need) -> str:
+def _part(n: Need, alongside: frozenset[str] = frozenset()) -> str:
+    """One need in the owner's terms; `alongside` holds the rules of the other needs in the same question."""
     v = n.values
     if n.rule == "floor:pay":
         return (f"this pays {v['amount'] or 'an amount'}" + (f" to {v['recipients']}" if v["recipients"] else "")
@@ -424,12 +428,17 @@ def _part(n: Need) -> str:
     if n.rule == "sink:outside_value":
         return f"the {v['what']} {v['value']} came from outside content ({v['origin']}), not from you"
     if n.rule == BULK and v.get("what") == "delete":
-        return (f"this permanently deletes {v['path']} (it skips the Trash): {v['files']} in {v['folders']}, "
+        counted = f"that is {v['counted']}; " if v.get("counted") else ""
+        return (f"this permanently deletes {v['path']} ({counted}it skips the Trash): {v['files']} in {v['folders']}, "
                 f"{v['bytes']}" + (f", for example {v['sample']}" if v["sample"] else ""))
+    if n.rule == BULK and "floor:new_recipient" in alongside:      # the new recipients are named beside it, each one
+        return (f"that is {v['count']} recipients at once" if v.get("what") == "call" else
+                f"that is {v['bytes']} to {v['count']} recipients at once")
     if n.rule == BULK and v.get("what") == "call":
-        return f"this calls {v['count']} recipients you didn't name in this request: {v['sample']}"
+        return f"this calls {v['count']} recipients you didn't name in this request at once: {v['sample']}"
     if n.rule == BULK and v.get("what") == "send":
-        return f"this sends {v['bytes']} to {v['count']} recipients you didn't name in this request: {v['sample']}"
+        return (f"this sends {v['bytes']} to {v['count']} recipients you didn't name in this request at once: "
+                f"{v['sample']}")
     return v.get("text", n.rule)                # a rule another part of FERB asks about in its own words
 
 
@@ -437,8 +446,9 @@ def line(needs: list[Need], call: str, why: str) -> str:
     """FERB's own words, first and labelled (P27: second person, the concrete action), then the call, the reason the
     task gave (quoted) and the question. The gateway collapses whitespace, strips control characters, maps the
     reason's double quotes to single ones and clips what goes in."""
-    said = {n.values.get("covers") for n in needs if n.rule == BULK}   # a bulk part already says the floor's words
-    parts = "; ".join(_part(n) for n in needs if n.rule not in said)
+    said = {n.values.get("covers") for n in needs if n.rule == BULK}   # a bulk delete already says the floor's words
+    rules = frozenset(n.rule for n in needs)
+    parts = "; ".join(_part(n, rules) for n in needs if n.rule not in said)
     text = "FERB: " + parts + (f". The step: {call}." if call else ".")
     if why:
         text += f' Reason given: "{why}".'

@@ -276,8 +276,22 @@ def test_a_permanent_delete_of_a_folder_nobody_named_asks_once_with_count_size_a
     assert ferb.startswith(f"FERB: this permanently deletes {folder} (it skips the Trash): 6 files in 2 folders, "
                            "60 bytes, for example ")
     shown = ferb.split(", for example ")[1]
-    assert shown.endswith(" and 4 more") and len(shown.removesuffix(" and 4 more").split(", ")) == 3   # of 7 inside
+    items = shown.removesuffix(" and 4 more").split(", ")
+    assert shown.endswith(" and 4 more") and len(items) == 3                      # of 7 inside
+    assert all(i.startswith('"') and i.endswith('"') for i in items)              # names from the disk, quoted (D33)
     assert ferb.count(str(folder)) == 1                          # one sentence: the folder once, the sample relative
+
+
+def test_the_delete_question_names_the_folder_it_counted(daemon: RunningDaemon, tmp_path: Path) -> None:
+    folder = _folder(tmp_path, 1)
+    alias = tmp_path / "alias"
+    alias.symlink_to(folder)
+    gone = _Delete()
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("clean up my disk"), [gone])  # type: ignore[list-item]
+    result, questions = _call(daemon, grant, gone.name, path=str(alias))
+    assert result["is_error"] and gone.calls == 0 and len(questions) == 1
+    assert questions[0].reason.startswith(f"FERB: this permanently deletes {alias} (that is {folder.resolve()}; it "
+                                          "skips the Trash): 1 file in 2 folders, 10 bytes")
 
 
 def test_a_send_to_two_owner_named_recipients_does_not_ask(daemon: RunningDaemon) -> None:
@@ -288,14 +302,81 @@ def test_a_send_to_two_owner_named_recipients_does_not_ask(daemon: RunningDaemon
     assert not result["is_error"] and mail.calls == 1 and questions == []
 
 
-def test_a_send_to_five_unnamed_recipients_asks_once_with_count_size_and_a_sample(daemon: RunningDaemon) -> None:
+def test_a_send_to_five_unnamed_recipients_asks_once_naming_each_new_one_with_count_and_size(
+        daemon: RunningDaemon) -> None:
+    """L3: the question names every new recipient a Yes makes known (SQ6); the bulk part adds count and size."""
     mail = _Mail()
     people = [f"p{i}@crowd.example" for i in range(5)]
     grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send the update to everyone"), [mail])  # type: ignore[list-item]
-    result, questions = _call(daemon, grant, mail.name, to=people, text="the update")
-    assert result["is_error"] and mail.calls == 0 and len(questions) == 1
-    ferb = questions[0].reason.split(". The step:")[0]
-    assert ferb.startswith("FERB: this sends 10 bytes to 5 recipients you didn't name in this request: ")
-    assert len([p for p in people if p in ferb]) == 3 and ferb.endswith(" and 2 more")
+    owner = Answers(daemon, granted=True, choice=1)                                 # Yes
+    try:
+        result = gateway_tool_call(daemon, grant, mail.name, to=people, text="the update")
+    finally:
+        owner.stop()
+    assert not result["is_error"] and mail.calls == 1 and len(owner.asked) == 1
+    ferb = owner.asked[0].reason.split(". The step:")[0]
+    assert ferb == ("FERB: this sends to " + ", ".join(people) + ", whom you didn't name in this request; that is "
+                    "10 bytes to 5 recipients at once")
     [row] = asked(daemon)
     assert sorted(c["rule"] for c in row["confirm"]) == ["floor:new_recipient", "sink:irreversible_bulk"]
+    known = daemon.daemon.gateway.destinations
+    assert all(daemon.run(_known_async(known, p)) for p in people)                 # each one was shown
+
+
+async def _known_async(known: Any, email: str) -> bool:
+    return bool(known.known("email", email))
+
+
+def test_a_bulk_send_to_known_recipients_shows_a_quoted_sample(daemon: RunningDaemon) -> None:
+    mail = _Mail()
+    people = [f"p{i}@crowd.example" for i in range(5)]
+    for p in people:                                                                # confirmed in an earlier task
+        daemon.call_soon(daemon.daemon.gateway.destinations.record, "email", p, "confirmed")
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send the update to the team"), [mail])  # type: ignore[list-item]
+    result, questions = _call(daemon, grant, mail.name, to=people, text="the update")
+    assert result["is_error"] and mail.calls == 0 and len(questions) == 1
+    assert questions[0].reason.split(". The step:")[0] == (
+        "FERB: this sends 10 bytes to 5 recipients you didn't name in this request at once: "
+        '"p0@crowd.example", "p1@crowd.example", "p2@crowd.example" and 2 more')
+
+
+def test_a_standing_permission_covers_its_bulk_send(daemon: RunningDaemon) -> None:
+    """L3, D30: a send inside a standing permission's exact scope runs without a question, bulk included."""
+    from ferb.orchestrator.plans import SendScope
+    mail = _Mail()
+    people = [f"p{i}@crowd.example" for i in range(3)]
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("send the release note to the list"), [mail])  # type: ignore[list-item]
+    scope = SendScope(capability=mail.name, identity="owner", site="mail.example", recipients=people,
+                      content="v1 is out")
+    async def allow() -> None:
+        daemon.daemon.gateway.standing.grant(grant.task_id, [scope], "owner-yes")
+    daemon.run(allow())
+    result, questions = _call(daemon, grant, mail.name, to=people, text="v1 is out")
+    assert not result["is_error"] and mail.calls == 1 and questions == []
+    result, questions = _call(daemon, grant, mail.name, to=people, text="v2 is out")   # outside the scope: asks
+    assert result["is_error"] and mail.calls == 1 and len(questions) == 1
+
+
+# ---------- S4 (b): a value that came only from outside content (L4: stored origin) ----------
+
+def test_the_owners_own_number_in_ferbs_history_is_not_outside_content(daemon: RunningDaemon) -> None:
+    typed = FakeCap("probe.type", "fill_form", {"probe"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("fill in the signup form"), [typed, _web()])
+    gateway_tool_call(daemon, grant, "probe.web")
+    _expose(daemon, grant.task_id, HISTORY + "\n[c3] (Mon 13 Oct 11:00) Owner: my number is +91 98765 43210",
+            INHERITED)
+    result, questions = _call(daemon, grant, "probe.type", to="+91 98765 43210")
+    assert not result["is_error"] and typed.calls == 1 and questions == []
+
+
+def test_a_value_found_only_on_a_web_page_still_asks(daemon: RunningDaemon) -> None:
+    typed = FakeCap("probe.type", "fill_form", {"probe"})
+    page = FakeCap("probe.web", "read", {"probe"}, reads=(("web", "https://kartikey.xyz/contact"),),
+                   content={"text": "Call sales on +91 91234 56789"})
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("fill in the signup form"), [typed, page])
+    gateway_tool_call(daemon, grant, "probe.web")
+    _expose(daemon, grant.task_id, HISTORY, INHERITED)
+    result, questions = _call(daemon, grant, "probe.type", to="+91 91234 56789")
+    assert result["is_error"] and typed.calls == 0 and len(questions) == 1
+    assert "this types +91 91234 56789, which came from outside content (the web page on kartikey.xyz)" in \
+        questions[0].reason
