@@ -3,7 +3,8 @@ import Foundation
 public struct ConversationTurn: Identifiable, Codable, Equatable {
     public let id: UUID
     public let createdAt: Date
-    public let request: String
+    /// What the owner typed. Kept in memory only, never saved (L20): after a restart the turn shows FERB's side.
+    public internal(set) var request = ""
     public let sources: [URL]
     public var backendTaskID: String?
     public var answer = ""
@@ -23,16 +24,22 @@ public struct ConversationTurn: Identifiable, Codable, Equatable {
     public var verified: Bool?
     /// The one live step line under the plan line (`progress`, L8). Live state only: never saved.
     public var liveLine: LiveProgress? = nil
+    /// The question FERB asked (a `needs_user` answer), kept where it was shown once the final answer arrives.
+    public var question: String?
+    /// The daemon's goal for a task this chat didn't send (reconnected, recovered or started elsewhere); empty when
+    /// unknown. Such a turn has no owner message: the goal is FERB's description, never words the owner typed.
+    public var taskGoal: String?
 
+    public var isRecovered: Bool { taskGoal != nil }
     public var isVerified: Bool { verified == true }
     /// FERB's lines above the answer, in the order shown: the acknowledgement, then the plan line.
     public var ferbLines: [String] { [ack, plan].compactMap { $0 } }
-    /// The question as one line, for a late reply's quote.
-    public var quote: String { request.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+    /// The request as one line, for a late reply's quote.
+    public var quote: String { (taskGoal ?? request).split(whereSeparator: \.isWhitespace).joined(separator: " ") }
 
     enum CodingKeys: String, CodingKey {
-        case id, createdAt, request, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
-        case requestID, ack, plan, verified
+        case id, createdAt, sources, backendTaskID, answer, displayText, status, artifacts, responseNotice
+        case requestID, ack, plan, verified, question, taskGoal
     }
 }
 
@@ -71,17 +78,54 @@ public struct ConversationReply: Identifiable, Codable, Equatable {
     public let createdAt: Date
     /// The newest turn when the answer arrived; the reply is shown after it.
     public let afterTurnID: UUID
+    /// What it shows: FERB's question, or the answer. Replies saved before parts existed show the answer.
+    public var part: ReplyPart? = nil
+}
+
+public enum ReplyPart: String, Codable {
+    case question, answer
+}
+
+/// Outside text a notice quotes, with where it came from. It is data (MP2), shown as a quote.
+public struct NoticeQuote: Codable, Equatable {
+    public let text: String
+    public let origin: String
+
+    public init(text: String, origin: String) {
+        self.text = text
+        self.origin = origin
+    }
+}
+
+/// A FERB message no turn asked for (L9): something FERB noticed, or what it learned and needs confirmed. It is shown
+/// where it arrived, after the newest turn.
+public struct ConversationNotice: Codable, Equatable {
+    /// The daemon's id, so a notice is shown once however often it is delivered.
+    public let id: String
+    public let entryID: UUID
+    /// When it reached this chat.
+    public let createdAt: Date
+    /// When the daemon noticed it (`at`), when known.
+    public let noticedAt: Date?
+    public let text: String
+    public let quotes: [NoticeQuote]
+    /// The small label shown with it ("noticed").
+    public let tag: String?
+    /// The newest turn when it arrived; nil when the chat had none.
+    public let afterTurnID: UUID?
 }
 
 /// One entry of the chat as shown, top to bottom.
 public enum TranscriptEntry: Identifiable, Equatable {
     case turn(ConversationTurn, answeredBelow: Bool)
     case reply(ConversationReply, answering: ConversationTurn)
+    case notice(ConversationNotice)
 
     public var id: UUID {
         switch self {
         case let .turn(turn, _): return turn.id
         case let .reply(reply, _): return reply.id
+        case let .notice(notice): return notice.entryID
         }
     }
 
@@ -89,6 +133,7 @@ public enum TranscriptEntry: Identifiable, Equatable {
         switch self {
         case let .turn(turn, _): return turn.createdAt
         case let .reply(reply, _): return reply.createdAt
+        case let .notice(notice): return notice.createdAt
         }
     }
 }
@@ -97,15 +142,24 @@ public enum TranscriptEntry: Identifiable, Equatable {
 public struct ConversationArchive: Codable, Equatable {
     public private(set) var turns: [ConversationTurn] = []
     public private(set) var replies: [ConversationReply] = []
+    public private(set) var notices: [ConversationNotice] = []
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case turns, replies }
+    private enum CodingKeys: String, CodingKey { case turns, replies, notices }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         turns = try container.decode([ConversationTurn].self, forKey: .turns)
-        // Archives saved before late replies existed have none.
+        // Archives saved before late replies and notices existed have none.
         replies = try container.decodeIfPresent([ConversationReply].self, forKey: .replies) ?? []
+        notices = try container.decodeIfPresent([ConversationNotice].self, forKey: .notices) ?? []
+    }
+
+    /// Whether saved archive data still holds what the owner typed (written before L20).
+    public static func holdsTypedText(_ data: Data) -> Bool {
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let turns = object?["turns"] as? [[String: Any]] ?? []
+        return turns.contains { ($0["request"] as? String)?.isEmpty == false }
     }
 
     public func turns(on date: Date, calendar: Calendar = .current) -> [ConversationTurn] {
@@ -113,30 +167,69 @@ public struct ConversationArchive: Codable, Equatable {
     }
 
     public var days: [Date] {
-        let dates = turns.map(\.createdAt) + replies.map(\.createdAt)
+        let dates = turns.map(\.createdAt) + replies.map(\.createdAt) + notices.map(\.createdAt)
         return Array(Set(dates.map { Calendar.current.startOfDay(for: $0) })).sorted(by: >)
     }
 
-    /// The chat in display order: each turn, followed by the late replies that arrived while it was the newest.
-    /// With a date, only the entries created that day (a reply counts on the day its answer arrived).
+    /// The chat in display order: each turn, followed by the late replies and notices that arrived while it was the
+    /// newest, in arrival order. With a date, only the entries created that day (a reply counts on the day its answer
+    /// arrived); that day is picked out first, so a long history isn't rebuilt on every read.
     public func transcript(on date: Date? = nil, calendar: Calendar = .current) -> [TranscriptEntry] {
-        let turnsByID = Dictionary(turns.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let day = date.flatMap { calendar.dateInterval(of: .day, for: $0) }
+        let shown: (Date) -> Bool = { when in day.map { $0.start <= when && when < $0.end } ?? true }
+        var following: [UUID?: [TranscriptEntry]] = [:]
+        for (anchor, entry) in appended(where: shown) { following[anchor, default: []].append(entry) }
         let answeredBelow = Set(replies.map(\.turnID))
-        let repliesAfter = Dictionary(grouping: replies, by: \.afterTurnID)
-        var entries: [TranscriptEntry] = []
+        var entries = following[nil] ?? []
         for turn in turns {
-            entries.append(.turn(turn, answeredBelow: answeredBelow.contains(turn.id)))
-            for reply in repliesAfter[turn.id] ?? [] {
-                if let answered = turnsByID[reply.turnID] { entries.append(.reply(reply, answering: answered)) }
-            }
+            if shown(turn.createdAt) { entries.append(.turn(turn, answeredBelow: answeredBelow.contains(turn.id))) }
+            if let after = following[turn.id] { entries += after }
         }
-        guard let date else { return entries }
-        return entries.filter { calendar.isDate($0.createdAt, inSameDayAs: date) }
+        return entries
     }
 
-    public mutating func begin(id: UUID, request: String, sources: [URL], date: Date = Date()) {
+    /// Late replies and notices accepted by `include`, each with the turn it follows, in arrival order.
+    private func appended(where include: (Date) -> Bool) -> [(UUID?, TranscriptEntry)] {
+        var items: [(Date, Int, UUID?, TranscriptEntry)] = []
+        for reply in replies where include(reply.createdAt) {
+            guard let answered = turns.first(where: { $0.id == reply.turnID }) else { continue }
+            items.append((reply.createdAt, items.count, reply.afterTurnID, .reply(reply, answering: answered)))
+        }
+        for notice in notices where include(notice.createdAt) {
+            items.append((notice.createdAt, items.count, notice.afterTurnID, .notice(notice)))
+        }
+        return items.sorted { ($0.0, $0.1) < ($1.0, $1.1) }.map { ($0.2, $0.3) }
+    }
+
+    /// The id of the entry shown last: the newest turn, or the latest reply or notice shown after it.
+    private var lastEntryID: UUID? {
+        guard let newest = turns.last else { return notices.last?.entryID }
+        let reply = replies.last { $0.afterTurnID == newest.id }
+        let notice = notices.last { $0.afterTurnID == newest.id }
+        // In arrival order, as `transcript` shows them; at the same instant a notice follows a reply.
+        if let reply, let notice { return notice.createdAt >= reply.createdAt ? notice.entryID : reply.id }
+        return notice?.entryID ?? reply?.id ?? newest.id
+    }
+
+    /// The late replies shown for a turn, oldest first.
+    public func repliesBelow(_ turnID: UUID) -> [ConversationReply] {
+        replies.filter { $0.turnID == turnID }
+    }
+
+    /// `goal`: the turn is a task this chat didn't send, described by the daemon's goal.
+    public mutating func begin(id: UUID, request: String, sources: [URL], date: Date = Date(), goal: String? = nil) {
         guard !turns.contains(where: { $0.id == id }) else { return }
-        turns.append(ConversationTurn(id: id, createdAt: date, request: request, sources: sources))
+        turns.append(ConversationTurn(id: id, createdAt: date, request: request, sources: sources, taskGoal: goal))
+    }
+
+    /// Posts a FERB message no turn asked for, once per daemon id. Returns whether it is new to this chat.
+    @discardableResult
+    public mutating func addNotice(id: String, text: String, quotes: [NoticeQuote] = [], tag: String? = "noticed",
+                                   noticedAt: Date? = nil, at date: Date = Date()) -> Bool {
+        guard !id.isEmpty, !text.isEmpty, !notices.contains(where: { $0.id == id }) else { return false }
+        notices.append(ConversationNotice(id: id, entryID: UUID(), createdAt: date, noticedAt: noticedAt, text: text,
+                                          quotes: quotes, tag: tag, afterTurnID: turns.last?.id))
+        return true
     }
 
     public mutating func bind(id: UUID, taskID: String) {
@@ -208,10 +301,15 @@ public struct ConversationArchive: Codable, Equatable {
 
     /// Records a turn's answer and removes its live line. A turn's first answer that arrives after later entries
     /// is shown at the bottom as a reply quoting the question (L6); the turn itself then reads "answered below".
+    /// The final answer to a question FERB asked (`needs_user`) is placed the same way, and the question stays where
+    /// it was shown.
     public mutating func finish(id: UUID, answer: String, status: String, artifacts: [URL], displayText: String? = nil,
                                 verified: Bool = false, at date: Date = Date()) {
         guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
-        let firstAnswer = Self.awaitingAnswer.contains(turns[index].status) && !Self.awaitingAnswer.contains(status)
+        let before = turns[index].status
+        let firstAnswer = Self.awaitingAnswer.contains(before) && !Self.awaitingAnswer.contains(status)
+        let afterQuestion = before == "needs_user" && status != "needs_user" && !Self.awaitingAnswer.contains(status)
+        if afterQuestion { turns[index].question = turns[index].visibleAnswer }
         turns[index].answer = answer
         turns[index].displayText = displayText
         turns[index].status = status
@@ -219,15 +317,15 @@ public struct ConversationArchive: Codable, Equatable {
         turns[index].responseNotice = nil
         turns[index].verified = verified
         turns[index].liveLine = nil
-        guard firstAnswer, !isLastEntry(id), !replies.contains(where: { $0.turnID == id }), let newest = turns.last else { return }
-        replies.append(ConversationReply(id: UUID(), turnID: id, createdAt: date, afterTurnID: newest.id))
+        guard firstAnswer || afterQuestion, let newest = turns.last else { return }
+        if firstAnswer && replies.contains(where: { $0.turnID == id }) { return }
+        // Its words so far are shown on the turn, or in the reply below it that showed the question.
+        let shownAt = replies.last(where: { $0.turnID == id })?.id ?? id
+        guard shownAt != lastEntryID else { return }   // nothing is shown below it: answered in place
+        replies.append(ConversationReply(id: UUID(), turnID: id, createdAt: date, afterTurnID: newest.id,
+                                         part: status == "needs_user" ? .question : .answer))
     }
 
     /// Statuses of a turn that has no answer yet.
     private static let awaitingAnswer: Set<String> = ["working", "interrupted"]
-
-    /// An answer stays in place only when nothing is shown below its turn.
-    private func isLastEntry(_ id: UUID) -> Bool {
-        turns.last?.id == id && !replies.contains { $0.afterTurnID == id }
-    }
 }

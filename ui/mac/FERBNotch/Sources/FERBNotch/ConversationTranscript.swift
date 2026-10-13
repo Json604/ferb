@@ -8,6 +8,8 @@ private struct TranscriptHeight: PreferenceKey {
 
 struct ConversationTranscript: View {
     let entries: [TranscriptEntry]
+    /// Open questions, shown after the newest entry; they are live state and never enter history.
+    var questions: [DaemonApproval] = []
     @ObservedObject var model: NotchModel
 
     var body: some View {
@@ -17,9 +19,13 @@ struct ConversationTranscript: View {
                     Group {
                         switch entry {
                         case let .turn(turn, answeredBelow): TurnView(turn: turn, answeredBelow: answeredBelow, model: model)
-                        case let .reply(_, turn): LateReplyView(turn: turn, model: model)
+                        case let .reply(reply, turn): LateReplyView(reply: reply, turn: turn, model: model)
+                        case let .notice(notice): NoticeView(notice: notice)
                         }
                     }.id(entry.id)
+                }
+                ForEach(questions) { question in
+                    ApprovalView(model: model, approval: question).id("question-" + question.id)
                 }
             }
             .font(.system(size: 12))
@@ -56,7 +62,7 @@ struct ConversationTranscript: View {
     }
 }
 
-/// The owner's request, then FERB's lines in arrival order: acknowledgement, plan line, live step, answer.
+/// The owner's request, then FERB's lines in arrival order: acknowledgement, plan line, live step, question, answer.
 private struct TurnView: View {
     let turn: ConversationTurn
     let answeredBelow: Bool
@@ -64,6 +70,43 @@ private struct TurnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
+            RequestView(turn: turn)
+            ForEach(Array(turn.ferbLines.enumerated()), id: \.offset) { _, line in
+                FerbBubble { Text(line).textSelection(.enabled) }
+            }
+            if let live = turn.liveLine { LiveLineView(progress: live) }
+            // A question FERB asked stays here unless it was itself shown below.
+            if let question = turn.question,
+               !model.conversation.repliesBelow(turn.id).contains(where: { $0.part == .question }) {
+                FerbBubble { MarkdownContent(question).equatable() }
+            }
+            if answeredBelow {
+                Text("Answered below").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            } else {
+                AnswerView(turn: turn, model: model)
+            }
+        }
+    }
+}
+
+/// The owner's message on the right. A task this chat didn't send has no owner message: its goal is FERB's
+/// description, shown on FERB's side. What the owner typed is not kept after a restart (L20).
+private struct RequestView: View {
+    let turn: ConversationTurn
+
+    var body: some View {
+        if let goal = turn.taskGoal {
+            Label(goal.isEmpty ? "A task from earlier" : goal, systemImage: "arrow.triangle.2.circlepath")
+                .font(.system(size: 11)).foregroundStyle(Palette.secondary).lineLimit(2)
+                .help("A task this chat didn’t send")
+        } else if turn.request.isEmpty {
+            HStack {
+                Spacer(minLength: 28)
+                Text("Your message isn’t kept after a restart")
+                    .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                    .help("What you type stays in memory only, so it never lands on disk.")
+            }
+        } else {
             HStack {
                 Spacer(minLength: 28)
                 VStack(alignment: .leading, spacing: 5) {
@@ -76,12 +119,32 @@ private struct TurnView: View {
                 .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 15))
                 .help(turn.createdAt.formatted(date: .omitted, time: .shortened))
             }
-            ForEach(Array(turn.ferbLines.enumerated()), id: \.offset) { _, line in
-                FerbBubble { Text(line).textSelection(.enabled) }
+        }
+    }
+}
+
+/// A late entry (L6): a one-line quote of its request, then FERB's question or the answer.
+private struct LateReplyView: View {
+    let reply: ConversationReply
+    let turn: ConversationTurn
+    @ObservedObject var model: NotchModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label {
+                Text(turn.quote.isEmpty ? "Your earlier message" : turn.quote).lineLimit(1).truncationMode(.tail)
+            } icon: {
+                Image(systemName: "arrowshape.turn.up.left")
             }
-            if let live = turn.liveLine { LiveLineView(progress: live) }
-            if answeredBelow {
-                Text("Answered below").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            .font(.system(size: 10)).foregroundStyle(Palette.secondary)
+            .help(turn.taskGoal ?? turn.request)
+            .accessibilityLabel("Reply to: " + (turn.quote.isEmpty ? "your earlier message" : turn.quote))
+            if reply.part == .question, let question = turn.question {
+                // The question was shown here; the final answer follows it unless it went further below.
+                FerbBubble { MarkdownContent(question).equatable() }
+                if !model.conversation.repliesBelow(turn.id).contains(where: { $0.part == .answer }) {
+                    AnswerView(turn: turn, model: model)
+                }
             } else {
                 AnswerView(turn: turn, model: model)
             }
@@ -89,23 +152,32 @@ private struct TurnView: View {
     }
 }
 
-/// A late answer (L6): a one-line quote of its question, then the answer.
-private struct LateReplyView: View {
-    let turn: ConversationTurn
-    @ObservedObject var model: NotchModel
+/// Something FERB noticed (L9): FERB's words with a small "noticed" tag, then any outside text it quotes, shown as a
+/// quote with its origin. Both are plain text, so nothing in them becomes a link or an instruction.
+private struct NoticeView: View {
+    let notice: ConversationNotice
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label {
-                Text(turn.quote).lineLimit(1).truncationMode(.tail)
-            } icon: {
-                Image(systemName: "arrowshape.turn.up.left")
+        FerbBubble {
+            VStack(alignment: .leading, spacing: 6) {
+                if let tag = notice.tag {
+                    Label(tag, systemImage: "eye").font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                }
+                Text(notice.text).textSelection(.enabled)
+                ForEach(Array(notice.quotes.enumerated()), id: \.offset) { _, quote in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(quote.text).textSelection(.enabled).font(.system(size: 11))
+                        if !quote.origin.isEmpty {
+                            Text(quote.origin).font(.system(size: 10)).foregroundStyle(Palette.secondary)
+                        }
+                    }
+                    .padding(.leading, 8)
+                    .overlay(alignment: .leading) { Capsule().fill(Palette.secondary.opacity(0.5)).frame(width: 2) }
+                    .accessibilityLabel("Quote from \(quote.origin): \(quote.text)")
+                }
             }
-            .font(.system(size: 10)).foregroundStyle(Palette.secondary)
-            .help(turn.request)
-            .accessibilityLabel("Reply to: " + turn.quote)
-            AnswerView(turn: turn, model: model)
         }
+        .help((notice.noticedAt ?? notice.createdAt).formatted(date: .omitted, time: .shortened))
     }
 }
 

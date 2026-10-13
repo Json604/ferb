@@ -78,13 +78,11 @@ struct NotchView: View {
 
     private func focusInput() {
         composerFocused = model.bodyVisible && !model.showingSources && model.viewingToday && !model.showingActivity
-            && model.canCompose
+            && model.canCompose && model.focusedQuestionID == nil
     }
 
     private var contentID: String {
         if model.showingTasks { return "tasks" }
-        if let approval = model.presentedApproval { return "approval-" + approval.id }
-
         if model.showingSources { return "sources" }
         if model.showingActivity { return "activity" }
         return model.session.phase == .listening ? "listening" : "conversation"
@@ -147,7 +145,6 @@ struct NotchView: View {
 
     @ViewBuilder private var content: some View {
         if model.showingTasks { TaskListView(model: model) }
-        else if let approval = model.presentedApproval { ApprovalView(model: model, approval: approval) }
         else if model.showingSources { sources }
         else if model.showingActivity {
             VStack(spacing: 10) {
@@ -200,8 +197,8 @@ struct NotchView: View {
                     }
                 }.frame(height: 28)
             }
-            if !model.visibleEntries.isEmpty {
-                ConversationTranscript(entries: model.visibleEntries, model: model)
+            if !model.visibleEntries.isEmpty || !model.inlineQuestions.isEmpty {
+                ConversationTranscript(entries: model.visibleEntries, questions: model.inlineQuestions, model: model)
             } else if !model.viewingToday {
                 Text("No messages on this day.").font(.system(size: 12)).foregroundStyle(Palette.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -229,7 +226,7 @@ struct NotchView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 7) {
-            if model.visibleEntries.isEmpty { Text("Go ahead. I’m here.")
+            if model.visibleEntries.isEmpty && model.inlineQuestions.isEmpty { Text("Go ahead. I’m here.")
                 .font(.system(size: 14, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .frame(height: 24) }

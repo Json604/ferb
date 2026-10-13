@@ -7,6 +7,16 @@ struct ChatInput: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let view = ChatTextView()
+        Self.configure(view, model: model, coordinator: context.coordinator)
+        let scroll = NSScrollView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = false
+        scroll.documentView = view
+        return scroll
+    }
+
+    static func configure(_ view: ChatTextView, model: NotchModel, coordinator: Coordinator) {
         view.isRichText = false
         view.allowsUndo = true
         view.drawsBackground = false
@@ -21,20 +31,14 @@ struct ChatInput: NSViewRepresentable {
         view.textContainer?.containerSize.height = .greatestFiniteMagnitude
         view.isHorizontallyResizable = false
         view.autoresizingMask = [.width]
-        view.delegate = context.coordinator
+        view.delegate = coordinator
         view.submit = { [weak model] in model?.startWork() }
-        view.didPaste = { [weak model, weak view] text in
+        // Pasted text stays data; it is recorded before it is inserted, independent of the edit report below.
+        view.didPaste = { [weak model, weak view] text, selection in
             guard let model, let view else { return }
-            model.pastedTexts.append(text)
-            model.lastProvenanceDraft = (view.string as NSString).replacingCharacters(in: view.selectedRange(), with: text)
+            model.pasteProvenance.paste(text, over: selection, in: view.string)
         }
         view.setAccessibilityLabel("Your message")
-        let scroll = NSScrollView()
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.hasVerticalScroller = false
-        scroll.documentView = view
-        return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -43,7 +47,7 @@ struct ChatInput: NSViewRepresentable {
         view.isEditable = model.canCompose
         if context.coordinator.focusRequest != model.focusRequest {
             context.coordinator.focusRequest = model.focusRequest
-            if model.bodyVisible, model.canCompose, view.window?.isKeyWindow == true {
+            if model.bodyVisible, model.canCompose, model.focusedQuestionID == nil, view.window?.isKeyWindow == true {
                 view.window?.makeFirstResponder(view)
             }
         }
@@ -54,6 +58,15 @@ struct ChatInput: NSViewRepresentable {
         let model: NotchModel
         var focusRequest: UUID?
         init(_ model: NotchModel) { self.model = model }
+        /// Every edit, as AppKit is about to apply it, so the paste provenance knows exactly which words were typed.
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
+            guard let replacementString, let view = textView as? ChatTextView, !view.isPasting else { return true }
+            // Text from another app (drag, Services) and text put back by undo or redo has no known typed origin.
+            let undoing = textView.undoManager.map { $0.isUndoing || $0.isRedoing } ?? false
+            model.pasteProvenance.edit(range, with: replacementString, in: textView.string,
+                                       pasted: view.isReadingPasteboard || undoing)
+            return true
+        }
         func textDidChange(_ notification: Notification) {
             guard let view = notification.object as? NSTextView else { return }
             model.session.draft = view.string
@@ -66,7 +79,11 @@ struct ChatInput: NSViewRepresentable {
 final class ChatTextView: NSTextView {
     var pasteboard: NSPasteboard = .general
     var submit: (() -> Void)?
-    var didPaste: ((String) -> Void)?
+    var didPaste: ((String, NSRange) -> Void)?
+    /// A Command-V insertion already recorded through `didPaste`.
+    private(set) var isPasting = false
+    /// Text arriving from a pasteboard other than Command-V: a drop or a Services insertion.
+    private(set) var isReadingPasteboard = false
     override func keyDown(with event: NSEvent) {
         if (event.keyCode == 36 || event.keyCode == 76), !hasMarkedText() {
             if event.modifierFlags.contains(.shift) { insertNewlineIgnoringFieldEditor(nil) }
@@ -85,7 +102,15 @@ final class ChatTextView: NSTextView {
     }
     override func paste(_ sender: Any?) {
         guard isEditable, let text = pasteboard.string(forType: .string) else { return }
-        didPaste?(text)
-        insertText(text, replacementRange: selectedRange())
+        let selection = selectedRange()
+        didPaste?(text, selection)
+        isPasting = true
+        defer { isPasting = false }
+        insertText(text, replacementRange: selection)
+    }
+    override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        isReadingPasteboard = true
+        defer { isReadingPasteboard = false }
+        return super.readSelection(from: pboard, type: type)
     }
 }

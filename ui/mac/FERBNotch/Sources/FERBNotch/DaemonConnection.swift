@@ -61,7 +61,14 @@ extension NotchModel {
         let previousSize = panelSize
         defer { if panelSize != previousSize { onBackgroundChange?(true) } }
         do {
-            let status = try await rpc.call("chat.status", params: ["peek": true])
+            // Not a peek: this read marks the results it returns shown, so `ferb chat` doesn't replay what this chat
+            // shows. Everything it marks (results, notices, the learning digest) is therefore shown here, even when a
+            // newer event makes the rest of the snapshot stale.
+            let status = try await rpc.call("chat.status", params: ["peek": false])
+            let results = status["results"] as? [[String: Any]] ?? []
+            for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
+            receiveNotices(status["notices"] as? [[String: Any]] ?? [])
+            receiveLearningDigest(status["memory_digest"] as? [String: Any])
             // A newer event wins over this older request's snapshot. The existing
             // reconciliation cadence will fetch a fresh snapshot next time.
             guard taskStateRevision == snapshotRevision else { return }
@@ -77,8 +84,6 @@ extension NotchModel {
             if changed { promptError = nil; onBackgroundChange?(true) }
             for approval in approvals { announceApproval(approval) }
             if let approval = approvals.first(where: { $0.taskID == session.backendTaskID && $0.taskID != nil }) { session.waitForOwner(approval.reason) }
-            let results = status["results"] as? [[String: Any]] ?? []
-            for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
             for taskID in rootsBefore where runningTasks[taskID] == nil && !knownCompletedTasks.contains(taskID)
                 && !approvals.contains(where: { $0.taskID == taskID }) {
                 await reconcileMissingTask(taskID)
@@ -118,16 +123,17 @@ extension NotchModel {
         } catch { connectionStatus = error.localizedDescription }
     }
 
+    /// The daemon's goal is shown as FERB's description of the task, never as the owner's message; empty when unknown.
     private func restoreResult(_ result: [String: Any]) {
         guard let id = result["task_id"] as? String, !knownCompletedTasks.contains(id) else { return }
-        session.resumeBackendTask(id, goal: result["goal"] as? String ?? "Previous task")
+        session.resumeBackendTask(id, goal: result["goal"] as? String ?? "")
         receiveOutcome(result, announce: false, recordEvent: false)
     }
 
     private func recoverTask(_ taskID: String) async {
         guard !knownCompletedTasks.contains(taskID), !reconciledMissingTasks.contains(taskID) else { return }
         if session.backendTaskID == nil, session.activeTaskID == nil {
-            session.resumeBackendTask(taskID, goal: "Previous task")
+            session.resumeBackendTask(taskID, goal: "")
         }
         await reconcileMissingTask(taskID)
     }
@@ -225,25 +231,28 @@ extension NotchModel {
     }
 
     func receiveChatEvent(_ event: [String: Any], localID: UUID) {
-        withWorkSession(localID) { handleChatEvent(event, localID: localID) }
-        if event["type"] as? String == "clarify", conversation.turns.contains(where: { $0.id == localID && $0.status == "done" }) {
+        var applied = false
+        withWorkSession(localID) { applied = handleChatEvent(event, localID: localID) }
+        // An event the request gate dropped was never this turn's, so it can't be its follow-up either.
+        if applied, event["type"] as? String == "clarify", conversation.turns.contains(where: { $0.id == localID && $0.status == "done" }) {
             followsToday = true
             selectedDay = Date()
             announceAttention("followup:" + localID.uuidString)
         }
     }
 
-    private func handleChatEvent(_ event: [String: Any], localID: UUID) {
-        guard session.activeTaskID == localID else { return }
+    /// Returns whether the event was applied to this turn.
+    private func handleChatEvent(_ event: [String: Any], localID: UUID) -> Bool {
+        guard session.activeTaskID == localID else { return false }
         // Every contract event names its request. One naming another turn's request is never applied to this turn.
         if let requestID = event["request_id"] as? String, !requestID.isEmpty,
-           !conversation.bindRequest(id: localID, requestID: requestID) { return }
+           !conversation.bindRequest(id: localID, requestID: requestID) { return false }
         switch event["type"] as? String {
         case "ack":
             conversation.acknowledge(id: localID, text: event["text"] as? String ?? "")
             saveConversation()
         case "plan":
-            guard let id = event["task_id"] as? String else { return }
+            guard let id = event["task_id"] as? String else { return false }
             taskStateRevision += 1
             session.bindBackendTask(id, localID: localID)
             conversation.clearProvisionalReply(id: localID)
@@ -258,10 +267,10 @@ extension NotchModel {
             conversation.showProgress(id: localID, text: event["text"] as? String ?? "",
                 startedAt: LiveProgress.time(event["started_at"]) ?? LiveProgress.time(event["at"]) ?? Date())
         case "reply_delta":
-            guard session.backendTaskID == nil else { return }
+            guard session.backendTaskID == nil else { return false }
             conversation.append(id: localID, delta: event["text"] as? String ?? "")
         case "reply_abort":
-            guard session.backendTaskID == nil else { return }
+            guard session.backendTaskID == nil else { return false }
             conversation.abortReply(id: localID, reason: event["reason"] as? String ?? "")
             saveConversation()
         case "reply", "clarify":
@@ -287,6 +296,7 @@ extension NotchModel {
             if event["topic"] as? String == "approval.requested" { receiveBusEvent(event) }
         default: break
         }
+        return true
     }
 
     func normalizeApproval(_ value: [String: Any]) -> DaemonApproval? {
@@ -319,8 +329,7 @@ extension NotchModel {
             announceApproval(approval)
             onBackgroundChange?(true)
         case "approval.resolved":
-            pendingApprovals.removeAll { $0.id == data["approval_id"] as? String }
-            if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+            resolveApproval(data["approval_id"] as? String)
             promptError = nil
             onBackgroundChange?(true)
         case "task.steered":
@@ -332,8 +341,9 @@ extension NotchModel {
                 reconciledMissingTasks.remove(taskID)
             }
         case "task.result":
-            if let taskID { runningTasks.removeValue(forKey: taskID) }
-            receiveOutcome(data)
+            var result = data
+            if let taskID, let goal = runningTasks.removeValue(forKey: taskID), result["goal"] == nil { result["goal"] = goal }
+            receiveOutcome(result)
         case "tool.called":
             guard let taskID else { return }
             let matches: (String?) -> Bool = { root in
@@ -349,7 +359,10 @@ extension NotchModel {
             if taskID == session.backendTaskID, data["type"] as? String == "reply" {
                 session.noteBackendActivity(data["text"] as? String ?? "Task resumed")
             }
-        case "bus.overflow", "events.dropped":
+        case "attention.notice":
+            receiveNotices([data])
+        case "bus.overflow", "bus.dropped":
+            // Events were lost; re-read the state they would have changed.
             Task { await refreshDaemonStatus() }
         default: break
         }
@@ -361,15 +374,76 @@ extension NotchModel {
         if session.backendTaskID == taskID, session.activeTaskID != nil { handleOutcome(event, announce: announce); return }
         if let localID = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
             withWorkSession(localID) { handleOutcome(event, announce: announce) }
-        } else if let turn = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
-                    ?? conversation.turns.first(where: { $0.backendTaskID == taskID }),
-                  let status = event["status"] as? String {
+        } else if let status = event["status"] as? String {
+            let known = (event["request_id"] as? String).flatMap(conversation.turn(requestID:))
+                ?? conversation.turns.first(where: { $0.backendTaskID == taskID })
+            let turn = known ?? recoveredTurn(taskID: taskID, goal: event["goal"] as? String ?? "")
+            // Bound here too, so Tasks and Inspect reach a turn found by its request.
+            conversation.bind(id: turn.id, taskID: taskID)
             conversation.finish(id: turn.id, answer: event["answer"] as? String ?? event["summary"] as? String ?? turn.answer,
                 status: status, artifacts: (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) },
                 displayText: event["display_text"] as? String, verified: event["verified"] as? Bool ?? false)
             knownCompletedTasks.insert(taskID)
             runningTasks.removeValue(forKey: taskID)
             saveConversation()
+        }
+    }
+
+    /// A result for a task this chat has no turn for (started elsewhere, or before a restart): FERB's message,
+    /// described by the daemon's goal, never shown as the owner's words.
+    private func recoveredTurn(taskID: String, goal: String) -> ConversationTurn {
+        let id = UUID()
+        conversation.begin(id: id, request: "", sources: [], goal: goal)
+        return conversation.turns.first { $0.id == id }!
+    }
+
+    /// Notices go into the chat (L9) and are saved before they are acknowledged, so a shown notice is never lost. Every
+    /// delivered id is acknowledged, including one shown earlier whose acknowledgement didn't arrive.
+    func receiveNotices(_ rows: [[String: Any]]) {
+        var ids: [String] = [], added = false
+        for row in rows {
+            guard let id = row["id"] as? String, !id.isEmpty, let text = row["text"] as? String, !text.isEmpty else { continue }
+            let quotes = (row["quotes"] as? [[String: Any]] ?? []).compactMap { quote -> NoticeQuote? in
+                guard let text = quote["text"] as? String, !text.isEmpty else { return nil }
+                return NoticeQuote(text: text, origin: quote["origin"] as? String ?? "")
+            }
+            if conversation.addNotice(id: id, text: text, quotes: quotes, noticedAt: LiveProgress.time(row["at"])) { added = true }
+            ids.append(id)
+        }
+        guard !ids.isEmpty else { return }
+        if added {
+            saveConversation()
+            onBackgroundChange?(true)
+        }
+        Task { _ = try? await rpc.call("attention.ack", params: ["ids": ids]) }
+    }
+
+    /// The learning digest a status read returns (once a day, while proposals wait), shown as `ferb chat` shows it.
+    func receiveLearningDigest(_ digest: [String: Any]?) {
+        let proposals = (digest?["proposals"] as? [[String: Any]] ?? []).compactMap { proposal -> (String, String)? in
+            guard let id = proposal["id"] as? String, let text = proposal["text"] as? String else { return nil }
+            return (id, text)
+        }
+        guard !proposals.isEmpty else { return }
+        let text = (["Here are things I learned that need your confirmation:"]
+            + proposals.map { id, text in "• \(text) — /memory confirm \(id)" }).joined(separator: "\n")
+        guard conversation.addNotice(id: "learned:" + proposals.map(\.0).joined(separator: ","), text: text, tag: nil) else { return }
+        saveConversation()
+        onBackgroundChange?(true)
+    }
+
+    /// An answered question no longer holds its task: that task's work resumes, whichever turn is in front.
+    func resolveApproval(_ approvalID: String?) {
+        let resolved = pendingApprovals.first { $0.id == approvalID }
+        pendingApprovals.removeAll { $0.id == approvalID }
+        guard let taskID = resolved?.taskID else {
+            if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+            return
+        }
+        guard !pendingApprovals.contains(where: { $0.taskID == taskID }) else { return }
+        if session.backendTaskID == taskID { session.resumeAfterOwnerAnswer() }
+        else if let local = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
+            withWorkSession(local) { session.resumeAfterOwnerAnswer() }
         }
     }
 
@@ -421,8 +495,7 @@ extension NotchModel {
             do {
                 _ = try await rpc.call("chat.answer", params: ["approval_id": approval.id, "text": text])
                 taskStateRevision += 1
-                pendingApprovals.removeAll { $0.id == approval.id }
-                if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+                resolveApproval(approval.id)
             } catch {
                 // Do not replay an answer after disconnect: it may already have been consumed.
                 promptError = "The answer could not be confirmed. Rechecking the pending request."
@@ -441,8 +514,7 @@ extension NotchModel {
             do {
                 _ = try await rpc.call("chat.approve", params: ["approval_id": approval.id, "granted": true, "choice": index + 1])
                 taskStateRevision += 1
-                pendingApprovals.removeAll { $0.id == approval.id }
-                if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+                resolveApproval(approval.id)
             } catch {
                 promptError = "Could not confirm your choice. Rechecking the request."
                 await refreshDaemonStatus()
@@ -459,8 +531,7 @@ extension NotchModel {
             do {
                 _ = try await rpc.call("chat.approve", params: ["approval_id": approval.id, "granted": false])
                 taskStateRevision += 1
-                pendingApprovals.removeAll { $0.id == approval.id }
-                if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+                resolveApproval(approval.id)
             } catch { promptError = "Could not confirm cancellation. Rechecking the request."; await refreshDaemonStatus() }
             sendingAnswer = false
             onBackgroundChange?(true)

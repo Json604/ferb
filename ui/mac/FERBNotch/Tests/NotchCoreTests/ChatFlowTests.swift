@@ -258,6 +258,8 @@ final class ChatFlowTests: XCTestCase {
                 return turn.visibleAnswer.isEmpty ? request : request + " = " + turn.visibleAnswer
             case let .reply(_, answering):
                 return "reply to: " + answering.quote + " = " + answering.visibleAnswer
+            case let .notice(notice):
+                return "notice: " + notice.text
             }
         }
     }

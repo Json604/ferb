@@ -63,9 +63,8 @@ final class NotchModel: ObservableObject {
     var eventsTask: Task<Void, Never>?
     var reconciliationTask: Task<Void, Never>?
     var submissionTask: Task<Void, Never>?
-    var pastedTexts: [String] = []
-    var lastProvenanceDraft = ""
-    var pasteWasEdited = false
+    /// Which parts of the composer draft were pasted; they are sent as data, never as the owner's words (MP2).
+    var pasteProvenance = PasteProvenance()
     var knownCompletedTasks = Set<String>()
 
     init(rpc: DaemonRPCTransport = DaemonRPC(), preferences: UserDefaults = .standard, microphone: VoiceCapturing? = nil) {
@@ -76,7 +75,10 @@ final class NotchModel: ObservableObject {
            let saved = try? JSONDecoder().decode(ConversationArchive.self, from: data) {
             conversation = saved
             conversation.interruptRestoredDrafts()
-            if conversation != saved, let repaired = try? JSONEncoder().encode(conversation) {
+            // What the owner typed is kept in memory only (L20); an archive from an earlier build that stored it is
+            // rewritten without it.
+            if conversation != saved || ConversationArchive.holdsTypedText(data),
+               let repaired = try? JSONEncoder().encode(conversation) {
                 preferences.set(repaired, forKey: "FERBConversationArchive")
             }
         }
@@ -118,10 +120,9 @@ final class NotchModel: ObservableObject {
 
     var bodyHeight: CGFloat {
         if showingTasks { return 320 }
-        if !pendingApprovals.isEmpty { return 260 }
         if showingSources { return 250 }
         if session.phase != .listening && !showingActivity {
-            return (visibleEntries.isEmpty ? 31 : chatTranscriptHeight) + composerHeight + 58 + (hasRunningWork ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0) + (promptError == nil ? 0 : 48) + (session.attachments.isEmpty ? 0 : 30)
+            return (visibleEntries.isEmpty && inlineQuestions.isEmpty ? 31 : chatTranscriptHeight) + composerHeight + 58 + (hasRunningWork ? 22 : 0) + ((showingHistory || !viewingToday) ? 36 : 0) + (promptError == nil ? 0 : 48) + (session.attachments.isEmpty ? 0 : 30)
         }
         if showingActivity { return 204 }
         switch session.phase {
@@ -314,26 +315,12 @@ final class NotchModel: ObservableObject {
         microphone.finish()
     }
 
+    /// Sends the draft. An open question never blocks this (spec §4.7): a typed message can answer it or be new
+    /// work. Pasted parts go as data and typed words as the owner's, so nothing asks.
     func startWork() {
         guard canCompose else { return }
-        guard pendingApprovals.isEmpty else { expand(); return }
-        preservePasteProvenance()
-        let pasted = PastedRequest(text: session.draft, pastes: pastedTexts, editedAfterPaste: pasteWasEdited)
-        var outgoing = pasted.markedText
-        if pasted.isEntirelyPasted {
-            let choice = NSAlert()
-            choice.messageText = "Is this pasted text your request?"
-            choice.informativeText = "Text copied from a page or document is treated as reference material. Choose My request only for instructions you want FERB to follow."
-            choice.addButton(withTitle: "My request")
-            choice.addButton(withTitle: "Reference material")
-            choice.addButton(withTitle: "Cancel")
-            switch choice.runModal() {
-            case .alertFirstButtonReturn: outgoing = session.draft
-            case .alertSecondButtonReturn: break
-            default: return
-            }
-        }
         guard !session.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let outgoing = PastedRequest(text: session.draft, provenance: pasteProvenance).markedText
         let draft = session.draft
         let sources = session.attachments
         if let active = session.activeTaskID { workSessions[active] = session }
@@ -346,11 +333,10 @@ final class NotchModel: ObservableObject {
         followsToday = true
         selectedDay = Calendar.current.startOfDay(for: Date())
         promptError = nil
+        // Shown for as long as the app runs; never written to preferences (L20).
         conversation.begin(id: id, request: session.draft, sources: session.attachments)
         session.clearComposer()
-        pastedTexts = []
-        pasteWasEdited = false
-        lastProvenanceDraft = ""
+        pasteProvenance = PasteProvenance()
         workSessions[id] = session
         saveConversation()
         completionTask?.cancel()
@@ -372,36 +358,9 @@ final class NotchModel: ObservableObject {
         onPresentationChange?(true)
     }
 
+    /// Follows a draft change the composer didn't report as an edit (dictation, a restored draft).
     func preservePasteProvenance() {
-        guard !pastedTexts.isEmpty else { return }
-        // Native edits can replace/reorder duplicate substrings. Require an explicit whole-draft
-        // provenance decision instead of guessing which surviving copy was the pasted source.
-        if session.draft != lastProvenanceDraft { pasteWasEdited = true }
-        lastProvenanceDraft = session.draft
-    }
-
-    func acceptPastedText(_ providers: [NSItemProvider]) {
-        guard canCompose else { return }
-        let editor = NSApp.keyWindow?.firstResponder as? NSTextView
-        for provider in providers {
-            provider.loadObject(ofClass: NSString.self) { [weak self] value, _ in
-                guard let text = value as? String else { return }
-                Task { @MainActor in
-                    guard let self, self.canCompose else { return }
-                    if let editor {
-                        guard NSApp.keyWindow?.firstResponder === editor else { return }
-                        self.pastedTexts.append(text)
-                        self.lastProvenanceDraft = (self.session.draft as NSString).replacingCharacters(in: editor.selectedRange(), with: text)
-                        editor.insertText(text, replacementRange: editor.selectedRange())
-                    } else {
-                        self.pastedTexts.append(text)
-                        self.lastProvenanceDraft = self.session.draft + text
-                        self.session.draft += text
-                    }
-                    self.onInteraction?()
-                }
-            }
-        }
+        pasteProvenance.follow(session.draft)
     }
 
     func attach(_ urls: [URL]) {
@@ -521,6 +480,9 @@ final class NotchModel: ObservableObject {
         let key = "approval:" + approval.id
         guard !announcedAttentionIDs.contains(key) else { return }
         selectedApprovalID = approval.id
+        // Questions are shown inline in today's chat.
+        followsToday = true
+        selectedDay = Calendar.current.startOfDay(for: Date())
         announceAttention(key)
     }
 

@@ -14,13 +14,15 @@ final class TaskPresentationTests: XCTestCase {
         editor.string = "before selected after"
         editor.setSelectedRange(NSRange(location: 7, length: 8))
         var provenance: [String] = []
-        editor.didPaste = { provenance.append($0) }
+        var selections: [NSRange] = []
+        editor.didPaste = { text, selection in provenance.append(text); selections.append(selection) }
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
             timestamp: 0, windowNumber: 0, context: nil, characters: "v",
             charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9)!
         XCTAssertTrue(editor.performKeyEquivalent(with: event))
         XCTAssertEqual(editor.string, "before pasted text after")
         XCTAssertEqual(provenance, ["pasted text"])
+        XCTAssertEqual(selections, [NSRange(location: 7, length: 8)])
     }
 
     func testBackgroundReplyAndProgressNeverReopenDismissedWindow() {
@@ -110,7 +112,8 @@ final class TaskPresentationTests: XCTestCase {
         let model = makeModel(rpc)
         model.runningTasks = ["other": "Other task"]
         model.session.draft = "My pasted draft"
-        model.pastedTexts = ["pasted"]
+        model.pasteProvenance.paste("pasted", over: NSRange(location: 3, length: 0), in: "My  draft")
+        let provenance = model.pasteProvenance
         let focus = model.focusRequest
         let read = expectation(description: "Read exact trace")
         rpc.onCall = { method in if method == "trace.get" { read.fulfill() } }
@@ -118,7 +121,7 @@ final class TaskPresentationTests: XCTestCase {
         await fulfillment(of: [read], timeout: 2)
         XCTAssertEqual(rpc.calls.first?.1["task_id"] as? String, "other")
         XCTAssertEqual(model.session.draft, "My pasted draft")
-        XCTAssertEqual(model.pastedTexts, ["pasted"])
+        XCTAssertEqual(model.pasteProvenance, provenance)
         XCTAssertEqual(model.focusRequest, focus)
         XCTAssertFalse(model.bodyVisible)
     }

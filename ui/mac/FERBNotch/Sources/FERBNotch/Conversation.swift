@@ -3,7 +3,8 @@ import NotchCore
 
 @MainActor
 extension NotchModel {
-    var canCompose: Bool { session.phase != .listening && pendingApprovals.isEmpty }
+    /// Typing stays enabled while a question is open; the question is shown inline in the chat (spec §4.7).
+    var canCompose: Bool { session.phase != .listening }
     var hasRunningWork: Bool { activeTaskCount > 0 }
     var displayPhase: SessionPhase { !pendingApprovals.isEmpty ? .attention : (hasRunningWork && session.phase != .attention ? .working : session.phase) }
     var workStatus: String {
@@ -12,6 +13,14 @@ extension NotchModel {
         return (session.activeTaskID != nil ? session : active.first)?.activity.last?.title ?? "Working…"
     }
     var visibleEntries: [TranscriptEntry] { conversation.transcript(on: followsToday ? Date() : selectedDay) }
+    /// Open questions, shown at the end of today's chat.
+    var inlineQuestions: [DaemonApproval] { viewingToday ? pendingApprovals : [] }
+    /// A private value is typed only into its own hidden field, so a secret question takes keyboard focus from the
+    /// composer; an ordinary question leaves it with the composer.
+    var focusedQuestionID: String? {
+        let secret = inlineQuestions.filter(\.isSecret)
+        return (secret.first { $0.id == selectedApprovalID } ?? secret.first)?.id
+    }
     var viewingToday: Bool { followsToday || Calendar.current.isDateInToday(selectedDay) }
 
     /// Each stream owns a task session; the composer belongs to the window.
@@ -57,7 +66,13 @@ extension NotchModel {
             turn.id == receipt.id || (receipt.backendTaskID != nil && turn.backendTaskID == receipt.backendTaskID)
         }
         let id = existing?.id ?? receipt.id
-        conversation.begin(id: id, request: receipt.request, sources: receipt.sources, date: receipt.createdAt)
+        if receipt.isResumed {
+            // A task this chat didn't send (reconnected or recovered): its request is the daemon's goal, never shown
+            // as words the owner typed.
+            conversation.begin(id: id, request: "", sources: receipt.sources, date: receipt.createdAt, goal: receipt.request)
+        } else {
+            conversation.begin(id: id, request: receipt.request, sources: receipt.sources, date: receipt.createdAt)
+        }
         if let taskID = receipt.backendTaskID { conversation.bind(id: id, taskID: taskID) }
         conversation.finish(id: id, answer: receipt.answer, status: receipt.status, artifacts: receipt.artifacts,
             displayText: displayText, verified: verified)

@@ -40,6 +40,7 @@ final class ContinuousChatTests: XCTestCase {
         switch entry {
         case let .turn(turn, answeredBelow): return turn.request + (answeredBelow ? " (answered below)" : "")
         case let .reply(_, answering): return "reply to " + answering.quote + ": " + answering.visibleAnswer
+        case let .notice(notice): return "notice: " + notice.text
         }
     }
 

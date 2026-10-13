@@ -96,13 +96,13 @@ final class DaemonConnectionTests: XCTestCase {
 
     func testEditingOneOfTwoIdenticalSubstringsNeverPromotesPastedCopy() {
         let model = makeModel(RecordingRPC())
-        model.pastedTexts = ["send example"]
-        model.lastProvenanceDraft = "send example send example"
+        model.pasteProvenance.edit(NSRange(location: 0, length: 0), with: "send example ", in: "")
+        model.pasteProvenance.paste("send example", over: NSRange(location: 13, length: 0), in: "send example ")
+        // An edit no text view reported, reaching the pasted copy.
         model.session.draft = "send example send changed"
         model.preservePasteProvenance()
-        let request = PastedRequest(text: model.session.draft, pastes: model.pastedTexts, editedAfterPaste: model.pasteWasEdited)
-        XCTAssertTrue(request.isEntirelyPasted)
-        XCTAssertTrue(request.markedText.hasPrefix("\u{1b}[200~"))
+        let request = PastedRequest(text: model.session.draft, provenance: model.pasteProvenance)
+        XCTAssertEqual(request.markedText, "\u{1b}[200~send example send changed\u{1b}[201~")
     }
 
     private func makeModel(_ rpc: RecordingRPC) -> NotchModel {

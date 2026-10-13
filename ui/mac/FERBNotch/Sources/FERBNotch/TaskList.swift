@@ -25,16 +25,16 @@ extension NotchModel {
             let id = turn.backendTaskID!
             let active = runningTasks[id] != nil || sessions.values.contains { $0.backendTaskID == id && $0.activeTaskID != nil }
             let status = ["working", "needs_user"].contains(turn.status) && !active ? "Status unavailable" : turn.status
-            rows[id] = TaskItem(id: id, backendID: id, localID: turn.id, title: turn.request,
+            rows[id] = TaskItem(id: id, backendID: id, localID: turn.id, title: Self.title(of: turn),
                                 status: status, activity: [], answer: turn.visibleAnswer, artifacts: turn.artifacts)
         }
         for (local, work) in sessions where work.activeTaskID != nil {
             let id = work.backendTaskID ?? local.uuidString
             let title = work.backendTaskID.flatMap { runningTasks[$0] }
-                ?? conversation.turns.first(where: { $0.id == local })?.request
+                ?? conversation.turns.first(where: { $0.id == local }).map(Self.title(of:))
                 ?? work.result?.request ?? work.draft
             rows[id] = TaskItem(id: id, backendID: work.backendTaskID, localID: local,
-                title: title.isEmpty ? "New request" : title,
+                title: title.isEmpty ? (work.backendTaskID == nil ? "New request" : "A task from earlier") : title,
                 status: work.phase == .attention ? "needs_user" : "working", activity: work.activity)
         }
         for (id, title) in runningTasks where !id.isEmpty {
@@ -50,6 +50,13 @@ extension NotchModel {
     }
 
     var activeTaskCount: Int { taskItems.filter(\.isRunning).count }
+
+    /// What the owner typed while the app runs; afterwards (L20) or for a task this chat didn't send, FERB's words.
+    static func title(of turn: ConversationTurn) -> String {
+        if !turn.request.isEmpty { return turn.request }
+        if let goal = turn.taskGoal, !goal.isEmpty { return goal }
+        return turn.plan ?? turn.ack ?? "A task from earlier"
+    }
 
     func toggleTasks() {
         showingTasks.toggle()
@@ -157,8 +164,10 @@ struct TaskListView: View {
                             }.font(.system(size: 11))
                             if let approval = model.pendingApprovals.first(where: { item.backendID != nil && $0.taskID == item.backendID }) {
                                 Button("Answer request") {
+                                    // The question is inline at the end of today's chat.
                                     model.selectedApprovalID = approval.id
                                     model.toggleTasks()
+                                    if !model.viewingToday { model.selectDay(Date()) }
                                 }.buttonStyle(FerbButtonStyle(quiet: true))
                             }
                             if model.inspectedTaskID == item.id {

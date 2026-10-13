@@ -22,6 +22,8 @@ public struct WorkReceipt: Identifiable, Equatable {
     public var answer: String = ""
     public var status: String = "done"
     public var artifacts: [URL] = []
+    /// The work was picked up from the daemon (reconnected or recovered), so `request` is the daemon's goal.
+    public var isResumed = false
 }
 
 /// Visibility is independent of execution. Hiding a surface cannot cancel work.
@@ -39,6 +41,7 @@ public struct NotchSession {
     public private(set) var attentionMessage: String?
     private var submittedRequest = ""
     private var submittedSources: [URL] = []
+    private var resumed = false
 
     public init() {}
     public mutating func collapse() { isExpanded = false }
@@ -82,6 +85,7 @@ public struct NotchSession {
         activity = [TaskActivity(title: "Request received", symbol: "checkmark")]
         submittedRequest = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         submittedSources = attachments
+        resumed = false
         result = nil
         attentionMessage = nil
         phase = .working
@@ -152,6 +156,7 @@ public struct NotchSession {
         activeTaskID = UUID()
         submittedRequest = goal
         submittedSources = []
+        resumed = true
         result = nil
         startedAt = Date()
         activity = [TaskActivity(title: "Reconnected to running task", symbol: "arrow.triangle.2.circlepath")]
@@ -195,7 +200,7 @@ public struct NotchSession {
         let urls = artifacts.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
         let receipt = WorkReceipt(id: localID, request: submittedRequest, sources: submittedSources,
             createdAt: Date(), activity: activity, documentURL: urls.first, backendTaskID: taskID,
-            answer: answer, status: status, artifacts: urls)
+            answer: answer, status: status, artifacts: urls, isResumed: resumed)
         result = receipt
         if let taskID { history.removeAll { $0.backendTaskID == taskID } }
         history.insert(receipt, at: 0)
