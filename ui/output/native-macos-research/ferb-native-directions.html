@@ -1,0 +1,316 @@
+<div id="ferb-native-directions">
+  <div class="viz-carousel viz-dotted-background" aria-label="FERB native macOS directions">
+    <section data-variant="Quiet notch" aria-label="Quiet notch concept">
+      <div class="ferb-stage" data-concept="quiet" aria-label="Quiet notch">
+        <div class="ferb-menubar" aria-hidden="true"><span>Finder</span><span>Sat 19:42</span></div>
+        <div class="ferb-hardware" aria-hidden="true"></div>
+        <div class="ferb-panel ferb-quiet">
+          <header class="ferb-header"><span class="ferb-brand">ferb.</span><button class="ferb-profile cursor-interaction" type="button" aria-label="Profile and options" aria-expanded="false">K</button></header>
+          <div class="ferb-content" aria-live="polite"><div class="ferb-object"><i data-lucide="file-text" aria-hidden="true"></i><div><strong>Project brief.pdf</strong><small>Ready · 1 page · From 3 notes</small></div></div></div>
+          <div class="ferb-menu" hidden></div>
+        </div>
+        <div class="ferb-preview" hidden></div>
+      </div>
+    </section>
+    <section data-variant="System palette" aria-label="System palette concept" hidden>
+      <div class="ferb-stage" data-concept="palette" aria-label="System palette">
+        <div class="ferb-menubar" aria-hidden="true"><span>Notes</span><span>Sat 19:42</span></div>
+        <div class="ferb-hardware" aria-hidden="true"></div>
+        <div class="ferb-panel ferb-palette">
+          <header class="ferb-header"><span class="ferb-brand">ferb.</span><button class="ferb-profile cursor-interaction" type="button" aria-label="Profile and options" aria-expanded="false">K</button></header>
+          <div class="ferb-content" aria-live="polite"><p>Make a one-page brief from these notes</p></div>
+          <div class="ferb-menu" hidden></div>
+        </div>
+        <div class="ferb-preview" hidden></div>
+      </div>
+    </section>
+    <section data-variant="Task shelf" aria-label="Task shelf concept" hidden>
+      <div class="ferb-stage" data-concept="shelf" aria-label="Task shelf">
+        <div class="ferb-menubar" aria-hidden="true"><span>Finder</span><span>Sat 19:42</span></div>
+        <div class="ferb-hardware" aria-hidden="true"></div>
+        <div class="ferb-panel ferb-shelf">
+          <header class="ferb-header"><span class="ferb-brand">ferb.</span><button class="ferb-profile cursor-interaction" type="button" aria-label="Profile and options" aria-expanded="false">K</button></header>
+          <div class="ferb-content" aria-live="polite"><p>Project brief · Comparing 3 notes</p></div>
+          <div class="ferb-menu" hidden></div>
+        </div>
+        <div class="ferb-preview" hidden></div>
+      </div>
+    </section>
+  </div>
+</div>
+<style>
+  #ferb-native-directions .ferb-stage {
+    --ferb-text: #f5f5f7;
+    --ferb-secondary: #b3b5ba;
+    --ferb-control: #43464c;
+    --ferb-input: #303236;
+    --ferb-yellow: #ffcc00;
+    --ferb-red: #ff615c;
+    --ferb-green: #32d74b;
+    --ferb-desktop: light-dark(#a6b1b9, #343f4a);
+    --ferb-menu-text: light-dark(#1f2930, #edf0f2);
+    position: relative;
+    height: 440px;
+    overflow: hidden;
+    background: var(--ferb-desktop);
+    background-image: radial-gradient(ellipse at 7% 92%, light-dark(#cad1d0, #566368), transparent 62%), radial-gradient(ellipse at 95% 5%, light-dark(#7e919f, #1d3040), transparent 65%);
+    color: var(--ferb-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    isolation: isolate;
+  }
+  #ferb-native-directions .ferb-stage *, #ferb-native-directions .ferb-stage *::before, #ferb-native-directions .ferb-stage *::after { box-sizing: border-box; }
+  #ferb-native-directions .ferb-stage [hidden] { display: none !important; }
+  #ferb-native-directions .ferb-menubar { height: 30px; display: flex; justify-content: space-between; align-items: center; padding: 0 18px; font-size: 12px; font-weight: 500; color: var(--ferb-menu-text); }
+  #ferb-native-directions .ferb-hardware { position: absolute; z-index: 4; top: 0; left: 50%; transform: translateX(-50%); width: 184px; height: 28px; border-radius: 0 0 10px 10px; background: #000; pointer-events: none; }
+  #ferb-native-directions .ferb-hardware::after { content: ""; position: absolute; inset: -1px; border: 2px solid transparent; border-radius: inherit; background: conic-gradient(from 0deg, transparent 0deg 140deg, var(--ferb-status) 154deg 191deg, transparent 204deg 360deg) border-box; mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0); mask-composite: exclude; opacity: 0; filter: drop-shadow(0 0 4px var(--ferb-status)); }
+  #ferb-native-directions .ferb-stage[data-phase="Working"] { --ferb-status: var(--ferb-yellow); }
+  #ferb-native-directions .ferb-stage[data-phase="Needs attention"] { --ferb-status: var(--ferb-red); }
+  #ferb-native-directions .ferb-stage[data-phase="Done"] { --ferb-status: var(--ferb-green); }
+  #ferb-native-directions .ferb-stage[data-phase="Working"] .ferb-hardware::after,
+  #ferb-native-directions .ferb-stage[data-phase="Needs attention"] .ferb-hardware::after,
+  #ferb-native-directions .ferb-stage[data-phase="Done"] .ferb-hardware::after { opacity: 1; }
+  #ferb-native-directions .ferb-panel { position: relative; z-index: 2; margin: -30px auto 0; width: calc(100% - 32px); padding: 38px 18px 18px; border-radius: 0 0 26px 26px; background: linear-gradient(180deg, #000 0px, #000 32px, #171a1d 90px, #343a3f 100%); box-shadow: 0 16px 35px #0005, 0 3px 9px #0002; }
+  #ferb-native-directions .ferb-quiet { max-width: 366px; }
+  #ferb-native-directions .ferb-palette { max-width: 540px; padding-inline: 22px; }
+  #ferb-native-directions .ferb-shelf { max-width: 410px; padding-inline: 14px; }
+  #ferb-native-directions .ferb-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 17px; min-height: 26px; }
+  #ferb-native-directions .ferb-brand { font-weight: 650; letter-spacing: -.5px; font-size: 16px; }
+  #ferb-native-directions .ferb-stage button { font: inherit; color: inherit; border: 0; }
+  #ferb-native-directions .ferb-profile { width: 26px; height: 26px; border-radius: 50%; background: #393c40; font-size: 11px !important; font-weight: 600 !important; }
+  #ferb-native-directions .ferb-stage button:active { opacity: .7; }
+  #ferb-native-directions .ferb-stage button:disabled { opacity: .45; cursor: default; }
+  #ferb-native-directions .ferb-stage p { margin: 0; }
+  #ferb-native-directions .ferb-stage strong { font-size: 14px; font-weight: 550; display: block; }
+  #ferb-native-directions .ferb-stage small { display: block; font-size: 12px; line-height: 1.5; color: var(--ferb-secondary); }
+  #ferb-native-directions .ferb-stage svg { flex: 0 0 auto; width: 18px; height: 18px; stroke-width: 1.65px; }
+  #ferb-native-directions .ferb-object { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  #ferb-native-directions .ferb-object > div { min-width: 0; overflow-wrap: anywhere; }
+  #ferb-native-directions .ferb-file-icon { display: grid; place-items: center; width: 38px; height: 48px; flex: 0 0 auto; border-radius: 6px; background: #e3e6e8; color: #585f64; box-shadow: 0 2px 5px #0003; }
+  #ferb-native-directions .ferb-file-icon svg { width: 23px; height: 23px; }
+  #ferb-native-directions .ferb-actions { display: flex; align-items: center; gap: 8px; margin-top: 17px; flex-wrap: wrap; }
+  #ferb-native-directions .ferb-button { display: inline-flex; gap: 6px; align-items: center; justify-content: center; border-radius: 9px; padding: 7px 12px; min-height: 32px; background: var(--ferb-control); font-size: 12px !important; }
+  #ferb-native-directions .ferb-button.ferb-main { background: #e3e7eb; color: #212428; font-weight: 550; }
+  #ferb-native-directions .ferb-button.ferb-plain { background: transparent; color: var(--ferb-secondary); padding-inline: 4px; }
+  #ferb-native-directions .ferb-shortcut { margin-left: auto; color: var(--ferb-secondary); font-size: 11px; }
+  #ferb-native-directions .ferb-input-row { display: flex; align-items: center; gap: 8px; background: var(--ferb-input); border-radius: 13px; padding: 4px 5px 4px 12px; min-width: 0; }
+  #ferb-native-directions .ferb-input-row input { width: 100%; min-width: 0; color: var(--ferb-text); background: transparent; border: 0; font: inherit; font-size: 16px; padding: 7px 0; }
+  #ferb-native-directions .ferb-input-row input::placeholder { color: #a9adb3; }
+  #ferb-native-directions .ferb-icon-button { display: grid; place-items: center; flex: 0 0 auto; width: 32px; height: 32px; padding: 0; background: transparent; border-radius: 9px; }
+  #ferb-native-directions .ferb-context { margin-top: 12px; display: flex; align-items: center; gap: 6px; color: var(--ferb-secondary); font-size: 12px; }
+  #ferb-native-directions .ferb-context svg { width: 14px; height: 14px; }
+  #ferb-native-directions .ferb-context button { margin-left: auto; }
+  #ferb-native-directions .ferb-intent { display: flex; align-items: center; gap: 12px; margin-top: 20px; padding: 12px; background: #ffffff0c; border-radius: 12px; }
+  #ferb-native-directions .ferb-intent > div { flex: 1; min-width: 0; }
+  #ferb-native-directions .ferb-palette .ferb-input-row { background: transparent; padding-left: 0; }
+  #ferb-native-directions .ferb-palette .ferb-input-row input { font-size: 19px; }
+  #ferb-native-directions .ferb-status-row { display: flex; align-items: center; gap: 10px; }
+  #ferb-native-directions .ferb-status-symbol { color: var(--ferb-status, var(--ferb-text)); display: grid; place-items: center; }
+  #ferb-native-directions .ferb-progress-detail { padding: 14px 0 0 28px; font-size: 12px; color: var(--ferb-secondary); display: grid; gap: 8px; }
+  #ferb-native-directions .ferb-progress-detail span { display: flex; align-items: center; gap: 7px; }
+  #ferb-native-directions .ferb-progress-detail svg { width: 13px; height: 13px; }
+  #ferb-native-directions .ferb-task { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 7px; border-radius: 12px; background: transparent; }
+  #ferb-native-directions .ferb-task > div { flex: 1; min-width: 0; }
+  #ferb-native-directions .ferb-task > svg:last-child { color: var(--ferb-secondary); width: 14px; height: 14px; }
+  #ferb-native-directions .ferb-task.ferb-selected { background: #ffffff0c; }
+  #ferb-native-directions .ferb-task-list { margin: -6px -2px 14px; }
+  #ferb-native-directions .ferb-task-detail { margin: 2px 7px 8px; padding: 0 0 9px 35px; }
+  #ferb-native-directions .ferb-wave { height: 34px; display: flex; gap: 4px; align-items: center; justify-content: center; margin: 3px 0 13px; }
+  #ferb-native-directions .ferb-wave span { width: 3px; border-radius: 2px; background: #e2e6ed; }
+  #ferb-native-directions .ferb-listening { text-align: center; }
+  #ferb-native-directions .ferb-listening .ferb-actions { justify-content: center; }
+  #ferb-native-directions .ferb-menu { position: absolute; z-index: 8; right: 12px; top: 69px; width: 182px; padding: 5px; border-radius: 13px; background: #383b40; box-shadow: 0 7px 28px #0007; }
+  #ferb-native-directions .ferb-menu button { width: 100%; text-align: left; background: transparent; border-radius: 7px; padding: 8px 9px; font-size: 12px; }
+  #ferb-native-directions .ferb-preview { position: absolute; inset: 43px 20px auto; max-width: 460px; margin-inline: auto; z-index: 9; border-radius: 15px; overflow: hidden; box-shadow: 0 18px 50px #0007; background: #2e3237; }
+  #ferb-native-directions .ferb-preview header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; font-size: 12px; }
+  #ferb-native-directions .ferb-paper { padding: 25px 28px 30px; margin: 0 10px 10px; min-height: 230px; background: #f5f3ef; color: #252b31; border-radius: 3px; }
+  #ferb-native-directions .ferb-paper h3 { font: 600 23px/1.2 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: -.5px; margin: 6px 0 20px; }
+  #ferb-native-directions .ferb-paper p { font-size: 12px; line-height: 1.65; margin-top: 12px; }
+  #ferb-native-directions .ferb-paper small { color: #616770; font-size: 11px; }
+  #ferb-native-directions .ferb-paper strong { font-size: 12px; }
+  @media (hover: hover) and (pointer: fine) {
+    #ferb-native-directions .ferb-stage button:hover { background-color: #ffffff20; }
+    #ferb-native-directions .ferb-stage .ferb-main:hover { background-color: #fff; }
+  }
+  @media (pointer: coarse) {
+    #ferb-native-directions .ferb-stage button { min-height: 44px; }
+    #ferb-native-directions .ferb-icon-button, #ferb-native-directions .ferb-profile { min-width: 44px; }
+    #ferb-native-directions .ferb-menu { top: 86px; }
+    #ferb-native-directions .ferb-stage { height: 485px; }
+  }
+  @media (max-width: 400px) {
+    #ferb-native-directions .ferb-panel { width: calc(100% - 16px); padding-inline: 14px; }
+    #ferb-native-directions .ferb-menubar { padding-inline: 10px; font-size: 11px; }
+    #ferb-native-directions .ferb-hardware { width: 156px; }
+    #ferb-native-directions .ferb-shortcut { display: none; }
+    #ferb-native-directions .ferb-palette .ferb-input-row input { font-size: 16px; }
+    #ferb-native-directions .ferb-preview { inset-inline: 10px; }
+    #ferb-native-directions .ferb-paper { padding: 20px; }
+  }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('ferb-native-directions');
+  const phases = ['Ready', 'Listening', 'Working', 'Needs attention', 'Done'];
+  const components = [];
+  const saved = window.openai?.widgetState?.privateContent?.concepts || {};
+  const el = (tag, cls, text) => {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const icon = name => {
+    const node = el('i'); node.setAttribute('data-lucide', name); node.setAttribute('aria-hidden', 'true'); return node;
+  };
+  const button = (text, cls, action, glyph) => {
+    const node = el('button', cls + ' cursor-interaction'); node.type = 'button';
+    if (glyph) node.append(icon(glyph));
+    if (text) node.append(document.createTextNode(text));
+    node.addEventListener('click', action); return node;
+  };
+  const icons = () => globalThis.lucide?.createIcons({attrs:{width:18,height:18}});
+  function save() {
+    const concepts = {};
+    for (const c of components) concepts[c.kind] = {...c.state};
+    window.openai?.setWidgetState?.({
+      modelContent: {nativeFERBConcepts: Object.fromEntries(components.map(c => [c.kind, {state:c.state.phase, sounds:c.state.sounds}]))},
+      privateContent: {concepts}
+    })?.catch(() => {});
+  }
+  for (const stage of root.querySelectorAll('.ferb-stage')) {
+    const kind = stage.dataset.concept;
+    const state = {phase:kind==='quiet'?'Done':kind==='shelf'?'Working':'Ready', attached:true, detail:false, sounds:true, calendarApproved:false, draft:kind==='palette'?'Make a one-page brief':'', ...saved[kind]};
+    if (!phases.includes(state.phase)) state.phase = 'Ready';
+    const content = stage.querySelector('.ferb-content');
+    const preview = stage.querySelector('.ferb-preview');
+    const menu = stage.querySelector('.ferb-menu');
+    const profile = stage.querySelector('.ferb-profile');
+    const set = phase => { state.phase=phase; state.detail=false; preview.hidden=true; render(); save(); };
+    function showPreview(title='Project brief.pdf') {
+      preview.replaceChildren();
+      const header = el('header'); header.append(el('span','',title));
+      const close = button('', 'ferb-icon-button', () => {preview.hidden=true;}, 'x'); close.setAttribute('aria-label','Close preview');
+      header.append(close);
+      const paper = el('article','ferb-paper');
+      if(title==='Reading list') {
+        paper.append(el('small','','FERB · SAVED REFERENCES'),el('h3','','Reading list'));
+        ['Designing for macOS','Siri','Snippets','Meet Liquid Glass','Feedback','Progress indicators'].forEach(text=>paper.append(el('p','',text)));
+        paper.style.minHeight='0';paper.style.paddingBlock='16px';
+      } else {
+        paper.append(el('small','','FERB · FROM 3 NOTES'),el('h3','','Project brief'));
+        paper.append(el('strong','','Make everyday work easier to hand over.'));
+        paper.append(el('p','','A compact Mac companion that turns a request and its context into a useful result.'));
+        paper.append(el('p','','Next steps: confirm the scope, connect the source notes, and share the finished brief for review.'));
+      }
+      preview.append(header,paper); preview.hidden=false; icons(); close.focus();
+    }
+    function reviewCalendar() {
+      preview.replaceChildren();
+      const header=el('header');header.append(el('span','','Calendar'));
+      const close=button('','ferb-icon-button',()=>{preview.hidden=true;},'x');close.setAttribute('aria-label','Close calendar review');header.append(close);
+      const body=el('div');body.style.padding='14px 18px 20px';
+      body.append(el('strong','','Friday planning'),el('small','','Friday · 10:00–10:30 · Personal calendar'));
+      const actions=el('div','ferb-actions');
+      actions.append(button(state.calendarApproved?'Added to Calendar':'Add to Calendar','ferb-button ferb-main',()=>{state.calendarApproved=true;preview.hidden=true;render();save();},'calendar-check'));
+      body.append(actions);preview.append(header,body);preview.hidden=false;icons();close.focus();
+    }
+    function composer() {
+      const form = el('form','ferb-input-row');
+      const input = el('input'); input.type='text'; input.placeholder='Ask FERB…'; input.value=state.draft; input.setAttribute('aria-label','Request for FERB');
+      input.addEventListener('input',()=>{state.draft=input.value;});
+      form.append(input);
+      const mic = button('', 'ferb-icon-button', () => set('Listening'), 'mic'); mic.setAttribute('aria-label','Try listening state'); form.append(mic);
+      const submit = button('', 'ferb-icon-button', ()=>{}, 'arrow-up'); submit.type='submit'; submit.setAttribute('aria-label','Submit request'); form.append(submit);
+      form.addEventListener('submit',e=>{e.preventDefault(); if(input.value.trim()) set('Working'); else input.focus();});
+      return form;
+    }
+    function context() {
+      if(!state.attached) return;
+      const row=el('div','ferb-context'); row.append(icon('sticky-note'),el('span','','3 selected notes'));
+      const remove=button('', 'ferb-icon-button',()=>{state.attached=false;render();save();},'x'); remove.setAttribute('aria-label','Remove attached notes'); row.append(remove); content.append(row);
+    }
+    function result() {
+      const obj=el('div','ferb-object'); const file=el('div','ferb-file-icon'); file.append(icon('file-text'));
+      const text=el('div'); text.append(el('strong','','Project brief.pdf'),el('small','','Ready · 1 page · From 3 notes')); obj.append(file,text); content.append(obj);
+      const actions=el('div','ferb-actions'); actions.append(button('Open','ferb-button ferb-main',()=>showPreview(), 'arrow-up-right'),button('Quick Look','ferb-button',()=>showPreview(),'eye'),el('span','ferb-shortcut','Space to preview')); content.append(actions);
+    }
+    function progress() {
+      const attention=state.phase==='Needs attention';
+      const row=el('div','ferb-status-row'); const status=el('span','ferb-status-symbol'); status.append(icon(attention?'circle-alert':'loader-circle'));
+      const text=el('div'); text.append(el('strong','',attention?'Choose where to save':'Making your brief'),el('small','',attention?'Project brief is ready to export.':'Comparing 3 notes')); row.append(status,text); content.append(row);
+      const actions=el('div','ferb-actions');
+      if(attention) {
+        actions.append(button('Save to Documents','ferb-button ferb-main',()=>set('Done')),button('Cancel','ferb-button ferb-plain',()=>set('Ready')));
+      } else {
+        actions.append(button(state.detail?'Hide activity':'Show activity','ferb-button ferb-plain',()=>{state.detail=!state.detail;render();save();},state.detail?'chevron-up':'chevron-down'),button('Stop','ferb-button',()=>set('Ready')));
+      }
+      content.append(actions);
+      if(state.detail&&!attention) {
+        const detail=el('div','ferb-progress-detail');
+        [['check','Read 3 notes'],['check','Found decisions and next steps'],['loader-circle','Writing a one-page summary']].forEach(([glyph,text])=>{const line=el('span');line.append(icon(glyph),document.createTextNode(text));detail.append(line);});
+        content.append(detail);
+      }
+    }
+    function listening() {
+      const wrap=el('div','ferb-listening'); const wave=el('div','ferb-wave'); wave.setAttribute('aria-hidden','true');
+      [3,5,10,17,10,24,32,19,11,22,29,17,8,4,10,19,25,14,7,3].forEach(h=>{const bar=el('span');bar.style.height=h+'px';wave.append(bar);});
+      wrap.append(wave,el('strong','','“Make a one-page brief…”'),el('small','','Listening · Sample transcript'));
+      const actions=el('div','ferb-actions'); actions.append(button('Cancel','ferb-button ferb-plain',()=>set('Ready')),button('Use transcript','ferb-button',()=>{state.draft='Make a one-page brief';set('Ready');},'check')); wrap.append(actions); content.append(wrap);
+    }
+    function task(title,subtitle,glyph,action,color) {
+      const row=button('','ferb-task',action); const mark=icon(glyph); if(color)mark.style.color=color;
+      const text=el('div');text.append(el('strong','',title),el('small','',subtitle));row.append(mark,text,icon('chevron-right'));return row;
+    }
+    function shelf() {
+      const list=el('div','ferb-task-list');
+      const first=task('Project brief',state.phase==='Done'?'Ready · 1 page':state.phase==='Needs attention'?'Choose where to save':'Comparing 3 notes',state.phase==='Done'?'circle-check':state.phase==='Needs attention'?'circle-alert':'loader-circle',()=>{if(state.phase==='Done')showPreview();else{state.detail=!state.detail;render();save();}},'var(--ferb-status)');
+      first.classList.toggle('ferb-selected',state.detail);list.append(first);
+      if(state.detail) {
+        const detail=el('div','ferb-task-detail');detail.append(el('small','',state.phase==='Needs attention'?'Ready to export your brief.':'Read the notes. Finding decisions and next steps.'));
+        const actions=el('div','ferb-actions');actions.append(state.phase==='Needs attention'?button('Save to Documents','ferb-button',()=>set('Done')):button('Stop','ferb-button',()=>set('Ready')));detail.append(actions);list.append(detail);
+      }
+      list.append(task('Friday planning',state.calendarApproved?'Added · Friday at 10:00':'Needs your approval · Calendar','calendar-check',reviewCalendar,state.calendarApproved?'var(--ferb-green)':'var(--ferb-red)'));
+      list.append(task('Reading list','Ready · 6 links','circle-check',()=>showPreview('Reading list'),'var(--ferb-green)'));
+      content.append(list,composer());
+    }
+    function render() {
+      stage.dataset.phase=state.phase; content.replaceChildren();
+      if(state.phase==='Listening') listening();
+      else if(kind==='shelf' && state.phase!=='Ready') shelf();
+      else if(state.phase==='Done') result();
+      else if(state.phase==='Working'||state.phase==='Needs attention') progress();
+      else {
+        content.append(composer());context();
+        if(kind==='palette') {
+          const intent=el('div','ferb-intent');intent.append(icon('file-text'));
+          const text=el('div');text.append(el('strong','','Create a brief'),el('small','','PDF · One page'));intent.append(text,button('Create','ferb-button ferb-main',()=>set('Working')));content.append(intent);
+        }
+      }
+      icons();
+    }
+    function renderMenu() {
+      menu.replaceChildren();
+      menu.append(button('New request','',()=>{menu.hidden=true;profile.setAttribute('aria-expanded','false');state.draft='';set('Ready');}));
+      const sound=button('Sound feedback '+(state.sounds?'✓':''),'',()=>{state.sounds=!state.sounds;renderMenu();save();}); sound.setAttribute('aria-pressed',String(state.sounds));menu.append(sound);
+    }
+    profile.addEventListener('click',()=>{renderMenu();menu.hidden=!menu.hidden;profile.setAttribute('aria-expanded',String(!menu.hidden));});
+    stage.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){preview.hidden=true;menu.hidden=true;profile.setAttribute('aria-expanded','false');}
+      if(state.phase==='Done' && e.code==='Space' && e.target.tagName!=='INPUT' && e.target.tagName!=='BUTTON'){e.preventDefault();showPreview();}
+    });
+    const component={kind,state,render};components.push(component);render();
+    if(globalThis.Tweak) {
+      const tweak=new Tweak({container:stage,onChange:()=>{state.detail=false;preview.hidden=true;render();save();}});
+      tweak.addSelect(state,'phase',{label:'Task state',options:phases});
+      tweak.addToggle(state,'attached',{label:'Selected notes attached'});
+    }
+  }
+  window.addEventListener('openai:set_globals',event=>{
+    const next=event.detail?.globals?.widgetState?.privateContent?.concepts;
+    if(!next)return;
+    for(const component of components){const update=next[component.kind];if(update&&phases.includes(update.phase)){Object.assign(component.state,update);component.render();}}
+  });
+})();
+</script>

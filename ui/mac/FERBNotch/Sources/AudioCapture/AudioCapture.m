@@ -1,0 +1,49 @@
+#import "AudioCapture.h"
+
+static NSError *CaptureError(void) {
+    return [NSError errorWithDomain:@"FERBAudioCapture" code:1 userInfo:@{
+        NSLocalizedDescriptionKey: @"The microphone changed or became unavailable. Try dictation again."
+    }];
+}
+
+NSError *FERBInstallMicrophoneTap(AVAudioEngine *engine, AVAudioNodeTapBlock block) {
+    AVAudioInputNode *input = nil;
+    @try {
+        input = engine.inputNode;
+        // Input scope reflects hardware. Output scope can still contain the old
+        // 44.1 kHz format while a Bluetooth microphone switches to 16 kHz.
+        AVAudioFormat *format = [input inputFormatForBus:0];
+        if (format.sampleRate <= 0 || format.channelCount == 0) return CaptureError();
+        [input installTapOnBus:0 bufferSize:1024 format:format block:block];
+        return nil;
+    } @catch (NSException *exception) {
+        // A tap may have been partially installed before AVFAudio rejected it.
+        @try { [input removeTapOnBus:0]; } @catch (NSException *cleanupException) {}
+        return CaptureError();
+    }
+}
+
+NSError *FERBStartMicrophoneEngine(AVAudioEngine *engine) {
+    @try {
+        [engine prepare];
+        NSError *error = nil;
+        if (![engine startAndReturnError:&error]) return error ?: CaptureError();
+        return nil;
+    } @catch (NSException *exception) { return CaptureError(); }
+}
+
+NSError *FERBStopMicrophoneEngine(AVAudioEngine *engine, BOOL removeTap) {
+    NSError *error = nil;
+    @try { [engine stop]; } @catch (NSException *exception) { error = CaptureError(); }
+    // Still remove our tap if stopping throws during a device change.
+    if (removeTap) {
+        @try { [engine.inputNode removeTapOnBus:0]; }
+        @catch (NSException *exception) { error = CaptureError(); }
+    }
+    return error;
+}
+
+NSError *FERBResetMicrophoneEngine(AVAudioEngine *engine) {
+    @try { [engine reset]; return nil; }
+    @catch (NSException *exception) { return CaptureError(); }
+}

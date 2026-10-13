@@ -1,0 +1,57 @@
+# FERB UI — standing product decisions
+
+This workspace contains FERB's native macOS interaction layer. The agent backend is the rest of this repository (the parent folder, `..`).
+
+## User's design direction
+
+- The app lives in the hardware notch. Keep its idle footprint native-sized and its hover surface compact.
+- Use visibly frosted glass (blurred desktop, not plain transparency), with a pure black band extending below the camera and dissolving downward. Frost and black tint are one native background, driven by the same display-link spring geometry as the SwiftUI controls. Never animate the blur mask independently or show bare frost before the tint/content. Do not flatten the backdrop through SwiftUI opacity/clip groups.
+- No white border lines around panels, buttons, or fields. Prefer icons and real input fields over action labels for typing and voice.
+- Double-tap right Option toggles FERB: open with focused typing when closed; close when the dialog or pinned header is already visible. Use the same spring in both directions. Voice opens immediately when right Command + Option are held together (either Option key, either press order); releasing either key finishes. Right Option alone never opens voice. Adding another shortcut modifier or typing an ordinary key cancels dictation and restores the previous draft/state. Leave the previous application's keyboard focus intact during held voice so ordinary combinations remain usable.
+- Both hover and double-tap must focus the visible text input. Neither hover focus, typing nor ordinary control interactions may implicitly pin the panel; only the explicit pin button retains it across hover-out.
+- Hover detection includes the exact physical top screen edge across the entire expanded header, including its wings. Retain the 2-point vertical tolerance on both the cutout and expanded surface so moving to the very top never triggers dismissal.
+- In the draft editor, Enter submits and Shift–Enter inserts a newline. Preserve IME composition before handling submission.
+- Header has a circular profile/options control and a pin toggle. No Preview label or ellipsis control. Restore the centered "Go ahead. I’m here." greeting above the composer; the field placeholder is "Ask anything…". Voice is real dictation; never label it microphone-off or simulated.
+- Hover exit uses the SAME 300 ms / 0.08 bounce spring as opening, following a 60 ms grace period. Preserve interruption velocity and the fixed camera anchor. Double-tap right Option uses that opening spring with immediate text focus.
+- Pin keeps the header attached through hover-out, outside clicks, task submission, and Space changes. Pinning or hovering away starts the upward tuck immediately, with no 1.5-second delay; keep the shared spring and fixed header position. Hover reveals the body with focused typing. Typing must not trigger a fold. Native menus, file pickers, and voice defer a requested fold until they finish; returning to hover cancels that request. Hidden fields must not receive keyboard input. Explicit Escape/Hide/double-tap closes and clears the pin. Unpin reveals the body and returns to normal hover behavior. Ordinary typing and button interactions must not create persistent automatic retention. Menus and file pickers defer dismissal only while open; closing them re-evaluates hover-out. Settings and Quick Look dismiss the unpinned notch.
+- The persistent content stack must have an explicit, top-aligned presentation-height frame. Its hidden full-height body must not impose a larger minimum height and recenter the header upward when the native window canvas shrinks at spring completion.
+- Both overlay windows must stay fixed to the physical notch DURING desktop swipes. AppKit's all-Spaces/stationary flags alone did not achieve this. Put the dialog and trace in the same unmanaged SkyLight overlay space, above desktops but below security/lock screens; resolve private symbols defensively, check both window memberships, and fall back to AppKit if unavailable. Do not move or modify other applications' windows or user desktops. A Space-change notification must preserve the existing input responder: never explicitly resign key, reset geometry, restart the spring, discard state, or seize focus that FERB did not already have. Background task updates must not reclaim focus from another app.
+- Work continues when the notch closes. Remove the yellow progress trace and red attention segment: the camera edge lights ONLY for completion, with TWO soft green glow pulses separated by darkness, then turns off (3.6 seconds total, preserving the slower 1.8-second cadence). Reduced Motion uses one quiet, finite glow. Completion works hovered or closed; recalling a result does not replay it. Pad the glow canvas to avoid rectangular clipping. The dot in "ferb." shows status: warm orange-yellow (amber) while working, red for attention/error, green when done, neutral otherwise. Use the session phase so the dot stays green after the completion glow ends. Include a status tooltip/accessibility value. Hover shows compact status; Show activity reveals details.
+- The header pin is 10% smaller than the original 12-point glyph: 10.8-point regular, with its 24 × 26 point click target retained. Profile is an explicitly sized 18 × 18 glyph in a 26 × 26 native button that opens NSMenu. The header only fades; apply entrance scale/blur to the body alone. Neither opening nor lazy menu measurement may resize or shift the profile glyph.
+- Motion should feel alive and continuous: persistent surfaces, interruption-safe springs, coherent transformations, and responsive presses. Keep the camera anchor fixed. Respect Reduce Motion. The user's explicit preference for animated double-tap opening overrides generic advice to keep keyboard opening instantaneous.
+- SOUND FEEDBACK IS A STANDING REQUIREMENT. The Quiet notch pass adds low-volume system sound cues for dictation start/stop, completion, and attention; submission is silent (the owner rejected the Tink on Return), with mute/volume controls in native Settings (Command-comma). No hover or repeating progress sounds. Right Option taps stay silent; the dedicated right Command + Option voice chord acknowledges immediately. System output volume/mute still applies.
+- User handles visual evaluation and proposes changes. Build and relaunch after edits; do not run unsolicited screenshot/UI inspection loops.
+- The frontend is connected to the real daemon. Dictation uses AVAudioEngine + Apple Speech with system permission prompts, live transcription, and review in the composer. Hold release, Stop, Cancel, hiding, and switching to typing must stop capture; releasing while permissions are pending must prevent delayed recording.
+- As of 2026-10-11 the user explicitly wants a continuous daily chat, replacing the earlier result-only design below. No New request action. Persist the app’s complete conversation locally; keep Today and discoverable History/date tabs. Maintain the same backend conversation across days. Approval secrets never enter chat history.
+- Real task events stream immediately. The installed daemon currently emits full answer text in reply/outcome; frontend reply_delta support is implemented but token generation still requires a backend protocol/runtime change. Do not claim token streaming works or fake it with delayed text.
+- A newly arriving answer expands the hidden notch or pinned header with its existing animation, without taking keyboard focus. Cancel pending hover dismissal. Startup/history restoration must not reopen or replay the completion glow.
+
+## Accepted native macOS direction — Quiet notch
+
+- The user approved Quiet notch after reviewing the native macOS research on 2026-10-10. The previous UI is committed as `2018d0c` and tagged `notch-before-native-redesign`.
+- Keep a single compact composer at rest, with the restored centered greeting and no idle waveform. The field expands for up to four lines; attachments appear as named/count context beneath it. Use system typography, SF Symbols, native menus, pickers, and file actions.
+- Within the daily chat, show one concrete live status and Stop; detailed activity stays one click away.
+- Finished work is an object. In the preview, create a real one-page `Example brief.pdf` containing the original request and source names, with an explicit example disclosure. Store examples under Application Support/FERB Notch/Examples. Never claim to read or summarize attached source contents.
+- Results support Open, native Quick Look (Space), Reveal in Finder (Command-R), and dragging the document out. Return opens the result. Recent examples remain in memory for this app session; the PDF files persist locally.
+- Preserve the unified native frost/tint clock and pure-black hardware connection. Lower frost may be lighter, but no new white border strokes or independently appearing glass layers.
+
+## Motion references examined 2026-10-10
+
+Scanned all 49 lesson/resource pages listed in the authenticated animations.dev course, including the written walkthroughs and code examples. Explored the Dynamic Island demo states. This was not a viewing of every course video or interview.
+
+Use these sources when refining behavior:
+- https://animations.dev/learn/animation-theory/spring-animations — preserve motion when targets change.
+- https://animations.dev/learn/dynamic-island/morph-effect — persistent shape, state-aware transitions, subtle blur between content states.
+- https://animations.dev/learn/family-drawer/the-analysis — content and container should feel like one object.
+- https://animations.dev/learn/family-drawer/the-finishing-touch — coordinate dimensions and opacity; keep repeated interactions quick.
+- https://animations.dev/learn/good-vs-great-animations/accessibility — keep meaning through fades when spatial motion is reduced.
+- https://developer.apple.com/videos/play/wwdc2023/10158/ — native spring continuity and settling.
+
+Do not copy or publish subscription lesson content into this repository. Retain project-specific decisions and source links only.
+
+## Continuous chat refinement — 2026-10-11
+
+- Keep the empty dialog compact. When messages exist, reserve at least 240 points for reading and grow with content to 320 points before scrolling; the owner explicitly requested this larger conversation area after the content-fit version was too small.
+- Messages-style layout: compact blue owner bubbles on the right and neutral frosted FERB bubbles on the left. Keep the notch backdrop black/glass.
+- The composer remains usable during work. Clear it on submission, never on reply arrival. Track each submitted turn independently so concurrent/out-of-order responses preserve the next draft and resolve their own message.
+- Native NSTextView owns Return (submit) and Shift–Return (newline), preserving IME composition. No submission Tink or unhandled-command beep.

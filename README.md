@@ -102,7 +102,7 @@ in shadow until measured with you; now-playing and two-app Accessibility accepta
 
 ## Everyday use
 
-The native notch frontend in the separate `ferb-UI` checkout uses the same local daemon socket as the CLI.
+The native notch frontend in `ui/` (`ui/mac/FERBNotch`, built with `./build.sh`) uses the same local daemon socket as the CLI.
 Its integration covers task progress, identified questions and approvals, hidden secret input, stop, selected file
 sources and actual task artifacts. See the [RPC contract](docs/RPC.md) for attachment capability negotiation and
 reconnect behavior. Native dictation uses the microphone button or right Command + Option and places the transcript

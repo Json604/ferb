@@ -1,0 +1,25 @@
+{
+  "scope": "Specified solid color pairs only; not a full accessibility audit",
+  "ratios": {
+    "Daylight": {
+      "body": 12.8,
+      "secondary": 4.86,
+      "button": 7.44
+    },
+    "Lens": {
+      "body": 11.67,
+      "secondary": 5.14,
+      "button": 6.99
+    },
+    "Fieldwork": {
+      "body": 13.94,
+      "secondary": 7.91,
+      "button": 10.4
+    },
+    "Companion": {
+      "body": 10.17,
+      "secondary": 4.9,
+      "button": 5.7
+    }
+  }
+}

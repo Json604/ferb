@@ -1,0 +1,275 @@
+<div id="ferb-notch-study">
+<style>
+#ferb-notch-study{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#282b2d;width:100%;text-align:left}
+#ferb-notch-study *{box-sizing:border-box}
+#ferb-notch-study [hidden]{display:none!important}
+#ferb-notch-study .concept{--ink:#242827;--muted:#60635f;--accent:#a7442c;--frost:#ebe9e3;--edge:#fff9;min-height:790px;color:var(--ink);color-scheme:light;background:#e7e6e2;border-radius:18px;overflow:hidden}
+#ferb-notch-study .study-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 25px 18px;background:#f5f4f0}
+#ferb-notch-study .study-head h2{font-size:24px;letter-spacing:-.055em;line-height:1;margin:0;font-weight:550}
+#ferb-notch-study .study-head .subtitle{font-size:12px;color:#5c605b;margin-left:12px;letter-spacing:0;font-weight:400}
+#ferb-notch-study .study-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#63655f;white-space:nowrap}
+#ferb-notch-study .screen{min-height:616px;position:relative;isolation:isolate;overflow:hidden;background:radial-gradient(ellipse at 15% 94%,#9d9283 0,transparent 44%),radial-gradient(ellipse at 83% 22%,#c3c5bc 0,transparent 47%),linear-gradient(137deg,#a1aca8,#c4c1b5 51%,#979b91)}
+#ferb-notch-study .screen:before{content:"";position:absolute;width:120%;height:700px;left:-10%;top:210px;border-radius:48%;background:linear-gradient(165deg,#eef0e595 4%,#a5aba5 44%,#626f6b);transform:rotate(-23deg);z-index:-1;box-shadow:0 -1px 0 #fff5}
+#ferb-notch-study .screen:after{content:"";position:absolute;width:80%;height:460px;right:-40%;top:230px;border-radius:50%;background:linear-gradient(135deg,#ccd0c1aa,#6a817caa);transform:rotate(-38deg);z-index:-1;box-shadow:0 -2px 0 #d6ded359}
+#ferb-notch-study .menubar{height:29px;display:flex;justify-content:space-between;align-items:center;padding:0 18px;background:#eef0e223;font-size:11px;color:#262e2a;white-space:nowrap}
+#ferb-notch-study .menu-left{display:flex;gap:18px;align-items:center}
+#ferb-notch-study .menu-left b{font-weight:600}
+#ferb-notch-study .hardware{position:absolute;top:0;left:50%;transform:translateX(-50%);width:174px;height:31px;border-radius:0;background:#080a09;z-index:8;pointer-events:none}
+#ferb-notch-study .notch-trigger{position:absolute;z-index:9;left:50%;top:30px;transform:translateX(-50%);width:174px;height:17px;min-height:17px;padding:0;border:0;border-radius:0 0 10px 10px;background:#080a09;box-shadow:0 5px 13px #17231d22;color:#e7e8dd}
+#ferb-notch-study .notch-trigger .seam{display:block;width:26px;height:2px;background:#858d80;border-radius:5px;margin:0 auto}
+#ferb-notch-study .notch-trigger:active{transform:translateX(-50%)}
+#ferb-notch-study .concept[data-phase="working"] .seam{background:#d6d7bd}
+#ferb-notch-study .concept[data-phase="result"] .seam,#ferb-notch-study .concept[data-phase="artifact"] .seam{background:#dae7b1}
+#ferb-notch-study .concept button{font:inherit;line-height:1.25;color:inherit;font-size:12px;min-height:36px;border:1px solid #fff8;background:#f5f4eeab;padding:8px 13px;border-radius:11px;box-shadow:0 1px 2px #30372a08;transition:transform 140ms cubic-bezier(.25,.46,.45,.94),background-color 140ms ease}
+#ferb-notch-study .concept button:active{transform:scale(.975)}
+#ferb-notch-study .concept button:disabled{opacity:.55}
+#ferb-notch-study .concept button.primary{background:#252c27;border-color:#252c27;color:#f4f6ef;box-shadow:0 2px 3px #0002}
+#ferb-notch-study .concept button.quiet{border-color:transparent;background:transparent;box-shadow:none;color:#555e54}
+#ferb-notch-study .concept button svg{display:inline-block;vertical-align:middle;width:16px;height:16px;flex-shrink:0}
+#ferb-notch-study .small-label{font-size:10px;letter-spacing:.11em;text-transform:uppercase;font-weight:550;line-height:1.4}
+#ferb-notch-study .soft{color:var(--muted)}
+#ferb-notch-study .surface{position:relative;background:linear-gradient(145deg,#f8f8f0df,#e2e4ddd9);border:1px solid #ffffffa1;box-shadow:inset 0 1px 0 #fff, inset 0 -1px 0 #a0a89833,0 16px 45px #24332926,0 3px 6px #2e39200c;backdrop-filter:blur(28px) saturate(.72);-webkit-backdrop-filter:blur(28px) saturate(.72)}
+#ferb-notch-study [data-material="Solid"] .surface{background:#ebece3;backdrop-filter:none;-webkit-backdrop-filter:none}
+#ferb-notch-study .frost-dark{background:linear-gradient(140deg,#303c36ee,#3f4b42ed);color:#f8faf0;border-color:#b9c5b270;box-shadow:inset 0 1px 0 #fff2,0 16px 40px #26392d35}
+#ferb-notch-study .frost-dark .soft{color:#d2d8cc}
+#ferb-notch-study .frost-dark button.quiet{color:#e8ecdf}
+#ferb-notch-study .mount{position:relative;z-index:5;max-width:550px;margin:0 auto;padding-top:15px;min-height:242px}
+#ferb-notch-study .veil-panel{width:100%;border-radius:23px;padding:21px 24px 18px;transform-origin:top center}
+#ferb-notch-study .panel-top{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:20px}
+#ferb-notch-study .panel-top .identity{font-size:12px;font-weight:650;letter-spacing:-.03em}
+#ferb-notch-study .panel-top .state-name{font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:7px}
+#ferb-notch-study .record-dot{width:6px;height:6px;border-radius:50%;background:#a84630;display:inline-block;box-shadow:0 0 0 3px #ba563712}
+#ferb-notch-study .voice-field{height:74px;display:flex;align-items:center;justify-content:center;position:relative;margin:12px 0 5px}
+#ferb-notch-study .voice-field:before{content:"";width:70%;height:22px;border-radius:50%;background:#d6c8bda3;filter:blur(12px);position:absolute}
+#ferb-notch-study .wave{display:flex;align-items:center;justify-content:center;gap:2px;height:68px;width:87%;position:relative;filter:drop-shadow(0 0 4px #fff9)}
+#ferb-notch-study .wave span{width:3px;flex:1;max-width:4px;border-radius:8px;background:#fff;min-height:2px;transform-origin:center;box-shadow:0 0 4px #ffffff96;transform:scaleY(.25)}
+#ferb-notch-study .wave.sounding span{animation:ferb-voice 650ms ease-in-out 7;animation-delay:var(--delay)}
+#ferb-notch-study .utterance{font-size:22px;line-height:1.27;font-weight:450;letter-spacing:-.045em;text-align:center;margin:6px auto 18px;max-width:430px;min-height:56px;color:#383c35}
+#ferb-notch-study .utterance.waiting{color:#686c63;font-size:21px;min-height:30px}
+#ferb-notch-study .voice-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;padding-top:12px;border-top:1px solid #75857024}
+#ferb-notch-study .voice-actions .context{display:flex;align-items:center;gap:7px;font-size:11px;color:#4e5b4d}
+#ferb-notch-study .mic-button{display:flex;align-items:center;gap:8px;background:#f9f6efe6;box-shadow:0 2px 7px #4c53451a,inset 0 1px 0 #fff}
+#ferb-notch-study .voice-switch{display:flex;align-items:center;gap:3px}
+#ferb-notch-study .intent-field{display:block;width:100%;font:450 20px/1.4 -apple-system,sans-serif;letter-spacing:-.03em;resize:vertical;min-height:92px;border:0;border-bottom:1px solid #b8c0b1;background:transparent;color:#2e362e;padding:10px 0;margin:7px 0 12px}
+#ferb-notch-study .desk-notes{position:relative;z-index:1;width:min(595px,calc(100% - 76px));margin:40px auto 30px;transform:rotate(-1.4deg);display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px;opacity:.78}
+#ferb-notch-study .note{min-height:151px;background:#efeee7;border-radius:3px;box-shadow:0 7px 10px #2b322818,0 1px 1px #1225121a;padding:19px 17px;border-top:3px solid #fbfaf5}
+#ferb-notch-study .note:nth-child(2){transform:rotate(3deg) translateY(13px);background:#e0e6d7}
+#ferb-notch-study .note:nth-child(3){transform:rotate(-2deg) translateY(3px);background:#e7e1d5}
+#ferb-notch-study .note .note-name{font-size:12px;font-weight:600;line-height:1.3;margin:10px 0 7px;letter-spacing:-.02em}
+#ferb-notch-study .note p{font-size:11px;line-height:1.55;color:#596054;margin:0}
+#ferb-notch-study .note .rule{display:block;width:80%;height:2px;background:#6e796431;margin:8px 0}
+#ferb-notch-study .desktop-foot{position:absolute;bottom:17px;left:22px;right:22px;display:flex;justify-content:space-between;font-size:11px;line-height:1.5;color:#24382f;z-index:2}
+#ferb-notch-study .desktop-foot .simulation{background:#e8eddfdd;border:1px solid #ffffff69;padding:5px 9px;border-radius:7px;color:#3f5244;max-width:280px}
+#ferb-notch-study .desktop-foot .foot-mark{padding-top:6px;letter-spacing:-.04em;font-weight:600}
+#ferb-notch-study .compact-work{width:310px;margin:0 auto;border-radius:0 0 18px 18px;background:#090c0a;color:#edf0e4;padding:16px 17px 12px;box-shadow:0 8px 14px #13291a25;font-size:11px}
+#ferb-notch-study .compact-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#ferb-notch-study .compact-work button{background:#ffffff13;border:1px solid #ffffff24;color:#e7eddf;font-size:11px;min-height:28px;padding:5px 8px;border-radius:7px}
+#ferb-notch-study .compact-work .ticks{display:flex;align-items:center;gap:3px;min-width:26px}
+#ferb-notch-study .ticks i{display:block;width:3px;height:12px;border-radius:2px;background:#c1d0b6}
+#ferb-notch-study .ticks i:nth-child(2){height:6px}#ferb-notch-study .ticks i:nth-child(3){height:9px}
+#ferb-notch-study .compact-work p{color:#afbca5;font-size:10px;margin:8px 0 0}
+#ferb-notch-study .work-rest{min-height:227px}
+#ferb-notch-study .receipt{width:292px;margin:0 auto;background:#f0eee6;border:1px solid #ffffffba;padding:21px 23px 18px;box-shadow:0 12px 25px #23312822;position:relative;clip-path:polygon(0 0,100% 0,100% 97%,97% 100%,94% 97%,91% 100%,88% 97%,85% 100%,82% 97%,79% 100%,76% 97%,73% 100%,70% 97%,67% 100%,64% 97%,61% 100%,58% 97%,55% 100%,52% 97%,49% 100%,46% 97%,43% 100%,40% 97%,37% 100%,34% 97%,31% 100%,28% 97%,25% 100%,22% 97%,19% 100%,16% 97%,13% 100%,10% 97%,7% 100%,4% 97%,0 100%)}
+#ferb-notch-study .receipt h3{font-size:22px;letter-spacing:-.045em;font-weight:500;line-height:1.15;margin:16px 0 11px}
+#ferb-notch-study .receipt p{font-size:11px;line-height:1.55;color:#62665c}
+#ferb-notch-study .receipt .stamp{display:flex;align-items:center;gap:7px;font-size:10px;color:#466147;letter-spacing:.04em;text-transform:uppercase}
+#ferb-notch-study .receipt .receipt-file{padding-top:12px;margin-top:12px;border-top:1px dashed #a4aa9b;font-size:11px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+#ferb-notch-study .receipt button{width:100%;margin-top:12px}
+#ferb-notch-study .result-slot{width:300px;height:9px;border-radius:9px;background:#253329;margin:0 auto -2px;box-shadow:0 1px 0 #e9eddb99;position:relative;z-index:1}
+#ferb-notch-study .artifact{width:min(440px,100%);margin:8px auto 0;background:#f8f7f1;box-shadow:0 17px 33px #1d35272b;border-radius:5px;padding:28px 30px 25px;position:relative;z-index:6;color:#303b31}
+#ferb-notch-study .artifact .artifact-top{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #ccd1c3;padding-bottom:16px}
+#ferb-notch-study .artifact h3{font-size:30px;line-height:1.07;font-weight:500;letter-spacing:-.06em;margin:21px 0 10px}
+#ferb-notch-study .artifact p{font-size:12px;line-height:1.6;margin:10px 0;color:#576252}
+#ferb-notch-study .artifact ol{margin:18px 0;padding-left:18px;font-size:12px;line-height:1.5}
+#ferb-notch-study .artifact li{padding:5px 0}
+#ferb-notch-study .artifact .source-line{font-size:10px;border-top:1px solid #d4d8cc;padding-top:12px;color:#5c6757}
+#ferb-notch-study .artifact button{margin-top:9px}
+#ferb-notch-study .concept[data-phase="artifact"] .desk-notes{display:none}
+#ferb-notch-study .concept[data-phase="artifact"] .mount{padding-bottom:90px}
+#ferb-notch-study .rest-copy{padding-top:97px;text-align:center;color:#394e41;font-size:13px;letter-spacing:-.015em;min-height:240px}
+#ferb-notch-study .rest-copy span{display:block;font-size:11px;color:#465c4e;margin-top:7px}
+#ferb-notch-study .study-foot{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:18px 24px;background:#f5f4f0;font-size:12px;line-height:1.5;min-height:69px}
+#ferb-notch-study .study-foot span{max-width:69%;color:#5e635a}
+#ferb-notch-study .study-foot .material{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:#676d61;text-align:right}
+#ferb-notch-study .relay .screen{background:radial-gradient(ellipse at 88% 12%,#ded2c1 0,transparent 57%),linear-gradient(132deg,#a89f93,#c6c1b6 60%,#a99684)}
+#ferb-notch-study .relay .screen:before{background:linear-gradient(165deg,#eeeadcdd,#aaad9e 60%,#767e71)}
+#ferb-notch-study .relay .screen:after{background:linear-gradient(135deg,#d8cec3aa,#977a6b99)}
+#ferb-notch-study .relay .mount{max-width:460px;min-height:266px}
+#ferb-notch-study .drop-mouth{width:264px;min-height:116px;margin:0 auto;border-radius:0 0 27px 27px;padding:20px 25px 19px;text-align:center;transition:transform 180ms cubic-bezier(.19,1,.22,1),background-color 180ms ease}
+#ferb-notch-study .drop-mouth.drag-over{background:#faf7eef2;transform:translateY(5px)}
+#ferb-notch-study .drop-mouth .slot-line{width:80px;height:3px;background:#657464;margin:8px auto 15px;border-radius:8px;box-shadow:0 1px 0 #fff}
+#ferb-notch-study .drop-mouth p{font-size:16px;letter-spacing:-.035em;margin:7px 0 12px}
+#ferb-notch-study .drop-mouth small{display:block;color:#5d6759;font-size:11px;line-height:1.5}
+#ferb-notch-study .relay-files{display:flex;justify-content:center;gap:24px;position:relative;z-index:2;margin:2px auto 70px;max-width:570px;padding:0 20px}
+#ferb-notch-study .relay-file{width:140px;min-height:168px;background:#f5f3eb;border:1px solid #fff9;border-radius:5px;padding:15px 16px;box-shadow:0 7px 17px #3b38231f;text-align:left;transform:rotate(-5deg)}
+#ferb-notch-study .relay-file:nth-child(2){transform:rotate(3deg) translateY(12px)}
+#ferb-notch-study .relay-file:nth-child(3){transform:rotate(7deg)}
+#ferb-notch-study .relay-file b{display:block;font-size:12px;margin:20px 0 7px;font-weight:500;line-height:1.25}
+#ferb-notch-study .relay-file small{font-size:10px;color:#626d5c;line-height:1.4;display:block}
+#ferb-notch-study .relay-file .file-rules{display:block;height:27px;width:100%;margin-top:11px;background:repeating-linear-gradient(to bottom,#9ba18e66 0,#9ba18e66 1px,transparent 1px,transparent 7px)}
+#ferb-notch-study .parcel{width:328px;margin:0 auto;padding:24px 24px 19px;border-radius:0 0 18px 18px}
+#ferb-notch-study .parcel-head{display:flex;align-items:center;gap:12px}
+#ferb-notch-study .file-stack{width:32px;height:40px;border:1px solid #abbba4;border-radius:4px;background:#e7eddc;box-shadow:4px -3px 0 #c9d2bf,8px -6px 0 #b8c3aa;flex-shrink:0}
+#ferb-notch-study .parcel h3{font-size:20px;line-height:1.15;letter-spacing:-.04em;font-weight:500;margin:0 0 4px}
+#ferb-notch-study .parcel .small-label{font-size:9px}
+#ferb-notch-study .parcel p{font-size:12px;line-height:1.55;color:#56624f;margin:17px 0}
+#ferb-notch-study .parcel .parcel-actions{display:flex;gap:7px;justify-content:space-between;align-items:center}
+#ferb-notch-study .parcel button{font-size:11px}
+#ferb-notch-study .relay[data-phase="intent"] .relay-files,#ferb-notch-study .relay[data-phase="working"] .relay-files,#ferb-notch-study .relay[data-phase="result"] .relay-files,#ferb-notch-study .relay[data-phase="artifact"] .relay-files{display:none}
+#ferb-notch-study .thread .screen{background:radial-gradient(ellipse at 18% 20%,#aec5c5 0,transparent 62%),linear-gradient(125deg,#97a4a2,#c4cfc8 62%,#9ca8ad)}
+#ferb-notch-study .thread .screen:before{background:linear-gradient(160deg,#d3e3d6a1,#93a9a4 44%,#607c79)}
+#ferb-notch-study .thread .mount{max-width:530px;padding-top:12px;min-height:472px}
+#ferb-notch-study .thread-tabs{display:flex;gap:5px;justify-content:center;align-items:flex-start}
+#ferb-notch-study .thread-tab{border-radius:0 0 12px 12px;min-height:42px;padding:14px 17px 9px;background:#d9e4d8e6;box-shadow:0 3px 8px #243c2a22;border:1px solid #ffffff8c;font-size:11px}
+#ferb-notch-study .thread-tab[aria-pressed="true"]{background:#283b31;color:#f0f4e8;border-color:#3f5545;padding-bottom:15px}
+#ferb-notch-study .thread-line{width:1px;height:36px;background:#4258449e;margin:0 auto;position:relative}
+#ferb-notch-study .thread-line:after{content:"";position:absolute;bottom:-4px;left:-3px;width:7px;height:7px;background:#5c7555;border-radius:50%;box-shadow:0 0 0 4px #ecf0e23d}
+#ferb-notch-study .thread-object{max-width:390px;margin:0 auto;border-radius:15px;padding:23px 26px;position:relative;z-index:1}
+#ferb-notch-study .thread-object h3{font-weight:500;font-size:26px;letter-spacing:-.05em;line-height:1.2;margin:18px 0 9px}
+#ferb-notch-study .thread-object p{font-size:12px;line-height:1.55;color:#55654f;margin:8px 0 15px}
+#ferb-notch-study .thread-object .object-actions{display:flex;gap:8px;align-items:center;justify-content:space-between}
+#ferb-notch-study .trace-steps{display:flex;gap:0;justify-content:space-between;max-width:300px;margin:22px auto 0;position:relative}
+#ferb-notch-study .trace-steps:before{content:"";position:absolute;top:12px;left:30px;right:30px;height:1px;background:#4a624b66}
+#ferb-notch-study .trace-step{border:0;background:transparent;box-shadow:none;padding:0 4px;min-height:48px;position:relative;min-width:70px;border-radius:3px;color:#2e4836;font-size:10px;display:flex;align-items:center;flex-direction:column;gap:10px}
+#ferb-notch-study .trace-step i{display:block;width:10px;height:10px;background:#afc3aa;border:2px solid #66805e;border-radius:50%;margin-top:7px;box-shadow:0 0 0 5px #b7c8b9}
+#ferb-notch-study .trace-step[aria-pressed="true"] i{background:#e5f0d9;border-color:#3b553a;box-shadow:0 0 0 5px #8fa88c}
+#ferb-notch-study .thread .desk-notes{display:none}
+#ferb-notch-study .thread-object .receipt-file{font-size:12px;padding:12px 0;border-top:1px solid #647c5929;margin-top:17px;display:flex;justify-content:space-between}
+#ferb-notch-study .outcome-check{color:#435e3a;font-size:11px}
+#ferb-notch-study .source-list{list-style:none;padding:0;margin:14px 0 18px}
+#ferb-notch-study .source-list li{font-size:12px;display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #5a715428;gap:9px}
+#ferb-notch-study .work-plain{padding:26px 0;max-width:310px;margin:0 auto;font-size:12px;line-height:1.6;text-align:center;color:#384f3c}
+#ferb-notch-study .work-plain button{margin-top:9px}
+#ferb-notch-study .concept[data-keyboard="true"] *{transition:none!important;animation:none!important}
+@keyframes ferb-voice{0%,100%{transform:scaleY(.23)}24%{transform:scaleY(.72)}49%{transform:scaleY(.4)}73%{transform:scaleY(1)}}
+#ferb-notch-study .relay-file[data-added="true"]{background:#dce5d0;box-shadow:0 0 0 2px #647b50,0 10px 20px #293c2825}
+#ferb-notch-study .relay-file[data-added="true"]:after{content:"✓ In hand";display:block;font-size:11px;margin-top:8px;color:#35482c}
+#ferb-notch-study .relay-file{touch-action:none;user-select:none;-webkit-user-select:none}
+#ferb-notch-study .relay-file.drag-copy{position:absolute!important;margin:0!important;z-index:20!important;min-height:0!important;opacity:.94!important;transition:none!important;pointer-events:none!important;box-shadow:0 22px 35px #24312140!important}
+@media(hover:hover) and (pointer:fine){#ferb-notch-study .concept button:hover{background-color:#f9faf2}#ferb-notch-study .concept button.primary:hover{background-color:#384b39}#ferb-notch-study .notch-trigger:hover{background:#141c15}#ferb-notch-study .relay-file:hover{box-shadow:0 12px 26px #34372230}#ferb-notch-study .thread-tab[aria-pressed="true"]:hover{background:#364c3b}}
+@media(max-width:700px){#ferb-notch-study .concept{min-height:810px}#ferb-notch-study .study-head{padding:20px}#ferb-notch-study .study-head h2 .subtitle{display:block;margin:8px 0 0}#ferb-notch-study .study-label{font-size:9px;max-width:90px;white-space:normal;text-align:right}#ferb-notch-study .menu-left{gap:10px}#ferb-notch-study .menu-left .optional,#ferb-notch-study .menu-date{display:none}#ferb-notch-study .menubar{font-size:10px;padding:0 13px}#ferb-notch-study .mount{width:calc(100% - 32px)}#ferb-notch-study .veil-panel{padding:20px 19px 16px}#ferb-notch-study .utterance{font-size:20px}#ferb-notch-study .desk-notes{width:calc(100% - 44px);gap:8px;margin-top:32px}#ferb-notch-study .note{padding:13px 11px;min-height:136px}#ferb-notch-study .note p{font-size:10px}#ferb-notch-study .study-foot{padding:17px 20px;align-items:flex-start}#ferb-notch-study .study-foot span{max-width:73%;font-size:11px}#ferb-notch-study .study-foot .material{font-size:9px}#ferb-notch-study .desktop-foot .foot-mark{display:none}#ferb-notch-study .relay-files{gap:9px;padding:0 16px}#ferb-notch-study .relay-file{width:30%;padding:13px 10px;min-height:155px}#ferb-notch-study .relay-file b{font-size:11px}#ferb-notch-study .parcel{width:min(328px,100%)}#ferb-notch-study .thread-object{padding:22px}#ferb-notch-study .thread-tab{padding:14px 11px 10px}#ferb-notch-study .artifact{padding:23px}#ferb-notch-study .screen{min-height:650px}}
+@media(max-width:380px){#ferb-notch-study .hardware,#ferb-notch-study .notch-trigger{width:145px}#ferb-notch-study .voice-actions{flex-wrap:wrap;justify-content:center}#ferb-notch-study .voice-actions .context{width:100%;justify-content:center}#ferb-notch-study .compact-work{width:100%}#ferb-notch-study .desk-notes .note:last-child{display:none}#ferb-notch-study .desk-notes{grid-template-columns:1fr 1fr}#ferb-notch-study .receipt{width:100%}#ferb-notch-study .result-slot{width:98%}#ferb-notch-study .thread-tab{font-size:10px}}
+@media(pointer:coarse){#ferb-notch-study .concept button{min-height:44px}#ferb-notch-study .notch-trigger{height:18px;min-height:18px}#ferb-notch-study .intent-field{font-size:18px}}
+@media(prefers-reduced-motion:reduce){#ferb-notch-study .wave.sounding span{animation:none;transform:scaleY(.5)}#ferb-notch-study .concept button{transition:background-color 100ms ease}#ferb-notch-study .concept button:active{transform:none}#ferb-notch-study .drop-mouth{transition:none}}
+@media(prefers-reduced-transparency:reduce){#ferb-notch-study .surface{background:#ebece3;backdrop-filter:none;-webkit-backdrop-filter:none}#ferb-notch-study .frost-dark{background:#344037}#ferb-notch-study .menubar{background:#c9cebf}}
+</style>
+<div class="viz-carousel" aria-label="FERB notch interaction concepts">
+<section class="concept veil" data-variant="Veil" data-concept="Veil" aria-label="Veil — voice at the edge">
+ <header class="study-head"><h2>Veil<span class="subtitle">A voice at the edge.</span></h2><span class="study-label">FERB / Interaction study 02</span></header>
+ <div class="screen">
+  <div class="menubar"><span class="menu-left"><b>Notes</b><span>File</span><span class="optional">Edit　View</span></span><span class="menu-date">Sat 10 Oct　 10:42</span></div>
+  <div class="hardware" aria-hidden="true"></div><button type="button" class="notch-trigger cursor-interaction" data-action="toggle" aria-label="Open or close FERB"><span class="seam"></span></button>
+  <div class="mount" data-mount></div>
+  <div class="desk-notes" aria-label="Three fictional source notes"><article class="note"><span class="small-label">01 / Discovery</span><div class="note-name">The starting point</div><p>One place to hand work over. Keep the current task in view.</p><i class="rule"></i></article><article class="note"><span class="small-label">02 / Decisions</span><div class="note-name">What we chose</div><p>Voice at the edge. Concrete results. Clear control.</p><i class="rule"></i></article><article class="note"><span class="small-label">03 / Next</span><div class="note-name">What to test</div><p>Can someone leave, return, and find the right result?</p><i class="rule"></i></article></div>
+  <div class="desktop-foot"><span class="simulation">Interactive concept · voice and tasks are simulated</span><span class="foot-mark">your desktop, still yours.</span></div>
+ </div><footer class="study-foot"><span>Voice takes a shape, then leaves you with the thing you asked for.</span><div class="material">Milk glass<br>Soft light / warm ink</div></footer>
+</section>
+<section class="concept relay" data-variant="Relay" data-concept="Relay" aria-label="Relay — hand FERB an object" hidden>
+ <header class="study-head"><h2>Relay<span class="subtitle">Hand it over.</span></h2><span class="study-label">FERB / Interaction study 02</span></header>
+ <div class="screen">
+  <div class="menubar"><span class="menu-left"><b>Finder</b><span>File</span><span class="optional">Edit　View</span></span><span class="menu-date">Sat 10 Oct　 10:42</span></div>
+  <div class="hardware" aria-hidden="true"></div><button type="button" class="notch-trigger cursor-interaction" data-action="toggle" aria-label="Open or close FERB"><span class="seam"></span></button>
+  <div class="mount" data-mount></div>
+  <div class="relay-files" aria-label="Fictional notes to hand to FERB">
+   <button type="button" draggable="false" class="relay-file cursor-interaction" data-action="add" data-file="Discovery.txt"><span class="small-label">TXT / 01</span><b>Discovery.txt</b><small>Drag to the notch<br>or click to hand over</small><i class="file-rules"></i></button>
+   <button type="button" draggable="false" class="relay-file cursor-interaction" data-action="add" data-file="Decisions.txt"><span class="small-label">TXT / 02</span><b>Decisions.txt</b><small>Voice at the edge.<br>Clear control.</small><i class="file-rules"></i></button>
+   <button type="button" draggable="false" class="relay-file cursor-interaction" data-action="add" data-file="Next.txt"><span class="small-label">TXT / 03</span><b>Next.txt</b><small>Leave. Return.<br>Find the result.</small><i class="file-rules"></i></button>
+  </div><div class="desktop-foot"><span class="simulation">Interactive concept · only the sample notes can be added</span><span class="foot-mark">a place for the handoff.</span></div>
+ </div><footer class="study-foot"><span>Give FERB the material. The notch holds the work and returns a usable object.</span><div class="material">Frosted sleeve<br>Paper / soft graphite</div></footer>
+</section>
+<section class="concept thread" data-variant="Thread" data-concept="Thread" aria-label="Thread — keep a handle on delegated work" hidden>
+ <header class="study-head"><h2>Thread<span class="subtitle">Pick up where you left it.</span></h2><span class="study-label">FERB / Interaction study 02</span></header>
+ <div class="screen">
+  <div class="menubar"><span class="menu-left"><b>Safari</b><span>File</span><span class="optional">Edit　View</span></span><span class="menu-date">Sat 10 Oct　 10:42</span></div>
+  <div class="hardware" aria-hidden="true"></div><button type="button" class="notch-trigger cursor-interaction" data-action="toggle" aria-label="Open or close FERB"><span class="seam"></span></button>
+  <div class="mount" data-mount></div>
+  <div class="desktop-foot"><span class="simulation">Interactive concept · the trail shows fictional history</span><span class="foot-mark">nothing to reconstruct.</span></div>
+ </div><footer class="study-foot"><span>A small handle for each piece of work. Follow its trail without reading a conversation.</span><div class="material">Sea glass<br>Thread / translucent tabs</div></footer>
+</section>
+</div>
+<script>
+(()=>{
+ const root=document.getElementById('ferb-notch-study');
+ const sourceNames=['Discovery.txt','Decisions.txt','Next.txt'];
+ const defaultRequest='Make a one-page brief from these notes.';
+ const states={},renders={},timers={};
+ const live=document.createElement('div');live.setAttribute('aria-live','polite');live.style.cssText='position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;';root.append(live);
+ const saved=window.openai?.widgetState?.privateContent?.concepts||{};
+ const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const icon=name=>`<i data-lucide="${name}" aria-hidden="true"></i>`;
+ const btn=(text,action,cls='',extra='')=>`<button type="button" class="cursor-interaction ${cls}" data-action="${action}" ${extra}>${text}</button>`;
+ const wave=(active=false)=>`<div class="voice-field" aria-hidden="true"><div class="wave ${active?'sounding':''}">${Array.from({length:63},(_,i)=>{const h=3+39*Math.exp(-Math.pow((i-18)/5,2))+55*Math.exp(-Math.pow((i-37)/7,2))+23*Math.exp(-Math.pow((i-49)/3,2));return `<span style="height:${h.toFixed(1)}px;--delay:${(-i*.039).toFixed(2)}s"></span>`}).join('')}</div></div>`;
+ const top=(text,record=false)=>`<div class="panel-top"><span class="identity">ferb.</span><span class="state-name">${record?'<i class="record-dot"></i>':''}${text}</span></div>`;
+ const artifact=s=>`<article class="artifact"><div class="artifact-top"><span class="small-label">FERB / Brief</span><span class="outcome-check">${s.key==='Thread'&&!s.date?'◇ Draft · date unresolved':'✓ Checked against 3 notes'}</span></div><h3>A smaller surface.<br>A clearer handoff.</h3><p>Design a place at the edge of the Mac where a person can hand work over and return to a useful result.</p>${s.date?'<p>Launch date: '+escape(s.date)+'.</p>':''}<ol><li><b>Start with voice.</b> Keep the words visible and editable.</li><li><b>Hold the context.</b> Name the notes that belong to the request.</li><li><b>Return an object.</b> Keep the result and its sources together.</li></ol><div class="source-line">Discovery.txt · Decisions.txt · Next.txt<br>Illustrative brief. No files were read or written.</div>${btn('Back to notch','result','quiet')}</article>`;
+ const receipt=()=>`<div class="result-slot" aria-hidden="true"></div><article class="receipt"><div class="stamp">✓ Ready · checked</div><h3>Your one-page brief.</h3><p>Decisions, next steps, and the three source notes. Kept together.</p><div class="receipt-file"><span>${icon('file-text')} Design brief.pdf</span><span>1 page</span></div>${btn('Open brief','artifact','primary')}</article>`;
+ const compact=s=>`<div class="work-rest"><div class="compact-work"><div class="compact-row"><span class="ticks" aria-hidden="true"><i></i><i></i><i></i></span><span>Making your brief</span>${btn('Stop','stop')}</div><p>Reading 3 notes · you can carry on</p>${s.expanded?`<p>${escape(s.request)}</p>`:''}</div></div>`;
+ const persist=key=>{const concepts=Object.fromEntries(Object.entries(states).map(([k,s])=>[k,{phase:['listening','working'].includes(s.phase)?'ready':s.phase,request:s.request.slice(0,1000),added:s.added,trail:s.trail,selected:s.selected,date:s.date,resumePhase:s.resumePhase,material:s.material}]));window.openai?.setWidgetState?.({modelContent:{concept:key,phase:states[key].phase},privateContent:{concepts}})?.catch(()=>{})};
+ const renderVoice=s=>`<div class="veil-panel surface">${top(s.phase==='listening'?'Listening':'Ready when you are',s.phase==='listening')}${wave(s.phase==='listening')}<p class="utterance ${s.phase==='listening'?'':'waiting'}">${s.phase==='listening'?'“Make a one-page brief<br>from these notes.”':'Go ahead. I’m here.'}</p><div class="voice-actions"><span class="context">${icon('files')} 3 notes attached</span><div class="voice-switch">${btn('Type instead','type','quiet')}${btn(icon(s.phase==='listening'?'square':'mic')+(s.phase==='listening'?' Finish example':' Try voice'),'voice','mic-button')}</div></div></div>`;
+ function renderThread(s){
+  const tabs=`<div class="thread-tabs">${btn(s.date?'✓ Design brief':'Design brief','brief','thread-tab',`aria-pressed="${s.selected==='brief'}"`)}${btn(s.date?'✓ Launch date':'◇ One question','question','thread-tab',`aria-pressed="${s.selected==='question'}"`)}</div><div class="thread-line" aria-hidden="true"></div>`;
+  if(s.selected==='question')return tabs+`<div class="thread-object surface">${top(s.date?'Date clarified':'Waiting for you')}<h3>Which launch date<br>belongs in the brief?</h3><p>${s.date?'Currently '+escape(s.date)+'. You can change your choice.':'The discovery note says Friday. The decisions note says Monday. Neither has been changed.'}</p><div class="object-actions">${btn('Friday, 16 Oct','friday')}${btn('Monday, 19 Oct','monday','primary')}</div></div>`;
+  const content=s.trail==='request'?`<span class="small-label soft">Earlier / Your request</span><h3>“${escape(s.request)}”</h3><p>The original instruction stays attached to this piece of work.</p>`:s.trail==='sources'?`<span class="small-label soft">Earlier / Context</span><h3>The things you handed over.</h3><ul class="source-list">${sourceNames.map(n=>`<li><span>${icon('file-text')} ${n}</span><span>Attached</span></li>`).join('')}</ul>`:`<span class="small-label soft">Current / ${s.date?'Checked result':'Draft · needs your input'}</span><h3>Design brief</h3><p>${s.date?'Launch date clarified: '+escape(s.date)+'. Decisions and next steps are ready.':'Decisions and next steps are drafted. One source conflict needs your choice.'}</p><div class="receipt-file"><span>${icon('file-text')} Design brief.pdf</span><span>1 page</span></div><div class="object-actions"><span class="outcome-check">${s.date?'✓ 3 sources checked':'◇ Date needs your input'}</span>${btn(s.date?'Open brief':'Review draft','artifact','primary')}</div>`;
+  return tabs+`<article class="thread-object surface">${content}</article><nav class="trace-steps" aria-label="Read the task trail">${['request','sources','result'].map(k=>btn(`<i aria-hidden="true"></i>${{request:'Request',sources:'Sources',result:'Result'}[k]}`,'trail-'+k,'trace-step',`aria-pressed="${s.trail===k}"`)).join('')}</nav>`;
+ }
+ function content(s){
+  if(s.phase==='rest')return `<div class="rest-copy">${btn('Bring FERB back','toggle','quiet')}<span>Available at the edge. Nothing asking for attention.</span></div>`;
+  if(s.phase==='working')return compact(s);
+  if(s.phase==='artifact')return artifact(s);
+  if(s.phase==='stopped')return `<div class="work-plain"><b>This task is stopped.</b><br>The sample source notes are unchanged.<br>${btn('Start a new brief','open','quiet')}</div>`;
+  if(s.key==='Thread')return renderThread(s);
+  if(s.phase==='result')return receipt();
+  if(s.phase==='intent'&&s.key==='Veil')return `<div class="veil-panel surface">${top('Your words')}<label class="small-label soft" for="request-veil">The request</label><textarea id="request-veil" class="intent-field" aria-label="Edit your request">${escape(s.request)}</textarea><div class="voice-actions"><span class="context">${icon('files')} 3 notes attached</span>${btn('Make brief','commit','primary')}</div></div>`;
+  if(s.key==='Relay'){
+   if(s.phase==='intent')return `<div class="parcel surface"><div class="parcel-head"><div class="file-stack" aria-hidden="true"></div><div><h3>One small handoff.</h3><span class="small-label soft">${s.added.length} source notes</span></div></div><p>${escape(s.request)}</p><div class="parcel-actions">${btn('Change request','type','quiet')}${btn('Make brief','commit','primary')}</div></div>`;
+   if(s.phase==='edit')return `<div class="parcel surface">${top('Tell me what to make')}<textarea class="intent-field" aria-label="Edit your request">${escape(s.request)}</textarea><div class="parcel-actions">${btn('Keep this request','save','primary')}</div></div>`;
+   return `<div class="drop-mouth surface" data-dropzone><div class="slot-line" aria-hidden="true"></div><p>${s.added.length?s.added.length+(s.added.length===1?' note in hand.':' notes in hand.'):'Give me the material.'}</p><small>${s.added.length?s.added.map(escape).join(' · '):'Drop a sample note here.'}</small><div style="margin-top:13px">${btn(s.added.length===3?'Make a brief from these':'Use all 3 sample notes',s.added.length===3?'prepare':'all','quiet')}</div></div>`;
+  }
+  return renderVoice(s);
+ }
+ for(const board of root.querySelectorAll('[data-concept]')){
+  const key=board.dataset.concept;
+  const valid=['ready','rest','intent','result','artifact','stopped','edit'];
+  const old=saved[key];const s={key,phase:valid.includes(old?.phase)?old.phase:'ready',request:typeof old?.request==='string'?old.request:defaultRequest,added:Array.isArray(old?.added)?old.added.filter(n=>sourceNames.includes(n)):[],trail:['request','sources','result'].includes(old?.trail)?old.trail:'result',selected:old?.selected==='question'?'question':'brief',date:typeof old?.date==='string'?old.date:'',resumePhase:valid.includes(old?.resumePhase)?old.resumePhase:'ready',material:old?.material==='Solid'?'Solid':'Frosted',expanded:false};states[key]=s;
+  const mount=board.querySelector('[data-mount]');
+  const render=(animate=false)=>{board.dataset.phase=s.phase;board.querySelectorAll('[data-file]').forEach(el=>{const added=s.added.includes(el.dataset.file);el.disabled=s.phase!=='ready';el.draggable=false;el.setAttribute('aria-pressed',String(added));el.dataset.added=String(added);el.setAttribute('aria-label',el.dataset.file+(added?' — in hand, click to remove':' — hand to FERB'));});mount.innerHTML=content(s);mount.setAttribute('aria-label',`${key}: ${s.phase}`);if(globalThis.lucide)lucide.createIcons({attrs:{width:16,height:16}});if(animate&&!matchMedia('(prefers-reduced-motion: reduce)').matches&&board.dataset.keyboard!=='true'){const surface=mount.querySelector('.surface,.receipt,.artifact');if(surface)surface.animate([{opacity:.35,transform:'translateY(-7px) scale(.985)'},{opacity:1,transform:'translateY(0) scale(1)'}],{duration:220,easing:'cubic-bezier(.19,1,.22,1)'});}};renders[key]=render;render();
+  const stopTimer=()=>{if(timers[key])clearTimeout(timers[key]);delete timers[key]};
+  const setPhase=(phase,animate=true)=>{s.phase=phase;render(animate);live.textContent=`${key}: ${{working:'Making your brief',result:'Your brief is ready',stopped:'Task stopped',intent:'Your request is ready to edit',listening:'Voice example playing'}[phase]||phase}`;persist(key)};
+  const listen=()=>{stopTimer();setPhase('listening');timers[key]=setTimeout(()=>{setPhase('intent');delete timers[key]},4400)};
+  const commit=()=>{stopTimer();const input=mount.querySelector('textarea');if(input)s.request=input.value.trim()||defaultRequest;setPhase('working');timers[key]=setTimeout(()=>{setPhase('result');delete timers[key]},3000)};
+  const fold=()=>{if(s.phase==='working'){s.expanded=false;render();return}stopTimer();if(s.phase!=='rest')s.resumePhase=s.phase==='listening'?'intent':s.phase;setPhase('rest',false)};
+  board.addEventListener('keydown',e=>{board.dataset.keyboard='true';if(e.key==='Escape'&&!['TEXTAREA','INPUT'].includes(e.target.tagName))fold()});
+  board.addEventListener('pointerdown',()=>{board.dataset.keyboard='false'});
+  board.addEventListener('click',e=>{
+   const target=e.target.closest('[data-action]');if(!target)return;const action=target.dataset.action;
+   if(action==='voice'){if(s.phase==='listening'){stopTimer();setPhase('intent')}else listen();return}
+   if(action==='commit'){commit();return}
+   if(action==='toggle'){if(s.phase==='working'){s.expanded=!s.expanded;render();return}if(s.phase==='rest')setPhase(s.resumePhase||'ready');else fold();return}
+   if(action==='open'){stopTimer();s.added=[];setPhase('ready');return}
+   if(action==='type'){stopTimer();setPhase(key==='Relay'?'edit':'intent');return}
+   if(action==='save'){s.request=mount.querySelector('textarea').value.trim()||defaultRequest;setPhase('intent');return}
+   if(action==='all'){s.added=[...sourceNames];setPhase('ready');return}
+   if(action==='add'){if(s.phase!=='ready')return;if(s.added.includes(target.dataset.file))s.added=s.added.filter(n=>n!==target.dataset.file);else s.added.push(target.dataset.file);setPhase('ready');return}
+   if(action==='prepare'){setPhase('intent');return}
+   if(action==='stop'){stopTimer();setPhase('stopped',false);return}
+   if(action==='artifact'){setPhase('artifact');return}
+   if(action==='result'){setPhase(key==='Thread'?'ready':'result');return}
+   if(action==='brief'||action==='question'){s.selected=action;setPhase('ready');return}
+   if(action==='friday'||action==='monday'){s.date=action==='friday'?'Friday, 16 October':'Monday, 19 October';s.selected='brief';s.trail='result';setPhase('ready');return}
+   if(action.startsWith('trail-')){s.trail=action.slice(6);render();persist(key)}
+  });
+  let drag=null,suppressClick=false;
+  board.addEventListener('click',e=>{if(suppressClick){e.preventDefault();e.stopImmediatePropagation();suppressClick=false}},{capture:true});
+  board.addEventListener('dragstart',e=>{if(e.target.closest('[data-file]'))e.preventDefault()});
+  board.addEventListener('pointerdown',e=>{const file=e.target.closest('[data-file]');if(!file||s.phase!=='ready'||e.button!==0)return;drag={file,name:file.dataset.file,x:e.clientX,y:e.clientY,pointer:e.pointerId,ghost:null,inside:false};});
+  board.addEventListener('pointermove',e=>{if(!drag||e.pointerId!==drag.pointer)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(!drag.ghost&&Math.hypot(dx,dy)<5)return;e.preventDefault();const screen=board.querySelector('.screen'),zone=mount.querySelector('[data-dropzone]');if(!zone)return;if(!drag.ghost){const rect=drag.file.getBoundingClientRect(),parent=screen.getBoundingClientRect();const ghost=drag.file.cloneNode(true);ghost.removeAttribute('data-action');ghost.removeAttribute('data-file');ghost.removeAttribute('aria-pressed');ghost.setAttribute('aria-hidden','true');ghost.disabled=true;ghost.classList.add('drag-copy');ghost.style.cssText=`left:${rect.left-parent.left}px;top:${rect.top-parent.top}px;width:${drag.file.offsetWidth}px;height:${drag.file.offsetHeight}px;`;screen.append(ghost);drag.ghost=ghost;board.setPointerCapture(e.pointerId);}drag.ghost.style.transform=`translate(${dx}px,${dy}px)`;const box=zone.getBoundingClientRect();drag.inside=e.clientX>=box.left&&e.clientX<=box.right&&e.clientY>=box.top&&e.clientY<=box.bottom;zone.classList.toggle('drag-over',drag.inside);});
+  const finishDrag=accept=>{if(!drag)return;const current=drag;drag=null;mount.querySelector('[data-dropzone]')?.classList.remove('drag-over');if(current.ghost){current.ghost.remove();suppressClick=true;setTimeout(()=>{suppressClick=false},0);if(accept&&current.inside){if(!s.added.includes(current.name))s.added.push(current.name);setPhase('ready');live.textContent=current.name+' handed to FERB';}}if(board.hasPointerCapture(current.pointer))board.releasePointerCapture(current.pointer);};
+  board.addEventListener('pointerup',()=>finishDrag(true));
+  board.addEventListener('pointercancel',()=>finishDrag(false));
+  board.addEventListener('keydown',e=>{if(e.key==='Escape')finishDrag(false)});
+  board.dataset.material=s.material;
+  if(globalThis.Tweak){const options={transparency:s.material};const t=new Tweak({container:board,onChange:()=>{s.material=options.transparency;board.dataset.material=s.material;persist(key)}});t.addSelect(options,'transparency',{label:'Material',options:['Frosted','Solid']});}
+ }
+ window.addEventListener('openai:set_globals',event=>{const incoming=event.detail?.globals?.widgetState?.privateContent?.concepts;if(!incoming)return;for(const [key,next] of Object.entries(incoming)){const s=states[key];if(!s||!next||['working','listening'].includes(s.phase))continue;if(['ready','rest','intent','result','artifact','stopped','edit'].includes(next.phase))s.phase=next.phase;if(typeof next.request==='string')s.request=next.request.slice(0,1000);if(Array.isArray(next.added))s.added=next.added.filter(n=>sourceNames.includes(n));if(['request','sources','result'].includes(next.trail))s.trail=next.trail;if(['brief','question'].includes(next.selected))s.selected=next.selected;if(typeof next.date==='string')s.date=next.date;s.material=next.material==='Solid'?'Solid':'Frosted';root.querySelector('[data-concept="'+key+'"]').dataset.material=s.material;if(['ready','intent','result','artifact','stopped','edit'].includes(next.resumePhase))s.resumePhase=next.resumePhase;renders[key]()}});
+})();
+</script>
+</div>

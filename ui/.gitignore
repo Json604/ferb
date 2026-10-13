@@ -1,0 +1,5 @@
+.DS_Store
+**/.build/
+**/build/
+**/.swiftpm/
+output/native-macos-research/ferb-native-directions.js

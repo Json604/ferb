@@ -1,0 +1,45 @@
+FERB notch study — 10 October 2026
+
+Scope: interactive design exploration. No FERB daemon integration, microphone
+access, actual file access, PDF generation, or native panel implementation.
+
+Verified in the browser:
+- Veil: simulated listening -> editable request -> work -> result -> artifact.
+- Escape during work preserves completion.
+- Closing and reopening a completed result preserves that result.
+- Relay: pointer-tracked sample drag accepted at the handoff surface.
+- Relay: releasing outside the surface leaves the source set unchanged and
+  removes the temporary drag copy.
+- Source selection, removal, collect-all, request preparation, and task Stop.
+- Thread: source trail, original request, contextual date question, and chosen
+  date propagated into the artifact. Unresolved drafts are labeled separately.
+- Desktop compositions at 1024 px; narrow preview at 390 px, including artifact.
+- At 390 px, document width matches the viewport and rendered enabled controls
+  remain within horizontal bounds.
+- Research page and both credited Behance reference images load successfully.
+- No local preview errors in inspected browser console output. Research-site
+  console messages are excluded from this claim.
+- JavaScript passes node --check; inline fragment remains below 1 MB.
+- Inline fragment contains no network or microphone API calls.
+
+Implemented but not fully validated here:
+- Host carousel, material Tweak controls, and host state round-trip behavior
+  require the conversation renderer; the standalone page presents all variants.
+- Reduced motion and reduced transparency styles are present. A complete
+  VoiceOver, physical touch-device, contrast, and native accessibility audit
+  remains for implementation.
+- A 320 px viewport was requested during inspection, but that preview retained
+  390 px; do not treat 320 px as browser-verified.
+
+Research method and limits are documented in research.html. Source claims are
+distinguished from design interpretations. These are proposed hypotheses, not
+findings from a FERB user study.
+
+Rebuild local review page after editing the inline study:
+  python3 mac/design-study/notch/build-preview.py
+
+Open while the local study server is running:
+  http://127.0.0.1:8793/notch/index.html
+
+Restart if needed:
+  python3 -m http.server 8793 --bind 127.0.0.1 --directory /Users/kartikey/Desktop/ferb-UI/mac/design-study

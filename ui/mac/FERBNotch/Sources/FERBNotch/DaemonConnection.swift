@@ -1,0 +1,451 @@
+import AppKit
+import Foundation
+import NotchCore
+
+@MainActor
+extension NotchModel {
+    func connectDaemon() {
+        guard eventsTask == nil else { return }
+        eventsTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                do {
+                    try await self.attachDaemon()
+                    await self.refreshDaemonStatus()
+                    for try await event in self.rpc.stream("logs.subscribe", params: [:]) {
+                        guard !Task.isCancelled else { return }
+                        self.receiveBusEvent(event)
+                    }
+                    self.connectionStatus = "Reconnecting to FERB…"
+                } catch {
+                    self.connectionStatus = error.localizedDescription
+                }
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            }
+        }
+        reconciliationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                await self?.refreshDaemonStatus()
+            }
+        }
+    }
+
+    func disconnectDaemon() {
+        eventsTask?.cancel(); eventsTask = nil
+        reconciliationTask?.cancel(); reconciliationTask = nil
+        submissionTask?.cancel(); submissionTask = nil
+        submissions.values.forEach { $0.cancel() }; submissions.removeAll()
+        // Closing UI sockets only detaches; task.stop is exclusively an owner action.
+    }
+
+    func attachDaemon() async throws {
+        var params: [String: Any] = ["new": false]
+        if let conversationID { params["resume"] = conversationID }
+        let attached = try await rpc.call("chat.attach", params: params)
+        guard let id = attached["session_id"] as? String else { throw DaemonRPCError.invalidResponse }
+        conversationID = id
+        preferences.set(id, forKey: "FERBConversationID")
+        supportsAttachments = (attached["capabilities"] as? [String] ?? []).contains("input_paths")
+        connectionStatus = "Connected to FERB"
+    }
+
+    func refreshDaemonStatus() async {
+        guard !refreshingStatus else { return }
+        refreshingStatus = true
+        let rootsBefore = Set(workSessions.values.compactMap(\.backendTaskID))
+            .union(session.backendTaskID.map { [$0] } ?? [])
+            .union(conversation.turns.filter { ["working", "interrupted", "needs_user"].contains($0.status) }.compactMap(\.backendTaskID))
+        let snapshotRevision = taskStateRevision
+        defer { refreshingStatus = false }
+        let previousSize = panelSize
+        defer { if panelSize != previousSize { onBackgroundChange?(true) } }
+        do {
+            let status = try await rpc.call("chat.status", params: ["peek": true])
+            // A newer event wins over this older request's snapshot. The existing
+            // reconciliation cadence will fetch a fresh snapshot next time.
+            guard taskStateRevision == snapshotRevision else { return }
+            connectionStatus = "Connected to FERB"
+            let running = status["running"] as? [[String: Any]] ?? []
+            runningTasks = Dictionary(running.compactMap { row in
+                guard let id = row["task_id"] as? String, !id.isEmpty else { return nil }
+                return (id, row["goal"] as? String ?? "Running task")
+            }, uniquingKeysWith: { _, last in last })
+            let approvals = (status["approvals"] as? [[String: Any]] ?? []).compactMap(normalizeApproval)
+            let changed = pendingApprovals != approvals
+            pendingApprovals = approvals
+            if changed { promptError = nil; onBackgroundChange?(true) }
+            for approval in approvals { announceApproval(approval) }
+            if let approval = approvals.first(where: { $0.taskID == session.backendTaskID && $0.taskID != nil }) { session.waitForOwner(approval.reason) }
+            let results = status["results"] as? [[String: Any]] ?? []
+            for result in results { receiveOutcome(result, announce: false, recordEvent: false) }
+            for taskID in rootsBefore where runningTasks[taskID] == nil && !knownCompletedTasks.contains(taskID)
+                && !approvals.contains(where: { $0.taskID == taskID }) {
+                await reconcileMissingTask(taskID)
+                guard taskStateRevision == snapshotRevision else { return }
+            }
+            if session.backendTaskID == nil, session.activeTaskID == nil {
+                let remembered = preferences.string(forKey: "FERBActiveTaskID")
+                if let id = remembered, let goal = runningTasks[id] {
+                    session.resumeBackendTask(id, goal: goal)
+                } else if let remembered,
+                          let result = results.first(where: { $0["task_id"] as? String == remembered }) {
+                    restoreResult(result)
+                } else if let id = running.last?["task_id"] as? String, let goal = runningTasks[id] {
+                    session.resumeBackendTask(id, goal: goal)
+                    preferences.set(id, forKey: "FERBActiveTaskID")
+                } else if let remembered {
+                    await recoverTask(remembered)
+                    guard taskStateRevision == snapshotRevision else { return }
+                } else if let result = results.last { restoreResult(result) }
+            }
+            if let taskID = session.backendTaskID, session.activeTaskID == nil,
+               let goal = runningTasks[taskID] {
+                knownCompletedTasks.remove(taskID)
+                session.resumeBackendTask(taskID, goal: goal)
+            }
+            if let taskID = session.backendTaskID, session.activeTaskID != nil {
+                if runningTasks[taskID] != nil {
+                    if !approvals.contains(where: { $0.taskID == taskID }) { session.resumeAfterOwnerAnswer() }
+                } else if let result = results.first(where: { $0["task_id"] as? String == taskID }) {
+                    receiveOutcome(result, announce: true, recordEvent: false)
+                } else {
+                    await recoverTask(taskID)
+                    guard taskStateRevision == snapshotRevision else { return }
+                }
+            }
+            if let approval = approvals.first(where: { $0.taskID == session.backendTaskID && $0.taskID != nil }) { session.waitForOwner(approval.reason) }
+        } catch { connectionStatus = error.localizedDescription }
+    }
+
+    private func restoreResult(_ result: [String: Any]) {
+        guard let id = result["task_id"] as? String, !knownCompletedTasks.contains(id) else { return }
+        session.resumeBackendTask(id, goal: result["goal"] as? String ?? "Previous task")
+        receiveOutcome(result, announce: false, recordEvent: false)
+    }
+
+    private func recoverTask(_ taskID: String) async {
+        guard !knownCompletedTasks.contains(taskID), !reconciledMissingTasks.contains(taskID) else { return }
+        if session.backendTaskID == nil, session.activeTaskID == nil {
+            session.resumeBackendTask(taskID, goal: "Previous task")
+        }
+        await reconcileMissingTask(taskID)
+    }
+
+    private func reconcileMissingTask(_ taskID: String) async {
+        guard !knownCompletedTasks.contains(taskID), !reconciledMissingTasks.contains(taskID) else { return }
+        let traceRevision = taskStateRevision
+        do {
+            let trace = try await rpc.call("trace.get", params: ["task_id": taskID])
+            guard taskStateRevision == traceRevision, runningTasks[taskID] == nil,
+                  !knownCompletedTasks.contains(taskID), !pendingApprovals.contains(where: { $0.taskID == taskID }) else { return }
+            let outcome = trace["outcome"] as? [String: Any] ?? [:]
+            if var result = outcome["result"] as? [String: Any], result["status"] != nil {
+                result["task_id"] = taskID
+                receiveOutcome(result, announce: false, recordEvent: false)
+            } else {
+                let notice = "This task is no longer running; FERB has no confirmed final response."
+                if session.backendTaskID == taskID { session.detachUnavailableTask(notice) }
+                workSessions = workSessions.filter { $0.value.backendTaskID != taskID }
+                for turn in conversation.turns where turn.backendTaskID == taskID && ["working", "needs_user"].contains(turn.status) {
+                    conversation.finish(id: turn.id, answer: turn.answer, status: "interrupted", artifacts: turn.artifacts, displayText: turn.displayText)
+                }
+                saveConversation()
+            }
+            reconciledMissingTasks.insert(taskID)
+        } catch { connectionStatus = error.localizedDescription }
+    }
+
+    func selectRunningTask(_ taskID: String) {
+        guard let goal = runningTasks[taskID] else { return }
+        if let active = session.activeTaskID { workSessions[active] = session }
+        if let stored = workSessions.values.first(where: { $0.backendTaskID == taskID }) {
+            let draft = session.draft
+            let sources = session.attachments
+            session = stored
+            session.clearComposer()
+            session.draft = draft
+            session.attach(sources)
+        } else { session.resumeBackendTask(taskID, goal: goal) }
+        preferences.set(taskID, forKey: "FERBActiveTaskID")
+        expand()
+    }
+
+    func submitToDaemon(localID: UUID, text: String, sources: [URL]) {
+        submissions[localID] = Task { [weak self] in
+            guard let self else { return }
+            defer { self.finishSubmission(localID: localID); self.submissions.removeValue(forKey: localID) }
+            do {
+                if self.conversationID == nil { try await self.attachDaemon() }
+                if !sources.isEmpty && !self.supportsAttachments {
+                    self.receiveChatEvent(["type": "error", "text": "The installed FERB daemon needs an update before it can receive attachments. Your request was not sent."], localID: localID)
+                    return
+                }
+                var params: [String: Any] = ["session_id": self.conversationID!, "text": text]
+                if !sources.isEmpty { params["input_paths"] = sources.map(\.path) }
+                for try await event in self.rpc.stream("chat.send", params: params) {
+                    guard !Task.isCancelled else { return }
+                    self.receiveChatEvent(event, localID: localID)
+                }
+                if self.conversation.turns.contains(where: { $0.id == localID && $0.isProvisional }) {
+                    self.receiveChatEvent(["type": "reply_abort", "reason": "The stream ended before FERB confirmed its reply."], localID: localID)
+                    self.withWorkSession(localID) {
+                        self.session.waitForOwner("The response was interrupted. It has not been confirmed.")
+                    }
+                }
+            } catch {
+                self.receiveChatEvent(["type": "reply_abort", "reason": "Connection interrupted before FERB confirmed its reply."], localID: localID)
+                self.withWorkSession(localID) {
+                    self.session.waitForOwner(error.localizedDescription + " Check running tasks before resubmitting.")
+                }
+                self.connectionStatus = error.localizedDescription
+                self.promptError = self.session.attentionMessage
+                self.onBackgroundChange?(true)
+                await self.refreshDaemonStatus()
+            }
+        }
+    }
+
+    func finishSubmission(localID: UUID) {
+        withWorkSession(localID) {
+            guard session.backendTaskID == nil else { return }
+            let notice = conversation.turns.first(where: { $0.id == localID })?.responseNotice
+                ?? "The response ended before FERB confirmed it. Check tasks before resubmitting."
+            conversation.abortReply(id: localID, reason: notice)
+            session.detachInterruptedReply(notice)
+            pendingStops.remove(localID)
+            saveConversation()
+        }
+    }
+
+    func receiveChatEvent(_ event: [String: Any], localID: UUID) {
+        withWorkSession(localID) { handleChatEvent(event, localID: localID) }
+        if event["type"] as? String == "clarify", conversation.turns.contains(where: { $0.id == localID && $0.status == "done" }) {
+            followsToday = true
+            selectedDay = Date()
+            announceAttention("followup:" + localID.uuidString)
+        }
+    }
+
+    private func handleChatEvent(_ event: [String: Any], localID: UUID) {
+        guard session.activeTaskID == localID else { return }
+        switch event["type"] as? String {
+        case "plan":
+            guard let id = event["task_id"] as? String else { return }
+            taskStateRevision += 1
+            session.bindBackendTask(id, localID: localID)
+            conversation.clearProvisionalReply(id: localID)
+            conversation.bind(id: localID, taskID: id)
+            saveConversation()
+            preferences.set(id, forKey: "FERBActiveTaskID")
+            runningTasks[id] = event["goal"] as? String ?? session.draft
+            session.noteBackendActivity(event["text"] as? String ?? "Task started")
+            if pendingStops.remove(localID) != nil { requestDaemonStop() }
+        case "reply_delta":
+            guard session.backendTaskID == nil else { return }
+            conversation.append(id: localID, delta: event["text"] as? String ?? "")
+        case "reply_abort":
+            guard session.backendTaskID == nil else { return }
+            conversation.abortReply(id: localID, reason: event["reason"] as? String ?? "")
+            saveConversation()
+        case "reply", "clarify":
+            _ = session.finishBackendWork(taskID: nil, status: "done", answer: event["text"] as? String ?? "", artifacts: [])
+            feedback.play(.completed)
+            showCompletionTrace()
+            recordAnswer(announce: true, displayText: event["display_text"] as? String)
+        case "outcome": receiveOutcome(event)
+        case "error":
+            let message = event["text"] as? String ?? "FERB could not start this request."
+            conversation.finish(id: localID, answer: message, status: "failed", artifacts: [])
+            saveConversation()
+            session.requireAttention(message)
+            promptError = message
+            feedback.play(.attention)
+            onBackgroundChange?(true)
+        case "subtask":
+            let text = event["summary"] as? String ?? event["status"] as? String ?? "Task updated"
+            session.noteBackendActivity(text)
+        case "verification": session.noteBackendActivity("Checking the result", symbol: "checkmark.shield")
+        case "memory", "timer": session.noteBackendActivity(event["text"] as? String ?? "Task updated")
+        case "event":
+            if event["topic"] as? String == "approval.requested" { receiveBusEvent(event) }
+        default: break
+        }
+    }
+
+    func normalizeApproval(_ value: [String: Any]) -> DaemonApproval? {
+        var normalized = value
+        if let taskID = value["task_id"] as? String {
+            var roots = Set(runningTasks.keys)
+            roots.formUnion(workSessions.values.compactMap(\.backendTaskID))
+            roots.formUnion(conversation.turns.compactMap(\.backendTaskID))
+            if let current = session.backendTaskID { roots.insert(current) }
+            if let root = roots.filter({ !$0.isEmpty && (taskID == $0 || taskID.hasPrefix($0 + ".")) })
+                .max(by: { $0.count < $1.count }) {
+                normalized["task_id"] = root
+            }
+        }
+        return DaemonApproval(normalized)
+    }
+
+    func receiveBusEvent(_ event: [String: Any]) {
+        let data = event["data"] as? [String: Any] ?? [:]
+        let taskID = data["task_id"] as? String
+        if let topic = event["topic"] as? String,
+           ["approval.requested", "approval.resolved", "task.created", "task.result", "task.steered"].contains(topic) {
+            taskStateRevision += 1
+        }
+        switch event["topic"] as? String {
+        case "approval.requested":
+            guard let approval = normalizeApproval(data), !pendingApprovals.contains(where: { $0.id == approval.id }) else { return }
+            pendingApprovals.append(approval)
+            if approval.taskID == session.backendTaskID, approval.taskID != nil { session.waitForOwner(approval.reason) }
+            announceApproval(approval)
+            onBackgroundChange?(true)
+        case "approval.resolved":
+            pendingApprovals.removeAll { $0.id == data["approval_id"] as? String }
+            if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+            promptError = nil
+            onBackgroundChange?(true)
+        case "task.steered":
+            if let taskID, let goal = data["goal"] as? String { runningTasks[taskID] = goal }
+        case "task.created":
+            if let taskID {
+                runningTasks[taskID] = data["goal"] as? String ?? "Running task"
+                knownCompletedTasks.remove(taskID)
+                reconciledMissingTasks.remove(taskID)
+            }
+        case "task.result":
+            if let taskID { runningTasks.removeValue(forKey: taskID) }
+            receiveOutcome(data)
+        case "tool.called":
+            guard let taskID else { return }
+            let matches: (String?) -> Bool = { root in
+                guard let root else { return false }
+                return taskID == root || taskID.hasPrefix(root + ".")
+            }
+            let title = data["tool"] as? String ?? "Working"
+            if matches(session.backendTaskID) { session.noteBackendActivity(title) }
+            else if let local = workSessions.first(where: { matches($0.value.backendTaskID) })?.key {
+                withWorkSession(local) { session.noteBackendActivity(title) }
+            }
+        case "task.resumed_event":
+            if taskID == session.backendTaskID, data["type"] as? String == "reply" {
+                session.noteBackendActivity(data["text"] as? String ?? "Task resumed")
+            }
+        case "bus.overflow", "events.dropped":
+            Task { await refreshDaemonStatus() }
+        default: break
+        }
+    }
+
+    func receiveOutcome(_ event: [String: Any], announce: Bool = true, recordEvent: Bool = true) {
+        guard let taskID = event["task_id"] as? String else { return }
+        if recordEvent { taskStateRevision += 1 }
+        if session.backendTaskID == taskID, session.activeTaskID != nil { handleOutcome(event, announce: announce); return }
+        if let localID = workSessions.first(where: { $0.value.backendTaskID == taskID })?.key {
+            withWorkSession(localID) { handleOutcome(event, announce: announce) }
+        } else if let turn = conversation.turns.first(where: { $0.backendTaskID == taskID }),
+                  let status = event["status"] as? String {
+            conversation.finish(id: turn.id, answer: event["answer"] as? String ?? event["summary"] as? String ?? turn.answer,
+                status: status, artifacts: (event["artifacts"] as? [String] ?? []).filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) },
+                displayText: event["display_text"] as? String)
+            knownCompletedTasks.insert(taskID)
+            runningTasks.removeValue(forKey: taskID)
+            saveConversation()
+        }
+    }
+
+    private func handleOutcome(_ event: [String: Any], announce: Bool) {
+        guard let id = event["task_id"] as? String, id == session.backendTaskID else { return }
+        let alreadyAnnounced = knownCompletedTasks.contains(id)
+        let status = event["status"] as? String ?? "failed"
+        let answer = event["answer"] as? String ?? event["summary"] as? String ?? "No answer was recorded."
+        guard session.finishBackendWork(taskID: id, status: status, answer: answer,
+                                       artifacts: event["artifacts"] as? [String] ?? []) else { return }
+        workSessions = workSessions.filter { $0.value.backendTaskID != id }
+        knownCompletedTasks.insert(id)
+        runningTasks.removeValue(forKey: id)
+        stoppingTaskIDs.remove(id)
+        if announce && !alreadyAnnounced && status == "done" { feedback.play(.completed); showCompletionTrace() }
+        else if announce && !alreadyAnnounced && status != "cancelled" { feedback.play(.attention) }
+        recordAnswer(announce: announce, displayText: event["display_text"] as? String)
+        for turn in conversation.turns where turn.backendTaskID == id && ["working", "interrupted", "needs_user"].contains(turn.status) {
+            conversation.finish(id: turn.id, answer: answer, status: status, artifacts: session.result?.artifacts ?? [],
+                displayText: event["display_text"] as? String)
+        }
+        saveConversation()
+    }
+
+    func requestDaemonStop() {
+        guard let taskID = session.backendTaskID else {
+            if let localID = session.activeTaskID { pendingStops.insert(localID) }
+            else { return }
+            session.noteBackendActivity("Stop requested; waiting for task identity", symbol: "pause")
+            return
+        }
+        guard !taskID.isEmpty else { return }
+        let localID = session.activeTaskID
+        Task {
+            do {
+                _ = try await rpc.call("task.stop", params: ["task_ids": [taskID]])
+                if let localID { withWorkSession(localID) { session.noteBackendActivity("Stop requested", symbol: "pause") } }
+                await refreshDaemonStatus()
+            } catch { promptError = error.localizedDescription }
+        }
+    }
+
+    func answerApproval(_ approval: DaemonApproval, text: String) {
+        guard !sendingAnswer else { return }
+        sendingAnswer = true
+        promptError = nil
+        Task {
+            do {
+                _ = try await rpc.call("chat.answer", params: ["approval_id": approval.id, "text": text])
+                taskStateRevision += 1
+                pendingApprovals.removeAll { $0.id == approval.id }
+                if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+            } catch {
+                // Do not replay an answer after disconnect: it may already have been consumed.
+                promptError = "The answer could not be confirmed. Rechecking the pending request."
+                await refreshDaemonStatus()
+            }
+            sendingAnswer = false
+            onBackgroundChange?(true)
+        }
+    }
+
+    func chooseApproval(_ approval: DaemonApproval, index: Int) {
+        guard !sendingAnswer, approval.options.indices.contains(index), !approval.isSecret else { return }
+        sendingAnswer = true
+        promptError = nil
+        Task {
+            do {
+                _ = try await rpc.call("chat.approve", params: ["approval_id": approval.id, "granted": true, "choice": index + 1])
+                taskStateRevision += 1
+                pendingApprovals.removeAll { $0.id == approval.id }
+                if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+            } catch {
+                promptError = "Could not confirm your choice. Rechecking the request."
+                await refreshDaemonStatus()
+            }
+            sendingAnswer = false
+            onBackgroundChange?(true)
+        }
+    }
+
+    func declineApproval(_ approval: DaemonApproval) {
+        guard !sendingAnswer else { return }
+        sendingAnswer = true
+        Task {
+            do {
+                _ = try await rpc.call("chat.approve", params: ["approval_id": approval.id, "granted": false])
+                taskStateRevision += 1
+                pendingApprovals.removeAll { $0.id == approval.id }
+                if pendingApprovals.isEmpty { session.resumeAfterOwnerAnswer() }
+            } catch { promptError = "Could not confirm cancellation. Rechecking the request."; await refreshDaemonStatus() }
+            sendingAnswer = false
+            onBackgroundChange?(true)
+        }
+    }
+}

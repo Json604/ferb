@@ -1,0 +1,7 @@
+FERB design-study verification — 10 October 2026
+
+Verified: HTML internal anchors and local links; unique report IDs; JavaScript syntax; fragment size under 1 MB; selected solid text/background contrast pairs (contrast-checks.json).
+
+Browser checks: all four directions, draft review and editing, decline/kept draft, illustrative completion, uncertainty evidence, task stop, global status consistency. Inspected desktop and 390px board layouts; corrected approval space and narrow material cropping. Final browser warning/error log empty. Temporary viewport override reset.
+
+Scope: local fictional prototype only. No messages sent, live daemon tasks run, native build, VoiceOver audit, live glass contrast/performance audit, or user testing. Material artwork generated. Research and local prototype do not modify the FERB backend.
