@@ -71,6 +71,18 @@ def front_window(pid: int, like: tuple[float, float, float, float] | None = None
     return mine[0] if len(mine) == 1 else None
 
 
+def normal_windows() -> list[Window]:
+    """On-screen normal windows (layer 0, not transparent, with an area), front to back: the first is the one in front
+    of the owner. Menus, the Dock and overlays sit on higher layers (L12: the front window at send)."""
+    out = []
+    for d in _info_windows():
+        w = _window(d)
+        if int(d.get("kCGWindowLayer", 1)) == 0 and float(d.get("kCGWindowAlpha", 1)) > 0 and w.bounds[2] > 0 \
+                and w.bounds[3] > 0:
+            out.append(w)
+    return out
+
+
 def on_screen(window_id: int) -> bool:
     return any(int(d["kCGWindowNumber"]) == window_id for d in _info_windows())
 

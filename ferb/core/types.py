@@ -153,11 +153,29 @@ class Capabilities:
 
 
 @dataclass(frozen=True)
+class ModelImage:
+    """A picture handed to a model with its request (L12): bytes already redacted (rule 14), sent to the model only,
+    never into a span, the journal or a log. `ref` names its evidence-store row, which the trace records instead."""
+    data: bytes = field(repr=False)
+    ref: str
+    mime: str = "image/jpeg"
+
+    def base64(self) -> str:
+        import base64
+        return base64.b64encode(self.data).decode()
+
+    def data_url(self) -> str:
+        return f"data:{self.mime};base64,{self.base64()}"
+
+
+@dataclass(frozen=True)
 class ModelRequest:
-    """What FERB sends any model runtime (D32): its instructions and the context in order, stable parts first (P20)."""
+    """What FERB sends any model runtime (D32): its instructions and the context in order, stable parts first (P20),
+    and any images, which each adapter places after the text so the cacheable prefix stays the same."""
     system: str
     parts: tuple[str, ...]
     cacheable: int = 0                       # parts[:cacheable] repeat across this role's calls; adapters cache them
+    images: tuple[ModelImage, ...] = ()
 
     @property
     def context(self) -> str:

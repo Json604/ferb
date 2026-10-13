@@ -39,6 +39,8 @@ class AnthropicProvider:
         content: list[dict[str, Any]] = [{"type": "text", "text": p} for p in request.parts]
         if 0 < request.cacheable <= len(content):
             content[request.cacheable - 1]["cache_control"] = CACHE
+        content += [{"type": "image", "source": {"type": "base64", "media_type": i.mime, "data": i.base64()}}
+                    for i in request.images]                       # after the text: the cached prefix stays (L12)
         body: dict[str, Any] = {"model": self.model, "max_tokens": MAX_TOKENS, "cache_control": CACHE,
                                 "messages": [{"role": "user", "content": content}]}
         if request.system:

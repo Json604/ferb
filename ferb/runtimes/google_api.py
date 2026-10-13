@@ -31,7 +31,9 @@ class GoogleProvider:
 
     def begin(self, request: ModelRequest, tools: list[ToolSpec], schema: dict[str, Any] | None, effort: str | None,
               cache_key: str) -> dict[str, Any]:
-        body: dict[str, Any] = {"contents": [{"role": "user", "parts": [{"text": p} for p in request.parts]}]}
+        parts: list[dict[str, Any]] = [{"text": p} for p in request.parts]
+        parts += [{"inlineData": {"mimeType": i.mime, "data": i.base64()}} for i in request.images]   # L12
+        body: dict[str, Any] = {"contents": [{"role": "user", "parts": parts}]}
         if request.system:
             body["systemInstruction"] = {"parts": [{"text": request.system}]}
         if tools:

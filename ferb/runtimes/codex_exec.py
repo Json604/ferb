@@ -142,8 +142,11 @@ class CodexRuntime:
                 "-c", f"mcp_servers.ferb.env={env}",
                 "-c", 'mcp_servers.ferb.default_tools_approval_mode="approve"']
 
-    def _cmd(self, schema_file: Path | None, token_file: Path | None, instructions: Path | None = None) -> list[str]:
-        cmd = [str(self.binary), "exec", "--json", "--ephemeral", "--skip-git-repo-check", "--ignore-user-config",
+    def _cmd(self, schema_file: Path | None, token_file: Path | None, instructions: Path | None = None,
+             images: tuple[Path, ...] = ()) -> list[str]:
+        # an image right after `exec`, in its one-value form: `--image` takes a list, which must not swallow the prompt
+        cmd = [str(self.binary), "exec", *(f"--image={p}" for p in images), "--json", "--ephemeral",
+               "--skip-git-repo-check", "--ignore-user-config",
                "--ignore-rules", "--strict-config", "-s", "read-only", "-C", str(self.workdir), "-m", self.model,
                "-c", 'approval_policy="never"', "-c", 'web_search="disabled"']
         for f in DISABLED:
@@ -179,6 +182,13 @@ class CodexRuntime:
                 schema_file = Path(name)
             token_file = None
             instructions = None
+            images: list[Path] = []
+            for image in request.images:                           # owner-only files, removed with the run (L12)
+                fd, iname = tempfile.mkstemp(prefix="ferb-image-", suffix=".jpg")
+                paths.append(Path(iname))
+                with os.fdopen(fd, "wb") as f:
+                    f.write(image.data)
+                images.append(Path(iname))
             if self.mode == "supervisor" and system:               # a stable prefix: FERB's instructions, then the context
                 fd, iname = tempfile.mkstemp(prefix="ferb-instructions-", suffix=".md")
                 paths.append(Path(iname))
@@ -193,7 +203,7 @@ class CodexRuntime:
             if home is not None:
                 env["CODEX_HOME"] = str(home)                       # the owner's personal Codex setup never loads
             proc = await asyncio.create_subprocess_exec(
-                *self._cmd(schema_file, token_file, instructions), "-", stdin=asyncio.subprocess.PIPE,
+                *self._cmd(schema_file, token_file, instructions, tuple(images)), "-", stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env, limit=64 * 1024 * 1024)
             assert proc.stdin is not None
             proc.stdin.write((context if instructions is not None else f"{system}\n\n{context}").encode())
@@ -201,7 +211,7 @@ class CodexRuntime:
             proc.stdin.close()
             return RunHandle("run-" + secrets.token_hex(6), self.name, task.id,
                              {"proc": proc, "schema_file": schema_file, "instructions": instructions,
-                              "token_file": token_file, "seen": set(), "violation": None})
+                              "token_file": token_file, "images": images, "seen": set(), "violation": None})
         except BaseException:
             if proc is not None and proc.returncode is None:
                 try:
@@ -262,6 +272,8 @@ class CodexRuntime:
             for key in ("schema_file", "instructions", "token_file"):
                 if run.state.get(key):
                     Path(run.state[key]).unlink(missing_ok=True)
+            for image in run.state.get("images", []):
+                image.unlink(missing_ok=True)
         if run.state["violation"]:
             yield RuntimeEvent("violation", {"unexpected_tools": sorted(run.state["violation"])})
             return

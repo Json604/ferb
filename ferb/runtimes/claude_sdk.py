@@ -17,12 +17,21 @@ from typing import Any, AsyncIterator, Literal
 
 from ferb.cli.mcp import mcp_name
 from ferb.core.errors import Unsupported
-from ferb.core.types import ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
+from ferb.core.types import ModelImage, ModelRequest, RunHandle, Capabilities, RuntimeEvent, Task
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.runtimes.usage import from_anthropic
 
 SDK_VERSION = "0.2.160"
 STRUCTURED_OUTPUT = "StructuredOutput"                # tool the SDK adds when output_format is set
+
+
+async def _with_images(text: str, images: tuple[ModelImage, ...]) -> AsyncIterator[dict[str, Any]]:
+    """One user message holding FERB's text, then each image as a base64 block: the SDK's streaming input, the form
+    that carries images (L12)."""
+    yield {"type": "user", "parent_tool_use_id": None,
+           "message": {"role": "user", "content": [{"type": "text", "text": text}, *(
+               {"type": "image", "source": {"type": "base64", "media_type": i.mime, "data": i.base64()}}
+               for i in images)]}}
 
 
 class ClaudeRuntime:
@@ -66,7 +75,8 @@ class ClaudeRuntime:
         client = ClaudeSDKClient(options=self._options(run_id, run_token))
         try:
             await client.connect()
-            await client.query(f"{request.system}\n\n{request.context}")
+            text = f"{request.system}\n\n{request.context}"
+            await client.query(_with_images(text, request.images) if request.images else text)
         except BaseException:
             with suppress(Exception):
                 await client.disconnect()

@@ -49,7 +49,8 @@ class OpenAIProvider:
         if request.system:
             items.append({"role": "developer", "content": [self._text(request.system, True)]})
         items.append({"role": "user", "content": [self._text(p, i == request.cacheable - 1)
-                                                  for i, p in enumerate(request.parts)]})
+                                                  for i, p in enumerate(request.parts)] +
+                      [{"type": "input_image", "image_url": i.data_url()} for i in request.images]})   # L12
         # store false: replayed reasoning items need their encrypted content, so ask for it on every call
         body: dict[str, Any] = {"model": self.model, "input": items, "store": False, "prompt_cache_key": cache_key,
                                 "include": ["reasoning.encrypted_content"]}

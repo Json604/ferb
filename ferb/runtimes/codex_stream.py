@@ -165,8 +165,10 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
                     or thread.get('instructionSources') or not thread.get('thread', {}).get('ephemeral')):
                 raise ProtocolError('Codex runtime configuration did not match FERB isolation')
             state['thread_id'] = thread['thread']['id']
+            # Images as Codex 0.157.1's v2 protocol declares them (`codex app-server generate-ts`: UserInput): L12
             turn = await _rpc(run, 'turn/start', {'threadId': state['thread_id'],
-                'input': [{'type': 'text', 'text': request.context}],
+                'input': [{'type': 'text', 'text': request.context},
+                          *({'type': 'image', 'url': image.data_url()} for image in request.images)],
                 **({'effort': 'low'} if runtime.mode == 'supervisor' else {}),
                 'outputSchema': runtime.output_schema, 'environments': []})
             state['turn_id'] = turn['turn']['id']

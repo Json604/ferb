@@ -18,7 +18,7 @@ from ferb.core.errors import RuntimeUnavailable
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import check_final
 from ferb.core.interfaces import AgentRuntime
-from ferb.core.types import ModelRequest, Outcome, RunHandle, Task
+from ferb.core.types import ModelImage, ModelRequest, Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
 from ferb.orchestrator.steering import deliver as deliver_steering
 from ferb.orchestrator import progress
@@ -147,6 +147,13 @@ class WorkerRuns:
         owner_active, last_event = self.signals()
         if task.role == "verifier":
             ctx = ctx + [ContextBlock(self.browser_context(task.id), "current browser observations", protected=True)]
+        images: tuple[ModelImage, ...] = ()
+        if task.role == "worker":                 # L12: the request's worker starts from what the owner saw at send
+            if tree.start_block is not None:
+                ctx = ctx + [tree.start_block]
+            if tree.start_image is not None:      # its start-of-task screenshot: no second capture (D26 clarified)
+                images = (tree.start_image,)
+                self.gateway.initial_image_given(task.id)
         head = context.time_block(self.clock.now(), started, task.deadline, owner_active, last_event)
         full_ctx = ctx + [ContextBlock(load_prompt(self._approach() + "/runtime_tools.md", {"tool_names": names}) +
                                        "\n\n" + head, "runtime tools and time facts", protected=True)]
@@ -159,7 +166,8 @@ class WorkerRuns:
                 tree.result_revision = len(tree.steering.messages)
             role = "checker" if task.role == "verifier" else "worker:" + tree.spec.worker_type
             rt = self.make_runtime(role, mode="worker", tool_names=tools, schema=schema)
-            final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id)
+            final = await self._run(rt, task, self._system(prompt), full_ctx, token, wspan.id, tree, worker_id,
+                                    images=images)
             result: dict[str, Any] | Outcome = json.loads(final)
             if not isinstance(result, dict):
                 raise ValueError("not an object")
@@ -193,7 +201,8 @@ class WorkerRuns:
         return result, worker_id
 
     async def _run(self, rt: AgentRuntime, task: Task, system: str, ctx: list[ContextBlock], token: str, parent_span: str,
-                   tree: "_Tree" | None, worker_id: str, *, on_delta: Callable[[str], None] | None = None) -> str:
+                   tree: "_Tree" | None, worker_id: str, *, on_delta: Callable[[str], None] | None = None,
+                   images: tuple[ModelImage, ...] = ()) -> str:
         revision = len(tree.steering.messages) if tree is not None else 0
         if tree is not None and task.role == 'worker':
             # A startup failure is a current-attempt failure, not a stale result to retry forever.
@@ -209,9 +218,11 @@ class WorkerRuns:
         exposure = getattr(self, '_context_exposure', None)
         if exposure is not None:
             exposure(task, ctx, parts, tree)
-        request = ModelRequest(system, tuple(parts), cacheable)
+        request = ModelRequest(system, tuple(parts), cacheable, images)
         self.spans.update_input(parent_span, {"context": request.context, "system_prompt": system,
-                                             "context_budget_tokens": self.context_budget_tokens})
+                                             "context_budget_tokens": self.context_budget_tokens,
+                                             # the images' evidence rows, never their bytes (L12)
+                                             **({"image_evidence": [i.ref for i in images]} if images else {})})
         start = asyncio.ensure_future(rt.start(task, request, token))
         started: list[RunHandle] = []
 

@@ -45,7 +45,7 @@ from ferb.clock.context import ago as context_ago
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core import origin as origin_
-from ferb.core.errors import FerbError
+from ferb.core.errors import FerbError, Refused
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon.auth import RunTokens
@@ -136,7 +136,7 @@ class Daemon:
                  redact: Redact | None = None, owner_uid: int | None = None,
                  watch_owner_input: bool = True, watchers: bool = True, distill: bool = True,
                  notifications: bool = True, retention: bool = True, snapshots: bool = True,
-                 persona_scan: Callable[..., Any] | None = discover_persona) -> None:
+                 persona_scan: Callable[..., Any] | None = discover_persona, screen_at_send: bool = True) -> None:
         self.home = home or ferb_home()
         self.clock = clock or SystemClock()
         self.ids = ids or RandomIds()
@@ -232,6 +232,9 @@ class Daemon:
         self.run_retention = retention
         self._retention_task: asyncio.Task[None] | None = None
         self.take_snapshots = snapshots                  # S1 local APFS snapshots; tests never take a real one
+        # L12: the owner's front window, captured as each message arrives (request id -> FrontWindow | None). Tests
+        # never take a real screenshot: they leave it off or put a fake here.
+        self.front_window: Callable[[str], Awaitable[Any]] | None = self._front_window if screen_at_send else None
         self.snapshots: recovery.Snapshots | None = None
         # Deletes FERB's own old snapshots in the async retention pass (None: macOS thinning only; tests)
         self.snapshot_deleter: Callable[[str], Awaitable[bool]] | None = (
@@ -740,6 +743,50 @@ class Daemon:
                 p = r.get("password")
                 return p if isinstance(p, bool) else None
         return None
+
+    async def _front_window(self, request_id: str) -> Any:
+        """L12: the owner's front window as this message arrived (ferb/sense/front_window.py): the topmost window that
+        isn't FERB's, its redacted screenshot kept as evidence under the request. None: no Mac driver or evidence
+        store, sensing paused (`ferb pause`), nothing in front, or an excluded app or site. A failure is journaled by
+        type and never blocks the message."""
+        from ferb.act.mac import screenshot
+        from ferb.daemon.gateway import error_name
+        from ferb.sanitize.images import ImageRedactor
+        from ferb.sense import front_window as fw
+        mac, evidence = self.mac, self.evidence
+        if mac is None or evidence is None or (self.sense is not None and self.sense.paused):
+            return None
+        exclusions, daemon_pid = self._exclusions(), os.getpid()
+
+        async def shoot(w: Any) -> bytes:
+            if not mac.snapshot_images():                    # the owner's `[mac] snapshot_image` switch
+                raise Refused("screenshots are switched off ([mac] snapshot_image)")
+            return (await mac.window_image(f"pid:{w.pid}", window=str(w.id)))[2]
+
+        async def keep(image: bytes, facts: dict[str, Any], origin: str) -> str:
+            return await evidence.put_async(request_id, None, "front_window", image=image, data=facts, origin=origin)
+        sources = fw.Sources(
+            windows=screenshot.normal_windows, app_of=fw.app_of,
+            own=lambda pid, bundle: fw.ferb_process(pid, bundle, daemon_pid),
+            excluded=lambda bundle, name, url: exclusions.app(bundle, name) or exclusions.url(url),
+            tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact,
+            redact_image=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
+        try:
+            return await fw.capture(sources)
+        except Exception as e:
+            self._journal().append("screen.capture_failed", {"request_id": request_id, "error": error_name(e)})
+            return None
+
+    def _front_tab(self, bundle_id: str) -> tuple[str, str] | None:
+        """A browser's front tab (URL, title) for the front window (L12): the tab watcher's AppleScript read, only when
+        the owner already granted Automation for that browser (never asks)."""
+        from ferb.sense.watchers.browser_tabs import SCRIPTS, applescript_front_tab
+        if bundle_id not in SCRIPTS or not self._automation_granted(bundle_id):
+            return None
+        try:
+            return applescript_front_tab(bundle_id)
+        except (OSError, subprocess.SubprocessError):
+            return None
 
     def _build_mac_and_shell(self) -> None:
         device = str(self.config.get("device", "id", "unknown-device"))
@@ -2822,6 +2869,8 @@ class Daemon:
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)
         queue.put_nowait(self._chat_ack(session_id, request_id, text, received))
+        # L12: what the owner has in front of them as they send, captured beside routing; the planner waits for it
+        screen = asyncio.ensure_future(self.front_window(request_id)) if self.front_window is not None else None
         my_tasks: set[str] = set()
         attached = {"on": True}                     # False once the owner closes chat: the task keeps running
         sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*"})
@@ -2832,7 +2881,7 @@ class Daemon:
         async def turn() -> None:
             try:
                 async for ev in self.supervisor.send(session_id, text,  # type: ignore[union-attr]
-                                                     input_paths=input_paths, request_id=request_id):
+                                                     input_paths=input_paths, request_id=request_id, screen=screen):
                     ev = stamped(ev)
                     if ev.get("task_id"):
                         my_tasks.add(ev["task_id"])
@@ -2850,6 +2899,8 @@ class Daemon:
                 await queue.put(stamped({"type": "reply", "text": "Sorry — something went wrong on my side. Could you "
                                                                   "try that again?"}))
             finally:
+                if screen is not None and not screen.done():   # the turn ended before routing used it
+                    screen.cancel()
                 await queue.put(None)
 
         async def bus_events() -> None:

@@ -1317,6 +1317,11 @@ class Gateway:
         except Exception:
             return dataclasses.replace(result, content={**result.content, "image_withheld": "initial window capture unavailable"})
 
+    def initial_image_given(self, task_id: str) -> None:
+        """L12 (D26 clarified): this task's worker was handed the owner's front window at send as its start-of-task
+        screenshot, with its first model request; its first working-app observation takes no second one."""
+        self._looked.setdefault((task_id, "initial"), set()).add("front window at send")
+
     def _real_path(self, cap: Any, args: Any, spec: Any) -> Path | None:
         """The file a call really acts on (files.real_path: symlinks followed first, then `..`), for the fs lock and
         S1: the capability's `real_path` hook, else its path argument (`target_args`: the one named path, else the

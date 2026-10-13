@@ -252,11 +252,11 @@ class MacComputerDriver:
                        signature=st.tree.signature() if st.tree else None)
         return a, st.shot, jpeg
 
-    async def window_image(self, name_or_bundle: str) -> tuple[Any, Shot, bytes]:
-        """FERB's own picture of the app's front window for the evidence store (D26, D29): the same capture and
-        password-field rule as `screenshot`, but it never becomes the app's latest shot, so a worker's pending
-        mac.click / pointer / record keeps its own."""
-        a, w, jpeg, size = await self._capture(name_or_bundle, None, None, False)
+    async def window_image(self, name_or_bundle: str, window: str | None = None) -> tuple[Any, Shot, bytes]:
+        """FERB's own picture of the app's front window for the evidence store (D26, D29), or of the exact window id
+        `window` (L12: the owner's front window at send): the same capture and password-field rule as `screenshot`,
+        but it never becomes the app's latest shot, so a worker's pending mac.click / pointer / record keeps its own."""
+        a, w, jpeg, size = await self._capture(name_or_bundle, None, window, False)
         return a, Shot("evidence", w.id, w.bounds, size, pid=a.pid), jpeg
 
     def secret_fields(self, bundle_id: str) -> list[tuple[float, float, float, float]]:
