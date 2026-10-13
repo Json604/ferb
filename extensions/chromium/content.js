@@ -180,6 +180,11 @@
   const codeField = (el) => /one-time-code/.test(el.autocomplete || "") ||
     SECRET_NAME.test((el.name || "") + " " + (el.id || "") + " " + label(el)) || codeGroup(el).length > 1;
   const isSecret = (el) => sealedFields.has(el) || el.tagName === "INPUT" && (passwordField(el) || codeField(el));
+  // Whether a login code may be sealed into this field; describe() reports it so the daemon refuses before asking the
+  // owner, by this same rule. type=password and autocomplete current-password always refuse. A code marker overrides
+  // autocomplete new-password, which pages set on OTP boxes to stop autofill (controller ruling).
+  const codeFill = (el, secret = isSecret(el)) => secret && (el.type || "").toLowerCase() !== "password" &&
+    !/\bcurrent-password\b/.test(el.autocomplete || "") && (codeField(el) || !passwordField(el));
 
 
   function formKind(el) {
@@ -272,6 +277,7 @@
     const e = { id, role, label: label(el), value, rect: [round(r.x), round(r.y), round(r.width), round(r.height)],
                 in_view: meets && !occluded, input_type: el.tagName === "INPUT" ? (el.type || "text") : null,
                 href: el.tagName === "A" ? maskUrl(el.href) : null, form: formKind(el), secret,
+                code_fill: codeFill(el, secret),
                 capture_masked: sealedSplitDocument };
     if (!meets) e.offscreen = r.bottom <= 0 ? "above" : r.top >= innerHeight ? "below" : r.right <= 0 ? "left" : "right";
     if (occluded) e.occluded = true;
@@ -688,8 +694,7 @@
     const { el, error } = element(gen, id);
     if (error) return { ok: false, detail: error };
     if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return { ok: false, detail: "not_a_text_field" };
-    if (codeOnly && (!isSecret(el) || realPassword(el) || passwordField(el) && !codeField(el)))
-      return {ok: false, detail: "code_field_changed"};
+    if (codeOnly && !codeFill(el)) return {ok: false, detail: "not_a_code_field"};
     let group = codeGroup(el);
     if (splitIds !== null) {
       if (!Array.isArray(splitIds) || splitIds.length < 2 || splitIds[0] !== id ||

@@ -291,6 +291,7 @@ class PageElement:
     href: str | None = None
     form: str | None = None                  # "search" | "login" | "other" | None: what submitting it would do
     secret: bool = False                     # password / OTP field: value never leaves the driver
+    code_fill: bool = False                  # a login code may be sealed into it (the extension's own fill rule)
     in_view: bool = True                     # on screen now (rect meets the viewport and nothing covers its centre)
     offscreen: str | None = None             # "above" | "below" | "left" | "right" when not on screen
     occluded: bool = False                   # on screen but covered by something else

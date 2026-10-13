@@ -29,6 +29,7 @@ def element(eid: str, frame_id: str, raw: dict[str, Any]) -> PageElement:
     return PageElement(id=eid, frame_id=frame_id, role=str(raw.get("role") or "generic"),
                        label=str(raw.get("label") or ""), value=value, rect=(x, y, w, h), visible=True,
                        input_type=raw.get("input_type"), href=raw.get("href"), form=raw.get("form"), secret=secret,
+                       code_fill=secret and raw.get("code_fill") is True,
                        in_view=in_view, offscreen=raw.get("offscreen") if not in_view else None,
                        occluded=bool(raw.get("occluded")), container=raw.get("container") or None,
                        state=tuple(state), level=int(level) if isinstance(level, (int, float)) else None)

@@ -35,7 +35,6 @@ from ferb.core.errors import DriverError, Refused, StaleRef
 from ferb.core.types import (ActionResult, BrowserAction, DriverFeatures, ElementRef, Identity, PageElement,
                              PageSnapshot, SecretRef, SecretSpec, TabRef, ToolContext, WaitCondition)
 from ferb.orchestrator.ledger import Ledger
-from ferb.sanitize.redact import OTP_LABEL, password_field
 
 Publish = Callable[[str, dict[str, Any]], None]
 CMD_TIMEOUT_S = 30.0
@@ -1285,9 +1284,9 @@ class Router(_TabDriver):
     async def owner_code(self, el: ElementRef, ctx: ToolContext) -> ActionResult:
         t, frame, snap, local, info = self._resolve(el)
         self.owned_by(el.tab.tab_id, ctx.task_id)
-        shown_password = password_field(info.input_type or "", info.label) and not OTP_LABEL.search(info.label)
-        if not info.secret or info.input_type == "password" or shown_password:     # "One-time password": a code
-            raise Refused("select a visible verification-code field, not a password or ordinary text field")
+        if not info.code_fill:      # the extension's own fill rule, known before anyone is asked (rule 9)
+            raise Refused("that field takes no login code: select a visible one-time-code field, not a password or "
+                          "an ordinary text field")
         if self.ask_code is None:
             raise Refused("hidden login-code input is unavailable")
         v = await t.bridge.call("frame_origin", {"tab_id": t.chrome_id, "frame_id": frame}, timeout=10)

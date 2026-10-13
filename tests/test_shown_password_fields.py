@@ -79,6 +79,11 @@ def test_a_shown_password_in_a_mac_accessibility_snapshot_is_redacted() -> None:
     assert r(email) == email
 
 
+def test_a_record_type_that_is_no_input_type_falls_back_to_the_role() -> None:
+    observed = {'type': 'observation', 'role': 'AXTextField', 'label': 'Password', 'value': 'Hunter2!x'}
+    assert Redactor()(observed)['value'] == REDACTED
+
+
 @pytest.mark.parametrize('kind', ['tel', 'number', 'text', 'email'])
 def test_password_autocomplete_marks_an_input_of_any_type(kind) -> None:
     """A PIN-style password (type tel/number) still says autocomplete current-password/new-password."""
@@ -183,20 +188,39 @@ console.log(JSON.stringify({google: describe(google, 1), each: [one({autocomplet
     assert shown['pins'] == [{'secret': True, 'value': 'filled'}] * 2
 
 
-def test_a_login_code_fill_refuses_a_password_but_not_a_one_time_password_field() -> None:
-    """"passw" also matches "One-time password": a field marked as a code field stays one; a real password doesn't."""
-    filled = extension(r'''
-const code = (attrs, text) => { target = input(attrs, text); return fill(1, 1, location.origin, '482913', true).detail; };
-console.log(JSON.stringify({otp: code({}, 'One-time password'), otpName: code({name: 'one_time_password'}),
-  autocomplete: code({autocomplete: 'one-time-code', name: 'otp_pwd'}),
-  shown: code({autocomplete: 'current-password', name: 'Passwd'}, 'Enter your password'),
-  labelled: code({}, 'Password'), hidden: code({type: 'password'}, 'One-time password'),
-  current: code({autocomplete: 'current-password'}, 'One-time password'),
-  pin: code({type: 'tel', autocomplete: 'new-password', name: 'otp'})}));
+CODE_FIELDS = {  # name: (attrs, label), and whether a login code may be sealed into it
+    'otp': (({}, 'One-time password'), True), 'otpName': (({'name': 'one_time_password'}, ''), True),
+    'autocomplete': (({'autocomplete': 'one-time-code', 'name': 'otp_pwd'}, ''), True),
+    'newOtp': (({'autocomplete': 'new-password', 'name': 'otp'}, ''), True),        # ruling: a code marker wins
+    'pin': (({'type': 'tel', 'autocomplete': 'new-password', 'name': 'otp'}, ''), True),
+    'shown': (({'autocomplete': 'current-password', 'name': 'Passwd'}, 'Enter your password'), False),
+    'labelled': (({}, 'Password'), False), 'hidden': (({'type': 'password'}, 'One-time password'), False),
+    'current': (({'autocomplete': 'current-password'}, 'One-time password'), False),
+    'currentOtp': (({'autocomplete': 'current-password', 'name': 'otp'}, ''), False),
+    'telPassword': (({'type': 'tel', 'autocomplete': 'current-password'}, 'PIN'), False),
+    'newPassword': (({'autocomplete': 'new-password'}, 'Choose a password'), False),
+    'search': (({}, 'Search'), False)}
+
+
+def test_the_element_list_says_whether_a_login_code_may_go_there_by_the_fill_s_own_rule() -> None:
+    """describe().code_fill and fill()'s code-only check are one predicate: the daemon can refuse before asking the
+    owner, and a refusal says what it is. "passw" also matches "One-time password": a code marker keeps a code field
+    one, and it overrides autocomplete new-password (pages set it on OTP boxes to stop autofill); type=password and
+    current-password always refuse."""
+    cases = json.dumps({name: list(field) for name, (field, _) in CODE_FIELDS.items()})
+    out = extension(r'''
+const cases = ''' + cases + r''';
+const result = {};
+for (const [name, [attrs, text]] of Object.entries(cases)) {
+  const shown = describe(input(attrs, text), 1).code_fill;
+  target = input(attrs, text);
+  result[name] = {shown, fill: fill(1, 1, location.origin, '482913', true).detail};
+}
+console.log(JSON.stringify(result));
 ''')
-    assert filled == {'otp': 'filled', 'otpName': 'filled', 'autocomplete': 'filled', 'shown': 'code_field_changed',
-                      'labelled': 'code_field_changed', 'hidden': 'code_field_changed',
-                      'current': 'code_field_changed', 'pin': 'code_field_changed'}
+    assert {name: r['shown'] for name, r in out.items()} == {name: ok for name, (_, ok) in CODE_FIELDS.items()}
+    assert {name: r['fill'] for name, r in out.items()} == \
+        {name: 'filled' if ok else 'not_a_code_field' for name, (_, ok) in CODE_FIELDS.items()}
 
 
 def test_a_login_code_is_never_asked_for_a_shown_password_field(bd, monkeypatch) -> None:
@@ -205,15 +229,44 @@ def test_a_login_code_is_never_asked_for_a_shown_password_field(bd, monkeypatch)
     from tests.browserkit import call
     from tests.chromelab import SHOP, _ready
     monkeypatch.setattr(fake, 'page', lambda url: {'title': 'Sign in', 'text': 'Welcome', 'elements': [
-        {'role': 'textbox', 'label': 'Enter your password', 'secret': True, 'input_type': 'text', 'value': 'filled'}]})
+        {'role': 'textbox', 'label': 'Enter your password', 'secret': True, 'input_type': 'text', 'value': 'filled',
+         'code_fill': False}]})
     d, launched = bd
     ext, grant = _ready(d, launched)
     tab = call(d, grant, 'browser.open', url=f'{SHOP}/signin')['content']['tab']
     snap = call(d, grant, 'browser.snapshot', tab=tab)['content']
     out = call(d, grant, 'browser.login_code', tab=tab, element=snap['elements'][0]['id'], effect='edit',
                why='finish requested login')
-    assert out['is_error'] and 'not a password' in json.dumps(out)
+    assert out['is_error'] and 'one-time-code field' in json.dumps(out)
     assert not any(a.kind == 'owner_login_code' for a in d.daemon.state.approvals.pending())
+
+
+@pytest.mark.parametrize('element', [
+    {'label': 'PIN', 'input_type': 'tel'},                         # tel + autocomplete current-password
+    {'label': 'One-time password', 'input_type': 'password'},      # type=password, whatever its label
+    {'label': 'Security key', 'input_type': 'text'}])              # any other field the extension's rule rejects
+def test_the_owner_is_never_asked_for_a_code_the_extension_would_refuse(bd, monkeypatch, element) -> None:
+    """Rule 9: FERB prepares the concrete action before asking. A field the extension says takes no login code
+    (code_fill false) is refused with that reason, and ask_code is never called."""
+    import tests.fake_extension as fake
+    from tests.browserkit import call
+    from tests.chromelab import SHOP, _ready
+    monkeypatch.setattr(fake, 'page', lambda url: {'title': 'Sign in', 'text': 'Welcome', 'elements': [
+        {'role': 'textbox', 'secret': True, 'value': '', 'code_fill': False} | element]})
+    d, launched = bd
+    asked: list[str] = []
+
+    async def ask_code(ctx: Any, origin: str) -> str:
+        asked.append(origin)
+        return '482913'
+    monkeypatch.setattr(d.daemon.router, 'ask_code', ask_code)
+    ext, grant = _ready(d, launched)
+    tab = call(d, grant, 'browser.open', url=f'{SHOP}/signin')['content']['tab']
+    snap = call(d, grant, 'browser.snapshot', tab=tab)['content']
+    out = call(d, grant, 'browser.login_code', tab=tab, element=snap['elements'][0]['id'], effect='edit',
+               why='finish requested login')
+    assert asked == [] and not ext.fills
+    assert out['is_error'] and 'one-time-code field' in json.dumps(out)
 
 
 def test_a_login_code_is_asked_for_a_one_time_password_field(bd, monkeypatch) -> None:
@@ -224,7 +277,8 @@ def test_a_login_code_is_asked_for_a_one_time_password_field(bd, monkeypatch) ->
     from tests.browserkit import call
     from tests.chromelab import SHOP, _ready
     monkeypatch.setattr(fake, 'page', lambda url: {'title': 'Sign in', 'text': 'Enter the code', 'elements': [
-        {'role': 'textbox', 'label': 'One-time password', 'secret': True, 'input_type': 'text', 'value': ''}]})
+        {'role': 'textbox', 'label': 'One-time password', 'secret': True, 'input_type': 'text', 'value': '',
+         'code_fill': True}]})
     d, launched = bd
     # Real sealing, as tests/test_owner_login.py does, without the installed signing helper.
     monkeypatch.setattr(d.daemon.router, 'seal_value', lambda key, value, command, origin:

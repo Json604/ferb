@@ -444,7 +444,7 @@ class FakeExtension:
             el = {"id": i, "role": e["role"], "label": e["label"],
                   "value": ("filled" if filled else "") if e.get("secret") else "", "rect": [0, 0, 10, 10],
                   "in_view": e.get("in_view", True), "input_type": e.get("input_type"), "href": e.get("href"),
-                  "form": e.get("form"), "secret": bool(e.get("secret"))}
+                  "form": e.get("form"), "secret": bool(e.get("secret")), "code_fill": bool(e.get("code_fill"))}
             if e.get("offscreen"):
                 el["offscreen"] = e["offscreen"]
             if e.get("container"):

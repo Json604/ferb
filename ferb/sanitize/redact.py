@@ -62,6 +62,10 @@ PASSWORD_AUTOCOMPLETE = re.compile(r"(?i)\b(?:current|new)-password\b")
 TEXT_FIELD_KINDS = frozenset({"", "text", "password", "textbox", "combobox", "axtextfield", "axtextarea",
                               "axcombobox"})
 FIELD_METADATA = ("autocomplete", "name", "id", "label", "placeholder", "title")
+# HTML input types (and textarea): a record's `type` names its field kind only when it is one of these.
+INPUT_TYPES = frozenset({"text", "password", "email", "search", "tel", "url", "number", "checkbox", "radio", "button",
+                         "submit", "reset", "file", "hidden", "image", "date", "datetime-local", "month", "week",
+                         "time", "color", "range", "textarea"})
 
 
 def password_field(kind: str, *metadata: Any) -> bool:
@@ -221,7 +225,9 @@ class Redactor:
         return obj
 
     def _dict(self, d: dict[Any, Any]) -> dict[Any, Any]:
-        kind = str(d.get("input_type") or d.get("type") or d.get("role") or "")     # an input type before a role
+        kind_type = str(d.get("type") or "")
+        kind = str(d.get("input_type") or (kind_type if kind_type.lower() in INPUT_TYPES else "")   # an input type
+                   or d.get("role") or "")                                                          # before a role
         autocomplete = str(d.get("autocomplete", ""))
         secret_field = (str(d.get("type", "")).lower() == "password" or "one-time-code" in autocomplete.lower()
                         or PASSWORD_AUTOCOMPLETE.search(autocomplete) is not None

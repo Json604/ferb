@@ -24,7 +24,8 @@ def test_owner_code_is_prompted_sealed_and_absent_from_model_and_logs(bd, monkey
     import tests.fake_extension as fake
     old_page = fake.page
     monkeypatch.setattr(fake, "page", lambda url: {"title": "Login", "text": "Enter code", "elements": [
-        {"role": "textbox", "label": "Verification code", "secret": True, "input_type": "text"}]}
+        {"role": "textbox", "label": "Verification code", "secret": True, "input_type": "text",
+         "code_fill": True}]}
         if url.endswith("/code") else old_page(url))
     d, launched = bd
     ext, grant = _ready(d, launched)
@@ -55,7 +56,8 @@ def test_owner_code_is_prompted_sealed_and_absent_from_model_and_logs(bd, monkey
 def test_cancelling_a_task_clears_its_pending_secret_prompt(bd, monkeypatch) -> None:
     import tests.fake_extension as fake
     monkeypatch.setattr(fake, "page", lambda url: {"title": "Login", "text": "Enter code", "elements": [
-        {"role": "textbox", "label": "Verification code", "secret": True, "input_type": "text"}]})
+        {"role": "textbox", "label": "Verification code", "secret": True, "input_type": "text",
+         "code_fill": True}]})
     d, launched = bd
     ext, grant = _ready(d, launched)
     tab = call(d, grant, "browser.open", url=f"{SHOP}/code")["content"]["tab"]
