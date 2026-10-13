@@ -36,7 +36,7 @@ browser bridge pages large observations; client RPC and extension protocol versi
 |---|---|---|
 | `ping` | `{}` | PID, role, timestamp, explicit stop state |
 | `chat.attach` | `{new?: bool, resume?: conversation_id}` | `{ok, session_id, capabilities:["input_paths"]}`; resume/new conversation; marks running tasks attached |
-| `chat.send` | `{session_id, text, input_paths?: [path,...]}` | Stream of `chat.send.event` notifications, then `{ended:true}` |
+| `chat.send` | `{session_id, text, input_paths?: [path,...]}` | Stream of `chat.send.event` notifications (`ack` first), then `{ended:true}` |
 | `chat.status` | `{peek?: bool}` | `results`, `running`, `approvals`; fetching unseen results marks them shown unless `peek:true` |
 | `chat.answer` | `{approval_id, text}` | Answers that exact pending question; empty text declines |
 | `setup.persona` | `{refresh?: bool, status?: bool}` | CLI-owner role only; local discovery state (`scanning`, `pending`, `reviewed`, `failed`) and pending profile approval |
@@ -51,10 +51,25 @@ browser bridge pages large observations; client RPC and extension protocol versi
 | `timeline.get` | `{since?: ISO timestamp}` | Complete matching journal entries, chronological |
 | `logs.subscribe` | Optional `filters` list and `maxsize` queue bound | `logs.subscribe.event` notifications; overflow is explicit |
 
-`chat.send` events contain a `type`; examples include plan, progress/tool events, verification, approval/question,
-and outcome. Render unknown event types safely rather than treating them as completion. `outcome` includes status
-(`done` only when every condition was verified, `done_unverified` when the work finished but a check couldn't confirm
-it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through subtasks, verification, a separate
+`chat.send` events contain a `type`; examples include ack, plan, progress/tool events, verification, approval/question,
+and outcome. Render unknown event types safely rather than treating them as completion.
+
+Every `chat.send` event carries `request_id`, the id journaled with that message's `chat.message`, and `at`, when the
+daemon sent it (ISO 8601 with offset). Events about a task also carry `task_id`. Use `request_id` to attach a reply,
+plan or outcome to its submitted turn, even when it arrives after a later turn's events.
+- `ack {request_id, text, at}` comes first, on receipt and before the message waits for routing. `text` is one of the
+  owner-approved P25 phrases (`ferb/orchestrator/acks.py`), never one of the last eight said; it claims nothing about
+  what FERB will do. It is journaled as `chat.ack`. A second message on the same chat is acknowledged at once, while
+  routing stays in arrival order (P29).
+- Bus events merged into the stream (`{type:"event", topic, data}`) carry the stream's `request_id` and `at`.
+  `approval.requested` data also carries the asking task's `request_id` (none for a question outside a task, such as
+  the setup profile), on the stream and on `logs.subscribe` alike.
+- The `task.result` bus event carries `request_id` and `at`: the outcome's own when a chat turn sent it, otherwise
+  (a resumed plan, a scheduled run) the request the task ran for and when the result was recorded; `request_id` is
+  null when no task record names one. A scheduled run's request is its own, never a chat message's.
+
+`outcome` includes status (`done` only when every condition was verified, `done_unverified` when the work finished
+but a check couldn't confirm it, `failed`, `needs_user`, `cancelled`), answer, artifacts/evidence through subtasks, verification, a separate
 `stop_reason`, and resource outcomes. Render optional `display_text` as the concise reply and retain the complete `answer` in expandable Details.
 If absent/empty, fall back to `answer`. Do not invent a client summary or change completion status.
 
@@ -65,7 +80,7 @@ They are not a completed answer or proof of an action. The authoritative `reply`
 failure or EOF before an authoritative event must mark the draft interrupted, never completed or replayed.
 Ignore late fragments after a final/plan. Do not speak, notify completion, or save partial text as a completed answer.
 Old clients may ignore these additional events and continue rendering the final unchanged. Stream identity is the
-existing request connection; independent submitted turns must never share their draft buffer.
+existing request connection and its `request_id`; independent submitted turns must never share their draft buffer.
 
 Streaming is genuine provider output, not a delayed replay of an already-complete answer. The supervisor releases
 only a top-level `display_text` field written last, after full `text` and every action/control field establishes a pure conversation turn. It
@@ -80,8 +95,10 @@ the planner's eventual plan receives them as input sources. Secret-bearing filen
 into planning or persistence. Pasted outside text must retain the CLI's external-data delimiters unless the owner
 explicitly identifies it as their own request.
 
-Status results include `display_text`, `artifacts`, `verified` and `verification`; pending approvals include their `task_id` root
-when the request maps to one tree, otherwise null. Clients must not guess a task identity from display text.
+Status results include `request_id` and `at` (as on `task.result`, so a client whose `chat.send` stream ended early can
+still place the answer), `display_text`, `artifacts`, `verified` and `verification`; pending approvals include their
+`task_id` root when the request maps to one tree, otherwise null. Clients must not guess a task identity from display
+text.
 The full final answer and artifact list also persist as `trace.get.outcome.result` for known-task reconnect, even
 if another client already marked the result shown. Older historical tasks may lack these fields.
 
@@ -97,8 +114,10 @@ a future client wanting durable multi-device delivery needs explicit acknowledgm
 An ordinary question has an `approval_id`, reason/question and options. Routed ordinary `owner.ask` questions may
 include `display_text`; retain the complete reason under Details. Secret, retry and consequential approval prompts
 keep their concrete full text; clients must not compress them. Keep full option labels and free-text answers;
-duplicate labels must not become a first-match selection. Pending questions expire after 600 seconds; timeout is
-not consent. Scheduled unattended work cannot wait indefinitely for an answer and reports what remains unresolved.
+duplicate labels must not become a first-match selection. Ordinary typed chat text is a message, never an answer:
+even when it matches an option of the only open question (a lone "Yes"), send it with `chat.send` and let the planner
+route it. Only an explicit answer to a shown question uses `chat.answer`/`chat.approve`. Pending questions expire
+after 600 seconds; timeout is not consent. Scheduled unattended work cannot wait indefinitely for an answer and reports what remains unresolved.
 
 A secret question is marked `owner_login_code`, `owner_secret` or `owner_admin_password`. Collect it with hidden input and send it only through its
 question ID. Do not put it into chat history, telemetry, screenshots or speech. The daemon redacts before persistence

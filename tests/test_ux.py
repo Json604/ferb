@@ -77,6 +77,7 @@ def test_a_closed_chat_never_stops_a_task_and_its_answer_waits(daemon: RunningDa
     install(daemon, [sup("task", "On it.", task("write todo.md", paths=("todo.md",)))], {"worker": slow})
     c = Client(daemon.sock, timeout=30)
     stream = c.stream("chat.send", {"session_id": "s", "text": "create todo.md with milk"})
+    assert next(stream)["type"] == "ack"                                           # on receipt (L7)
     first = next(stream)
     assert first["type"] == "plan"
     c.close()                                                                       # the owner closes chat
@@ -101,7 +102,7 @@ def test_ctrl_c_stops_the_task_as_stopped_by_you(daemon: RunningDaemon) -> None:
     install(daemon, [sup("task", "On it.", task("write todo.md", paths=("todo.md",)))], {"worker": STALL})
     c = Client(daemon.sock, timeout=30)
     stream = c.stream("chat.send", {"session_id": "s", "text": "create todo.md with milk"})
-    tid = next(stream)["task_id"]
+    tid = next(e for e in stream if e["type"] == "plan")["task_id"]
     c2 = Client(daemon.sock)
     try:
         assert c2.call("task.stop", {"task_ids": [tid]})["stopped"] == [tid]

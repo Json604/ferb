@@ -51,7 +51,7 @@ from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon.auth import RunTokens
 from ferb.daemon.server import Server, Session, ensure_socket_free
 from ferb.memory.journal import Journal
-from ferb.orchestrator import episodes
+from ferb.orchestrator import acks, episodes
 from ferb.orchestrator.ledger import Ledger
 from ferb.orchestrator.stop import StopControl
 from ferb.trace import compose
@@ -1497,12 +1497,16 @@ class Daemon:
         ev = self.redact(ev)
         answer = str(ev.get("answer") or ev.get("summary") or "")
         shown = shown or ev.get("status") == "cancelled"          # stopped by the owner: they know
+        at = str(ev.get("at") or self.clock.now().isoformat())    # the outcome's own time when a chat turn sent it
         self.db.conn.execute("INSERT OR REPLACE INTO task_results (task_id, at, status, goal, answer, shown) VALUES "
-                             "(?, ?, ?, ?, ?, ?)", (ev["task_id"], self.clock.now().isoformat(), ev.get("status", ""),
+                             "(?, ?, ?, ?, ?, ?)", (ev["task_id"], at, ev.get("status", ""),
                                                     str(ev.get("goal", "")), answer, int(shown)))
         if not shown and ev.get("status") != "cancelled":
             await self._notify("FERB finished" if ev.get("status") == "done" else "FERB", str(ev.get("display_text") or answer))
-        self._publish('task.result', {**ev, 'shown': shown})
+        if "request_id" not in ev:                  # a resumed plan or scheduled run: the request its task ran for
+            row = self.db.conn.execute("SELECT request_id FROM tasks WHERE id = ?", (ev["task_id"],)).fetchone()
+            ev = {**ev, "request_id": row["request_id"] if row is not None else None}
+        self._publish('task.result', {**ev, 'at': at, 'shown': shown})
 
     def _approval_notice(self, data: dict[str, Any]) -> None:
         """An approval is waiting and no chat is open for that task: tell the owner (notification)."""
@@ -1545,7 +1549,7 @@ class Daemon:
         """For `ferb chat` when it opens: answers that arrived while it was closed (then marked shown), tasks still
         running, and questions waiting for the owner."""
         assert self.db is not None
-        rows = self.db.conn.execute("SELECT r.*, t.outcome_json FROM task_results r LEFT JOIN tasks t "
+        rows = self.db.conn.execute("SELECT r.*, t.outcome_json, t.request_id FROM task_results r LEFT JOIN tasks t "
                                     "ON t.id = r.task_id WHERE r.shown = 0 ORDER BY r.at").fetchall()
         if not params.get('peek'):
             for r in rows:
@@ -1567,7 +1571,8 @@ class Daemon:
         results = []
         for row in rows:
             recorded = json.loads(row['outcome_json'] or '{}')
-            results.append({key: row[key] for key in ('task_id', 'status', 'goal', 'answer')} |
+            # request_id and at: a client whose chat.send stream ended early still places the answer (L6, L7)
+            results.append({key: row[key] for key in ('task_id', 'request_id', 'at', 'status', 'goal', 'answer')} |
                            {'artifacts': recorded.get('artifacts', []), 'verified': recorded.get('verified'),
                             'display_text': recorded.get('display_text') or row['answer'],
                             'verification': recorded.get('verification', [])})
@@ -2396,6 +2401,10 @@ class Daemon:
         return "\n".join(lines)
 
     def _publish(self, topic: str, data: dict[str, Any]) -> None:
+        if topic == "approval.requested" and data.get("task_id") and "request_id" not in data:
+            asked = self.state.approvals.get(str(data.get("approval_id", "")))
+            if asked is not None and asked.request_id:      # a task's question names its request (event contract)
+                data = {**data, "request_id": asked.request_id}
         if self.supervisor:
             self.supervisor.notify_plan_event(topic, self.redact(data))
         if topic in ('trail.event', 'action.observed'):
@@ -2583,9 +2592,19 @@ class Daemon:
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})
         return {"approval_id": ap.id, "state": ap.state}
 
+    def _chat_ack(self, session_id: str, request_id: str) -> dict[str, Any]:
+        """TQ3/P25: a neutral phrase said on receipt, never one of the last eight said; journaled into chat history."""
+        said = [str(row[0]) for row in self._journal().db.conn.execute(
+            "SELECT json_extract(data_json, '$.text') FROM journal WHERE kind = 'chat.ack' ORDER BY seq DESC LIMIT ?",
+            (acks.RECENT,))]
+        text = acks.pick(said[::-1])
+        entry = self._journal().append("chat.ack", {"session_id": session_id, "request_id": request_id, "text": text})
+        return {"type": "ack", "request_id": request_id, "text": text, "at": entry.at.isoformat()}
+
     async def _chat_send(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
-        """One chat turn: the supervisor's events, merged with bus events about the tasks this turn started
-        (tool calls, owner questions and action observations) so `ferb chat` can show them inline."""
+        """One chat turn: an acknowledgement on receipt, then the supervisor's events, merged with bus events about
+        the tasks this turn started (tool calls, owner questions and action observations) so `ferb chat` can show
+        them inline. Every event names this message's request_id and when it was sent (L7)."""
         if self._shutting_down:
             raise FerbError("daemon is shutting down; no new chat task was started")
         if self.supervisor is None:
@@ -2596,15 +2615,23 @@ class Daemon:
         input_paths = list(dict.fromkeys(normalize_path(p, str(self.home / 'workspace')) for p in paths))
         if self.redact(input_paths) != input_paths:
             raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
+        session_id = str(params.get("session_id", "default"))
+        request_id = self.supervisor.ids.new_id()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)
+        queue.put_nowait(self._chat_ack(session_id, request_id))
         my_tasks: set[str] = set()
         attached = {"on": True}                     # False once the owner closes chat: the task keeps running
         sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*"})
 
+        def stamped(ev: dict[str, Any]) -> dict[str, Any]:
+            return {**ev, "request_id": request_id, "at": self.clock.now().isoformat()}
+
         async def turn() -> None:
             try:
-                async for ev in self.supervisor.send(str(params.get("session_id", "default")),  # type: ignore[union-attr]
-                                                     self.redact(str(params.get("text", ""))), input_paths=input_paths):
+                async for ev in self.supervisor.send(session_id, self.redact(str(params.get("text", ""))),  # type: ignore[union-attr]
+                                                     input_paths=input_paths, request_id=request_id):
+                    ev = stamped(ev)
                     if ev.get("task_id"):
                         my_tasks.add(ev["task_id"])
                         if attached["on"]:
@@ -2614,11 +2641,12 @@ class Daemon:
                         self._attached_trees.discard(ev["task_id"])
                     await queue.put(ev)
             except FerbError as e:
-                await queue.put({"type": "error", "text": str(e)})
+                await queue.put(stamped({"type": "error", "text": str(e)}))
             except Exception as e:                       # logged; the owner gets a plain sentence, not internals
-                self._journal().append("chat.failed", {"why": f"{type(e).__name__}: {self.redact(str(e))}"})
-                await queue.put({"type": "reply", "text": "Sorry — something went wrong on my side. Could you try "
-                                                          "that again?"})
+                self._journal().append("chat.failed", {"request_id": request_id,
+                                                       "why": f"{type(e).__name__}: {self.redact(str(e))}"})
+                await queue.put(stamped({"type": "reply", "text": "Sorry — something went wrong on my side. Could you "
+                                                                  "try that again?"}))
             finally:
                 await queue.put(None)
 
@@ -2626,8 +2654,9 @@ class Daemon:
             async for ev in sub:
                 tid = ev.data.get("task_id")
                 if tid in my_tasks or self.tasks.tree_of(str(tid)) in my_tasks or (ev.topic.startswith("action.") and not tid):
-                    await queue.put({"type": "event", "topic": ev.topic, "data": self.redact(ev.data)})
+                    await queue.put(stamped({"type": "event", "topic": ev.topic, "data": self.redact(ev.data)}))
 
+        # The turn takes the routing lock in its first step, ahead of any message that arrives after this ack is sent
         t1, t2 = asyncio.create_task(turn()), asyncio.create_task(bus_events())
         self._turns.add(t1)
         t1.add_done_callback(self._turns.discard)

@@ -8,7 +8,7 @@ from typing import Any
 
 from ferb.cli.chat import PASTE_QUESTION, prepare, whole_paste
 from ferb.sanitize.untrusted import PASTE_END, PASTE_START
-from tests.conftest import STALL, RunningDaemon, chat, install, sup, task
+from tests.conftest import STALL, RunningDaemon, chat, install, sup, task, turn_events
 
 REQUEST = "in my brave keep scrolling for comments in the current youtube tab"
 
@@ -48,7 +48,7 @@ def _stop_after_plan(d: RunningDaemon, text: str) -> list[dict]:
                 break
     finally:
         c.close()
-    return evs
+    return turn_events(evs)
 
 
 def test_yes_continues_the_request_it_answers(daemon: RunningDaemon) -> None:

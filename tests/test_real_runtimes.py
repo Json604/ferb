@@ -160,7 +160,7 @@ def test_full_chat_turn_writes_a_file(rt_daemon) -> None:
                                           "Create a file notes/real.md in your workspace containing exactly: hello"}))
     finally:
         c.close()
-    assert evs[0]["type"] == "plan", evs
+    assert evs[0]["type"] == "ack" and evs[1]["type"] == "plan", evs
     out = next(e for e in evs if e["type"] == "outcome")
     assert out["status"] == "done" and out["verified"] is True, out
     assert (d.daemon.home / "workspace" / "notes" / "real.md").read_text().strip() == "hello"
@@ -179,8 +179,8 @@ def test_reader_then_actor_then_verified(rt_daemon) -> None:
                                           "notes/b.md in your workspace"}))
     finally:
         c.close()
-    plan = evs[0]
-    assert plan["type"] == "plan", evs
+    plan = evs[1]
+    assert evs[0]["type"] == "ack" and plan["type"] == "plan", evs
     out = next(e for e in evs if e["type"] == "outcome")
     assert out["status"] == "done", out
     assert (notes / "b.md").read_text().strip() == "alpha beta gamma"

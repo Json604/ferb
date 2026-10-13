@@ -423,7 +423,7 @@ def test_owner_stop_cancels_orchestrator_recovery(daemon, stage):
     client = Client(daemon.sock)
     try:
         stream = client.stream('chat.send', {'session_id':'s1', 'text':'Prepare the report'})
-        task_id = next(stream)['task_id']
+        task_id = next(e for e in stream if e['type'] == 'plan')['task_id']
         for _ in range(100):
             if any(key == stage for _,key,_,_ in script.contexts):
                 break

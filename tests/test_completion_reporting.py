@@ -119,7 +119,7 @@ def test_stopping_a_verifier_persists_its_cancelled_state(daemon):
     client = Client(daemon.sock)
     try:
         stream = client.stream('chat.send', {'session_id': 's1', 'text': 'Check the report'})
-        root = next(stream)['task_id']
+        root = next(e for e in stream if e['type'] == 'plan')['task_id']
         for _ in range(100):
             if any(key == 'worker.verify' for _, key, _, _ in script.contexts):
                 break

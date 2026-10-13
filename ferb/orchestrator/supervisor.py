@@ -415,13 +415,16 @@ class Supervisor(WorkerRuns):
 
     # ---------- one chat turn ----------
 
-    async def send(self, session_id: str, text: str, *, input_paths: list[str] | None = None) -> AsyncIterator[dict[str, Any]]:
-        """Route messages in arrival order until each has registered its work; workers keep running independently."""
+    async def send(self, session_id: str, text: str, *, input_paths: list[str] | None = None,
+                   request_id: str | None = None) -> AsyncIterator[dict[str, Any]]:
+        """Route messages in arrival order until each has registered its work; workers keep running independently.
+        `request_id`: the id the daemon already acknowledged this message under (L7); its chat.message carries it."""
+        request_id = request_id or self.ids.new_id()
         lock = self._chat_locks.setdefault(session_id, asyncio.Lock())
         await lock.acquire()
         held = True
         try:
-            async for event in self._send(session_id, text, input_paths or []):
+            async for event in self._send(session_id, text, input_paths or [], request_id):
                 if held and event.get('type') in ('plan', 'reply', 'clarify'):
                     lock.release()
                     held = False
@@ -439,7 +442,8 @@ class Supervisor(WorkerRuns):
             "AND json_extract(q.data_json, '$.session_id')=? ORDER BY q.seq DESC", (session_id,)).fetchone()
         return list(json.loads(row[0]).get('input_paths', [])) if row else []
 
-    async def _send(self, session_id: str, text: str, input_paths: list[str]) -> AsyncIterator[dict[str, Any]]:
+    async def _send(self, session_id: str, text: str, input_paths: list[str],
+                    request_id: str) -> AsyncIterator[dict[str, Any]]:
         session = self.sessions.setdefault(session_id, ChatSession(session_id))
         session.pending, session.asked = self.continuity.pending(session_id)
         session.payload = self.continuity.pending_payload(session_id)
@@ -465,7 +469,6 @@ class Supervisor(WorkerRuns):
             payload += "\n" + EARLIER_QUESTION_DATA + wrap_untrusted(session.asked)
         session.pending = session.asked = ""
         self.continuity.save_pending(session_id, "", "")
-        request_id = self.ids.new_id()
         entry = self.journal.append("chat.message", {"session_id": session_id, "request_id": request_id,
                                                      "text": m.for_model,
                                                      "untrusted_parts": len(m.untrusted) + bool(paths),

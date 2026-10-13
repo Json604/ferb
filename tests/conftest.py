@@ -401,11 +401,21 @@ def install(d: RunningDaemon, supervisor: list[Any], workers: dict[str, Any] | N
 
 
 def chat(d: RunningDaemon, text: str, session: str = "s1", timeout: float = 30) -> list[dict[str, Any]]:
+    """One chat turn's events after the daemon's acknowledgement, which must come first (L7)."""
     c = Client(d.sock, timeout=timeout)
     try:
-        return list(c.stream("chat.send", {"session_id": session, "text": text}))
+        return turn_events(list(c.stream("chat.send", {"session_id": session, "text": text})))
     finally:
         c.close()
+
+
+def turn_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A chat.send stream as the turn's own events: checks the event contract (L7: the acknowledgement first, every
+    event naming the acknowledged request_id and when it was sent), then drops the acknowledgement and those two
+    fields, so tests about what a turn did compare its events directly. tests/test_chat_events.py covers the rest."""
+    assert events and events[0]["type"] == "ack", events
+    assert all(e.get("request_id") == events[0]["request_id"] and e.get("at") for e in events), events
+    return [{k: v for k, v in e.items() if k not in ("request_id", "at")} for e in events[1:]]
 
 
 def tool(sock: Any, token: str, name: str, **args: Any) -> dict[str, Any]:

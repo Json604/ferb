@@ -7,14 +7,15 @@ from ferb.cli.client import Client, RpcError
 from ferb.core.types import Identity
 from ferb.orchestrator.plans import Plan, Step
 from ferb.policy.rules import ActionRequest
-from tests.conftest import chat, done, install, outcome, sup, task, tool
+from tests.conftest import chat, done, install, outcome, sup, task, tool, turn_events
 from tests.mackit import grant_task
 
 
 def send(daemon, text, paths):
     client = Client(daemon.sock)
     try:
-        return list(client.stream('chat.send', {'session_id': 'frontend', 'text': text, 'input_paths': paths}))
+        return turn_events(list(client.stream('chat.send', {'session_id': 'frontend', 'text': text,
+                                                            'input_paths': paths})))
     finally:
         client.close()
 

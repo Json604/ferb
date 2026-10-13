@@ -46,14 +46,3 @@ def test_secret_approval_queues_without_reading_and_preserves_password_spaces(mo
     monkeypatch.setattr('getpass.getpass', lambda _: '  retained spaces  ')
     assert chat.enter_secret()
     assert calls == [('chat.answer', {'approval_id': 'secret', 'text': '  retained spaces  '})]
-
-
-def test_acknowledgements_do_not_repeat_in_last_eight(monkeypatch):
-    monkeypatch.setattr(threading.Thread, 'start', lambda self: None)
-    chat = LiveChat(lambda: None, io.StringIO(), lambda _: '')
-    seen = []
-    for _ in range(30):
-        chat.submit('Please read the next session')
-        ack = chat.received[-1]
-        assert ack not in seen[-8:]
-        seen.append(ack)

@@ -129,6 +129,7 @@ def test_daemon_delivers_redacted_words_before_runtime_finishes(daemon, ending):
     client = Client(daemon.sock)
     try:
         events = client.stream('chat.send', {'session_id': 'stream', 'text': 'Where is my draft?'})
+        assert next(events)['type'] == 'ack'
         first = next(events)
         assert first['type'] == 'reply_delta' and first['text']
         assert not release.is_set()

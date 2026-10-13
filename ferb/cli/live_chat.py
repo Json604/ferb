@@ -1,17 +1,12 @@
 """P29 live terminal session: background streams never read from the owner's input line."""
-import random
 import shutil
 import textwrap
 import threading
 import time
-from collections import deque
 from typing import Any, Callable
 
 from ferb.cli.chat import Chat, ReplyDraft, question, render
 
-# P25 neutral variants from the owner's plan. Avoid the last eight acknowledgements.
-ACKNOWLEDGEMENTS = ('Got it.', 'Okay.', 'Understood.', 'Noted.', 'Received.', 'Alright.', 'Sure.',
-                    'Okay, noted.', 'Copy that.', 'Let me see.')
 SECRETS = {'owner_login_code', 'owner_admin_password', 'owner_secret'}
 
 
@@ -20,7 +15,6 @@ class LiveChat(Chat):
         super().__init__(*args, **kwargs)
         self.pending: dict[str, dict[str, Any]] = {}
         self.running: dict[str, str] = {}
-        self.received: deque[str] = deque(maxlen=8)
         self._lock = threading.RLock()
         self._thinking = 0
         self._route_order = threading.Condition()
@@ -172,27 +166,18 @@ class LiveChat(Chat):
             with self._lock:
                 self.pending.pop(parts[1], None)
             return
+        # Typed text is a message, even with a question open: the planner decides what it answers (L19). The
+        # daemon acknowledges it on receipt (L7).
         with self._lock:
-            candidates = [p for p in self.pending.values() if p.get('kind') not in SECRETS]
-        if len(candidates) == 1 and text.strip().casefold() in {str(o).casefold() for o in candidates[0].get('options', [])}:
-            item = candidates[0]
-            self.call('chat.answer', {'approval_id': item['approval_id'], 'text': text})
-            with self._lock:
-                self.pending.pop(item['approval_id'], None)
-            return
-        with self._lock:
-            ack = random.choice([a for a in ACKNOWLEDGEMENTS if a not in self.received])
-            self.received.append(ack)
             self._thinking += 1
             ticket = self._next_ticket
             self._next_ticket += 1
-        self.say('ferb> ' + ack)
         threading.Thread(target=self._stream_turn, args=(text, ticket), daemon=True).start()
 
     def _stream_turn(self, text: str, ticket: int) -> None:
         client = None
         registered = False
-        routed = False
+        routed = False                  # the daemon has this message in its arrival order: the next may be sent
         draft = ReplyDraft()
         confirmed_reply: tuple[str, str] | None = None
         with self._route_order:
@@ -201,6 +186,14 @@ class LiveChat(Chat):
             client = self.connect()
             for event in client.stream('chat.send', {'session_id': self.session_id, 'text': text}):
                 kind = event.get('type')
+                if not routed and kind in ('ack', 'plan', 'reply', 'clarify', 'error'):
+                    with self._route_order:
+                        self._routing_ticket += 1
+                        routed = True
+                        self._route_order.notify_all()
+                if kind == 'ack':
+                    self.say('ferb> ' + str(event.get('text') or ''))
+                    continue
                 if kind == 'reply_delta':
                     if draft.append(str(event.get('text') or '')):
                         self._show_draft(ticket, draft.text)
@@ -224,11 +217,6 @@ class LiveChat(Chat):
                 if kind in ('plan', 'reply', 'clarify', 'outcome', 'error'):
                     draft.discard()
                     self._show_draft(ticket, '')
-                if not routed and event.get('type') in ('plan', 'reply', 'clarify', 'error'):
-                    with self._route_order:
-                        self._routing_ticket += 1
-                        routed = True
-                        self._route_order.notify_all()
                 with self._lock:
                     if event.get('type') == 'plan':
                         self.running[event['task_id']] = event.get('goal', '')
