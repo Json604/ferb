@@ -115,6 +115,7 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
         'turn_completed': False, 'request_id': 0, 'auth_source': home / 'auth.json',
         'auth_copy': isolated / 'auth.json', 'auth_original': b'', 'cancelled': False}
     run = RunHandle('run-' + secrets.token_hex(6), runtime.name, task.id, state)
+    checking_account = False
     try:
         token_file = None
         if runtime.mode == 'worker':
@@ -138,7 +139,16 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
             await _rpc(run, 'initialize', {'clientInfo': {'name': 'ferb', 'title': 'FERB', 'version': '0.27'},
                                          'capabilities': {'experimentalApi': True}})
             await _write(run, {'method': 'initialized'})
-            account = await _rpc(run, 'account/read', {'refreshToken': False})
+            checking_account = True
+            try:
+                account = await _rpc(run, 'account/read', {'refreshToken': False})
+            except AccountError:
+                raise
+            except (ProtocolError, OSError):
+                # The check never completed (the app-server exited or its pipe broke): an account failure all the same,
+                # so the request gets a reply naming it rather than a generic apology (L21).
+                raise AccountError('account_unavailable') from None
+            checking_account = False
             details = account.get('account')
             if not isinstance(details, dict) or details.get('type') != 'chatgpt':
                 raise AccountError('auth_required')
@@ -161,6 +171,11 @@ async def start(runtime: CodexRuntime, task: Task, request: ModelRequest, run_to
                 'outputSchema': runtime.output_schema, 'environments': []})
             state['turn_id'] = turn['turn']['id']
         return run
+    except TimeoutError:
+        await cancel(run)
+        if checking_account:                    # the startup timeout ran out while the account check was pending
+            raise AccountError('account_unavailable') from None
+        raise
     except BaseException:
         await cancel(run)
         raise

@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
+from ferb.clock.timers import recheck_in
 from ferb.orchestrator.plans import Step
 from ferb.orchestrator.plan_store import PlanStore
 
@@ -37,11 +38,11 @@ class PlanExecutor:
                 at = datetime.fromisoformat(str(step.until).replace('Z', '+00:00'))
                 if at.tzinfo is None:
                     raise ValueError('A wait time must include its timezone')
-                delay = (at - datetime.now(timezone.utc)).total_seconds()
-                if delay <= 0:
+                now = datetime.now(timezone.utc)
+                if at <= now:
                     return {'status': 'done', 'summary': step.goal}
-                try:
-                    await asyncio.wait_for(self._wake.wait(), delay)
+                try:                               # on the wall clock, like durable timers: sleep pauses monotonic
+                    await asyncio.wait_for(self._wake.wait(), recheck_in(at, now))
                 except TimeoutError:
                     pass
         return {'status': 'cancelled', 'summary': 'stopped by you'}

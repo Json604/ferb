@@ -303,7 +303,7 @@ class Supervisor(WorkerRuns):
             problems = [str(exc)]
             self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
             out = await self._supervise(session, message, request_id, recalled, repair=problems)
-        def problems_for(candidate: SupervisorOutcome) -> list[str]:
+        async def problems_for(candidate: SupervisorOutcome) -> list[str]:
             problems: list[str] = []
             if candidate.control and self.continuity.load(candidate.control.task_id, session.id) is None:
                 problems.append("Unknown task_id; no matching attempt exists in this conversation.")
@@ -317,9 +317,8 @@ class Supervisor(WorkerRuns):
                 if closed:
                     problems.append('Inventory paths are protected: ' + json.dumps(closed))
                 else:
-                    facts = inventory(paths)
-                    if protection:
-                        facts = [f for f in facts if not protection.fs_denied(Path(f['path']), 'read')]
+                    denied = (lambda file: protection.fs_denied(file, 'read')) if protection else None
+                    facts = await inventory(paths, denied)           # walked off the loop (L23)
                     self._env.setdefault(request_id, {})['inventory'] = facts
                     scopes = frozenset(s for cap in self.gateway.caps.values() for s in cap.scopes)
                     grant = RunGrant(request_id, request_id, scopes, Identity(candidate.task.identity), float('inf'))
@@ -330,12 +329,12 @@ class Supervisor(WorkerRuns):
                     if problems:
                         problems.append('Measured inventory: ' + json.dumps(facts))
             return problems
-        problems = problems_for(out)
+        problems = await problems_for(out)
         if not problems:
             return out
         self.journal.append("task.repair", {"request_id": request_id, "problems": problems})
         out = await self._supervise(session, message, request_id, recalled, repair=problems)
-        if problems_for(out):
+        if await problems_for(out):
             self.journal.append("chat.failed", {"request_id": request_id, "why": "task still invalid after repair"})
             raise ValueError("The planner returned an unknown task reference after format repair")
         return out

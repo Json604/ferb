@@ -21,6 +21,12 @@ from ferb.store.db import Database
 POLL_S = 30.0
 
 
+def recheck_in(due: datetime, now: datetime) -> float:
+    """Seconds to wait before looking at the wall clock again for something due at `due`. Never longer than POLL_S:
+    asyncio's timeouts run on the monotonic clock, which stops while the Mac sleeps."""
+    return max(0.0, min(POLL_S, (due - now).total_seconds()))
+
+
 @dataclass(frozen=True)
 class Timer:
     id: str
@@ -122,7 +128,7 @@ class Timers:
         r = self.db.conn.execute("SELECT MIN(fire_at) AS f FROM timers WHERE state = 'pending'").fetchone()
         if not r or not r["f"]:
             return POLL_S
-        return max(0.0, min(POLL_S, (datetime.fromisoformat(r["f"]) - self.clock.now()).total_seconds()))
+        return recheck_in(datetime.fromisoformat(r["f"]), self.clock.now())
 
     async def run(self) -> None:
         """The daemon's loop: fire what's due (and what a crash left claimed), then wait for the next one."""

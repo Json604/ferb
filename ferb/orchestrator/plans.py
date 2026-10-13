@@ -1,8 +1,10 @@
 """D30/P15 plan vocabulary and mechanical feasibility checks; task choices belong to the planner."""
 
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, deque
+from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -51,12 +53,18 @@ class Plan(BaseModel):
     standing_sends: list[SendScope] = Field(default_factory=list)
 
 
-def inventory(paths: list[str]) -> list[dict[str, Any]]:
+async def inventory(paths: list[str], denied: Callable[[Path], object] | None = None) -> list[dict[str, Any]]:
     """Stat the declared source files, without reading content or following directory symlinks.
 
     Bytes are a conservative token upper bound, useful without sending the input to a tokenizer/model.
-    The caller applies the same file protections as fs.stat before invoking this helper.
+    The caller applies the same file protections as fs.stat to the roots before invoking this helper; a file found
+    under them that `denied` names is left out. The walk runs in a worker thread: a home-sized tree must not hold
+    the daemon's loop (RPCs, proxy callbacks, Stop) while it is stat'ed (L23).
     """
+    return await asyncio.to_thread(_inventory, paths, denied)
+
+
+def _inventory(paths: list[str], denied: Callable[[Path], object] | None) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
     for value in paths:
         root = Path(value).expanduser()
@@ -65,6 +73,8 @@ def inventory(paths: list[str]) -> list[dict[str, Any]]:
             if file.is_symlink() or not file.is_file():
                 continue
             path = str(file.resolve())
+            if denied is not None and denied(Path(path)):
+                continue
             size = file.stat().st_size
             found[path] = {'path': path, 'bytes': size, 'tokens_upper_bound': size}
     return list(found.values())

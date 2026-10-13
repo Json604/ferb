@@ -13,7 +13,7 @@ from ferb.store.db import Database
 def test_map_requires_every_session_once_and_a_batch_that_fits(tmp_path):
     for name in ('session-a.json', 'session-b.json'):
         (tmp_path / name).write_text('owner controlled session')
-    inputs = inventory([str(tmp_path)])
+    inputs = asyncio.run(inventory([str(tmp_path)]))
     a, b = [i['path'] for i in inputs]
     plan = Plan(steps=[Step(id='read', kind='map', goal='Read every session', batches=[[a]])],
                 input_paths=[str(tmp_path)])
