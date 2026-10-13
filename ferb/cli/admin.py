@@ -579,6 +579,7 @@ def baseline(home: Any, out: TextIO) -> int:
         ).fetchone()[0]
         questions = c.execute("SELECT COUNT(*) FROM journal WHERE kind IN ('approval.resolved', 'chat.clarify')"
                               ).fetchone()[0]
+        latency = _latency(c)
     except sqlite3.OperationalError as e:
         if "no such table" not in str(e):
             raise
@@ -595,12 +596,51 @@ def baseline(home: Any, out: TextIO) -> int:
             "owner_verdicts": owner_verdicts, "owner_pass": owner_pass, "tool_calls": calls,
             "tool_errors": errors, "model_runs": runs, "avg_task_s": round(avg_task or 0, 1),
             "owner_questions": questions, "cache_pct": pct(cached, total_in),
-            "avg_trace_bytes": int(avg_bytes or 0)}
+            "avg_trace_bytes": int(avg_bytes or 0), "latency_s": latency}
     target = root / "baselines" / f"{captured}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, indent=2) + "\n")
     print(str(target), file=out)
     return 0
+
+
+# What each journal row is for a message's timeline (L8). An answer is the first reply, question or task answer.
+TIMELINE = {"chat.ack": "ack", "chat.message": "message", "chat.plan": "plan", "chat.reply": "answer",
+            "chat.clarify": "answer", "task.answer": "answer"}
+
+
+def _latency(c: Any) -> dict[str, dict[str, Any]]:
+    """L8: seconds from a message's arrival (its ack's `received_at`; its `chat.message` row when it has no ack) to
+    its ack, its plan line and its first answer, and the context building from `chat.message` to its first planner
+    turn. Only requests with a chat message count, so scheduled runs are left out."""
+    import statistics
+    seen: dict[str, dict[str, datetime]] = {}
+    rows = c.execute("SELECT kind, at, json_extract(data_json, '$.request_id'), json_extract(data_json, "
+                     "'$.received_at') FROM journal WHERE kind IN (" + ",".join("?" * len(TIMELINE)) + ") ORDER BY seq",
+                     tuple(TIMELINE))
+    for kind, at, request_id, received in rows:
+        if request_id:
+            times = seen.setdefault(str(request_id), {})
+            times.setdefault(TIMELINE[kind], datetime.fromisoformat(at))
+            if received:
+                times.setdefault("received", datetime.fromisoformat(received))
+    for request_id, started in c.execute(
+            "SELECT json_extract(input_json, '$.request_id'), MIN(started_at) FROM spans WHERE kind = 'model.turn' "
+            "AND json_extract(input_json, '$.role') = 'supervisor' GROUP BY 1"):
+        if request_id in seen:
+            seen[request_id]["planner"] = datetime.fromisoformat(started)
+    spans: dict[str, list[float]] = {"ack": [], "plan": [], "answer": [], "context": []}
+    for times in seen.values():
+        if "message" not in times:
+            continue
+        arrived = times.get("received", times["message"])
+        for name in ("ack", "plan", "answer"):
+            if name in times:
+                spans[name].append((times[name] - arrived).total_seconds())
+        if "planner" in times:
+            spans["context"].append((times["planner"] - times["message"]).total_seconds())
+    return {name: {"n": len(values), "avg_s": round(statistics.fmean(values), 3) if values else 0,
+                   "median_s": round(statistics.median(values), 3) if values else 0} for name, values in spans.items()}
 
 
 def stats(home: Any, out: TextIO, days: int = 7) -> int:

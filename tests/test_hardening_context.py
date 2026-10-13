@@ -275,7 +275,10 @@ def test_task_observer_finishes_and_rows_close_on_interrupted_stream(daemon, exi
             with pytest.raises(asyncio.CancelledError):
                 await advance
             await stream.aclose()
-        assert observed == [('start', plan['task_id']), ('finish', plan['task_id'])]
+        # L8: the plan line comes before the observer starts, so a stream closed at the plan never starts it (its
+        # finish is still called, and is a no-op for the disturbance sentinel); either way it is finished
+        started = [] if exit_mode == 'close_after_plan' else [('start', plan['task_id'])]
+        assert observed == started + [('finish', plan['task_id'])]
         assert not supervisor.running_trees()
         assert all(row['status'] not in ('running', 'planned') for row in supervisor.tasks.rows(plan['task_id']))
     daemon.run(check())

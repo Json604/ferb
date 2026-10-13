@@ -388,7 +388,8 @@ def test_a_stopped_task_gets_an_episode(daemon: RunningDaemon) -> None:
     c = Client(daemon.sock, timeout=30)
     try:
         for ev in c.stream("chat.send", {"session_id": "s", "text": "long job"}):
-            if ev["type"] == "plan":
+            # once the worker runs: the plan line now comes before the worker starts (L8)
+            if ev["type"] == "subtask" and ev["status"] == "started":
                 c2 = Client(daemon.sock)
                 c2.call("task.stop", {"task_ids": [ev["task_id"]]})
                 c2.close()

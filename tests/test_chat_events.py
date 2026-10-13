@@ -77,7 +77,9 @@ def test_ack_arrives_before_the_planner_is_called(daemon):
     # Journaled into chat history before the message is routed (the planner runs after chat.message).
     [(ack_seq, ack_row)] = _journal(daemon, 'chat.ack')
     [(message_seq, message_row)] = _journal(daemon, 'chat.message')
-    assert ack_row == {'session_id': 's1', 'request_id': first['request_id'], 'text': first['text']}
+    assert ack_row == {'session_id': 's1', 'request_id': first['request_id'], 'text': first['text'],
+                       'received_at': ack_row['received_at']}             # when the message arrived (L8 baseline)
+    assert datetime.fromisoformat(ack_row['received_at']) <= datetime.fromisoformat(first['at'])
     assert message_row['request_id'] == first['request_id'] and ack_seq < message_seq
 
 

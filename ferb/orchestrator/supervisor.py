@@ -7,6 +7,7 @@ Durable conversation, relevant memory/activity and uncertain-action evidence inf
 
 import asyncio
 import dataclasses
+import inspect
 import json
 import re
 import hashlib
@@ -78,6 +79,12 @@ def checked_conditions(spec: TaskSpec) -> list[Condition]:
     """What a check judges: the planner's conditions, then FERB's report condition, numbered last. None when the plan
     has none (no check runs then)."""
     return [*spec.success_conditions, REPORT_CONDITION] if spec.success_conditions else []
+
+
+async def _value(result: Any) -> Any:
+    """A context hook's result. A hook may be a coroutine function (the daemon's environment reads files in a thread),
+    so the event loop keeps serving acknowledgements and live lines while it runs (L8)."""
+    return await result if inspect.isawaitable(result) else result
 
 
 def _env_text(env: dict[str, Any]) -> str:
@@ -159,6 +166,9 @@ class _Watch(Observer):
     def tool_call(self, grant: RunGrant, done: bool) -> None:
         self.sup.activity.beat(grant.worker_id)
 
+    def tool_started(self, grant: RunGrant, name: str, args: dict[str, Any], kind: str, site: str | None) -> None:
+        self.sup.tool_progress(grant, name, args, kind, site)
+
     def waiting(self, worker: str, on: bool) -> None:
         self.sup.activity.waiting(worker, on)
 
@@ -214,6 +224,7 @@ class Supervisor(WorkerRuns):
         self._tools_seen: dict[str, list[str]] = {}       # worker id -> tool names its runtime reported
         self._tools_offered: dict[str, bool] = {}         # worker id -> whether FERB offered it any tools
         self._worker_runs: dict[str, tuple[AgentRuntime, RunHandle]] = {}
+        self._live: dict[str, asyncio.Queue[dict[str, Any]]] = {}      # tree id -> its run's event queue (L8)
         self.activity = Activity(clock.monotonic)
         # (owner last active, last trail event) for the time header; the daemon supplies them
         self.signals: Callable[[], tuple[datetime | None, datetime | None]] = lambda: (None, None)
@@ -228,8 +239,8 @@ class Supervisor(WorkerRuns):
         self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
         # What the supervisor may use right now (supplied by the daemon: connections, permissions)
         self.availability: Callable[[], Availability] = self._default_availability
-        # Environment observations supplied by the daemon.
-        self.environment: Callable[[str], dict[str, Any]] = lambda words: {}
+        # Environment observations supplied by the daemon (it may return them later: an awaitable).
+        self.environment: Callable[[str], dict[str, Any] | Awaitable[dict[str, Any]]] = lambda words: {}
         self._env: dict[str, dict[str, Any]] = {}
         self.apps: Callable[[], list[tuple[str, str]]] = lambda: []     # (bundle id, name) from the device profile
         self.pasted_is_data: Callable[[], bool] = lambda: True          # `[policy] pasted_text_is_data`
@@ -405,6 +416,8 @@ class Supervisor(WorkerRuns):
             self._env[request_id] = {'message_origin': set(data.get('message_origins', []))}
             async for event in self.run_tree(spec, 'Continuing your saved plan.', request_id, data['payload'],
                     conversation_id=saved['conversation'], origins=set(data.get('origins', [])), resume_id=tree_id):
+                # no chat stream stamps these: each names its request and when it was sent, as task.result does
+                event = {**event, 'request_id': request_id, 'at': self.clock.now().isoformat()}
                 self.publish('task.resumed_event', event)
                 if event.get('type') == 'outcome' and self.on_resumed_outcome:
                     await self.on_resumed_outcome(event)
@@ -473,8 +486,7 @@ class Supervisor(WorkerRuns):
                                                      "text": m.for_model,
                                                      "untrusted_parts": len(m.untrusted) + bool(paths),
                                                      "input_paths": paths})
-        recalled = self.recall(words)
-        env = self.environment(words)
+        recalled, env = await asyncio.gather(_value(self.recall(words)), _value(self.environment(words)))
         self._env[request_id] = {**env, "words": words, "payload": payload,
                                  "input_paths": paths,
                                  "message_origin": origins_.split(entry.origin) | asked | carried, "message_source_ref": "journal:" + entry.id}
@@ -583,7 +595,7 @@ class Supervisor(WorkerRuns):
                 words = prior_request.words + "\n" + words
                 authority = prior_request.words + "\n" + authority
                 payload = prior_request.payload + "\n\nOwner follow-up:\n" + payload
-                self._env[request_id] = {**self.environment(words), "words": words, "payload": payload,
+                self._env[request_id] = {**(await _value(self.environment(words))), "words": words, "payload": payload,
                                          "message_origin": self._env[request_id].get("message_origin", set())}
                 # A new attempt gets fresh scoped authority; durable context never restores approval grants.
         for change in out.conversation_changes:
@@ -968,14 +980,18 @@ class Supervisor(WorkerRuns):
         self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
         runner: asyncio.Task[None] | None = None
         try:
-            if self.on_task_start is not None:
-                await self.on_task_start(tree_id)
+            # L8: the plan line as soon as the planner returned, before the disturbance baseline below. Journaled
+            # (when, for which request) so `ferb baseline` can time it; its text stays in the planner's span.
+            self.journal.append("chat.plan", {"request_id": request_id, "task_id": tree_id})
             # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
             yield {"type": "plan", "text": confirm.from_task_lines(text), "task_id": tree_id, "goal": spec.goal,
                    "identity": spec.identity,
                    "subtasks": [{"id": WORKER, "task_id": worker.id, "role": "worker", "goal": spec.goal,
                                  "depends_on": []}]}
+            if self.on_task_start is not None:      # the baseline sample still comes before any worker acts
+                await self.on_task_start(tree_id)
             queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+            self._live[tree_id] = queue             # the live line: each tool call in this tree (L8)
             runner = asyncio.create_task(self._execute(tree, root_span.id, queue))
             while True:
                 ev = await queue.get()
@@ -1001,6 +1017,7 @@ class Supervisor(WorkerRuns):
             await self._release_resources(tree, root_span.id)
             raise
         finally:
+            self._live.pop(tree_id, None)
             # Generator closure and cancellation skip ordinary result flow; the harness still must
             # terminate observation and persist an interrupted outcome before releasing ownership.
             try:

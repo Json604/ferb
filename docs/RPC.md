@@ -56,16 +56,36 @@ browser bridge pages large observations; client RPC and extension protocol versi
 `chat.send` events contain a `type`; examples include ack, plan, progress/tool events, verification, approval/question,
 and outcome. Render unknown event types safely rather than treating them as completion.
 
-Every `chat.send` event carries `request_id`, the id journaled with that message's `chat.message`, and `at`, when the
-daemon sent it (ISO 8601 with offset). Events about a task also carry `task_id`. Use `request_id` to attach a reply,
+Every `chat.send` event carries `request_id`, the id journaled with that message's `chat.message` (null only on an
+outside observation, below), and `at`, when the daemon sent it (ISO 8601 with offset). Events about a task also carry `task_id`. Use `request_id` to attach a reply,
 plan or outcome to its submitted turn, even when it arrives after a later turn's events.
-- `ack {request_id, text, at}` comes first, on receipt and before the message waits for routing. `text` is one of the
-  owner-approved P25 phrases (`ferb/orchestrator/acks.py`), never one of the last eight said; it claims nothing about
-  what FERB will do. It is journaled as `chat.ack`. A second message on the same chat is acknowledged at once, while
-  routing stays in arrival order (P29).
+- `ack {request_id, text, message, at}` comes first, on receipt and before the message waits for routing. `text` is one
+  of the owner-approved P25 phrases (`ferb/orchestrator/acks.py`), never one of the last eight said; it claims nothing
+  about what FERB will do. `message` is the owner's message as the daemon redacted it, the text `chat.message` records
+  (secret values replaced): a client keeps this copy, never the raw text it sent. Pasted or quoted parts appear as sent;
+  only `chat.message` wraps them in FERB's data markers. The ack is journaled as `chat.ack`, with `received_at`, when the
+  message arrived. A second message on the same chat is acknowledged at once, while routing stays in arrival order
+  (P29).
+- `plan {request_id, task_id, text, goal, at}` comes as soon as the planner returns a task, before the disturbance
+  baseline sample and before any worker acts. It is journaled as `chat.plan {request_id, task_id}` (the time only; the
+  planner's text stays in its trace).
+- `progress {request_id, task_id, text, started_at, at}` comes each time a worker or the final checker starts a tool
+  call, or when the task's question or FERB's own check goes to the owner. `text` is built by code from the tool and its target
+  (`ferb/orchestrator/progress.py`): "reading github.com", "looking at Brave", "writing notes.md", "running a
+  command", "asking you", or the verb of the tool's kind. It never holds model text (the worker's `why`, typed text,
+  commands, page content). `started_at` is when that call started. Show one live line that each `progress` replaces,
+  with the time elapsed since `started_at`; remove it at the `outcome` or when the stream ends. It is not an answer or
+  a completion, and is not saved.
+- Task ids: `plan`, `progress` and `outcome` carry the tree id. `subtask` and `verification` carry the step's own task
+  id: the worker's `<tree>.worker` (a plan step's `<tree>.step.<id>`). Approvals may also name a worker id; its tree
+  id is the part before the first `.`.
 - Bus events merged into the stream (`{type:"event", topic, data}`) carry the stream's `request_id` and `at`.
   `approval.requested` data also carries the asking task's `request_id` (none for a question outside a task, such as
-  the setup profile), on the stream and on `logs.subscribe` alike.
+  the setup profile), on the stream and on `logs.subscribe` alike. `action.*` observations that belong to no task
+  (no `task_id`) are forwarded to every open chat stream with `request_id: null`: they are not about that stream's
+  message.
+- `task.resumed_event` (bus): each event of a plan resumed after a restart, with no chat stream, carries the saved
+  request's `request_id` and `at`, as `task.result` does.
 - The `task.result` bus event carries `request_id` and `at`: the outcome's own when a chat turn sent it, otherwise
   (a resumed plan, a scheduled run) the request the task ran for and when the result was recorded; `request_id` is
   null when no task record names one. A scheduled run's request is its own, never a chat message's.

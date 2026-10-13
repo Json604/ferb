@@ -30,4 +30,5 @@ def compare_baselines(before: dict[str, Any], after: dict[str, Any]) -> dict[str
             'captured_at': {'before': before.get('captured_at'), 'after': after.get('captured_at')},
             'denominators': {name: {key: source.get(key) for key in ('requests', 'owner_verdicts')}
                              for name, source in (('before', before), ('after', after))},
-            'model_runs': {'before': before.get('model_runs'), 'after': after.get('model_runs')}, 'metrics': metrics}
+            'model_runs': {'before': before.get('model_runs'), 'after': after.get('model_runs')},
+            'latency_s': {'before': before.get('latency_s'), 'after': after.get('latency_s')}, 'metrics': metrics}

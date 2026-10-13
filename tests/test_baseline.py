@@ -90,3 +90,38 @@ def test_baseline_on_pre_f0_database_prints_clean_message(tmp_path: Path) -> Non
     out = io.StringIO()
     assert baseline(tmp_path, out) == 1
     assert "older than FERB 0.27 F0" in out.getvalue() and not (tmp_path / "baselines").exists()
+
+
+def test_baseline_records_message_to_ack_plan_and_answer(tmp_path: Path) -> None:
+    """L8: from a message's arrival to its acknowledgement, its plan line and its first answer, plus the context
+    building before the planner starts. A run with no chat message (a scheduled run) isn't a message's."""
+    db = Database(tmp_path / "ferb.db")
+    db.migrate()
+    t = "2099-01-01T00:00:{:06.3f}+00:00".format
+
+    def row(kind: str, at: float, **data: object) -> None:
+        db.conn.execute("INSERT INTO journal (id, at, kind, data_json) VALUES (?,?,?,?)",
+                        (f"j{kind}{at}", t(at), kind, json.dumps(data)))
+    row("chat.ack", 0.05, request_id="r1", text="On it.", received_at=t(0))
+    row("chat.message", 0.1, request_id="r1", text="Write the note")
+    row("chat.plan", 12, request_id="r1", task_id="t1")
+    row("task.answer", 50, request_id="r1", task_id="t1", text="Wrote it.")
+    row("chat.ack", 1.02, request_id="r2", text="Looking.", received_at=t(1))
+    row("chat.message", 1.5, request_id="r2", text="What time is it?")
+    row("chat.reply", 10, request_id="r2", text="Nine.")
+    row("chat.plan", 20, request_id="sched", task_id="t9")          # a scheduled run: no chat message
+    row("task.answer", 30, request_id="sched", task_id="t9", text="Ran.")
+    for sid, request_id, started in (("m1", "r1", 1.1), ("m2", "r1", 8.0), ("m3", "r2", 2.5)):
+        db.conn.execute("INSERT INTO spans (id, kind, started_at, ended_at, input_json) VALUES (?,?,?,?,?)",
+                        (sid, "model.turn", t(started), t(started + 1),
+                         json.dumps({"role": "supervisor", "request_id": request_id, "repair": sid == "m2"})))
+    db.conn.commit()
+    from ferb.cli.admin import baseline
+    assert baseline(tmp_path, io.StringIO()) == 0
+    latency = json.loads(next((tmp_path / "baselines").glob("*.json")).read_text())["latency_s"]
+    assert latency["ack"] == {"n": 2, "avg_s": 0.035, "median_s": 0.035}
+    assert latency["plan"] == {"n": 1, "avg_s": 12.0, "median_s": 12.0}
+    assert latency["answer"] == {"n": 2, "avg_s": 29.5, "median_s": 29.5}       # 50 s and 9 s
+    assert latency["context"] == {"n": 2, "avg_s": 1.0, "median_s": 1.0}       # chat.message to the first planner turn
+    from ferb.eval.comparison import compare_baselines
+    assert compare_baselines({}, {"latency_s": latency})["latency_s"] == {"before": None, "after": latency}

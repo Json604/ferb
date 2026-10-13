@@ -21,6 +21,7 @@ from ferb.core.interfaces import AgentRuntime
 from ferb.core.types import ModelRequest, Outcome, RunHandle, Task
 from ferb.orchestrator.tree import TaskRecord
 from ferb.orchestrator.steering import deliver as deliver_steering
+from ferb.orchestrator import progress
 
 if TYPE_CHECKING:
     from ferb.orchestrator.supervisor import _Tree
@@ -54,7 +55,7 @@ class Stalled(Exception):
 
 class WorkerRuns:
     """Needs from the host: make_runtime, gateway, tokens, spans, tasks, publish, clock, ids, device_id, activity,
-    on_violation, heartbeat_poll_s, stall_s, _system(), _active, _tree_of, _stalled, cancel_tree()."""
+    on_violation, heartbeat_poll_s, stall_s, _system(), _active, _tree_of, _stalled, _live, cancel_tree()."""
     make_runtime: Any
     gateway: Any
     tokens: Any
@@ -76,12 +77,24 @@ class WorkerRuns:
     _tools_seen: dict[str, list[str]]
     _tools_offered: dict[str, bool]
     _worker_runs: dict[str, tuple[AgentRuntime, RunHandle]]
+    _live: dict[str, asyncio.Queue[dict[str, Any]]]
 
     _system: Callable[[str], str]
     _approach: Callable[[], str]
     cancel_tree: Callable[["_Tree"], None]
     context_budget_tokens: int
 
+
+    def tool_progress(self, grant: Any, name: str, args: dict[str, Any], kind: str, site: str | None) -> None:
+        """L8: a worker (or the final checker) started a tool call. Its task's live line says what it is doing, built
+        by code from the tool and its target (`progress.describe`), never from the worker's words."""
+        tree = self._tree_of.get(grant.task_id)
+        live = self._live.get(tree.id) if tree is not None else None
+        if tree is None or live is None:        # no running task stream to show it on
+            return
+        live.put_nowait({"type": "progress", "task_id": tree.id,
+                         "text": self.gateway.redact(progress.describe(name, args, kind=kind, site=site)),
+                         "started_at": self.clock.now().isoformat()})
 
     async def run_worker(self, tree: "_Tree", task: Task, prompt: str, ctx: list[ContextBlock], schema: dict[str, Any],
                          span: str) -> tuple[dict[str, Any] | Outcome, str]:

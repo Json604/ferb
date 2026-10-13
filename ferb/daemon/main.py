@@ -2001,32 +2001,47 @@ class Daemon:
                 out["ping"] = str(e)
         return out
 
-    def _environment(self, own_words: str) -> dict[str, Any]:
-        """Installed apps and browser connection facts; the model interprets the owner's requested route."""
-        import platform
-        from ferb.act.mac import apps as appsm
+    async def _environment(self, own_words: str) -> dict[str, Any]:
+        """Installed apps and browser connection facts; the model interprets the owner's requested route. The
+        database is read here, on the event loop; the Mac's and the browsers' files and the running apps are read in a
+        thread (`_environment_files`), so a slow read never holds up another message's ack or a task's live line (L8)."""
         from ferb.policy import services as svc
         ferb = self._identity_profile()
-        names = {(p.browser, p.folder): p.display_name for p in self._profiles()} if self.pairings else {}
-        paired = [(b.browser, b.folder, names.get((b.browser, b.folder), b.folder))
-                  for b in (self.pairings.all() if self.pairings else [])
+        bindings = self.pairings.all() if self.pairings else []
+        alignment = self.db.conn.execute("SELECT data_json FROM journal WHERE kind='security.alignment' "
+            "AND json_extract(data_json, '$.task_id') IN (SELECT id FROM tasks WHERE status='running') ORDER BY seq"
+            ).fetchall() if self.db is not None else []
+        found, apps, running, macos, extension = await asyncio.to_thread(
+            self._environment_files, {(b.browser, b.folder) for b in bindings})
+        names = {(p.browser, p.folder): p.display_name for p in found} if self.pairings else {}
+        paired = [(b.browser, b.folder, names.get((b.browser, b.folder), b.folder)) for b in bindings
                   if b.identity is Identity.OWNER and (b.browser, b.folder) != ferb]
-        env = svc.Environment(self._installed_apps(), paired)
+        stable, live = svc.summary(svc.Environment(apps, paired), macos, running)
+        profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
+                     'connection': self._profile_state(p, extension.get((p.browser, p.folder))),
+                     'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in found]
+        if alignment:
+            live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([json.loads(r[0]) for r in alignment])
+        stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
+        return {"stable": stable, "live": live}
+
+    def _environment_files(self, paired: set[tuple[str, str]]) -> tuple[list[Any], list[tuple[str, str]], set[str], str,
+                                                                        dict[tuple[str, str], bool]]:
+        """The environment's reads that touch no database, run in a thread: browser profiles (Local State), installed
+        apps (the device profile), running apps, the macOS version, and whether FERB's extension is in each profile not
+        yet paired (its Preferences files)."""
+        import platform
+        from ferb.act.browser.profiles import has_extension
+        from ferb.act.mac import apps as appsm
+        found = self._profiles()
         try:
             running = {a.bundle_id for a in appsm.running()}
         except Exception:
             running = set()
-        stable, live = svc.summary(env, platform.mac_ver()[0] or "unknown", running)
-        profiles = [{'browser': p.browser, 'profile': p.folder, 'name': p.display_name, 'account_hint': p.email,
-                     'connection': self._profile_state(p),
-                     'identity': 'ferb' if (p.browser, p.folder) == ferb else 'owner'} for p in self._profiles()]
-        if self.db is not None:
-            rows = self.db.conn.execute("SELECT data_json FROM journal WHERE kind='security.alignment' "
-                "AND json_extract(data_json, '$.task_id') IN (SELECT id FROM tasks WHERE status='running') ORDER BY seq").fetchall()
-            if rows:
-                live += "\nNon-enforcing alignment advice for active tasks: " + json.dumps([json.loads(r[0]) for r in rows])
-        stable += '\nBrowser/profile inventory (facts, not a selected route): ' + json.dumps(profiles)
-        return {"stable": stable, "live": live}
+        ids = frozenset(accepted_extension_ids(self.config))   # the pinned unpacked id and the store id (L25)
+        extension = {(p.browser, p.folder): has_extension(p, ids, (self.browser_data_dirs or {}).get(p.browser))
+                     for p in found if (p.browser, p.folder) not in paired}
+        return found, self._installed_apps(), running, platform.mac_ver()[0] or "unknown", extension
 
     def _task_root(self, task_id: str) -> str:
         """The request's root task a worker step belongs to: download budgets and the tab cap are per task tree."""
@@ -2082,15 +2097,18 @@ class Daemon:
                 origin.join({origin.FERB} | labels),
                 json.dumps([row["data"] if "data" in row else row for row in activity], ensure_ascii=False))
 
-    def _profile_state(self, p: Any) -> str:
-        """connected / paired (FERB opens it) / installed, not paired / no extension."""
+    def _profile_state(self, p: Any, installed: bool | None = None) -> str:
+        """connected / paired (FERB opens it) / installed, not paired / no extension. `installed`: whether the
+        extension is in the profile, when its files were already read (the environment reads them in a thread)."""
         from ferb.act.browser.profiles import has_extension
         b = self.pairings.for_profile(p.browser, p.folder) if self.pairings else None
         if b is not None:
             br = self.hub.bridges.get((p.browser, p.folder)) if self.hub else None
             return "connected" if br is not None and br.conn else "paired"
-        data = (self.browser_data_dirs or {}).get(p.browser)
-        return "installed" if has_extension(p, frozenset(accepted_extension_ids(self.config)), data) else "missing"
+        if installed is None:
+            data = (self.browser_data_dirs or {}).get(p.browser)
+            installed = has_extension(p, frozenset(accepted_extension_ids(self.config)), data)
+        return "installed" if installed else "missing"
 
     def _time_meanings(self) -> list[tuple[str, str]]:
         """The owner's own meanings of fuzzy time words ("next friday", "evening"), stored when they corrected FERB."""
@@ -2625,19 +2643,25 @@ class Daemon:
         self._publish("approval.resolved", {"approval_id": ap.id, "state": ap.state})
         return {"approval_id": ap.id, "state": ap.state}
 
-    def _chat_ack(self, session_id: str, request_id: str) -> dict[str, Any]:
-        """TQ3/P25: a neutral phrase said on receipt, never one of the last eight said; journaled into chat history."""
+    def _chat_ack(self, session_id: str, request_id: str, message: str = "",
+                  received: datetime | None = None) -> dict[str, Any]:
+        """TQ3/P25: a neutral phrase said on receipt, never one of the last eight said; journaled into chat history,
+        with when the message arrived (`ferb baseline` times the ack, plan line and answer from it, L8). `message`:
+        the owner's message as the daemon redacted it, as `chat.message` records it, for clients to keep (L7)."""
         said = [str(row[0]) for row in self._journal().db.conn.execute(
             "SELECT json_extract(data_json, '$.text') FROM journal WHERE kind = 'chat.ack' ORDER BY seq DESC LIMIT ?",
             (acks.RECENT,))]
         text = acks.pick(said[::-1])
-        entry = self._journal().append("chat.ack", {"session_id": session_id, "request_id": request_id, "text": text})
-        return {"type": "ack", "request_id": request_id, "text": text, "at": entry.at.isoformat()}
+        entry = self._journal().append("chat.ack", {"session_id": session_id, "request_id": request_id, "text": text,
+                                                    "received_at": (received or self.clock.now()).isoformat()})
+        return {"type": "ack", "request_id": request_id, "text": text, "message": message.strip(),
+                "at": entry.at.isoformat()}
 
     async def _chat_send(self, session: Session, params: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
         """One chat turn: an acknowledgement on receipt, then the supervisor's events, merged with bus events about
         the tasks this turn started (tool calls, owner questions and action observations) so `ferb chat` can show
         them inline. Every event names this message's request_id and when it was sent (L7)."""
+        received = self.clock.now()
         if self._shutting_down:
             raise FerbError("daemon is shutting down; no new chat task was started")
         if self.supervisor is None:
@@ -2649,10 +2673,11 @@ class Daemon:
         if self.redact(input_paths) != input_paths:
             raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
         session_id = str(params.get("session_id", "default"))
+        text = self.redact(str(params.get("text", "")))
         request_id = self.supervisor.ids.new_id()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)
-        queue.put_nowait(self._chat_ack(session_id, request_id))
+        queue.put_nowait(self._chat_ack(session_id, request_id, text, received))
         my_tasks: set[str] = set()
         attached = {"on": True}                     # False once the owner closes chat: the task keeps running
         sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*"})
@@ -2662,7 +2687,7 @@ class Daemon:
 
         async def turn() -> None:
             try:
-                async for ev in self.supervisor.send(session_id, self.redact(str(params.get("text", ""))),  # type: ignore[union-attr]
+                async for ev in self.supervisor.send(session_id, text,  # type: ignore[union-attr]
                                                      input_paths=input_paths, request_id=request_id):
                     ev = stamped(ev)
                     if ev.get("task_id"):
@@ -2686,8 +2711,11 @@ class Daemon:
         async def bus_events() -> None:
             async for ev in sub:
                 tid = ev.data.get("task_id")
-                if tid in my_tasks or self.tasks.tree_of(str(tid)) in my_tasks or (ev.topic.startswith("action.") and not tid):
-                    await queue.put(stamped({"type": "event", "topic": ev.topic, "data": self.redact(ev.data)}))
+                ours = tid in my_tasks or self.tasks.tree_of(str(tid)) in my_tasks
+                if ours or (ev.topic.startswith("action.") and not tid):
+                    wrapper = stamped({"type": "event", "topic": ev.topic, "data": self.redact(ev.data)})
+                    # an observation outside any task goes to every open chat: it is about no message
+                    await queue.put(wrapper if ours else {**wrapper, "request_id": None})
 
         # The turn takes the routing lock in its first step, ahead of any message that arrives after this ack is sent
         t1, t2 = asyncio.create_task(turn()), asyncio.create_task(bus_events())
