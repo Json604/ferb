@@ -1192,6 +1192,41 @@ Extension (L25):
     expected; Brave and Edge unconfirmed). After the listing is approved, set `[browser] store_extension_id`, run
     `ferb setup --update` again and record it.
 
+Fix wave 2 (2026-10-15; after the whole-codebase shippability review, all pending):
+48. One-time codes (C1): from your phone send yourself "482913 is your verification code for WhatsApp" and "Your Uber
+    code is 4829". Ask FERB "what notifications did I get in the last 5 minutes?" and search the trace's planner
+    input, `ferb timeline` and the notification trail rows: neither number appears. Also type
+    "my password is sunshine2024" in a notes app and check the typed-text row.
+49. Codex sign-in from the DMG (C2): on a fresh account (or with `~/.ferb/codex-home` moved aside), the Set Up FERB
+    window asks "Sign in to ChatGPT for FERB now? [Y/n]"; press Return. Record whether the browser sign-in opens and
+    completes from that window, which has no terminal (only checked from Codex's own strings so far). Then "what's
+    2+2?" in the notch answers. Also try **Sign in to Codex…** in the menu bar, and `ferb doctor` before signing in
+    (a ✗ codex home line with the fix).
+50. A reminder banner actually appears on a fresh macOS account (M8): banners post as Script Editor
+    (`com.apple.ScriptEditor2`), which may never have been allowed to notify there.
+51. Clipboard on a fresh install (I3): copy text in Safari: no "paste from other apps" alert appears, and
+    `ferb doctor` shows a ! clipboard line. Run `ferb setup`, answer y to the clipboard question: the alert appears
+    once and FERB is listed in Privacy & Security → Paste from Other Apps; set it to Allow, copy again, and a clipboard
+    trail row appears.
+52. Front window under load (I4): stop a disposable TextEdit document's process (`kill -STOP <pid>`) with it in front,
+    send "hi", then `kill -CONT`. The answer comes within about 10 s and the planner input says the front window
+    couldn't be captured in time.
+53. Media playing (I5): in a FERB-opened background tab, `browser.media play` on a YouTube video: the first result
+    may say `playing: false, paused: false`; a snapshot a few seconds later says `playing: true` with `current_time`
+    moving.
+54. Minimized window (I7): "take a screenshot of the minimized Chrome window" (minimize a disposable window first):
+    FERB says the window is minimized and leaves it so. If "Failed to start stream…" happens anywhere, the result and
+    `screen.capture_failed` now carry ScreenCaptureKit's domain and code: record them.
+55. Recurring comparison: the next run of the daily Kaggle-rank schedule (sc-933b051c3c) reports the change from the
+    previous run's rank instead of a first baseline.
+56. Offline: turn Wi-Fi off and send "hi": the reply says the Mac seems to be offline, not "try again shortly".
+57. "Leave it, but if you find the reason, tell me" during a diagnosis task keeps it diagnosing (no changes) and it
+    reports the reason; "stop" alone stops it, and a stopped task's answer lists what it had found.
+58. Front tab URL (M1): with Edge or Arc in front (Automation already allowed), the planner input has the tab's URL.
+59. Sites contacted (I6): "find three recent articles about Apple Intelligence on-device models and summarise them":
+    the list includes the article sites the task clicked through to.
+60. Note when macOS's monthly screen-capture prompt appears (M5) and that declining it stops screenshots and hearing.
+
 Residuals to know during the week (accepted or recorded, not checks):
 - After reading a malicious page, the shell could send one of your files somewhere; it is recorded, not prevented.
 - A plain-word private value in a link no longer asks; outside text inside FERB's own records doesn't taint a task.
@@ -1201,7 +1236,7 @@ Residuals to know during the week (accepted or recorded, not checks):
   already going (its sends then get the usual checks).
 - Your follow-up reopens every No in that task (each asked again at most once, only if the action recurs).
 - Typed text: terminals inside other apps (VS Code, Cursor) and terminals added to `[protection] terminal_apps` aren't
-  gated; a PIN typed into a phone-number field labelled only "PIN" is recorded.
+  gated. (A PIN typed into a field labelled "PIN" is masked since fix wave 2's labelled classes.)
 - A new floating window appearing while you type makes FERB step aside, and your keystrokes go to the app underneath.
 - In the milliseconds between Codex's timeout and FERB releasing the call, an answer can be lost; the retry asks
   again.

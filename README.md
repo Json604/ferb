@@ -482,6 +482,11 @@ no automated test proves that the owner experienced no disturbance.
 - The hosted model sees your front window, redacted, with every message. Redaction covers secret classes, not all
   private text.
 - Hearing is per app, so a browser is heard whole; the sound must play for FERB to hear it.
+- On macOS 15 and later, macOS asks again about once a month whether FERB may keep capturing the screen (a prompt
+  saying FERB "is requesting to bypass the system private window picker"). FERB captures your front window with every
+  message and uses screen capture to hear apps, so it shows up regularly; declining it stops screenshots, the
+  front-window picture and hearing until you allow FERB again in System Settings → Privacy & Security → Screen
+  Recording.
 - Notices need the optional Jev service; notification triage is shadow only.
 - The terminal chat shows no live progress line.
 
