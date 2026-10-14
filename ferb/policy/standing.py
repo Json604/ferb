@@ -33,7 +33,11 @@ class StandingPermissions:
         self.db = db
 
     def grant(self, task_id: str, scopes: list[SendScope], approval_id: str) -> None:
-        for index, scope in enumerate(scopes):
+        self.grant_each(task_id, [(scope, approval_id) for scope in scopes])
+
+    def grant_each(self, task_id: str, granted: list[tuple[SendScope, str]]) -> None:
+        """The task's scopes, each under the statement (approval id) it is granted under."""
+        for index, (scope, approval_id) in enumerate(granted):
             self.db.conn.execute('INSERT OR REPLACE INTO standing_permissions VALUES(?,?,?,?,1)',
                 (task_id + ':' + str(index), task_id, scope.model_dump_json(), approval_id))
 
@@ -64,8 +68,13 @@ class StandingPermissions:
 
     def scopes(self, task_id: str) -> list[SendScope]:
         """The task's scopes in force, in their stated order."""
-        return [SendScope.model_validate_json(row[0]) for row in self.db.conn.execute(
-            'SELECT scope FROM standing_permissions WHERE task_id=? AND active=1 ORDER BY rowid', (task_id,))]
+        return [scope for scope, _ in self.in_force(task_id)]
+
+    def in_force(self, task_id: str) -> list[tuple[SendScope, str]]:
+        """The task's scopes in force, each with the statement it was granted under, in their stated order."""
+        return [(SendScope.model_validate_json(row[0]), row[1]) for row in self.db.conn.execute(
+            'SELECT scope, approval_id FROM standing_permissions WHERE task_id=? AND active=1 ORDER BY rowid',
+            (task_id,))]
 
     def approvals(self, task_id: str) -> list[str]:
         """The statements (approval ids) the task's scopes in force were granted under."""

@@ -35,7 +35,7 @@ from ferb.memory.lineage import ENTRY, TASK
 from ferb.orchestrator.continuity import Continuity
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, Steering, apply as apply_steering,
-                                       grant_stated)
+                                       grant_stated, not_covered)
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import Plan, SendScope, Step, inventory, problems as plan_problems
@@ -1762,9 +1762,7 @@ class Supervisor(WorkerRuns):
             lines.append("For this task I'll send these without asking each time:")
             lines += ["- " + one(s.line()) for s in granted]
         if len(granted) < len(scopes):
-            lines.append("These weren't set up with you, so they aren't covered: each gets FERB's usual checks, and "
-                         "one that asks " + ("can't be answered with nobody here, so it's reported not done:"
-                                             if unattended else "waits for you:"))
+            lines.append(not_covered(unattended))
             lines += ["- " + one(s.line()) for s in scopes if s not in granted]
         return "\n".join(lines)
 

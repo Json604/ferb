@@ -1039,6 +1039,40 @@ def test_cancelling_or_pausing_a_schedule_withdraws_its_running_runs_scope(daemo
     assert revoked[0]["reason"] == "schedule " + action
 
 
+def test_a_correction_to_a_scheduled_run_keeps_its_scope_withdrawn_by_a_cancel(daemon: RunningDaemon) -> None:
+    """Controller follow-up (Task 7 x Task 18). A scope correction during a scheduled run kept the recorded scope but
+    granted it again under the correction's `stated:<id>`, so cancelling the schedule (which withdraws
+    `schedule:<id>`) no longer reached that run, against "Cancelling or pausing the schedule withdraws them at once".
+    On a run nobody started from chat, a kept scope keeps the statement it was granted under, and a new one is never
+    granted: the reply says it isn't covered."""
+    from ferb.core.types import ActionSpec, Target
+    from ferb.orchestrator.steering import grant_stated, restate_scope
+    _remember(daemon, "My launch list address is new@x.com")
+    seen: dict[str, Any] = {}
+
+    def correct_then_cancel() -> None:
+        supervisor = daemon.daemon.supervisor
+
+        async def correct() -> None:
+            [tree] = list({t.id: t for t in supervisor._tree_of.values() if t.unattended_scopes is not None}.values())
+            restated = restate_scope(supervisor, tree, [_scope("new@x.com"), _scope("extra@x.com")])
+            assert restated is not None
+            grant_stated(supervisor, tree, restated)           # as if its reply went out: still nothing new
+            seen["text"], seen["widened"] = restated.text, restated.widened
+            seen["approvals"] = supervisor.standing.approvals(tree.id)
+            seen["extra"] = supervisor.standing.covers(tree.id, "probe.post", "owner",
+                                                       ActionSpec("post", Target(recipients=("extra@x.com",)), "x"))
+        daemon.run(correct())
+        _change_schedule(daemon, "cancel")
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None, posts=("new@x.com",),
+                              before_posting=correct_then_cancel)
+    assert seen["approvals"] and all(a.startswith("schedule:") for a in seen["approvals"])   # the kept scope
+    assert seen["widened"] is False and seen["extra"] is False                               # nothing new granted
+    assert "extra@x.com" in seen["text"] and "aren't covered" in seen["text"]
+    assert run.results["new@x.com"]["is_error"]          # the cancel withdrew it: asked, nobody there, declined
+    assert [r["approval_id"] for r in _revocations(daemon)] == [run.grants[0][1]]
+
+
 def test_a_schedule_cancelled_while_its_run_is_planned_grants_that_run_nothing(daemon: RunningDaemon) -> None:
     """The run's facts were read before its planner turn; the schedule is checked again right before the grant."""
     _remember(daemon, "My launch list address is new@x.com")
@@ -1155,9 +1189,10 @@ def test_a_steer_reply_stating_a_scope_is_journaled_as_model_written(daemon: Run
     _finish(daemon, run)
 
 
-def test_a_steer_on_an_unattended_run_grants_a_never_granted_scope_only_after_stating_it(daemon: RunningDaemon) -> None:
+def test_a_steer_on_an_unattended_run_never_grants_a_never_granted_scope(daemon: RunningDaemon) -> None:
     """A resumed run whose plan states [a, b] but holds only a's grant: a correction keeping both doesn't grant b at
-    once, as if it had been in force."""
+    once, as if it had been in force, nor after its reply (controller ruling: never widen a run nobody started from
+    chat); a keeps the statement it was granted under."""
     from ferb.core.types import ActionSpec, Target
     from ferb.orchestrator.steering import restate_scope
     run = _running_plan(daemon, [_scope("a@x.com"), _scope("b@x.com")], [])
@@ -1168,11 +1203,12 @@ def test_a_steer_on_an_unattended_run_grants_a_never_granted_scope_only_after_st
         return supervisor.standing.covers(run.tree, "probe.post", "owner",
                                           ActionSpec("post", Target(recipients=(to,)), "the update"))
 
-    async def go() -> tuple[bool, bool, bool]:
+    async def go() -> tuple[bool, bool, bool, list[str]]:
         supervisor.standing.revoke(run.tree)
         supervisor.standing.grant(run.tree, [_scope("a@x.com")], "schedule:s")
         tree.unattended_scopes = [_scope("a@x.com")]
         restated = restate_scope(supervisor, tree, [_scope("a@x.com"), _scope("b@x.com"), _scope("c@x.com")])
-        return covers("a@x.com"), covers("b@x.com"), restated is not None and restated.widened
-    assert daemon.run(go()) == (True, False, True)
+        return (covers("a@x.com"), covers("b@x.com"), restated is not None and restated.widened,
+                supervisor.standing.approvals(run.tree))
+    assert daemon.run(go()) == (True, False, False, ["schedule:s"])
     _finish(daemon, run)
