@@ -14,6 +14,8 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   hardlink made before (outside FERB) is a different path and is not covered.
 - Renaming a folder above a protected path would carry it to a path no rule names, so each such folder, and the
   workspace itself, is denied as a literal (the folder, not its contents): files can still be made inside them.
+- No Trash folder can be written (~/.Trash, /.Trashes, /Volumes/*/.Trashes), even after a lift: only fs.trash and
+  `ferb restore` move items in or out (rule 10).
 - The Keychain's service (com.apple.SecurityServer) is unreachable, so `security` fails at once and no Keychain prompt
   can appear (E4). Trust evaluation through trustd is also denied (owner, 2026-10-10); one approved command can lift
   only that rule. Go TLS may need the lift. Programs that
@@ -104,6 +106,17 @@ def _forms(path: Path) -> list[Path]:
     return list(dict.fromkeys((path, Path(os.path.realpath(path)))))
 
 
+# Every volume's Trash folders (the startup disk's and other disks'), whatever their owner; the owner's ~/.Trash is
+# named from the home (_trash_forms)
+TRASHES = (r"^(/System/Volumes/Data)?/\.Trashes(/|$)", r"^/Volumes/[^/]+/\.Trashes(/|$)")
+
+
+def _trash_forms(home: Path) -> list[Path]:
+    """The owner's Trash as written, resolved, and through the Data volume (/System/Volumes/Data/Users/…)."""
+    forms = _forms(home / ".Trash")
+    return list(dict.fromkeys((*forms, *(Path("/System/Volumes/Data" + str(f)) for f in forms))))
+
+
 class Sandbox:
     def __init__(self, protection: Protection, profiles_dir: Path,
                  proxy_port: Callable[[], int | None] = lambda: None, *, socket: Path | None = None,
@@ -156,6 +169,10 @@ class Sandbox:
                   for f in _forms(root)]
         # FERB.app (L27): the daemon's code; after every lift, so an approved escape never reopens it
         lines += [f"(deny file-write* (subpath {_q(f)}))" for app in p.app_entries() for f in _forms(app)]
+        # The Trash (rule 10): only fs.trash and `ferb restore` move items in or out, through folders they hold open;
+        # a shell that could write a Trash could swap what FERB just moved there. After every lift, never lifted
+        lines += [f"(deny file-write* (subpath {_q(f)}))" for f in _trash_forms(p.home)]
+        lines += [f'(deny file-write* (regex #"{rx}"))' for rx in TRASHES]
         # An existing folder is denied as a literal. A missing one may still be made (a first install creates
         # ~/.cargo), but once made it can't be removed or renamed, and it can't be made as a link
         guarded = list(dict.fromkeys((*p.guarded_parents(), p.workspace)))

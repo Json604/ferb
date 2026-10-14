@@ -8,6 +8,7 @@ owner's live check.
 """
 
 import base64
+import errno
 import hashlib
 import json
 import math
@@ -23,6 +24,7 @@ from tests.browserkit import OWNER, bd, call, pair, task  # noqa: F401 (fixture)
 from tests.chromelab import EXT, _node, worker
 from tests.conftest import RunningDaemon
 from tests.fake_extension import DOWNLOAD_PART, FakeExtension
+from tests.support.trash import use_trash
 
 SITE = "https://shop.example"
 
@@ -496,16 +498,11 @@ def test_a_dismissed_browser_download_is_reported_as_canceled(bd: Any) -> None:
 # ---------- retention: working copies go to the Trash ----------
 
 def _fake_trash(monkeypatch: Any, home: Path) -> Path:
-    from ferb.act.fs import files
-    bin_ = home / "Trash"
+    """A Trash beside the test's FERB home (tests.support.trash): retention moves through open folders, like fs.trash."""
+    bin_ = home.parent / ".Trash"
     bin_.mkdir(parents=True, exist_ok=True)
-
-    def move(p: Path) -> str:
-        where = bin_ / p.name
-        os.rename(p, where)
-        return str(where)
-    monkeypatch.setattr(files, "move_to_trash", move)
-    return bin_
+    use_trash(monkeypatch, bin_)
+    return bin_.resolve()
 
 
 def test_downloads_stay_until_the_owner_deletes_them_however_old(bd: Any, monkeypatch: Any) -> None:
@@ -705,9 +702,9 @@ def test_retention_records_a_gone_file_and_never_evicts_a_newer_one_for_one_that
     d.call_soon(d.daemon.clock.advance, 1)
     Path(a["path"]).unlink()                                           # the owner removed it
 
-    def stuck(p: Path) -> str:
+    def stuck(near: Path) -> Path:
         raise files.TrashRefused("in use")
-    monkeypatch.setattr(files, "move_to_trash", stuck)
+    monkeypatch.setattr(files, "trash_folder", stuck)
     c = _deliver(d, ext, chrome_id, name="c.bin", data=os.urandom(800_000), source_url="https://x.example/c")
     rows = {r["name"]: r for r in _records(d)}
     assert rows["a.bin"]["kept"] == "gone" and rows["a.bin"]["path"] is None
@@ -745,13 +742,13 @@ def test_a_stuck_old_file_stops_counting_so_newer_ones_stay(bd: Any, monkeypatch
     d.daemon.config.set("browser", "download_total_mb", 1)
 
     trash = _fake_trash(monkeypatch, d.daemon.home)
-    moved = files.move_to_trash
+    moved = files.move_excl
 
-    def only_old_stuck(p: Path) -> str:                               # the old file won't move; any other would
-        if p.name.endswith("old.bin"):
-            raise files.TrashRefused("in use")
-        return moved(p)
-    monkeypatch.setattr(files, "move_to_trash", only_old_stuck)
+    def only_old_stuck(src_dir: int, src: str, dst_dir: int, dst: str) -> None:   # the old file won't move
+        if src.endswith("old.bin"):
+            raise OSError(errno.EBUSY, os.strerror(errno.EBUSY))
+        moved(src_dir, src, dst_dir, dst)
+    monkeypatch.setattr(files, "move_excl", only_old_stuck)
     new1 = _deliver(d, ext, chrome_id, name="new1.bin", data=os.urandom(300_000), source_url="https://x.example/1")
     new2 = _deliver(d, ext, chrome_id, name="new2.bin", data=os.urandom(300_000), source_url="https://x.example/2")
     assert all(Path(f["path"]).exists() for f in (old, new1, new2))   # old is stuck; the newer ones never pay for it
@@ -852,8 +849,9 @@ def test_a_row_outside_the_downloads_folder_is_left_as_it_is_recorded_once_and_n
                                                          path.name, size, "external:download",
                                                          (now - timedelta(days=age)).isoformat()))
     settings = {("browser", "download_total_mb"): 1}
-    moved: list[Path] = []
-    monkeypatch.setattr(files, "move_to_trash", lambda p: moved.append(p) or str(tmp_path / "Trash" / p.name))
+    trash = tmp_path / ".Trash"
+    trash.mkdir()
+    use_trash(monkeypatch, trash)
     dl = Downloads(root, db, lambda: now, lambda s, k, v: settings.get((s, k), v), lambda t: t, lambda *a: None)
     assert dl.purge() == 0
     changes = db.conn.total_changes
@@ -862,7 +860,7 @@ def test_a_row_outside_the_downloads_folder_is_left_as_it_is_recorded_once_and_n
     assert rows["dl-aaaaaaaaaaaa"]["path"] == str(outside) and outside.read_bytes() == b"old"
     assert rows["dl-aaaaaaaaaaaa"]["kept"].startswith("skipped")
     assert rows["dl-bbbbbbbbbbbb"] == {"id": "dl-bbbbbbbbbbbb", "path": str(inside), "kept": None}
-    assert moved == [] and inside.exists()                       # the folder's 300 KB is under 1 MB: nothing goes
+    assert list(trash.iterdir()) == [] and inside.exists()       # the folder's 300 KB is under 1 MB: nothing goes
 
 
 def test_ferb_opens_a_new_tab_link_only_when_the_extension_still_waits_for_it(bd: Any) -> None:

@@ -28,10 +28,12 @@ from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
+from ferb.act.fs import files
+from ferb.act.fs.files import O_SEARCH, TRASH_DIRS, PathRefused, in_trash, make_folders, opened_path  # noqa: F401
 from ferb.core.types import ActionSpec, Identity, RiskLevel, Target, ToolContext, ToolResult
 from ferb.policy.rules import Kind
 
-TRASH_DIRS = (".Trash", ".Trashes")       # macOS Trash folders: the home volume's, and other volumes'
+TRASH_UNVERIFIED = "trash-unverified"     # a trash record whose item isn't (or can't be shown to be) what FERB checked
 TRASH_RECORD_MAX_DAYS = 90                # a trash record stays while its item is in the Trash, at most this long
 RENAME_EXCL = 0x00000004                  # renamex_np: fail rather than replace an existing destination
 SNAPSHOT_TIMEOUT_S = 30.0
@@ -353,21 +355,17 @@ def _trash_place(saved_to: str | None) -> Path | None:
     return None
 
 
-def record_trash(original: Path, trashed_to: str | None, *, task_id: str | None, db: Any, clock: Any, ids: Any) -> str:
-    """A durable record of a trashed item: where it was (the real path the tool trashed) and where it went in the
-    Trash, with the item's device and inode, so `restore` puts back exactly that item without depending on Finder's
-    Put Back or on the span that recorded the call (it ages out)."""
+def record_trash(original: Path, trashed_to: str | None, *, device: int | None, inode: int | None,
+                 reason: str = "trash", task_id: str | None, db: Any, clock: Any, ids: Any) -> str:
+    """A durable record of a trashed item: where it was (the real path the tool trashed), where it went in the Trash,
+    and the device and inode fs.trash verified through the open Trash (never looked up again by path here), so
+    `restore` puts back exactly that item without depending on Finder's Put Back or on the span that recorded the call
+    (it ages out). `reason` TRASH_UNVERIFIED: what is there isn't what FERB checked; restore leaves it to the owner."""
     place = _trash_place(trashed_to)
-    dev = ino = None
-    if place is not None:
-        try:
-            st = os.lstat(place)
-            dev, ino = st.st_dev, st.st_ino
-        except OSError:
-            pass
     eid = str(ids.new_id())
-    db.conn.execute(_INSERT, (eid, task_id, "trash", str(original), str(place) if place else trashed_to, "trash",
-                              clock.now().isoformat(), dev, ino))
+    verified = reason != TRASH_UNVERIFIED
+    db.conn.execute(_INSERT, (eid, task_id, "trash", str(original), str(place) if place else trashed_to, reason,
+                              clock.now().isoformat(), device if verified else None, inode if verified else None))
     return eid
 
 
@@ -399,7 +397,7 @@ def recent(db: Any, root: Path, limit: int = 100) -> tuple[list[dict[str, Any]],
             available = None                                 # a snapshot: macOS may have thinned it
         out.append({"id": r["id"], "task_id": r["task_id"], "kind": r["kind"], "original": r["original"],
                     "saved_to": r["saved_to"] if r["kind"] == "snapshot" else None, "reason": r["reason"],
-                    "at": r["at"], "available": available})
+                    "at": r["at"], "available": available, "needs_owner": r["reason"] == TRASH_UNVERIFIED})
     return out, total
 
 
@@ -419,7 +417,10 @@ def find(db: Any, ref: str) -> Any:
     return rows[0]
 
 
-def restore(record_id: str, db: Any, root: Path) -> Path:
+Closed = Callable[[Path, str], str | None] | None    # the protection lists' answer for a path (gateway)
+
+
+def restore(record_id: str, db: Any, root: Path, closed: Closed = None) -> Path:
     """Put a record back and return where it went. Never overwrites what the owner may have changed:
     - a clone goes back in place when the file is gone, or is still exactly what FERB left (written_sha256); if the
       file changed since (or FERB never learned what it left), the copy goes beside it as "<name> (before FERB)<ext>"
@@ -427,33 +428,33 @@ def restore(record_id: str, db: Any, root: Path) -> Path:
     - a trashed item moves back from the Trash to where it was, or beside it as "<name> (restored)<ext>" when something
       is there now; only the very item FERB trashed (same device and inode), and its record then goes (it is back);
     - a snapshot can't be opened by FERB: the error says how the owner can use it.
-    `record_id` may be the start of an id. Raises NotRestorable with the reason in the owner's words. On the daemon's
-    loop use `restore_async` (the file work runs in a thread); hold the file's lock around either."""
+    `record_id` may be the start of an id. `closed`: the protection lists, for where a trashed item goes back (rule
+    10). Raises NotRestorable with the reason in the owner's words. On the daemon's loop use `restore_async` (the file
+    work runs in a thread); hold the file's lock around either."""
     r = dict(find(db, record_id))
-    back = _put_back(r, root)
+    back = _put_back(r, root, closed)
     if r["kind"] == "trash":
         db.conn.execute("DELETE FROM recovery WHERE id = ?", (r["id"],))
     return back
 
 
-async def restore_async(record_id: str, db: Any, root: Path) -> Path:
+async def restore_async(record_id: str, db: Any, root: Path, closed: Closed = None) -> Path:
     r = dict(find(db, record_id))
-    back = await asyncio.to_thread(_put_back, r, root)
+    back = await asyncio.to_thread(_put_back, r, root, closed)
     if r["kind"] == "trash":
         db.conn.execute("DELETE FROM recovery WHERE id = ?", (r["id"],))
     return back
 
 
-def _put_back(r: dict[str, Any], root: Path) -> Path:
+def _put_back(r: dict[str, Any], root: Path, closed: Closed = None) -> Path:
     """The file work of a restore (no database): safe in a worker thread."""
     original = Path(r["original"])
     if r["kind"] == "snapshot":
         raise NotRestorable(f"{r['saved_to']} is {SNAPSHOT_HOW}")
-    dest = original.resolve()                                 # the file itself, through any symlink
     if r["kind"] == "clone":
-        return _restore_copy(r, original, dest, root)
+        return _restore_copy(r, original, original.resolve(), root)   # the file itself, through any symlink
     if r["kind"] == "trash":
-        return _restore_trashed(r, original, dest)
+        return _restore_trashed(r, original, closed)
     raise NotRestorable(f"unknown record kind {r['kind']!r}")
 
 
@@ -480,21 +481,84 @@ def _restore_copy(r: dict[str, Any], original: Path, dest: Path, root: Path) -> 
     return _beside(dest, BEFORE_FERB, lambda target: _copy_new(copy, target))
 
 
-def _restore_trashed(r: dict[str, Any], original: Path, dest: Path) -> Path:
+def _restore_trashed(r: dict[str, Any], original: Path, closed: Closed = None) -> Path:
+    """The very item FERB trashed, moved back between two folders held open (never by path): the Trash folder, which
+    must still be a Trash, holding the item with the device and inode fs.trash verified; and the folder it came from,
+    which must still be that folder (no link standing where it was) and open to the lists. Never replacing anything
+    there; checked again after the move."""
+    if r["reason"] == TRASH_UNVERIFIED:
+        raise NotRestorable(f"what FERB moved to the Trash from {short(original)} changed while FERB moved it, so FERB "
+                            f"won't put it back itself; it is in the Trash at {short(r['saved_to'] or '?')}: look at "
+                            "it there, and move it yourself if it's yours")
     place = _trash_place(r["saved_to"])
     if place is None or r["saved_dev"] is None:
         raise NotRestorable(f"FERB doesn't know where {short(original)} went in the Trash")
-    if not os.path.lexists(place):
-        raise NotRestorable(f"{short(original)} is no longer in the Trash, so it can't be put back")
-    if not _same_trash_item(r):
-        raise NotRestorable(f"what is in the Trash under that name now isn't the {short(original)} FERB moved there, "
-                            "so FERB left it alone")
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    saved = (r["saved_dev"], r["saved_ino"])
     try:
-        _move_new(place, dest)
-        return dest
-    except FileExistsError:
-        return _beside(dest, RESTORED, lambda target: _move_new(place, target))
+        trash = os.open(place.parent, O_SEARCH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        raise NotRestorable(f"{short(original)} is no longer in the Trash, so it can't be put back") from None
+    try:
+        try:
+            in_a_trash = in_trash(opened_path(trash))
+            st = os.stat(place.name, dir_fd=trash, follow_symlinks=False)
+        except FileNotFoundError:
+            raise NotRestorable(f"{short(original)} is no longer in the Trash, so it can't be put back") from None
+        except OSError as e:
+            raise NotRestorable(f"FERB couldn't look in the Trash for {short(original)} ({e.strerror or e})") from None
+        if not in_a_trash:
+            raise NotRestorable(f"{short(place.parent)} isn't a Trash folder, so FERB left it alone")
+        if (st.st_dev, st.st_ino) != saved:
+            raise NotRestorable(f"what is in the Trash under that name now isn't the {short(original)} FERB moved "
+                                "there, so FERB left it alone")
+        folder = original.parent
+        try:
+            make_folders(folder, (lambda p: closed(p, "write")) if closed is not None else None)
+            out = os.open(folder, O_SEARCH | os.O_DIRECTORY | os.O_CLOEXEC)
+        except (OSError, PathRefused) as e:
+            raise NotRestorable(f"FERB couldn't open {short(folder)} to put {original.name} back ({e})") from None
+        try:
+            try:
+                here = opened_path(out)
+            except OSError as e:
+                raise NotRestorable(f"FERB couldn't tell which folder it opened for {original.name} "
+                                    f"({e.strerror or e})") from None
+            if str(here).casefold() != str(folder).casefold():
+                raise NotRestorable(f"{short(folder)} isn't where it was (it now leads to {short(here)}), so FERB "
+                                    f"won't put {original.name} back through it; it stays in the Trash")
+            landed = _move_back(trash, place.name, out, here, original.name, closed)
+            try:
+                after = os.stat(landed, dir_fd=out, follow_symlinks=False)
+            except OSError:
+                after = None
+            if after is None or (after.st_dev, after.st_ino) != saved:
+                raise NotRestorable(f"FERB put {short(original)} back at {short(here / landed)}, but what is there now "
+                                    "isn't it (it changed right after); look at it there")
+            return here / landed
+        finally:
+            os.close(out)
+    finally:
+        os.close(trash)
+
+
+def _move_back(trash: int, name: str, out: int, here: Path, wanted: str, closed: Closed) -> str:
+    """Moves the item from the open Trash into the open folder under `wanted`, or beside it as "<stem> (restored[
+    n])<suffix>" when something stands there now; each name checked against the lists first. Returns the name."""
+    stem, suffix = os.path.splitext(wanted)
+    for n in range(0, 1000):
+        target = wanted if n == 0 else f"{stem} ({RESTORED}{'' if n == 1 else f' {n}'}){suffix}"
+        if closed is not None:
+            refusal = closed(here / target, "write")
+            if refusal:
+                raise NotRestorable(refusal)
+        try:
+            files.move_excl(trash, name, out, target)        # the module's: the seam tests act through
+            return target
+        except FileExistsError:
+            continue
+        except OSError as e:
+            raise NotRestorable(f"FERB couldn't move {wanted} out of the Trash ({e.strerror or e})") from None
+    raise NotRestorable(f"no free name next to {short(here / wanted)}")
 
 
 def _beside(dest: Path, label: str, put: Callable[[Path], None]) -> Path:
@@ -510,21 +574,6 @@ def _beside(dest: Path, label: str, put: Callable[[Path], None]) -> Path:
         except FileExistsError:
             continue
     raise NotRestorable(f"no free name next to {short(dest)}")
-
-
-def _move_new(src: Path, dst: Path) -> None:
-    """Move src to dst, never replacing what is at dst (renamex_np with RENAME_EXCL). Raises FileExistsError then."""
-    if _libc is not None:
-        if _libc.renamex_np(os.fsencode(src), os.fsencode(dst), RENAME_EXCL) == 0:
-            return
-        code = ctypes.get_errno()
-        if code == errno.EEXIST:
-            raise FileExistsError(code, os.strerror(code), str(dst))
-        if code != errno.EXDEV:
-            raise OSError(code, os.strerror(code), str(src))
-    if os.path.lexists(dst):                                  # another volume (or no renamex_np): check, then move
-        raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(dst))
-    shutil.move(str(src), str(dst))
 
 
 # ---------- retention ----------

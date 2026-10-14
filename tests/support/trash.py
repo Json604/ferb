@@ -1,11 +1,10 @@
 """The Trash in offline tests: a folder the test owns, never the owner's real Trash.
 
-FsTrash asks macOS which folder is the Trash for the item's volume (`files.trash_folder`) and moves the item there
-itself, between two open folders (`files._move_excl`). Downloads retention still moves by path (`files.move_to_trash`).
-`use_trash` points all three at the test's folder, and lets a test act as an attacker at the two moments that matter,
-whichever way the item moves: `before_move` (after FERB checked the item, before it moves) and `after_move` (right after
-the item lands in the Trash, before FERB looks at what landed)."""
-import os
+Every move to the Trash (fs.trash and downloads retention) asks macOS which folder is the Trash for the item's volume
+(`files.trash_folder`) and moves the item there itself, between two open folders (`files.move_excl`). `use_trash`
+points both at the test's folder, and lets a test act as an attacker at the two moments that matter: `before_move`
+(after FERB checked the item, before it moves) and `after_move` (right after the item lands in the Trash, before FERB
+looks at what landed)."""
 from pathlib import Path
 from typing import Any, Callable
 
@@ -17,13 +16,8 @@ Hook = Callable[[], None] | None
 def use_trash(monkeypatch: pytest.MonkeyPatch, trash: Path, *, before_move: Hook = None,
               after_move: Hook = None) -> None:
     from ferb.act.fs import files
-    real_move = getattr(files, "_move_excl", None)
+    real_move = files.move_excl
     moves = {"n": 0}
-
-    def landed() -> None:
-        moves["n"] += 1
-        if moves["n"] == 1 and after_move is not None:     # only the move into the Trash, never a put-back
-            after_move()
 
     def folder(near: Path) -> Path:
         if before_move is not None:
@@ -31,27 +25,19 @@ def use_trash(monkeypatch: pytest.MonkeyPatch, trash: Path, *, before_move: Hook
         return trash
 
     def move(src_dir: int, src: str, dst_dir: int, dst: str) -> None:
-        assert real_move is not None
         real_move(src_dir, src, dst_dir, dst)
-        landed()
-
-    def by_path(p: Path) -> str:                           # NSFileManager's move, by path
-        if before_move is not None:
-            before_move()
-        dest = trash / p.name
-        os.rename(p, dest)
-        landed()
-        return str(dest)
-    monkeypatch.setattr(files, "trash_folder", folder, raising=False)
-    monkeypatch.setattr(files, "_move_excl", move, raising=False)
-    monkeypatch.setattr(files, "move_to_trash", by_path)
+        moves["n"] += 1
+        if moves["n"] == 1 and after_move is not None:   # only the first move: the item landing in the Trash
+            after_move()
+    monkeypatch.setattr(files, "trash_folder", folder)
+    monkeypatch.setattr(files, "move_excl", move)
 
 
 def no_real_trash(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An offline test that reaches FsTrash without `use_trash` fails instead of moving a file into the owner's
-    Trash."""
+    """An offline test that reaches a move to the Trash without `use_trash` fails instead of moving a file into the
+    owner's Trash; nothing reaches NSFileManager's Trash lookup either."""
     from ferb.act.fs import files
 
-    def refuse(*a: Any, **k: Any) -> Path:
+    def refuse(*a: Any, **k: Any) -> Any:
         raise AssertionError("an offline test reached the owner's real Trash; use tests.support.trash.use_trash")
-    monkeypatch.setattr(files, "trash_folder", refuse, raising=False)
+    monkeypatch.setattr(files, "_trash_url", refuse)            # trash_folder's only way to the real Trash

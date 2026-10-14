@@ -490,7 +490,7 @@ class Downloads:
     def _trash(self, folder: int, row: dict[str, Any]) -> str:
         """One working copy in the downloads folder to the Trash: "trashed", "gone" (looked: no such file in the
         folder any more) or "stuck"."""
-        from ferb.act.fs import files                   # Task 8's seam (tests replace move_to_trash)
+        from ferb.act.fs import files                   # the same move as fs.trash (tests: tests.support.trash)
         p = Path(str(row["path"]))
         try:
             st = os.stat(p.name, dir_fd=folder, follow_symlinks=False)
@@ -499,14 +499,17 @@ class Downloads:
         if st is None or not stat.S_ISREG(st.st_mode):
             self.db.conn.execute("UPDATE downloads SET path = NULL, kept = 'gone' WHERE id = ?", (row["id"],))
             return "gone"
-        try:
-            where = files.move_to_trash(self.root / p.name)
+        try:                                            # through the open downloads folder, never by path (rule 10)
+            moved = files.trash_item(folder, p.name)
         except Exception as e:
+            moved = files.Trashed(None, error=f"{type(e).__name__}: {e}")
+        if moved.trashed_to is None:
             self.db.conn.execute("UPDATE downloads SET kept = ? WHERE id = ?",
-                                 (self.redact_text(f"stuck: couldn't move it to the Trash ({e})")[:300], row["id"]))
+                                 (self.redact_text(f"stuck: couldn't move it to the Trash ({moved.error})")[:300],
+                                  row["id"]))
             return "stuck"
         self.db.conn.execute("UPDATE downloads SET path = NULL, trashed_to = ?, kept = 'trash' WHERE id = ?",
-                             (where, row["id"]))
+                             (moved.trashed_to, row["id"]))
         return "trashed"
 
     def sweep(self) -> int:

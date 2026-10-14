@@ -1355,9 +1355,9 @@ class Gateway:
                             real: Path | None) -> dict[str, Any]:
         """S1, after the call: an error result keeps the copy unless the file is still identical to it (nothing
         changed); a change records the file as FERB left it (so a restore never overwrites a later change); a trash
-        records where the item really was (the tool's resolved path) and where it went, also when the call failed but
-        left an item in the Trash. What a worker and the trace see: `recoverable` (the record id), or
-        `recovery_error`. Never fails the call: it already ran."""
+        records where the item really was (the tool's resolved path), where it went and the identity the tool verified,
+        and, when the call failed but left an item in the Trash, that it needs the owner. What a worker and the trace
+        see: `recoverable` (the record id), or `recovery_error`. Never fails the call: it already ran."""
         r = self.recovery
         if r is None:
             return {}
@@ -1369,14 +1369,18 @@ class Gateway:
                 await recovery.mark_written_async(kept, real, r.db)
                 return {"recoverable": kept}
             if spec.kind == Kind.TRASH and (not result.is_error or result.content.get("trashed_to")):
-                # a failed trash that still left an item in the Trash (it changed after the check and couldn't go
-                # back) is recorded too, so it can be got back
-                where, trashed_to = result.content.get("path"), result.content.get("trashed_to")
+                # the identity fs.trash verified through the open Trash, never looked up again by path; a failed
+                # trash that left an item in the Trash (not what was checked) is recorded as needing the owner
+                c = result.content
+                where, trashed_to = c.get("path"), c.get("trashed_to")
                 original = Path(str(where)) if where else real
                 if original is None:                     # never skipped silently
                     return {"recovery_error": "FERB couldn't tell which item it moved to the Trash"}
+                verified = not result.is_error and isinstance(c.get("device"), int) and isinstance(c.get("inode"), int)
                 return {"recoverable": recovery.record_trash(
-                    original, str(trashed_to) if trashed_to else None, task_id=grant.task_id, db=r.db,
+                    original, str(trashed_to) if trashed_to else None,
+                    device=c.get("device") if verified else None, inode=c.get("inode") if verified else None,
+                    reason="trash" if verified else recovery.TRASH_UNVERIFIED, task_id=grant.task_id, db=r.db,
                     clock=r.clock, ids=r.ids)}
         except asyncio.CancelledError:
             raise

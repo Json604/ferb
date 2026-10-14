@@ -9,6 +9,7 @@ import errno
 import fcntl
 import os
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -397,37 +398,40 @@ class FsTrash(_Base):
             p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         except PathRefused as e:
             return _err(str(e))
-        # FERB moves the item itself, between two folders it holds open and checked as opened: the item's folder and
-        # the volume's Trash. Nothing is looked up by path after the check, so a folder swapped for a link can't
-        # redirect the move or a put-back (rule 10). S1 records where the item went (recovery.record_trash), so
-        # getting it back never depends on Finder's Put Back.
         try:
-            folder = os.open(p.parent, _O_SEARCH | os.O_DIRECTORY | os.O_CLOEXEC)
+            folder = os.open(p.parent, O_SEARCH | os.O_DIRECTORY | os.O_CLOEXEC)
         except OSError as e:
             return _err(f"FERB couldn't open the folder of {p.name} ({e.strerror or e}); nothing was moved")
         try:
-            return _trash_from(folder, p.name, ctx, self.access)
+            t = trash_item(folder, p.name, ctx.path_closed, self.access)
         finally:
             os.close(folder)
+        if t.trashed_to is None:
+            return _err(t.error or "nothing was moved")
+        if t.error is not None:                      # S1 records it as needing the owner (gateway, recovery)
+            return ToolResult({"error": t.error, "path": str(t.where), "trashed_to": t.trashed_to, "verified": False},
+                              is_error=True)
+        return ToolResult({"path": str(t.where), "trashed_to": t.trashed_to, "device": t.device, "inode": t.inode})
 
 
 class TrashRefused(Exception):
     pass
 
 
-_O_SEARCH = getattr(os, "O_SEARCH", os.O_RDONLY)  # a folder opened only to work inside it, never listed: macOS lets
+O_SEARCH = getattr(os, "O_SEARCH", os.O_RDONLY)   # a folder opened only to work inside it, never listed: macOS lets
                                                   # FERB into ~/.Trash this way without Full Disk Access (measured)
 RENAME_EXCL = 0x00000004                          # renameatx_np: fail rather than replace what stands at the target
+TRASH_DIRS = (".Trash", ".Trashes")               # macOS Trash folders: the home volume's, and other volumes'
 
 try:
     _renameatx_np: Any = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True).renameatx_np
     _renameatx_np.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
     _renameatx_np.restype = ctypes.c_int
-except (OSError, AttributeError):                 # not macOS: FsTrash refuses (nothing moves)
+except (OSError, AttributeError):                 # not macOS: nothing moves to the Trash
     _renameatx_np = None
 
 
-def _move_excl(src_dir: int, src: str, dst_dir: int, dst: str) -> None:
+def move_excl(src_dir: int, src: str, dst_dir: int, dst: str) -> None:
     """Move `src` in one open folder to `dst` in another (renameatx_np, RENAME_EXCL). Both names are looked up only
     inside those folders, so a link swapped in anywhere above them changes nothing, and whatever stands at `dst` is
     never replaced: FileExistsError."""
@@ -438,60 +442,125 @@ def _move_excl(src_dir: int, src: str, dst_dir: int, dst: str) -> None:
         raise OSError(code, os.strerror(code))       # EEXIST is raised as FileExistsError
 
 
+def in_trash(folder: Path) -> bool:
+    """`folder` is a Trash folder or inside one (named .Trash or .Trashes): the rule restore uses (recovery)."""
+    return any(f.name in TRASH_DIRS for f in (folder, *folder.parents))
+
+
 def trash_folder(near: Path) -> Path:
     """The Trash macOS keeps for the volume holding `near` (NSFileManager's NSTrashDirectory: ~/.Trash on the startup
-    disk, <volume>/.Trashes/<uid> on another disk), made if missing. Raises TrashRefused when that volume has none."""
+    disk, <volume>/.Trashes/<uid> on another disk). A missing one is made by macOS only after FERB checked that no
+    link stands at it or above it, so it is never made through a link. Raises TrashRefused when there is none."""
+    found = _trash_url(near, False)
+    if found is not None and os.path.isdir(found) and not os.path.islink(found):
+        return found
+    expected = found if found is not None else _expected_trash(near)
+    if expected is None:
+        raise TrashRefused("macOS named no Trash for it")
+    if os.path.lexists(expected):
+        raise TrashRefused(f"a link or a file stands where the Trash should be ({expected})")
+    if os.path.realpath(expected.parent) != str(expected.parent):
+        raise TrashRefused(f"a link stands above where the Trash should be ({expected})")
+    made = _trash_url(near, True)
+    if made != expected:
+        raise TrashRefused(f"macOS made the Trash at {made}, not at {expected}")
+    return made
+
+
+def _owner_home() -> Path:
+    import pwd
+    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+
+
+def _expected_trash(near: Path) -> Path | None:
+    """Where macOS keeps the Trash for `near`'s volume when it has none yet: ~/.Trash on the home's volume, else
+    <volume>/.Trashes/<uid>."""
+    try:
+        dev = os.stat(near).st_dev
+        home = _owner_home()
+        if os.stat(home).st_dev == dev:
+            return home / ".Trash"
+        top = Path(os.path.realpath(near))
+        while top != top.parent and os.stat(top.parent).st_dev == dev:
+            top = top.parent
+        return top / ".Trashes" / str(os.getuid())
+    except OSError:
+        return None
+
+
+def _trash_url(near: Path, create: bool) -> Path | None:
     from Foundation import NSURL, NSFileManager, NSTrashDirectory, NSUserDomainMask
     url, err = NSFileManager.defaultManager().URLForDirectory_inDomain_appropriateForURL_create_error_(
-        NSTrashDirectory, NSUserDomainMask, NSURL.fileURLWithPath_(str(near)), True, None)
-    if url is None or not url.path():
-        raise TrashRefused(str(err) if err is not None else "macOS named no Trash for it")
-    return Path(str(url.path()))
+        NSTrashDirectory, NSUserDomainMask, NSURL.fileURLWithPath_(str(near)), create, None)
+    return Path(str(url.path())) if url is not None and url.path() else None
 
 
-def _trash_from(folder: int, name: str, ctx: ToolContext, access: FileAccess) -> ToolResult:
-    """`name` in the open `folder`, to the Trash of its volume. Checked first, as opened (F_GETPATH): the item in its
-    folder, with its device and inode noted without opening it (a mode-000 file or a socket moves too), and the Trash
-    the item would go into. Then one move between the two open folders, never replacing anything in the Trash."""
+@dataclass(frozen=True)
+class Trashed:
+    """What a move to the Trash did. `trashed_to` None: nothing moved (`error` says why). `error` None: what FERB
+    checked is in the Trash at `trashed_to`, with that `device` and `inode`, read through the open Trash. Both set: an
+    item moved but isn't (or can't be shown to be) what FERB checked; it stays in the Trash for the owner."""
+    where: Path | None
+    trashed_to: str | None = None
+    error: str | None = None
+    device: int | None = None
+    inode: int | None = None
+
+
+def trash_item(folder: int, name: str, closed: Callable[[Path, FileAccess], str | None] | None = None,
+               access: FileAccess = "remove") -> Trashed:
+    """`name` in the open `folder`, to the Trash of its volume (fs.trash, downloads retention). FERB moves the item
+    itself, between two folders it holds open, both checked as opened (F_GETPATH): the item in its folder, with its
+    device and inode noted without opening it (a mode-000 file or a socket moves too); and the Trash, which must be on
+    the item's disk, be a Trash folder, and be open to the lists for each name the item would get. One move, never
+    replacing anything in the Trash. Nothing is looked up by path after the check, so a link swapped in can't redirect
+    it, and nothing is ever moved out of the Trash again: getting an item back is `ferb restore`'s, through S1's
+    record (rule 10)."""
     try:
         where = opened_path(folder) / name
         checked = os.stat(name, dir_fd=folder, follow_symlinks=False)
     except OSError as e:
-        return _err(f"FERB couldn't tell what it would move ({e.strerror or e}); nothing was moved")
-    closed = ctx.path_closed
+        return Trashed(None, error=f"FERB couldn't tell what it would move ({e.strerror or e}); nothing was moved")
     if closed is not None:
         refusal = closed(where, access)
         if refusal:
-            return _err(refusal)
+            return Trashed(where, error=refusal)
     try:
         bin_path = trash_folder(where.parent)
     except TrashRefused as e:
-        return _err(f"couldn't move to Trash: macOS has no Trash for {where.parent} ({e}); nothing was moved")
+        return Trashed(where, error=f"couldn't move to Trash: no Trash for {where.parent} ({e}); nothing was moved")
     try:
-        trash = os.open(bin_path, _O_SEARCH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        trash = os.open(bin_path, O_SEARCH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError as e:
-        return _err(f"FERB couldn't open the Trash at {bin_path} ({e.strerror or e}); nothing was moved")
+        return Trashed(where, error=f"FERB couldn't open the Trash at {bin_path} ({e.strerror or e}); nothing was moved")
     try:
         try:
             bin_where, bin_dev = opened_path(trash), os.fstat(trash).st_dev
         except OSError as e:
-            return _err(f"FERB couldn't tell which Trash it opened ({e.strerror or e}); nothing was moved")
+            return Trashed(where, error=f"FERB couldn't tell which Trash it opened ({e.strerror or e}); nothing was "
+                                        "moved")
         if bin_dev != checked.st_dev:                 # a move to another disk would be a copy, not a move
-            return _err(f"{where} is on a different disk from its Trash ({bin_where}); FERB moves an item to the "
-                        "Trash only on its own disk, so nothing was moved")
+            return Trashed(where, error=f"{where} is on a different disk from its Trash ({bin_where}); FERB moves an "
+                                        "item to the Trash only on its own disk, so nothing was moved")
+        if not in_trash(bin_where):
+            return Trashed(where, error=f"{bin_where} isn't a Trash folder, so nothing was moved")
         try:
             landed = _move_into(folder, name, trash, bin_where, closed)
         except PathRefused as e:
-            return _err(str(e))
+            return Trashed(where, error=str(e))
         except OSError as e:
-            return _err(f"couldn't move {where} to the Trash ({e.strerror or e}); nothing was moved")
+            return Trashed(where, error=f"couldn't move {where} to the Trash ({e.strerror or e}); nothing was moved")
         trashed_to = str(bin_where / landed)          # known before anything that can fail after the move
         try:
-            return _landed(folder, name, trash, landed, where, trashed_to, checked)
+            moved = os.stat(landed, dir_fd=trash, follow_symlinks=False)
         except Exception as e:                        # it moved: whatever fails now, where it went is reported
-            return ToolResult({"error": f"FERB moved {where} to the Trash at {trashed_to} but couldn't confirm it "
-                                        f"({type(e).__name__}: {e})", "path": str(where), "trashed_to": trashed_to},
-                              is_error=True)
+            return Trashed(where, trashed_to, f"FERB moved {where} to the Trash at {trashed_to} but couldn't confirm "
+                                              f"it was what it checked ({e}); it stays there for you to look at")
+        if (moved.st_dev, moved.st_ino) != (checked.st_dev, checked.st_ino):
+            return Trashed(where, trashed_to, f"{where} changed while FERB moved it: what is in the Trash at "
+                                              f"{trashed_to} isn't what FERB checked, so FERB left it there for you "
+                                              "to look at and moved nothing out")
+        return Trashed(where, trashed_to, device=moved.st_dev, inode=moved.st_ino)
     finally:
         os.close(trash)
 
@@ -499,8 +568,8 @@ def _trash_from(folder: int, name: str, ctx: ToolContext, access: FileAccess) ->
 def _move_into(folder: int, name: str, trash: int, bin_where: Path,
                closed: Callable[[Path, FileAccess], str | None] | None) -> str:
     """Moves `name` into the open Trash under a name nothing there has (the item's own name first, as Finder does) and
-    returns it. Each name is checked in the Trash as opened (rule 10: a "Trash" that is really a protected folder gets
-    nothing). Raises PathRefused, or OSError when it can't move."""
+    returns it. Each name is checked in the Trash as opened (rule 10: a Trash inside a protected folder gets nothing).
+    Raises PathRefused, or OSError when it can't move."""
     stem, suffix = os.path.splitext(name)
     for attempt in range(100):
         candidate = name if attempt == 0 else f"{stem} {secrets.token_hex(4)}{suffix}"
@@ -509,48 +578,11 @@ def _move_into(folder: int, name: str, trash: int, bin_where: Path,
             if refusal:
                 raise PathRefused(refusal)
         try:
-            _move_excl(folder, name, trash, candidate)
+            move_excl(folder, name, trash, candidate)
             return candidate
         except FileExistsError:
             continue
     raise FileExistsError(errno.EEXIST, f"no free name for {name} in the Trash")
-
-
-def _landed(folder: int, name: str, trash: int, landed: str, where: Path, trashed_to: str,
-            checked: os.stat_result) -> ToolResult:
-    """What landed must be what was checked. If it isn't, it goes back through the open folders (never by path, never
-    replacing what stands at its name now) or stays in the Trash, and the result names both paths so the gateway
-    records it (S1)."""
-    def stayed(why: str) -> ToolResult:
-        return ToolResult({"error": why, "path": str(where), "trashed_to": trashed_to}, is_error=True)
-    try:
-        moved = os.stat(landed, dir_fd=trash, follow_symlinks=False)
-    except OSError as e:
-        return stayed(f"FERB moved {where} to the Trash at {trashed_to} but couldn't confirm it was what it checked "
-                      f"({e.strerror or e}); look for it there")
-    if (moved.st_dev, moved.st_ino) == (checked.st_dev, checked.st_ino):
-        return ToolResult({"path": str(where), "trashed_to": trashed_to})
-    try:
-        _move_excl(trash, landed, folder, name)
-    except OSError as e:
-        return stayed(f"{where} changed while FERB checked it, so what moved isn't what FERB checked; it couldn't go "
-                      f"back ({e.strerror or e}) and is in the Trash at {trashed_to}")
-    try:
-        back = opened_path(folder) / name
-    except OSError:
-        back = where
-    return _err(f"{where} changed while FERB checked it, so FERB put it back at {back}; nothing was moved")
-
-
-def move_to_trash(p: Path) -> str | None:
-    """The Mac's Trash by path (NSFileManager), for FERB's own downloads folder (downloads retention): where the item
-    went, None if macOS didn't say. FsTrash moves items itself, through open folders (_trash_from)."""
-    from Foundation import NSURL, NSFileManager
-    ok, result_url, err = NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
-        NSURL.fileURLWithPath_(str(p)), None, None)
-    if not ok:
-        raise TrashRefused(str(err))
-    return str(result_url.path()) if result_url else None
 
 
 CAPABILITIES = [FsList(), FsRead(), FsWrite(), FsEdit(), FsTrash()]

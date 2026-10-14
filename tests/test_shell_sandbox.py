@@ -526,3 +526,42 @@ def test_ferb_app_stays_closed_to_the_shell_even_when_its_folder_is_lifted(tmp_p
     finally:
         sb.cleanup(sb.profile_path(argv))
     assert other.read_text() == "ok\n"
+
+
+def test_the_shell_cannot_move_anything_into_or_out_of_a_trash(tmp_path: Path) -> None:
+    """Only FERB's fs.trash and `ferb restore` move items in or out of a Trash, through folders they hold open (rule
+    10, fix round 5): the shell can't write the owner's Trash or any volume's .Trashes, under any spelling or lift,
+    and can't plant the Trash as a link. Otherwise it could swap what FERB just moved there."""
+    home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    trash = home / ".Trash"
+    trash.mkdir()
+    (trash / "old.txt").write_text("trashed by the owner")
+    (ws / "evil").write_text("payload")
+    plain = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p")
+    lifted = Sandbox(Protection(home, ferb, [], ["~"], []), tmp_path / "p")   # a lift that reopens the whole home
+    data = "/System/Volumes/Data" + os.path.realpath(trash)
+    for sb, lift in ((plain, None), (lifted, "write:~")):
+        prof = sb.profile(lift)
+        assert prof.rindex(f'(deny file-write* (subpath "{os.path.realpath(trash)}"))') > prof.rfind("(allow file-write*")
+        assert r'(deny file-write* (regex #"^/Volumes/[^/]+/\.Trashes(/|$)"))' in prof
+        assert r'(deny file-write* (regex #"^(/System/Volumes/Data)?/\.Trashes(/|$)"))' in prof
+        for command in (f"mv '{ws}/evil' '{trash}/evil'", f"mv '{trash}/old.txt' '{ws}/stolen'",
+                        f"mv '{ws}/evil' '{data}/evil'", f"rm -rf '{trash}'", f"mv '{trash}' '{home}/bin'"):
+            argv = sb.wrap(["/bin/sh", "-c", command], lift)
+            try:
+                r = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+            finally:
+                sb.cleanup(sb.profile_path(argv))
+            assert r.returncode != 0 and "Operation not permitted" in r.stderr, (lift, command, r.stderr)
+        assert (ws / "evil").read_text() == "payload" and sorted(p.name for p in trash.iterdir()) == ["old.txt"]
+        argv = sb.wrap(["/bin/sh", "-c", f"echo ok > '{home}/ok-{lift}'"], lift)   # everything else still runs
+        try:
+            subprocess.run(argv, capture_output=True, text=True, timeout=10)
+        finally:
+            sb.cleanup(sb.profile_path(argv))
+        assert (home / f"ok-{lift}").read_text() == "ok\n"
+    (trash / "old.txt").unlink()
+    trash.rmdir()                                                   # a missing Trash can't be planted as a link
+    assert run_under(plain, ["ln", "-s", str(ws), str(trash)]).returncode != 0 and not os.path.lexists(trash)

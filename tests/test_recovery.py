@@ -751,24 +751,101 @@ def test_a_trash_restore_never_takes_out_a_different_item_with_the_same_name(dae
     assert (trash / "same.txt").read_text() == "the owner's other file, trashed later" and not f.exists()
 
 
-def test_a_trash_that_moved_something_else_and_left_it_in_the_trash_is_recorded(daemon: RunningDaemon, trash: Path,
-                                                                                 monkeypatch: pytest.MonkeyPatch) -> None:
-    """The item changed after FERB checked it and something new stands at its name, so FERB can't put back what moved:
-    the call fails, but where that item went is recorded, so `ferb restore` can get it back (S1, rule 10)."""
+def test_a_trash_that_moved_something_else_is_left_in_the_trash_for_the_owner(daemon: RunningDaemon, trash: Path,
+                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """What landed in the Trash isn't what FERB checked (swapped in the Trash right after the move): FERB never moves
+    it out. The call fails, the record says where it is and that it needs the owner, and `ferb restore` won't put it
+    at the original path by itself (S1, rule 10)."""
     f = _ws(daemon) / "swapped.txt"
     f.write_text("checked")
 
-    def swap() -> None:
-        f.unlink()
-        f.write_text("swapped in")
-    use_trash(monkeypatch, trash, before_move=swap, after_move=lambda: f.write_text("newest"))
+    def swap_in_the_trash() -> None:
+        (trash / "swapped.txt").rename(_ws(daemon) / "stolen.txt")
+        (trash / "swapped.txt").write_text("ATTACKER PAYLOAD")
+    use_trash(monkeypatch, trash, after_move=swap_in_the_trash)
     out = gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
-    assert out["is_error"] and (trash / "swapped.txt").read_text() == "swapped in"
+    assert out["is_error"] and (trash / "swapped.txt").read_text() == "ATTACKER PAYLOAD" and not f.exists()
     rec = _recovery_rows(daemon)[-1]
     assert rec["kind"] == "trash" and rec["original"] == str(f.resolve()) and out["content"]["recoverable"] == rec["id"]
-    assert rec["saved_to"] == str(trash.resolve() / "swapped.txt") and rec["saved_ino"]
-    restored = _restore(daemon, rec["id"])
-    assert f.read_text() == "newest" and restored.read_text() == "swapped in"
+    assert rec["saved_to"] == str(trash.resolve() / "swapped.txt") and rec["reason"] == recovery.TRASH_UNVERIFIED
+    assert rec["saved_dev"] is None and rec["saved_ino"] is None
+    with pytest.raises(recovery.NotRestorable, match="won't put it back"):
+        _restore(daemon, rec["id"])
+    assert not f.exists() and (trash / "swapped.txt").read_text() == "ATTACKER PAYLOAD"
+    async def listing() -> dict[str, Any]:
+        return recovery.recent(daemon.daemon.db, _root(daemon))[0][0]
+    listed = daemon.run(listing())
+    assert listed["needs_owner"] is True and listed["available"] is False
+    lines = io.StringIO()
+    admin.restore(_listing_client(listed), None, lines)
+    assert "won't put it back" in lines.getvalue()
+
+
+def _listing_client(row: dict[str, Any]) -> Any:
+    class Listing:
+        def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            assert method == "recovery.list"
+            return {"records": [row], "days": 7, "total": 1}
+    return Listing()
+
+
+def test_a_trash_record_keeps_what_ferb_verified_never_what_is_there_later(daemon: RunningDaemon, trash: Path,
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """The record stores the device and inode fs.trash verified through the open Trash, not a later look by path: an
+    item swapped in after the move is never restored in the owner's file's place."""
+    f = _ws(daemon) / "real.txt"
+    f.write_text("owner's file")
+    cap = daemon.daemon.gateway.caps["fs.trash"]
+    run = cap.run
+
+    async def then_swap(args: Any, ctx: Any) -> Any:
+        result = await run(args, ctx)                                  # verified; the gateway hasn't recorded yet
+        (trash / "real.txt").rename(_ws(daemon) / "stolen.txt")
+        (trash / "real.txt").write_text("ATTACKER PAYLOAD")
+        return result
+    monkeypatch.setattr(cap, "run", then_swap)
+    before = os.stat(f)
+    out = gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    assert not out["is_error"]
+    rec = _recovery_rows(daemon)[-1]
+    assert (rec["saved_dev"], rec["saved_ino"]) == (before.st_dev, before.st_ino)
+    with pytest.raises(recovery.NotRestorable, match="isn't the"):
+        _restore(daemon, rec["id"])
+    assert not f.exists() and (trash / "real.txt").read_text() == "ATTACKER PAYLOAD"
+
+
+def test_a_restore_never_goes_through_a_folder_swapped_for_a_link(daemon: RunningDaemon, trash: Path) -> None:
+    """Restore moves between the open Trash and the open destination folder, and the folder must be the one the item
+    came from: a link standing where that folder was (into FERB's own state here) gets nothing."""
+    proj = _ws(daemon) / "proj"
+    proj.mkdir()
+    f = proj / "config.toml"
+    f.write_text("the owner's project config")
+    gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    rid = _recovery_rows(daemon)[-1]["id"]
+    proj.rename(_ws(daemon) / "proj-moved")
+    proj.symlink_to(daemon.daemon.home)                                 # FERB's home: config.toml is FERB's own
+    (daemon.daemon.home / "config.toml").unlink(missing_ok=True)
+    with pytest.raises(recovery.NotRestorable, match="isn't where it was"):
+        _restore(daemon, rid)
+    assert not (daemon.daemon.home / "config.toml").exists() and (trash / "config.toml").exists()
+
+
+def test_a_restore_checks_what_came_out_of_the_trash(daemon: RunningDaemon, trash: Path,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    f = _ws(daemon) / "after.txt"
+    f.write_text("mine")
+    gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    rid = _recovery_rows(daemon)[-1]["id"]
+    real = files.move_excl
+
+    def then_swap(src_dir: int, src: str, dst_dir: int, dst: str) -> None:
+        real(src_dir, src, dst_dir, dst)
+        f.unlink()                                                       # replaced right after it came out
+        f.write_text("swapped")
+    monkeypatch.setattr(files, "move_excl", then_swap)
+    with pytest.raises(recovery.NotRestorable, match="isn't it"):
+        _restore(daemon, rid)
 
 
 def test_a_trash_record_outside_a_real_trash_folder_is_refused(daemon: RunningDaemon, trash: Path) -> None:

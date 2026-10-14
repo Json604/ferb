@@ -487,7 +487,8 @@ def schedules(client: Client, action: str, sid: str | None, out: TextIO) -> int:
 
 # ---------- restore (S1) ----------
 
-REASONS = {"overwrite": "overwrote", "edit": "edited", "trash": "moved to Trash"}
+REASONS = {"overwrite": "overwrote", "edit": "edited", "trash": "moved to Trash",
+           "trash-unverified": "moved to Trash"}
 
 
 def _shown(path: str) -> str:
@@ -529,6 +530,9 @@ def restore(client: Client, rid: str | None, out: TextIO) -> int:
         what = REASONS.get(row["reason"] or "", row["reason"] or row["kind"])
         gone = "" if row["available"] else ("  (not found in the Trash)" if row["kind"] == "trash" else
                                             "  (its copy is gone)")
+        if row.get("needs_owner"):
+            gone = ("  (it changed while FERB moved it, so FERB won't put it back: look at it in the Trash and move "
+                    "it yourself if it's yours)")
         print(f"  {shown_id}  {at}  {what:<14}  {_shown(row['original'])}{gone}", file=out)
     print("Put one back: ferb restore <id>", file=out)
     return 0
