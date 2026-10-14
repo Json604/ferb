@@ -40,7 +40,8 @@ in chat when something matters. It **learns by doing**: every task becomes a per
 tasks become reusable procedures. It is **secure by design**: known kinds of secrets are removed before anything
 reaches an AI model, the shell runs in a macOS sandbox whose only internet route is a recording proxy, FERB's own file
 changes are recoverable, every action is recorded, and code (never a model) asks the owner before money,
-account-security changes, permanent deletion and sends to new people, when the step declares that effect. It **works with the AI subscription the owner already has**: the Codex CLI (ChatGPT sign-in) or
+account-security changes, permanent deletion and sends to new people, when the step declares that effect. It
+**works with the AI subscription the owner already has**: the Codex CLI (ChatGPT sign-in) or
 Claude (Claude Agent SDK), or per-token API keys for Anthropic, OpenAI or Google.
 
 Who it is for: Mac users who want a capable agent doing real work across their own apps and accounts (research,
@@ -74,7 +75,8 @@ Each step names its status. File paths are given for traceability only.
    (`ferb/orchestrator/acks.py`). It claims nothing about what FERB will do. **Landing this week — integrated, not
    live-tested (L7).**
 3. **The front window is captured at send.** App, window title, the browser's front tab URL/title (Safari, Chrome and
-   its channels, Chromium, Brave, Edge, Vivaldi and Arc, once you've allowed FERB to automate that browser), and one redacted
+   its channels, Chromium, Brave, Edge, Vivaldi and Arc, once you've allowed FERB to automate that browser), and one
+   redacted
    screenshot of that one window (FERB's own windows skipped). The planner sees it with the message and can answer a
    screen question directly from the picture; the worker for that request starts from the same picture.
    **Landing this week — integrated, not live-tested (L12).** Before it, the model got one start-of-task picture of
@@ -352,7 +354,8 @@ All **Shipped** (`ferb --help`):
 #### Media control
 - What: `browser.media` plays, pauses, mutes, unmutes or seeks a page's video/audio; snapshots report each media
   element's state (playing, paused, time, duration, muted); "playing" means the media's time is moving, so FERB
-  confirms a video is really playing before recording or listening. (In a real task FERB recorded a reel that never played; this fixes that.)
+  confirms a video is really playing before recording or listening. (In a real task FERB recorded a reel that never
+  played; this fixes that.)
 - Status: **Landing this week — integrated, not live-tested (L26)**; needs extension 0.15.3 / protocol 14.
 
 #### Always-on hearing
