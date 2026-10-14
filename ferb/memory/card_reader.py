@@ -2,7 +2,11 @@
 
 The lineage resolution behind a card is CPU-bound (1.3-1.6 s on the owner's data). In a thread it would still hold the
 interpreter lock against the daemon's event loop, so it runs here, on a read-only SQLite connection of its own.
-usage: python -m ferb.memory.card_reader DB TASK_ID < apps-json; prints {"prepared": ...} or {"error": "..."}."""
+
+Started as exactly `python -I -m ferb.memory.card_reader`, with no arguments: the packaged app's stub accepts only exact
+entry points. The request comes on stdin as JSON `{"task_id": ..., "apps": ...}`. The database is the one in the
+owner's FERB home (`ferb.paths.ferb_home()`, which the daemon passes as FERB_HOME), never a path a caller names.
+It prints `{"prepared": ...}` or `{"error": "..."}`."""
 import json
 import sqlite3
 import sys
@@ -10,25 +14,54 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from ferb.paths import ferb_home
 
-def read(db_path: Path, task_id: str, apps: dict[str, str] | None) -> dict[str, Any] | None:
+
+class _Rows(list[Any]):
+    """A query's complete result. The statement is already finished, so the reader holds no WAL snapshot while it
+    decodes rows, and a forget can empty the WAL meanwhile (review: TRUNCATE waited 5.21 s, then returned busy)."""
+
+    def fetchone(self) -> Any:
+        return self[0] if self else None
+
+    def fetchall(self) -> list[Any]:
+        return list(self)
+
+
+class _Fetched:
+    """The reader's connection: every query is read to its end before any row is used."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def execute(self, sql: str, params: Any = ()) -> _Rows:
+        return _Rows(self._conn.execute(sql, params).fetchall())
+
+
+def read(task_id: str, apps: dict[str, str] | None, home: Path | None = None) -> dict[str, Any] | None:
+    """Every read of the task's card (`Learning.prepare_episode`), on a read-only connection to `<home>/ferb.db`. The
+    path becomes a file: URI by `Path.as_uri()`, so '?', '#' or '%' in it can't change which file is opened."""
     from ferb.memory.learning import Learning
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    path = ((home or ferb_home()) / "ferb.db").absolute()
+    conn = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        reader = Learning(SimpleNamespace(conn=conn, path=db_path), None, lambda *a, **k: None, lambda text: text)
+        reader = Learning(SimpleNamespace(conn=_Fetched(conn), path=path), None, lambda *a, **k: None,
+                          lambda text: text)
         return reader.prepare_episode(task_id, apps)
     finally:
         conn.close()
 
 
 def main() -> None:
-    db_path, task_id = Path(sys.argv[1]), sys.argv[2]
-    apps = json.loads(sys.stdin.read() or "null")
-    try:
-        out: dict[str, Any] = {"prepared": read(db_path, task_id, apps)}
-    except Exception as exc:                 # the daemon journals it; no traceback with record contents
-        out = {"error": f"{type(exc).__name__}: {exc}"}
+    if len(sys.argv) > 1:
+        out: dict[str, Any] = {"error": "the card reader takes no arguments: it reads the owner's FERB home"}
+    else:
+        try:
+            request = json.loads(sys.stdin.read())
+            out = {"prepared": read(str(request["task_id"]), request.get("apps"))}
+        except Exception as exc:             # the daemon journals it (redacted); no traceback with record contents
+            out = {"error": f"{type(exc).__name__}: {exc}"}
     sys.stdout.write(json.dumps(out))
 
 

@@ -16,6 +16,7 @@ from ferb.core import origin
 from ferb.core.errors import FerbError
 from ferb.memory.items import query_terms
 from ferb.orchestrator import episodes
+from ferb.sanitize.redact import REDACTED
 
 
 class LearningRefused(FerbError):
@@ -53,7 +54,9 @@ class Learning:
     def __init__(self, db: Any, clock: Any, publish: Callable[..., Any], redact: Callable[[str], str]) -> None:
         self.db, self.clock, self.publish, self.redact = db, clock, publish, redact
         self.embedder: Any = None
-        self.forgets = 0          # counts explicit forgets: a card read before one is read again before it's written
+        # Bumped by every change to an episode card's inputs (a forget, an owner verdict, a write of a card): a card
+        # read before one is read again before it is written (L28).
+        self.generation = 0
 
     def now(self) -> str:
         return self.clock.now().isoformat()
@@ -119,6 +122,10 @@ class Learning:
             return {label for row in retained for label in json.loads(row[0])}
         raise LearningRefused(f'source is missing: {ref}')
 
+    def inputs_changed(self) -> None:
+        """A card input changed outside Learning (an owner verdict): a card read before now is read again."""
+        self.generation += 1
+
     def labels(self, sources: Iterable[str]) -> set[str]:
         """Every origin the sources hold (a missing or unknown source raises LearningRefused)."""
         return {label for s in sorted(set(sources)) for label in self._source_origins(s)}
@@ -152,6 +159,8 @@ class Learning:
         # Never allow a model-written fact to supersede an owner statement.
         if prev and self.get(prev[0])['origin'] == origin.OWNER and not owner:
             prev = None
+        if kind == 'episode':
+            self.generation += 1
         self.db.conn.execute('SAVEPOINT learning_put')
         try:
             if prev:
@@ -187,8 +196,9 @@ class Learning:
                         labels=set(prepared['labels']))
 
     def prepare_episode(self, task_id: str, apps: dict[str, str] | None = None) -> dict[str, Any] | None:
-        """Every read of an episode card: its body, its resolved lineage and its sources' origins, without writing. It
-        can run on a separate read-only connection in a worker thread (L28); `write_episode` writes the result."""
+        """Every read of an episode card: its body, its resolved lineage and its sources' origins, without writing. The
+        daemon runs it in `ferb.memory.card_reader`, a process of its own on a read-only connection (L28);
+        `write_episode` writes the result. `damaged`: the refs skipped as altered by redaction (`_card_labels`)."""
         ep = episodes.get(self.db, task_id)
         if ep is None:
             return None
@@ -257,8 +267,24 @@ class Learning:
                 body['actions'] = old['body'].get('actions', [])
             # Retained cards keep lineage even when their raw rows have reached retention.
             source_refs.update(old['sources'])
-        return {'task_id': task_id, 'body': body, 'sources': sorted(source_refs),
-                'labels': sorted(self.labels(source_refs))}
+        labels, damaged = self._card_labels(source_refs)
+        return {'task_id': task_id, 'body': body, 'sources': sorted(source_refs - set(damaged)),
+                'labels': sorted(labels), 'damaged': damaged}
+
+    def _card_labels(self, refs: Iterable[str]) -> tuple[set[str], list[str]]:
+        """The origins of a card's sources, and the refs skipped as damaged. A source that can't be found fails the card
+        (it may have been forgotten on purpose), except a ref that holds the redaction marker: no FERB id contains '['
+        or ']', so it is an id an earlier redaction altered (60 old rows in the owner's journal); it never resolves."""
+        labels: set[str] = set()
+        damaged: list[str] = []
+        for ref in sorted(set(refs)):
+            try:
+                labels |= self._source_origins(ref)
+            except LearningRefused:
+                if REDACTED not in ref:
+                    raise
+                damaged.append(ref)
+        return labels, damaged
 
     def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:
         from ferb.memory.lineage import call_sources
@@ -465,7 +491,7 @@ class Learning:
         return found
 
     def forget(self, refs: Iterable[str]) -> list[str]:
-        self.forgets += 1
+        self.generation += 1
         requested = list(refs)
         versions = set(requested)
         logical = []
@@ -491,7 +517,7 @@ class Learning:
             raise
         self.db.conn.execute("INSERT INTO learning_fts(learning_fts) VALUES ('rebuild')")
         self.db.conn.execute("INSERT INTO learning_titles(learning_titles) VALUES ('rebuild')")
-        self.db.conn.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+        self.db.truncate_wal('memory.forget')
         self.publish('memory.forgot_derived', {'ids': sorted(doomed)})
         return sorted(doomed)
 

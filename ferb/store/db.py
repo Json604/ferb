@@ -2,6 +2,7 @@
 
 import sqlite3
 from pathlib import Path
+from typing import Any, Callable
 
 MIGRATIONS = Path(__file__).parent / "migrations"
 
@@ -18,6 +19,16 @@ class Database:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.execute("PRAGMA secure_delete=ON")              # "forget" must really erase
         path.chmod(0o600)
+        # Told when the WAL couldn't be emptied after a forget (the daemon journals it)
+        self.on_wal_kept: Callable[[str, dict[str, Any]], None] = lambda after, details: None
+
+    def truncate_wal(self, after: str) -> bool:
+        """Empty the WAL, so no copy of what `after` (e.g. a forget) erased stays on disk. When a reader keeps it from
+        finishing within the busy timeout, `on_wal_kept` is told what was left; returns whether it was emptied."""
+        busy, frames, moved = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if busy:
+            self.on_wal_kept(after, {"wal_frames": frames, "checkpointed": moved})
+        return not busy
 
     def schema_version(self) -> int:
         self.conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")

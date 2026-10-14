@@ -1477,27 +1477,39 @@ class Supervisor(WorkerRuns):
     def _capture_after_outcome(self, tree_id: str, procedure_id: str | None) -> None:
         """The task's learning capture (its episode card, whose lineage resolution reads every entry and task the
         planner was shown, and the procedure receipt that needs the card) runs after the owner has the outcome (L28):
-        a tracked job, awaited at shutdown (`finish_episodes`); a failure is journaled, never raised."""
+        a tracked job; a failure is journaled, never raised. At shutdown it is cancelled (`stop_episodes`) and journaled
+        as deferred: the hourly consolidator captures the card again."""
         async def capture() -> None:
-            await asyncio.sleep(0)                   # the outcome goes out first
-            async with self._capture_lock:           # one capture at a time: two never race on the same cards
-                try:
-                    done = self.on_episode(tree_id)  # the daemon's capture reads in a worker thread (off the loop)
+            try:
+                await asyncio.sleep(0)               # the outcome goes out first
+                async with self._capture_lock:       # one capture at a time: two never race on the same cards
+                    done = self.on_episode(tree_id)  # the daemon's capture reads in a process of its own (off the loop)
                     if inspect.isawaitable(done):
                         await done
                     if procedure_id:
                         self.procedure_outcome(procedure_id, tree_id)
-                except Exception as exc:
-                    self.journal.append('memory.episode_hook_failed', {'task_id': tree_id,
-                        'error': f'{type(exc).__name__}: {exc}'})
+            except asyncio.CancelledError:
+                self.journal.append('memory.episode_deferred', {'task_id': tree_id, 'procedure_id': procedure_id})
+                raise
+            except Exception as exc:
+                self.journal.append('memory.episode_hook_failed', {'task_id': tree_id,
+                    'error': f'{type(exc).__name__}: {exc}'})
         job = asyncio.get_running_loop().create_task(capture())
         self._episode_jobs.add(job)
         job.add_done_callback(self._episode_jobs.discard)
 
     async def finish_episodes(self) -> None:
-        """Wait for every pending learning capture (shutdown; tests); none is cancelled."""
+        """Wait for every pending learning capture (tests); none is cancelled."""
         while self._episode_jobs:
             await asyncio.gather(*list(self._episode_jobs), return_exceptions=True)
+
+    async def stop_episodes(self) -> None:
+        """Shutdown: cancel every pending learning capture rather than wait for it (an in-flight card reader is killed);
+        each is journaled as deferred."""
+        jobs = list(self._episode_jobs)
+        for job in jobs:
+            job.cancel()
+        await asyncio.gather(*jobs, return_exceptions=True)
 
     def _record_planner_reads(self, tree: _Tree, root_span: str, request_id: str) -> None:
         """The planner turn's reads, recorded on the task before its worker starts: the situation snapshot (fetchable

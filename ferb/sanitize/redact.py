@@ -13,8 +13,17 @@ SECRET_WORDS = {"password", "passwd", "pwd", "passphrase", "secret", "token", "c
                 "credential", "credentials", "authorization", "auth", "apikey", "bearer"}
 SECRET_KEYS = {"apikey", "accesstoken", "refreshtoken", "idtoken", "clientsecret", "privatekey", "setcookie",
                "onetimecode", "xapikey"}
-# FERB's own internal id fields: ids, never token values (owner decision). Values are still pattern-scanned.
-INTERNAL_ID_KEYS = {"task_id", "span_id", "session_id", "run_token_id"}
+# FERB's own id keys: their values are ids FERB built, never token values (owner decision; L16, L28). Under these keys a
+# generated id body (ID_BODY) is never altered by an exact registered-value match: a short registered value can occur
+# inside an id, and an altered id breaks lineage. Everything else in the value (a ref's prefix, a step name, any other
+# word) is redacted as text, the secret patterns run over the whole value, and a registered value that is a whole id
+# body is still redacted.
+# approval_id and timer_id (owner questions and reminders) are FERB ids that clients answer by and code reads back.
+INTERNAL_ID_KEYS = {"task_id", "span_id", "session_id", "run_token_id", "request_id", "covered", "source_refs",
+                    "approval_id", "timer_id"}
+# The generated part of a FERB id: a uuid4 hex (RandomIds: task, request, journal, trail, memory ids), a sha256 hex
+# (learning nodes, m-/key-) or a 6-byte token hex (chat sessions, chat-).
+ID_BODY = re.compile(r"(?<![0-9A-Za-z])([0-9a-f]{64}|[0-9a-f]{32}|[0-9a-f]{12})(?![0-9A-Za-z])")
 
 SECRET_PATTERNS = [
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
@@ -88,7 +97,6 @@ OTP_TEXT = re.compile(r"(?i)(\b(?:one[ -]?time(?: password| code)?|verification 
 _ID_CHAR = "[0-9A-Za-z_]"
 CARD = re.compile(rf"(?:(?<!{_ID_CHAR})|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!{_ID_CHAR}-)"
                   rf"(?:\d[ -]?){{12,18}}\d(?!{_ID_CHAR}|-{_ID_CHAR})")
-_REF_DIGITS = re.compile(r"[0-9]+(?:-[0-9]+)*")
 
 
 def _url_id_spans(s: str) -> list[tuple[int, int]]:
@@ -172,6 +180,15 @@ class Redactor:
         """For exception messages and any free text."""
         return self._str(s)
 
+    def ident(self, s: str) -> str:
+        """A value under one of FERB's own id keys (INTERNAL_ID_KEYS). An excluded app's name stays excluded."""
+        if self.exclude_apps and s.lower() in self.exclude_apps:
+            return EXCLUDED
+        values = self.secret_values()
+        pieces = ID_BODY.split(s)            # generated id bodies at the odd positions
+        return self._patterns("".join((REDACTED if piece in values else piece) if n % 2 else self._registered(piece)
+                                      for n, piece in enumerate(pieces)))
+
     def field(self, text: str, *, role: str = "", label: str = "", secure_input: bool = False,
               concealed: bool = False, metadata: tuple[str, ...] = (), kind: str | None = None) -> str:
         """Capture boundary for AX/DOM/clipboard fields; metadata never grants action permission. `kind` is the
@@ -188,21 +205,6 @@ class Redactor:
         if _labelled_code(question, text):
             return REDACTED if text else text
         return self._str(text)
-
-    def id_ref(self, ref: str) -> str:
-        """One of FERB's own record ids (m-<hex>, trail:<id>, …) as a span input's source_refs hold it. Text
-        redaction's substring and card scans never run inside it (L16: an altered ref breaks lineage), but a ref that
-        is itself a secret is still redacted: a credential pattern, or an exact secret value or card number as the
-        whole ref or as the id after its family prefix."""
-        if self.exclude_apps and ref.lower() in self.exclude_apps:
-            return EXCLUDED
-        ident = ref.rpartition(":")[2]
-        secrets = self.secret_values()
-        if ref in secrets or ident in secrets or (_REF_DIGITS.fullmatch(ident) and payment_card(ident)):
-            return REDACTED
-        for p in SECRET_PATTERNS:
-            ref = p.sub(REDACTED, ref)
-        return ref
 
     def excluded_host(self, host: str) -> bool:
         """A host on the owner's exclusion list (a domain covers its subdomains)."""
@@ -238,6 +240,9 @@ class Redactor:
             ks = str(k)
             if secret_key(ks) and v not in (None, "", [], {}):
                 out[k] = REDACTED
+            elif ks in INTERNAL_ID_KEYS and isinstance(v, (str, list, tuple)):
+                out[k] = self.ident(v) if isinstance(v, str) else [
+                    self.ident(item) if isinstance(item, str) else self._walk(item) for item in v]
             elif secret_field and ks == "value" and v not in (None, ""):
                 out[k] = REDACTED
             elif input_event and ks == "params" and isinstance(v, dict):
@@ -251,9 +256,17 @@ class Redactor:
     def _str(self, s: str) -> str:
         if self.exclude_apps and s.lower() in self.exclude_apps:
             return EXCLUDED
+        return self._patterns(self._registered(s))
+
+    def _registered(self, s: str) -> str:
+        """Every registered secret value replaced (longest first)."""
         for v in sorted(self.secret_values(), key=len, reverse=True):
             if v in s:
                 s = s.replace(v, REDACTED)
+        return s
+
+    def _patterns(self, s: str) -> str:
+        """The secret classes: key and token patterns, payment cards, one-time codes, URL credentials."""
         for p in SECRET_PATTERNS:
             s = p.sub(REDACTED, s)
         ids = _url_id_spans(s)              # a card in a URL's query or fragment is still one; its path holds ids

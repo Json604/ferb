@@ -1,7 +1,6 @@
 """Own redacted span persistence, evidence reads and task exports. Must not invent missing observations."""
 
 import json
-import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Iterator
@@ -13,32 +12,9 @@ from ferb.policy.rules import REVERSIBLE
 from ferb.store.db import Database
 
 Redact = Callable[[dict[str, Any]], dict[str, Any]]
-# A span input's structured id fields hold FERB's own record ids, built by code from stored rows. Text redaction's
-# substring and card scans never run inside an id there (L16): an altered ref breaks lineage ("unknown source").
-# Redactor.id_ref still redacts a ref that is itself a secret (a credential pattern, an exact secret value, a card
-# number). ID_TOKEN only picks which values get that id treatment, it is no safety check; a value that isn't a single
-# token (words, a URL) is redacted like any other text.
-ID_FIELDS = frozenset({"source_refs"})
-ID_TOKEN = re.compile(r"[A-Za-z0-9_.:-]+")
 OUTPUT_TEXT_CAP = 20000          # characters of each tool result matched for argument sources (S3)
 # origin.recorded in SQL: a non-root span's output with no recorded origin is unlabeled (the one parameter).
 _RECORDED = "CASE WHEN kind != 'task' AND origin IS NULL AND output_json IS NOT NULL THEN ? ELSE origin END"
-
-
-def keep_ids(redact: Redact, data: dict[str, Any]) -> dict[str, Any]:
-    """`data` redacted, except that a single id token in an ID_FIELDS list is never altered by text redaction (L16): a
-    registered secret value can occur inside an id, and an altered ref breaks lineage. Redactor.id_ref still redacts a
-    ref that is itself a secret; any other redact sees every ref as text."""
-    out = redact({k: v for k, v in data.items() if k not in ID_FIELDS})
-    id_ref = getattr(redact, "id_ref", None)
-    for key in ID_FIELDS & data.keys():
-        refs = data[key]
-        if not isinstance(refs, (list, tuple)):
-            out[key] = redact({key: refs})[key]
-            continue
-        out[key] = [id_ref(ref) if callable(id_ref) and isinstance(ref, str) and ID_TOKEN.fullmatch(ref)
-                    else redact({key: ref})[key] for ref in refs]
-    return out
 
 
 def tree_where(root_id: str) -> tuple[str, tuple[Any, ...]]:
@@ -84,7 +60,8 @@ class SpanStore:
         return span
 
     def _redact_input(self, input: dict[str, Any]) -> dict[str, Any]:
-        return keep_ids(self._redact, input)
+        """Redacted; FERB's own ids in it (source_refs, task ids) are kept whole by key (`Redactor.ident`, L16/L28)."""
+        return self._redact(input)
 
     def finish(self, span: Span, *, output: dict[str, Any] | None = None, error: str | None = None,
                cost_usd: float | None = None, origin: str | None = None,

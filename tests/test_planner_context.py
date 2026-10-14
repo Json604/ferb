@@ -260,6 +260,7 @@ def test_the_recent_raw_trail_is_fetch_only_never_in_the_planner_prompt(daemon):
     request = _planner_requests(script)[-1]
     assert "kettle shopping list" in request.context.split("Layer 3 — today's activity", 1)[1]   # today's match: in
     assert "ZEBRA-XYZZY" not in request.context                           # the last minutes' raw trail: fetch-only
+    assert "ZEBRA-XYZZY" not in request.system
     assert "raw activity of the last minutes" in request.system and "trail.query" in request.system
 
 
@@ -503,8 +504,8 @@ def test_episode_capture_runs_off_the_loop_so_a_new_message_is_not_held(daemon, 
         exec(BUSY_SECOND, {})
         return real(self, task_id, apps)
     monkeypatch.setattr(Learning, "prepare_episode", busy)
-    daemon.daemon.card_reader = [sys.executable, "-c", BUSY_SECOND + "\nimport runpy, sys\nsys.argv[0] = 'card_reader'\n"
-                                 "runpy.run_module('ferb.memory.card_reader', run_name='__main__')"]
+    run_reader = "\nimport runpy, sys\nsys.argv[0] = 'card_reader'\nrunpy.run_module('ferb.memory.card_reader', run_name='__main__')"
+    daemon.daemon.card_reader = [sys.executable, "-I", "-c", BUSY_SECOND + run_reader]
     install(daemon, [sup("task", "Doing.", task("job")), sup("reply", "quick answer")], {"worker": done("done")})
     outcome(chat(daemon, "do the job"))
     c = Client(daemon.sock, timeout=30)
@@ -527,10 +528,10 @@ def test_episode_capture_runs_off_the_loop_so_a_new_message_is_not_held(daemon, 
 
 
 def test_reply_rows_keep_their_source_ids_intact(daemon):
-    """A registered secret value can occur inside an id; journal rows, like span inputs, never redact a single id token,
+    """A registered secret value can occur inside an id; journal rows, like span inputs, keep FERB's ids whole by key,
     or an altered ref breaks lineage (production: 44 episode captures failed on 'unknown source m-8e95…[redacted]…')."""
     sv = daemon.daemon.supervisor
-    node = "m-8e953d2b8ca8fa1fce4363854ff888cff4b8e7875d600c2682390412a8cf79"
+    node = "m-8e953d2b8ca8fa1fce4363854ff888cff4b8e7875d600c2682390412a8cf79ab"
     daemon.call_soon(daemon.daemon._add_secret_value, "4363854ff888")
     sv.memory_candidates = lambda words: [{'text': 'A remembered fact.', 'reference': 'memory.learned id=x',
                                            'origin': 'private', 'source_refs': [node]}]
@@ -540,3 +541,195 @@ def test_reply_rows_keep_their_source_ids_intact(daemon):
     async def reply():
         return daemon.daemon.journal.of_kind("chat.reply")[-1].data["source_refs"]
     assert node in daemon.run(reply())
+
+
+def test_the_card_reader_is_started_as_its_exact_entry_point_with_no_arguments(daemon, monkeypatch):
+    """Controller decision (packaged app): the stub accepts only exact entry points, so the reader is started as exactly
+    `python -I -m ferb.memory.card_reader`; the task id and app versions go on stdin, and the reader finds the database
+    in the daemon's FERB home itself."""
+    import asyncio
+    import sys
+    from ferb.daemon import main
+    assert daemon.daemon.card_reader == [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
+    started = []
+    real = asyncio.create_subprocess_exec
+
+    async def spawn(*args, **kwargs):
+        if "ferb.memory.card_reader" in args:
+            started.append((args, kwargs.get("env", {}).get("FERB_HOME")))
+        return await real(*args, **kwargs)
+    monkeypatch.setattr(main.asyncio, "create_subprocess_exec", spawn)
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+    assert started == [((sys.executable, "-I", "-m", "ferb.memory.card_reader"), str(daemon.daemon.home))], started
+
+    async def cards():
+        return daemon.daemon.learning.items("episode"), daemon.daemon.journal.of_kind("memory.episode_failed")
+    written, failed = daemon.run(cards())
+    assert written and not failed, failed
+
+
+def test_an_owner_verdict_given_during_a_capture_stays_on_the_card(daemon):
+    """Review round 3 (reproduced): a card the reader read before the owner's verdict was written after it, so the
+    feedback was lost and `verified` flipped back. A change to a card's inputs makes an in-flight read read again."""
+    import time
+    from ferb.cli.client import Client
+    from tests.support.cards import slow_reader
+    daemon.daemon.card_reader = slow_reader(1.5)
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+
+    async def tid():
+        return daemon.daemon.db.conn.execute("SELECT task_id FROM episodes").fetchone()[0]
+    task_id = daemon.run(tid())
+    time.sleep(0.8)                                   # the reader has read; it answers 1.5 s after it started
+    c = Client(daemon.sock, timeout=60)
+    try:
+        assert c.call("verdict.set", {"task_id": task_id, "verdict": "fail"})["verdict"] == "fail"
+    finally:
+        c.close()
+
+    async def card():
+        [node] = daemon.daemon.learning.items("episode")
+        return node["body"]["feedback"], node["body"]["verified"]
+    feedback, verified = daemon.run(card())
+    assert [f["verdict"] for f in feedback] == ["fail"] and verified is False    # when verdict.set answers
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=30)
+    feedback, verified = daemon.run(card())
+    assert [f["verdict"] for f in feedback] == ["fail"] and verified is False    # and after every capture finished
+
+
+def _reader_pids(daemon) -> list[int]:
+    async def pids():
+        import asyncio
+        for _ in range(500):
+            if daemon.daemon._card_readers:
+                return [p.pid for p in daemon.daemon._card_readers]
+            await asyncio.sleep(0.02)
+        return []
+    return daemon.run(pids(), timeout=30)
+
+
+def _gone(pid: int) -> bool:
+    import os
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    return False
+
+
+def test_a_cancelled_capture_kills_its_card_reader(daemon):
+    """A capture that is cancelled (or fails) never leaves its reader running: the reader is killed and reaped."""
+    import asyncio
+    from tests.support.cards import HANGING_READER
+    daemon.daemon.card_reader = list(HANGING_READER)
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+    pids = _reader_pids(daemon)
+    assert pids
+
+    async def cancel():
+        jobs = list(daemon.daemon.supervisor._episode_jobs)
+        for job in jobs:
+            job.cancel()
+        await asyncio.gather(*jobs, return_exceptions=True)
+        return [e.data for e in daemon.daemon.journal.of_kind("memory.episode_deferred")]
+    deferred = daemon.run(cancel(), timeout=10)
+    assert all(_gone(pid) for pid in pids) and not daemon.daemon._card_readers
+    assert deferred and deferred[-1]["task_id"]
+
+
+def test_shutdown_kills_an_in_flight_card_reader_instead_of_waiting(home):
+    """At shutdown an in-flight reader is killed rather than awaited; the capture is journaled as deferred, and the
+    hourly consolidator captures that card again."""
+    import sqlite3
+    import time
+    from ferb.core.ids import SequentialIds
+    from tests.conftest import FakeClock
+    from tests.support.cards import HANGING_READER
+    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
+    d.daemon._permissions = lambda: {"accessibility": True, "screen": True}
+    d.daemon.supervisor.availability = d.daemon.supervisor._default_availability
+    d.daemon.card_reader = list(HANGING_READER)
+    install(d, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(d, "do the job"))
+    pids = _reader_pids(d)
+    assert pids
+    began = time.monotonic()
+    d.stop()                                          # its own wait gives up after 10 s
+    assert time.monotonic() - began < 8
+    assert all(_gone(pid) for pid in pids)
+    db = sqlite3.connect(home / "ferb.db")
+    try:
+        assert db.execute("SELECT count(*) FROM journal WHERE kind='memory.episode_deferred'").fetchone()[0] == 1
+    finally:
+        db.close()
+
+
+def test_verdicts_and_consolidation_read_cards_in_the_card_reader(daemon, monkeypatch):
+    """`verdict.set` and the consolidator's hourly re-capture used to resolve lineage on the event loop. Both read in
+    the card reader now; the consolidator yields between episodes and stops when a task starts."""
+    import asyncio
+    from ferb.cli.client import Client
+    from ferb.daemon import main
+    from ferb.memory.learning import Learning
+    install(daemon, [sup("task", "Doing.", task("first job")), sup("task", "Doing.", task("second job"))],
+            {"worker": done("done")})
+    outcome(chat(daemon, "do the first job"))
+    outcome(chat(daemon, "do the second job"))
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    def on_the_loop(self, task_id, apps=None):
+        raise AssertionError("an episode card was read on the daemon's event loop")
+    monkeypatch.setattr(Learning, "prepare_episode", on_the_loop)
+    started = []
+    real = asyncio.create_subprocess_exec
+
+    async def spawn(*args, **kwargs):
+        if "ferb.memory.card_reader" in args:
+            started.append(args)
+        return await real(*args, **kwargs)
+    monkeypatch.setattr(main.asyncio, "create_subprocess_exec", spawn)
+
+    async def tasks():
+        return [r[0] for r in daemon.daemon.db.conn.execute("SELECT task_id FROM episodes ORDER BY ended_at")]
+    first, second = daemon.run(tasks())
+    c = Client(daemon.sock, timeout=60)
+    try:
+        c.call("verdict.set", {"task_id": first, "verdict": "pass"})
+    finally:
+        c.close()
+    assert len(started) == 1
+
+    async def card(task_id):
+        return next(n for n in daemon.daemon.learning.items("episode") if n["key"] == task_id)["body"]["feedback"]
+    assert [f["verdict"] for f in daemon.run(card(first))] == ["pass"]
+
+    consolidator = daemon.daemon.consolidator
+    checks = iter([True, True, False])                # idle at the start and before the first card, then a task starts
+    consolidator.idle = lambda: next(checks, False)
+    started.clear()
+    assert daemon.run(consolidator.catch_up(), timeout=60) == {"status": "busy"}
+    assert len(started) == 1                          # the second card waits for the next pass
+
+
+def test_a_capture_reaching_a_ref_damaged_by_redaction_still_writes_the_card_and_says_so(daemon):
+    """Controller decision B: the owner's journal holds 60 rows whose ids an earlier redaction altered. A capture whose
+    lineage reaches one skips that ref (it holds the redaction marker, so it can never resolve) and journals it."""
+    damaged = "m-8e953d2b8ca8f[redacted]b46e986ee416a81e4cc270dfe91fe0f6a23784"
+    fact = {'text': 'A remembered fact.', 'reference': 'memory.learned id=x', 'origin': 'private', 'source_refs': [damaged]}
+    daemon.daemon.supervisor.memory_candidates = lambda words: [fact]
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    async def result():
+        j = daemon.daemon.journal
+        return (daemon.daemon.learning.items("episode"), [e.data for e in j.of_kind("memory.episode_refs_damaged")],
+                j.of_kind("memory.episode_failed"))
+    cards, reported, failed = daemon.run(result())
+    assert cards and not failed, failed
+    assert damaged not in cards[0]["sources"]
+    assert reported and reported[-1]["refs"] == [damaged]

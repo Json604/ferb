@@ -53,10 +53,9 @@ class Journal:
 
     def append(self, kind: str, data: dict[str, Any] | None = None,
                origin: str | None = None) -> JournalEntry:
-        """Never dropped: if the write fails, the exception propagates to the caller. Ids in `source_refs` are kept whole,
-        as in span inputs (L16, L28)."""
-        from ferb.store.spans import keep_ids
-        body = keep_ids(self._redact, data or {})
+        """Never dropped: if the write fails, the exception propagates to the caller. FERB's own ids (task_id,
+        request_id, session_id, covered, source_refs) are kept whole by key, as in span inputs (`Redactor.ident`)."""
+        body = self._redact(data or {})
         entry = JournalEntry(self._ids.new_id(), self._clock.now(), kind, body,
                              origin or journal_origin(kind, body))
         self._db.conn.execute("INSERT INTO journal (id, at, kind, data_json, origin) VALUES (?, ?, ?, ?, ?)",

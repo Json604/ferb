@@ -254,7 +254,11 @@ class Daemon:
         self._held: list[tuple[str, str]] = []               # notifications waiting for the owner to be back (13)
         self.schedules: Any = None                            # durable schedules
         self._runs: set[asyncio.Task[None]] = set()
-        self.card_reader = [sys.executable, "-m", "ferb.memory.card_reader"]   # reads episode cards off the loop (L28)
+        # Episode cards are read off the loop (L28) by exactly this entry point: the packaged app's stub accepts only
+        # exact entry points, so it takes no arguments (the request goes on stdin; the home comes as FERB_HOME).
+        self.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
+        self._card_readers: set[asyncio.subprocess.Process] = set()      # in flight; killed at shutdown
+        self._card_lock = asyncio.Lock()                                  # one card capture at a time
         self._held_task: asyncio.Task[None] | None = None
         # Timers
         self.timers: Any = None
@@ -276,6 +280,8 @@ class Daemon:
         self.db = Database(self.home / "ferb.db")
         self.db.migrate()
         self.journal = Journal(self.db, self.clock, self.ids, self.redact)
+        self.db.on_wal_kept = lambda after, details: self._journal().append(
+            "store.wal_not_truncated", {"after": after, **details})
         if not self.journal.of_kind("config.upgraded", "upgrade", LIMITS_DECIDED):   # once, and journaled: never silent
             self.journal.append("config.upgraded", {"upgrade": LIMITS_DECIDED,
                                                     "changes": self.config.upgrade_ferb_written()})
@@ -391,8 +397,9 @@ class Daemon:
             self.supervisor.suspend_plans()
             self.supervisor.cancel_all()
         await drain(self._turns | self._runs, "task turns")
-        if self.supervisor:                                  # learning captures still writing cards: awaited, not cancelled
-            await self.supervisor.finish_episodes()
+        if self.supervisor:                                  # learning captures: cancelled, journaled as deferred
+            await self.supervisor.stop_episodes()
+        self._stop_card_readers()                            # e.g. one a verdict is waiting on
         if self.gateway is not None:                         # first looks still being taken (D26)
             await drain(set(self.gateway.looks), "first looks")
         if self._proxy:
@@ -1113,7 +1120,7 @@ class Daemon:
         self.learning = Learning(self.db, self.clock, self._publish, self._redact_text)
         self.consolidator = Consolidator(self.learning, self.memory, self._make_runtime,
             idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
-            usage=self._record_distill_usage)
+            usage=self._record_distill_usage, capture=lambda task_id: self._capture_card(task_id, None))
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
         journal = self.journal
@@ -1146,32 +1153,61 @@ class Daemon:
         return {a.bundle_id: a.version for a in profile.apps} if profile else {}
 
     async def _capture_learning_episode(self, task_id: str) -> None:
-        """A task's episode card (L28). Its reads (the lineage resolution: 1.3-1.6 s of CPU on the owner's data) run in a
-        process of their own on a read-only connection (`ferb.memory.card_reader`): in a thread they would still hold
-        the interpreter lock against the event loop. Only the card's write is on the loop. A forget between the two
-        reads it again. Failures are journaled."""
-        from ferb.memory.learning import LearningRefused
+        """A finished task's episode card, after its outcome (`Supervisor.on_episode`). Failures are journaled."""
         try:
-            if self.learning is None or self.db is None:
-                return
-            apps = self._app_versions()
-            while True:
-                forgets = self.learning.forgets
-                proc = await asyncio.create_subprocess_exec(
-                    *self.card_reader, str(self.db.path), task_id, stdin=asyncio.subprocess.PIPE,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
-                out, _ = await proc.communicate(json.dumps(apps).encode())
-                try:
-                    answer = json.loads(out)
-                except ValueError:
-                    answer = {"error": f"the card reader exited {proc.returncode} without an answer"}
-                if "error" in answer:
-                    raise LearningRefused(str(answer["error"]))
-                if forgets == self.learning.forgets:
-                    break
-            self.learning.write_episode(answer["prepared"])
+            if self.learning is not None:
+                await self._capture_card(task_id, self._app_versions(), report=True)
         except Exception as e:
             self._journal().append("memory.episode_failed", {"task_id": task_id, "error": self._redact_text(str(e))})
+
+    async def _capture_card(self, task_id: str, apps: dict[str, str] | None, *, report: bool = False) -> Any:
+        """Capture (or refresh, `apps` None) a task's episode card (L28). The after-outcome capture, an owner verdict
+        and the consolidator's re-capture all come here, one at a time. The reads run in the card reader
+        (`_read_card`); only the write is on the loop. When a card input changed while the reader read (a forget, a
+        verdict, a write of a card: `Learning.generation`), it reads again. `report`: journal the refs skipped as
+        damaged by redaction. Raises LearningRefused when the card can't be built."""
+        assert self.learning is not None
+        async with self._card_lock:
+            while True:
+                generation = self.learning.generation
+                prepared = await self._read_card(task_id, apps)
+                if generation == self.learning.generation:
+                    break
+            if report and prepared and prepared.get("damaged"):
+                self._journal().append("memory.episode_refs_damaged", {"task_id": task_id, "refs": prepared["damaged"]})
+            return self.learning.write_episode(prepared)
+
+    async def _read_card(self, task_id: str, apps: dict[str, str] | None) -> dict[str, Any] | None:
+        """Every read of a card, in `ferb.memory.card_reader`: a process of its own on a read-only connection, because
+        the lineage resolution is CPU-bound (1.3-1.6 s on the owner's data) and in a thread it would still hold the
+        interpreter lock against the event loop. A reader whose wait is cancelled or fails is killed and reaped."""
+        from ferb.memory.learning import LearningRefused
+        proc = await asyncio.create_subprocess_exec(
+            *self.card_reader, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL, env={**os.environ, "FERB_HOME": str(self.home)})
+        self._card_readers.add(proc)
+        try:
+            out, _ = await proc.communicate(json.dumps({"task_id": task_id, "apps": apps}).encode())
+        finally:
+            self._card_readers.discard(proc)
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        try:
+            answer = json.loads(out)
+        except ValueError:
+            answer = {"error": f"the card reader exited {proc.returncode} without an answer"}
+        if "error" in answer:
+            raise LearningRefused(str(answer["error"]))
+        prepared: dict[str, Any] | None = answer["prepared"]
+        return prepared
+
+    def _stop_card_readers(self) -> None:
+        """Shutdown: kill every reader still in flight rather than wait for it; the hourly consolidator captures those
+        cards again."""
+        for proc in list(self._card_readers):
+            if proc.returncode is None:
+                proc.kill()
 
     def _procedure_outcome(self, procedure_id: str, task_id: str) -> None:
         if self.learning is None:
@@ -3086,7 +3122,8 @@ class Daemon:
         self.db.conn.commit()
         self._journal().append("owner.verdict", {"task_id": task_id, "verdict": verdict})
         if self.learning is not None:
-            self.learning.capture_episode(task_id)
+            self.learning.inputs_changed()            # a card read before this verdict is read again (L28)
+            await self._capture_card(task_id, None, report=True)
             self._refresh_learning_verdict(task_id)
         return {"task_id": task_id, "verdict": verdict}
 

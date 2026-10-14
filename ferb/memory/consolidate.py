@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from ferb.core.context import ContextBlock, assemble_parts, count_tokens, runtime_limits
 from ferb.core.prompts import load_prompt
@@ -85,9 +85,16 @@ def _procedure(p: dict[str, Any]) -> dict[str, Any]:
 class Consolidator:
     def __init__(self, learning: Learning, memory: Any, make_runtime: Callable[..., Any], *,
                  idle: Callable[[], bool] = lambda: True,
-                 usage: Callable[[str, dict[str, Any]], None] = lambda *args: None) -> None:
+                 usage: Callable[[str, dict[str, Any]], None] = lambda *args: None,
+                 capture: Callable[[str], Awaitable[Any]] | None = None) -> None:
+        """`capture`: refreshes one task's episode card. The daemon's reads it in the card reader process, off the event
+        loop (L28); without one, the card is refreshed in-process."""
         self.learning, self.memory, self.make_runtime = learning, memory, make_runtime
         self.idle, self.usage, self.lock = idle, usage, asyncio.Lock()
+        self.capture = capture or self._capture_here
+
+    async def _capture_here(self, task_id: str) -> Any:
+        return self.learning.capture_episode(task_id)
 
     async def catch_up(self) -> dict[str, Any]:
         if self.lock.locked() or not self.idle():
@@ -96,10 +103,13 @@ class Consolidator:
             l = self.learning
             l.sync_facts(self.memory)
             for row in list(l.db.conn.execute('SELECT task_id FROM episodes ORDER BY ended_at')):
+                if not self.idle():                  # a task started: the next pass refreshes the rest
+                    return {'status': 'busy'}
                 try:
-                    l.capture_episode(row[0])
+                    await self.capture(row[0])
                 except LearningRefused:
                     continue
+                await asyncio.sleep(0)               # the loop runs between episodes
             pending = [p for p in l.items('episode') if not l.db.conn.execute(
                 "SELECT 1 FROM learning_jobs WHERE source_ref=? AND status='done'", (p['id'],)).fetchone()]
             results = []

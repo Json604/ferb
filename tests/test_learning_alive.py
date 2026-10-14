@@ -97,15 +97,19 @@ def luhn(prefix: str) -> str:
                                     JWT, '4111111111111111', 'Zq9-hunter-77', 'pa5'])
 def test_a_secret_placed_in_source_refs_is_still_redacted(stores, secret) -> None:
     db, r, spans, _ = stores
-    r.add_secret_value('Zq9-hunter-77')            # exact registered secret values (one sealed and short)
+    r.add_secret_value('Zq9-hunter-77')            # exact registered secret values (two sealed and short)
     r.remember_hidden_secret('pa5')
+    r.remember_hidden_secret('a5a5')               # hex: it occurs inside a generated id body below
     rng = random.Random(12)
     ids = [i for i in ('m-' + hashlib.sha256(rng.randbytes(32)).hexdigest() for _ in range(20000)) if card_shaped(i)]
-    real = [ids[0], 'trail:' + 'ab12cd34' * 4, 'episode:' + 'f00d' * 8 + '.1', 'journal:pa5pa5']
+    real = [ids[0], 'trail:' + 'ab12cd34' * 4, 'episode:' + 'f00d' * 8 + '.1', 'journal:' + 'a5' * 16]
     for ref in (secret, 'trail:' + secret):
-        span = spans.start('context.exposure', input={'source_refs': [*real, ref], 'reference': 'Layer 4'})
+        span = spans.start('context.exposure', input={'source_refs': [*real, ref, 'journal:pa5pa5'],
+                                                      'reference': 'Layer 4'})
         assert span.input['source_refs'][:4] == real            # FERB's own ids pass unchanged
         assert secret not in span.input['source_refs'][4]
+        # L28: only a generated id body is spared; a registered value in any other ref text is redacted
+        assert span.input['source_refs'][5] == 'journal:[redacted][redacted]'
         stored = db.conn.execute('SELECT input_json FROM spans WHERE id=?', (span.id,)).fetchone()[0]
         assert json.loads(stored) == span.input
 

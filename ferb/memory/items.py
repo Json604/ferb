@@ -388,7 +388,7 @@ class Memory:
         for day in plan.rebuild_days:
             self.rebuild_summary(day)
         c.execute("INSERT INTO memory_fts(memory_fts) VALUES ('rebuild')")
-        c.execute("PRAGMA wal_checkpoint(TRUNCATE)")                  # no copy left behind in the WAL
+        self.db.truncate_wal("memory.forget")                         # no copy left behind in the WAL
         self.on_change()
         return plan
 
