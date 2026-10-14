@@ -58,6 +58,10 @@ final class AppSetupTests: XCTestCase {
         XCTAssertFalse(AppSetupPlan.needsConfirmation(same))
     }
 
+    func testSignInToCodexRunsFERBsOwnCodexLogin() {
+        XCTAssertEqual(AppSetupPlan.codexLoginArguments, ["setup", "--codex-login"])
+    }
+
     func testConsoleKeepsCharactersSplitAcrossReads() {
         var console = ConsoleDecoder()
         let bytes = Array("✓ granted\n".utf8)                   // ✓ is three bytes

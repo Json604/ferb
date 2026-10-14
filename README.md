@@ -27,6 +27,11 @@ disk image, or from source.
 3. FERB opens a **Set Up FERB** window that runs `ferb setup` from inside the app: the background service, the
    browser extension and the permission steps. Answer its questions in the line at the bottom. Closing the window
    doesn't stop setup; **Set Up FERB…** in FERB's menu bar shows it again.
+4. Near the end, setup asks **Sign in to ChatGPT for FERB now? [Y/n]**. Press Return: your browser opens ChatGPT's
+   sign-in, and FERB keeps the login in its own Codex home (`~/.ferb/codex-home`), never your personal Codex
+   settings. FERB can't answer anything until this is done. If you skipped it, or the sign-in didn't finish, choose
+   **Sign in to Codex…** in FERB's menu bar; it runs the same sign-in in the setup window. To use Claude instead,
+   see `ferb runtimes` below (that needs the `ferb` command).
 
 In Privacy & Security, FERB appears as **FERB**: the background service (Accessibility, Screen Recording, Full Disk
 Access, Automation) is FERB's agent app inside FERB.app, and dictation's Microphone and Speech Recognition belong to
@@ -293,8 +298,9 @@ Borrowed owner tabs stay open. Cleanup results and errors are recorded so the fi
 | `ferb baseline` | Save a read-only metrics snapshot to `~/.ferb/baselines/` for comparing milestones |
 | `ferb regress [SET]` | Run a regression task set (default: the built-in smoke set) and print the verdict lines for you |
 
-Codex runs in FERB's own home and needs `ferb setup --codex-login` (there is no fallback to `~/.codex`); without it
-the chat says to run that command, and `ferb runtimes` shows Codex as not usable. Account-check errors distinguish
+Codex runs in FERB's own home and needs `ferb setup --codex-login` (there is no fallback to `~/.codex`). `ferb setup`
+offers it when it's missing, FERB.app's menu has **Sign in to Codex…**, and `ferb doctor` fails until it's done;
+without it the chat says how to sign in, and `ferb runtimes` shows Codex as not usable. Account-check errors distinguish
 confirmed login failures from an unavailable account check; repeating a request cannot repair an invalid login.
 Refreshed credentials are shared after startup checks, before model work begins. `ferb runtimes use` still saves the
 choice for a runtime that is not usable yet and warns that the role will fail until it is.

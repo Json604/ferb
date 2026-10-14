@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator = PanelCoordinator()
         if appSetup.isPackaged {
             coordinator?.onSetUp = { [appSetup] in appSetup.runSetupFromMenu() }
+            coordinator?.onCodexLogin = { [appSetup] in appSetup.runCodexLogin() }
         }
         coordinator?.start()
         appSetup.startAtLaunch()                 // packaged FERB.app only: first-launch setup or a quiet update

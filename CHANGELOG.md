@@ -143,6 +143,9 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   code", "G-482913 …", "Your Amazon code: 482-913"); before, 2 of 11 real formats were. A value next to a secret word
   is masked too ("password: sunshine2024", "my api key is sk_live_…"). Numbers with no code or secret word near them
   stay readable (owner decision C1).
+- A DMG install can answer: setup (and FERB.app's first-run window) asks "Sign in to ChatGPT for FERB now? [Y/n]"
+  when FERB's own Codex has no sign-in and runs the browser sign-in; FERB.app's menu has **Sign in to Codex…**;
+  `ferb doctor` fails (not warns) without it, since the daemon never uses your personal Codex; `--update` says how.
 
 Licensed under Apache-2.0.
 

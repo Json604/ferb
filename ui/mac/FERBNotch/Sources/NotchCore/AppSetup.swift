@@ -30,6 +30,10 @@ public enum AppSetupPlan {
         }
     }
 
+    /// Sign in to Codex… (C2): FERB's own Codex sign-in, in the same console. FERB never uses the owner's personal
+    /// Codex login, so a DMG install can't answer until this ran (`ferb setup` offers it too).
+    public static let codexLoginArguments = ["setup", "--codex-login"]
+
     public static func needsConfirmation(_ action: AppSetupAction) -> Bool {
         if case .confirmReplace = action { return true }
         return false

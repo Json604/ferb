@@ -95,6 +95,10 @@ class FakeRun:
             return subprocess.CompletedProcess(argv, 0, "", f"designated => {self.REQUIREMENT}\n")
         if argv[0] == "/usr/bin/open":
             return subprocess.CompletedProcess(argv, 0, "", "")
+        if str(argv[0]).endswith("/bin/codex") and argv[1:] == ["login"]:      # C2: the browser sign-in succeeds
+            home = Path(kw["env"]["CODEX_HOME"])
+            (home / "auth.json").write_text("{}")
+            return subprocess.CompletedProcess(argv, 0, "", "")
         raise AssertionError(argv)
 
     def ran(self, *prefix: str) -> list[list[str]]:
@@ -114,6 +118,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     inst = Installer(home, label="com.ferb.test", run=runner, launch_agents=tmp_path / "LA")
     daemon = FakeDaemon()
     panes: list[str] = []
+    (home / "codex-home").mkdir(parents=True)
+    (home / "codex-home" / "auth.json").write_text("{}")            # FERB's own Codex is signed in (C2 tests undo it)
     return {"inst": inst, "runner": runner, "daemon": daemon, "panes": panes, "home": home, "run": FakeRun()}
 
 
@@ -534,3 +540,65 @@ def test_setup_from_the_app_refuses_a_voice_helper_its_signature_doesnt_seal(app
     assert S.setup(env, update=True) == 0, out.getvalue()
     assert "FERB Voice.app isn't the one FERB.app's signature seals" in out.getvalue()
     assert Config(app_world["home"]).get("hearing", "requirement") == "old"   # never pinned to other code
+
+
+# ---------- C2: FERB's own Codex sign-in ----------
+
+def _signed_out(world: dict[str, Any]) -> Path:
+    auth = world["home"] / "codex-home" / "auth.json"
+    auth.unlink()
+    binary = world["home"] / "node/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("")
+    return auth
+
+
+def test_setup_offers_the_codex_sign_in_when_ferbs_codex_home_has_none(world: dict[str, Any]) -> None:
+    auth = _signed_out(world)
+    asked: list[str] = []
+    env, out = make_env(world, ["", "", "", "1,2,3", ""], daemon_up=False)
+    plain = env.ask
+    env.ask = lambda prompt: (asked.append(prompt), plain(prompt))[1]   # type: ignore[method-assign]
+    assert S.setup(env) == 0, out.getvalue()
+    assert any("Sign in to ChatGPT for FERB now? [Y/n]" in p for p in asked)
+    assert world["run"].ran(str(auth.parent.parent / "node/node_modules/@openai/codex-darwin-arm64/vendor/"
+                                "aarch64-apple-darwin/bin/codex"), "login")
+    assert auth.exists() and "Setup complete." in out.getvalue()
+
+
+def test_declining_the_codex_sign_in_says_how_to_do_it_later(world: dict[str, Any]) -> None:
+    auth = _signed_out(world)
+    env, out = make_env(world, ["", "", "", "1,2,3", "n"], daemon_up=False)
+    assert S.setup(env) == 1
+    text = out.getvalue()
+    assert not auth.exists() and not [c for c in world["run"].calls if c[1:] == ["login"]]
+    assert "Sign in to Codex…" in text and "ferb setup --codex-login" in text
+
+
+def test_setup_does_not_ask_when_ferbs_codex_is_signed_in_or_unused(world: dict[str, Any]) -> None:
+    env, out = make_env(world, ["", "", "", "1,2,3"], daemon_up=False)     # one answer fewer: no sign-in question
+    assert S.setup(env) == 0, out.getvalue()
+    _signed_out(world)
+    for role in ("orchestrator", "worker"):
+        Config(world["home"]).set("runtimes", role, "claude")
+    world["daemon"].perms = {name: "granted" for name in S.SETUP_PERMISSIONS}
+    env, out = make_env(world, ["1,2,3"], daemon_up=False)
+    assert S.setup(env) == 0, out.getvalue()
+
+
+def test_update_never_asks_but_says_codex_isnt_signed_in(world: dict[str, Any]) -> None:
+    _signed_out(world)
+    world["inst"].install()
+    env, out = make_env(world, [])                    # any request for owner input would fail this test
+    assert S.setup(env, update=True) == 0
+    assert "Sign in to Codex…" in out.getvalue() and "ferb setup --codex-login" in out.getvalue()
+
+
+def test_doctor_fails_without_ferbs_own_codex_sign_in(world: dict[str, Any]) -> None:
+    _signed_out(world)
+    world["inst"].install()
+    env, out = make_env(world, [])
+    S.doctor(env)
+    text = out.getvalue()
+    assert "✗ codex home" in text and "ferb setup --codex-login" in text
+    assert "using your personal Codex setup" not in text          # the daemon never falls back to ~/.codex

@@ -704,7 +704,9 @@ is final for that step in the task.
 #### FERB.app in a DMG
 - What: one FERB.app (the notch UI as main executable, the daemon's Python and FERB inside, Codex and Claude CLIs,
   the secrets helper, the voice/transcription helper), in a DMG with an Applications link. First launch runs the same
-  steps as `ferb setup`, puts `ferb` on PATH (`~/.local/bin`), and keeps the same `~/.ferb` home. The background
+  steps as `ferb setup`, including the offer to sign in to ChatGPT for FERB's own Codex (FERB can't answer without
+  it; **Sign in to Codex…** in the menu bar runs it again), links `ferb` at `~/.local/bin`, and keeps the same
+  `~/.ferb` home. The background
   daemon runs as an agent app named FERB, so macOS privacy settings show "FERB".
 - Signing: **ad-hoc signed now**; the build has one signing step that becomes Developer ID signing plus
   notarization later, with no repackaging.

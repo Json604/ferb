@@ -2980,7 +2980,8 @@ class Daemon:
             from ferb.core.errors import Unsupported
             from ferb.runtimes.codex_exec import MODEL, CodexRuntime, codex_binary, codex_home
             if codex_home(self.home) is None:
-                raise Unsupported("Codex isn't signed in for FERB: run `ferb setup --codex-login`")
+                raise Unsupported("Codex isn't signed in for FERB: choose Sign in to Codex… in FERB's menu bar, "
+                                  "or run `ferb setup --codex-login`")
             workdir = self.home / "workspace" if mode == "worker" else self.home / "run" / "supervisor"
             return CodexRuntime(codex_binary(self.home, repo_root()), mode, workdir, self.home,  # type: ignore[arg-type]
                                 shim_cmd=shim, tool_names=tool_names, output_schema=schema, model=model or MODEL,

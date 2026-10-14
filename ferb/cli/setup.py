@@ -177,6 +177,8 @@ def setup(env: Env, update: bool = False) -> int:
             env.say("All macOS permissions are granted (checked by the running daemon).")
         _review_persona(env, client)
         client.close()
+        if codex_needed(inst.home):           # C2: an update never asks; it says how
+            env.say(f"FERB's own Codex isn't signed in, so FERB can't answer yet: {CODEX_LOGIN_HOW}.")
         if inst.bundle is not None or (inst.home / "FERB.app").exists():
             _voice_helper(env)        # L26: its new modes; L27: the new app's own helper; no permission dialog either way
         extension_setup(env)
@@ -231,6 +233,7 @@ def setup(env: Env, update: bool = False) -> int:
     ok = _print_selftest(env, client.call("doctor.check"))
     _review_persona(env, client)
     client.close()
+    ok &= _offer_codex_login(env)
 
     env.say("     FERB uses the installed action registry without per-action permission prompts.")
     env.say("     Connect the accounts/profiles you want available; macOS permissions and logins still apply.")
@@ -358,6 +361,33 @@ class Check:
     hint: str = ""
 
 
+CODEX_LOGIN_HOW = "choose Sign in to Codex… in FERB's menu bar, or run `ferb setup --codex-login`"
+
+
+def codex_needed(home: Path) -> bool:
+    """FERB's runtimes use Codex ([runtimes] orchestrator/worker/checker, Codex by default) and FERB's own Codex home
+    has no sign-in. The daemon never falls back to the owner's personal ~/.codex (owner decision, 2026-10-01)."""
+    from ferb.runtimes.codex_exec import codex_home
+    config = Config(home)
+    worker = str(config.get("runtimes", "worker", "codex"))
+    roles = {str(config.get("runtimes", "orchestrator", "codex")), worker,
+             str(config.get("runtimes", "checker", worker))}
+    return "codex" in roles and codex_home(home) is None
+
+
+def _offer_codex_login(env: Env) -> bool:
+    """C2: setup (the packaged app's first-run console included) offers FERB's own Codex sign-in when it's missing;
+    without it FERB can't answer anything. `codex login` opens the browser itself and reads no terminal input."""
+    if not codex_needed(env.inst.home):
+        return True
+    answer = env.ask("     FERB answers through Codex, which isn't signed in for FERB. "
+                     "Sign in to ChatGPT for FERB now? [Y/n] ").strip().lower()
+    if answer in ("", "y", "yes") and codex_login(env, run=env.run) == 0:
+        return True
+    env.say(f"     FERB can't answer until its Codex is signed in: {CODEX_LOGIN_HOW}.")
+    return False
+
+
 def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     """Sign in FERB's own Codex home (owner decision, 2026-10-01): the pinned Codex, with CODEX_HOME set to
     ~/.ferb/codex-home, so FERB's runs never load the owner's personal Codex settings or skills."""
@@ -483,9 +513,13 @@ def doctor(env: Env) -> int:
     add = checks.append
     add(Check("home", "ok" if (inst.home / MARKER).exists() else "fail", str(inst.home), "run `ferb setup`"))
     own = (inst.home / "codex-home" / "auth.json").exists()
-    add(Check("codex home", "ok" if own else "warn",
-              "FERB's own (~/.ferb/codex-home)" if own else "using your personal Codex setup",
-              "`ferb setup --codex-login` signs in FERB's own Codex"))
+    if own:
+        add(Check("codex home", "ok", "FERB's own (~/.ferb/codex-home)"))
+    elif codex_needed(inst.home):          # C2: the daemon refuses to run Codex without it
+        add(Check("codex home", "fail", "FERB's own Codex isn't signed in, so FERB can't answer (it never uses "
+                  "your personal Codex)", CODEX_LOGIN_HOW))
+    else:
+        add(Check("codex home", "ok", "not signed in; FERB's runtimes don't use Codex"))
     try:
         Config(inst.home).load()
         add(Check("config permissions", "ok", "owner-only"))

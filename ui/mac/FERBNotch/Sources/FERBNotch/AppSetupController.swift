@@ -42,6 +42,12 @@ final class AppSetupController: NSObject, NSWindowDelegate {
 
     func runSetupFromMenu() { start(fromMenu: true) }
 
+    /// Sign in to Codex… (C2): `ferb setup --codex-login` in the setup console; `codex login` opens the browser.
+    func runCodexLogin() {
+        guard isPackaged else { return }
+        run(AppSetupPlan.codexLoginArguments)
+    }
+
     private func start(fromMenu: Bool) {
         guard isPackaged else { return }
         guard process == nil else { showWindow(); return }
