@@ -234,7 +234,9 @@ class Daemon:
         self.take_snapshots = snapshots                  # S1 local APFS snapshots; tests never take a real one
         # L12: the owner's front window, captured as each message arrives (request id -> FrontWindow | None). Tests
         # never take a real screenshot: they leave it off or put a fake here.
-        self.front_window: Callable[[str], Awaitable[Any]] | None = self._front_window if screen_at_send else None
+        self.front_window: Callable[[str, int | None], Awaitable[Any]] | None = (
+            self._front_window if screen_at_send else None)
+        self._tab_granted: set[str] = set()   # browsers whose front tab FERB may read: GRANTED, kept until a read fails
         self.snapshots: recovery.Snapshots | None = None
         # Deletes FERB's own old snapshots in the async retention pass (None: macOS thinning only; tests)
         self.snapshot_deleter: Callable[[str], Awaitable[bool]] | None = (
@@ -744,11 +746,12 @@ class Daemon:
                 return p if isinstance(p, bool) else None
         return None
 
-    async def _front_window(self, request_id: str) -> Any:
+    async def _front_window(self, request_id: str, client_pid: int | None = None) -> Any:
         """L12: the owner's front window as this message arrived (ferb/sense/front_window.py): the topmost window that
-        isn't FERB's, its redacted screenshot kept as evidence under the request. None: no Mac driver or evidence
-        store, sensing paused (`ferb pause`), nothing in front, or an excluded app or site. A failure is journaled by
-        type and never blocks the message."""
+        isn't FERB's (nor, while in front, that of the app hosting the CLI that sent it, `client_pid`), its redacted
+        screenshot kept as evidence under the request. None: no Mac driver or evidence store, sensing paused (`ferb
+        pause`), nothing in front, or an excluded app or site. A failure is journaled by type and never blocks the
+        message."""
         from ferb.act.mac import screenshot
         from ferb.daemon.gateway import error_name
         from ferb.sanitize.images import ImageRedactor
@@ -757,6 +760,7 @@ class Daemon:
         if mac is None or evidence is None or (self.sense is not None and self.sense.paused):
             return None
         exclusions, daemon_pid = self._exclusions(), os.getpid()
+        sender = await asyncio.to_thread(fw.sending_app, client_pid, fw.app_of, fw.parent_pid) if client_pid else None
 
         async def shoot(w: Any) -> bytes:
             if not mac.snapshot_images():                    # the owner's `[mac] snapshot_image` switch
@@ -767,9 +771,9 @@ class Daemon:
             return await evidence.put_async(request_id, None, "front_window", image=image, data=facts, origin=origin)
         sources = fw.Sources(
             windows=screenshot.normal_windows, app_of=fw.app_of,
-            own=lambda pid, bundle: fw.ferb_process(pid, bundle, daemon_pid),
+            own=lambda pid, bundle: fw.ferb_process(pid, bundle, daemon_pid, fw.parent_pid),
             excluded=lambda bundle, name, url: exclusions.app(bundle, name) or exclusions.url(url),
-            tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact,
+            tab=self._front_tab, shoot=shoot, keep=keep, redact=self.redact, sender=sender,
             redact_image=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()))
         try:
             return await fw.capture(sources)
@@ -779,14 +783,20 @@ class Daemon:
 
     def _front_tab(self, bundle_id: str) -> tuple[str, str] | None:
         """A browser's front tab (URL, title) for the front window (L12): the tab watcher's AppleScript read, only when
-        the owner already granted Automation for that browser (never asks)."""
+        the owner already granted Automation for that browser (the check never asks; while it is still answering the
+        read is None, and the capture tries again after the shot). A GRANTED answer is kept for this read without the
+        watchers' expiry: a revoked permission makes osascript fail without asking, which drops it until checked again."""
         from ferb.sense.watchers.browser_tabs import SCRIPTS, applescript_front_tab
-        if bundle_id not in SCRIPTS or not self._automation_granted(bundle_id):
+        if bundle_id not in SCRIPTS or not (bundle_id in self._tab_granted or self._automation_granted(bundle_id)):
             return None
+        self._tab_granted.add(bundle_id)
         try:
-            return applescript_front_tab(bundle_id)
+            tab = applescript_front_tab(bundle_id)
         except (OSError, subprocess.SubprocessError):
-            return None
+            tab = None
+        if tab is None:
+            self._tab_granted.discard(bundle_id)
+        return tab
 
     def _build_mac_and_shell(self) -> None:
         device = str(self.config.get("device", "id", "unknown-device"))
@@ -2870,7 +2880,8 @@ class Daemon:
         # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)
         queue.put_nowait(self._chat_ack(session_id, request_id, text, received))
         # L12: what the owner has in front of them as they send, captured beside routing; the planner waits for it
-        screen = asyncio.ensure_future(self.front_window(request_id)) if self.front_window is not None else None
+        screen = (asyncio.ensure_future(self.front_window(request_id, session.pid if session is not None else None))
+                  if self.front_window is not None else None)
         my_tasks: set[str] = set()
         attached = {"on": True}                     # False once the owner closes chat: the task keeps running
         sub = self.bus.subscribe({"tool.called", "approval.requested", "action.*"})

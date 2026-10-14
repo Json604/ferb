@@ -2,10 +2,13 @@
 forward, choose a window by what it shows, or keep an unredacted pixel.
 
 The front window is the topmost on-screen normal window whose owner process isn't FERB's own: the notch UI and
-FERB.app take key focus while the owner types, and the daemon and what it started (its helpers, the commands it runs)
-are FERB too. Apps FERB opened through Launch Services are the owner's apps, and FERB's own browser profile windows
-are windows the owner sees: they count. What is kept: app, bundle id, window title, a browser's front tab URL and
-title, and one screenshot of that window only (D29). The screenshot goes through FERB's screenshot path (secret fields
+FERB.app take key focus while the owner types, and the daemon and what it started without an app bundle of its own
+(its helpers, the commands it runs) are FERB too. An app with a bundle of its own is the owner's, whoever launched it,
+and FERB's own browser profile windows are windows the owner sees: they count. When the message came from a CLI, the
+window of the app hosting it (a terminal running `ferb chat`) is skipped while it is in front: the next one is the
+owner's. What is kept: app, bundle id, window title, a browser's front tab URL and title, and one screenshot of that
+window only (D29). The tab is read before the shot when it can be; when the browser's Automation check is still
+answering, it is read again after the shot, and a site found excluded then drops the picture, which was never kept. The screenshot goes through FERB's screenshot path (secret fields
 the window's tree shows are masked in the capture), then the F5 on-device redaction; when either fails the image is
 withheld and the text facts stay. Text facts are redacted here, at capture (rule 14). An app or site on the owner's
 exclusion list is dropped completely, as every observation is (exclusions.py)."""
@@ -57,6 +60,7 @@ class Sources:
     redact_image: Callable[[bytes], bytes]                # F5 on-device redaction; raises when it can't redact
     redact: Callable[[Any], Any]                          # text redaction
     keep: Callable[[bytes, dict[str, Any], str], Awaitable[str]]   # (image, facts, origin) -> evidence id
+    sender: int | None = None                             # the app hosting the CLI the message came from (`sending_app`)
 
 
 def parent_pid(pid: int) -> int | None:
@@ -76,10 +80,13 @@ def parent_pid(pid: int) -> int | None:
 
 def ferb_process(pid: int, bundle_id: str, daemon_pid: int,
                  parent: Callable[[int], int | None] = parent_pid) -> bool:
-    """Whether a window's owner is FERB: one of FERB's own apps, the daemon, or a process the daemon started (walked up
-    through the parents; a process launchd started, as Launch Services opens apps, isn't the daemon's)."""
-    if bundle_id.lower() in FERB_APPS:
+    """Whether a window's owner is FERB: one of FERB's own apps, the daemon, or a process the daemon started that has
+    no app bundle of its own (walked up through the parents; a process launchd started, as Launch Services opens apps,
+    isn't the daemon's). An app with its own bundle is the owner's even when the daemon launched it (a browser)."""
+    if bundle_id.lower() in FERB_APPS or pid == daemon_pid:
         return True
+    if bundle_id:
+        return False
     seen: set[int] = set()
     while pid > 1 and pid not in seen:
         if pid == daemon_pid:
@@ -87,6 +94,19 @@ def ferb_process(pid: int, bundle_id: str, daemon_pid: int,
         seen.add(pid)
         pid = parent(pid) or 0
     return False
+
+
+def sending_app(pid: int, app_of: Callable[[int], tuple[str, str] | None],
+                parent: Callable[[int], int | None] = parent_pid) -> int | None:
+    """The app hosting a client process (the terminal running `ferb chat`): its first ancestor, itself included, with
+    a bundle id. None: no app above it."""
+    seen: set[int] = set()
+    while pid > 1 and pid not in seen:
+        if (app_of(pid) or ("", ""))[1]:
+            return pid
+        seen.add(pid)
+        pid = parent(pid) or 0
+    return None
 
 
 def app_of(pid: int) -> tuple[str, str] | None:
@@ -99,12 +119,24 @@ def app_of(pid: int) -> tuple[str, str] | None:
 
 
 def _topmost(src: Sources) -> tuple[Window, str, str] | None:
-    """The topmost window not owned by FERB, with its owner's app name and bundle id."""
+    """The topmost window not owned by FERB, with its owner's app name and bundle id; when that is the sending CLI's
+    app window, the one after it."""
+    sender_skipped = False
     for w in src.windows():
         name, bundle = src.app_of(w.pid) or ("", "")
-        if not src.own(w.pid, bundle):
-            return w, name, bundle
+        if src.own(w.pid, bundle):
+            continue
+        if w.pid == src.sender and not sender_skipped:     # the window the owner typed this message in
+            sender_skipped = True
+            continue
+        return w, name, bundle
     return None
+
+
+async def _tab(src: Sources, bundle: str) -> tuple[str | None, str | None] | None:
+    """A browser's front tab (url, title), when it can be read now."""
+    tab = await asyncio.to_thread(src.tab, bundle)
+    return (tab[0] or None, tab[1] or None) if tab is not None else None
 
 
 async def capture(src: Sources) -> FrontWindow | None:
@@ -116,16 +148,10 @@ async def capture(src: Sources) -> FrontWindow | None:
     w, name, bundle = found
     if src.excluded(bundle, name, None):
         return None
-    url = tab_title = None
-    if is_browser(bundle):
-        tab = await asyncio.to_thread(src.tab, bundle)
-        if tab is not None:
-            url, tab_title = tab[0] or None, tab[1] or None
-        if url and src.excluded(bundle, name, url):
-            return None
-    read = (("web", url),) if url else _sources(bundle)
-    origin = origins.join(origins.from_read_source(kind, ident) for kind, ident in read)
-    facts = src.redact({"app": name, "bundle_id": bundle, "title": w.title, "url": url, "tab_title": tab_title})
+    browser = is_browser(bundle)
+    tab = await _tab(src, bundle) if browser else None
+    if tab is not None and src.excluded(bundle, name, tab[0]):
+        return None
     image: bytes | None = None
     withheld: str | None = None
     try:
@@ -139,6 +165,14 @@ async def capture(src: Sources) -> FrontWindow | None:
             image = await asyncio.to_thread(src.redact_image, raw)
         except Exception:
             withheld = "the screenshot couldn't be redacted, so it was withheld"
+    if browser and tab is None:                        # its Automation check may have answered during the shot
+        tab = await _tab(src, bundle)
+        if tab is not None and src.excluded(bundle, name, tab[0]):
+            return None                                # an excluded site: the picture is dropped, never kept
+    url, tab_title = tab if tab is not None else (None, None)
+    read = (("web", url),) if url else _sources(bundle)
+    origin = origins.join(origins.from_read_source(kind, ident) for kind, ident in read)
+    facts = src.redact({"app": name, "bundle_id": bundle, "title": w.title, "url": url, "tab_title": tab_title})
     ref: str | None = None
     if image is not None:
         try:

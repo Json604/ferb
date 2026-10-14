@@ -48,6 +48,7 @@ class Hello(BaseModel):
 class Session:
     role: Role
     grant: RunGrant | None = None
+    pid: int | None = None                    # a CLI's process, as its socket reports it (L12)
 
 
 Unary = Callable[[Session, dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -68,6 +69,14 @@ LOCAL_PEERPID = 0x002
 
 def peer_pid(sock: socket.socket) -> int:
     return int(sock.getsockopt(SOL_LOCAL, LOCAL_PEERPID))
+
+
+def _peer(writer: asyncio.StreamWriter) -> int | None:
+    """The connected process's pid, or None when the socket can't say."""
+    try:
+        return peer_pid(writer.get_extra_info("socket"))
+    except (OSError, AttributeError, TypeError):
+        return None
 
 
 def exe_of(pid: int) -> str | None:
@@ -204,7 +213,7 @@ class Server:
             hello = Hello.model_validate(req.params)
             if hello.role is Role.CLI:
                 check_cli_peer(uid, self.owner_uid)
-                session = Session(Role.CLI)
+                session = Session(Role.CLI, pid=_peer(writer))
             elif hello.role is Role.MCP_SHIM:
                 session = Session(Role.MCP_SHIM, self.tokens.validate(hello.token or ""))
             elif hello.role is Role.VOICE:

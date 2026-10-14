@@ -269,11 +269,7 @@ class CodexRuntime:
             yield RuntimeEvent("error", {"message": f"timed out after {self.timeout_s:.0f}s"})
             return
         finally:
-            for key in ("schema_file", "instructions", "token_file"):
-                if run.state.get(key):
-                    Path(run.state[key]).unlink(missing_ok=True)
-            for image in run.state.get("images", []):
-                image.unlink(missing_ok=True)
+            _remove_files(run)
         if run.state["violation"]:
             yield RuntimeEvent("violation", {"unexpected_tools": sorted(run.state["violation"])})
             return
@@ -321,6 +317,18 @@ class CodexRuntime:
             await cancel(run)
             return
         proc: asyncio.subprocess.Process = run.state["proc"]
-        if proc.returncode is None:
-            proc.kill()
-            await proc.wait()
+        try:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        finally:
+            _remove_files(run)                         # also when stopped before its events were read
+
+
+def _remove_files(run: RunHandle) -> None:
+    """A plain exec run's temporary files: its schema, instructions, token and images (L12)."""
+    for key in ("schema_file", "instructions", "token_file"):
+        if run.state.get(key):
+            Path(run.state[key]).unlink(missing_ok=True)
+    for image in run.state.get("images", []):
+        image.unlink(missing_ok=True)

