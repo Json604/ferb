@@ -431,7 +431,9 @@ const queue = [];                                     // postMessage is asynchro
 function frameWindow(opts) {
   const listeners = {};
   const g = {console, crypto: globalThis.crypto, innerWidth: opts.viewport[0], innerHeight: opts.viewport[1],
-    visualViewport: opts.visual || null, getComputedStyle: () => ({paddingLeft: "0px", paddingTop: "0px"}),
+    visualViewport: opts.visual || null,
+    getComputedStyle: el => ({paddingLeft: "0px", paddingTop: "0px", transform: el.transform || "none",
+                              rotate: el.rotate || "none", scale: el.scale || "none"}),
     MutationObserver: class { observe() {} }, location: {origin: "https://example.test", href: "https://example.test/"},
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
     chrome: {runtime: {sendMessage() {}}, dom: {openOrClosedShadowRoot: el => el.closedRoot || el.shadowRoot || null}},
@@ -595,6 +597,87 @@ def test_the_mask_state_is_withheld_only_when_the_page_cant_be_read() -> None:
       return {noTop, unreadable: await maskState(9)};
     })()''')
     assert "withheld" in out["noTop"] and "withheld" in out["unreadable"]
+
+
+def test_overlapping_rounds_each_keep_their_own_links() -> None:
+    """Two looks at one tab can overlap (a recording's frames while a worker screenshots it): each round keeps what
+    its own announcements said, and a round's state is dropped once reported."""
+    out = _content(r'''
+const topNodes = [];
+const page = frameWindow({viewport: [1000, 800], nodes: topNodes});
+const a = child(page, [el("INPUT", [5, 5, 40, 10], {type: "password"})], [400, 200]);
+topNodes.push(el("IFRAME", [200, 300, 400, 200], {contentWindow: a.proxy}));
+const frames = [page, a.kid];
+for (const r of ["r1", "r2"]) frames.forEach(f => f.__ferb.listenForFrames(r));
+for (const r of ["r1", "r2"]) frames.forEach(f => f.__ferb.announceFrame(r));
+for (const run of queue.splice(0)) run();
+const looks = ["r1", "r2"].map(r => frames.map((f, i) => ({frameId: i, result: f.__ferb.captureState(r)})));
+const again = page.__ferb.captureState("r1");                         // reported once: gone
+console.log(JSON.stringify({looks, again}));
+''')
+    for rows in out["looks"]:
+        page, kid = rows[0]["result"], rows[1]["result"]
+        assert page["frames"][0]["heard"] == [kid["own"]] and kid["own"]
+        assert _painted(_mask_state(rows)) == [[205, 305, 40, 10]]       # placed exactly, no spurious black box
+    assert out["looks"][0][1]["result"]["own"] != out["looks"][1][1]["result"]["own"]
+    assert out["again"]["frames"][0]["heard"] == []
+
+
+def test_looks_at_one_tab_run_one_at_a_time() -> None:
+    out = worker('''(async () => {
+      inject = async () => {};
+      const order = [];
+      chrome.scripting = {executeScript: async args => {
+        const step = ["listenForFrames", "announceFrame", "captureState"].find(n => args.func.toString().includes(n));
+        order.push(step + ":" + args.args[0]);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        return step === "captureState" ? [{frameId: 0, result: {documentId: 'top', own: null,
+          viewport: [0, 0, 10, 10], rects: [], frames: []}}] : [];
+      }};
+      const [one, two] = await Promise.all([maskState(4), maskState(4)]);
+      return {order, one, two};
+    })()''')
+    rounds = [step.split(":")[1] for step in out["order"]]
+    assert len(out["order"]) == 6 and rounds[:3] == [rounds[0]] * 3 and rounds[3:] == [rounds[3]] * 3
+    assert rounds[0] != rounds[3] and "withheld" not in out["one"] and "withheld" not in out["two"]
+
+
+def test_a_message_without_a_source_is_nobodys_announcement() -> None:
+    out = _content(r'''
+const page = frameWindow({viewport: [1000, 800], nodes: [el("IFRAME", [700, 100, 50, 50], {contentWindow: null})]});
+page.__ferb.listenForFrames("round-1");
+page.deliver({frameLinkRound: "round-1", frameLinkToken: "from-nowhere"}, null, true);
+for (const run of queue.splice(0)) run();
+console.log(JSON.stringify(page.__ferb.captureState("round-1")));
+''')
+    assert out["frames"][0]["heard"] == []                        # not the empty host's: it has no window to send
+
+
+@pytest.mark.parametrize("transform, placed", [
+    ({"transform": "matrix(-1, 0, 0, 1, 0, 0)"}, False),                       # flipped: same size, mirrored
+    ({"transform": "matrix(-1, 0, 0, -1, 0, 0)"}, False),                      # turned 180 degrees
+    ({"rotate": "90deg"}, False),                                              # a square turned 90 degrees
+    ({"scale": "-1 1"}, False),
+    ({"transform": "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 30, 40, 0, 1)"}, True),   # moved only: placeable
+    ({"transform": "matrix(1, 0, 0, 1, 10, 20)"}, True),
+])
+@pytest.mark.parametrize("on", ["host", "ancestor"])
+def test_a_host_transformed_on_itself_or_an_ancestor_is_painted_whole(transform: Any, placed: bool, on: str) -> None:
+    """A size-preserving transform (a flip, a half turn, a quarter turn of a square) would put the field's mask where
+    the field isn't; only a pure move keeps the offset right."""
+    style = json.dumps(transform)
+    out = _content(r'''
+const topNodes = [];
+const page = frameWindow({viewport: [1000, 800], nodes: topNodes});
+const a = child(page, [el("INPUT", [5, 5, 40, 10], {type: "password"})], [200, 200]);
+const box = Object.assign({tagName: "DIV", parentElement: null}, __ON__ === "ancestor" ? __STYLE__ : {});
+topNodes.push(el("IFRAME", [200, 300, 200, 200], Object.assign({contentWindow: a.proxy, parentElement: box},
+                                                              __ON__ === "host" ? __STYLE__ : {})));
+console.log(JSON.stringify(capture([page, a.kid])));
+'''.replace("__STYLE__", style).replace("__ON__", json.dumps(on)))
+    assert out[0]["result"]["frames"][0]["scaled"] is (not placed)
+    painted = _painted(_mask_state(out))
+    assert painted == ([[205, 305, 40, 10]] if placed else [[200, 300, 200, 200]])
 
 
 def test_a_pinch_zoom_reports_the_visual_viewport() -> None:

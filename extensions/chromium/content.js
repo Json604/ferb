@@ -336,8 +336,14 @@
   const FRAME_TAGS = new Set(["IFRAME", "FRAME", "OBJECT", "EMBED", "FENCEDFRAME"]);
   const hostIds = new WeakMap();                   // frame host -> id, stable while this document lives
   const fieldIds = new WeakMap();                  // secret field -> id, stable while this document lives
-  let announced = {round: null, token: null};      // this frame's own token, latest round
-  let heard = {round: null, hosts: [], tokens: new Map()};   // what each frame host heard, latest round
+  // Per round, so two looks at one tab that overlap never reset each other: this frame's hosts, what each heard,
+  // and this frame's own token. Dropped once the round is reported.
+  const rounds = new Map();                        // round -> {hosts, tokens: Map(host -> [token]), own}
+  const roundOf = (round) => {
+    let r = rounds.get(round);
+    if (!r) { r = {hosts: [], tokens: new Map(), own: null}; rounds.set(round, r); }
+    return r;
+  };
   const stableId = (map, el) => { let id = map.get(el); if (!id) { id = randomId(); map.set(el, id); } return id; };
   const shadowOf = (el) => {                       // closed shadow roots too (content scripts may open them)
     try {
@@ -355,22 +361,42 @@
   const isHost = (el) => FRAME_TAGS.has(el.tagName) || windowOf(el) !== null;
   addEventListener("message", (e) => {
     const d = e.data;
-    if (!e.isTrusted || !d || typeof d !== "object" || typeof d[ROUND] !== "string" || d[ROUND] !== heard.round
-        || typeof d[TOKEN] !== "string") return;
-    const host = heard.hosts.find((el) => windowOf(el) === e.source);
+    if (!e.isTrusted || !e.source || !d || typeof d !== "object" || typeof d[ROUND] !== "string"
+        || typeof d[TOKEN] !== "string" || !rounds.has(d[ROUND])) return;
+    const r = rounds.get(d[ROUND]);
+    const host = r.hosts.find((el) => windowOf(el) === e.source);
     if (!host) return;                             // not from the window of one of this frame's hosts
-    heard.tokens.set(host, (heard.tokens.get(host) || []).concat(d[TOKEN]));
+    r.tokens.set(host, (r.tokens.get(host) || []).concat(d[TOKEN]));
   }, true);
   function listenForFrames(round) {                // first round: every frame listens before any announces
-    const hosts = [];
-    eachElement(document, (el) => { if (isHost(el)) hosts.push(el); });
-    heard = {round, hosts, tokens: new Map()};
+    const r = roundOf(round);
+    eachElement(document, (el) => { if (isHost(el)) r.hosts.push(el); });
     return true;
   }
   function announceFrame(round) {
-    announced = {round, token: randomId()};
-    if (window !== top) parent.postMessage({[ROUND]: round, [TOKEN]: announced.token}, "*");
+    const r = roundOf(round);
+    r.own = randomId();
+    if (window !== top) parent.postMessage({[ROUND]: round, [TOKEN]: r.own}, "*");
     return true;
+  }
+  // A transform that isn't a pure move (a flip, a turn, a scale), on the host or any ancestor, puts the frame's
+  // content somewhere its offset doesn't say, even at the same size: such a host can only be painted whole.
+  const unmoved = (m) => {                         // a computed transform's linear part is the identity
+    if (!m || m === "none") return true;
+    const v = (m.slice(m.indexOf("(") + 1).match(/-?[\d.]+(?:e-?\d+)?/g) || []).map(Number);
+    if (m.startsWith("matrix3d(")) return v.length === 16 && [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0].every((x, i) =>
+      v[i] === x) && v[15] === 1;
+    return m.startsWith("matrix(") && v.length === 6 && v[0] === 1 && v[1] === 0 && v[2] === 0 && v[3] === 1;
+  };
+  function turned(el) {
+    for (let a = el; a; ) {
+      const cs = getComputedStyle(a);
+      if (!unmoved(cs.transform) || (cs.rotate && cs.rotate !== "none") || (cs.scale && cs.scale !== "none"))
+        return true;
+      const root = a.getRootNode ? a.getRootNode() : null;
+      a = a.parentElement || (root && root.host) || null;
+    }
+    return false;
   }
 
   // What a screenshot or recording frame must paint over in this frame (L13), in its viewport CSS px: every secret
@@ -381,23 +407,25 @@
   // snapshot/point bindings the worker acts with.
   function captureState(round) {
     const rects = [], frames = [];
-    const tokens = heard.round === round ? heard.tokens : new Map();
+    const state = rounds.get(round) || {tokens: new Map(), own: null};
+    rounds.delete(round);
     eachElement(document, (el) => {
       if (isHost(el)) {
-        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-        frames.push({id: stableId(hostIds, el), heard: tokens.get(el) || [], rect: [r.x, r.y, r.width, r.height],
-                     inner: [r.x + el.clientLeft + (parseFloat(cs.paddingLeft) || 0),
-                             r.y + el.clientTop + (parseFloat(cs.paddingTop) || 0)],
-                     // transformed: its content can't be placed by offset (frameRect), so it is painted whole
-                     scaled: Math.abs(r.width - el.offsetWidth) > 1 || Math.abs(r.height - el.offsetHeight) > 1});
+        const b = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        frames.push({id: stableId(hostIds, el), heard: state.tokens.get(el) || [], rect: [b.x, b.y, b.width, b.height],
+                     inner: [b.x + el.clientLeft + (parseFloat(cs.paddingLeft) || 0),
+                             b.y + el.clientTop + (parseFloat(cs.paddingTop) || 0)],
+                     // resized or turned: its content can't be placed by offset (frameRect): painted whole
+                     scaled: Math.abs(b.width - el.offsetWidth) > 1 || Math.abs(b.height - el.offsetHeight) > 1
+                             || turned(el)});
       } else if (isSecret(el) || maskedEditable(el)) {
-        const r = el.getBoundingClientRect();     // painted, even when aria-hidden: masking errs on the safe side
-        if (r.width > 0 && r.height > 0 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true})))
-          rects.push({id: stableId(fieldIds, el), rect: [r.x, r.y, r.width, r.height]});
+        const b = el.getBoundingClientRect();     // painted, even when aria-hidden: masking errs on the safe side
+        if (b.width > 0 && b.height > 0 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true})))
+          rects.push({id: stableId(fieldIds, el), rect: [b.x, b.y, b.width, b.height]});
       }
     });
     const vv = window.visualViewport;
-    return {documentId, own: announced.round === round ? announced.token : null, rects, frames,
+    return {documentId, own: state.own, rects, frames,
             viewport: vv ? [vv.offsetLeft, vv.offsetTop, vv.width, vv.height] : [0, 0, innerWidth, innerHeight]};
   }
 

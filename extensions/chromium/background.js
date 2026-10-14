@@ -380,6 +380,17 @@ async function inFrame(tabId, frameId, func, args) {
   return r.result;
 }
 
+// One look at a time per tab: a recording's frames (two looks each) and a worker's screenshot or a native capture
+// of the same tab can overlap, and their rounds must not interleave in the page.
+const maskLooks = new Map();                       // tabId -> the end of that tab's chain of looks
+function maskState(tabId) {
+  const look = (maskLooks.get(tabId) || Promise.resolve()).then(() => readMaskState(tabId));
+  const done = look.catch(() => {});
+  maskLooks.set(tabId, done);
+  done.then(() => { if (maskLooks.get(tabId) === done) maskLooks.delete(tabId); });
+  return look;
+}
+
 // What a capture of this tab must paint over (L13), in top-viewport CSS px. Three rounds over every frame: all listen,
 // each child announces a fresh token to its parent, each reports its secret fields, its frame hosts with the tokens
 // they heard, and its own token (content.js). A child frame is placed, through its host and clipped to it, only when
@@ -388,7 +399,7 @@ async function inFrame(tabId, frameId, func, args) {
 // message only adds black. Withheld when a frame with secret fields is accounted for by no host (it can't be placed
 // or covered: an <embed>, a host made mid-capture) or the page can't be read. Items carry keys, so the daemon can
 // tell what moved between the looks before and after a capture. Geometry only, never page content.
-async function maskState(tabId) {
+async function readMaskState(tabId) {
   const round = crypto.randomUUID();
   let results;
   try {
