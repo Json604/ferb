@@ -439,10 +439,25 @@ function frameWindow(opts) {
   g.window = g;
   g.top = opts.top || g;
   g.parent = opts.parent || g;
-  g.deliver = (data, source) => queue.push(() => (listeners.message || []).forEach(fn => fn({data, source})));
+  g.deliver = (data, source, isTrusted) => queue.push(() =>
+    (listeners.message || []).forEach(fn => fn({data, source, isTrusted: isTrusted !== false})));
   vm.createContext(g);
   vm.runInContext(source, g);
   return g;
+}
+const posted = [];                                    // every message a child frame posted to its parent
+function child(page, nodes, viewport) {               // a child frame of `page`: its window as the page sees it
+  const proxy = {};
+  const up = {postMessage: (data, origin) => { posted.push(data); page.deliver(data, proxy, true); }};
+  const kid = frameWindow({viewport, nodes, top: page, parent: up});
+  return {kid, proxy};
+}
+function capture(frames) {                            // the background's three rounds, then each frame's state
+  const round = "round-1";
+  frames.forEach(f => f.__ferb.listenForFrames(round));
+  frames.forEach(f => f.__ferb.announceFrame(round));
+  for (const run of queue.splice(0)) run();
+  return frames.map((f, i) => ({frameId: i, result: f.__ferb.captureState(round)}));
 }
 const el = (tag, r, extra) => Object.assign({tagName: tag, type: "text", clientLeft: 0, clientTop: 0,
   offsetWidth: r[2], offsetHeight: r[3], checkVisibility: () => true,
@@ -457,63 +472,128 @@ def _content(script: str) -> Any:
     return json.loads(ran.stdout)
 
 
-def test_frames_link_to_their_elements_by_a_handshake_and_the_background_places_them() -> None:
-    rows = _content(r'''
-const topNodes = [], kidNodes = [el("INPUT", [5, 5, 40, 10], {type: "password"})];
-const page = frameWindow({viewport: [1000, 800], nodes: topNodes});
-const kid = frameWindow({viewport: [400, 200], nodes: kidNodes, top: page, parent: page});
-const frame = el("IFRAME", [200, 300, 400, 200], {contentWindow: {postMessage: data => kid.deliver(data, page)}});
-const lazy = el("IFRAME", [700, 100, 50, 50], {contentWindow: null});        // nothing loaded in it
-const closed = el("DIV", [0, 0, 1, 1], {shadowRoot: null,
-  closedRoot: {querySelectorAll: () => [el("INPUT", [30, 40, 20, 10], {type: "password"})]}});
-topNodes.push(el("INPUT", [10, 20, 100, 30], {type: "password"}), frame, lazy, closed);
-kid.deliver({__ferbFrameLink: "forged", doc: "x"}, {});                     // not from its parent: ignored
-page.__ferb.linkFrames();
-for (const run of queue.splice(0)) run();
-console.log(JSON.stringify([{frameId: 0, result: page.__ferb.captureState()},
-                            {frameId: 7, result: kid.__ferb.captureState()}]));
-''')
-    page, kid = rows[0]["result"], rows[1]["result"]
-    assert kid["parent"] == {"doc": page["documentId"], "token": page["frames"][0]["token"]}
-    assert [r["rect"] for r in page["rects"]] == [[10, 20, 100, 30], [30, 40, 20, 10]]   # closed shadow root too
-    out = worker('''(async () => {
+def _mask_state(rows: Any) -> Any:
+    """The background's maskState over these frames' captureState rows (the link rounds answer nothing)."""
+    return worker('''(async () => {
       inject = async () => {};
       const rows = ROWS;
-      chrome.scripting = {executeScript: async args => args.func.toString().includes("linkFrames") ?
-        rows.map(r => ({frameId: r.frameId, result: true})) : rows};
+      chrome.scripting = {executeScript: async args => args.func.toString().includes("captureState") ? rows :
+        rows.map(r => ({frameId: r.frameId, result: true}))};
       return await maskState(9);
     })()'''.replace("ROWS", json.dumps(rows)))
-    painted = sorted(i["rect"] for i in out["items"] if i["paint"])
-    assert painted == sorted([[10, 20, 100, 30], [30, 40, 20, 10], [205, 305, 40, 10], [700, 100, 50, 50]])
-    assert out["top"] == page["documentId"] and out["viewport"] == [0, 0, 1000, 800]
 
 
-def test_unlinked_or_doubly_claimed_frames_are_painted_whole_never_withheld() -> None:
+def _painted(state: dict[str, Any]) -> list[list[float]]:
+    return sorted(i["rect"] for i in state["items"] if i["paint"])
+
+
+def _covered(field: list[float], state: dict[str, Any]) -> bool:
+    x, y, w, h = field
+    return any(r[0] <= x and r[1] <= y and r[0] + r[2] >= x + w and r[1] + r[3] >= y + h for r in _painted(state))
+
+
+def test_frames_announce_themselves_to_their_parent_and_the_background_places_them() -> None:
+    """Chromium has no chrome.runtime.getFrameId: each child frame posts its own fresh token to its parent; the parent
+    hears it only as a trusted message from one of its frame elements' windows (an <object> too)."""
+    out = _content(r'''
+const topNodes = [];
+const page = frameWindow({viewport: [1000, 800], nodes: topNodes});
+const a = child(page, [el("INPUT", [5, 5, 40, 10], {type: "password"})], [400, 200]);
+const b = child(page, [el("INPUT", [1, 2, 30, 10], {type: "password"})], [300, 100]);
+const closed = el("DIV", [0, 0, 1, 1], {shadowRoot: null,
+  closedRoot: {querySelectorAll: () => [el("INPUT", [30, 40, 20, 10], {type: "password"})]}});
+topNodes.push(el("INPUT", [10, 20, 100, 30], {type: "password"}),
+  el("IFRAME", [200, 300, 400, 200], {contentWindow: a.proxy}),
+  el("OBJECT", [600, 500, 300, 100], {contentWindow: b.proxy}),            // an <object> hosts a frame too
+  el("IFRAME", [700, 100, 50, 50], {contentWindow: null}), closed);         // nothing loaded in it
+page.__ferb.listenForFrames("round-1");
+page.deliver({frameLinkRound: "round-1", frameLinkToken: "forged"}, a.proxy, false);   // synthetic: rejected
+page.deliver({frameLinkRound: "round-1", frameLinkToken: "forged"}, page, true);       // from the page itself
+const rows = capture([page, a.kid, b.kid]);
+console.log(JSON.stringify({rows, posted}));
+''')
+    rows = out["rows"]
+    page = rows[0]["result"]
+    assert [f["heard"] for f in page["frames"]] == [[rows[1]["result"]["own"]], [rows[2]["result"]["own"]], []]
+    assert all("ferb" not in json.dumps(m).lower() for m in out["posted"])                  # neutral message keys
+    state = _mask_state(rows)
+    assert _painted(state) == sorted([[10, 20, 100, 30], [30, 40, 20, 10], [205, 305, 40, 10], [601, 502, 30, 10],
+                                      [700, 100, 50, 50]])
+    assert state["top"] == page["documentId"] and state["viewport"] == [0, 0, 1000, 800]
+
+
+def _frames(*heard: Any, rects: Any = None) -> list[dict[str, Any]]:
+    """Top-frame rows: frame elements E0, E1, ... at x = 0, 200, ... that heard these tokens, and their children."""
+    top = {"documentId": "top", "own": None, "viewport": [0, 0, 1400, 800], "rects": [], "frames": [
+        {"id": f"E{i}", "heard": h, "rect": [200 * i, 0, 100, 100], "inner": [200 * i, 0], "scaled": False}
+        for i, h in enumerate(heard)]}
+    kids = [{"documentId": doc, "own": own, "viewport": [0, 0, 100, 100], "rects": [{"id": "f", "rect": r}],
+             "frames": []} for doc, own, r in (rects or [])]
+    return [{"frameId": i, "result": f} for i, f in enumerate([top] + kids)]
+
+
+@pytest.mark.parametrize("heard, withheld", [
+    ((["tA", "tB"], []), False),          # the page blocked B's own message and had decoy A (in E0) post B's token too
+    ((["tB"], []), True),                 # ... and blocked A's own message too: A's own field can't be placed
+    ((["tA"], ["tB", "tX"]), False),      # a script in B's page posted a second token as B
+    ((["tA", "tB"], ["tB"]), False),      # decoy A also posted B's token
+    ((["tA"], ["tB", "tB"]), False),      # B's token repeated
+])
+def test_a_forged_link_can_only_add_black(heard: Any, withheld: bool) -> None:
+    """B (the frame with the password field) really sits in E1, decoy A in E0. Whatever a page forges with messages,
+    B's field ends up under black where B really is, or the capture is withheld: never unmasked, never moved."""
+    rows = _frames(*heard, rects=[("B", "tB", [10, 10, 40, 10]), ("A", "tA", [50, 50, 10, 10])])
+    state = _mask_state(rows)
+    assert ("withheld" in state) is withheld, state
+    if not withheld:
+        assert _covered([210, 10, 40, 10], state)                # B's field where B really is (inside E1's box)
+
+
+def test_unlinked_or_doubly_heard_frames_are_painted_whole() -> None:
+    rows = _frames(["tA"], ["tA"], [], ["tD", "tD"], ["tE"], ["tF"],
+                   rects=[("A1", "tA", [1, 1, 5, 5]), ("D", "tD", [1, 1, 5, 5]), ("E", "tE", [2, 2, 5, 5]),
+                          ("F", "tF", [3, 3, 5, 5])])
+    rows[0]["result"]["frames"][4]["scaled"] = True
+    state = _mask_state(rows)
+    # E0/E1 heard the same token: both whole; E2 heard nothing: whole; E3 heard one token twice: whole; E4 transformed;
+    # E5 heard exactly one token nobody else heard, which exactly one frame owns: F is placed, its field painted
+    assert _painted(state) == sorted([[0, 0, 100, 100], [200, 0, 100, 100], [400, 0, 100, 100], [600, 0, 100, 100],
+                                      [800, 0, 100, 100], [1003, 3, 5, 5]])
+    assert "withheld" not in state
+
+
+def test_a_frame_whose_secret_fields_cant_be_placed_withholds_the_capture() -> None:
+    """An <embed> has no contentWindow: the frame in it is heard by no element. With a password field it withholds
+    the capture (nothing could be shown to cover it); without one it is just painted around."""
+    out = _content(r'''
+const topNodes = [];
+const page = frameWindow({viewport: [1000, 800], nodes: topNodes});
+const inside = child(page, [el("INPUT", [1, 2, 30, 10], {type: "password"})], [300, 100]);
+const plain = child(page, [], [300, 100]);
+topNodes.push(el("EMBED", [100, 100, 300, 100], {}));
+console.log(JSON.stringify({secret: capture([page, inside.kid]), plain: capture([page, plain.kid])}));
+''')
+    assert "withheld" in _mask_state(out["secret"])
+    plain = _mask_state(out["plain"])
+    assert "withheld" not in plain and _painted(plain) == [[100, 100, 300, 100]]   # the <embed> box itself
+    rows = _frames(rects=[("lost", "tL", [1, 1, 5, 5])])                          # nobody heard it at all
+    assert "withheld" in _mask_state(rows)
+    rows = _frames()
+    rows[0]["result"]["frames"] = []
+    worker_rows = rows + [{"frameId": 1, "result": {"documentId": "x", "own": "tx", "viewport": [0, 0, 1, 1],
+                                                    "rects": [], "frames": []}}]
+    assert "withheld" not in _mask_state(worker_rows)                              # no secret field: no harm
+
+
+def test_the_mask_state_is_withheld_only_when_the_page_cant_be_read() -> None:
     out = worker('''(async () => {
       inject = async () => {};
-      const top = {documentId: 'top', parent: null, viewport: [0, 0, 1000, 800], rects: [], frames: [
-        {token: 'a', rect: [0, 0, 100, 100], inner: [0, 0], scaled: false},
-        {token: 'b', rect: [200, 0, 100, 100], inner: [200, 0], scaled: false},
-        {token: 'c', rect: [400, 0, 100, 100], inner: [400, 0], scaled: true},
-        {token: 'd', rect: [600, 0, 100, 100], inner: [600, 0], scaled: false},
-        {token: 'e', rect: [900, 900, 50, 50], inner: [900, 900], scaled: false}]};
-      const kid = (doc, token, rects) => ({documentId: doc, parent: token && {doc: 'top', token}, viewport: [100, 100],
-        rects: rects.map((r, i) => ({id: 'f' + i, rect: r})), frames: []});
-      const rows = [top, kid('A1', 'a', [[1, 1, 5, 5]]), kid('A2', 'a', [[2, 2, 5, 5]]), kid('C', 'c', [[1, 1, 5, 5]]),
-                    kid('lost', null, [[1, 1, 5, 5]]), kid('D', 'd', [[1, 1, 5, 5]])]
-        .map((result, frameId) => ({frameId, result}));
-      chrome.scripting = {executeScript: async args => args.func.toString().includes("linkFrames") ? [] : rows};
-      const state = await maskState(9);
-      chrome.scripting = {executeScript: async args => args.func.toString().includes("linkFrames") ? [] :
-        rows.filter(r => r.frameId !== 0)};
+      chrome.scripting = {executeScript: async args => args.func.toString().includes("captureState") ?
+        [{frameId: 3, result: {documentId: 'kid', own: 't', viewport: [0, 0, 1, 1], rects: [], frames: []}}] : []};
       const noTop = await maskState(9);
       chrome.scripting = {executeScript: async () => { throw Error('Cannot access contents of the page'); }};
-      return {state, noTop, unreadable: await maskState(9)};
+      return {noTop, unreadable: await maskState(9)};
     })()''')
-    painted = sorted(i["rect"] for i in out["state"]["items"] if i["paint"])
-    # a: claimed twice -> whole; b: nobody -> whole; c: transformed -> whole; d: placed; e: off the page
-    assert painted == sorted([[0, 0, 100, 100], [200, 0, 100, 100], [400, 0, 100, 100], [601, 1, 5, 5]])
-    assert "withheld" not in out["state"]
     assert "withheld" in out["noTop"] and "withheld" in out["unreadable"]
 
 

@@ -380,52 +380,62 @@ async function inFrame(tabId, frameId, func, args) {
   return r.result;
 }
 
-// What a capture of this tab must paint over (L13), in top-viewport CSS px. Each frame first tells its child frames
-// which of its elements holds them (content.js linkFrames), then reports its secret fields, its frame elements and
-// the link it heard (captureState). A child frame is placed through the element whose token it uniquely claims, and
-// clipped to it; a frame element no child uniquely claims (nothing loaded, out of reach, a token claimed twice) or
-// that is transformed is painted whole. Never withheld for an unplaced frame: it sits inside such an element. Items
-// carry keys, so the daemon can tell what moved between the looks before and after a capture. Withheld only when the
-// page can't be read at all. Geometry only, never page content.
+// What a capture of this tab must paint over (L13), in top-viewport CSS px. Three rounds over every frame: all listen,
+// each child announces a fresh token to its parent, each reports its secret fields, its frame hosts with the tokens
+// they heard, and its own token (content.js). A child frame is placed, through its host and clipped to it, only when
+// that host heard exactly one token, nothing else heard that token, and exactly one frame owns it; any other host
+// (nothing loaded, out of reach, transformed, a token missing, repeated or shared) is painted whole, so a forged
+// message only adds black. Withheld when a frame with secret fields is accounted for by no host (it can't be placed
+// or covered: an <embed>, a host made mid-capture) or the page can't be read. Items carry keys, so the daemon can
+// tell what moved between the looks before and after a capture. Geometry only, never page content.
 async function maskState(tabId) {
+  const round = crypto.randomUUID();
   let results;
   try {
     await inject(tabId);
-    const target = {tabId, allFrames: true};
-    await chrome.scripting.executeScript({target, func: () => window.__ferb.linkFrames()});
-    results = await chrome.scripting.executeScript({target, func: () => window.__ferb.captureState()});
+    const target = {tabId, allFrames: true}, args = [round];
+    await chrome.scripting.executeScript({target, args, func: r => window.__ferb.listenForFrames(r)});
+    await chrome.scripting.executeScript({target, args, func: r => window.__ferb.announceFrame(r)});
+    results = await chrome.scripting.executeScript({target, args, func: r => window.__ferb.captureState(r)});
   } catch (_) { return {withheld: "the page can't be read, so its secret fields can't be found"}; }
   const frames = results.filter(r => r && r.result).map(r => ({frameId: r.frameId, ...r.result}));
   const top = frames.find(f => f.frameId === 0);
   if (!top) return {withheld: "the page's top frame can't be read, so its secret fields can't be found"};
-  const claims = new Map();            // "<parent document>|<token>" -> the one frame that heard it; null: two did
-  for (const f of frames) {
-    if (f.frameId === 0 || !f.parent) continue;
-    const k = `${f.parent.doc}|${f.parent.token}`;
-    claims.set(k, claims.has(k) ? null : f);
+  const times = new Map(), owners = new Map();     // token -> how often any host heard it; -> the frame owning it
+  for (const f of frames) for (const c of f.frames) for (const t of c.heard) times.set(t, (times.get(t) || 0) + 1);
+  for (const f of frames) if (f !== top && f.own) owners.set(f.own, owners.has(f.own) ? null : f);
+  const linked = c =>
+    c.heard.length === 1 && times.get(c.heard[0]) === 1 && !c.scaled && owners.get(c.heard[0]) || null;
+  const accounted = new Set([top]);                // placed, or inside a host that is painted whole or out of view
+  for (const queue = [top]; queue.length;) {
+    for (const c of queue.shift().frames) for (const t of c.heard) {
+      const f = owners.get(t);
+      if (f && !accounted.has(f)) { accounted.add(f); queue.push(f); }
+    }
   }
+  if (frames.some(f => !accounted.has(f) && f.rects.length))
+    return {withheld: "a frame's secret fields can't be placed on the page or covered"};
   const cut = (r, c) => {
     const x = Math.max(r[0], c[0]), y = Math.max(r[1], c[1]);
     const right = Math.min(r[0] + r[2], c[0] + c[2]), bottom = Math.min(r[1] + r[3], c[1] + c[3]);
     return right > x && bottom > y ? [x, y, right - x, bottom - y] : null;
   };
-  const items = [], placed = new Set([top.documentId]);
+  const items = [], placed = new Set([top]);
   const place = (f, ox, oy, clip) => {
     for (const r of f.rects) {
       const m = cut([r.rect[0] + ox, r.rect[1] + oy, r.rect[2], r.rect[3]], clip);
       if (m) items.push({key: `field|${f.documentId}|${r.id}`, rect: m, paint: true});
     }
-    f.frames.forEach((c, i) => {
+    for (const c of f.frames) {
       const box = cut([c.rect[0] + ox, c.rect[1] + oy, c.rect[2], c.rect[3]], clip);
-      if (!box) return;                                   // off the page or clipped away: nothing of it shows
-      const key = `frame|${f.documentId}|${c.token || "#" + i}`;
-      const child = c.token && !c.scaled ? claims.get(`${f.documentId}|${c.token}`) : null;
-      if (child && !placed.has(child.documentId)) {
-        placed.add(child.documentId);
+      if (!box) continue;                                 // off the page or clipped away: nothing of it shows
+      const key = `frame|${f.documentId}|${c.id}`, child = linked(c);
+      if (child && !placed.has(child)) {
+        placed.add(child);
         items.push({key, rect: box, paint: false, child: child.documentId});
         place(child, c.inner[0] + ox, c.inner[1] + oy, box);
       } else items.push({key, rect: box, paint: true});
-    });
+    }
   };
   place(top, 0, 0, top.viewport);
   return {top: top.documentId, viewport: top.viewport, items};

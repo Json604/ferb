@@ -211,21 +211,20 @@ def test_extension_recording_chunks_do_not_consume_click_screenshot():
 
 
 def test_recording_frame_masks_cover_every_embedded_frame():
-    """An embedded frame no child frame claims (not loaded yet, or out of the extension's reach) is painted whole: its
-    content is never in a frame unmasked (L13; formerly the whole frame was dropped)."""
+    """An embedded frame whose host heard no announcement (nothing loaded yet, or out of the extension's reach) is
+    painted whole: its content is never in a frame unmasked (L13; formerly the whole frame was dropped)."""
     out=worker('''(async()=>{
       inject=async()=>{};
-      let rows=[{frameId:0,result:{documentId:'top',parent:null,viewport:[0,0,100,100],rects:[],
-        frames:[{token:'t',rect:[10,10,20,20],inner:[10,10],scaled:false}]}}];
-      chrome.scripting={executeScript:async args=>args.func.toString().includes('linkFrames')?[]:rows};
+      let rows=[{frameId:0,result:{documentId:'top',own:null,viewport:[0,0,100,100],rects:[],
+        frames:[{id:'e',heard:[],rect:[10,10,20,20],inner:[10,10],scaled:false}]}}];
+      chrome.scripting={executeScript:async args=>args.func.toString().includes('captureState')?rows:[]};
       const unread=await maskState(9);
-      rows.push({frameId:2,result:{documentId:'child',parent:{doc:'top',token:'t'},viewport:[0,0,20,20],
-        rects:[],frames:[]}});
+      rows[0].result.frames[0].heard=['t'];
+      rows.push({frameId:2,result:{documentId:'child',own:'t',viewport:[0,0,20,20],rects:[],frames:[]}});
       return {unread,read:await maskState(9)};
     })()''')
     assert [i['rect'] for i in out['unread']['items'] if i['paint']] == [[10,10,20,20]]
-    assert [i for i in out['read']['items'] if i['paint']] == []
-    assert out['read']['items'] == [{'key':'frame|top|t','rect':[10,10,20,20],'paint':False,'child':'child'}]
+    assert out['read']['items'] == [{'key':'frame|top|e','rect':[10,10,20,20],'paint':False,'child':'child'}]
 
 
 def test_restarted_app_cannot_reuse_old_recording_selection(monkeypatch):
