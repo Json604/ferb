@@ -65,9 +65,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     private var settingsWindow: NSWindow?
     private var previewURL: URL?
     private let yieldController: NotchYieldController
+    private let windowYield: NotchWindowYield
     private var yieldWatch: Task<Void, Never>?
     private var screensAsleep = false
-    private var keyBeforeYield = false
     private var screenFrame = CGRect.zero
     private var menuBarHeight: CGFloat = 0
     /// How often the window list is read while FERB is on screen. A menu that opens over the notch is uncovered
@@ -79,6 +79,9 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         yieldController = NotchYieldController(model: model)
+        windowYield = NotchWindowYield(panel: panel, tracer: tracerPanel) { [overlaySpace] window in
+            if let window = window as? NSWindow { overlaySpace.rejoin(window) }
+        }
         super.init()
         yieldController.layout = { [weak self] in self?.yieldLayout() }
         configurePanel()
@@ -121,9 +124,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         registerShortcut()
         shortcuts.onDoubleTap = { [weak self] in
             guard let self else { return }
-            // Yielded to an app under the pinned chat, the chat isn't visible: the toggle opens it instead of closing it.
-            if self.model.yielding.reasons.contains(.activeAppUnderPinnedChat) { self.summonPinnedChat() }
-            else { self.model.toggle() }
+            if !self.summonFromYield() { self.model.toggle() }
         }
         shortcuts.onHoldBegan = { [weak self] in
             self?.hoverTask?.cancel()
@@ -173,7 +174,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
             let location = NSEvent.mouseLocation
             let cameBack = self.yieldController.ownerClicked(at: self.windowServerPoint(location))
             // The click went to another app: coming back must not take the focus the owner moved there.
-            if self.model.isYielded { self.keyBeforeYield = false }
+            self.windowYield.ownerMovedElsewhere()
             if cameBack { self.updatePointer() }
             guard self.model.expanded, !self.panel.frame.contains(location) else { return }
             self.model.dismissAutomatically()
@@ -272,7 +273,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     @objc private func screenDidWake() {
         screensAsleep = false
         updateScreen()
-        panel.orderFrontRegardless()
+        windowYield.showPanel()
         updateTracerVisibility()
     }
 
@@ -285,7 +286,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         let cameBack = yieldController.appActivated(app.processIdentifier)
         // Another app came forward: coming back must not take the focus the owner moved there.
-        if app.processIdentifier != getpid(), model.isYielded { keyBeforeYield = false }
+        if app.processIdentifier != getpid() { windowYield.ownerMovedElsewhere() }
         if cameBack { updatePointer() }
     }
 
@@ -295,7 +296,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         // do not resignKey here: that discarded input focus on every swipe.
         hoverTask?.cancel()
         if !overlaySpace.isAttached {
-            panel.orderFrontRegardless()
+            windowYield.showPanel()
             updateTracerVisibility()
         }
         pointerIsInside = pointerIsOverSurface
@@ -327,7 +328,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
             guard let self, self.presentationRevision == revision else { return }
             self.panel.setFrame(targetFrame, display: true)
         }
-        panel.orderFrontRegardless()
+        windowYield.showPanel()
         updateTracerVisibility()
         updateYieldWatch()
         if !model.bodyVisible {
@@ -353,26 +354,23 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     }
 
     private func updateTracerVisibility() {
-        tracerPanel.alphaValue = model.tracerLightShows ? 1 : 0
-        if model.showsTraceGlow { tracerPanel.orderFrontRegardless() }
-        else { tracerPanel.orderOut(nil) }
+        windowYield.updateTracer(glowing: model.showsTraceGlow, lightShows: model.tracerLightShows)
     }
 
     /// The notch windows sit in an unmanaged overlay space above every ordinary window and other apps' menus, so
-    /// no window level lets another surface win. While FERB yields they are invisible and click-through; content,
-    /// draft, attachments and pin are untouched. Coming back re-keys the panel only if its body shows, it was key
-    /// when the yield began, and the owner hasn't clicked or switched to another app meanwhile.
+    /// no window level lets another surface win. While FERB yields the panel is ordered out (see NotchWindowYield;
+    /// mouse-event transparency is never touched); content, draft, attachments and pin are untouched. Coming back
+    /// re-keys the panel only if its body shows, it was key when the yield began, and the owner hasn't clicked or
+    /// switched to another app meanwhile.
     private func applyYield(_ yielded: Bool) {
         if yielded {
-            keyBeforeYield = panel.isKeyWindow
             hoverTask?.cancel()
+            yieldController.yieldBegan(pointer: windowServerPoint(NSEvent.mouseLocation))
+            windowYield.yield()
+        } else {
+            windowYield.comeBack(refocus: model.bodyVisible && !model.voiceIsHeld)
         }
-        panel.alphaValue = yielded ? 0 : 1
-        panel.ignoresMouseEvents = yielded
         updateTracerVisibility()
-        guard !yielded else { return }
-        if keyBeforeYield, model.bodyVisible, !model.voiceIsHeld { panel.makeKey() }
-        keyBeforeYield = false
     }
 
     /// FERB's drawn frames in window-server coordinates, from the model (see NotchYieldController.Layout).
@@ -425,18 +423,24 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
         if yieldController.evaluate() { updatePointer() }
     }
 
-    /// The shortcut while FERB yields to an app under the pinned chat: open the chat with focused typing.
-    private func summonPinnedChat() {
+    /// A shortcut while FERB yields to another app (not to its own file picker): FERB isn't visible, so instead of
+    /// closing it the shortcut brings it back over those windows and opens the chat with focused typing. Returns
+    /// whether it handled the shortcut; when FERB is collapsed, the normal open path runs.
+    private func summonFromYield() -> Bool {
+        guard model.yielding.reasons.contains(where: { $0 != .filePicker }) else { return false }
         beginInteraction()
+        guard model.expanded else { return false }
         if model.isHeaderOnly { model.revealPinnedBody() }
         else if model.bodyVisible, !model.isYielded {
             panel.makeKey()
             model.focusRequest = UUID()
         }
+        return true
     }
 
     private func beginInteraction() {
-        // The owner reached for FERB (shortcut, menu or a control): stop yielding to an app under the pinned chat.
+        // The owner reached for FERB (shortcut, menu or a control): stop yielding to an app under the pinned chat
+        // and show FERB over the windows now over it.
         yieldController.summon()
         hoverTask?.cancel()
         if model.bodyVisible, !model.isYielded { panel.makeKey() }
@@ -551,7 +555,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     }
 
     private func shortcutPressed() {
-        if model.yielding.reasons.contains(.activeAppUnderPinnedChat) { summonPinnedChat(); return }
+        if summonFromYield() { return }
         if model.expanded { model.collapse(keyboard: true); return }
         beginInteraction()
         if model.session.phase == .ready || model.session.phase == .draft { model.edit(keyboard: true) }

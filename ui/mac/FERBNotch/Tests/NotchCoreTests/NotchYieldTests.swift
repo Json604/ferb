@@ -12,6 +12,9 @@ final class NotchOverlapTests: XCTestCase {
     func testAnotherAppsMenuOverTheNotchYields() {
         XCTAssertTrue(covers([F.clipboardMenu]))
         XCTAssertTrue(covers([F.clipboardMenu], frames: [F.openPanel]))
+        XCTAssertEqual(NotchOverlap.foreignOverlays(in: [F.maximizedBrowser, F.clipboardMenu, F.shareBar],
+                                                    ferbFrames: [F.openPanel], ownPIDs: [F.ferb],
+                                                    menuBar: F.menuBar, display: F.display), [F.clipboardMenu, F.shareBar])
     }
 
     func testAPopoverAtTheStatusLayerThatReachesBelowTheMenuBarYields() {
@@ -91,18 +94,23 @@ final class NotchOverlapTests: XCTestCase {
     }
 
     func testAWindowListRowIsReadFromBoundsLayerOwnerAndAlphaOnly() {
-        let row: [String: Any] = [kCGWindowOwnerPID as String: NSNumber(value: 900),
+        let row: [String: Any] = [kCGWindowNumber as String: NSNumber(value: 4242),
+                                  kCGWindowOwnerPID as String: NSNumber(value: 900),
                                   kCGWindowLayer as String: NSNumber(value: 101),
                                   kCGWindowAlpha as String: NSNumber(value: 0.5),
                                   kCGWindowBounds as String: ["X": 850, "Y": 33, "Width": 260, "Height": 400]]
         XCTAssertEqual(ScreenWindow(windowInfo: row),
-                       ScreenWindow(ownerPID: 900, layer: 101, bounds: CGRect(x: 850, y: 33, width: 260, height: 400), alpha: 0.5))
+                       ScreenWindow(windowID: 4242, ownerPID: 900, layer: 101,
+                                    bounds: CGRect(x: 850, y: 33, width: 260, height: 400), alpha: 0.5))
         var withoutAlpha = row
         withoutAlpha[kCGWindowAlpha as String] = nil
         XCTAssertEqual(ScreenWindow(windowInfo: withoutAlpha)?.alpha, 1)
         var withoutBounds = row
         withoutBounds[kCGWindowBounds as String] = nil
         XCTAssertNil(ScreenWindow(windowInfo: withoutBounds))
+        var withoutNumber = row
+        withoutNumber[kCGWindowNumber as String] = nil
+        XCTAssertNil(ScreenWindow(windowInfo: withoutNumber))
     }
 }
 

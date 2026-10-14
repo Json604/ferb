@@ -17,6 +17,10 @@ final class NotchYieldControllerTests: XCTestCase {
                                           layout: { [unowned self] in self.layout() })
     }
 
+    override func tearDown() async throws {
+        controller.stop()
+    }
+
     /// The same frames PanelCoordinator derives from the model: the panel window while expanded, and the drawn
     /// surface for a pinned chat.
     private func layout() -> NotchYieldController.Layout {
@@ -119,12 +123,88 @@ final class NotchYieldControllerTests: XCTestCase {
         windows = [F.maximizedBrowser, F.clipboardMenu]
         XCTAssertFalse(controller.evaluate())
         XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
-        // Hover never overrides another app's menu.
-        XCTAssertTrue(controller.pointerMoved(to: notchPoint))
+        // Moving through the menu or over the hidden chat doesn't bring FERB back.
+        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 900, y: 100)))
+        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 735, y: 200)))
         windows = [F.maximizedBrowser]
         XCTAssertTrue(controller.evaluate())
         XCTAssertFalse(model.isYielded)
         XCTAssertTrue(model.expanded)
+    }
+
+    func testEnteringTheNotchShowsFERBOverAWindowThatNeverClosesUntilANewOneAppears() {
+        model.expand()
+        windows = [F.shareBar]
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
+        XCTAssertFalse(controller.pointerMoved(to: notchPoint))
+        XCTAssertEqual(controller.overriddenOverlays, [F.shareBar.windowID])
+        XCTAssertFalse(controller.evaluate())
+        XCTAssertFalse(model.isYielded)
+        // A menu that newly opens over FERB still hides it, and FERB comes back over the bar once it closes.
+        windows = [F.shareBar, F.clipboardMenu]
+        controller.evaluate()
+        XCTAssertEqual(model.yielding.reasons, [.foreignOverlay])
+        windows = [F.shareBar]
+        XCTAssertTrue(controller.evaluate())
+        // Collapsing and reopening over the same bar keeps the override.
+        model.collapse()
+        controller.evaluate()
+        model.expand()
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+        // The bar going away forgets it; a new bar hides FERB again.
+        windows = []
+        controller.evaluate()
+        windows = [F.window(800, layer: 3, 600, 36, 280, 40, id: 77)]
+        controller.evaluate()
+        XCTAssertTrue(model.isYielded)
+    }
+
+    func testOnlyEnteringTheNotchCountsNotAPointerAlreadyRestingThere() {
+        model.expand()
+        windows = [F.shareBar]
+        controller.evaluate()
+        controller.yieldBegan(pointer: notchPoint)
+        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 740, y: 12)))
+        XCTAssertTrue(controller.pointerMoved(to: CGPoint(x: 735, y: 300)))
+        XCTAssertFalse(controller.pointerMoved(to: notchPoint))
+    }
+
+    func testTheNotchDoesNotSummonFERBWhereAnotherAppsMenuReachesUnderIt() {
+        model.expand()
+        let menuUnderNotch = F.window(F.clipboardApp, layer: 101, 640, 33, 200, 300)
+        windows = [menuUnderNotch]
+        controller.evaluate()
+        let onMenuEdge = CGPoint(x: 700, y: 33.5)
+        XCTAssertTrue(controller.pointerMoved(to: onMenuEdge))
+        XCTAssertFalse(controller.ownerClicked(at: onMenuEdge))
+        XCTAssertTrue(model.isYielded)
+        XCTAssertFalse(controller.pointerMoved(to: CGPoint(x: 700, y: 10)))
+    }
+
+    func testTheShortcutOrAClickOnTheNotchOverridesAnotherAppsWindow() {
+        model.expand()
+        windows = [F.shareBar]
+        controller.evaluate()
+        XCTAssertTrue(controller.summon())
+        XCTAssertFalse(controller.evaluate())
+        XCTAssertFalse(model.isYielded)
+        windows = [F.window(800, layer: 3, 600, 36, 280, 40, id: 78)]
+        controller.evaluate()
+        XCTAssertTrue(controller.ownerClicked(at: notchPoint))
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
+    }
+
+    func testWindowsOverFERBDuringDictationDontHideItAfterwards() {
+        model.expand()
+        model.session.beginVoicePreview()
+        windows = [F.shareBar]
+        controller.evaluate()
+        model.session.finishVoicePreview()
+        controller.evaluate()
+        XCTAssertFalse(model.isYielded)
     }
 
     func testANormalWindowUnderTheUnpinnedChatNeverYields() {
@@ -160,7 +240,8 @@ final class NotchYieldControllerTests: XCTestCase {
         controller.appActivated(F.browser)
         XCTAssertFalse(model.isYielded)
         windows = [F.maximizedBrowser]
-        try await Task.sleep(for: .milliseconds(150))
+        // Wait on the condition, not a fixed time, so a busy machine can't fail this.
+        for _ in 0..<300 where !model.isYielded { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertTrue(model.isYielded)
         XCTAssertEqual(controller.coveredApp, F.browser)
     }

@@ -50,32 +50,37 @@ public struct NotchYield: Equatable, Sendable {
     }
 }
 
-/// One on-screen window as the window server lists it. FERB reads only these four facts. It never reads a
-/// window's name or title, so no Screen Recording permission is involved.
+/// One on-screen window as the window server lists it. FERB reads only its number, owner, layer, bounds and alpha.
+/// It never reads a window's name or title, so no Screen Recording permission is involved.
 public struct ScreenWindow: Equatable, Sendable {
+    /// The window server's number for the window, stable while the window exists.
+    public var windowID: UInt32
     public var ownerPID: Int32
     public var layer: Int
     /// Window-server coordinates: origin at the top left of the primary display, y growing downwards.
     public var bounds: CGRect
     public var alpha: Double
 
-    public init(ownerPID: Int32, layer: Int, bounds: CGRect, alpha: Double) {
+    public init(windowID: UInt32, ownerPID: Int32, layer: Int, bounds: CGRect, alpha: Double) {
+        self.windowID = windowID
         self.ownerPID = ownerPID
         self.layer = layer
         self.bounds = bounds
         self.alpha = alpha
     }
 
-    /// Reads one `CGWindowListCopyWindowInfo` row; nil when one of the four facts is missing.
+    /// Reads one `CGWindowListCopyWindowInfo` row; nil when the number, owner, layer or bounds is missing.
     public init?(windowInfo row: [String: Any]) {
-        guard let pid = (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+        guard let number = (row[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+              let pid = (row[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
               let layer = (row[kCGWindowLayer as String] as? NSNumber)?.intValue,
               let bounds = row[kCGWindowBounds as String] as? [String: Any],
               let x = (bounds["X"] as? NSNumber)?.doubleValue, let y = (bounds["Y"] as? NSNumber)?.doubleValue,
               let width = (bounds["Width"] as? NSNumber)?.doubleValue,
               let height = (bounds["Height"] as? NSNumber)?.doubleValue else { return nil }
         let alpha = (row[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
-        self.init(ownerPID: pid, layer: layer, bounds: CGRect(x: x, y: y, width: width, height: height), alpha: alpha)
+        self.init(windowID: number, ownerPID: pid, layer: layer,
+                  bounds: CGRect(x: x, y: y, width: width, height: height), alpha: alpha)
     }
 
     /// The windows currently on screen, front to back, without the desktop picture and icons.
@@ -91,24 +96,30 @@ public enum NotchOverlap {
     /// The Dock's own layer. The Dock is always on screen and is never one of the transient surfaces FERB yields to.
     public static let dockLayer = Int(CGWindowLevelForKey(.dockWindow))
 
-    /// Whether another process has a menu, popover or floating window over one of FERB's frames.
+    /// The menus, popovers and floating windows of other processes that lie over one of FERB's frames.
     ///
     /// Counted: windows above the normal layer (layer > 0) that are visible (alpha > 0) and overlap a FERB frame.
     /// Never counted, so FERB doesn't hide for good: FERB's own processes; anything that stays within the menu
     /// bar strip (the menu bar itself, status items, the privacy indicator); the Dock layer; and windows that cover
     /// the whole display below the menu bar (screen dimmers, the screenshot crosshair, Launchpad), which are
     /// overlays of the entire screen rather than something FERB sits on top of.
-    public static func foreignOverlay(in windows: [ScreenWindow], ferbFrames: [CGRect], ownPIDs: Set<Int32>,
-                                      menuBar: CGRect, display: CGRect) -> Bool {
+    public static func foreignOverlays(in windows: [ScreenWindow], ferbFrames: [CGRect], ownPIDs: Set<Int32>,
+                                       menuBar: CGRect, display: CGRect) -> [ScreenWindow] {
         let belowMenuBar = CGRect(x: display.minX, y: menuBar.maxY, width: display.width,
                                   height: max(0, display.maxY - menuBar.maxY))
-        return windows.contains { window in
+        return windows.filter { window in
             guard !ownPIDs.contains(window.ownerPID), window.layer > 0, window.layer != dockLayer,
                   window.alpha > 0, !window.bounds.isEmpty else { return false }
             if menuBar.insetBy(dx: -1, dy: -1).contains(window.bounds) { return false }
             if !belowMenuBar.isEmpty, window.bounds.insetBy(dx: -1, dy: -1).contains(belowMenuBar) { return false }
             return ferbFrames.contains { overlaps(window.bounds, $0) }
         }
+    }
+
+    /// Whether any other process has a menu, popover or floating window over FERB (see `foreignOverlays`).
+    public static func foreignOverlay(in windows: [ScreenWindow], ferbFrames: [CGRect], ownPIDs: Set<Int32>,
+                                      menuBar: CGRect, display: CGRect) -> Bool {
+        !foreignOverlays(in: windows, ferbFrames: ferbFrames, ownPIDs: ownPIDs, menuBar: menuBar, display: display).isEmpty
     }
 
     /// Whether the app has a visible window on the normal layer under the pinned chat's visible surface.

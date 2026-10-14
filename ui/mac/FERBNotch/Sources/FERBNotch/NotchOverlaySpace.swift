@@ -25,6 +25,8 @@ final class NotchOverlaySpace {
     private var windows: [NSWindow] = []
     private var removeWindows: RemoveWindows?
     private var destroy: Destroy?
+    private var moveWindows: MoveWindows?
+    private var copyWindows: CopyWindows?
 
     var isAttached: Bool { space != 0 }
 
@@ -93,7 +95,22 @@ final class NotchOverlaySpace {
         self.windows = windows
         self.removeWindows = remove
         self.destroy = destroy
+        self.moveWindows = move
+        self.copyWindows = copyWindows
         NSLog("FERB Notch: dialog and trace attached to fixed overlay space %llu.", space)
+    }
+
+    /// Ordering one of our windows out and back in (the trace after each glow, both windows while FERB yields to
+    /// another app) may drop it from the space. Put it back if the space no longer lists it.
+    func rejoin(_ window: NSWindow) {
+        guard space != 0, let moveWindows, let copyWindows, windows.contains(where: { $0 === window }) else { return }
+        var setTags: UInt64 = 0
+        var clearTags: UInt64 = 0
+        let members = copyWindows(connection, UInt32(bitPattern: connection),
+                                  [NSNumber(value: space)] as CFArray, 7, &setTags, &clearTags)?.takeRetainedValue()
+        guard !(members as? [NSNumber] ?? []).map(\.intValue).contains(window.windowNumber) else { return }
+        let status = moveWindows(connection, space, [NSNumber(value: window.windowNumber)] as CFArray, 7)
+        NSLog("FERB Notch: %@ rejoined the fixed overlay space (%d).", window.title, status)
     }
 
     func stop() {
@@ -106,6 +123,8 @@ final class NotchOverlaySpace {
         windows.removeAll()
         removeWindows = nil
         destroy = nil
+        moveWindows = nil
+        copyWindows = nil
         if let library { dlclose(library) }
         library = nil
     }

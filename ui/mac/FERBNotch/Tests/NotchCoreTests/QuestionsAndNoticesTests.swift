@@ -411,8 +411,9 @@ final class QuestionsAndNoticesTests: XCTestCase {
         rpc.onCall = nil
         await settle()
         let decisions = rpc.calls.filter { $0.0 == "memory.learning" && $0.1["op"] as? String != "digest" }
-        XCTAssertEqual(decisions.map { $0.1["op"] as? String }, ["confirm", "retire"])
-        XCTAssertEqual(decisions.map { $0.1["id"] as? String }, ["p-1", "p-2"])
+        // Each decision is sent from its own task, so the two calls may arrive in either order.
+        let sent = decisions.map { "\($0.1["id"] as? String ?? "?")=\($0.1["op"] as? String ?? "?")" }
+        XCTAssertEqual(sent.sorted(), ["p-1=confirm", "p-2=retire"])
         XCTAssertEqual(model.conversation.notices.last?.proposals?.map(\.decision), ["confirmed", "not right"])
         // The same day's digest is never shown twice.
         await model.refreshDaemonStatus()
@@ -620,11 +621,12 @@ private final class StatusRPC: DaemonRPCTransport {
     var traces: [String: [String: Any]] = [:]
     var responses: [String: [String: Any]] = [:]
     var events: [[String: Any]] = []
-    var calls: [(String, [String: Any])] = []
+    private let recorded = RecordedCalls()
+    var calls: [(String, [String: Any])] { recorded.all }
     var onCall: ((String, [String: Any]) -> Void)?
 
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
-        calls.append((method, params))
+        recorded.append(method, params)
         onCall?(method, params)
         switch method {
         case "chat.attach": return ["session_id": "test", "capabilities": ["input_paths"]]
@@ -635,7 +637,7 @@ private final class StatusRPC: DaemonRPCTransport {
     }
 
     func stream(_ method: String, params: [String: Any]) -> AsyncThrowingStream<[String: Any], Error> {
-        calls.append((method, params))
+        recorded.append(method, params)
         onCall?(method, params)
         let events = method == "chat.send" ? self.events : []
         return AsyncThrowingStream { continuation in

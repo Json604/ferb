@@ -149,10 +149,11 @@ final class TaskPresentationTests: XCTestCase {
 }
 
 private final class TaskListRPC: DaemonRPCTransport {
-    var calls: [(String, [String: Any])] = []
+    private let recorded = RecordedCalls()
+    var calls: [(String, [String: Any])] { recorded.all }
     var onCall: ((String) -> Void)?
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
-        calls.append((method, params))
+        recorded.append(method, params)
         onCall?(method)
         return [:]
     }

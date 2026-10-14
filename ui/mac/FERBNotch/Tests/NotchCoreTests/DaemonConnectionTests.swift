@@ -112,14 +112,15 @@ final class DaemonConnectionTests: XCTestCase {
 }
 
 private final class RecordingRPC: DaemonRPCTransport {
-    var calls: [(String, [String: Any])] = []
+    private let recorded = RecordedCalls()
+    var calls: [(String, [String: Any])] { recorded.all }
     var responses: [String: [String: Any]] = ["chat.status": ["running": [[String: Any]](), "approvals": [[String: Any]](), "results": [[String: Any]]()]]
     func call(_ method: String, params: [String: Any]) async throws -> [String: Any] {
-        calls.append((method, params))
+        recorded.append(method, params)
         return responses[method] ?? ["ok": true]
     }
     func stream(_ method: String, params: [String: Any]) -> AsyncThrowingStream<[String: Any], Error> {
-        calls.append((method, params))
+        recorded.append(method, params)
         return AsyncThrowingStream { $0.finish() }
     }
 }
