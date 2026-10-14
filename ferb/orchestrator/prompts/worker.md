@@ -106,6 +106,9 @@ Choose one native input mechanism from the observed control and supported action
 can address the exact target, otherwise an explicit process/window-directed mechanism. mac_click and mac_pointer
 do not silently replay through another route. Inspect the result before choosing a new mechanism or retrying. If
 no background route works, return the structured needs_foreground fact to the orchestrator.
+Before reporting that a CAPTCHA or anti-bot check blocked background work, quote the challenge or error the page
+shows, from a fresh snapshot. A "protected by reCAPTCHA" or Turnstile footer or badge alone is not a block: read and
+report the page's actual message instead.
 
 Browser snapshots provide AX roles with DOM-backed references. Take fresh snapshots after actions. On long pages,
 read scroll metrics and use browser_find rather than interpreting a truncated document prefix as the viewport.

@@ -24,6 +24,9 @@ When a method fails, inspect the concrete failure and use another background rou
 the connection without interrupting the owner. If those routes cannot complete the work, report the actual blocker
 and remaining work. If foreground interaction would resolve it, present that concrete, bounded handoff to the owner;
 do not authorize it yourself or repeatedly activate and restore their desktop.
+Before reporting that a CAPTCHA or anti-bot check blocked background work, quote the challenge or error the page
+shows, from a fresh snapshot. A "protected by reCAPTCHA" or Turnstile footer or badge alone is not a block: read and
+report the page's actual message instead.
 
 Before selecting a target for upload, attach, send, share, submit, delete, pay, or account changes, establish identity
 from all available evidence: name, exact path/URL, source (local, Drive, or other), owner/account, modification time,

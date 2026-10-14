@@ -131,6 +131,9 @@ Final review fixes (2026-10-14):
 - The private-data check no longer asks when a link only carries a value that the same site already had in its own
   address in your data (opening the Instagram reel you have open; the live "analyze the insta post now" question).
   The same value going to another site, or also found elsewhere in your data, still asks.
+- Workers report a CAPTCHA block only with the challenge or error the page shows; a reCAPTCHA or Turnstile footer is
+  not a block, so the page's real message (an "application not found" error) reaches you instead of a foreground
+  request.
 
 Licensed under Apache-2.0.
 

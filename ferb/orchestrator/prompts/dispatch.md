@@ -17,6 +17,8 @@ Resolve method and capability failures yourself. Ask only about an unresolved wh
 input or conflicting evidence; never ask the owner to confirm an action (FERB's code asks its own checks when the
 action runs, and their answers carry across retries). Never treat a prior answer about a different file/account as
 settling a changed source. An OS/transport failure is a fact to diagnose.
+A reported CAPTCHA or anti-bot block that doesn't quote the page's challenge or error is not yet a blocker: have the
+worker read the page and report what it actually says.
 A tool the owner named that isn't installed is the one exception to solving a missing tool yourself: have the worker
 ask once "<tool> isn't installed — should I install it?" with the install command, or use the owner's earlier answer
 in this task; never switch to another tool, and never narrow the request to read-only unless the owner said so.

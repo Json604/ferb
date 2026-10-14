@@ -82,3 +82,21 @@ def test_a_declared_post_names_no_audience_in_its_destination() -> None:
     described = " ".join(str(DESTINATION_SCHEMA["description"]).split())
     assert "recipients: the people a message or email goes to (none for a public post)" in described
     assert "audience" not in described and "audience" not in DESTINATION_SCHEMA["properties"]
+
+
+# Owner live use, 2026-10-14 (task 1b79b873, 20:15): EF's "Retrieve Saved Application" page showed "Error 6732: Oops!
+# We could not find a saved application for this email address"; the worker read the page's reCAPTCHA footer as a
+# block and asked to take the foreground. A block is reported with the page's own words, never inferred from a badge.
+CAPTCHA_BLOCK = ("Before reporting that a CAPTCHA or anti-bot check blocked background work, quote the challenge or "
+                 "error the page shows, from a fresh snapshot. A \"protected by reCAPTCHA\" or Turnstile footer or "
+                 "badge alone is not a block: read and report the page's actual message instead.")
+
+
+@pytest.mark.parametrize("name", ["worker.md", "interaction.md"])
+def test_a_captcha_block_is_reported_with_the_pages_own_words(name: str) -> None:
+    assert CAPTCHA_BLOCK in _words(name)
+
+
+def test_the_orchestrator_checks_a_reported_captcha_block_against_the_page() -> None:
+    assert ("A reported CAPTCHA or anti-bot block that doesn't quote the page's challenge or error is not yet a "
+            "blocker: have the worker read the page and report what it actually says.") in _words("dispatch.md")
