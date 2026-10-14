@@ -168,6 +168,9 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   instead of leaving it "paused" for good.
 - An answer that comes with the planner's own reply is one message ("Got your answer. …"), not two; a message sent
   right after an answer that also stops, steers or starts something waits until that has registered.
+- Screen-capture failures keep ScreenCaptureKit's error domain and code (and its stated reason) in the result, trace
+  and journal, so "Failed to start stream due to audio/video capture failure" can be diagnosed; a minimized window
+  is reported as minimized (FERB leaves it minimized); a hearing capture whose start timed out is stopped.
 
 Licensed under Apache-2.0.
 

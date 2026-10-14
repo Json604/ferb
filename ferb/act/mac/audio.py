@@ -24,7 +24,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from ferb.act.mac.screenshot import TIMEOUT_S, _wait
+from ferb.act.mac.screenshot import TIMEOUT_S, _wait, capture_error
 from ferb.core.errors import Refused
 
 SAMPLE_RATE = 16000          # ScreenCaptureKit accepts 8000, 16000, 24000 or 48000 Hz; speech needs no more than 16 kHz
@@ -113,7 +113,7 @@ def _done(start: Callable[[Callable[[Any], None]], None]) -> None:
     if not finished.wait(TIMEOUT_S):
         raise TimeoutError("the screen capture didn't answer")
     if box.get("e") is not None:
-        raise RuntimeError(str(box["e"].localizedDescription()))
+        raise capture_error(box["e"])          # its domain and code too (I7)
 
 
 # AudioStreamBasicDescription's fields in struct order. PyObjC returns the struct as a plain tuple (measured on macOS 26
@@ -221,7 +221,12 @@ class AppAudio:
             capture.reference = float(cm.CMTimeGetSeconds(cm.CMClockGetTime(cm.CMClockGetHostTimeClock())))
             capture.started = self.now()
             _done(lambda h: stream.startCaptureWithCompletionHandler_(h))
-        except BaseException:
+        except BaseException as e:
+            if isinstance(e, TimeoutError):      # M3: a start answering late must not leave a stream nobody stops
+                try:
+                    stream.stopCaptureWithCompletionHandler_(lambda error: None)   # best effort, not waited on
+                except Exception:
+                    pass
             writer.close()
             path.unlink(missing_ok=True)
             raise

@@ -104,6 +104,32 @@ def window_at(x: float, y: float, max_layer: int = 0) -> Window | None:
     return None
 
 
+class CaptureError(RuntimeError):
+    """A ScreenCaptureKit failure with its error domain and code (I7), for the result, the trace and the journal."""
+
+    def __init__(self, message: str, domain: str = "", code: int | None = None) -> None:
+        super().__init__(message)
+        self.domain, self.code = domain, code
+
+
+# userInfo keys that explain a failure; anything else in it (objects, paths) is left out.
+_REASONS = ("NSLocalizedFailureReason", "NSLocalizedRecoverySuggestion", "NSDebugDescription")
+
+
+def capture_error(error: Any) -> CaptureError:
+    """An NSError from ScreenCaptureKit, kept whole enough to diagnose: its text, domain, code, the reasons in its
+    userInfo and its underlying error's domain and code (the live "Failed to start stream due to audio/video capture
+    failure" came with no code at all)."""
+    text = str(error.localizedDescription())
+    domain, code = str(error.domain()), int(error.code())
+    info = error.userInfo() or {}
+    parts = [f"{domain} {code}"] + [str(info.get(key)) for key in _REASONS if info.get(key)]
+    under = info.get("NSUnderlyingError")
+    if under is not None and hasattr(under, "domain") and hasattr(under, "code"):
+        parts.append(f"underlying {under.domain()} {under.code()}")
+    return CaptureError(f"{text} ({'; '.join(parts)})", domain, code)
+
+
 def _wait(start: Any) -> Any:
     """Run a ScreenCaptureKit call that answers through a completion handler; return its (value, error)."""
     done, box = threading.Event(), {}
@@ -115,12 +141,18 @@ def _wait(start: Any) -> Any:
     if not done.wait(TIMEOUT_S):
         raise TimeoutError("the screen capture didn't answer")
     if box.get("e") is not None:
-        raise RuntimeError(str(box["e"].localizedDescription()))
+        raise capture_error(box["e"])
     return box["v"]
 
 
 def capture(w: Window, max_edge: int | None = MAX_EDGE, marks: list[Mark] | None = None) -> tuple[bytes, int, int]:
-    """JPEG bytes of exactly this window, and the image size (px). `marks` (screen points) are drawn on it."""
+    """JPEG bytes of exactly this window, and the image size (px). `marks` (screen points) are drawn on it. A minimized
+    window is refused by name before ScreenCaptureKit is asked; FERB never unminimizes it (background first, I7)."""
+    from ferb.act.mac import accessibility
+    from ferb.core.errors import Refused
+    if accessibility.window_minimized(w.pid, w.bounds):
+        raise Refused("that window is minimized, and FERB doesn't bring windows back on its own (it works in the "
+                      "background): it can be captured once it's shown again")
     import ScreenCaptureKit as SCK
     content = _wait(lambda h: SCK.SCShareableContent.getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler_(
         True, False, h))                              # a window on another Space / full screen can be captured too

@@ -184,6 +184,20 @@ def ax_windows(pid: int) -> list[Any]:
     return out
 
 
+def window_minimized(pid: int, bounds: tuple[float, float, float, float]) -> bool | None:
+    """Whether the app's one Accessibility window at these bounds is minimized (AXMinimized); None when Accessibility
+    can't tell (no unique window there, or no answer)."""
+    try:
+        matches = [w for w in ax_windows(pid) if (f := frame(w)) is not None
+                   and all(abs(a - b) <= 2 for a, b in zip(f, bounds))]
+        if len(matches) != 1:
+            return None
+        value = _attr(matches[0], "AXMinimized")
+        return bool(value) if value is not None else None
+    except Exception:
+        return None
+
+
 def cg_windows(pid: int) -> list[dict[str, Any]]:
     """The app's real windows from the window server, every Space: id, title, bounds, on the current Space or not."""
     import Quartz

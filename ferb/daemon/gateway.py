@@ -158,8 +158,12 @@ def image_facts(tool: str, content: dict[str, Any]) -> dict[str, Any]:
 
 
 def error_name(e: BaseException) -> str:
-    """An error for the trace by type (and errno) only: its text can hold an absolute path."""
+    """An error for the trace by type (and errno, or a capture error's domain and code, I7) only: its text can hold an
+    absolute path."""
     errno = getattr(e, "errno", None) if isinstance(e, OSError) else None
+    domain, code = getattr(e, "domain", None), getattr(e, "code", None)
+    if errno is None and isinstance(domain, str) and isinstance(code, int):
+        return f"{type(e).__name__} ({domain} {code})"
     return type(e).__name__ + (f" (errno {errno})" if errno is not None else "")
 
 

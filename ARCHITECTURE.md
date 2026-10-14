@@ -1583,7 +1583,11 @@ protected FERB state (16.9).
 
 - `audio.listen {app | tab, seconds, language?}` (`act/listen.py`, scope `audio`, observation): ScreenCaptureKit
   captures that one process's audio (FERB's own excluded; a tab means its whole browser process) into a 0600 WAV in
-  `workspace/audio`.
+  `workspace/audio`. A start that doesn't answer within the capture timeout is stopped, best effort (M3).
+- ScreenCaptureKit failures (`screenshot.capture_error`, I7) keep the error's text, domain, code, the failure reason and
+  recovery suggestion from its userInfo and its underlying error's domain and code, in the tool result and the trace;
+  `error_name` journals `CaptureError (<domain> <code>)`. `screenshot.capture` refuses a window Accessibility reports
+  minimized (`accessibility.window_minimized`), by name and before ScreenCaptureKit is asked; FERB never unminimizes it.
 - `Transcriber` checks FERB Voice's signature against `[hearing] requirement`, then runs
   `open -g -n -W <FERB Voice> --args transcribe` with FERB's home (`Transcriber(home=)`). FERB Voice requires on-device
   recognition and never prompts from a task.
