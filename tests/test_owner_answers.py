@@ -974,6 +974,29 @@ def test_an_earlier_memory_whose_address_the_owner_typed_records_the_scope(daemo
     assert not run.results["new@x.com"]["is_error"]
 
 
+@pytest.mark.parametrize("path", ["chat review", "ferb setup"])
+def test_the_setup_persona_never_names_a_destination_for_a_schedules_scope(daemon: RunningDaemon, path: str) -> None:
+    """Controller ruling (Task 7 x Task 18 integration): the setup persona is FERB's own app-use summary that the
+    owner approved, not words they typed, so even an address-shaped app name in it never backs a recorded scope."""
+    from ferb.device.persona import PERSONA_KEY
+    from tests.support.schedules import run as on_loop
+    summary = "You mostly use Mail for new@x.com and Safari."
+
+    def persona() -> None:
+        if path == "chat review":                                   # the daemon's "Getting to know you" question
+            daemon.daemon._remember_persona(summary)
+        else:                                                       # `ferb setup` stores it through memory.add
+            src = daemon.daemon._journal().append("memory.added", {"content": summary}).id
+            daemon.daemon.memory.propose("preference", "owner", PERSONA_KEY, summary, "owner_stated",
+                                         [("journal", src)], 1.0)
+    on_loop(daemon, persona)
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None, posts=("new@x.com",))
+    said = _texts(run.confirmed)
+    assert run.created.get("standing_sends", []) == []
+    assert "new@x.com" in said and "weren't recorded" in said
+    assert run.results["new@x.com"]["is_error"] and run.grants == []
+
+
 def test_a_recorded_message_counts_as_typed_words_only_when_its_pasted_parts_all_match() -> None:
     """Fail closed: a record whose wrappers don't match the pasted parts counted with it (or with no count) gives no
     owner words, so pasted text is never passed off as typed."""

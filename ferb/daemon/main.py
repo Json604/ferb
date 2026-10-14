@@ -2041,7 +2041,8 @@ class Daemon:
     def _remember_persona(self, content: str) -> None:
         content = self._redact_text(content)
         entry = self._journal().append('memory.added', {'content': content})
-        self.memory.propose('preference', 'owner', 'setup-persona', content, 'owner_stated',
+        from ferb.device.persona import PERSONA_KEY
+        self.memory.propose('preference', 'owner', PERSONA_KEY, content, 'owner_stated',
                             [('journal', entry.id)], 1.0)
 
     def _prepare_persona(self, refresh: bool = False) -> dict[str, Any]:
@@ -2151,11 +2152,17 @@ class Daemon:
         """What the owner typed behind each active owner-stated memory item: the text of the `ferb memory add` / `edit`
         entry it rests on, or the owner's own words (pasted parts left out) of the chat turn it was captured in. Never
         the item's content: chat capture keeps the planner's wording once a short quote is in the owner's words. The
-        current request's turn is left out: an item captured in it adds nothing beyond its typed words (MP2)."""
+        current request's turn is left out: an item captured in it adds nothing beyond its typed words (MP2). The setup
+        persona is left out too: FERB built it from app names and the owner only approved it, so it never names a
+        send destination (controller ruling, Task 7 x Task 18)."""
+        from ferb.device.persona import PERSONA_KEY
+        from ferb.memory.items import slug
         from ferb.sanitize.untrusted import recorded_own_words
         if self.memory is None:
             return []
-        ids = sorted({src.removeprefix("journal:") for item in self.memory.items() if item.origin == "owner_stated"
+        persona = slug(PERSONA_KEY)                      # as memory stores the key
+        ids = sorted({src.removeprefix("journal:") for item in self.memory.items()
+                      if item.origin == "owner_stated" and item.key != persona
                       for src in item.source_ids if src.startswith("journal:")})
         if not ids:
             return []

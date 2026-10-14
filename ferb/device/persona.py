@@ -5,6 +5,9 @@ import plistlib
 import subprocess
 from typing import Any, Callable
 
+# The memory key of the approved setup persona: FERB's own app-use summary, never words the owner typed (D30, MP2)
+PERSONA_KEY = "setup-persona"
+
 
 def app_usage(apps: list[Any], run: Callable[..., Any] = subprocess.run) -> list[dict[str, Any]]:
     """Synchronous caller compatibility; production discovery uses the cancellable async collector."""
@@ -146,6 +149,6 @@ def setup_persona(env: Any, config: Any, profile: Any, client: Any,
         confirmed = redact({"text": confirmed})["text"]
     if confirmed is not None:
         # Stored as an explicit owner preference through the same CLI memory path, not an inferred identity edit.
-        client.call("memory.add", {"content": confirmed, "kind": "preference", "key": "setup-persona"})
+        client.call("memory.add", {"content": confirmed, "kind": "preference", "key": PERSONA_KEY})
         config.set("setup", "persona", confirmed)
     config.set("setup", "persona_reviewed", True)
