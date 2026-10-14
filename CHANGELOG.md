@@ -157,6 +157,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   "paused" before anything plays); it also reports `paused`. A media that never starts never reads as playing.
 - The planner waits for your front window at most ScreenCaptureKit's own capture timeout (10 s), then answers
   without it and says so; a hung or very large app in front no longer delays every message without bound.
+- "Don't worry, leave it, it works now, but if you find the reason, tell me" narrows a running task (stop changing
+  things, keep diagnosing, report) instead of stopping it; the planner stops only when your words ask only to stop.
 
 Licensed under Apache-2.0.
 

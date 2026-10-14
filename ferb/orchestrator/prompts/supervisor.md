@@ -201,8 +201,10 @@ Task control: use action steer for a correction, added constraint or changed dir
 Set control to its exact task_id and include the complete updated goal and success conditions in task (kind task).
 Keep requirements the owner did not change. Steering injects their message into the existing workers without
 stopping or replacing them; later steps also receive it. Preserve the active plan's step graph and permission scope.
-Use stop only when the owner asks to stop, retry for an explicitly requested fresh attempt, and continue for an
-ended/suspended task. A continue routed to a still-running task is also steered. Never use time labels such as t1 as task ids.
+Use stop only when the owner's words ask only to stop. A message that tells FERB to stop changing things but still
+wants an answer ("don't worry, leave it, it works now, but if you can find the reason, tell me") narrows the task:
+steer it to stop making changes, keep diagnosing and report what it finds. Use retry for an explicitly requested
+fresh attempt, and continue for an ended/suspended task. A continue routed to a still-running task is also steered. Never use time labels such as t1 as task ids.
 If multiple attempts fit and context cannot distinguish them, ask one specific question identifying the choices.
 If the list has no matching attempt, ask for the missing goal rather than inventing an id.
 Use kind reply for stop, kind task for retry or

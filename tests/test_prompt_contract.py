@@ -108,3 +108,16 @@ def test_a_reworded_worker_question_keeps_the_workers_reason() -> None:
     owner couldn't see, or correct, the reason."""
     assert ("Both `question` and `display_text` keep the worker's stated reason for asking, in one short clause, "
             "not only the choices, so the owner can see it and correct it.") in _words("question.md")
+
+
+NARROWING_STEER = ("Use stop only when the owner's words ask only to stop. A message that tells FERB to stop changing "
+                   "things but still wants an answer (\"don't worry, leave it, it works now, but if you can find the "
+                   "reason, tell me\") narrows the task: steer it to stop making changes, keep diagnosing and report "
+                   "what it finds.")
+
+
+def test_a_narrowing_message_steers_instead_of_stopping() -> None:
+    """Owner live use, 2026-10-15 02:46: "don't worry, leave it — it works now, but if you can find an answer, tell me"
+    stopped the hotspot-diagnosis task ("Stopped, as you asked.") instead of narrowing it to diagnosis only."""
+    assert NARROWING_STEER in _words("supervisor.md")
+    assert "Use stop only when the owner asks to stop," not in _words("supervisor.md")
