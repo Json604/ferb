@@ -219,6 +219,34 @@ def test_transcriber_launches_ferb_app_in_the_background_and_deletes_the_raw_ans
     assert not fake.raw_paths[0].exists()
 
 
+def test_the_packaged_apps_voice_helper_is_told_ferbs_home_not_its_own_folder(tmp_path: Path) -> None:
+    """L26 x L27 integration: FERB.app's nested voice helper (Contents/Helpers/FERB Voice.app) accepts audio and
+    answer files only in $FERB_HOME/workspace/audio, so it must be told the daemon's FERB home, never the folder it
+    happens to sit in."""
+    from ferb.sense.transcribe import Transcriber
+    home = tmp_path / ".ferb"
+    app = tmp_path / "Applications" / "FERB.app" / "Contents" / "Helpers" / "FERB Voice.app"
+    app.mkdir(parents=True)
+    audio = home / "workspace" / "audio" / "a.wav"
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"RIFF")
+    fake = FakeApp(app, "hello", [("hello", 0.0, 0.3)], home=home)
+    t = Transcriber(app, lambda: "req", launch=fake, signed=lambda a, r: True, home=home)
+    asyncio.run(t.transcribe(audio, None))
+    assert fake.argv[0][4:7] == ["--env", f"FERB_HOME={home}", str(app)]
+
+
+def test_the_daemon_tells_ferb_apps_voice_helper_its_own_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import ferb.device.install as install
+    from ferb.daemon.main import Daemon
+    from tests.support.app_bundle import make_ferb_app
+    app = make_ferb_app(tmp_path / "Applications")
+    monkeypatch.setattr(install, "app_bundle", lambda prefix=None: app)
+    d = Daemon(tmp_path / ".ferb")
+    t = d.hearing.transcriber
+    assert t.app == app / "Contents" / "Helpers" / "FERB Voice.app" and t.home == tmp_path / ".ferb"
+
+
 def test_transcriber_refuses_a_missing_or_unsigned_ferb_app(tmp_path: Path) -> None:
     from ferb.sense.transcribe import HearingUnavailable, Transcriber
     audio = tmp_path / "a.wav"

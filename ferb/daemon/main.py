@@ -176,7 +176,8 @@ class Daemon:
         # L26: hearing an app's sound during a task (ScreenCaptureKit), transcribed on this Mac by FERB.app (the voice
         # helper nested in FERB.app when the daemon runs from the packaged app, L27)
         self.hearing = Hearing(self.home / "workspace" / AUDIO_FOLDER, AppAudio(),
-                               Transcriber(self.voice_bundle, self._hearing_requirement), self._redact_text,
+                               Transcriber(self.voice_bundle, self._hearing_requirement, home=self.home),
+                               self._redact_text,
                                excluded_host=lambda host: bool(getattr(self.redact, "excluded_host", lambda h: False)(host)))
         self.recordings = RecordingManager(sanitize=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()),
                                            hearing=self.hearing,

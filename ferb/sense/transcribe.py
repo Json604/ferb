@@ -52,9 +52,11 @@ class Transcript:
     locale: str = ""
 
 
-def launch_args(app: Path, mode: str, *args: str) -> list[str]:
-    """FERB_HOME tells FERB.app which audio folder its answer and input files must be in."""
-    return ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={app.parent}", str(app), "--args", mode, *args]
+def launch_args(app: Path, mode: str, *args: str, home: Path | None = None) -> list[str]:
+    """FERB_HOME tells FERB.app which audio folder its answer and input files must be in: FERB's home, which is the
+    folder ~/.ferb/FERB.app sits in, but not the packaged FERB.app's nested voice helper's (L27)."""
+    return ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={home or app.parent}", str(app), "--args", mode,
+            *args]
 
 
 async def launch(argv: list[str]) -> int:
@@ -77,8 +79,11 @@ def signed(app: Path, requirement: str) -> bool:
 
 class Transcriber:
     def __init__(self, app: Path, requirement: Callable[[], str | None], launch: Launch = launch,
-                 signed: Callable[[Path, str], bool] = signed) -> None:
+                 signed: Callable[[Path, str], bool] = signed, *, home: Path | None = None) -> None:
+        """`home`: FERB's home, whose workspace/audio folder FERB.app reads and answers in (None: the folder `app`
+        is in, ~/.ferb for a checkout install's ~/.ferb/FERB.app)."""
         self.app, self.requirement, self.launch, self.signed = app, requirement, launch, signed
+        self.home = home
 
     async def _checked(self) -> None:
         if not self.app.exists():
@@ -95,7 +100,7 @@ class Transcriber:
         answer = folder / f".{mode}-{secrets.token_hex(8)}.json"
         os.close(os.open(answer, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))   # the lease
         try:
-            code = await self.launch(launch_args(self.app, mode, *args[:1], str(answer), *args[1:]))
+            code = await self.launch(launch_args(self.app, mode, *args[:1], str(answer), *args[1:], home=self.home))
             try:
                 raw = answer.read_text()
             except OSError:

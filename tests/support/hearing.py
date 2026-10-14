@@ -55,11 +55,14 @@ class FakeCapture:
 class FakeApp:
     """FERB.app as `/usr/bin/open -g -n -W --env FERB_HOME=… FERB.app --args <mode> …` runs it: it opens the empty
     answer file the daemon created (never creating one) and writes its answer into it. `late`: it opens the file,
-    then writes only after `release` is set, as a slow recognition would."""
+    then writes only after `release` is set, as a slow recognition would. `home`: the FERB home it must be told (None:
+    the folder it is in, as ~/.ferb/FERB.app; the packaged app's nested helper is told the daemon's home, L27)."""
 
     def __init__(self, app: Path, text: str = "", words: list[tuple[str, float, float]] | None = None,
-                 error: dict[str, Any] | None = None, status: dict[str, Any] | None = None, late: bool = False) -> None:
+                 error: dict[str, Any] | None = None, status: dict[str, Any] | None = None, late: bool = False,
+                 home: Path | None = None) -> None:
         self.app, self.text, self.words, self.error, self.late = app, text, words or [], error, late
+        self.home = home or app.parent
         self.status_answer = status or {"speech": "granted", "on_device": True, "locale": "en-US"}
         self.argv: list[list[str]] = []
         self.raw_paths: list[Path] = []
@@ -70,7 +73,7 @@ class FakeApp:
 
     async def __call__(self, argv: list[str]) -> int:
         self.argv.append(list(argv))
-        assert argv[:8] == ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={self.app.parent}",
+        assert argv[:8] == ["/usr/bin/open", "-g", "-n", "-W", "--env", f"FERB_HOME={self.home}",
                             str(self.app), "--args"], argv
         mode = argv[8]
         if mode == "transcribe":
