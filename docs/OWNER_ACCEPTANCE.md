@@ -1120,6 +1120,8 @@ Seeing (L12, L13):
 20. `browser.record` across a login step, then `recording.inspect`: the fields are black in the frames.
 21. A task started with a browser in front counts that page as outside content read, so the private-data check may
     ask a little more: note any extra question.
+21a. Front-window capture on an Electron app (VS Code or Cursor in front when you send) doesn't switch it into
+    screen-reader mode or prompt (final review M6: the capture sets `AXManualAccessibility` once per app process).
 
 Hearing (L26):
 22. Plain `ferb setup` asks once for Speech Recognition (for "FERB" from a checkout); `ferb doctor` shows hearing.
