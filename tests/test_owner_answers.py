@@ -174,8 +174,8 @@ def test_a_steer_supersedes_a_pending_new_recipient_check_and_the_same_action_as
     check, call, cap, grant = _pending_floor_check(daemon, "send", "send the update", "bob@x.com")
     assert check.reason.startswith("FERB:")
 
-    async def steer() -> None:
-        settle_questions(daemon.daemon.supervisor, "req-1", "also cc Carol")
+    async def steer() -> None:                       # the planner names the check the correction changes
+        settle_questions(daemon.daemon.supervisor, "req-1", "send it to Carol instead", [check.id])
     daemon.run(steer())
     assert check.state == "superseded"
     result = call.result(timeout=5)
@@ -199,13 +199,13 @@ def _confirmation_rows(d: RunningDaemon) -> list[dict[str, Any]]:
 
 # ---------- (C) orphan questions ----------
 
-def test_a_question_whose_call_was_cancelled_is_closed_as_superseded(daemon: RunningDaemon) -> None:
+def test_a_question_whose_task_was_stopped_is_closed_as_superseded(daemon: RunningDaemon) -> None:
     pay, call, cap, _ = _pending_floor_check(daemon)
     published: list[dict[str, Any]] = []
     gateway = daemon.daemon.gateway
     original = gateway.publish
     gateway.publish = lambda topic, data: (published.append({"topic": topic, **data}), original(topic, data))
-    call.cancel()
+    daemon.call_soon(gateway.cancel_tasks, {"task-1"})                    # a real stop of the task
     _until(lambda: pay.state != "pending")
     assert pay.state == "superseded"
     assert {"topic": "approval.resolved", "approval_id": pay.id, "state": "superseded"} in published
@@ -218,9 +218,20 @@ def test_a_worker_question_whose_call_was_cancelled_is_closed_as_superseded(daem
     call = _start(daemon, grant, "owner.ask", question="Which folder?", options=["A", "B"])
     _until(lambda: bool(_pending(daemon, "owner.ask")))
     question = _pending(daemon, "owner.ask")[0]
-    call.cancel()
+    daemon.call_soon(daemon.daemon.gateway.cancel_tasks, {"task-1"})
     _until(lambda: question.state != "pending")
     assert question.state == "superseded"
+
+
+def test_a_waiter_that_went_away_leaves_the_question_open(daemon: RunningDaemon) -> None:
+    """Merge note with Task 14 (CALLER_LEFT): only a real stop of the task closes a question; a cancelled waiter whose
+    task still runs leaves it open for the owner."""
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    call.cancel()
+    _until(lambda: call.done())
+    import time
+    time.sleep(0.2)
+    assert pay.state == "pending"
 
 
 # ---------- (c) a big job's plan is stated, not asked ----------
@@ -313,17 +324,21 @@ def _voice(pending: list[Any]) -> tuple[Any, list[str], list[Any]]:
 
 
 def test_voice_never_auto_answers_the_single_open_question() -> None:
-    resolved: list[Any] = []
-    ap = SimpleNamespace(id="ap1", kind="owner_question", options=("Yes", "No"), question="Pay $5?")
-    v, turns, _ = _voice([ap])
-    v.answer = lambda *a: resolved.append(a)                              # no longer part of Voice; must stay unused
+    import inspect
+    from ferb.daemon.questions import Approvals
+    from ferb.voice.controller import Voice
+    approvals = Approvals()
+    action = ActionRequest("ferb.confirm", "owner_question", Identity.OWNER, frozenset(), "t", "w", "r", frozenset())
+    ap = approvals.question(action, "FERB: this pays $5 to x@y.com. Go ahead?", ["Yes", "No"])
+    assert "answer" not in inspect.signature(Voice).parameters             # nothing in Voice can resolve a question
+    v, turns, _ = _voice(approvals.pending())
 
     async def go() -> dict[str, Any]:
-        out = await v.transcript("stop that task")
+        out = await v.transcript("yes")
         await asyncio.sleep(0.05)
         return out
     out = asyncio.run(go())
-    assert out == {"handled": "request"} and turns == ["stop that task"] and resolved == []
+    assert out == {"handled": "request"} and turns == ["yes"] and ap.state == "pending"
 
 
 def test_voice_with_several_open_questions_routes_like_typed_text() -> None:
@@ -411,3 +426,298 @@ def test_the_install_question_is_asked_once_and_carried_across_retries(daemon: R
         rows = supervisor.spans.owner_questions(tree_id)
         return json.dumps(rows)
     assert "Mole isn't installed" in daemon.run(worker_context())
+
+
+# ========== fix round 1 ==========
+
+def _decision(tree_id: str, standing: Any, supersedes: tuple[str, ...] = (), spec: dict[str, Any] | None = None) -> str:
+    """The planner's steer routing: always an explicit standing-scope decision and the question ids it changes."""
+    decision = json.loads(sup("task", "Updated.", spec or task("Post the update to the list", "owner")))
+    decision["control"] = {"task_id": tree_id, "action": "steer", "standing_sends": standing,
+                           "supersedes": list(supersedes)}
+    return json.dumps(decision)
+
+
+def _scope(to: str) -> SendScope:
+    return SendScope(capability="probe.post", identity="owner", recipients=[to], content=None)
+
+
+def _running_plan(daemon: RunningDaemon, scopes: list[SendScope], posts: list[str]) -> SimpleNamespace:
+    """A plan whose one step holds until released, then posts to each recipient through the gateway."""
+    cap = FakeCap("probe.post", "post", {"probe"})
+    daemon.daemon.registry.capabilities[cap.name] = cap
+    started, proceed, results = threading.Event(), threading.Event(), {}
+
+    def step(token: str) -> str:
+        started.set()
+        proceed.wait(15)
+        for to in posts:
+            results[to] = tool(daemon.sock, token, "probe.post", to=to, text="the update")
+        return done("Posted.")
+    spec = task("Post the update to the list", "owner")
+    spec["plan"] = Plan(steps=[Step(id="post", kind="do", goal="Post the update")], standing_sends=scopes).model_dump()
+    script = install(daemon, [sup("task", "Posting.", spec)], {"step.post": step, "worker": done("Checked.")})
+    events: list[dict[str, Any]] = []
+    turn = threading.Thread(target=lambda: events.extend(chat(daemon, "post the update to the list", session="s1")))
+    turn.start()
+    assert started.wait(10)
+    tree_id = next(t.id for t in daemon.daemon.supervisor._tree_of.values())
+    return SimpleNamespace(cap=cap, proceed=proceed, results=results, script=script, turn=turn, events=events,
+                           tree=tree_id)
+
+
+def _finish(daemon: RunningDaemon, run: SimpleNamespace) -> list[Any]:
+    owner = Answers(daemon, granted=True, choice=1)
+    run.proceed.set()
+    run.turn.join(20)
+    owner.stop()
+    assert not run.turn.is_alive()
+    return [ap for ap in owner.asked if ap.capability == CONFIRM_ASK]
+
+
+def test_a_steer_narrowing_the_standing_scope_takes_effect_at_once(daemon: RunningDaemon) -> None:
+    run = _running_plan(daemon, [_scope("kept@x.com"), _scope("dropped@x.com")], ["kept@x.com", "dropped@x.com"])
+    run.script.sup.append(_decision(run.tree, [_scope("kept@x.com").model_dump()]))
+    chat(daemon, "drop the second address", session="s1")       # no address in the owner's words
+    asked = _finish(daemon, run)
+    assert len(asked) == 1 and "dropped@x.com" in asked[0].reason            # the dropped scope's send asks
+    assert not run.results["kept@x.com"]["is_error"] and not run.results["dropped@x.com"]["is_error"]
+
+    async def saved() -> list[Any]:
+        return daemon.daemon.supervisor.plans.load(run.tree)["plan"].standing_sends
+    assert [s.recipients for s in daemon.run(saved())] == [["kept@x.com"]]   # the plan keeps what was decided
+
+
+def test_a_steer_that_leaves_the_standing_scope_unchanged_keeps_both(daemon: RunningDaemon) -> None:
+    run = _running_plan(daemon, [_scope("kept@x.com"), _scope("other@x.com")], ["kept@x.com", "other@x.com"])
+    run.script.sup.append(_decision(run.tree, "unchanged"))
+    chat(daemon, "make it friendlier", session="s1")
+    assert _finish(daemon, run) == []
+
+
+def test_a_widened_standing_scope_is_stated_in_the_reply_before_it_covers_anything(daemon: RunningDaemon) -> None:
+    run = _running_plan(daemon, [_scope("kept@x.com")], ["new@x.com"])
+
+    async def covered() -> bool:
+        from ferb.core.types import ActionSpec, Target
+        return daemon.daemon.supervisor.standing.covers(run.tree, "probe.post", "owner", ActionSpec(
+            "post", Target(recipients=("new@x.com",)), "the update"))
+    assert not daemon.run(covered())
+    run.script.sup.append(_decision(run.tree, [_scope("kept@x.com").model_dump(), _scope("new@x.com").model_dump()]))
+    reply = chat(daemon, "also post to the new member", session="s1")   # no address in the owner's words
+    text = _texts(reply)
+    assert "new@x.com" in text and "without asking" in text                    # stated to the owner
+
+    async def statement() -> tuple[str, str]:
+        db = daemon.daemon.db.conn
+        row = db.execute("SELECT id, data_json FROM journal WHERE kind='plan.stated' ORDER BY seq DESC").fetchone()
+        grant = db.execute("SELECT approval_id FROM standing_permissions WHERE task_id=? AND active=1 "
+                           "AND scope LIKE '%new@x.com%'", (run.tree,)).fetchone()
+        return json.loads(row[1])["text"], (grant[0] if grant else "") + "|" + row[0]
+    stated, ids = daemon.run(statement())
+    grant_id, entry = ids.split("|")
+    assert "new@x.com" in stated and stated in text and grant_id == "stated:" + entry
+    assert _finish(daemon, run) == [] and not run.results["new@x.com"]["is_error"]
+
+
+def test_a_steer_supersedes_only_the_questions_it_names(daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.steering import settle_questions
+    pay, call, cap, grant = _pending_floor_check(daemon)
+
+    async def login() -> Any:
+        action = ActionRequest("browser.login_code", "owner_login_code", Identity.OWNER, frozenset(), "task-1",
+                               "w1", "req-1", frozenset())
+        ap = daemon.daemon.state.approvals.question(action, "Enter the login code for x.com (hidden).", [])
+        ap.kind = "owner_login_code"
+        return ap
+    code = daemon.run(login())
+    other = _task_question(daemon, "Use your work email?")                    # another request's question
+
+    async def steer(names: list[str]) -> None:
+        settle_questions(daemon.daemon.supervisor, "req-1", "also cc Bob", names)
+    daemon.run(steer([]))
+    assert pay.state == "pending" and code.state == "pending"                 # "also cc Bob" re-asks nothing
+    daemon.run(steer([pay.id, other.id]))
+    assert pay.state == "superseded" and code.state == "pending" and other.state == "pending"
+    call.result(timeout=5)
+
+
+def test_a_steer_routed_with_named_questions_supersedes_only_those(daemon: RunningDaemon) -> None:
+    run = _running_plan(daemon, [], [])
+    worker = daemon.daemon.supervisor._tree_of[run.tree].worker
+
+    async def make(capability: str, kind: str) -> Any:
+        action = ActionRequest(capability, kind, worker.identity, frozenset(), worker.id, worker.id,
+                               worker.request_id, frozenset())
+        ap = daemon.daemon.state.approvals.question(action, "Pending owner decision", ["Yes", "No"])
+        ap.kind = kind
+        return ap
+    pay = daemon.run(make(CONFIRM_ASK, "owner_question"))
+    secret = daemon.run(make("secret.fill", "owner_secret"))
+    run.script.sup.append(_decision(run.tree, "unchanged", (pay.id,)))
+    chat(daemon, "pay with the other card", session="s1")
+    assert pay.state == "superseded" and secret.state == "pending"
+    daemon.call_soon(lambda: daemon.daemon.state.approvals.supersede(secret.id))
+    _finish(daemon, run)
+
+
+def test_a_bare_yes_with_a_free_text_question_open_asks_which_one(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    free = _task_question(daemon, "Which folder should I use?", options=())
+    install(daemon, [_routed(pay.id, "Yes")])
+    events = chat(daemon, "Yes", session="s")
+    assert pay.state == "pending" and cap.calls == 0 and free.state == "pending"
+    assert [e["type"] for e in events] == ["clarify"] and free.reason in events[0]["text"]
+    call.cancel()
+
+
+def test_the_literal_i3_case_a_yes_after_the_planners_clarify_never_pays(daemon: RunningDaemon) -> None:
+    script = install(daemon, [sup("clarify", "Use your work email?")])
+    assert [e["type"] for e in chat(daemon, "send the invoice", session="s")] == ["clarify"]
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    script.sup += [_routed(pay.id, "Yes"), _routed(pay.id, "Yes")]
+    events = chat(daemon, "Yes", session="s")
+    assert pay.state == "pending" and cap.calls == 0
+    assert [e["type"] for e in events] == ["clarify"] and "Use your work email?" in events[0]["text"]
+    chat(daemon, "the payment", session="s")
+    assert pay.state == "granted" and pay.choice == "Yes"
+    assert not call.result(timeout=5)["is_error"]
+
+
+def test_a_question_opened_after_ferbs_yes_or_no_question_is_rechecked(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    install(daemon, [_routed(pay.id, "Yes"), _routed(pay.id, "Yes")])
+    assert [e["type"] for e in chat(daemon, "sure", session="s")] == ["clarify"]
+    later = _task_question(daemon, "Use your work email?")                    # opened in between
+    events = chat(daemon, "Yes", session="s")
+    assert pay.state == "pending" and [e["type"] for e in events] == ["clarify"] and later.reason in events[0]["text"]
+    call.cancel()
+
+
+def _retry_question(daemon: RunningDaemon, ferb_yes: Any) -> tuple[Any, Any]:
+    """P19: an unknown payment, its refused repeat, and the worker's retry question waiting for the owner."""
+    ferb_yes.expect("floor:pay")
+    boom = FakeCap("probe.pay", "pay", {"probe"}, boom=True)
+    grant, _ = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [boom])
+    daemon.run(daemon.daemon.gateway.call(grant, "probe.pay", {"to": "x@y.com", "text": "pay $5"}), timeout=20)
+    refused = daemon.run(daemon.daemon.gateway.call(grant, "probe.pay", {"to": "x@y.com", "text": "pay $5"}),
+                         timeout=20)
+    ask = _start(daemon, grant, "owner.ask", question="Nothing in Sent.",
+                 retry_action=refused["content"]["retry_action"])
+    from ferb.daemon.gateway import RETRY_ASK
+    _until(lambda: bool(_pending(daemon, RETRY_ASK)))
+    return _pending(daemon, RETRY_ASK)[0], ask
+
+
+def test_a_p19_retry_question_is_ferbs_own_check(ferb_yes: Any, daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.steering import settle_questions
+    retry, ask = _retry_question(daemon, ferb_yes)
+    other = _task_question(daemon, "Use your work email?")
+    script = install(daemon, [_routed(retry.id, "Yes")])
+    events = chat(daemon, "Yes", session="s")
+    assert retry.state == "pending" and [e["type"] for e in events] == ["clarify"]   # which one?
+    listed = re.search(r'\{"approval_id": "' + re.escape(retry.id) + r'".*?"ferb_check": (true|false)\}',
+                       script.contexts[-1][2], re.S)
+    assert listed and listed.group(1) == "true"                            # the planner is told it's FERB's check
+
+    async def steer(names: list[str]) -> None:
+        settle_questions(daemon.daemon.supervisor, "req-1", "Yes", names)
+    daemon.run(steer([]))
+    assert retry.state == "pending"
+    daemon.run(steer([retry.id]))
+    assert retry.state == "superseded" and retry.choice is None             # a steer's "Yes" never approves it
+    assert not ask.result(timeout=5)["content"].get("retry_approved")
+    assert other.state == "pending"
+
+
+def test_live_chat_hints_yes_or_no_for_ferbs_retry_and_conversation_checks() -> None:
+    from ferb.cli.live_chat import LiveChat
+    for capability in ("ferb.retry", "conversation.approve"):
+        said: list[str] = []
+        chat_ = LiveChat.__new__(LiveChat)
+        chat_.pending, chat_._lock = {}, threading.RLock()
+        chat_.say = said.append                                            # type: ignore[method-assign]
+        chat_.answer_approval({"approval_id": "ap-" + capability, "kind": "owner_question", "capability": capability,
+                               "reason": "Try once more?", "options": ["Yes", "No"]})
+        assert said[-1].strip() == "Reply Yes or No."
+
+
+def test_a_conversation_scope_approval_takes_only_a_plain_yes_or_no(daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.conversations import ConversationScope
+    scope = ConversationScope(identity="owner", account="me@x.com", site="discord.com", app="Discord",
+                              thread="launch", recipients=["sam"], topic="launch feedback", handover_when="a lead")
+    spec = task("Talk to sam about the launch", "owner")
+    spec["plan"] = Plan(steps=[Step(id="talk", kind="converse", goal="Talk to sam",
+                                    conversation=scope)]).model_dump()
+    script = install(daemon, [sup("task", "Starting the conversation.", spec)], {"worker": done("Checked.")})
+    turn = threading.Thread(target=lambda: chat(daemon, "talk to sam about the launch", session="c"))
+    turn.start()
+    _until(lambda: bool(_pending(daemon, "conversation.approve")))
+    approval = _pending(daemon, "conversation.approve")[0]
+    other = _task_question(daemon, "Use your work email?")
+    script.sup.append(_routed(approval.id, "Yes"))
+    events = chat(daemon, "Yes", session="s")
+    assert approval.state == "pending" and [e["type"] for e in events] == ["clarify"]
+    daemon.daemon.supervisor.stop_tree(next(t.id for t in daemon.daemon.supervisor._tree_of.values()))
+    turn.join(10)
+    assert approval.state == "superseded" and other.state == "pending"
+
+
+def test_a_steer_closing_a_login_code_prompt_keeps_it_superseded(daemon: RunningDaemon) -> None:
+    from ferb.core.types import ToolContext
+    from ferb.orchestrator.steering import settle_questions
+    ctx = ToolContext(task_id="t1", worker_id="w1", request_id="req-9", identity=Identity.OWNER, scopes=frozenset(),
+                      device_id="dev", span_id="s", workspace=Path("/tmp"), owner_roots=(), untrusted_roots=())
+    waiting = asyncio.run_coroutine_threadsafe(daemon.daemon.gateway.ask_login_code(ctx, "https://x.com"),
+                                               daemon.loop)
+    _until(lambda: bool([a for a in daemon.daemon.state.approvals.pending() if a.kind == "owner_login_code"]))
+    code = [a for a in daemon.daemon.state.approvals.pending() if a.kind == "owner_login_code"][0]
+
+    async def steer() -> None:
+        settle_questions(daemon.daemon.supervisor, "req-9", "use the other account", [code.id])
+    daemon.run(steer())
+    assert waiting.result(timeout=5) is None and code.state == "superseded"
+
+
+def test_a_typed_code_while_a_login_code_prompt_waits_never_reaches_the_planner(daemon: RunningDaemon) -> None:
+    async def login() -> Any:
+        action = ActionRequest("browser.login_code", "owner_login_code", Identity.OWNER, frozenset(), "t", "w",
+                               "r", frozenset())
+        ap = daemon.daemon.state.approvals.question(action, "Enter it in the hidden prompt.", [])
+        ap.kind = "owner_login_code"
+        return ap
+    daemon.run(login())
+    script = install(daemon, [sup("reply", "Use the hidden prompt for codes.")])
+    chat(daemon, "314159", session="s")
+    assert "314159" not in repr(script.contexts)
+
+
+def test_a_task_without_a_plan_can_be_given_and_then_lose_a_stated_scope(daemon: RunningDaemon) -> None:
+    cap = FakeCap("probe.post", "post", {"probe"})
+    daemon.daemon.registry.capabilities[cap.name] = cap
+    started, proceed, results = threading.Event(), threading.Event(), {}
+
+    def worker(token: str) -> str:
+        started.set()
+        proceed.wait(15)
+        results["new"] = tool(daemon.sock, token, "probe.post", to="new@x.com", text="the update")
+        return done("Posted.")
+    script = install(daemon, [sup("task", "Posting.", task("Post the update", "owner"))], {"worker": worker})
+    turn = threading.Thread(target=lambda: chat(daemon, "post the update", session="s1"))
+    turn.start()
+    assert started.wait(10)
+    tree = next(t.id for t in daemon.daemon.supervisor._tree_of.values())
+    script.sup.append(_decision(tree, [_scope("new@x.com").model_dump()], spec=task("Post the update", "owner")))
+    # the owner's words don't name the address (a named one is authorized by provenance, not by the scope)
+    assert "new@x.com" in _texts(chat(daemon, "you can post to the list without asking", session="s1"))
+    script.sup.append(_decision(tree, [], spec=task("Post the update", "owner")))
+    assert "ask before each" in _texts(chat(daemon, "actually ask me first", session="s1"))
+    owner = Answers(daemon, granted=True, choice=1)
+    proceed.set()
+    turn.join(20)
+    owner.stop()
+    assert [ap for ap in owner.asked if ap.capability == CONFIRM_ASK]       # withdrawn: the send asks again
+
+    async def rows() -> list[Any]:
+        return daemon.daemon.supervisor.standing.scopes(tree)
+    assert daemon.run(rows()) == []

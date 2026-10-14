@@ -468,8 +468,10 @@ def _ask_args(daemon: RunningDaemon, token: str, args: dict[str, Any], call_id: 
 
 
 def _owner_questions(daemon: RunningDaemon) -> list[Any]:
+    # a P19 retry question is FERB's own Yes/No and carries the capability ferb.retry (Task 7, L3)
     async def go() -> list[Any]:
-        return [ap for ap in daemon.daemon.state.approvals.of_request("req-1") if ap.capability == "owner.ask"]
+        return [ap for ap in daemon.daemon.state.approvals.of_request("req-1")
+                if ap.capability in ("owner.ask", "ferb.retry")]
     return daemon.run(go())
 
 

@@ -45,7 +45,7 @@ def test_retry_after_daemon_restart_restores_goal_profile_and_real_task_id(home)
         supervisor.environment = lambda words: {"stable": "", "profile_test": "Work" if "Work profile" in words else None}
         assert attach(d) == session
         retry = json.loads(sup("task", "Retrying", task("continue login", "owner")))
-        retry["control"] = {"task_id": first["task_id"], "action": "continue"}
+        retry["control"] = {"task_id": first["task_id"], "action": "continue", "standing_sends": "unchanged", "supersedes": []}
         seen = []
 
         def worker(token):
@@ -99,7 +99,7 @@ def test_retry_receives_unknown_prior_action_for_inspection(daemon):
         ledger.mark(intent.id, "unknown")
     daemon.run(lost())
     retry = json.loads(sup("task", "Retrying", task("try again", "owner")))
-    retry["control"] = {"task_id": first["task_id"], "action": "retry"}
+    retry["control"] = {"task_id": first["task_id"], "action": "retry", "standing_sends": "unchanged", "supersedes": []}
     script = install(daemon, [json.dumps(retry)], {"worker": json.dumps({"status":"done", "summary":"Inspected delivery.", "artifacts":[], "evidence":[]})})
     result = chat(daemon, "try again", session=session)
     assert outcome(result)["status"] == "done"
@@ -109,7 +109,7 @@ def test_retry_receives_unknown_prior_action_for_inspection(daemon):
 
 def test_unknown_task_id_is_repaired_to_a_specific_question_without_running(daemon):
     bad = json.loads(sup("task", "Retrying", task("try again", "owner")))
-    bad["control"] = {"task_id": "t1", "action": "retry"}
+    bad["control"] = {"task_id": "t1", "action": "retry", "standing_sends": "unchanged", "supersedes": []}
     script = install(daemon, [json.dumps(bad), sup("clarify", "Do you mean lunch or the spreadsheet search?")], {})
     result = chat(daemon, "try that again")
     assert result[-1] == {"type": "clarify", "text": "Do you mean lunch or the spreadsheet search?"}

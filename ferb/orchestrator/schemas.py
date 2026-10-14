@@ -12,7 +12,7 @@ from pydantic import BaseModel, model_validator
 
 from ferb.clock.when import WHEN_SCHEMA, When
 from ferb.policy.targets import Targets
-from ferb.orchestrator.plans import Plan
+from ferb.orchestrator.plans import Plan, SendScope
 
 CHECK_KINDS = ["none", "file_exists", "file_contains", "tab_url", "account", "after_change", "after_value"]
 
@@ -57,12 +57,14 @@ STEP_SCHEMA = _obj({
     "question": {"type": "string"}, "options": _strings(),
     "conversation": {"anyOf": [{"type": "null"}, CONVERSATION_SCHEMA]},
 })
+SEND_SCOPE_SCHEMA = _obj({
+    "capability": {"type": "string"}, "identity": {"type": "string", "enum": ["owner", "ferb"]},
+    "account": _nullable("string"), "site": _nullable("string"), "recipients": _strings(),
+    "content": _nullable("string")})
 PLAN_SCHEMA = _obj({"steps": {"type": "array", "items": STEP_SCHEMA}, "input_paths": _strings(),
                     "big_job": {"type": "boolean"}, "time_estimate": {"type": "string"},
-                    "cost_estimate": {"type": "string"}, "standing_sends": {"type": "array", "items": _obj({
-                        "capability": {"type": "string"}, "identity": {"type": "string", "enum": ["owner", "ferb"]},
-                        "account": _nullable("string"), "site": _nullable("string"), "recipients": _strings(),
-                        "content": _nullable("string")})}})
+                    "cost_estimate": {"type": "string"},
+                    "standing_sends": {"type": "array", "items": SEND_SCOPE_SCHEMA}})
 TASK_SCHEMA: dict[str, Any] = _obj({
     "goal": {"type": "string"},
     "identity": {"type": "string", "enum": ["owner", "ferb"]},
@@ -97,7 +99,11 @@ SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
                   "action": {"type": "string", "enum": ["stop", "retry", "continue"]},
                   # continue only: the follow-up asks for a different result than the ended task's goal (L11)
-                  "new_goal": {"type": "boolean"}})]},
+                  "new_goal": {"type": "boolean"},
+                  # L3: a correction always decides the stated standing scope and names the open questions it changes
+                  "standing_sends": {"anyOf": [{"type": "string", "enum": ["unchanged"]},
+                                               {"type": "array", "items": SEND_SCOPE_SCHEMA}]},
+                  "supersedes": _strings()})]},
     "remember": {"type": "array", "items": REMEMBER_SCHEMA},
     "timers": {"type": "array", "items": TIMER_SCHEMA},
     "schedule": {"anyOf": [{"type": "null"}, SCHEDULE_SCHEMA]},
@@ -220,11 +226,16 @@ class AnswerQuestion(BaseModel):
 
 
 class TaskControl(BaseModel):
+    """Which earlier task the message is about and what to do with it. For a correction the planner always decides
+    (no default, rule 6) the task's stated standing scope, "unchanged" or the revised scopes (D30), and names the open
+    question ids the correction changes, which alone are set aside (L3)."""
     task_id: str
     action: Literal["stop", "retry", "continue", "steer"]
     # continue on an ended task: the planner's judgment that the follow-up asks for a different result (a new goal),
     # so FERB plans it afresh inside the same task; false resumes the saved goal and plan (L11, ef9e5d75)
     new_goal: bool = False
+    standing_sends: Literal["unchanged"] | list[SendScope]
+    supersedes: list[str]
 
 
 class SupervisorOutcome(BaseModel):

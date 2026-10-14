@@ -28,6 +28,10 @@ class PlanStore:
                 for key in keys:
                     self.db.conn.execute('INSERT OR IGNORE INTO plan_steps(task_id,step_id) VALUES(?,?)', (task_id, key))
 
+    def update_plan(self, task_id: str, plan: Plan) -> None:
+        """The plan as an owner correction left it (its standing scope, D30); steps and their records stay."""
+        self.db.conn.execute('UPDATE task_plans SET plan=? WHERE task_id=?', (self._json(plan.model_dump()), task_id))
+
     def load(self, task_id: str) -> dict[str, Any]:
         row = self.db.conn.execute('SELECT * FROM task_plans WHERE task_id=?', (task_id,)).fetchone()
         if row is None:

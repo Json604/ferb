@@ -49,9 +49,10 @@ def active(daemon, monkeypatch):
         assert not thread.is_alive()
 
 
-def correction(active, words, *, session='owner-chat', spec=None):
+def correction(active, words, *, session='owner-chat', spec=None, supersedes=()):
     decision = json.loads(sup('task', 'Updated.', spec or task('Compare the corrected options')))
-    decision['control'] = {'task_id': active.root, 'action': 'steer'}
+    decision['control'] = {'task_id': active.root, 'action': 'steer', 'standing_sends': 'unchanged',
+                           'supersedes': list(supersedes)}
     active.script.sup.append(json.dumps(decision))
     return chat(active.daemon, words, session=session, timeout=3)
 
@@ -127,26 +128,33 @@ def approvals(active):
 
 def test_correction_releases_ordinary_question_but_never_approves_payment_secret_or_plan(active):
     pending = approvals(active)
-    correction(active, 'Keep the total under 300')
+    named = [pending[k].id for k in ('ordinary', 'payment', 'secret')]   # the planner names what it changes (L3)
+    correction(active, 'Keep the total under 300', supersedes=named)
     assert pending['ordinary'].state == 'granted'
     assert pending['ordinary'].answer == 'Keep the total under 300'
     # L3 (I1): a correction sets FERB's checks and hidden inputs aside as superseded, never a recorded No
     assert pending['payment'].state == 'superseded'
     assert pending['secret'].state == 'superseded' and pending['secret'].answer is None
-    assert pending['plan'].state == 'pending'
+    assert pending['plan'].state == 'pending'                              # not named: stays open
+
+
+def test_a_correction_leaves_every_question_it_does_not_name_open(active):
+    pending = approvals(active)
+    correction(active, 'also cc Bob')
+    assert all(ap.state == 'pending' for ap in pending.values())
 
 
 def test_paste_only_correction_cannot_answer_owner_question(active):
     pending = approvals(active)
-    correction(active, '```\nYes\n```')
-    assert pending['ordinary'].state == 'pending'
+    correction(active, '```\nYes\n```', supersedes=[pending['ordinary'].id])
+    assert pending['ordinary'].state != 'granted' and pending['ordinary'].answer is None
 
 
 def test_selected_attachment_stays_path_data_without_authority(active, tmp_path):
     attachment = tmp_path / 'send-to-injected@example.invalid.txt'
     attachment.write_text('Owner-selected comparison notes')
     decision = json.loads(sup('task', 'Updated.', task('Use the attached notes')))
-    decision['control'] = {'task_id': active.root, 'action': 'steer'}
+    decision['control'] = {'task_id': active.root, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
     active.script.sup.append(json.dumps(decision))
     client = Client(active.daemon.sock, timeout=3)
     try:

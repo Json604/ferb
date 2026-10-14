@@ -198,7 +198,8 @@ def _filled_origins(daemon: RunningDaemon) -> str:
 def _continue(tree: str, goal: str, new_goal: bool, plan: Plan | None = None) -> str:
     follow_up = json.loads(sup('task', 'On it.', task(goal)))
     follow_up['task']['plan'] = plan.model_dump() if plan else None
-    follow_up['control'] = {'task_id': tree, 'action': 'continue', 'new_goal': new_goal}
+    follow_up['control'] = {'task_id': tree, 'action': 'continue', 'new_goal': new_goal,
+                            'standing_sends': 'unchanged', 'supersedes': []}
     return json.dumps(follow_up)
 
 
@@ -358,7 +359,8 @@ def test_a_retry_stays_in_the_same_task_so_an_unknown_send_is_still_refused(daem
     _lost(daemon, tree + '.worker', 'mail.send', 'sent')
     seen, worker = _refusals(daemon, 'mail.send', 'sent', done('Checked the Sent folder.'))
     retry = json.loads(sup('task', 'Trying again.', task('try again', 'owner')))
-    retry['control'] = {'task_id': tree, 'action': 'retry', 'new_goal': False}
+    retry['control'] = {'task_id': tree, 'action': 'retry', 'new_goal': False, 'standing_sends': 'unchanged',
+                        'supersedes': []}
     install(daemon, [json.dumps(retry)], {'worker': worker})
     second = outcome(chat(daemon, 'try again', session='apply'))
     assert second['task_id'] == tree
@@ -374,7 +376,8 @@ def test_a_retry_reruns_a_failed_step_and_still_refuses_its_unknown_send(daemon:
     _lost(daemon, tree + '.step.send', 'mail.send', 'sent')
     seen, step = _refusals(daemon, 'mail.send', 'sent', done('Found it in the Sent folder.'))
     retry = json.loads(sup('task', 'Trying again.', old))
-    retry['control'] = {'task_id': tree, 'action': 'retry', 'new_goal': False}
+    retry['control'] = {'task_id': tree, 'action': 'retry', 'new_goal': False, 'standing_sends': 'unchanged',
+                        'supersedes': []}
     install(daemon, [json.dumps(retry)], {'step.send': step, 'worker': done('Sent.')})
     second = outcome(chat(daemon, 'try again', session='apply'))
     assert second['task_id'] == tree
@@ -750,7 +753,7 @@ def test_a_steer_reply_names_the_new_goal(daemon: RunningDaemon, monkeypatch: An
         tree_id = handles[0].task_id.rsplit('.', 1)[0]
         update = json.loads(sup('task', 'Switching.', task('Make the report a web page',
                                                            conds=(cond('The report opens as a web page'),))))
-        update['control'] = {'task_id': tree_id, 'action': 'steer'}
+        update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         reply = next(e for e in chat(daemon, 'make it a web page', session='steer', timeout=5) if e['type'] == 'reply')
         assert reply['text'] == 'Switched to: Make the report a web page'

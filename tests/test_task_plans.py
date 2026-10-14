@@ -150,7 +150,7 @@ def test_chat_continue_reuses_saved_plan_tree_and_does_not_repeat_completed_step
                            {'step.read': done('Read once.'), 'worker': done('Report checked.')})
     first = outcome(chat(daemon, 'Read session then verify report'))
     continuation = json.dumps({'kind': 'reply', 'text': 'Continuing the saved plan.',
-                              'control': {'task_id': first['task_id'], 'action': 'continue'}})
+                              'control': {'task_id': first['task_id'], 'action': 'continue', 'standing_sends': 'unchanged', 'supersedes': []}})
     second_script = install(daemon, [continuation], {'worker': done('Report checked again.')})
     second = outcome(chat(daemon, 'Continue that saved plan'))
     assert second['task_id'] == first['task_id']

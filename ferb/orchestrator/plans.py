@@ -43,6 +43,12 @@ class SendScope(BaseModel):
     recipients: list[str] = Field(default_factory=list)
     content: str | None = ''    # None is explicit owner approval of any body; omitted never means a wildcard
 
+    def line(self) -> str:
+        """The scope as FERB states it to the owner (D30), on one line."""
+        return " ".join((f"Send using {self.identity}'s account {self.account or ''} at {self.site or ''}, to "
+                         f"{', '.join(self.recipients) or self.site}, through {self.capability}: " +
+                         ('any message body' if self.content is None else self.content)).split())
+
 
 class Plan(BaseModel):
     steps: list[Step]

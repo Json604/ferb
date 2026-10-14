@@ -39,7 +39,7 @@ import json
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import ValidationError
 
@@ -75,6 +75,7 @@ Redact = Callable[[Any], Any]
 
 OWNER_ASK = "owner.ask"
 CONFIRM_ASK = "ferb.confirm"             # the approval behind FERB's own question (D33): journaled apart from a worker's
+RETRY_ASK = "ferb.retry"                 # P19: FERB's own Yes/No to one more attempt at an action with an unknown outcome
 _SEND_KINDS = confirm.SEND_CLASS | {Kind.PAY}           # what the test-mode allowlist covers (calls included)
 APP_WINDOW_TIMEOUT_S = 10.0              # a first look that takes longer is dropped (logged); the call goes on
 IMAGE_FACTS = ("app", "bundle_id", "window", "title", "url", "tab", "shot", "width", "height", "window_id", "path",
@@ -1130,7 +1131,7 @@ class Gateway:
             if not delivered and ap.answer:
                 self.redact.release_secret(ap.answer)
             ap.answer = None
-            ap.state = "used" if delivered else "denied"
+            ap.state = "used" if delivered else _unfilled(ap.state)
 
     async def _execute(self, cap: Capability, name: str, args: Any, spec: Any, action: ActionRequest,
                        grant: RunGrant, rec: Any, span: Any, reply: Callable[..., dict[str, Any]],
@@ -1574,7 +1575,7 @@ class Gateway:
             if not delivered and ap.answer:
                 self.redact.release_secret(ap.answer)
             ap.answer = None
-            ap.state = "used" if ap.state == "granted" else "denied"
+            ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
 
     def release_secret(self, value: str) -> None:
         from ferb.sanitize.redact import Redactor
@@ -1601,7 +1602,7 @@ class Gateway:
             return ap.answer if state == "granted" else None
         finally:
             ap.answer = None
-            ap.state = "used" if ap.state == "granted" else "denied"
+            ap.state = "used" if ap.state == "granted" else _unfilled(ap.state)
 
     async def _ask_owner(self, grant: RunGrant, rec: Any, args: Any) -> dict[str, Any]:
         """owner.ask: the worker's question goes to chat as an approval with options (or free text); the call waits
@@ -1661,7 +1662,9 @@ class Gateway:
             self._finish_call(span, OWNER_ASK, declined, False, output=declined, origins=ask_origins(declined))
             return {"declined": True, "reason": "the owner isn't here (a scheduled run): decide yourself or report "
                                                 "what's missing"}
-        ask = ActionRequest(capability=OWNER_ASK, kind="owner_question", identity=grant.identity, scopes=frozenset(),
+        # a retry question is FERB's own consequential Yes/No (P19): answered like FERB's checks, never by a steer
+        capability = RETRY_ASK if retry else OWNER_ASK
+        ask = ActionRequest(capability=capability, kind="owner_question", identity=grant.identity, scopes=frozenset(),
                             task_id=grant.task_id, worker_id=grant.worker_id, request_id=rec.task.request_id,
                             task_scopes=grant.scopes, content=question, effect="navigate")
         ap, new = (reused, False) if reused is not None else self._question(ask, question, options, key=key)
@@ -1672,7 +1675,7 @@ class Gateway:
         if new:
             ap.display_text = (confirm.task_question(printable(self.redact(display_text))) if display_text.strip()
                                else "")
-            self.publish("approval.requested", {"approval_id": ap.id, "capability": OWNER_ASK,
+            self.publish("approval.requested", {"approval_id": ap.id, "capability": capability,
                                                 "kind": "owner_question", "reason": question, "options": options,
                                                 "task_id": grant.task_id,
                                                 **({"display_text": ap.display_text} if ap.display_text else {})})
@@ -1765,6 +1768,10 @@ class Gateway:
         ap.key = key
         return ap, True
 
+    def _task_stopped(self, task_id: str) -> bool:
+        """The task was really stopped (its tree's Stop, or FERB's emergency stop), not merely left by a caller."""
+        return bool(self.state.stopped) or task_id in self._cancelled_tasks
+
     async def _wait_answer(self, grant: RunGrant, approval_id: str) -> str:
         """The question's state once the owner answers; "gone" when it closed with its task; CALLER_LEFT when the call
         lost its caller first (the worker's connection closed): the question then stays as it is, untaken, so the
@@ -1783,9 +1790,10 @@ class Gateway:
                     return ap.state
                 await asyncio.sleep(self.hold_poll_s)
         except asyncio.CancelledError:
-            # Nobody waits for this question any more (the call was cancelled, its task stopped): it closes as
-            # superseded instead of staying open until the tree ends (L3). Not a No.
-            if self.state.approvals.supersede(approval_id) is not None:
+            # Two causes, kept apart. The task was really stopped (Stop, or FERB stopped): nobody will use an answer,
+            # so the question closes as superseded (L3), never a No. Only the waiter went away while the task still
+            # runs (its caller left): the question stays open for the owner (Task 14's CALLER_LEFT).
+            if self._task_stopped(grant.task_id) and self.state.approvals.supersede(approval_id) is not None:
                 self.publish("approval.resolved", {"approval_id": approval_id, "state": "superseded"})
             raise
         finally:
@@ -1793,6 +1801,11 @@ class Gateway:
             if not self._waiting[approval_id]:
                 del self._waiting[approval_id]
             self.observer.waiting(grant.worker_id, False)
+
+
+def _unfilled(state: str) -> Literal["denied", "superseded"]:
+    """A hidden input's state once its wait ends without a delivered value: superseded stays superseded (L3)."""
+    return "superseded" if state == "superseded" else "denied"
 
 
 CALLER_LEFT = "caller_left"                  # a waiting call whose worker connection closed (server.caller_left)

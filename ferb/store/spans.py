@@ -259,14 +259,15 @@ class SpanStore:
         return [a["answer"] for a in answers if isinstance(a, dict) and isinstance(a.get("answer"), str)]
 
     def owner_questions(self, root_id: str) -> list[dict[str, str]]:
-        """The task's questions to the owner (owner.ask, not FERB's own checks) that the owner answered, each with the
-        answer, in order: what carries across the task's retries (rule 9). Only spans whose origin is exactly the
-        owner, as `owner_answers`; an orchestrator's answer is not the owner's."""
+        """The task's questions to the owner (owner.ask, not FERB's own checks or P19 retry questions) that the owner
+        answered, each with the answer, in order: what carries across the task's retries (rule 9). Only spans whose
+        origin is exactly the owner, as `owner_answers`; an orchestrator's answer is not the owner's."""
         where, params = self._tree_where(root_id)
         rows = self._db.conn.execute(
             f"SELECT input_json, output_json FROM spans WHERE kind = 'tool.call' AND origin = ? "
             f"AND output_json IS NOT NULL AND json_extract(input_json, '$.tool') = 'owner.ask' "
             f"AND json_extract(input_json, '$.ferb_question') IS NULL "
+            f"AND json_extract(input_json, '$.args.retry_action') IS NULL "
             f"AND json_extract(input_json, '$.args.question') IS NOT NULL AND {where} ORDER BY rowid",
             (origin.OWNER, *params))
         found: list[dict[str, str]] = []

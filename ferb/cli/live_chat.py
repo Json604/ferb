@@ -8,6 +8,7 @@ from typing import Any, Callable
 from ferb.cli.chat import Chat, ReplyDraft, question, render
 
 SECRETS = {'owner_login_code', 'owner_admin_password', 'owner_secret'}
+FERB_CHECKS = {'ferb.confirm', 'ferb.retry', 'conversation.approve'}   # FERB's own Yes/No questions (L3)
 
 
 class LiveChat(Chat):
@@ -35,7 +36,7 @@ class LiveChat(Chat):
             return
         # Typed text answers it: FERB matches a reply to its question (L3); its own checks take a plain Yes or No
         self.say(question(data, prompt=False).rstrip())
-        self.say('   Reply Yes or No.' if data.get('capability') == 'ferb.confirm' else '   Reply here to answer.')
+        self.say('   Reply Yes or No.' if data.get('capability') in FERB_CHECKS else '   Reply here to answer.')
 
     def opening(self) -> None:
         super().opening()                         # dynamic answer_approval queues questions, never steals input

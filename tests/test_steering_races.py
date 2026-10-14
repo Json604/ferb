@@ -41,7 +41,7 @@ def running_chat(daemon, words, release, *, timeout=10):
 
 def route_update(script, tree_id):
     update = json.loads(sup('task', 'Updating lunch.', task(CORRECTION)))
-    update['control'] = {'task_id': tree_id, 'action': 'steer'}
+    update['control'] = {'task_id': tree_id, 'action': 'steer', 'standing_sends': 'unchanged', 'supersedes': []}
     script.sup.append(json.dumps(update))
 
 

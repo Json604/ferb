@@ -8,9 +8,16 @@ from typing import Any
 from ferb.core import origin
 from ferb.core.errors import Unsupported
 from ferb.core.types import RunHandle
+from ferb.daemon.gateway import CONFIRM_ASK, RETRY_ASK
+from ferb.orchestrator.plans import SendScope
+from ferb.policy import confirm
 from ferb.policy.confirm import from_task_lines
 from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import wrap_untrusted
+
+CONVERSATION_ASK = 'conversation.approve'   # F9: the owner's Yes/No to a delegated conversation's scope
+# FERB's own consequential Yes/No questions: answered only by a plain Yes or No, never by a correction's words (L3)
+FERB_CHECKS = frozenset({CONFIRM_ASK, RETRY_ASK, CONVERSATION_ASK})
 
 
 @dataclass
@@ -40,18 +47,17 @@ async def deliver(supervisor: Any, tree: Any, runtime: Any, run: RunHandle) -> b
     return True
 
 
-def settle_questions(supervisor: Any, request_id: str, words: str) -> None:
-    """What a correction does to the request's open questions. A worker's ordinary question is released with the
-    owner's exact words. FERB's own checks and hidden inputs are closed as superseded: the correction may change the
-    prepared action, which the worker can only re-prepare once its call returns. Superseded is never a No (L3, I1):
-    nothing is recorded, so the corrected action asks again if it still needs to. A plan's ask step stays open."""
+def settle_questions(supervisor: Any, request_id: str, words: str, supersedes: list[str]) -> None:
+    """What a correction does to the request's open questions (L3, spec 4.1). Only the questions the planner named as
+    changed by it (`supersedes`), and only this request's, are touched; every other question stays open, so "also cc
+    Bob" doesn't re-ask a payment or close a waiting login-code prompt. A named task question is answered with the
+    owner's exact words. A named FERB check (floor, P19 retry, conversation scope) or hidden input is closed as
+    superseded: never a No (I1), nothing is recorded, and the corrected action asks again if it still needs to."""
+    named = set(supersedes)
     for approval in supervisor.state.approvals.pending():
-        if approval.request_id != request_id or approval.capability == 'plan.ask':
+        if approval.request_id != request_id or approval.id not in named:
             continue
-        ordinary = approval.kind == 'owner_question' and approval.capability == 'owner.ask'
-        if ordinary and not words.strip():
-            continue
-        if ordinary:
+        if approval.kind == 'owner_question' and approval.capability not in FERB_CHECKS and words.strip():
             supervisor.state.approvals.resolve(approval.id, True, text=words)
         else:
             supervisor.state.approvals.supersede(approval.id)
@@ -60,9 +66,39 @@ def settle_questions(supervisor: Any, request_id: str, words: str) -> None:
         supervisor.publish('approval.resolved', event)
 
 
+def restate_scope(supervisor: Any, tree: Any, standing: Any) -> str:
+    """The planner's decision about the tree's stated standing scope (D30), made for every correction: "unchanged",
+    or the revised scopes. Revised: the old grant is revoked at once (a narrowing takes effect now) and the revised
+    scopes are stated, recorded (`plan.stated`) and granted under that statement, so a new or widened scope covers
+    nothing until the reply returned here states it. The statement for the reply, else ''."""
+    if standing == 'unchanged':
+        return ''
+    revised = [SendScope.model_validate(supervisor.gateway.redact(s.model_dump())) for s in standing]
+    plan = tree.spec.plan
+    stated_before = list(plan.standing_sends) if plan is not None else supervisor.standing.scopes(tree.id)
+    if revised == stated_before:
+        return ''                        # nothing changes
+    supervisor.standing.revoke(tree.id)
+    if revised:
+        text = ("For this task I'll now send these without asking each time:\n" +
+                "\n".join("- " + s.line() for s in revised))
+    else:
+        text = "From now on I'll ask before each of these sends."
+    text = str(supervisor.gateway.redact(text))
+    stated = supervisor.journal.append('plan.stated', {'task_id': tree.id, 'text': text})
+    if revised:
+        supervisor.standing.grant(tree.id, revised, 'stated:' + stated.id)
+    if plan is not None:
+        plan.standing_sends = revised
+        supervisor.plans.update_plan(tree.id, plan)
+    return text
+
+
 async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, words: str,
-                payload: str, spec: Any, source_ref: str) -> dict[str, Any] | None:
-    """Persist first, then steer every live member of the named tree. New members read the same request."""
+                payload: str, spec: Any, source_ref: str, *, standing: Any,
+                supersedes: list[str]) -> dict[str, Any] | None:
+    """Persist first, then steer every live member of the named tree. New members read the same request. `standing`
+    and `supersedes` are the planner's explicit decisions for this correction (L3, D30)."""
     state = tree.steering
     async with state.lock:
         if not tree.accepting_updates:
@@ -89,6 +125,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                           (prior.payload or prior.words) + '\n\nOwner correction:\n' + clean['payload'],
                           prior.asked_origins | frozenset(o for o in made if origin.is_external(o)))
         supervisor.state.requests.record(updated)
+        stated = restate_scope(supervisor, tree, standing)
         supervisor.continuity.save(tree.id, session_id, tree.spec, updated.words, tree.prior_task, updated.payload)
         message = ('Owner correction to this running task (apply now; preserve completed work and inspect any '
                    'action already in flight before deciding what to do next):\n' + clean['payload'] +
@@ -121,7 +158,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
             origin=origin.join(made | shown | set(envelope.get('turn_origins', ())) | {origin.INFERRED}))
         supervisor.journal.append('task.steered', {'task_id': tree.id, 'session_id': session_id,
             'request_id': request_id, 'revision': revision, 'source_ref': source_ref})
-        settle_questions(supervisor, prior.request_id, clean['words'])
+        settle_questions(supervisor, prior.request_id, clean['words'], supersedes)
         active = [(runtime, run) for runtime, run in list(supervisor._worker_runs.values())
                   if (member := supervisor._tree_of.get(run.task_id)) is not None and member.id == tree.id]
         accepted = await asyncio.gather(*(deliver(supervisor, tree, runtime, run) for runtime, run in active))
@@ -132,4 +169,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
                    'Added your correction: ' + ' '.join(clean['words'].split()))
         if not (active and all(accepted)):
             changed += "\nI'll apply it at my next step."
-        return {'type': 'reply', 'task_id': tree.id, 'text': from_task_lines(changed)}
+        reply = {'type': 'reply', 'task_id': tree.id, 'text': from_task_lines(changed)}
+        if stated:                       # D30: the revised standing scope is stated to the owner in this reply (D33)
+            reply['text'] += '\n' + confirm.from_task_lines(stated)
+        return reply

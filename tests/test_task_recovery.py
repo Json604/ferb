@@ -47,7 +47,7 @@ def test_followup_keeps_the_original_owner_words_and_browser_choice(daemon) -> N
         "summary": "Login needed", "artifacts": [], "evidence": []})})
     previous = outcome(chat(daemon, "order lunch on shop.example in my Work profile"))
     followup = json.loads(sup("task", "Retrying.", task("retry login", "owner")))
-    followup["control"] = {"task_id": previous["task_id"], "action": "retry"}
+    followup["control"] = {"task_id": previous["task_id"], "action": "retry", "standing_sends": "unchanged", "supersedes": []}
     seen = []
 
     def worker(token):
@@ -106,7 +106,7 @@ def test_chat_stop_cancels_the_running_attempt_instead_of_just_saying_so(daemon,
             time.sleep(.01)
         assert any(key == "worker.verify" for _, key, _, _ in script.contexts)
     response = json.loads(sup("reply", "Stopped"))
-    response["control"] = {"task_id": root[0], "action": "stop"}
+    response["control"] = {"task_id": root[0], "action": "stop", "standing_sends": "unchanged", "supersedes": []}
     script.sup.append(json.dumps(response))
     evs = chat(daemon, "stop", session="s")
     thread.join(5)

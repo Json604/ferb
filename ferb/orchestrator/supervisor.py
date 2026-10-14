@@ -29,12 +29,12 @@ from ferb.core.context import Assembly, ContextBlock, count_tokens
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
-from ferb.daemon.gateway import CONFIRM_ASK, FsRoots, Gateway, Observer
+from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, TASK
 from ferb.orchestrator.continuity import Continuity
 from ferb.orchestrator.reply_stream import ReplyDraft
-from ferb.orchestrator.steering import Steering, apply as apply_steering
+from ferb.orchestrator.steering import CONVERSATION_ASK, FERB_CHECKS, Steering, apply as apply_steering
 from ferb.sanitize.redact import Redactor
 from ferb.sanitize.terminal import printable
 from ferb.orchestrator.plans import Plan, Step, inventory, problems as plan_problems
@@ -106,7 +106,7 @@ CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
 # L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
 # when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
-ROUTABLE_QUESTIONS = ("owner.ask", "plan.ask", CONFIRM_ASK)
+ROUTABLE_QUESTIONS = frozenset({"owner.ask", "plan.ask"}) | FERB_CHECKS
 ANSWERED = "Got your answer."
 NOT_WAITING = "That question isn't waiting for an answer any more, so I didn't count your message as one."
 WHICH_QUESTION = "I couldn't tell which question that answers. Which one is it for?"
@@ -161,6 +161,16 @@ def _not_saved(contents: list[str]) -> str:
         return ""
     return (f"I couldn't remember {_quoted(contents)} — a problem on my side, so "
             f"{'it is' if len(contents) == 1 else 'they are'} not saved. Could you tell me again?")
+
+
+@dataclass(frozen=True)
+class _Focus:
+    """What FERB itself just asked a chat about an answer (L3), for that chat's next message only: the owner's earlier
+    words it asked "which one is it for?" about (None for "Yes or No?"), the questions it named, and the questions
+    open when it asked (one opened since then still competes)."""
+    words: str | None
+    named: frozenset[str]
+    seen: frozenset[str]
 
 
 @dataclass
@@ -329,7 +339,7 @@ class Supervisor(WorkerRuns):
         self._chat_locks: dict[str, asyncio.Lock] = {}
         # L3: what FERB itself just asked a chat about an answer, used by that chat's next message only: the owner's
         # earlier words (a "which one is it for?") or None (a "Yes or No?"), and the questions it named.
-        self._answer_focus: dict[str, tuple[str | None, frozenset[str]]] = {}
+        self._answer_focus: dict[str, _Focus] = {}
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
         self.memory_candidates: Callable[[str], Any] | None = None      # ranked items, or an awaitable of them
@@ -677,43 +687,55 @@ class Supervisor(WorkerRuns):
             else None
         return {"front_window": front, "front_image": image}
 
-    def _answer(self, session: ChatSession, request_id: str, m: Any, routed: AnswerQuestion,
-                focus: tuple[str | None, frozenset[str]] | None, owner_words: str, payload: str) -> dict[str, Any]:
+    def _answer(self, session: ChatSession, request_id: str, m: Any, routed: AnswerQuestion, focus: _Focus | None,
+                clarified: str, owner_words: str, payload: str) -> dict[str, Any]:
         """L3: the owner's message, routed by the planner to one open question by its id (any chat's owner.ask,
         plan.ask or FERB check). The answer recorded is the owner's own words, never the planner's reading (MP2). FERB's
-        floor checks (D33) take only a plain Yes or No in the owner's words that the planner's reading agrees with; when
-        those words would also answer another open question, FERB asks which one, in plain words (I3). When the
-        routing can't be used, FERB says so plainly: never an id, a command or a method (I12)."""
+        own checks (floor D33, P19 retry, F9 conversation scope) take only a plain Yes or No in the owner's words that
+        the planner's reading agrees with. Those words compete with every other open question they could answer (one
+        with that option, or a free-text one) and with the planner's own question the message continues
+        (`clarified`): then FERB asks which one, in plain words (I3). When the routing can't be used, FERB says so
+        plainly: never an id, a command or a method (I12)."""
+        open_now = [q for q in self.state.approvals.pending() if q.kind == 'owner_question']
+        seen = frozenset(q.id for q in open_now)
         ap = self.state.approvals.get(routed.approval_id)
         if ap is None or ap.kind != 'owner_question' or ap.capability not in ROUTABLE_QUESTIONS:
-            listed = self._listed(q for q in self.state.approvals.pending()
-                                  if q.kind == 'owner_question' and q.capability in ROUTABLE_QUESTIONS)
+            listed = self._listed(q for q in open_now if q.capability in ROUTABLE_QUESTIONS)
             if not listed:
                 return self._code_turn(session, request_id, 'reply', NO_QUESTION)
+            self._answer_focus[session.id] = _Focus(None, frozenset(), seen)
             return self._code_turn(session, request_id, 'clarify', WHICH_QUESTION + '\n' + listed, owner_words, payload)
         if ap.state != 'pending':
             return self._code_turn(session, request_id, 'reply', NOT_WAITING)
         words = m.own_words.strip()
         if m.untrusted or not words:                  # pasted text is data (MP2): never the owner's answer
+            self._answer_focus[session.id] = _Focus(None, frozenset(), seen)
             return self._code_turn(session, request_id, 'clarify', PASTED_ANSWER, owner_words, payload)
-        earlier, named = focus if focus is not None else (None, frozenset())
         # the owner's reply to FERB's "which one is it for?": the earlier words answer the question they now name
-        carried = earlier is not None and ap.id in named and ap.option_for(_bare(words)) is None
-        text = earlier if carried and earlier is not None else words
+        carried = (focus is not None and focus.words is not None and ap.id in focus.named
+                   and ap.option_for(_bare(words)) is None)
+        text = focus.words if carried and focus is not None and focus.words is not None else words
         choice = None
-        if ap.capability == CONFIRM_ASK:
+        if ap.capability in FERB_CHECKS:
             choice = ap.option_for(_bare(text))
             if choice is None or ap.option_for(_bare(routed.answer)) != choice:
-                self._answer_focus[session.id] = (None, frozenset({ap.id}))
+                self._answer_focus[session.id] = _Focus(None, frozenset({ap.id}), seen)
                 return self._code_turn(session, request_id, 'clarify', PLAIN_YES_NO.format(question=ap.reason),
                                        owner_words, payload)
-            if not carried and named != {ap.id}:     # FERB didn't just ask about exactly this one
-                others = [q for q in self.state.approvals.pending() if q.id != ap.id and q.kind == 'owner_question'
-                          and q.option_for(_bare(text)) is not None]
-                if others:
-                    self._answer_focus[session.id] = (text, frozenset({ap.id, *(q.id for q in others)}))
+            if not carried:
+                # FERB just asked "Yes or No?" about exactly this check: questions open then don't compete
+                asked_this = focus is not None and focus.named == {ap.id}
+                others = [q for q in open_now if q.id != ap.id
+                          and (not q.options or q.option_for(_bare(text)) is not None)
+                          and not (asked_this and focus is not None and q.id in focus.seen)]
+                planner_asked = clarified if focus is None else ''   # the planner's question this message continues
+                if others or planner_asked.strip():
+                    self._answer_focus[session.id] = _Focus(text, frozenset({ap.id, *(q.id for q in others)}), seen)
+                    lines = [self._listed([ap, *others])]
+                    if planner_asked.strip():
+                        lines.append('- ' + confirm.from_task(" ".join(printable(planner_asked).split())))
                     return self._code_turn(session, request_id, 'clarify', WHICH_ONE.format(words=printable(text)) +
-                                           '\n' + self._listed([ap, *others]), owner_words, payload)
+                                           '\n' + '\n'.join(lines), owner_words, payload)
             text = ap.options[choice - 1]
         self.state.approvals.resolve(ap.id, True, choice=choice, text=text)
         self.journal.append('approval.resolved', {'approval_id': ap.id, 'state': ap.state, 'capability': ap.capability})
@@ -756,6 +778,7 @@ class Supervisor(WorkerRuns):
         session = self.sessions.setdefault(session_id, ChatSession(session_id))
         focus = self._answer_focus.pop(session_id, None)     # FERB's own answer question applies to this message only
         session.pending, session.asked = self.continuity.pending(session_id)
+        clarified = session.asked                            # the question this message may answer (L3, I3)
         session.payload = self.continuity.pending_payload(session_id)
         paths = list(dict.fromkeys([*(self._pending_input_paths(session_id) if session.payload else []),
                                     *(normalize_path(p, self.workspace) for p in input_paths)]))
@@ -824,7 +847,8 @@ class Supervisor(WorkerRuns):
         resumed_prior: str | None = None
         if out.answer_question:
             try:
-                yield self._answer(session, request_id, m, out.answer_question, focus, owner_words, payload)
+                yield self._answer(session, request_id, m, out.answer_question, focus, clarified, owner_words,
+                                   payload)
             finally:
                 self._env.pop(request_id, None)
             return
@@ -839,7 +863,8 @@ class Supervisor(WorkerRuns):
             if control.action in ('steer', 'continue') and active is not None and not active.stop and active.accepting_updates:
                 reopened = self._reopen_noes(control.task_id, request_id, entry, m.own_words)
                 reply = await apply_steering(self, active, session.id, request_id, m.own_words, payload,
-                                            out.task, 'journal:' + entry.id)
+                                            out.task, 'journal:' + entry.id, standing=control.standing_sends,
+                                            supersedes=control.supersedes)
                 if reply is not None:
                     try:
                         yield reply
@@ -1066,7 +1091,7 @@ class Supervisor(WorkerRuns):
                                        source_refs=tuple(TASK + t for t in shown), payload=attempts),
                           {o for t in shown for o in self._task_line_origins(t)} | {origins_.INFERRED}))
         open_questions = [{'approval_id': a.id, 'question': a.reason, 'options': list(a.options), 'kind': a.kind,
-                           'ferb_check': a.capability == CONFIRM_ASK}
+                           'ferb_check': a.capability in FERB_CHECKS}
                           for a in self.state.approvals.pending() if a.kind not in ('owner_login_code', 'owner_admin_password', 'owner_secret')]
         state.append((ContextBlock('Layer 6 — running tasks and open questions (data):\n' + wrap_untrusted(json.dumps({
             'tasks': self.running_trees(), 'questions': open_questions,
@@ -1520,8 +1545,8 @@ class Supervisor(WorkerRuns):
                     self.journal.append('language.audit', {'task_id': tree_id, 'terms': terms})
                 if spec.plan:
                     self.plans.set_status(tree_id, 'suspended' if self._suspending else final['status'])
-                    if not self._suspending:
-                        self.standing.revoke(tree_id)
+                if not (spec.plan and self._suspending):   # a correction can state a scope for any running tree
+                    self.standing.revoke(tree_id)
                 final["goal"] = spec.goal
                 made = origins_.join({origins_.INFERRED} | self.spans.task_origins(tree_id))   # model-written (MP2)
                 self.journal.append("task.answer", {"task_id": tree_id, "request_id": request_id, "status": final["status"],
@@ -1607,26 +1632,29 @@ class Supervisor(WorkerRuns):
                                        input={'source_refs': exposure['source_refs'], 'reference': exposure['reference']})
             self.spans.finish(captured, output={'text': exposure['text'], 'payload': exposure.get('payload', exposure['text'])}, origin=exposure['origin'])
 
-    async def _plan_question(self, tree: _Tree, question: str, options: list[str]) -> dict[str, Any]:
-        """A plan's ask step (D30): the planner's question, labelled as the task's (D33). A stopped or cancelled
-        wait closes it as superseded, never a No (L3)."""
+    async def _plan_question(self, tree: _Tree, question: str, options: list[str],
+                             capability: str = 'plan.ask') -> dict[str, Any]:
+        """A plan's ask step (D30), or a delegated conversation's scope approval (`CONVERSATION_ASK`, F9: answered like
+        FERB's own checks), labelled as the task's (D33). A stop of the task closes it as superseded, never a No (L3);
+        a cancelled wait whose task still runs leaves it open."""
         task = tree.worker
         if task.request_id in self.state.approvals.unattended:
             return {'status': 'blocked', 'summary': "You need to answer this before I continue: " + question}
         question = confirm.task_question(printable(question))
         options = [confirm.from_task(" ".join(printable(o).split())) for o in options]
-        action = ActionRequest('plan.ask', 'owner_question', task.identity, frozenset(), task.id, task.id,
+        action = ActionRequest(capability, 'owner_question', task.identity, frozenset(), task.id, task.id,
                                task.request_id, frozenset(task.scopes), content=question)
         approval = self.state.approvals.question(action, question, options)
         self.journal.append('plan.question', {'task_id': tree.id, 'approval_id': approval.id, 'question': question})
-        self.publish('approval.requested', {'approval_id': approval.id, 'capability': 'plan.ask',
+        self.publish('approval.requested', {'approval_id': approval.id, 'capability': capability,
                      'kind': 'owner_question', 'reason': question, 'options': options, 'task_id': task.id,
                      'request_id': task.request_id})
         try:
             while approval.state == 'pending' and not tree.stop:          # no expiry: it waits for the owner (§8.1)
                 await asyncio.sleep(self.gateway.hold_poll_s)
         except asyncio.CancelledError:
-            if self.state.approvals.supersede(approval.id) is not None:
+            # only a real stop of the task closes it; a cancelled waiter (a suspension) leaves it for the owner
+            if (tree.stop or self.state.stopped) and self.state.approvals.supersede(approval.id) is not None:
                 self.publish('approval.resolved', {'approval_id': approval.id, 'state': 'superseded'})
             raise
         if tree.stop and self.state.approvals.supersede(approval.id) is not None:
@@ -1650,9 +1678,7 @@ class Supervisor(WorkerRuns):
             lines.append(f"Estimated time: {one(plan.time_estimate)}. Estimated cost: {one(plan.cost_estimate)}.")
         if plan.standing_sends:
             lines.append("For this task I'll send these without asking each time:")
-            lines += [one(f"- Send using {s.identity}'s account {s.account or ''} at {s.site or ''}, to "
-                          f"{', '.join(s.recipients) or s.site}, through {s.capability}: " +
-                          ('any message body' if s.content is None else s.content)) for s in plan.standing_sends]
+            lines += ["- " + one(s.line()) for s in plan.standing_sends]
         return "\n".join(lines)
 
     async def _execute_plan(self, tree: _Tree, span: str, queue: asyncio.Queue[dict[str, Any]]) -> Outcome:
@@ -1893,7 +1919,7 @@ class Supervisor(WorkerRuns):
                 tree.resources.extend(member.resources)
                 tree.cleanup_errors.extend(member.cleanup_errors)
         runner = ConversationRunner(self.conversations,
-            lambda question, options: self._plan_question(tree, question, options), turn, queue.put,
+            lambda question, options: self._plan_question(tree, question, options, CONVERSATION_ASK), turn, queue.put,
             lambda: bool(tree.stop))
         result = await runner.run(ident, tree.id, scope)
         self.journal.append('conversation.digest', result, origin=origins_.join({origins_.INFERRED,

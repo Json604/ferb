@@ -362,7 +362,7 @@ def test_a_retry_never_carries_ferbs_question_as_the_owners_words(ferb_yes: Ferb
     first = daemon.run(old_row())
     requests = _recorded_requests(daemon, monkeypatch)
     retry = json.loads(sup("task", "Retrying.", task("email alex the report")))
-    retry["control"] = {"task_id": first, "action": "retry"}
+    retry["control"] = {"task_id": first, "action": "retry", "standing_sends": "unchanged", "supersedes": []}
     install(daemon, [json.dumps(retry)], {"worker": _sends_to(daemon, "alex@work.example")})
     chat(daemon, "try again with the work one")
     assert _inputs(daemon, "probe.send")[0]["arg_sources"] == {"recipient:0": ["unknown"]}
@@ -409,7 +409,7 @@ def test_a_retry_never_carries_ferbs_older_unlabeled_question(ferb_yes: FerbAnsw
     first = _old_row(daemon, "email alex the report\nyes\n" + OLD_ENDORSED)
     requests = _recorded_requests(daemon, monkeypatch)
     retry = json.loads(sup("task", "Retrying.", task("email alex the report")))
-    retry["control"] = {"task_id": first, "action": "retry"}
+    retry["control"] = {"task_id": first, "action": "retry", "standing_sends": "unchanged", "supersedes": []}
     install(daemon, [json.dumps(retry)], {"worker": _sends_to(daemon, "alex@work.example")})
     chat(daemon, "try again")
     assert _inputs(daemon, "probe.send")[0]["arg_sources"] == {"recipient:0": ["unknown"]}

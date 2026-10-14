@@ -594,7 +594,7 @@ def _pasted_task(daemon: RunningDaemon) -> str:
 
 def _retry(daemon: RunningDaemon, first: str) -> str:
     retry = json.loads(sup("task", "Retrying.", task("try again")))
-    retry["control"] = {"task_id": first, "action": "retry"}
+    retry["control"] = {"task_id": first, "action": "retry", "standing_sends": "unchanged", "supersedes": []}
     install(daemon, [json.dumps(retry)], {"worker": done("It says…")})
     chat(daemon, "try again")
     second = _root(daemon)

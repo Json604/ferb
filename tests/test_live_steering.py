@@ -45,7 +45,7 @@ def test_correction_reaches_same_active_run_without_stop_or_replacement(daemon, 
         tree_id = handles[0].task_id.rsplit('.', 1)[0]
         update = json.loads(sup('task', 'Keeping it under 300.', task('Find lunch under 300',
             conds=(cond('Total below 300'),))))
-        update['control'] = {'task_id': tree_id, 'action': action}
+        update['control'] = {'task_id': tree_id, 'action': action, 'standing_sends': 'unchanged', 'supersedes': []}
         script.sup.append(json.dumps(update))
         reply = chat(daemon, 'Keep it under 300', session='steering', timeout=2)
         assert len(received) == 1 and received[0][0] == handles[0].id

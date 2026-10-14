@@ -30,5 +30,10 @@ class StandingPermissions:
                 return True
         return False
 
+    def scopes(self, task_id: str) -> list[SendScope]:
+        """The task's scopes in force, in their stated order."""
+        return [SendScope.model_validate_json(row[0]) for row in self.db.conn.execute(
+            'SELECT scope FROM standing_permissions WHERE task_id=? AND active=1 ORDER BY rowid', (task_id,))]
+
     def revoke(self, task_id: str) -> None:
         self.db.conn.execute('UPDATE standing_permissions SET active=0 WHERE task_id=?', (task_id,))

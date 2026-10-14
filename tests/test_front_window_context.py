@@ -575,7 +575,7 @@ def test_a_correction_sent_while_a_task_runs_adds_its_front_window_to_the_tree(d
             return daemon.daemon.spans.request_origins(tree_id)     # type: ignore[union-attr,no-any-return]
         assert not any(o.startswith("external:message") for o in daemon.run(origins()))
         update = json.loads(sup("task", "Under 300, then.", task("find lunch under 300")))
-        update["control"] = {"task_id": tree_id, "action": "steer"}
+        update["control"] = {"task_id": tree_id, "action": "steer", "standing_sends": "unchanged", "supersedes": []}
         script.sup.append(json.dumps(update))
         chat(daemon, "keep it under 300", session="steer", timeout=5)
         assert "external:message:net.whatsapp.WhatsApp" in daemon.run(origins())

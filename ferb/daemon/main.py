@@ -538,8 +538,10 @@ class Daemon:
         if not isinstance(self.redact, Redactor):
             return text
         for ap in self.state.approvals.pending():
-            if ap.kind == "owner_question" and ap.option_for(text.strip()) is None:
-                if self.redact.answer(text, question=ap.reason) == REDACTED:
+            # a login-code prompt asks for a code by its kind, whatever its words say
+            reason = "login code" if ap.kind == "owner_login_code" else ap.reason
+            if ap.kind in ("owner_question", "owner_login_code") and ap.option_for(text.strip()) is None:
+                if self.redact.answer(text, question=reason) == REDACTED:
                     return REDACTED
         return text
 

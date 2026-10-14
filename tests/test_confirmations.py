@@ -938,7 +938,8 @@ def test_a_value_from_ferbs_question_stays_outside_content_when_its_task_is_carr
         results.append(tool(daemon.sock, token, "probe.type", to="alex@work.example"))
         return done("Typed it.")
     again = json.loads(sup("task", "Typing.", task("fill it in")))
-    again["control"] = {"task_id": tree, "action": action, "new_goal": False}
+    again["control"] = {"task_id": tree, "action": action, "new_goal": False, "standing_sends": "unchanged",
+                        "supersedes": []}
     install(daemon, [json.dumps(again)], {"worker": worker})
     owner = Answers(daemon, granted=True, choice=2)                     # No
     second = outcome(chat(daemon, "try again"))
@@ -1019,7 +1020,8 @@ def _refused_send(daemon: RunningDaemon, worker: Any) -> str:
 def _carry_on(daemon: RunningDaemon, tree: str, action: str, worker: Any, said: str) -> dict[str, Any]:
     from tests.conftest import chat, install, outcome, sup, task
     again = json.loads(sup("task", "Sending them.", task("send the notes to Sam", "owner")))
-    again["control"] = {"task_id": tree, "action": action, "new_goal": False}
+    again["control"] = {"task_id": tree, "action": action, "new_goal": False, "standing_sends": "unchanged",
+                        "supersedes": []}
     install(daemon, [json.dumps(again)], {"worker": worker})
     return outcome(chat(daemon, said, session="notes"))
 
@@ -1081,7 +1083,8 @@ def test_a_no_said_again_after_the_owner_s_follow_up_is_final_for_that_attempt(d
     with FerbAnswers(daemon, yes=False) as owner:
         tree = _refused_send(daemon, worker)
         again = json.loads(sup("task", "Sending them.", task("send the notes to Sam", "owner")))
-        again["control"] = {"task_id": tree, "action": "retry", "new_goal": False}
+        again["control"] = {"task_id": tree, "action": "retry", "new_goal": False, "standing_sends": "unchanged",
+                            "supersedes": []}
         install(daemon, [json.dumps(again)], {"worker": worker, "worker.dispatch": [retry, finish]})
         outcome(chat(daemon, "try sending it again", session="notes"))
     assert len(results) == 3 and all(r["is_error"] for r in results) and send.calls == 0
@@ -1121,7 +1124,8 @@ def test_a_steer_of_the_running_task_reopens_its_no(daemon: RunningDaemon, monke
             [tree] = [r["id"] for r in _rows(daemon, "tasks") if r["parent_id"] is None]
             owner.yes = True
             steer = json.loads(sup("task", "Sending them.", task("send the notes to Sam", "owner")))
-            steer["control"] = {"task_id": tree, "action": "steer", "new_goal": False}
+            steer["control"] = {"task_id": tree, "action": "steer", "new_goal": False, "standing_sends": "unchanged",
+                                "supersedes": []}
             script.sup.append(json.dumps(steer))
             reply = next(e for e in chat(daemon, "actually, go ahead and send it", session="notes", timeout=10)
                          if e["type"] == "reply")
