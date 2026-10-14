@@ -35,7 +35,6 @@ def _situation_hooks(daemon: RunningDaemon) -> None:
                                            'origin': 'private', 'source_refs': ['m1']}]
     sv.relevant_context = lambda words: ('TODAY-ACTIVITY opened the tea shop page', 'private', 'opened the tea shop page',
                                          ['trail:t1'])
-    sv.recent_activity = lambda: ('', 'ferb')
 
 
 def test_long_history_keeps_situation_activity_and_memory_and_summarizes_the_oldest_chat(daemon, monkeypatch):
@@ -154,6 +153,7 @@ def test_task_sources_runs_once_per_lineage_per_turn(daemon):
     original = learning.task_sources
     install(daemon, [sup("task", "Doing.", task(f"step {i}")) for i in range(3)], {"worker": done("done")})
     earlier = [outcome(chat(daemon, f"do step {i}"))["task_id"] for i in range(3)]
+    daemon.run(daemon.daemon.supervisor.finish_episodes())       # cards are written after the outcome (L28)
     calls: list[str] = []
 
     def counted(task_id: str) -> list[str]:
@@ -162,6 +162,7 @@ def test_task_sources_runs_once_per_lineage_per_turn(daemon):
     learning.task_sources = counted
     install(daemon, [sup("task", "Doing.", task("step 3"))], {"worker": done("done")})
     result = outcome(chat(daemon, "do step 3"))
+    daemon.run(daemon.daemon.supervisor.finish_episodes())
     assert len(calls) == len(set(calls)), calls                     # each task's lineage read once in the turn
 
     async def card():
@@ -210,7 +211,6 @@ def test_history_payload_holds_only_entry_texts(daemon):
 
 def test_reply_rows_record_their_history_by_handle_not_by_copy(daemon):
     sv = daemon.daemon.supervisor
-    sv.recent_activity = lambda: ('', 'ferb')
     sv.memory_candidates = lambda words: []
     sv.relevant_context = lambda words: ('Matching activity', 'private', 'Matching activity', ['trail:first-turn'])
     install(daemon, [sup("reply", "answer 0"), sup("reply", "answer 1")])
@@ -244,23 +244,63 @@ def test_assembly_counts_each_block_once(monkeypatch):
     assert sum(counted) < 4 * total                                # never the whole body per block
 
 
-def test_todays_activity_is_always_in_and_the_recent_trail_dump_only_when_it_fits(daemon, monkeypatch):
-    """Today's matching activity is always in the prompt. Every trail row of the last minutes (measured at 119k-433k
-    tokens on the owner's data) goes in whole only when the window has room after the conversation; otherwise its
-    retrieval reference stands and the planner snapshot keeps it for the task."""
+def test_the_recent_raw_trail_is_fetch_only_never_in_the_planner_prompt(daemon):
+    """Owner decision 2026-10-14: today's matching activity stays in the prompt; the raw trail of the last minutes
+    (measured at 119k-433k tokens on the owner's data) is never in it, even when it would fit. The planner is told a
+    task's worker can fetch it with trail.query."""
     sv = daemon.daemon.supervisor
     _situation_hooks(daemon)
-    dump = json.dumps({"apps": [{"app": "Brave", "events": [{"data": {"title": f"page {i}"}} for i in range(3000)]}],
-                       "source_refs": ["trail:recent"]})
-    sv.recent_activity = lambda: (dump, "external:web")
-    script = install(daemon, [sup("reply", "ok"), sup("reply", "ok")])
-    chat(daemon, "a turn with a large window")
-    assert "page 2999" in _planner_requests(script)[-1].context
-    _window(monkeypatch, 30_000, 1_000)
-    chat(daemon, "a turn with a small window")
-    context = _planner_requests(script)[-1].context
-    assert "TODAY-ACTIVITY" in context and "page 2999" not in context
-    assert "[Context omitted; fetch full text: trail.query" in context
+    sv.recent_activity = lambda: (json.dumps({"apps": [{"app": "Brave", "events": [{"data": {"title": "RECENT-RAW-PAGE"}}]}],
+                                              "source_refs": ["trail:recent"]}), "external:web")
+    script = install(daemon, [sup("reply", "ok")])
+    chat(daemon, "what was I just doing?")
+    request = _planner_requests(script)[-1]
+    assert "TODAY-ACTIVITY" in request.context and "RECENT-RAW-PAGE" not in request.context
+    assert "Layer 3 — recent activity" not in request.context
+    assert "raw activity of the last minutes" in request.system and "trail.query" in request.system
+
+
+def test_the_outcome_is_sent_before_episode_capture_and_capture_still_completes(daemon):
+    """Episode capture (its lineage resolution) runs after the owner has the outcome, as a tracked job: awaited at
+    shutdown, a failure journaled."""
+    import time
+    from ferb.cli.client import Client
+    sv = daemon.daemon.supervisor
+    captured: list[str] = []
+
+    def slow(task_id: str) -> None:
+        time.sleep(1.0)
+        captured.append(task_id)
+    sv.on_episode = slow
+    install(daemon, [sup("task", "Doing.", task("job")), sup("task", "Doing.", task("job two"))], {"worker": done("done")})
+    c = Client(daemon.sock, timeout=30)
+    seen_at_outcome = None
+    try:
+        for ev in c.stream("chat.send", {"session_id": SESSION, "text": "do the job"}):
+            if ev["type"] == "outcome":
+                seen_at_outcome = list(captured)
+                task_id = ev["task_id"]
+    finally:
+        c.close()
+    assert seen_at_outcome == []                                       # the outcome came first
+    daemon.run(sv.finish_episodes(), timeout=10)
+    assert captured == [task_id]
+
+    def failing(task_id: str) -> None:
+        raise RuntimeError("capture broke")
+    sv.on_episode = failing
+    outcome(chat(daemon, "do job two"))
+    daemon.run(sv.finish_episodes(), timeout=10)
+
+    async def failed():
+        return [e.data for e in daemon.daemon.journal.of_kind("memory.episode_hook_failed")]
+    assert any("capture broke" in row["error"] for row in daemon.run(failed()))
+
+
+def test_gpt_5_6_sol_has_a_published_price():
+    from ferb.runtimes.usage import cost_usd
+    assert cost_usd("gpt-5.6-sol", 100_000, 0, 0, 1_000_000) == pytest.approx(0.4 + 20.0)   # $4 in, $20 out per 1M
+    assert cost_usd("gpt-5.6-sol", 1_000_000, 1_000_000, 0, 0) == pytest.approx(0.8)        # >272K: cached $0.40 x 2
 
 
 def test_running_summary_never_folds_notice_text_and_cites_what_it_folded(daemon, monkeypatch):

@@ -29,6 +29,10 @@ PRICES: dict[str, list[Price]] = {
     "gpt-6-sol": [Price(2.00, 0.20, 2.50, 10.00, 272_000, 2.0, 1.5)],
     "gpt-6-luna": [Price(0.10, 0.01, 0.125, 0.50)],
     "gpt-5.5": [Price(5.00, 0.50, 5.00, 30.00, 272_000, 2.0, 1.5)],
+    # https://developers.openai.com/api/docs/pricing (checked 2026-10-14): $4 input, $0.40 cached, $5 cache write, $20
+    # output; >272K input tokens: $8 / $0.80 / $10 / $30 for the whole request. Listed as promotional pricing "at least
+    # through November 21, 2026": add a dated entry when it changes.
+    "gpt-5.6-sol": [Price(4.00, 0.40, 5.00, 20.00, 272_000, 2.0, 1.5)],
     "claude-fable-5-1": [Price(10.00, 0.25, 12.50, 50.00)],
     "claude-opus-5-5": [Price(4.00, 0.20, 5.00, 20.00)],
     "claude-sonnet-5-5": [Price(2.00, 0.20, 2.50, 10.00)],

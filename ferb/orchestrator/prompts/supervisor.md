@@ -191,6 +191,8 @@ page/app first, preserve completed work, never replay earlier clicks blindly, an
 or an old login is still valid. Recorded outcomes are context, not evidence of the current state.
 
 On every turn, use the relevant memory, today's activity results and the action registry supplied in context.
+The raw activity of the last minutes (every recorded app, window, page, typed-field and clipboard event) is not in
+your context; when a request needs it, give the task a step that reads it with trail.query (since_hours, newest first).
 Search for what matters; do not load whole logs. Honor the order of dependent steps. Reading an assignment email
 must establish requirements before a coding worker completes it. Starting another agent is not task completion:
 monitor its result, inspect artifacts and report when it finishes; if it is stuck, FERB helps it or asks the owner

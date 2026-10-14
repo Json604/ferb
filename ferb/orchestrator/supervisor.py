@@ -307,6 +307,7 @@ class Supervisor(WorkerRuns):
         self.gateway.standing = self.standing
         self._plan_runs: dict[str, PlanExecutor] = {}
         self._summarizing: dict[str, asyncio.Task[None]] = {}       # chat id -> its running-summary update (L28)
+        self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
         self._chat_locks: dict[str, asyncio.Lock] = {}
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
@@ -317,7 +318,6 @@ class Supervisor(WorkerRuns):
         self.on_episode: Callable[[str], None] = lambda task_id: None
         self.procedure_outcome: Callable[[str, str], None] = lambda procedure_id, task_id: None
         self.skills_catalog: Callable[[], list[dict[str, str]]] = lambda: []
-        self.recent_activity: Callable[[], tuple[str, str]] = lambda: ('', origins_.FERB)
         self.on_resumed_outcome: Callable[[dict[str, Any]], Awaitable[None]] | None = None
         self._active: dict[str, tuple[AgentRuntime, RunHandle]] = {}
         self._tree_of: dict[str, _Tree] = {}                            # task id -> its tree
@@ -963,7 +963,6 @@ class Supervisor(WorkerRuns):
         activity_refs = _context_refs(activity_source)
         if activity_refs is None:
             activity_refs = self.relevant_source_refs(message)
-        latest, latest_origin = self.recent_activity()
         env = self._env.get(request_id, {})
         # Each block with where its text came from (S3): the Mac inventory and running apps are FERB-measured owner
         # state; memory, activity and history carry their stored labels; resumable goals are planner-written.
@@ -988,11 +987,7 @@ class Supervisor(WorkerRuns):
         situation.append((ContextBlock("Layer 3 — today's activity (data):\n" + activity, "task.evidence query=context.source; memory.read; trail.query",
                                        protected=True, source_refs=tuple(activity_refs), payload=activity_payload),
                           origins_.split(activity_origin)))
-        if latest:   # every trail row of the last minutes: whole when the window has room after the chat, else its reference
-            from ferb.orchestrator.context_layers import recent_activity_refs, recent_activity_payload
-            situation.append((ContextBlock('Layer 3 — recent activity (data):\n' + latest, "trail.query", priority=1,
-                                           source_refs=tuple(recent_activity_refs(latest)),
-                                           payload=recent_activity_payload(latest)), origins_.split(latest_origin)))
+        # The raw trail of the last minutes is fetch-only (owner, 2026-10-14): a task reads it with trail.query.
         situation.extend(await self._memory_blocks(message, remembered, mem_text, procedures))
         state: list[tuple[ContextBlock, set[str]]] = []
         candidates = self.continuity.candidates(session.id)
@@ -1475,14 +1470,30 @@ class Supervisor(WorkerRuns):
                 # Its permanent record (L1), composed from the trace once everything above is recorded. Last, so
                 # nothing it does can skip the cleanup; it never raises for a failed build or write.
                 episodes.record(self.spans, self.journal, tree_id, self.clock.now().isoformat())
-                try:
-                    self.on_episode(tree_id)
-                    if spec.procedure_id:
-                        self.procedure_outcome(spec.procedure_id, tree_id)
-                except Exception as exc:
-                    self.journal.append('memory.episode_hook_failed', {'task_id': tree_id,
-                        'error': f'{type(exc).__name__}: {exc}'})
+                self._capture_after_outcome(tree_id, spec.procedure_id)
         yield final
+
+    def _capture_after_outcome(self, tree_id: str, procedure_id: str | None) -> None:
+        """The task's learning capture (its episode card, whose lineage resolution reads every entry and task the
+        planner was shown, and the procedure receipt that needs the card) runs after the owner has the outcome (L28):
+        a tracked job, awaited at shutdown (`finish_episodes`); a failure is journaled, never raised."""
+        async def capture() -> None:
+            await asyncio.sleep(0)                   # the outcome goes out first
+            try:
+                self.on_episode(tree_id)
+                if procedure_id:
+                    self.procedure_outcome(procedure_id, tree_id)
+            except Exception as exc:
+                self.journal.append('memory.episode_hook_failed', {'task_id': tree_id,
+                    'error': f'{type(exc).__name__}: {exc}'})
+        job = asyncio.get_running_loop().create_task(capture())
+        self._episode_jobs.add(job)
+        job.add_done_callback(self._episode_jobs.discard)
+
+    async def finish_episodes(self) -> None:
+        """Wait for every pending learning capture (shutdown; tests); none is cancelled."""
+        while self._episode_jobs:
+            await asyncio.gather(*list(self._episode_jobs), return_exceptions=True)
 
     def _record_planner_reads(self, tree: _Tree, root_span: str, request_id: str) -> None:
         """The planner turn's reads, recorded on the task before its worker starts: the situation snapshot (fetchable

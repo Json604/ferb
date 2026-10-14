@@ -390,6 +390,8 @@ class Daemon:
             self.supervisor.suspend_plans()
             self.supervisor.cancel_all()
         await drain(self._turns | self._runs, "task turns")
+        if self.supervisor:                                  # learning captures still writing cards: awaited, not cancelled
+            await self.supervisor.finish_episodes()
         if self.gateway is not None:                         # first looks still being taken (D26)
             await drain(set(self.gateway.looks), "first looks")
         if self._proxy:
@@ -623,8 +625,6 @@ class Daemon:
                                      checks=Checks(self._urls_of, self.spans), roots=roots)
         self.supervisor.browser_context = self._browser_context
         self.supervisor.skills_catalog = skills.catalog
-        from ferb.orchestrator.context_layers import recent_activity
-        self.supervisor.recent_activity = lambda: recent_activity(self.db, self.clock.now())
         self.supervisor.on_resumed_outcome = lambda event: self._task_result(event, shown=False)
         self.supervisor.on_task_start = self.disturbance.start
         self.supervisor.on_task_finish = self._tree_finished

@@ -51,11 +51,12 @@ def test_activity_then_displayed_history_preserves_forget_edges(daemon):
     source = daemon.run(record())
     install(daemon, [sup('task', 'Inspecting.', task('Inspect session note'))], {'worker': done('Inspected session note.')})
     first = outcome(chat(daemon, 'Inspect session note'))
-    supervisor.recent_activity = lambda: ('', 'ferb')
+    daemon.run(supervisor.finish_episodes())
     supervisor.relevant_context = lambda _: ('', 'ferb')
     supervisor.relevant_source_refs = lambda _: []
     install(daemon, [sup('task', 'Continuing.', task('Compare recorded session result'))], {'worker': done('Compared recorded result.')})
     second = outcome(chat(daemon, 'Compare that recorded session result'))
+    daemon.run(supervisor.finish_episodes())                # cards are written after the outcome (L28)
     async def check():
         learning = daemon.daemon.learning
         cards = {node['key']: node for node in learning.items('episode')}
@@ -67,25 +68,20 @@ def test_activity_then_displayed_history_preserves_forget_edges(daemon):
     daemon.run(check())
 
 
-def test_recent_and_relevant_activity_both_keep_labels_and_source_refs(daemon):
-    import json
+def test_todays_activity_keeps_its_labels_and_source_refs(daemon):
+    """Today's matching activity is a read with its own labels and refs. The raw recent trail is fetch-only (L28)."""
     from tests.conftest import chat, done, install, sup, task
     supervisor = daemon.daemon.supervisor
     supervisor.relevant_context = lambda _: ('Recorded matching action', 'private')
     supervisor.relevant_source_refs = lambda _: ['trail:matching']
-    supervisor.recent_activity = lambda: (json.dumps({'apps': [], 'source_refs': ['trail:recent']}), 'external:clipboard')
     script = install(daemon, [sup('task', 'Read the context.', task('Compare activity'))], {'worker': done('Compared.')})
     chat(daemon, 'Compare activity')
     assert 'Recorded matching action' in script.contexts[0][2]
     async def exposure():
         return [dict(row) for row in daemon.daemon.db.conn.execute(
             "SELECT input_json,origin FROM spans WHERE kind='context.exposure'")]
-    rows = daemon.run(exposure())
-    # L28: today's matching activity and the recent trail rows are two reads, each with its own labels and refs
-    matched = [row for row in rows if 'trail:matching' in row['input_json']]
-    recent = [row for row in rows if 'trail:recent' in row['input_json']]
+    matched = [row for row in daemon.run(exposure()) if 'trail:matching' in row['input_json']]
     assert matched and all('private' in row['origin'] for row in matched)
-    assert recent and all('external:clipboard' in row['origin'] for row in recent)
 
 
 def test_context_payload_omits_catalogue_but_preserves_recorded_memory(daemon):
@@ -94,7 +90,6 @@ def test_context_payload_omits_catalogue_but_preserves_recorded_memory(daemon):
     supervisor = daemon.daemon.supervisor
     supervisor.relevant_context = lambda _: ('Installed catalogue: search metadata. Private account: Customer-Record',
                                               'private', 'Customer-Record')
-    supervisor.recent_activity = lambda: ('', 'ferb')
     supervisor.memory_candidates = lambda _: [
         {'text': 'Remembered-Private-Value', 'reference': 'memory.learned id=private',
          'origin': 'private', 'source_refs': ['private']}]
