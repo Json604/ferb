@@ -68,9 +68,9 @@ def settle_questions(supervisor: Any, request_id: str, words: str, supersedes: l
 
 @dataclass
 class Restated:
-    """A correction's revised standing scope (D30): the statement for the reply, the full revised scopes and the
-    recorded statement they are granted under. `widened`: some scope is new or wider, so the full list is granted
-    only after the reply stating it has been sent (`grant_stated`)."""
+    """A correction's revised standing scope (D30): the statement for the reply, the revised scopes it covers and the
+    recorded statement they are granted under. `widened`: some covered scope is new or wider, so the covered list is
+    granted only after the reply stating it has been sent (`grant_stated`)."""
     text: str
     scopes: list[SendScope]
     approval_id: str
@@ -84,12 +84,23 @@ def not_covered(unattended: bool) -> str:
             ("can't be answered with nobody here, so it's reported not done:" if unattended else "waits for you:"))
 
 
+def not_typed() -> str:
+    """The line before stated scopes, on a run the owner started from chat, whose site, account or recipients aren't in
+    words the owner typed (final review I1, MP2): not granted, so their sends get FERB's usual checks (a recipient the
+    owner didn't name asks, once for the task) and one that asks waits for the owner."""
+    return ("These aren't covered, because where they send isn't in words you typed: each gets FERB's usual checks, "
+            "and one that asks waits for you:")
+
+
 def restate_scope(supervisor: Any, tree: Any, standing: Any) -> Restated | None:
     """The planner's decision about the tree's stated standing scope (D30), made for every correction: "unchanged",
-    or the revised scopes. Revised: the old grant is revoked and only the scopes already stated are granted again at
+    or the revised scopes. Revised: the old grant is revoked and only the scopes already in force are granted again at
     once (a narrowing takes effect now); the revision is stated and recorded (`plan.stated`). A new or widened scope
     is not granted here: the caller grants it under the same statement once the reply has been sent and the task is
     still running (`grant_stated`). None when nothing changes.
+    On a run the owner started from chat, a revised scope covers sends only when its destinations are in words the
+    owner typed (`Supervisor.owner_typed_scopes`, final review I1): one that isn't is stated as not covered and never
+    granted, so its sends get FERB's usual checks.
     A run nobody started from chat (a scheduled or resumed run, `unattended_scopes`) counts only the scopes in force as
     stated. Each kept scope keeps the statement it was granted under, so a schedule's scope (`schedule:<id>`) is still
     withdrawn when the schedule is cancelled or paused; nothing new or wider is ever granted to it, and the reply says
@@ -104,16 +115,22 @@ def restate_scope(supervisor: Any, tree: Any, standing: Any) -> Restated | None:
                      list(plan.standing_sends) if plan is not None else supervisor.standing.scopes(tree.id))
     if revised == stated_before:
         return None                      # nothing changes
+    if unattended:
+        kept = [s for s in revised if s in stated_before]
+        covered = kept
+    else:                                # only what the owner typed names a destination (I1, MP2)
+        in_force = supervisor.standing.scopes(tree.id)
+        covered = supervisor.owner_typed_scopes(tree, revised)
+        kept = [s for s in covered if s in in_force]
     supervisor.standing.revoke(tree.id)
-    kept = [s for s in revised if s in stated_before]
-    covered = kept if unattended else revised
     if covered:
         text = ("For this task I'll now send these without asking each time:\n" +
                 "\n".join("- " + s.line() for s in covered))
     else:
         text = "From now on I'll ask before each of these sends."
     if len(covered) < len(revised):
-        text += ("\n" + not_covered(tree.worker.request_id in supervisor.state.approvals.unattended) + "\n" +
+        text += ("\n" + (not_covered(tree.worker.request_id in supervisor.state.approvals.unattended) if unattended
+                         else not_typed()) + "\n" +
                  "\n".join("- " + s.line() for s in revised if s not in covered))
     text = str(supervisor.gateway.redact(text))
     stated = supervisor.journal.append('plan.stated', {'task_id': tree.id, 'text': text})
@@ -125,7 +142,7 @@ def restate_scope(supervisor: Any, tree: Any, standing: Any) -> Restated | None:
     if plan is not None:
         plan.standing_sends = revised
         supervisor.plans.update_plan(tree.id, plan)
-    return Restated(text, revised, 'stated:' + stated.id, widened=not unattended and len(kept) < len(revised))
+    return Restated(text, covered, 'stated:' + stated.id, widened=not unattended and len(kept) < len(covered))
 
 
 def grant_stated(supervisor: Any, tree: Any, restated: Restated) -> None:

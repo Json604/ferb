@@ -365,6 +365,8 @@ def _answer_plan_questions(d: RunningDaemon) -> threading.Event:
 
 def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_restart(
         home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The owner typed their campaign account into memory earlier ("X" in the request doesn't name x.com), so the
+    stated scope is theirs (final review I1) and covers each declared post from it, before and after a restart."""
     import ferb.clock.timers as durable
     import ferb.orchestrator.plan_executor as executor
     monkeypatch.setattr("ferb.sanitize.images.recognize_text", lambda _image: [])
@@ -377,12 +379,19 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
                                    until=tomorrow.isoformat()),
                               Step(id="post2", kind="do", goal="Post the launch story on X again",
                                    depends_on=["wait"])],
-                        standing_sends=[X_SCOPE]).model_dump()
+                        standing_sends=[ACCOUNT_SCOPE]).model_dump()
+    as_account = {"effect": "send", "destination": {"account": "@ferbapp"}}
 
     first, browser1 = _campaign_daemon(home, "a", monkeypatch)
+
+    async def remember() -> None:                        # `ferb memory add`: the owner's typed words
+        words = "My campaign account is @ferbapp on x.com"
+        src = first.daemon._journal().append("memory.added", {"content": words}).id
+        first.daemon.memory.propose("fact", "owner", "campaign-account", words, "owner_stated", [("journal", src)], 1.0)
+    first.run(remember())
     answering = _answer_plan_questions(first)
     install(first, [sup("task", "Posting the launch story to X daily until Oct 21.", spec)],
-            {"step.post1": posts_on(first.sock, "https://x.com/compose/post", effect="send")})
+            {"step.post1": posts_on(first.sock, "https://x.com/compose/post", **as_account)})
     stream = threading.Thread(target=lambda: _drain_turn(first, WORDS), daemon=True)
     stream.start()
     try:
@@ -400,7 +409,7 @@ def test_the_campaign_plan_posts_waits_on_the_wall_clock_and_resumes_after_a_res
     second, browser2 = _campaign_daemon(home, "b", monkeypatch)
     try:
         script = install(second, [], {"step.post2": posts_on(second.sock, "https://x.com/compose/post",
-                                                             effect="send"),
+                                                             **as_account),
                                       "worker": done("Posted the launch story today and tomorrow.")})
         _until(lambda: _plan_status(second, tree).get("wait") == "waiting")
         time.sleep(0.1)

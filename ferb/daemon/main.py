@@ -678,6 +678,7 @@ class Daemon:
         self.attention_notices = AttentionNotices(self.db, self.clock, self.redact)
         self.supervisor.notification_rule = self._notification_rule_from_chat
         self.supervisor.on_conversation_resume = self._resume_conversation_plans
+        self.supervisor.typed_behind_memory = self._typed_behind_memory   # attended scopes too (final review I1)
         self.stop_control.register("runtimes", self.supervisor.cancel_all)
         self.stop_control.register("identity_browser", self._stop_identity_browser)
 

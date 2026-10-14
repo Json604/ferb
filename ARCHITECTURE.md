@@ -1413,6 +1413,11 @@ recoverable. The fuller prevention design is after launch (spec section 6).
   task's latest `plan.stated`.
 - A big job's plan is stated (`_plan_statement`: steps, estimates, scopes, "Here's the plan; I'm starting now. Reply
   to change anything:"), journaled `plan.stated` and granted under `stated:<journal id>`; work starts at once.
+- On a run the owner started from chat, a stated or corrected scope is granted only when its site, account and
+  recipients are in what the owner typed: the request's words with its corrections and follow-ups, their `owner.ask`
+  answers in the tree, or the words typed behind an owner-stated memory item (`Supervisor.owner_typed_scopes`, the
+  schedule path's `standing.owner_named` and `typed_behind_memory`). Any other scope is stated as not covered
+  (`steering.not_typed`, `plan.stated.not_granted`), so its sends get the floor's usual questions (final review I1).
 - An owner-driven retry, continue or steer reopens the tree's earlier Noes once (`Gateway.reopen_noes`,
   `confirmations.reopened`); a reopened browser-URL host No is re-checked from the facts; the proxy keeps its No.
 - Questions never expire (`Approvals()` has no clock). A question closes when answered, when its task ends, or as

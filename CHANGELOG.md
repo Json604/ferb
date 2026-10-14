@@ -105,6 +105,11 @@ Packaging and setup (L15, L25, L27):
   a scheduled or resumed run never widens its scope and never moves it out of the cancel's reach. In test mode, allow
   a post as `"SITE @ACCOUNT"`.
 
+Final review fixes (2026-10-14):
+- A standing permission stated in a plan or a correction covers a send only when its site, account and recipients are
+  in words you typed (this request, its corrections, your answers, or when you told FERB to remember them). Any other
+  is stated as not covered, so a send to someone you didn't name asks, as for a schedule.
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are
