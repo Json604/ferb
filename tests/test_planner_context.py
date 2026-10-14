@@ -893,3 +893,56 @@ def test_the_daemons_cards_keep_task_ids_whole_in_their_key(daemon):
         return task_id, node['key']
     task_id, key = daemon.run(put())
     assert key == task_id
+
+
+def test_a_replayed_receipt_respects_the_owners_fail_verdict(home):
+    """Review (probe5): the replay recorded `successful` from the stored card's `verified` alone, so a card that
+    couldn't be refreshed after the owner's fail verdict replayed as a success after a restart."""
+    from ferb.cli.client import Client
+    from tests.support.cards import HANGING_READER
+    d = _own_daemon(home)
+    try:
+        procedure_id = _procedure(d)
+        d.daemon.card_reader = list(HANGING_READER)
+        task_id = _procedure_task(d, procedure_id)
+        assert _reader_pids(d)
+        d.run(d.daemon.supervisor.stop_episodes(), timeout=10)               # deferred, with its procedure
+
+        async def verified():
+            d.daemon.db.conn.execute("UPDATE episodes SET verified=1 WHERE task_id=?", (task_id,))
+        d.run(verified())                                                     # the checker had verified it
+        d.daemon.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
+        d.run(d.daemon._capture_card(task_id, None), timeout=60)              # a card saying verified
+        d.daemon.card_reader = [sys.executable, "-I", "-c",
+                                "import sys\nsys.stdin.read()\nsys.stdout.write('{\"error\": \"unreadable card\"}')"]
+        c = Client(d.sock, timeout=60)
+        try:
+            c.call("verdict.set", {"task_id": task_id, "verdict": "fail"})  # the card can't take the verdict
+        finally:
+            c.close()
+    finally:
+        d.stop()
+    again = _own_daemon(home, ids="again")
+    try:
+        receipts, replayed = _receipts(again)
+        assert [(r[0], r[2]) for r in receipts] == [(procedure_id, 0)], receipts
+        assert replayed == [{"task_id": task_id, "procedure_id": procedure_id}]
+    finally:
+        again.stop()
+
+
+def test_a_consolidation_pass_refused_while_stopping_is_not_a_failure(daemon):
+    """A capture refused because FERB is stopping (Deferred) ends the consolidator's pass quietly; it is not reported
+    as memory.consolidate_failed."""
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    async def stopping():
+        d = daemon.daemon
+        d._shutting_down = True
+        try:
+            return await d.consolidator.catch_up()
+        finally:
+            d._shutting_down = False
+    assert daemon.run(stopping(), timeout=30) == {"status": "stopping"}

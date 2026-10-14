@@ -401,10 +401,14 @@ class Learning:
         p, ep = self.get(procedure_id), self.get(episode_id)
         if not p or not ep or ep['kind'] != 'episode':
             raise LearningRefused('missing procedure/episode')
+        # The owner's latest verdict counts even when the card couldn't be refreshed after it (a replayed receipt).
+        last = self.db.conn.execute('SELECT verdict FROM owner_verdicts WHERE task_id=? ORDER BY seq DESC LIMIT 1',
+                                    (ep['key'],)).fetchone()
+        successful = ep['body'].get('verified') is True and not (last and last[0] == 'fail')
         self.db.conn.execute('INSERT INTO learning_receipts VALUES (?,?,?,?,?) ON CONFLICT(procedure_id,episode_id) '
                              'DO UPDATE SET successful=excluded.successful',
             (procedure_id, episode_id, encoded(slots or ep['body'].get('slots') or {}),
-             int(ep['body'].get('verified') is True), ep['recorded_at']))
+             int(successful), ep['recorded_at']))
         self._refresh(procedure_id, None)
 
     def _refresh(self, node_id: str, apps: dict[str, str] | None) -> dict[str, Any]:

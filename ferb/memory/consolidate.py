@@ -7,6 +7,7 @@ import json
 from typing import Any, Awaitable, Callable
 
 from ferb.core.context import ContextBlock, assemble_parts, count_tokens, runtime_limits
+from ferb.core.errors import Deferred
 from ferb.core.prompts import load_prompt
 from ferb.core.structured import check_final
 from ferb.core.types import Identity, ModelRequest, Task
@@ -112,6 +113,8 @@ class Consolidator:
                     await self.capture(row[0])
                 except LearningRefused:
                     continue
+                except Deferred:                     # FERB is stopping: the next start's pass refreshes the rest
+                    return {'status': 'stopping'}
                 await asyncio.sleep(0)               # the loop runs between episodes
             self.cards_refreshed()
             pending = [p for p in l.items('episode') if not l.db.conn.execute(
