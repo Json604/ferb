@@ -45,7 +45,7 @@ from ferb.clock.context import ago as context_ago
 from ferb.registry import build as build_registry
 from ferb.runtimes.proxy import ToolListProxy
 from ferb.core import origin as origin_
-from ferb.core.errors import FerbError, Refused
+from ferb.core.errors import Deferred, FerbError, Refused
 from ferb.core.ids import RandomIds
 from ferb.core.interfaces import Clock, IdSource
 from ferb.daemon.auth import RunTokens
@@ -1117,10 +1117,11 @@ class Daemon:
         from ferb.memory.learning import Learning
         from ferb.memory.consolidate import Consolidator
         from ferb.memory.tools import LearningRead
-        self.learning = Learning(self.db, self.clock, self._publish, self._redact_text)
+        self.learning = Learning(self.db, self.clock, self._publish, self._redact_text, redact_id=self._redact_id)
         self.consolidator = Consolidator(self.learning, self.memory, self._make_runtime,
             idle=lambda: self.supervisor is None or not self.supervisor.running_trees(),
-            usage=self._record_distill_usage, capture=lambda task_id: self._capture_card(task_id, None))
+            usage=self._record_distill_usage, capture=lambda task_id: self._capture_card(task_id, None),
+            cards_refreshed=self._replay_deferred_receipts)
         self.registry.add(LearningRead(lambda: self.learning))
         self.memory.on_forget = self._forget_learning_sources
         journal = self.journal
@@ -1143,6 +1144,7 @@ class Daemon:
             self.supervisor.identity_context = self._learning_identity
             self.supervisor.on_episode = self._capture_learning_episode
             self.supervisor.procedure_outcome = self._procedure_outcome
+        self._replay_deferred_receipts()
         if self.run_distill:
             self._distill_task = asyncio.get_running_loop().create_task(self._distill_loop())
         if self.run_retention:
@@ -1157,6 +1159,8 @@ class Daemon:
         try:
             if self.learning is not None:
                 await self._capture_card(task_id, self._app_versions(), report=True)
+        except Deferred:
+            raise                                     # the supervisor journals it with its procedure, for the replay
         except Exception as e:
             self._journal().append("memory.episode_failed", {"task_id": task_id, "error": self._redact_text(str(e))})
 
@@ -1180,14 +1184,19 @@ class Daemon:
     async def _read_card(self, task_id: str, apps: dict[str, str] | None) -> dict[str, Any] | None:
         """Every read of a card, in `ferb.memory.card_reader`: a process of its own on a read-only connection, because
         the lineage resolution is CPU-bound (1.3-1.6 s on the owner's data) and in a thread it would still hold the
-        interpreter lock against the event loop. A reader whose wait is cancelled or fails is killed and reaped."""
+        interpreter lock against the event loop. A reader whose wait is cancelled or fails is killed and reaped. Once
+        the daemon is stopping (its readers already killed), no reader starts: Deferred. The home also goes on stdin,
+        only as a check the reader makes against the home it finds itself."""
         from ferb.memory.learning import LearningRefused
+        if self._shutting_down:
+            raise Deferred("FERB is stopping; this card is captured again after the next start")
         proc = await asyncio.create_subprocess_exec(
             *self.card_reader, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, env={**os.environ, "FERB_HOME": str(self.home)})
         self._card_readers.add(proc)
         try:
-            out, _ = await proc.communicate(json.dumps({"task_id": task_id, "apps": apps}).encode())
+            out, _ = await proc.communicate(json.dumps({"task_id": task_id, "apps": apps,
+                                                        "home": str(self.home)}).encode())
         finally:
             self._card_readers.discard(proc)
             if proc.returncode is None:
@@ -1196,11 +1205,34 @@ class Daemon:
         try:
             answer = json.loads(out)
         except ValueError:
+            if self._shutting_down:                  # killed by shutdown
+                raise Deferred("FERB is stopping; this card is captured again after the next start") from None
             answer = {"error": f"the card reader exited {proc.returncode} without an answer"}
         if "error" in answer:
             raise LearningRefused(str(answer["error"]))
         prepared: dict[str, Any] | None = answer["prepared"]
         return prepared
+
+    def _replay_deferred_receipts(self) -> None:
+        """Procedure receipts whose capture shutdown deferred (`memory.episode_deferred` with a procedure_id): each is
+        recorded once its task's card exists (at start, and after the consolidator captures cards), then journaled as
+        `memory.receipt_replayed` so it is replayed once. Receipts drive a procedure's state (learned, suspect)."""
+        if self.learning is None:
+            return
+        journal = self._journal()
+        done = {(e.data.get("task_id"), e.data.get("procedure_id")) for e in journal.of_kind("memory.receipt_replayed")}
+        cards: set[str] | None = None
+        for row in journal.of_kind("memory.episode_deferred"):
+            task_id, procedure_id = row.data.get("task_id"), row.data.get("procedure_id")
+            if not procedure_id or (task_id, procedure_id) in done:
+                continue
+            if cards is None:
+                cards = {str(n["key"]) for n in self.learning.items("episode")}
+            if task_id not in cards:
+                continue                              # its card comes with the consolidator's next pass
+            self._procedure_outcome(str(procedure_id), str(task_id))
+            journal.append("memory.receipt_replayed", {"task_id": task_id, "procedure_id": procedure_id})
+            done.add((task_id, procedure_id))
 
     def _stop_card_readers(self) -> None:
         """Shutdown: kill every reader still in flight rather than wait for it; the hourly consolidator captures those
@@ -2472,6 +2504,11 @@ class Daemon:
         f = getattr(self.redact, "text", None)
         return str(f(text)) if f else text
 
+    def _redact_id(self, text: str) -> str:
+        """Text that is one of FERB's own ids (a card's task-id key): redacted by structure (`Redactor.ident`)."""
+        f = getattr(self.redact, "ident", None)
+        return str(f(text)) if f else self._redact_text(text)
+
     async def _ps_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         assert self.shells
         return {"processes": [p.__dict__ for p in self.shells.list()]}
@@ -3123,7 +3160,11 @@ class Daemon:
         self._journal().append("owner.verdict", {"task_id": task_id, "verdict": verdict})
         if self.learning is not None:
             self.learning.inputs_changed()            # a card read before this verdict is read again (L28)
-            await self._capture_card(task_id, None, report=True)
+            try:
+                await self._capture_card(task_id, None, report=True)
+            except Exception as e:                    # the verdict stands; the next capture refreshes the card
+                kind = "memory.episode_deferred" if isinstance(e, Deferred) else "memory.episode_failed"
+                self._journal().append(kind, {"task_id": task_id, "error": self._redact_text(str(e))})
             self._refresh_learning_verdict(task_id)
         return {"task_id": task_id, "verdict": verdict}
 

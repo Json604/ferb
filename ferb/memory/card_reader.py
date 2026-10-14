@@ -4,8 +4,9 @@ The lineage resolution behind a card is CPU-bound (1.3-1.6 s on the owner's data
 interpreter lock against the daemon's event loop, so it runs here, on a read-only SQLite connection of its own.
 
 Started as exactly `python -I -m ferb.memory.card_reader`, with no arguments: the packaged app's stub accepts only exact
-entry points. The request comes on stdin as JSON `{"task_id": ..., "apps": ...}`. The database is the one in the
-owner's FERB home (`ferb.paths.ferb_home()`, which the daemon passes as FERB_HOME), never a path a caller names.
+entry points. The request comes on stdin as JSON `{"task_id": ..., "apps": ..., "home": ...}`. The database is the one
+in the owner's FERB home (`ferb.paths.ferb_home()`, which the daemon passes as FERB_HOME), never a path a caller names:
+the request's `home` is only checked against it, and a request naming another home is refused.
 It prints `{"prepared": ...}` or `{"error": "..."}`."""
 import json
 import sqlite3
@@ -59,6 +60,9 @@ def main() -> None:
     else:
         try:
             request = json.loads(sys.stdin.read())
+            named = request.get("home")              # only checked, never opened
+            if not named or Path(str(named)).resolve() != ferb_home().resolve():
+                raise ValueError("the request names another FERB home than the reader's")
             out = {"prepared": read(str(request["task_id"]), request.get("apps"))}
         except Exception as exc:             # the daemon journals it (redacted); no traceback with record contents
             out = {"error": f"{type(exc).__name__}: {exc}"}

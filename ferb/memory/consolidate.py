@@ -86,12 +86,15 @@ class Consolidator:
     def __init__(self, learning: Learning, memory: Any, make_runtime: Callable[..., Any], *,
                  idle: Callable[[], bool] = lambda: True,
                  usage: Callable[[str, dict[str, Any]], None] = lambda *args: None,
-                 capture: Callable[[str], Awaitable[Any]] | None = None) -> None:
+                 capture: Callable[[str], Awaitable[Any]] | None = None,
+                 cards_refreshed: Callable[[], None] = lambda: None) -> None:
         """`capture`: refreshes one task's episode card. The daemon's reads it in the card reader process, off the event
-        loop (L28); without one, the card is refreshed in-process."""
+        loop (L28); without one, the card is refreshed in-process. `cards_refreshed`: told once every card has been
+        refreshed (the daemon then records procedure receipts a shutdown deferred)."""
         self.learning, self.memory, self.make_runtime = learning, memory, make_runtime
         self.idle, self.usage, self.lock = idle, usage, asyncio.Lock()
         self.capture = capture or self._capture_here
+        self.cards_refreshed = cards_refreshed
 
     async def _capture_here(self, task_id: str) -> Any:
         return self.learning.capture_episode(task_id)
@@ -110,6 +113,7 @@ class Consolidator:
                 except LearningRefused:
                     continue
                 await asyncio.sleep(0)               # the loop runs between episodes
+            self.cards_refreshed()
             pending = [p for p in l.items('episode') if not l.db.conn.execute(
                 "SELECT 1 FROM learning_jobs WHERE source_ref=? AND status='done'", (p['id'],)).fetchone()]
             results = []

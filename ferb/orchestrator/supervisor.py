@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from ferb.act.fs.files import normalize_path
 from ferb.clock import context, when
 from ferb.core import origin as origins_
+from ferb.core.errors import Deferred
 from ferb.core.interfaces import AgentRuntime, Clock, IdSource
 from ferb.core.context import Assembly, ContextBlock, count_tokens
 from ferb.core.prompts import load_prompt
@@ -1477,8 +1478,9 @@ class Supervisor(WorkerRuns):
     def _capture_after_outcome(self, tree_id: str, procedure_id: str | None) -> None:
         """The task's learning capture (its episode card, whose lineage resolution reads every entry and task the
         planner was shown, and the procedure receipt that needs the card) runs after the owner has the outcome (L28):
-        a tracked job; a failure is journaled, never raised. At shutdown it is cancelled (`stop_episodes`) and journaled
-        as deferred: the hourly consolidator captures the card again."""
+        a tracked job; a failure is journaled, never raised. At shutdown it is cancelled (`stop_episodes`), or refused
+        (`Deferred`), and journaled as deferred: the hourly consolidator captures the card again, and the daemon then
+        records the procedure receipt."""
         async def capture() -> None:
             try:
                 await asyncio.sleep(0)               # the outcome goes out first
@@ -1488,9 +1490,12 @@ class Supervisor(WorkerRuns):
                         await done
                     if procedure_id:
                         self.procedure_outcome(procedure_id, tree_id)
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, Deferred) as exc:
+                # The daemon replays the procedure receipt once the card is captured again (receipts drive the
+                # procedure's state: a lost failure could leave a failing procedure learned).
                 self.journal.append('memory.episode_deferred', {'task_id': tree_id, 'procedure_id': procedure_id})
-                raise
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
             except Exception as exc:
                 self.journal.append('memory.episode_hook_failed', {'task_id': tree_id,
                     'error': f'{type(exc).__name__}: {exc}'})

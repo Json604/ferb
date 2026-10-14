@@ -36,10 +36,25 @@ def test_the_card_reader_takes_no_arguments_and_reads_the_owners_home(tmp_path):
     home.mkdir()
     db, _, spans, learning = card_store(home)
     finished_task(db, spans, learning, "t-tea")
-    answer = _reader(home, request={"task_id": "t-tea", "apps": None})
+    request = {"task_id": "t-tea", "apps": None, "home": str(home)}
+    answer = _reader(home, request=request)
     assert answer.get("prepared", {}).get("task_id") == "t-tea", answer
-    refused = _reader(home, str(home / "ferb.db"), "t-tea", request={"task_id": "t-tea", "apps": None})
+    refused = _reader(home, str(home / "ferb.db"), "t-tea", request=request)
     assert "prepared" not in refused and "argument" in refused["error"], refused
+    db.close()
+
+
+def test_the_card_reader_refuses_a_request_for_another_home(tmp_path):
+    """The daemon also names its home on stdin, purely as a check: the reader never opens it, and refuses when it
+    isn't the home it found itself (or is missing)."""
+    home, other = tmp_path / "home", tmp_path / "other"
+    home.mkdir()
+    other.mkdir()
+    db, _, spans, learning = card_store(home)
+    finished_task(db, spans, learning, "t-tea")
+    for request in ({"task_id": "t-tea", "apps": None, "home": str(other)}, {"task_id": "t-tea", "apps": None}):
+        refused = _reader(home, request=request)
+        assert "prepared" not in refused and "home" in refused["error"], refused
     db.close()
 
 
@@ -107,6 +122,7 @@ def test_a_capture_skips_a_ref_damaged_by_redaction(tmp_path):
     assert prepared is not None
     assert real["id"] in prepared["sources"] and not set(DAMAGED) & set(prepared["sources"])
     assert prepared["damaged"] == sorted(DAMAGED)
+    assert {"private", "external:unlabeled"} <= set(prepared["labels"])    # what it held is unknown: never less private
     card = learning.write_episode(prepared)
     assert card is not None and card["key"] == "t-old"
     db.close()
@@ -206,4 +222,60 @@ def test_a_registered_value_that_is_a_whole_id_body_is_redacted(tmp_path):
     redactor.add_secret_value(body)
     span = spans.start("context.exposure", input={"source_refs": ["trail:" + body], "reference": "x"})
     assert span.input["source_refs"] == ["trail:[redacted]"]
+    db.close()
+
+
+
+# Round 5: a registered secret that holds an id-shaped run is still redacted -------------------------------------------
+
+SHAPES = {"uuid-format token": str(uuid.uuid4()),             # its last group is a 12-hex run
+          "key-<32 hex>": "key-" + uuid.uuid4().hex,
+          "pw:<32 hex>": "pw:" + uuid.uuid4().hex}
+
+
+@pytest.mark.parametrize("shape", list(SHAPES))
+def test_a_registered_secret_holding_an_id_shaped_run_is_redacted_under_every_id_key(tmp_path, shape):
+    """Round 4 spared every id-shaped run from registered-value replacement, so a registered secret containing one
+    (a UUID token, key-<hex>, pw:<hex>) survived whole under an id key, in journal rows and in span outputs, which the
+    gateway also hands to the model. Only a hit strictly inside one generated id body is spared."""
+    db, redactor, spans, _ = card_store(tmp_path)
+    secret = SHAPES[shape]
+    redactor.add_secret_value(secret)
+    journal = Journal(db, Clock(), RandomIds(), redactor)
+    for key in ("session_id", "request_id", "task_id", "source_refs"):
+        value = [secret] if key == "source_refs" else secret
+        row = journal.append("chat.reply", {key: value, "text": "x"})
+        span = spans.start("tool.call", input={"tool": "http.get", key: value})
+        spans.finish(span, output={"body": {"user": {key: value}}}, origin="external:web")
+        stored = [db.conn.execute("SELECT data_json FROM journal WHERE id=?", (row.id,)).fetchone()[0],
+                  *db.conn.execute("SELECT input_json, output_json FROM spans WHERE id=?", (span.id,)).fetchone()]
+        assert not any(secret in text for text in stored), (key, stored)
+        assert secret not in json.dumps(redactor({"page": {key: value}}))        # what reaches a model
+    db.close()
+
+
+def test_a_registered_value_reaching_past_an_id_body_is_redacted_one_inside_it_is_not(tmp_path):
+    """A value straddling a ref's prefix and its body is redacted. A shorter value lying strictly inside a longer
+    generated body is the accepted residual (L16): the id stays whole, or its lineage breaks."""
+    db, redactor, spans, _ = card_store(tmp_path)
+    straddled, inside = "trail:" + uuid.uuid4().hex, "trail:" + uuid.uuid4().hex
+    redactor.add_secret_value(straddled[2:16])                     # "ail:" + the body's first 10 characters
+    redactor.add_secret_value(inside[10:22])                       # 12 characters strictly inside the body
+    span = spans.start("context.exposure", input={"source_refs": [straddled, inside], "reference": "x"})
+    assert straddled[2:16] not in json.dumps(span.input) and span.input["source_refs"][1] == inside
+    db.close()
+
+
+def test_a_cards_key_keeps_its_task_id_whole(tmp_path):
+    """`Learning.put` redacted a card's key as text, so a registered value inside a task id altered the episode card's
+    key and every lookup by task id missed it. Ids in a card's key are protected by structure, like id keys."""
+    from ferb.memory.learning import Learning
+    db, redactor, spans, _ = card_store(tmp_path)
+    learning = Learning(db, Clock(), lambda *args: None, redactor.text, redact_id=redactor.ident)   # as the daemon's
+    task_id = uuid.uuid4().hex
+    finished_task(db, spans, learning, task_id)
+    redactor.add_secret_value(task_id[4:16])
+    card = learning.capture_episode(task_id)
+    assert card is not None and card["key"] == task_id
+    assert learning.task_sources(task_id) and card["id"] in learning.task_sources(task_id)
     db.close()

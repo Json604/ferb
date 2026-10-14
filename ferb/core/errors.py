@@ -34,6 +34,10 @@ class AlreadyRunning(FerbError):
     """Another daemon is already answering on the socket."""
 
 
+class Deferred(FerbError):
+    """Work refused because the daemon is stopping; it is done again after the next start (e.g. an episode card)."""
+
+
 class Refused(FerbError):
     """A safety check said no. The message is safe to show a worker (never contains a secret)."""
 

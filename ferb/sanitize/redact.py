@@ -14,13 +14,13 @@ SECRET_WORDS = {"password", "passwd", "pwd", "passphrase", "secret", "token", "c
 SECRET_KEYS = {"apikey", "accesstoken", "refreshtoken", "idtoken", "clientsecret", "privatekey", "setcookie",
                "onetimecode", "xapikey"}
 # FERB's own id keys: their values are ids FERB built, never token values (owner decision; L16, L28). Under these keys a
-# generated id body (ID_BODY) is never altered by an exact registered-value match: a short registered value can occur
-# inside an id, and an altered id breaks lineage. Everything else in the value (a ref's prefix, a step name, any other
-# word) is redacted as text, the secret patterns run over the whole value, and a registered value that is a whole id
-# body is still redacted.
+# registered value is replaced wherever it occurs in the whole value, except where it lies strictly inside one generated
+# id body (ID_BODY): a short registered value can occur inside an id by chance, and an altered id breaks lineage. A hit
+# equal to a body or reaching past one is redacted, and the secret patterns run over the whole value. Accepted residual:
+# a registered value that is a strict substring of a longer generated body is not replaced there.
 # approval_id and timer_id (owner questions and reminders) are FERB ids that clients answer by and code reads back.
 INTERNAL_ID_KEYS = {"task_id", "span_id", "session_id", "run_token_id", "request_id", "covered", "source_refs",
-                    "approval_id", "timer_id"}
+                    "procedure_id", "approval_id", "timer_id"}
 # The generated part of a FERB id: a uuid4 hex (RandomIds: task, request, journal, trail, memory ids), a sha256 hex
 # (learning nodes, m-/key-) or a 6-byte token hex (chat sessions, chat-).
 ID_BODY = re.compile(r"(?<![0-9A-Za-z])([0-9a-f]{64}|[0-9a-f]{32}|[0-9a-f]{12})(?![0-9A-Za-z])")
@@ -184,10 +184,21 @@ class Redactor:
         """A value under one of FERB's own id keys (INTERNAL_ID_KEYS). An excluded app's name stays excluded."""
         if self.exclude_apps and s.lower() in self.exclude_apps:
             return EXCLUDED
-        values = self.secret_values()
-        pieces = ID_BODY.split(s)            # generated id bodies at the odd positions
-        return self._patterns("".join((REDACTED if piece in values else piece) if n % 2 else self._registered(piece)
-                                      for n, piece in enumerate(pieces)))
+        bodies = [m.span(1) for m in ID_BODY.finditer(s)]
+        hits = []
+        for value in self.secret_values():
+            start = s.find(value)
+            while value and start >= 0:
+                end = start + len(value)
+                if not any(b0 <= start and end <= b1 and (start, end) != (b0, b1) for b0, b1 in bodies):
+                    hits.append((start, end))
+                start = s.find(value, start + 1)
+        out, kept = [], 0
+        for start, end in sorted(hits):
+            if start > kept or not out:
+                out.append(s[kept:start] + REDACTED)
+            kept = max(kept, end)
+        return self._patterns("".join(out) + s[kept:])
 
     def field(self, text: str, *, role: str = "", label: str = "", secure_input: bool = False,
               concealed: bool = False, metadata: tuple[str, ...] = (), kind: str | None = None) -> str:

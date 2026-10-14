@@ -23,6 +23,10 @@ class LearningRefused(FerbError):
     pass
 
 
+# Kinds whose key is one of FERB's own ids: an episode card (its task id) and its annotation (the card's node id).
+ID_KEYED = frozenset({'episode', 'episode_annotation'})
+
+
 def encoded(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str)
 
@@ -51,8 +55,12 @@ def render_slots(value: Any, slots: dict[str, Any]) -> Any:
 
 
 class Learning:
-    def __init__(self, db: Any, clock: Any, publish: Callable[..., Any], redact: Callable[[str], str]) -> None:
+    def __init__(self, db: Any, clock: Any, publish: Callable[..., Any], redact: Callable[[str], str],
+                 redact_id: Callable[[str], str] | None = None) -> None:
+        """`redact_id`: redaction for a key that is one of FERB's own ids (ID_KEYED), by structure
+        (`Redactor.ident`), so a registered value inside a task id can't alter the card's key; default `redact`."""
         self.db, self.clock, self.publish, self.redact = db, clock, publish, redact
+        self.redact_id = redact_id or redact
         self.embedder: Any = None
         # Bumped by every change to an episode card's inputs (a forget, an owner verdict, a write of a card): a card
         # read before one is read again before it is written (L28).
@@ -140,7 +148,7 @@ class Learning:
         if origin_label == origin.OWNER and not owner:
             raise LearningRefused('a derived record cannot invent owner authority')
         body = json.loads(self.redact(encoded(body)))
-        key = self.redact(key)
+        key = self.redact_id(key) if kind in ID_KEYED else self.redact(key)
         refs = sorted(set(sources))
         labels = set(labels) if labels is not None else self.labels(refs)
         # An explicit owner statement is a new statement, still citing the old proposal as history.
@@ -274,7 +282,8 @@ class Learning:
     def _card_labels(self, refs: Iterable[str]) -> tuple[set[str], list[str]]:
         """The origins of a card's sources, and the refs skipped as damaged. A source that can't be found fails the card
         (it may have been forgotten on purpose), except a ref that holds the redaction marker: no FERB id contains '['
-        or ']', so it is an id an earlier redaction altered (60 old rows in the owner's journal); it never resolves."""
+        or ']', so it is an id an earlier redaction altered (60 old rows in the owner's journal); it never resolves.
+        A skipped ref adds the labels of a source whose content is unknown."""
         labels: set[str] = set()
         damaged: list[str] = []
         for ref in sorted(set(refs)):
@@ -284,6 +293,8 @@ class Learning:
                 if REDACTED not in ref:
                     raise
                 damaged.append(ref)
+                # What it held is unknown: never assume it was less private (as for a retained fact's lost event).
+                labels |= {origin.PRIVATE, origin.external('unlabeled')}
         return labels, damaged
 
     def _action_sources(self, inp: dict[str, Any], result: Any) -> set[str]:

@@ -2,6 +2,7 @@
 situation always goes in first, then chat newest-first with older chat summarized, ordered so it can be cached."""
 import json
 import re
+import sys
 
 import pytest
 
@@ -265,8 +266,8 @@ def test_the_recent_raw_trail_is_fetch_only_never_in_the_planner_prompt(daemon):
 
 
 def test_the_outcome_is_sent_before_episode_capture_and_capture_still_completes(daemon):
-    """Episode capture (its lineage resolution) runs after the owner has the outcome, as a tracked job: awaited at
-    shutdown, a failure journaled."""
+    """Episode capture (its lineage resolution) runs after the owner has the outcome, as a tracked job (cancelled and
+    journaled as deferred at shutdown); a failure is journaled."""
     import time
     from ferb.cli.client import Client
     sv = daemon.daemon.supervisor
@@ -641,17 +642,23 @@ def test_a_cancelled_capture_kills_its_card_reader(daemon):
     assert deferred and deferred[-1]["task_id"]
 
 
+def _own_daemon(home, ids: str = "id") -> RunningDaemon:
+    """A test daemon this test stops itself (the `daemon` fixture would stop it a second time)."""
+    from ferb.core.ids import SequentialIds
+    from tests.conftest import FakeClock
+    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds(ids), watch_owner_input=False)
+    d.daemon._permissions = lambda: {"accessibility": True, "screen": True}
+    d.daemon.supervisor.availability = d.daemon.supervisor._default_availability
+    return d
+
+
 def test_shutdown_kills_an_in_flight_card_reader_instead_of_waiting(home):
     """At shutdown an in-flight reader is killed rather than awaited; the capture is journaled as deferred, and the
     hourly consolidator captures that card again."""
     import sqlite3
     import time
-    from ferb.core.ids import SequentialIds
-    from tests.conftest import FakeClock
     from tests.support.cards import HANGING_READER
-    d = RunningDaemon(home, clock=FakeClock(), ids=SequentialIds("id"), watch_owner_input=False)
-    d.daemon._permissions = lambda: {"accessibility": True, "screen": True}
-    d.daemon.supervisor.availability = d.daemon.supervisor._default_availability
+    d = _own_daemon(home)
     d.daemon.card_reader = list(HANGING_READER)
     install(d, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
     outcome(chat(d, "do the job"))
@@ -733,3 +740,156 @@ def test_a_capture_reaching_a_ref_damaged_by_redaction_still_writes_the_card_and
     assert cards and not failed, failed
     assert damaged not in cards[0]["sources"]
     assert reported and reported[-1]["refs"] == [damaged]
+
+
+
+# Round 5 ------------------------------------------------------------------------------------------------------------
+
+def _procedure(daemon) -> str:
+    async def make():
+        return daemon.daemon.learning.put('procedure', 'check the tea order', {
+            'intent': 'check the tea order', 'preconditions': {'apps': {}}, 'steps': []}, [],
+            made_by='code:test/1', state='candidate')['id']
+    return daemon.run(make())
+
+
+def _procedure_task(daemon, procedure_id: str) -> str:
+    spec = task("check the tea order")
+    spec["procedure_id"] = procedure_id
+    install(daemon, [sup("task", "Checking.", spec)], {"worker": done("done")})
+    outcome(chat(daemon, "check the tea order"))
+
+    async def tid():
+        return daemon.daemon.db.conn.execute("SELECT task_id FROM episodes ORDER BY ended_at DESC").fetchone()[0]
+    return daemon.run(tid())
+
+
+def _receipts(daemon) -> tuple[list[tuple], list[dict]]:
+    async def facts():
+        rows = daemon.daemon.db.conn.execute("SELECT procedure_id, episode_id, successful FROM learning_receipts")
+        return [tuple(r) for r in rows], [e.data for e in daemon.daemon.journal.of_kind("memory.receipt_replayed")]
+    return daemon.run(facts())
+
+
+def test_a_receipt_deferred_by_shutdown_is_recorded_once_the_consolidator_has_its_card(daemon):
+    """Receipts drive a procedure's state (learned, suspect): a lost failure could leave a failing procedure learned.
+    A procedure task whose capture shutdown cancelled gets its receipt once the consolidator captures its card, once."""
+    import sys
+    from tests.support.cards import HANGING_READER
+    procedure_id = _procedure(daemon)
+    daemon.daemon.card_reader = list(HANGING_READER)
+    task_id = _procedure_task(daemon, procedure_id)
+    assert _reader_pids(daemon)
+    daemon.run(daemon.daemon.supervisor.stop_episodes(), timeout=10)          # what shutdown does
+    assert _receipts(daemon) == ([], [])
+    daemon.daemon.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
+    consolidator = daemon.daemon.consolidator
+    for _ in range(2):                                # the second pass must not record it again
+        checks = iter([True, True])                   # idle at the start and before the one card; no model pass
+        consolidator.idle = lambda: next(checks, False)
+        daemon.run(consolidator.catch_up(), timeout=60)
+        receipts, replayed = _receipts(daemon)
+        assert [r[0] for r in receipts] == [procedure_id]
+        assert replayed == [{"task_id": task_id, "procedure_id": procedure_id}]
+
+
+def test_a_deferred_receipt_is_recorded_at_startup_when_the_card_exists(home):
+    from tests.support.cards import HANGING_READER
+    d = _own_daemon(home)
+    procedure_id = _procedure(d)
+    d.daemon.card_reader = list(HANGING_READER)
+    task_id = _procedure_task(d, procedure_id)
+    assert _reader_pids(d)
+    d.run(d.daemon.supervisor.stop_episodes(), timeout=10)
+    d.daemon.card_reader = [sys.executable, "-I", "-m", "ferb.memory.card_reader"]
+    d.run(d.daemon._capture_card(task_id, None), timeout=60)                  # the card, without its receipt
+    assert _receipts(d) == ([], [])
+    d.stop()
+    again = _own_daemon(home, ids="again")
+    try:
+        receipts, replayed = _receipts(again)
+        assert [r[0] for r in receipts] == [procedure_id]
+        assert replayed == [{"task_id": task_id, "procedure_id": procedure_id}]
+    finally:
+        again.stop()
+
+
+def test_no_card_reader_starts_once_ferb_is_stopping(daemon, monkeypatch):
+    """After shutdown has killed the readers, nothing starts another: a capture asked for then is deferred, and the
+    after-outcome capture journals it with its procedure so the receipt is replayed later."""
+    import asyncio
+    from ferb.core.errors import Deferred
+    from ferb.daemon import main
+    install(daemon, [sup("task", "Doing.", task("job"))], {"worker": done("done")})
+    outcome(chat(daemon, "do the job"))
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    async def tid():
+        return daemon.daemon.db.conn.execute("SELECT task_id FROM episodes").fetchone()[0]
+    task_id = daemon.run(tid())
+    started = []
+    real = asyncio.create_subprocess_exec
+
+    async def spawn(*args, **kwargs):
+        started.append(args)
+        return await real(*args, **kwargs)
+    monkeypatch.setattr(main.asyncio, "create_subprocess_exec", spawn)
+
+    async def stopping():
+        sv, d = daemon.daemon.supervisor, daemon.daemon
+        d._shutting_down = True
+        try:
+            try:
+                await d._capture_card(task_id, None)
+                refused = None
+            except Deferred as exc:
+                refused = str(exc)
+            sv._capture_after_outcome(task_id, "m-procedure")
+            await sv.finish_episodes()
+        finally:
+            d._shutting_down = False
+        return refused, [e.data for e in d.journal.of_kind("memory.episode_deferred")]
+    refused, deferred = daemon.run(stopping())
+    assert refused and not started
+    assert deferred[-1] == {"task_id": task_id, "procedure_id": "m-procedure"}
+
+
+def test_a_verdict_whose_card_cannot_be_refreshed_still_updates_receipts(daemon):
+    """The owner's verdict is recorded and its receipts refreshed even when the card can't be read again; the failure
+    is journaled instead of failing the owner's command."""
+    import sys
+    from ferb.cli.client import Client
+    procedure_id = _procedure(daemon)
+    task_id = _procedure_task(daemon, procedure_id)
+    daemon.run(daemon.daemon.supervisor.finish_episodes(), timeout=60)
+
+    async def succeeded():
+        daemon.daemon.db.conn.execute("UPDATE learning_receipts SET successful=1")
+    daemon.run(succeeded())
+    daemon.daemon.card_reader = [sys.executable, "-I", "-c",
+                                 "import sys\nsys.stdin.read()\nsys.stdout.write('{\"error\": \"unreadable card\"}')"]
+    c = Client(daemon.sock, timeout=60)
+    try:
+        assert c.call("verdict.set", {"task_id": task_id, "verdict": "fail"})["verdict"] == "fail"
+    finally:
+        c.close()
+    receipts, _ = _receipts(daemon)
+    assert [r[2] for r in receipts] == [0]
+
+    async def failed():
+        return [e.data["error"] for e in daemon.daemon.journal.of_kind("memory.episode_failed")]
+    assert any("unreadable card" in e for e in daemon.run(failed()))
+
+
+def test_the_daemons_cards_keep_task_ids_whole_in_their_key(daemon):
+    import uuid
+    from ferb.core import origin
+
+    async def put():
+        task_id = uuid.uuid4().hex
+        daemon.daemon._add_secret_value(task_id[4:16])
+        node = daemon.daemon.learning.put('episode', task_id, {'task_id': task_id}, [], made_by='code:test/1',
+                                          origin_label=origin.FERB, state='active')
+        return task_id, node['key']
+    task_id, key = daemon.run(put())
+    assert key == task_id

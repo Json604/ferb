@@ -109,7 +109,7 @@ def test_a_secret_placed_in_source_refs_is_still_redacted(stores, secret) -> Non
         assert span.input['source_refs'][:4] == real            # FERB's own ids pass unchanged
         assert secret not in span.input['source_refs'][4]
         # L28: only a generated id body is spared; a registered value in any other ref text is redacted
-        assert span.input['source_refs'][5] == 'journal:[redacted][redacted]'
+        assert span.input['source_refs'][5] == 'journal:[redacted]'            # adjacent hits: one marker
         stored = db.conn.execute('SELECT input_json FROM spans WHERE id=?', (span.id,)).fetchone()[0]
         assert json.loads(stored) == span.input
 
