@@ -7,6 +7,8 @@ from ferb.policy import provenance
 from ferb.policy.confirm import SEND_CLASS
 from ferb.store.db import Database
 
+SCHEDULE_GRANT = "schedule:"     # a schedule's runs hold its recorded scopes under `schedule:<schedule id>`
+
 
 def owner_named(scope: SendScope, owner_text: str) -> bool:
     """Whether every destination of a scope (its site, account and recipients) appears in the owner's own words, by
@@ -45,5 +47,20 @@ class StandingPermissions:
         return [SendScope.model_validate_json(row[0]) for row in self.db.conn.execute(
             'SELECT scope FROM standing_permissions WHERE task_id=? AND active=1 ORDER BY rowid', (task_id,))]
 
+    def approvals(self, task_id: str) -> list[str]:
+        """The statements (approval ids) the task's scopes in force were granted under."""
+        return [row[0] for row in self.db.conn.execute(
+            'SELECT DISTINCT approval_id FROM standing_permissions WHERE task_id=? AND active=1 ORDER BY approval_id',
+            (task_id,))]
+
     def revoke(self, task_id: str) -> None:
         self.db.conn.execute('UPDATE standing_permissions SET active=0 WHERE task_id=?', (task_id,))
+
+    def revoke_approval(self, approval_id: str) -> list[str]:
+        """Withdraw every scope granted under one statement (a cancelled schedule's `schedule:<id>`), from every task
+        holding it, running or suspended; returns those tasks."""
+        tasks = [row[0] for row in self.db.conn.execute(
+            'SELECT DISTINCT task_id FROM standing_permissions WHERE approval_id=? AND active=1 ORDER BY task_id',
+            (approval_id,))]
+        self.db.conn.execute('UPDATE standing_permissions SET active=0 WHERE approval_id=?', (approval_id,))
+        return tasks

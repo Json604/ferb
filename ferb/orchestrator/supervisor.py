@@ -55,7 +55,7 @@ from ferb.orchestrator.tree import ExecutionState
 from ferb.policy import confirm
 from ferb.policy.rules import ActionRequest
 from ferb.policy.sites import sites_contacted
-from ferb.policy.standing import StandingPermissions
+from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
 from ferb.policy.targets import Request, Targets
 from ferb.sanitize.untrusted import EARLIER_QUESTION, EARLIER_QUESTION_DATA, WRAPPED, mark, wrap_untrusted
 from ferb.store.spans import SpanStore
@@ -373,6 +373,8 @@ class Supervisor(WorkerRuns):
             lambda spec, own, rid, made: "Scheduling isn't available."
         self.on_schedule_change: Callable[[Any, str], str] = lambda ch, own: "Scheduling isn't available."
         self.on_reminder_cancel: Callable[[Any, str], str] = lambda ch, own: "Reminders aren't available."
+        # whether a schedule's runs may still hold its recorded scope (D30); none without the daemon's schedules
+        self.schedule_live: Callable[[str], bool] = lambda sid: False
         # What the supervisor may use right now (supplied by the daemon: connections, permissions)
         self.availability: Callable[[], Availability] = self._default_availability
         # Environment observations supplied by the daemon (it may return them later: an awaitable).
@@ -595,7 +597,7 @@ class Supervisor(WorkerRuns):
         async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
                                       origins=self._env.get(request_id, {}).get("turn_origins"),
                                       unattended_scopes=recorded_scopes,
-                                      start_grant=(recorded_scopes, "schedule:" + sched.id)):
+                                      start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id)):
             if ev.get("type") == "outcome":
                 final = ev
         return final
@@ -650,7 +652,8 @@ class Supervisor(WorkerRuns):
             self.state.requests.record(Request(request_id, data['words'], spec.targets.targets(), payload=data['payload'],
                                                asked_origins=frozenset(self.spans.asked_origins(tree_id))))
             self._env[request_id] = {'message_origin': set(data.get('message_origins', []))}
-            # nobody started this from chat: only the scope already granted to this tree may be granted again
+            # nobody started this from chat: only the scope already granted to this tree, and still in force, carries
+            self._withdraw_lapsed(tree_id)
             async for event in self.run_tree(spec, 'Continuing your saved plan.', request_id, data['payload'],
                     conversation_id=saved['conversation'], origins=set(data.get('origins', [])), resume_id=tree_id,
                     unattended_scopes=self.standing.scopes(tree_id)):
@@ -663,6 +666,19 @@ class Supervisor(WorkerRuns):
         for result in results:
             if isinstance(result, Exception):
                 self.journal.append('plan.resume_failed', {'error': f'{type(result).__name__}: {result}'})
+
+    def _grant_in_force(self, approval_id: str) -> bool:
+        """A schedule's grant (`schedule:<id>`) holds only while that schedule may still run with it (D30)."""
+        return not approval_id.startswith(SCHEDULE_GRANT) or self.schedule_live(approval_id[len(SCHEDULE_GRANT):])
+
+    def _withdraw_lapsed(self, tree_id: str) -> None:
+        """Before a suspended tree resumes: a scope it holds from a schedule cancelled or paused meanwhile is
+        withdrawn (from every task holding it), and journaled."""
+        for approval in self.standing.approvals(tree_id):
+            if not self._grant_in_force(approval):
+                tasks = self.standing.revoke_approval(approval)
+                self.journal.append('standing.revoked', {'approval_id': approval, 'task_ids': tasks,
+                                                         'reason': 'schedule no longer active'})
 
     # ---------- one chat turn ----------
 
@@ -880,7 +896,8 @@ class Supervisor(WorkerRuns):
                     reply, restated = steered
                     if restated is not None:     # D30: the stated scope is in the conversation record (next turns)
                         self.journal.append('chat.reply', {'session_id': session.id, 'request_id': request_id,
-                                                           'text': reply['text']})
+                                                           'text': reply['text']},   # the planner's scopes (MP2)
+                                            origin=origins_.join({origins_.INFERRED} | turn_origins))
                     try:
                         yield reply
                     finally:
@@ -1458,8 +1475,6 @@ class Supervisor(WorkerRuns):
         worker = Task(f"{tree_id}.{WORKER}", tree_id, spec.goal, self.device_id, identity, scopes, "worker",
                       request_id, [c.text for c in spec.success_conditions], limit)
         tree = _Tree(tree_id, spec, worker, prior_task=prior_task, unattended_scopes=unattended_scopes)
-        if start_grant is not None and start_grant[0]:   # D30: scopes stated to the owner earlier (a schedule's)
-            self.standing.grant(tree_id, start_grant[0], start_grant[1])
         tree.intake_receipts = self._env.get(request_id, {}).get("intake_receipts", [])
         front = self._env.get(request_id, {}).get("front_window")
         if front is not None:                       # L12: the worker starts from the planner's picture (D26 clarified)
@@ -1509,7 +1524,15 @@ class Supervisor(WorkerRuns):
         self._tree_of[worker.id] = tree
         self.publish("task.created", {"task_id": tree_id, "goal": spec.goal})
         runner: asyncio.Task[None] | None = None
+        unattended = request_id in self.state.approvals.unattended
         try:
+            if start_grant is not None and start_grant[0]:   # D30: scopes recorded with the owner earlier (a schedule's)
+                if self._grant_in_force(start_grant[1]):     # checked again now: it may have changed since it was read
+                    self.standing.grant(tree_id, start_grant[0], start_grant[1])
+                else:
+                    tree.unattended_scopes = []
+                    self.journal.append('standing.withheld', {'task_id': tree_id, 'approval_id': start_grant[1],
+                                                              'reason': 'schedule no longer active'})
             # L8: the plan line as soon as the planner returned, before the disturbance baseline below. Journaled
             # (when, for which request) so `ferb baseline` can time it; its text stays in the planner's span.
             self.journal.append("chat.plan", {"request_id": request_id, "task_id": tree_id})
@@ -1517,7 +1540,8 @@ class Supervisor(WorkerRuns):
             # reply corrects it (a steer)
             stated = ""
             if spec.plan and (spec.plan.big_job or spec.plan.standing_sends) and not self.plans.load(tree_id)['approved']:
-                stated = "\n" + self.gateway.redact(self._plan_statement(spec.plan, unattended_scopes))
+                stated = "\n" + self.gateway.redact(self._plan_statement(spec.plan, tree.unattended_scopes,
+                                                                          unattended=unattended))
             # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
             yield {"type": "plan", "text": confirm.from_task_lines(text + stated), "task_id": tree_id, "goal": spec.goal,
                    "identity": spec.identity,
@@ -1693,11 +1717,13 @@ class Supervisor(WorkerRuns):
     def _safe_scopes(self, plan: Plan) -> list[SendScope]:
         return [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
 
-    def _plan_statement(self, plan: Plan, allowed: list[Any] | None = None) -> str:
+    def _plan_statement(self, plan: Plan, allowed: list[Any] | None = None, *, unattended: bool = False) -> str:
         """D24/D30 (L3): a big job's plan, its estimates and any standing scope as the plan line states them; a
         statement, never a question. Each step and scope is one line (the planner's text; D33 marks a line that reads
-        as FERB's). With nobody present (`allowed`: the scopes an owner turn recorded), a stated scope outside them is
-        said to ask, never to send without asking."""
+        as FERB's). With nobody present when it started (`allowed`: the scopes in force, recorded by an owner turn), a
+        stated scope outside them is said not to be covered, never to send without asking: its sends get FERB's usual
+        checks, and one that asks waits for the owner (a resumed run) or, in a scheduled run (`unattended`), can't be
+        answered and is reported not done."""
         def one(text: str) -> str:
             return " ".join(printable(text).split())
         lines = [PLAN_STATED, *(f"- {one(s.goal or s.question or s.kind)}" for s in plan.steps)]
@@ -1709,8 +1735,9 @@ class Supervisor(WorkerRuns):
             lines.append("For this task I'll send these without asking each time:")
             lines += ["- " + one(s.line()) for s in granted]
         if len(granted) < len(scopes):
-            lines.append("These weren't set up with you, so each will ask first (and, with nobody here, be reported "
-                         "not done):")
+            lines.append("These weren't set up with you, so they aren't covered: each gets FERB's usual checks, and "
+                         "one that asks " + ("can't be answered with nobody here, so it's reported not done:"
+                                             if unattended else "waits for you:"))
             lines += ["- " + one(s.line()) for s in scopes if s not in granted]
         return "\n".join(lines)
 
@@ -1724,10 +1751,13 @@ class Supervisor(WorkerRuns):
             safe_scopes = self._safe_scopes(plan)
             # With nobody present (a scheduled or resumed run) nothing is granted here: the scopes an owner turn
             # recorded are already in force (granted when the run started, or before the restart); any other stated
-            # scope is not, and its sends ask, which an unattended run declines and reports.
+            # scope is not, and its sends get FERB's usual checks (one that asks waits for the owner, or, in a
+            # scheduled run, is declined and reported).
             allowed = tree.unattended_scopes
+            unattended = tree.worker.request_id in self.state.approvals.unattended
             stated = self.journal.append('plan.stated', {
-                'task_id': tree.id, 'text': self.gateway.redact(self._plan_statement(plan, allowed)),
+                'task_id': tree.id,
+                'text': self.gateway.redact(self._plan_statement(plan, allowed, unattended=unattended)),
                 'not_granted': [s.line() for s in safe_scopes if allowed is not None and s not in allowed]})
             self.plans.db.conn.execute('UPDATE task_plans SET approved=1 WHERE task_id=?', (tree.id,))
             if allowed is None and safe_scopes:

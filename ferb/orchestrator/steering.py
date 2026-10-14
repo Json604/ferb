@@ -82,12 +82,15 @@ def restate_scope(supervisor: Any, tree: Any, standing: Any) -> Restated | None:
     or the revised scopes. Revised: the old grant is revoked and only the scopes already stated are granted again at
     once (a narrowing takes effect now); the revision is stated and recorded (`plan.stated`). A new or widened scope
     is not granted here: the caller grants it under the same statement once the reply has been sent and the task is
-    still running (`grant_stated`). None when nothing changes."""
+    still running (`grant_stated`). None when nothing changes. A run nobody started from chat (a scheduled or resumed
+    run, `unattended_scopes`) counts only the scopes in force as stated: its plan may state one that was never granted,
+    and that one is granted only after this reply states it, like any new scope."""
     if standing == 'unchanged':
         return None
     revised = [SendScope.model_validate(supervisor.gateway.redact(s.model_dump())) for s in standing]
     plan = tree.spec.plan
-    stated_before = list(plan.standing_sends) if plan is not None else supervisor.standing.scopes(tree.id)
+    stated_before = (list(plan.standing_sends) if plan is not None and tree.unattended_scopes is None
+                     else supervisor.standing.scopes(tree.id))
     if revised == stated_before:
         return None                      # nothing changes
     supervisor.standing.revoke(tree.id)

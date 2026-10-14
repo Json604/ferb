@@ -133,3 +133,13 @@ def holds_pasted(payload: str) -> bool:
     """Whether a recorded request still holds one of FERB's wrappers (pasted or quoted text) once FERB's own earlier
     question is set aside."""
     return bool(WRAPPED.search(without_ferb_question(payload)))
+
+
+def recorded_own_words(for_model: str, pasted: int | None) -> str | None:
+    """The owner's own words of a recorded chat message (`Marked.for_model`): its pasted or quoted parts, in FERB's
+    wrapper, left out. `pasted`: how many such parts were recorded with it. None (nothing counts as the owner's words)
+    when that count is unknown or the wrappers found differ from it, so a damaged record never passes pasted text off
+    as the owner's."""
+    if pasted is None or len(WRAPPED.findall(for_model)) != pasted:
+        return None
+    return " ".join(WRAPPED.sub(" ", for_model).split())

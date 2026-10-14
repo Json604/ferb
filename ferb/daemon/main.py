@@ -1686,6 +1686,7 @@ class Daemon:
             self.supervisor.on_schedule = self._schedule_create
             self.supervisor.on_schedule_change = self._schedule_change_from_chat
             self.supervisor.on_reminder_cancel = self._reminder_cancel_from_chat
+            self.supervisor.schedule_live = self._schedule_live
         if self.supervisor is not None:
             self.supervisor.timers = self.timers
         self._timer_task = asyncio.get_running_loop().create_task(self.timers.run())
@@ -2099,8 +2100,8 @@ class Daemon:
                 t.apps, t.sites, [normalize_path(p, str(self.home / "workspace")) for p in t.paths],
                 t.recipients)
             # D30: the standing scope stated now, with the owner here, is the only one the unattended runs get; only a
-            # scope whose destinations the owner named (typed now, or owner-stated memory) is recorded (S3)
-            scopes, unnamed = self._schedule_scopes(getattr(spec, "standing_sends", []), own_words)
+            # scope whose destinations the owner typed (now, or when stating a remembered item) is recorded (S3, MP2)
+            scopes, unnamed = self._schedule_scopes(getattr(spec, "standing_sends", []), own_words, request_id)
             s = self.schedules.add(spec.request, own_words,
                                    recorded.to_json() | ({"standing_sends": scopes} if scopes else {}), rule, first)
         except (ScheduleError, ValueError) as e:
@@ -2122,18 +2123,18 @@ class Daemon:
                 "- " + SendScope.model_validate(scope).line() for scope in scopes))
         if unnamed:
             said += "\n" + confirm.from_task_lines(
-                "These weren't recorded, because their destination isn't in your own words, so each run will ask "
-                "(and, with nobody there, report them not done):\n" + "\n".join("- " + line for line in unnamed))
+                "These weren't recorded, because their destination isn't in words you typed (now, or when you told me "
+                "to remember it). In each run they get FERB's usual checks, and a send that asks can't be answered "
+                "with nobody there, so it's reported not done:\n" + "\n".join("- " + line for line in unnamed))
         return said
 
-    def _schedule_scopes(self, stated: list[Any], own_words: str) -> tuple[list[dict[str, Any]], list[str]]:
+    def _schedule_scopes(self, stated: list[Any], own_words: str,
+                         request_id: str) -> tuple[list[dict[str, Any]], list[str]]:
         """The stated scopes a schedule records (redacted), and the lines of those it doesn't: a scope is recorded only
-        when its site, account and recipients appear in the owner's own words, typed in this turn or kept as
-        owner-stated memory (D30, S3)."""
+        when its site, account and recipients appear in what the owner typed, in this turn or behind a remembered item
+        (`_typed_behind_memory`); never in a remembered item's wording (D30, S3, MP2)."""
         from ferb.policy.standing import owner_named
-        remembered = [item.content for item in (self.memory.items() if self.memory is not None else [])
-                      if item.origin == "owner_stated"]
-        owner_text = "\n".join([own_words, *remembered])
+        owner_text = "\n".join([own_words, *self._typed_behind_memory(request_id)])
         recorded, unnamed = [], []
         for scope in stated:
             if owner_named(scope, owner_text):
@@ -2141,6 +2142,32 @@ class Daemon:
             else:
                 unnamed.append(self.redact(scope.line()))
         return recorded, unnamed
+
+    def _typed_behind_memory(self, request_id: str) -> list[str]:
+        """What the owner typed behind each active owner-stated memory item: the text of the `ferb memory add` / `edit`
+        entry it rests on, or the owner's own words (pasted parts left out) of the chat turn it was captured in. Never
+        the item's content: chat capture keeps the planner's wording once a short quote is in the owner's words. The
+        current request's turn is left out: an item captured in it adds nothing beyond its typed words (MP2)."""
+        from ferb.sanitize.untrusted import recorded_own_words
+        if self.memory is None:
+            return []
+        ids = sorted({src.removeprefix("journal:") for item in self.memory.items() if item.origin == "owner_stated"
+                      for src in item.source_ids if src.startswith("journal:")})
+        if not ids:
+            return []
+        assert self.db is not None
+        typed = []
+        for kind, data_json in self.db.conn.execute(
+                f"SELECT kind, data_json FROM journal WHERE id IN ({','.join('?' * len(ids))}) ORDER BY seq", ids):
+            data = json.loads(data_json)
+            if kind in ("memory.added", "memory.edited"):
+                typed.append(str(data.get("content", "")))
+            elif kind == "chat.message" and data.get("request_id") != request_id:
+                parts = data.get("untrusted_parts")      # the pasted parts it held, plus one for attached paths
+                own = recorded_own_words(str(data.get("text", "")),
+                                         None if parts is None else int(parts) - bool(data.get("input_paths")))
+                typed += [own] if own else []
+        return typed
 
     def _reminder_cancel_from_chat(self, rc: Any, own_words: str) -> str:
         norm = " ".join(own_words.lower().split())
@@ -2169,10 +2196,12 @@ class Daemon:
             self.schedules.set_state(sid, "cancelled")
             if s.timer_id:
                 self.timers.cancel(s.timer_id)
+            self._withdraw_schedule_scope(sid, action)
         elif action == "pause":
             self.schedules.set_state(sid, "paused")
             if s.timer_id:
                 self.timers.cancel(s.timer_id)
+            self._withdraw_schedule_scope(sid, action)
         elif action == "resume":
             self.schedules.set_state(sid, "active")
             nxt = s.rule.next_after(max(self.clock.now(), s.first_run - timedelta(seconds=1)), s.first_run) \
@@ -2184,6 +2213,23 @@ class Daemon:
             self.schedules.set_timer(sid, t.id, nxt)
         self._journal().append(f"schedule.{action}", {"schedule_id": sid})
         return {"cancel": "Cancelled", "pause": "Paused", "resume": "Resumed"}[action] + f": {s.request}"
+
+    def _withdraw_schedule_scope(self, sid: str, action: str) -> None:
+        """D30: a cancelled or paused schedule's recorded scope stops covering its runs at once, a run in flight or one
+        suspended at shutdown included (each holds it as `schedule:<id>`)."""
+        from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
+        assert self.db is not None
+        standing = self.supervisor.standing if self.supervisor is not None else StandingPermissions(self.db)
+        tasks = standing.revoke_approval(SCHEDULE_GRANT + sid)
+        if tasks:
+            self._journal().append("standing.revoked", {"approval_id": SCHEDULE_GRANT + sid, "task_ids": tasks,
+                                                        "reason": f"schedule {action}"})
+
+    def _schedule_live(self, sid: str) -> bool:
+        """Whether a schedule's runs may still hold its recorded scope: it exists and wasn't cancelled or paused. A
+        done schedule counts: `_run_schedule` marks it done just before running its last occurrence (D30)."""
+        s = self.schedules.get(sid)
+        return s is not None and s.state in ("active", "done")
 
     async def _run_schedule(self, sid: str, overdue_s: float) -> None:
         """Schedule the next occurrence and let the orchestrator assess this run from current timing/failure facts."""

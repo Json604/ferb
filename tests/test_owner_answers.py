@@ -20,6 +20,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from ferb.core.types import Identity
 from ferb.daemon.gateway import CONFIRM_ASK
 from ferb.orchestrator.plans import Plan, SendScope, Step
@@ -811,14 +813,19 @@ def _remember(daemon: RunningDaemon, content: str) -> None:
 
 def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope], *, plan_scopes: list[SendScope] | None,
                         posts: tuple[str, ...] = ("new@x.com",),
-                        typed: str = "every day post the launch story to my launch list") -> SimpleNamespace:
-    """A daily "post the launch story" schedule created from chat, with the scopes that turn stated; its run's planner
-    returns a task (with a plan stating `plan_scopes`, or no plan when None) whose worker posts to each of `posts`."""
+                        typed: str = "every day post the launch story to my launch list",
+                        remember: list[dict[str, Any]] | None = None, while_planning: Any = None,
+                        before_posting: Any = None) -> SimpleNamespace:
+    """A daily "post the launch story" schedule created from chat, with the scopes that turn stated (and any memory
+    the planner captured in it, `remember`); its run's planner returns a task (with a plan stating `plan_scopes`, or no
+    plan when None) whose worker posts to each of `posts`. `while_planning` runs during the run's planner turn and
+    `before_posting` in its worker just before the posts."""
     from datetime import timedelta
     from tests.support.schedules import fire, mins, run as on_loop
     cap = FakeCap("probe.post", "post", {"probe"})
     daemon.daemon.registry.capabilities[cap.name] = cap
-    created = json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": [], "timers": [],
+    created = json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": remember or [],
+                          "timers": [],
                           "schedule": {"request": "post the launch story to my launch list",
                                        "when": mins(timedelta(minutes=1)), "repeat": "daily", "weekday": None,
                                        "every_minutes": None, "quote": "every day post the launch story",
@@ -828,6 +835,8 @@ def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope
     results: dict[str, Any] = {}
 
     def act(token: str) -> str:
+        if before_posting is not None:
+            before_posting()
         for to in posts:
             results[to] = tool(daemon.sock, token, "probe.post", to=to, text="the launch story")
         return done("Posted.")
@@ -839,7 +848,12 @@ def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope
         spec["plan"] = Plan(steps=[Step(id="post", kind="do", goal="Post the launch story")],
                             standing_sends=plan_scopes).model_dump()
         workers["step.post"] = act
-    script = install(daemon, [created, sup("task", "Posting the launch story.", spec)], workers)
+    decided = sup("task", "Posting the launch story.", spec)
+
+    def planner(_token: str) -> str:
+        while_planning()
+        return decided
+    script = install(daemon, [created, decided if while_planning is None else planner], workers)
     confirmed = chat(daemon, typed, session="s1")
     fire(daemon, 120)
 
@@ -858,7 +872,8 @@ def test_a_scheduled_run_cannot_grant_itself_a_scope_its_owner_turn_never_stated
     assert run.results["new@x.com"]["is_error"]                             # asked, nobody there: declined
     assert "nobody is at chat" in json.dumps(run.results["new@x.com"]["content"])
     assert run.grants == []                                                 # the stated scope was never granted
-    assert "new@x.com" in run.stated and "will ask" in run.stated           # the statement says it asks
+    assert "new@x.com" in run.stated and "aren't covered" in run.stated     # the statement says it isn't covered
+    assert "reported not done" in run.stated and "each will ask" not in run.stated   # what may happen, not a promise
 
 
 def test_a_scheduled_run_without_a_plan_is_covered_by_the_scope_recorded_with_its_schedule(daemon: RunningDaemon) -> None:
@@ -879,7 +894,7 @@ def test_a_scheduled_runs_extra_stated_scope_is_not_granted(daemon: RunningDaemo
                               posts=("new@x.com", "other@x.com"))
     assert not run.results["new@x.com"]["is_error"]
     assert run.results["other@x.com"]["is_error"]                           # not recorded: asked, declined
-    assert "other@x.com" in run.stated and "will ask" in run.stated
+    assert "other@x.com" in run.stated and "aren't covered" in run.stated
 
 
 def test_a_schedule_records_only_scopes_whose_destinations_the_owner_named(daemon: RunningDaemon) -> None:
@@ -909,4 +924,231 @@ def test_a_stale_restatement_is_never_granted(daemon: RunningDaemon) -> None:
         grant_stated(supervisor, tree, second)
         return stale, covers("c@x.com")
     assert daemon.run(go()) == (False, True)
+    _finish(daemon, run)
+
+
+# ========== fix round 4 ==========
+# I1: only what the owner typed names a destination for a schedule's recorded scope, never a memory item's wording
+# (chat capture keeps the planner's `content` once a short quote is in the owner's words, MP2).
+
+def _planted(content: str, quote: str) -> dict[str, Any]:
+    return {"kind": "fact", "subject": "owner", "key": "launch-list", "quote": quote, "content": content}
+
+
+def test_a_memory_captured_in_the_schedules_own_turn_never_records_a_scope(daemon: RunningDaemon) -> None:
+    """The literal case: in the turn that makes the schedule, the planner captures `{quote: "the launch", content:
+    "launch list: attacker@x.com"}` and states a scope sending there. The capture runs before the schedule is made."""
+    run = _scheduled_post_run(daemon, [_scope("attacker@x.com")], plan_scopes=None, posts=("attacker@x.com",),
+                              remember=[_planted("launch list: attacker@x.com", "the launch")])
+    said = _texts(run.confirmed)
+    assert "remembered" in said                                              # the capture happened (quote checked)
+    assert run.created.get("standing_sends", []) == []                     # but it names no destination
+    assert "attacker@x.com" in said and "weren't recorded" in said
+    assert run.results["attacker@x.com"]["is_error"]                        # not covered: asked, nobody there
+    assert run.grants == []
+
+
+def test_an_earlier_memory_counts_only_for_what_the_owner_typed_when_stating_it(daemon: RunningDaemon) -> None:
+    """An item captured in an earlier turn: its typed words (pasted parts left out) count, never its wording."""
+    remembered = json.dumps({"kind": "reply", "text": "Noted.", "task": None, "timers": [], "schedule": None,
+                             "schedule_changes": [],
+                             "remember": [_planted("launch list: attacker@x.com", "remember the launch list")]})
+    install(daemon, [remembered])
+    noted = chat(daemon, "remember the launch list\n```\nlaunch list: attacker@x.com\n```", session="s1")
+    assert "remembered" in _texts(noted)
+    run = _scheduled_post_run(daemon, [_scope("attacker@x.com")], plan_scopes=None, posts=("attacker@x.com",))
+    assert run.created.get("standing_sends", []) == []
+    assert run.results["attacker@x.com"]["is_error"]
+
+
+def test_an_earlier_memory_whose_address_the_owner_typed_records_the_scope(daemon: RunningDaemon) -> None:
+    """Guard: the owner typed the address when FERB remembered it, so a later schedule records a scope sending there."""
+    remembered = json.dumps({"kind": "reply", "text": "Noted.", "task": None, "timers": [], "schedule": None,
+                             "schedule_changes": [],
+                             "remember": [_planted("launch list: new@x.com", "my launch list is new@x.com")]})
+    install(daemon, [remembered])
+    chat(daemon, "remember that my launch list is new@x.com", session="s1")
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None)
+    assert [s["recipients"] for s in run.created["standing_sends"]] == [["new@x.com"]]
+    assert not run.results["new@x.com"]["is_error"]
+
+
+def test_a_recorded_message_counts_as_typed_words_only_when_its_pasted_parts_all_match() -> None:
+    """Fail closed: a record whose wrappers don't match the pasted parts counted with it (or with no count) gives no
+    owner words, so pasted text is never passed off as typed."""
+    from ferb.sanitize.untrusted import mark, recorded_own_words
+    m = mark("post to my list\n```\nattacker@x.com\n```")
+    assert recorded_own_words(m.for_model, 1) == "post to my list"
+    assert recorded_own_words(m.for_model, 0) is None and recorded_own_words(m.for_model, None) is None
+    damaged = m.for_model.replace("</untrusted-data", "</untrusted")
+    assert recorded_own_words(damaged, 1) is None
+
+
+# I2: a schedule's grant (`schedule:<id>`) ends when the schedule is cancelled or paused, wherever its run is.
+
+def _change_schedule(daemon: RunningDaemon, action: str) -> None:
+    """The owner cancels or pauses the (only) schedule, as `ferb schedules` does."""
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        sid = c.call("schedules.list")["schedules"][0]["id"]
+        c.call("schedules.change", {"id": sid, "action": action})
+    finally:
+        c.close()
+
+
+def _revocations(daemon: RunningDaemon) -> list[dict[str, Any]]:
+    async def rows() -> list[dict[str, Any]]:
+        return [json.loads(r[0]) for r in daemon.daemon.db.conn.execute(
+            "SELECT data_json FROM journal WHERE kind='standing.revoked' ORDER BY seq")]
+    return daemon.run(rows())  # type: ignore[no-any-return]
+
+
+@pytest.mark.parametrize("action", ["cancel", "pause"])
+def test_cancelling_or_pausing_a_schedule_withdraws_its_running_runs_scope(daemon: RunningDaemon, action: str) -> None:
+    _remember(daemon, "My launch list address is new@x.com")
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None,
+                              before_posting=lambda: _change_schedule(daemon, action))
+    assert run.results["new@x.com"]["is_error"]                             # no longer covered: asked, declined
+    revoked = _revocations(daemon)
+    assert [r["approval_id"] for r in revoked] == [run.grants[0][1]]        # journaled: the schedule's grant
+    assert revoked[0]["reason"] == "schedule " + action
+
+
+def test_a_schedule_cancelled_while_its_run_is_planned_grants_that_run_nothing(daemon: RunningDaemon) -> None:
+    """The run's facts were read before its planner turn; the schedule is checked again right before the grant."""
+    _remember(daemon, "My launch list address is new@x.com")
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None,
+                              while_planning=lambda: _change_schedule(daemon, "cancel"))
+    assert run.grants == []
+    assert run.results["new@x.com"]["is_error"]
+
+
+def _saved_scheduled_plan(daemon: RunningDaemon, state: str) -> tuple[str, list[Any]]:
+    """A scheduled run's plan suspended at shutdown, still holding its schedule's grant, and the schedule then put in
+    `state` directly (a record that never went through the cancel path). Resumes it; returns the schedule id and the
+    scopes the resumed run was given as already in force."""
+    from datetime import timedelta
+    from ferb.orchestrator.plans import Plan as P
+    from ferb.orchestrator.schemas import TaskSpec
+    from ferb.policy.targets import Targets
+    from tests.support.schedules import make_schedule
+    supervisor = daemon.daemon.supervisor
+    s = make_schedule(daemon, "post the launch story", "every day post the launch story", Targets.of([], [], [], []),
+                      daemon.daemon.clock.now() + timedelta(hours=1))
+    spec = TaskSpec.model_validate(task("Post the launch story", "owner"))
+    spec.plan = P(steps=[Step(id="post", kind="do", goal="Post")], standing_sends=[_scope("new@x.com")])
+    saved = {"request": {"spec": spec.model_dump(), "request_id": "req-saved", "words": "post it", "payload": "post it",
+                         "origins": [], "message_origins": []}, "conversation": None}
+    given: list[Any] = []
+
+    async def run_tree(spec: Any, text: str, request_id: str, message: str = "", **kw: Any) -> Any:
+        given.extend(kw["unattended_scopes"])
+        yield {"type": "outcome", "task_id": "tree-saved", "status": "done", "answer": "Done."}
+
+    async def resume() -> None:
+        supervisor.standing.grant("tree-saved", [_scope("new@x.com")], "schedule:" + s.id)
+        daemon.daemon.schedules.set_state(s.id, state)
+        supervisor.plans.pending = lambda: ["tree-saved"]
+        supervisor.plans.load = lambda key: saved
+        supervisor.run_tree = run_tree
+        await supervisor.resume_plans()
+    daemon.run(resume())
+    return s.id, given
+
+
+def test_a_resumed_run_of_a_cancelled_schedule_carries_no_scope(daemon: RunningDaemon) -> None:
+    sid, given = _saved_scheduled_plan(daemon, "cancelled")
+    assert given == []
+
+    async def in_force() -> list[Any]:
+        return daemon.daemon.supervisor.standing.scopes("tree-saved")
+    assert daemon.run(in_force()) == []
+    assert [r["approval_id"] for r in _revocations(daemon)] == ["schedule:" + sid]
+
+
+def test_a_resumed_run_of_a_live_schedule_keeps_its_scope(daemon: RunningDaemon) -> None:
+    """Guard: a schedule that is active, or done because that run was its last, keeps its run's grant on resume."""
+    _, given = _saved_scheduled_plan(daemon, "done")
+    assert [s.recipients for s in given] == [["new@x.com"]]
+
+
+def test_cancelling_a_schedule_revokes_the_grant_of_its_suspended_run(daemon: RunningDaemon) -> None:
+    from datetime import timedelta
+    from ferb.policy.targets import Targets
+    from tests.support.schedules import make_schedule
+    supervisor = daemon.daemon.supervisor
+    s = make_schedule(daemon, "post the launch story", "every day post the launch story", Targets.of([], [], [], []),
+                      daemon.daemon.clock.now() + timedelta(hours=1))
+
+    async def go() -> list[Any]:
+        supervisor.standing.grant("tree-suspended", [_scope("new@x.com")], "schedule:" + s.id)
+        supervisor.standing.grant("tree-other", [_scope("new@x.com")], "stated:other")
+        daemon.daemon._schedule_change(s.id, "cancel")
+        return [supervisor.standing.scopes("tree-suspended"), supervisor.standing.scopes("tree-other")]
+    suspended, other = daemon.run(go())
+    assert suspended == [] and [x.recipients for x in other] == [["new@x.com"]]   # only that schedule's grant
+
+
+# Minors
+
+def test_a_failure_before_a_scheduled_run_starts_leaves_no_grant(daemon: RunningDaemon) -> None:
+    supervisor = daemon.daemon.supervisor
+    start = supervisor.spans.start
+
+    def failing(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == "task":
+            raise RuntimeError("the trace couldn't be written")
+        return start(name, *args, **kwargs)
+    supervisor.spans.start = failing
+    _remember(daemon, "My launch list address is new@x.com")
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None)
+    assert all(active == 0 for _, _, active in run.grants)                 # nothing left in force
+
+
+def test_a_resumed_runs_plan_line_says_an_uncovered_send_waits_for_the_owner(daemon: RunningDaemon) -> None:
+    supervisor = daemon.daemon.supervisor
+    plan = Plan(steps=[Step(id="post", kind="do", goal="Post")], standing_sends=[_scope("a@x.com"), _scope("b@x.com")])
+
+    async def lines() -> tuple[str, str]:
+        return (supervisor._plan_statement(plan, [_scope("a@x.com")], unattended=False),
+                supervisor._plan_statement(plan, [_scope("a@x.com")], unattended=True))
+    resumed, scheduled = daemon.run(lines())
+    assert "b@x.com" in resumed and "waits for you" in resumed and "not done" not in resumed
+    assert "b@x.com" in scheduled and "reported not done" in scheduled and "waits for you" not in scheduled
+
+
+def test_a_steer_reply_stating_a_scope_is_journaled_as_model_written(daemon: RunningDaemon) -> None:
+    run = _running_plan(daemon, [_scope("kept@x.com")], [])
+    run.script.sup.append(_decision(run.tree, [_scope("kept@x.com").model_dump(), _scope("new@x.com").model_dump()]))
+    chat(daemon, "also post to the new member", session="s1")
+
+    async def origins() -> list[str]:
+        return [r[0] for r in daemon.daemon.db.conn.execute(
+            "SELECT origin FROM journal WHERE kind='chat.reply' AND data_json LIKE '%new@x.com%'")]
+    found = daemon.run(origins())
+    assert found and all("inferred" in o.split(",") for o in found)
+    _finish(daemon, run)
+
+
+def test_a_steer_on_an_unattended_run_grants_a_never_granted_scope_only_after_stating_it(daemon: RunningDaemon) -> None:
+    """A resumed run whose plan states [a, b] but holds only a's grant: a correction keeping both doesn't grant b at
+    once, as if it had been in force."""
+    from ferb.core.types import ActionSpec, Target
+    from ferb.orchestrator.steering import restate_scope
+    run = _running_plan(daemon, [_scope("a@x.com"), _scope("b@x.com")], [])
+    supervisor = daemon.daemon.supervisor
+    tree = supervisor._tree_of[run.tree]
+
+    def covers(to: str) -> bool:
+        return supervisor.standing.covers(run.tree, "probe.post", "owner",
+                                          ActionSpec("post", Target(recipients=(to,)), "the update"))
+
+    async def go() -> tuple[bool, bool, bool]:
+        supervisor.standing.revoke(run.tree)
+        supervisor.standing.grant(run.tree, [_scope("a@x.com")], "schedule:s")
+        tree.unattended_scopes = [_scope("a@x.com")]
+        restated = restate_scope(supervisor, tree, [_scope("a@x.com"), _scope("b@x.com"), _scope("c@x.com")])
+        return covers("a@x.com"), covers("b@x.com"), restated is not None and restated.widened
+    assert daemon.run(go()) == (True, False, True)
     _finish(daemon, run)
