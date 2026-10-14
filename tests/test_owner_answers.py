@@ -825,7 +825,7 @@ def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope
                         posts: tuple[str, ...] = ("new@x.com",),
                         typed: str = "every day post the launch story to my launch list",
                         remember: list[dict[str, Any]] | None = None, while_planning: Any = None,
-                        before_posting: Any = None) -> SimpleNamespace:
+                        before_posting: Any = None, repeat: str = "daily") -> SimpleNamespace:
     """A daily "post the launch story" schedule created from chat, with the scopes that turn stated (and any memory
     the planner captured in it, `remember`); its run's planner returns a task (with a plan stating `plan_scopes`, or no
     plan when None) whose worker posts to each of `posts`. `while_planning` runs during the run's planner turn and
@@ -837,7 +837,7 @@ def _scheduled_post_run(daemon: RunningDaemon, scope_at_creation: list[SendScope
     created = json.dumps({"kind": "reply", "text": "Scheduled.", "task": None, "remember": remember or [],
                           "timers": [],
                           "schedule": {"request": "post the launch story to my launch list",
-                                       "when": mins(timedelta(minutes=1)), "repeat": "daily", "weekday": None,
+                                       "when": mins(timedelta(minutes=1)), "repeat": repeat, "weekday": None,
                                        "every_minutes": None, "quote": "every day post the launch story",
                                        "targets": {"apps": [], "sites": [], "paths": [], "recipients": []},
                                        "standing_sends": [s.model_dump() for s in scope_at_creation]},
@@ -1019,13 +1019,15 @@ def test_a_recorded_message_counts_as_typed_words_only_when_its_pasted_parts_all
 
 # I2: a schedule's grant (`schedule:<id>`) ends when the schedule is cancelled or paused, wherever its run is.
 
-def _change_schedule(daemon: RunningDaemon, action: str) -> None:
-    """The owner cancels or pauses the (only) schedule, as `ferb schedules` does."""
+def _change_schedule(daemon: RunningDaemon, action: str, said: list[str] | None = None) -> None:
+    """The owner cancels or pauses the (only) schedule, as `ferb schedules` does; FERB's reply goes to `said`."""
     from ferb.cli.client import Client
     c = Client(daemon.sock)
     try:
         sid = c.call("schedules.list")["schedules"][0]["id"]
-        c.call("schedules.change", {"id": sid, "action": action})
+        reply = c.call("schedules.change", {"id": sid, "action": action})["text"]
+        if said is not None:
+            said.append(reply)
     finally:
         c.close()
 
@@ -1368,3 +1370,42 @@ def test_an_answer_that_needs_a_which_one_question_leaves_the_rest_for_the_reply
 def test_the_planner_is_told_an_answer_can_come_with_other_requests() -> None:
     text = " ".join((PROMPTS / "supervisor.md").read_text().split())
     assert "return that too: FERB records the answer first, then does the rest" in text
+
+
+
+# ========== final review M9 ==========
+# A one-time schedule is marked done just before its last (only) run; a cancel or pause during that run still
+# withdraws the run's `schedule:<id>` grant.
+
+@pytest.mark.parametrize("action", ["cancel", "pause"])
+def test_cancelling_a_one_time_schedule_during_its_run_withdraws_the_runs_scope(daemon: RunningDaemon,
+                                                                                action: str) -> None:
+    _remember(daemon, "My launch list address is new@x.com")
+    said: list[str] = []
+    facts: list[str] = []
+
+    def change() -> None:
+        facts.append(daemon.run(_on_loop(daemon.daemon._facts)))          # what the planner is told meanwhile
+        _change_schedule(daemon, action, said)
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None, repeat="none", before_posting=change)
+    assert "(done; its last run is under way)" in facts[0]                 # so "cancel today's post" can name it
+    assert said and said[0].startswith({"cancel": "Cancelled", "pause": "Paused"}[action])
+    assert "no active schedule" not in said[0]
+    assert run.results["new@x.com"]["is_error"]                             # no longer covered: asked, declined
+    revoked = _revocations(daemon)
+    assert [r["approval_id"] for r in revoked] == [run.grants[0][1]]
+    assert revoked[0]["reason"] == "schedule " + action
+
+
+def test_a_finished_one_time_schedule_still_has_nothing_to_cancel(daemon: RunningDaemon) -> None:
+    _remember(daemon, "My launch list address is new@x.com")
+    run = _scheduled_post_run(daemon, [_scope("new@x.com")], plan_scopes=None, repeat="none")
+    assert not run.results["new@x.com"]["is_error"]
+    from ferb.cli.client import Client
+    c = Client(daemon.sock)
+    try:
+        assert c.call("schedules.list")["schedules"] == []                 # nothing left to change
+        said = c.call("schedules.change", {"id": run.created["schedule_id"], "action": "cancel"})["text"]
+    finally:
+        c.close()
+    assert "no active schedule" in said and _revocations(daemon) == []

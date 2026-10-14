@@ -1442,7 +1442,9 @@ recoverable. The fuller prevention design is after launch (spec section 6).
   wider is granted to such a run (`grant_stated` refuses it), and the reply lists the new scopes as not covered
   (`steering.not_covered`, the plan line's wording). Cancelling or pausing a schedule revokes its grant from running and
   suspended trees (`StandingPermissions.revoke_approval`, journaled `standing.revoked`); a grant that lapsed is
-  journaled `standing.withheld`.
+  journaled `standing.withheld`. A one-time schedule is marked done just before its last run; while that run holds
+  `schedule:<id>` (`StandingPermissions.held`) it stays listed (`schedules.list`, the planner's facts: "done; its last
+  run is under way") and a cancel or pause withdraws the run's scope (`_changeable`, final review M9).
 - The security digest lists every call that ran under a standing scope (`standing_sends`).
 
 **Calls a runtime drops (spec section 8.1).** The MCP shim waits with no cutoff. Codex drops a call that outlives its

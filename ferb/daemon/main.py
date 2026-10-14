@@ -2199,15 +2199,41 @@ class Daemon:
         norm = " ".join(own_words.lower().split())
         if len(ch.quote.strip()) < 3 or " ".join(ch.quote.lower().split()) not in norm:
             return "I didn't change any schedule — could you say which one in your own words?"
-        s = self.schedules.get(ch.id)
-        if s is None or s.state in ("cancelled", "done"):          # the owner's line never shows the id (L11)
+        if not self._changeable(ch.id, ch.action):          # the owner's line never shows the id (L11)
             return "There's no active schedule like that to change."
         return self._schedule_change(ch.id, ch.action)
 
+    def _last_run_holds_scope(self, sid: str) -> bool:
+        """Whether a run still holds a schedule's recorded scope (`schedule:<id>`, D30): a one-time schedule's last
+        run does after `_run_schedule` marked it done (final review M9)."""
+        from ferb.policy.standing import SCHEDULE_GRANT, StandingPermissions
+        assert self.db is not None
+        standing = self.supervisor.standing if self.supervisor is not None else StandingPermissions(self.db)
+        return standing.held(SCHEDULE_GRANT + sid)
+
+    def _changeable(self, sid: str, action: str) -> bool:
+        """An active or paused schedule; or a done one whose last run is under way, for a cancel or pause, which
+        withdraws that run's scope (M9)."""
+        s = self.schedules.get(sid)
+        if s is None or s.state == "cancelled":
+            return False
+        return s.state != "done" or (action in ("cancel", "pause") and self._last_run_holds_scope(sid))
+
+    def _listed_schedules(self) -> list[Any]:
+        """The schedules the owner (`ferb schedules`) and the planner (its facts) can change: active and paused ones,
+        and a done one whose last run is under way (M9)."""
+        return self.schedules.all() + [s for s in self.schedules.all(("done",)) if self._last_run_holds_scope(s.id)]
+
     def _schedule_change(self, sid: str, action: str) -> str:
         s = self.schedules.get(sid)
-        if s is None or s.state in ("cancelled", "done"):
+        if s is None or not self._changeable(sid, action):
             return f"There's no active schedule {sid}."
+        if s.state == "done":            # its last run is under way: the cancel or pause withdraws that run's scope
+            self.schedules.set_state(sid, "cancelled" if action == "cancel" else "paused")
+            self._withdraw_schedule_scope(sid, action)
+            self._journal().append(f"schedule.{action}", {"schedule_id": sid})
+            return ({"cancel": "Cancelled", "pause": "Paused"}[action] + f": {s.request}. Its run already under way "
+                    "keeps going, but nothing it sends is covered any more: each send gets FERB's usual checks.")
         if action == "cancel":
             self.schedules.set_state(sid, "cancelled")
             if s.timer_id:
@@ -2282,7 +2308,7 @@ class Daemon:
     async def _schedules_list(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"schedules": [{"id": s.id, "request": s.request, "rule": s.rule.describe(), "state": s.state,
                                "next_run": s.next_run.isoformat() if s.next_run else None, "failures": s.failures}
-                              for s in self.schedules.all()]}
+                              for s in self._listed_schedules()]}
 
     async def _schedules_change(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
         return {"text": self._schedule_change(str(params["id"]), str(params["action"]))}
@@ -2882,8 +2908,9 @@ class Daemon:
                  "- FERB has no email account set up."]
         lines += [f"- FERB secret {s.ref.key}: {s.account_hint}, usable on {', '.join(s.allowed_origins)}"
                   for s in self.secrets.specs()]
-        for sc in (self.schedules.all() if self.schedules is not None else []):
-            lines.append(f"- Schedule {sc.id} ({sc.state}): {sc.request} — {sc.rule.describe()}")
+        for sc in (self._listed_schedules() if self.schedules is not None else []):
+            state = "done; its last run is under way" if sc.state == "done" else sc.state
+            lines.append(f"- Schedule {sc.id} ({state}): {sc.request} — {sc.rule.describe()}")
         for t in (self.timers.pending(("reminder",)) if self.timers is not None else []):
             lines.append(f"- Reminder {t.id}: {t.message} — {t.fire_at.astimezone():%a %d %b %Y %H:%M}")
         for phrase, meaning in self._time_meanings():

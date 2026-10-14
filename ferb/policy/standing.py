@@ -82,6 +82,11 @@ class StandingPermissions:
             'SELECT DISTINCT approval_id FROM standing_permissions WHERE task_id=? AND active=1 ORDER BY approval_id',
             (task_id,))]
 
+    def held(self, approval_id: str) -> bool:
+        """Whether any task still holds a scope granted under this statement (a schedule's run, `schedule:<id>`)."""
+        return self.db.conn.execute('SELECT 1 FROM standing_permissions WHERE approval_id=? AND active=1 LIMIT 1',
+                                    (approval_id,)).fetchone() is not None
+
     def revoke(self, task_id: str) -> None:
         self.db.conn.execute('UPDATE standing_permissions SET active=0 WHERE task_id=?', (task_id,))
 

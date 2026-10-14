@@ -123,6 +123,8 @@ Final review fixes (2026-10-14):
   off the daemon's event loop.
 - Codex's shipped model catalog is dumped at the daemon's start, in a worker thread before it serves; reading a
   model's window never runs Codex on the event loop.
+- Cancelling or pausing a one-time schedule while its run is under way now withdraws that run's standing permission
+  (before, the schedule already counted as done and couldn't be cancelled).
 
 Licensed under Apache-2.0.
 
