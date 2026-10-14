@@ -115,6 +115,8 @@ Final review fixes (2026-10-14):
   names the question without telling you to "open ferb chat".
 - A notice is part of whichever conversation you then chat in (the app's, voice), so "what's that about?" works there,
   not only in the daily conversation.
+- Scheduled runs and plans resumed after a restart release their per-request context (each planner block's full text)
+  when they end, instead of keeping it in memory until the daemon restarts.
 
 Licensed under Apache-2.0.
 

@@ -206,3 +206,45 @@ def test_non_urgent_notifications_wait_while_the_owner_is_away(daemon: RunningDa
         time.sleep(0.1)
     d.owner_input.running = False
     assert notes[-1] == ("FERB finished", "done")
+
+
+# ---------- final review M4: a run nobody started from chat leaves no per-request context behind ----------
+
+@pytest.mark.parametrize("decision", ["task", "reply"])
+def test_a_scheduled_run_clears_its_request_context_when_it_ends(daemon: RunningDaemon, decision: str) -> None:
+    """Each run's planner blocks and context exposures (since L28, the full text of every planner block) were kept in
+    memory until the daemon restarted: 96 entries a day for an every-15-minutes schedule."""
+    now = daemon.daemon.clock.now()
+    make_schedule(daemon, "write report.md", "every day at 9 write report.md",
+                  Targets.of(paths=[str(daemon.daemon.home / "workspace" / "report.md")]), now + timedelta(minutes=1))
+    planned = sup("task", "Writing it.", task("write report.md", paths=("report.md",))) if decision == "task" else \
+        sup("reply", "Nothing to do today.")
+    install(daemon, [planned], {"worker": writes(daemon.sock, "report.md", "daily")})
+    supervisor = daemon.daemon.supervisor
+    assert supervisor is not None
+    before = set(run(daemon, lambda: set(supervisor._env)))
+    fire(daemon, 61)
+    assert results(daemon)                                            # the run happened
+    assert run(daemon, lambda: set(supervisor._env)) == before
+
+
+def test_a_resumed_plan_clears_its_request_context_when_it_ends(daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.schemas import TaskSpec
+    supervisor = daemon.daemon.supervisor
+    assert supervisor is not None
+    spec = TaskSpec.model_validate(task("finish the saved plan"))
+    saved = {"request": {"spec": spec.model_dump(), "request_id": "req-resumed", "words": "finish it",
+                         "payload": "finish it", "origins": [], "message_origins": []}, "conversation": "s1"}
+
+    async def run_tree(spec: Any, text: str, request_id: str, message: str = "", **_: Any) -> Any:
+        assert request_id in supervisor._env                         # the run reads it while it runs
+        yield {"type": "outcome", "task_id": "tree-resumed", "status": "done", "answer": "Done."}
+
+    async def resume() -> set[str]:
+        supervisor.plans.pending = lambda: ["tree-resumed"]          # type: ignore[method-assign]
+        supervisor.plans.load = lambda key: saved                    # type: ignore[method-assign]
+        supervisor.run_tree = run_tree                               # type: ignore[method-assign]
+        supervisor._withdraw_lapsed = lambda tree_id: None           # type: ignore[method-assign]
+        await supervisor.resume_plans()
+        return set(supervisor._env)
+    assert "req-resumed" not in daemon.run(resume())

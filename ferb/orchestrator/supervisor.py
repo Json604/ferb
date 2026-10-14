@@ -591,28 +591,33 @@ class Supervisor(WorkerRuns):
         session = ChatSession(SCHEDULE_SESSION + sched.id)
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
-        try:
-            out = await self._decide(session, sched.request + note, request_id)
-        except (RuntimeViolation, ValidationError, ValueError) as e:      # the cause is kept and told (L21)
-            self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__, "detail": str(e)})
-            answer = service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SCHEDULED_SORRY
-            return {"task_id": request_id, "request_id": request_id, "status": "failed", "answer": answer,
-                    "goal": sched.request}
-        if out.kind != "task" or out.task is None:
-            status = "done" if out.kind == "reply" else "needs_user"
-            return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
-                    "goal": sched.request}
-        recorded = Targets.from_json(sched.targets)
-        self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
-        self.state.approvals.unattended.add(request_id)
-        final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY, "goal": sched.request}
-        async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
-                                      origins=self._env.get(request_id, {}).get("turn_origins"),
-                                      unattended_scopes=recorded_scopes,
-                                      start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id)):
-            if ev.get("type") == "outcome":
-                final = ev
-        return final
+        try:                    # the run's per-request context goes when it ends, however it ends (final review M4)
+            try:
+                out = await self._decide(session, sched.request + note, request_id)
+            except (RuntimeViolation, ValidationError, ValueError) as e:      # the cause is kept and told (L21)
+                self.journal.append("chat.failed", {"request_id": request_id, "why": type(e).__name__,
+                                                    "detail": str(e)})
+                answer = service_problem(str(e), e.runtime) if isinstance(e, ServiceError) else SCHEDULED_SORRY
+                return {"task_id": request_id, "request_id": request_id, "status": "failed", "answer": answer,
+                        "goal": sched.request}
+            if out.kind != "task" or out.task is None:
+                status = "done" if out.kind == "reply" else "needs_user"
+                return {"task_id": request_id, "request_id": request_id, "status": status, "answer": out.text,
+                        "goal": sched.request}
+            recorded = Targets.from_json(sched.targets)
+            self.state.requests.record(Request(request_id, sched.own_words, recorded, payload=sched.request))
+            self.state.approvals.unattended.add(request_id)
+            final: dict[str, Any] = {"task_id": request_id, "status": "failed", "answer": SORRY,
+                                     "goal": sched.request}
+            async for ev in self.run_tree(out.task, out.text, request_id, sched.request,
+                                          origins=self._env.get(request_id, {}).get("turn_origins"),
+                                          unattended_scopes=recorded_scopes,
+                                          start_grant=(recorded_scopes, SCHEDULE_GRANT + sched.id)):
+                if ev.get("type") == "outcome":
+                    final = ev
+            return final
+        finally:
+            self._env.pop(request_id, None)
 
     def stop_tree(self, tree_id: str) -> bool:
         """Ctrl-C in ferb chat: stop this request's task; it's recorded as stopped by the owner."""
@@ -664,16 +669,20 @@ class Supervisor(WorkerRuns):
             self.state.requests.record(Request(request_id, data['words'], spec.targets.targets(), payload=data['payload'],
                                                asked_origins=frozenset(self.spans.asked_origins(tree_id))))
             self._env[request_id] = {'message_origin': set(data.get('message_origins', []))}
-            # nobody started this from chat: only the scope already granted to this tree, and still in force, carries
-            self._withdraw_lapsed(tree_id)
-            async for event in self.run_tree(spec, 'Continuing your saved plan.', request_id, data['payload'],
-                    conversation_id=saved['conversation'], origins=set(data.get('origins', [])), resume_id=tree_id,
-                    unattended_scopes=self.standing.scopes(tree_id)):
-                # no chat stream stamps these: each names its request and when it was sent, as task.result does
-                event = {**event, 'request_id': request_id, 'at': self.clock.now().isoformat()}
-                self.publish('task.resumed_event', event)
-                if event.get('type') == 'outcome' and self.on_resumed_outcome:
-                    await self.on_resumed_outcome(event)
+            try:                # the tree's per-request context goes when it ends (final review M4)
+                # nobody started this from chat: only the scope already granted to this tree, and still in force,
+                # carries
+                self._withdraw_lapsed(tree_id)
+                async for event in self.run_tree(spec, 'Continuing your saved plan.', request_id, data['payload'],
+                        conversation_id=saved['conversation'], origins=set(data.get('origins', [])),
+                        resume_id=tree_id, unattended_scopes=self.standing.scopes(tree_id)):
+                    # no chat stream stamps these: each names its request and when it was sent, as task.result does
+                    event = {**event, 'request_id': request_id, 'at': self.clock.now().isoformat()}
+                    self.publish('task.resumed_event', event)
+                    if event.get('type') == 'outcome' and self.on_resumed_outcome:
+                        await self.on_resumed_outcome(event)
+            finally:
+                self._env.pop(request_id, None)
         results = await asyncio.gather(*(restore(key) for key in self.plans.pending() if key not in self._tree_of), return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
