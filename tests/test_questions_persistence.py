@@ -587,3 +587,65 @@ def test_an_action_that_finished_after_its_caller_left_isnt_run_again_by_the_ret
     assert got["content"]["sent"] is True and got["content"]["completed_in_an_earlier_attempt"] is True
     again, _ = _ask_args(daemon, token, args, name="probe.send")         # a later, separate send runs as usual
     assert again.result(5)["content"].get("completed_in_an_earlier_attempt") is None and send.calls == 2
+
+
+def test_a_reused_p19_question_settles_against_the_attempts_it_named(ferb_yes: Any, daemon: RunningDaemon) -> None:
+    """Reviewer's probe (round 3): A1 is settled failed by reconcile and an identical A2 ends unknown, so FERB's retry
+    question reads exactly as before and the retry waits on Q1. The owner's Yes to Q1 named A1 alone: settled against
+    that stored list it approves nothing (RETRY_STALE), never the attempt list as it is now."""
+    from ferb.daemon.gateway import RETRY_STALE
+    from tests.conftest import FakeCap, gateway_tool_call
+    ferb_yes.expect("floor:pay", 2)
+    boom = FakeCap("probe.pay", "pay", {"probe"}, boom=True)
+    grant, token = gateway_setup(daemon, {"probe"}, gateway_request("pay x@y.com $5"), [boom])
+    gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")             # A1: unknown
+    ref = gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")["content"]["retry_action"]
+    dropped, client = _ask_args(daemon, token, {"question": "Pay again?", "retry_action": ref})
+    [q1] = _until(lambda: [a for a in _owner_questions(daemon) if a.state == "pending"], "no first question")
+    client.interrupt()
+    _until(lambda: not daemon.daemon.gateway._waiting, "the dropped call kept waiting")
+
+    async def settle_a1_failed() -> None:
+        daemon.daemon.ledger.reconcile(ref, "failed", ["probe-evidence"])
+    daemon.run(settle_a1_failed())
+    gateway_tool_call(daemon, grant, "probe.pay", to="x@y.com", text="pay $5")             # A2: unknown
+    assert boom.calls == 2
+
+    async def owner_yes_to_q1() -> None:
+        daemon.daemon.state.approvals.resolve(q1.id, True, 1)
+    daemon.run(owner_yes_to_q1())
+    retry, _ = _ask_args(daemon, token, {"question": "Pay again?", "retry_action": ref})
+    got = retry.result(5)["content"]
+    assert [a.id for a in _owner_questions(daemon)] == [q1.id]             # the same words: it waited on Q1
+    assert got.get("retry_approved") is False and got.get("why_not") == RETRY_STALE, got
+
+
+def test_a_result_finishing_after_its_task_ended_is_not_kept(daemon: RunningDaemon) -> None:
+    """Review minor M1: the task ends (as the supervisor ends it) while the abandoned action still runs; when it then
+    finishes, nothing is kept for a retry that can't come (or a later resumed plan)."""
+    import asyncio as aio
+    from tests.conftest import FakeCap
+
+    class SlowSend(FakeCap):
+        release: Any = None
+
+        async def run(self, args: Any, ctx: Any) -> Any:
+            await self.release.wait()
+            return await super().run(args, ctx)
+    send = SlowSend("probe.send", "send", {"probe"}, content={"sent": True})
+    grant, token = gateway_setup(daemon, {"probe"}, gateway_request("send hi to alice@x.com"), [send])
+
+    async def event() -> aio.Event:
+        return aio.Event()
+    send.release = daemon.run(event())
+    _ask_args(daemon, token, {"to": "alice@x.com", "text": "hi"}, call_id="th/call_1", name="probe.send")
+    _until(lambda: daemon.daemon.gateway.in_flight({grant.task_id}), "the send never started")
+    assert daemon.daemon.server.abandon(grant.task_id, "th/call_1")
+
+    def task_ends() -> None:                                 # supervisor: forget_tasks, then the task leaves the tree
+        daemon.daemon.gateway.forget_tasks({grant.task_id})
+        daemon.daemon.tasks.remove(grant.task_id)
+    daemon.call_soon(task_ends)
+    daemon.call_soon(send.release.set)
+    _until(lambda: not daemon.daemon.gateway.in_flight({grant.task_id}), "the send never finished")
+    assert send.calls == 1 and daemon.daemon.gateway._undelivered == {}

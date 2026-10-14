@@ -1266,9 +1266,10 @@ class Gateway:
         out = reply(content, result.is_error, origins)
         if result.image is not None and not result.is_error:     # to the model; kept above, never in a span or log
             out["image"] = {"mime": "image/jpeg", "data": base64.b64encode(result.image).decode()}
-        if intent_id and not result.is_error and caller_left():
+        if intent_id and not result.is_error and caller_left() and self.tasks.get(grant.task_id) is not None:
             # It ran to completion, but its caller had gone (the runtime gave up the call): the result went nowhere, so
-            # the same task's identical retry gets it instead of doing it a second time (a send, a payment)
+            # the same task's identical retry gets it instead of doing it a second time (a send, a payment). Only while
+            # the task still runs: after it ended no retry can come, and nothing is kept for later
             self._undelivered[(grant.task_id, key, digest)] = (intent_id, out)
         return out
 

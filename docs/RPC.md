@@ -29,7 +29,9 @@ action that ran to completion after its call's caller had gone is not run again 
 tool and arguments, as P19 binds them): the retry gets the earlier result with `completed_in_an_earlier_attempt: true`. `tools.call` takes an optional `call_id` (`"<threadId>/<callId>"` from the
 runtime's `tools/call` `_meta`); Codex drops a call that outlives its own per-call timeout without telling the shim,
 so the Codex adapter names that call (its failed `mcpToolCall` item carries the same id) and the daemon ends it as if
-the shim had left, closing the shim's connection. An answer is never taken by a call that has left or been released. The native host has extension-origin and
+the shim had left, closing the shim's connection. An answer is never taken by a call that has left or been released.
+Residual: between Codex's timeout and the adapter reading its failed item (milliseconds), an answer the owner gives can
+still be taken by the dropped call and is then lost; the owner is asked again by the retry. The native host has extension-origin and
 pairing/HMAC checks. `voice` requires the installed app’s expected executable and signature. The exact role method
 allowlists live in `ferb/daemon/auth.py`. Never give an external client a native-host or worker token to bypass CLI auth.
 
