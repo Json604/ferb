@@ -314,7 +314,9 @@ class RecordingManager:
                 await self.sample(r.id, r.owner)
 
     async def stop(self, rid: str, owner: str, reason: str | None = None, transcribe: bool = True) -> dict[str, Any]:
-        """`transcribe=False` (the task ended, shutdown): the sound is deleted untranscribed."""
+        """`transcribe=False` (the task ended, shutdown): the sound is deleted untranscribed. However it ends (a
+        cancelled stop included), the recording ends once: its result and receipt are final, its staging and sound
+        are deleted and its output folder is closed, so a later stop returns that result and never encodes again."""
         r = self._get(rid, owner)
         r.halt.set()
         if r.loop and r.loop is not asyncio.current_task():
@@ -325,13 +327,15 @@ class RecordingManager:
                 return r.result
             r.ended = r.ended if r.ended is not None else self.now()
             r.error = r.error or reason
+            result = self._info(r) | {'running': False, 'released': True}
+            step = 'while its sound was finishing'
             try:
-                heard = await self.hearing.finish(r.listening) if r.listening is not None else None
-            except asyncio.CancelledError:          # its stop goes on: the sound is deleted once it has finished
-                self.hearing.discard_later(r.listening)
-                raise
-            try:
-                result = self._info(r) | {'running': False, 'released': True}
+                try:
+                    heard = await self.hearing.finish(r.listening) if r.listening is not None else None
+                except asyncio.CancelledError:      # its stop goes on: the sound is deleted once it has finished
+                    self.hearing.discard_later(r.listening)
+                    raise
+                step = 'while its video was being made'
                 try:
                     # Timestamped concat preserves slow captures and variable intervals instead of speeding up time.
                     end = max(r.ended-r.started, r.times[-1]+0.04)
@@ -356,9 +360,24 @@ class RecordingManager:
                 finally:
                     shutil.rmtree(r.folder, ignore_errors=True)
                 if heard is not None:
-                    result.update(await self._sound(r, heard) if transcribe else {
-                        'audio_track': False, 'audio_note': 'not transcribed: the recording ended with its task, '
-                                                            'and its sound was deleted'})
+                    if transcribe:
+                        step = 'while its sound was being transcribed'
+                        result.update(await self._sound(r, heard))
+                    else:
+                        result.update(audio_track=False, audio_note='not transcribed: the recording ended with its '
+                                                                    'task, and its sound was deleted')
+                return result
+            except BaseException as exc:            # cancelled or failed part-way: what is known so far is final
+                why = 'its stop was cancelled' if isinstance(exc, asyncio.CancelledError) else \
+                    f'{type(exc).__name__}: {exc}'
+                if step == 'while its sound was being transcribed':   # the video is already published
+                    result.update(audio_track=False, audio_note=f'not transcribed: {why} {step}, and its sound was '
+                                                                'deleted')
+                else:
+                    result.update(error=f'{r.error + "; " if r.error else ""}{why} {step}', capture_complete=False)
+                raise
+            finally:
+                shutil.rmtree(r.folder, ignore_errors=True)
                 r.result = result
                 try:
                     _replace_receipt(r.out, r.receipt.name, json.dumps(result | {'sample_times_s': r.times}, indent=2))
@@ -367,10 +386,8 @@ class RecordingManager:
                 finally:
                     os.close(r.out)
                     r.out = -1
-                return result
-            finally:                                # owner decision: the sound goes once no longer needed,
-                if r.listening is not None:         # however stop() ends (a cancelled encode included)
-                    r.listening.path.unlink(missing_ok=True)
+                if r.listening is not None:         # owner decision: the sound goes once no longer needed,
+                    r.listening.path.unlink(missing_ok=True)   # however stop() ends (a cancelled encode included)
 
     async def _sound(self, r: _Recording, heard: dict[str, Any]) -> dict[str, Any]:
         """What the sound added: its file and facts, and the redacted transcript on the video's timeline."""

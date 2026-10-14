@@ -953,6 +953,101 @@ def test_cancelling_recording_stop_while_it_encodes_deletes_the_sound(tmp_path: 
     assert not list((tmp_path / "workspace" / "audio").iterdir()) and fake.argv == []
 
 
+def _open_fds() -> set[int]:
+    return {int(f) for f in os.listdir("/dev/fd")}
+
+
+def test_a_stop_cancelled_while_transcribing_keeps_the_published_video_and_finishes_its_receipt(
+        tmp_path: Path, frames: list[bytes], monkeypatch) -> None:
+    """M-1: the video was published and staging removed when the stop was cancelled during transcription; the task's
+    end must not encode again from staging that is gone, and the receipt and the held folder are finished."""
+    from ferb.act import recording
+    from ferb.act.recording import RecordingManager
+    hearing, fake, _ = _hearing(tmp_path)
+    fake.late = True                                       # recognizing until released
+    m = RecordingManager(sanitize=lambda image: image, hearing=hearing)
+    before = _open_fds()
+
+    async def shot() -> bytes:
+        return frames[0]
+
+    async def never(*args: str) -> bytes:
+        raise AssertionError("encoded again after the stop was cancelled")
+
+    async def go() -> dict[str, Any]:
+        started = await m.start("task", {"kind": "tab", "tab": "t1"}, tmp_path / "t.mp4", shot, 1,
+                                audio=("com.google.Chrome", 88))
+        job = asyncio.create_task(m.stop(started["id"], "task"))
+        while not fake.argv:                               # transcribing: the video is already published
+            await asyncio.sleep(0.01)
+        job.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        final = m.records[started["id"]].result
+        assert final is not None                           # ended once, by the cancelled stop
+        monkeypatch.setattr(recording, "command", never)
+        assert await m.end_task("task") == []              # nothing left to stop: never encoded again
+        return final
+    try:
+        result = asyncio.run(asyncio.wait_for(go(), 20))
+    finally:
+        fake.release.set()
+    assert result["capture_complete"] and result["bytes"] == (tmp_path / "t.mp4").stat().st_size, result
+    assert "transcript" not in result and "cancelled" in result["audio_note"]
+    receipt = json.loads((tmp_path / "t.mp4.json").read_text())
+    assert receipt["released"] and receipt["capture_complete"] and "cancelled" in receipt["audio_note"]
+    assert _open_fds() <= before                           # the held output folder is closed
+    assert not list((tmp_path / "workspace" / "audio").glob("*.wav"))
+
+
+def test_a_stop_cancelled_while_the_sound_finishes_ends_the_recording_once(tmp_path: Path, frames: list[bytes],
+                                                                           monkeypatch) -> None:
+    """M-1: cancelled before encoding, the recording ends there: no video is made later from what is left, its
+    receipt says why, its staging and held folder are gone, and its sound is deleted."""
+    from ferb.act import recording
+    from ferb.act.recording import RecordingManager
+    hearing, fake, capture = _hearing(tmp_path)
+    m = RecordingManager(sanitize=lambda image: image, hearing=hearing)
+    before = _open_fds()
+
+    async def shot() -> bytes:
+        return frames[0]
+
+    async def never(*args: str) -> bytes:
+        raise AssertionError("a video was made after the stop was cancelled")
+
+    async def go() -> dict[str, Any]:
+        finishing, release = asyncio.Event(), asyncio.Event()
+        real_stop = hearing._stop
+
+        async def slow_stop(listen: Any) -> dict[str, Any]:     # the capture takes its time to stop
+            finishing.set()
+            await release.wait()
+            return await real_stop(listen)
+        monkeypatch.setattr(hearing, "_stop", slow_stop)
+        started = await m.start("task", {"kind": "tab", "tab": "t1"}, tmp_path / "f.mp4", shot, 1,
+                                audio=("com.google.Chrome", 88))
+        job = asyncio.create_task(m.stop(started["id"], "task"))
+        await finishing.wait()
+        job.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+        final = m.records[started["id"]].result
+        assert final is not None
+        monkeypatch.setattr(recording, "command", never)
+        release.set()
+        assert await m.end_task("task") == []
+        await hearing.shutdown()                            # the sound's own stop finishes in the background
+        return final
+    result = asyncio.run(asyncio.wait_for(go(), 20))
+    assert not result["capture_complete"] and "cancelled" in result["error"], result
+    assert not (tmp_path / "f.mp4").exists()
+    receipt = json.loads((tmp_path / "f.mp4.json").read_text())
+    assert receipt["released"] and not receipt["capture_complete"] and "cancelled" in receipt["error"]
+    assert not list(m._staging().iterdir()) and _open_fds() <= before
+    assert not list((tmp_path / "workspace" / "audio").glob("*.wav")) and fake.argv == []
+
+
 def test_long_silence_is_written_in_pieces(tmp_path: Path, monkeypatch) -> None:
     import array
     from ferb.act.mac import audio
