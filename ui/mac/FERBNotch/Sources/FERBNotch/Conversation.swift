@@ -80,7 +80,7 @@ extension NotchModel {
             // as words the owner typed.
             conversation.begin(id: id, request: "", sources: receipt.sources, date: receipt.createdAt, goal: receipt.request)
         } else {
-            conversation.begin(id: id, request: receipt.request, sources: receipt.sources, date: receipt.createdAt)
+            conversation.begin(id: id, request: receipt.request, sources: receipt.sources, date: receipt.createdAt, unredacted: true)
         }
         if let taskID = receipt.backendTaskID { conversation.bind(id: id, taskID: taskID) }
         conversation.finish(id: id, answer: receipt.answer, status: receipt.status, artifacts: receipt.artifacts,

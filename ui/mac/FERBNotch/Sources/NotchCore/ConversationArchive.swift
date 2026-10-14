@@ -240,10 +240,12 @@ public struct ConversationArchive: Codable, Equatable {
         turns.append(turn)
     }
 
-    /// The archive as it may be written to disk: a turn still awaiting the daemon's redaction saves no request text.
+    public static let unsavedPlaceholder = "Message not saved — sent before FERB confirmed it"
+
+    /// The archive as it may be written to disk: a turn still awaiting the daemon's redaction saves a placeholder instead of its text.
     public func forStorage() -> ConversationArchive {
         var copy = self
-        for index in copy.turns.indices where copy.turns[index].awaitingRedaction { copy.turns[index].request = "" }
+        for index in copy.turns.indices where copy.turns[index].awaitingRedaction { copy.turns[index].request = Self.unsavedPlaceholder }
         return copy
     }
 

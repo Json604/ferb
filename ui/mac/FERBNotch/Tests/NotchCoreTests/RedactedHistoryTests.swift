@@ -34,6 +34,34 @@ final class RedactedHistoryTests: XCTestCase {
         XCTAssertFalse(try savedText(model).contains("hunter2"))
     }
 
+    func testAckLessTurnRestoresWithPlaceholder() throws {
+        let (model, _) = sent()
+        model.saveConversation()
+        let restarted = NotchModel(rpc: QuietRPC(), preferences: model.preferences)
+        XCTAssertEqual(restarted.conversation.turns[0].request, ConversationArchive.unsavedPlaceholder)
+        XCTAssertFalse(restarted.conversation.turns[0].request.contains("hunter2"))
+    }
+
+    func testOldArchiveWithoutTheFlagDecodes() throws {
+        var archive = ConversationArchive()
+        archive.begin(id: UUID(), request: "Old message", sources: [])
+        let json = try JSONEncoder().encode(archive)
+        XCTAssertFalse(String(decoding: json, as: UTF8.self).contains("awaitingRedaction"))
+        let decoded = try JSONDecoder().decode(ConversationArchive.self, from: json)
+        XCTAssertEqual(decoded.turns[0].request, "Old message")
+        XCTAssertFalse(decoded.turns[0].awaitingRedaction)
+    }
+
+    func testRecordAnswerNeverSavesRawRequest() throws {
+        let model = NotchModel(rpc: QuietRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
+        model.session.draft = raw
+        _ = model.session.beginWork()
+        _ = model.session.finishBackendWork(taskID: nil, status: "done", answer: "ok", artifacts: [])
+        model.recordAnswer(announce: false)
+        XCTAssertEqual(model.conversation.turns.count, 1)
+        XCTAssertFalse(try savedText(model).contains("hunter2"))
+    }
+
     private func sent() -> (NotchModel, UUID) {
         let model = NotchModel(rpc: QuietRPC(), preferences: UserDefaults(suiteName: UUID().uuidString)!)
         model.session.draft = raw
