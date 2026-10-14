@@ -611,13 +611,29 @@ TAB = f'Front window: Brave Browser — "Reel" — tab https://www.instagram.com
 def test_a_value_seen_only_in_the_owners_own_url_of_that_site_doesnt_ask_on_that_site() -> None:
     owner = provenance.prepare("analyze the insta post now")
     assert confirm.url_carries_private(f"https://www.instagram.com/reels/{REEL}/", _priv(TAB), [], owner) == []
-    # the same site however the host is written (another subdomain, IDNA form, case): the registrable domain matches
-    assert confirm.url_carries_private(f"https://m.Instagram.com/p/{REEL}", _priv(TAB), [], owner) == []
+    # the same host however it is written (case, "www.", IDNA form), or a host under the one it was seen on
+    assert confirm.url_carries_private(f"https://WWW.Instagram.com/p/{REEL}", _priv(TAB), [], owner) == []
     json_record = '{"url": "https://www.instagram.com/reels/' + REEL + '/", "title": "Reel"}'
     assert confirm.url_carries_private(f"https://instagram.com/reels/{REEL}/", _priv(json_record), [], owner) == []
     idn = _priv("tab https://bücher.example/item/ABC123x")                       # IDNA: the host as the browser has it
     assert confirm.url_carries_private("https://xn--bcher-kva.example/item/ABC123x", idn, [], owner) == []
-    assert confirm.registrable("www.example.co.uk") == "example.co.uk" and confirm.registrable("10.0.0.1") == "10.0.0.1"
+    apex = _priv(f"tab https://instagram.com/reels/{REEL}/")
+    assert confirm.url_carries_private(f"https://help.instagram.com/{REEL}", apex, [], owner) == []
+
+
+@pytest.mark.parametrize("seen,dest", [
+    ("owner-app.vercel.app", "attacker.vercel.app"), ("owner.github.io", "attacker.github.io"),
+    ("owner.netlify.app", "evil.netlify.app"), ("owner.pages.dev", "evil.pages.dev"),
+    ("owner.web.app", "evil.web.app"), ("owner.workers.dev", "evil.workers.dev"),
+    ("owner.herokuapp.com", "evil.herokuapp.com"), ("owner.blogspot.com", "evil.blogspot.com"),
+    ("www.instagram.com", "m.instagram.com"),             # another host of the site: not the one that had it
+])
+def test_a_value_seen_on_one_host_still_asks_on_a_sibling_host(seen: str, dest: str) -> None:
+    """Shared-suffix platforms give each owner a subdomain: a token in the owner's own app's URL is unknown to another
+    subdomain of the same platform (codebase review, note on 207b2df)."""
+    owner = provenance.prepare("check my deploy")
+    private = _priv(f"tab https://{seen}/dash?k=Tok3nVa1ue9")
+    assert confirm.url_carries_private(f"https://{dest}/x?k=Tok3nVa1ue9", private, [], owner) == ["Tok3nVa1ue9"]
 
 
 def test_the_same_value_sent_to_another_site_still_asks() -> None:

@@ -150,6 +150,9 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   origins), and `chat.history` lists every earlier run, so "notify me if it falls or improves" compares. Live: the
   daily Kaggle-rank run on Oct 15 found no earlier result and reported rank 205 as a first baseline instead of a
   59-place drop from 146.
+- The private-data check's "the site already had it" rule matches the exact host (or a host under it), not the
+  registrable domain: a token from your own app at `you.vercel.app` going to `someone.vercel.app` asks again
+  (likewise `*.github.io`, `*.netlify.app`, `*.pages.dev`, …). The live Instagram reel case still opens.
 
 Licensed under Apache-2.0.
 
