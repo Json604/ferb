@@ -1225,7 +1225,15 @@ process exit. A supervisor trap kills its elevated group on TERM; descendants th
 remain a process-cleanup residual. No unsandboxed command fallback exists.
 
 `Redactor.field` owns secure-field, Secure Input and concealed-clipboard handling; text scanning adds contextual OTPs
-and Luhn-valid payment cards to existing credential classes. `ImageRedactor` uses local Vision OCR and Quartz masking.
+and Luhn-valid payment cards to existing credential classes. The labelled classes (C1, owner decision 2026-10-15,
+`labelled_secret_spans`): a 4–8 digit code (`482-913`, `48 29 13`, `G-482913`) with a code word (code, OTP, passcode,
+PIN, one-time password, verification/verify) within `CODE_REACH` (8) words before it, or after it when a link joins
+them ("is", "to", ":", "("), so "2024 code review" stays; and the value after a secret word (password, passcode, PIN,
+secret, API key, token, private key): any value after ":"/"=", one with a digit or symbol after "is"/"was" (any after
+"my/our … is"), one with a digit right after the word. A text field named by a secret word hides its whole value; a
+code word hides a code-shaped one. `RedactionStream` never emits text within that reach of a class word or code (it
+holds the whole run of nearby ones). URL words never count (query credentials are the URL rule's).
+`ImageRedactor` uses local Vision OCR and Quartz masking; the labelled classes reach from one OCR line to the next.
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
 masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a capture is withheld only when
 masking fails). The model-bound start image is the front window captured at send (L12); the first actual app/tab

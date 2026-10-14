@@ -137,6 +137,13 @@ Final review fixes (2026-10-14):
 - When FERB rewords a worker's question for you, it keeps the worker's reason (one short clause), not only the
   choices, so you can see it and correct it.
 
+Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
+- One-time codes as providers send them are masked on every capture path (notifications, typed text, chat,
+  transcripts, OCR): a 4–8 digit code with a code word a few words away on either side ("123456 is your Instagram
+  code", "G-482913 …", "Your Amazon code: 482-913"); before, 2 of 11 real formats were. A value next to a secret word
+  is masked too ("password: sunshine2024", "my api key is sk_live_…"). Numbers with no code or secret word near them
+  stay readable (owner decision C1).
+
 Licensed under Apache-2.0.
 
 Integration note: the commits from `9db0a5a` through `906cb61` (Task 22's picks before its fixture fix `1af6731`) are

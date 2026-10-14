@@ -9,7 +9,7 @@ import math
 import re
 from typing import Callable
 from ferb.act.evidence.mask import Box, mask_secret_fields
-from ferb.sanitize.redact import OTP_LABEL, Redactor, payment_card
+from ferb.sanitize.redact import OTP_LABEL, Redactor, labelled_secret_spans, payment_card
 
 # OCR often merges a label and its number into one region ("Card4111…", "visa-4111…"); text redaction leaves a card
 # glued to a word alone (L16). The mask decision checks digits and the card checksum alone: a false alarm only blurs.
@@ -60,10 +60,21 @@ class ImageRedactor:
             # Codes are often on their own line underneath the label. A visible OTP label makes numeric OCR
             # regions secret fields for this frame; ordinary private sentences stay visible.
             code_frame = any(OTP_LABEL.search(r.text) for r in regions)
-            for region in regions:
+            # C1: a code word or secret word on one line reaches a code or value on the next ("Enter the code we
+            # sent" over "48 29 13", "Password:" beside "sunshine2024"). Each line is read with the one after it (in
+            # Vision's order) as one text, so the word reach is the text redactor's but never runs past a neighbour.
+            labelled: set[int] = set()
+            for i, region in enumerate(regions[:-1]):
+                pair = region.text + "\n" + regions[i + 1].text
+                for a, b in labelled_secret_spans(pair):
+                    labelled.update(j for j, (lo, hi) in ((i, (0, len(region.text))),
+                                                          (i + 1, (len(region.text) + 1, len(pair))))
+                                    if a < hi and lo < b)
+            for i, region in enumerate(regions):
                 text = region.text
                 if (self.redactor.text(text) != text or any(payment_card(m.group()) for m in CARD_DIGITS.finditer(text))
-                        or (code_frame and re.search(r'(?<!\d)\d(?:[ -]?\d){3,7}(?!\d)', text))):
+                        or (code_frame and re.search(r'(?<!\d)\d(?:[ -]?\d){3,7}(?!\d)', text))
+                        or i in labelled):
                     boxes.append(region.box)
             return self.mask(image, boxes) if boxes else image
         except Exception:

@@ -1,5 +1,6 @@
 """Own secret redaction before model, trace and log boundaries. Must not use secret content to decide actions."""
 
+import bisect
 import codecs
 import re
 from typing import Any
@@ -83,8 +84,131 @@ def password_field(kind: str, *metadata: Any) -> bool:
                                                         for m in metadata)
 
 
+# C1 (owner decision 2026-10-15, rule 14): a one-time code is a 4-8 digit run with a code word a few words away on
+# either side, and a value next to a secret word is masked whatever its shape. Labelled by the words providers and
+# people write, never by digit shape alone: a number with no code or secret word near it stays visible.
+CODE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:one[ _-]?time[ _-]?(?:password|passcode|code|pin)|otp|totp|2fa|"
+                       r"pass[ _-]?code|pin|codes?|verification|verify)(?![A-Za-z0-9])")
+# The code itself: 4-8 digits, grouped by spaces or hyphens (482-913, 48 29 13), or Google's G-482913. Never part of a
+# longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
+CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])"
+                        rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d)")
+# A code before its word is joined to it the way providers write it: "482913 is your code", "Use 482913 to verify",
+# "482913: your code", "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word.
+CODE_LINK = re.compile(r"(?i)\s*(?:(?:is|are|was|as|to)(?![A-Za-z0-9])|[:=(]|[-–—])")
+SECRET_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|pwd|pin|secret(?:[ _-]?key)?|"
+                         r"api[ _-]?key|(?:(?:access|auth|api|refresh)[ _-]?)?token|private[ _-]?key)"
+                         r"(?![A-Za-z0-9])")
+# What follows a secret word: an optional "for gmail" / "to the wifi", a link (":", "=", "is", "was", " - ") or none.
+SECRET_AFTER = re.compile(r"""(?ix)(?P<qual>\s+(?:for|to|of|on|at)\s+(?:the\s+|my\s+|your\s+)?[^\s:=]+)?
+                              (?P<link>(?:\\?["'])?[ \t]*[:=][ \t]*\n?[ \t]*|\s+(?:is|was)(?![A-Za-z0-9])[ \t]*:?\s*|
+                                       \s+[-–—]\s+)""")
+SECRET_DIRECT = re.compile(r"\s+")
+# The owner's own: "my password is sunshine" hides a plain word too (a page's "Your password is incorrect" doesn't).
+MINE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:my|our)\s+(?:[A-Za-z-]+\s+)?$")
+# "A few words": how many words may lie between a code word and its code. Eight reaches the farthest code in the
+# owner's provider corpus ("Your OTP for HDFC Bank txn of Rs 2,000 is 482913").
+CODE_REACH = 8
+_TRAILING = ".,;:!?)]}\"'`"
+
+
+def _word_starts(s: str) -> list[int]:
+    return [m.start() for m in re.finditer(r"\S+", s)]
+
+
+def _words_between(starts: list[int], a: int, b: int) -> int:
+    return bisect.bisect_left(starts, b) - bisect.bisect_left(starts, a)
+
+
+def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
+    """Where the value after a secret word lies, when one is there: after ":"/"=" any value, after "is"/"was"/" - "
+    one with a digit or a symbol (or any, when it is the owner's own), and right after the word one with a digit."""
+    end, strong, mine = word.end(), False, MINE.search(s, max(0, word.start() - 40), word.start()) is not None
+    after = SECRET_AFTER.match(s, end)
+    if after is not None:
+        end, strong = after.end(), ":" in after.group("link") or "=" in after.group("link")
+    else:
+        direct = SECRET_DIRECT.match(s, end)
+        if direct is None:
+            return None
+        end = direct.end()
+    if end >= len(s) or s[end].isspace():
+        return None
+    quote = s[end] if s[end] in "\"'" else ("\\" + s[end + 1] if s.startswith(("\\\"", "\\'"), end) else "")
+    if quote:
+        close = s.find(quote, end + len(quote))
+        if close < 0 or "\n" in s[end:close]:
+            return None
+        start, stop = end + len(quote), close
+    else:
+        stop = end
+        while stop < len(s) and not s[stop].isspace():
+            stop += 1
+        start = end
+        while stop > start and s[stop - 1] in _TRAILING:
+            stop -= 1
+        if s.startswith("\\", stop - 1):
+            stop -= 1
+    value = s[start:stop]
+    if not value or value == REDACTED:
+        return None
+    digit = any(c.isdigit() for c in value)
+    symbol = any(not c.isalnum() for c in value)
+    if strong or (after is not None and (mine or (len(value) >= 4 and (digit or symbol)))) or \
+            (after is None and len(value) >= 4 and digit):
+        return start, stop
+    return None
+
+
+def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
+    """Where the C1 classes lie in `s`: codes with their code word near, and values next to a secret word. A URL's
+    own words never count (its query credentials are the URL rule's)."""
+    urls = [m.span() for m in URL.finditer(s)]
+
+    def in_url(span: tuple[int, int]) -> bool:
+        return any(a <= span[0] and span[1] <= b for a, b in urls)
+    spans: list[tuple[int, int]] = []
+    words = [m for m in SECRET_WORD.finditer(s) if not in_url(m.span())]
+    for word in words:
+        value = _secret_value(s, word)
+        if value is not None:
+            spans.append(value)
+    codes = [m for m in CODE_VALUE.finditer(s) if not in_url(m.span())]
+    labels = [m.span() for m in CODE_WORD.finditer(s) if not in_url(m.span())] if codes else []
+    if labels:
+        starts, ends, begins = _word_starts(s), [b for _, b in labels], [a for a, _ in labels]
+        for code in codes:
+            before = bisect.bisect_right(ends, code.start()) - 1
+            after = bisect.bisect_left(begins, code.end())
+            if (before >= 0 and _words_between(starts, ends[before], code.start()) <= CODE_REACH) or (
+                    after < len(labels) and CODE_LINK.match(s, code.end()) is not None
+                    and _words_between(starts, code.end(), begins[after]) <= CODE_REACH):
+                spans.append(code.span())
+    return spans
+
+
+def _mask_spans(s: str, spans: list[tuple[int, int]]) -> str:
+    out, kept = [], 0
+    for start, end in sorted(spans):
+        if start < kept:
+            continue
+        out.append(s[kept:start] + REDACTED)
+        kept = end
+    return "".join(out) + s[kept:]
+
+
 def _labelled_code(label: str, text: str) -> bool:
-    return bool(OTP_LABEL.search(label)) and re.fullmatch(r"[\d -]+", text.strip()) is not None
+    """A code typed or given for a code label: an explicit OTP label hides any digit answer (as before), and any
+    code word hides a code-shaped one (C1)."""
+    value = text.strip()
+    return (bool(OTP_LABEL.search(label)) and re.fullmatch(r"[\d -]+", value) is not None) or (
+        bool(CODE_WORD.search(label)) and CODE_VALUE.fullmatch(value) is not None)
+
+
+def _labelled_secret(kind: str, label: str, text: str) -> bool:
+    """A text field a secret word names (API key, token, PIN, secret): its value is that secret, whatever its shape
+    (C1). Only text-entry fields, so a "Pin tab" checkbox keeps its state."""
+    return bool(text.strip()) and kind.casefold() in TEXT_FIELD_KINDS and SECRET_WORD.search(label) is not None
 
 
 # Streaming retains a possible introducer until its line is complete. This only buffers bytes: the complete
@@ -206,7 +330,8 @@ class Redactor:
         field's input type or role for the password rule (its role when not given); none named, no password rule."""
         kind = role if kind is None else kind
         if (secure_input or concealed or "secure" in role.casefold() or role.casefold() == "password"
-                or bool(kind) and password_field(kind, label, *metadata) or _labelled_code(label, text)):
+                or bool(kind) and password_field(kind, label, *metadata) or _labelled_code(label, text)
+                or _labelled_secret(kind, label, text)):
             return REDACTED if text else text
         return self._str(text)
 
@@ -284,6 +409,7 @@ class Redactor:
         s = CARD.sub(lambda m: m.group() if not payment_card(m.group()) or s[m.start() - 1] in "/." and
                      any(a <= m.start() and m.end() <= b for a, b in ids) else REDACTED, s)
         s = OTP_TEXT.sub(lambda m: m.group(1) + REDACTED, s)
+        s = _mask_spans(s, labelled_secret_spans(s))
         return URL.sub(lambda m: self._url(m.group(0)), s)
 
     def _url(self, url: str) -> str:
@@ -357,6 +483,15 @@ class RedactionStream:
             cut = min(cut, line_start + contextual.start())
         if numeric:
             cut = min(cut, line_start + numeric.start())
+        # Each guard only moves the cut back, and one can land inside another's region (a class run reaching into a
+        # private key block): apply them until none moves it.
+        while True:
+            moved = self._guarded_cut(cut)
+            if moved == cut:
+                return cut
+            cut = moved
+
+    def _guarded_cut(self, cut: int) -> int:
         for value in self.redactor.secret_values():
             start = self.pending.find(value)
             while start >= 0:
@@ -370,7 +505,36 @@ class RedactionStream:
             for match in pattern.finditer(self.pending):
                 if match.start() < cut < match.end():
                     cut = match.start()
-        return cut
+        return self._labelled_cut(cut)
+
+    def _labelled_cut(self, cut: int) -> int:
+        """C1: a code, a code word or a secret word pairs with text up to CODE_REACH words away, so the emitted part
+        never ends within that reach of one: the cut moves back to the start of its run of nearby class words (each
+        within reach of the next), and the rest is decided once together. A secret word's run starts at the "my"/"our"
+        before it, and a trailing "my"/"our" with up to two words after it is kept, since it can still become "my wifi
+        password is …"."""
+        pending = self.pending
+        mine = re.search(r"(?i)(?<![A-Za-z0-9])(?:my|our)(?:\s+[A-Za-z-]+){0,2}\s*$", pending)
+        if mine:
+            cut = min(cut, mine.start())
+        found = [m.span() for m in CODE_WORD.finditer(pending)] + [m.span() for m in CODE_VALUE.finditer(pending)]
+        for m in SECRET_WORD.finditer(pending):
+            own = MINE.search(pending, max(0, m.start() - 40), m.start())
+            found.append((own.start() if own else m.start(), m.end()))
+        before = sorted(span for span in found if span[0] < cut)
+        if not before:
+            return cut
+        starts = _word_starts(pending)
+        reach = CODE_REACH + 1
+        if _words_between(starts, before[-1][1], cut) > reach:
+            return cut
+        first = len(before) - 1
+        while first > 0 and _words_between(starts, before[first - 1][1], before[first][0]) <= reach:
+            first -= 1
+        start = before[first][0]
+        while start > 0 and not pending[start - 1].isspace():
+            start -= 1
+        return min(cut, start)
 
     def feed(self, chunk: bytes, final: bool = False) -> bytes:
         self.pending += self.decoder.decode(chunk, final=final)
