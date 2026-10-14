@@ -179,7 +179,8 @@ class Daemon:
                                Transcriber(self.voice_bundle, self._hearing_requirement), self._redact_text,
                                excluded_host=lambda host: bool(getattr(self.redact, "excluded_host", lambda h: False)(host)))
         self.recordings = RecordingManager(sanitize=ImageRedactor(self.redact if isinstance(self.redact, Redactor) else Redactor()),
-                                           hearing=self.hearing)
+                                           hearing=self.hearing,
+                                           staging=self.home / "run" / "recordings")   # frames stay in FERB's own state
         self.registry = build_registry()
         add_recording(self.registry, self.recordings)
         self.tasks = TaskTree()

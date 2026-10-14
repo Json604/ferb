@@ -749,10 +749,14 @@ def test_fs_trash_checks_the_folder_it_really_opened(tmp_path: Path, monkeypatch
     ctx = ToolContext("t", "w", "r", Identity.OWNER, frozenset({"fs:write"}), "dev", None, str(ws), (), (),
                       path_closed=closed)
     folder = os.stat(ferb)
-    for alias in (Path(f"/.vol/{folder.st_dev}/{folder.st_ino}/config.toml"), *_aliases(ferb / "config.toml"),
-                  *_aliases(ferb)):                           # the file, and FERB's whole home
+    data = "/System/Volumes/Data"
+    for alias in (Path(f"/.vol/{folder.st_dev}/{folder.st_ino}/config.toml"),       # the file, by its folder's inode
+                  Path(data + os.path.realpath(ferb / "config.toml")), Path(data + os.path.realpath(ferb))):
         r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(alias)), ctx))
         assert r.is_error and "closed" in r.content["error"], (alias, r.content)
+    for alias in (_aliases(ferb / "config.toml")[1], _aliases(ferb)[1]):         # an item by its own inode: its folder
+        r = asyncio.run(FsTrash().run(FsTrash.Input(path=str(alias)), ctx))     # can't be opened, so nothing moves
+        assert r.is_error, (alias, r.content)
     assert trashed == [] and any(p == Path(os.path.realpath(ferb)) / "config.toml" for p in seen)
 
 
@@ -763,3 +767,100 @@ def test_a_path_with_a_nul_byte_is_checked_without_raising(tmp_path: Path) -> No
     p = Protection(home, ferb, [], [], [])
     assert p.fs_denied(Path("notes\x00.txt"), "write") is None
     assert p.fs_denied(ferb / "config\x00.toml", "write") == "ferb_state"
+
+
+def test_fs_trash_moves_only_what_it_checked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """FsTrash checks the item in its folder as macOS opened the folder, and moves exactly that: if something else
+    stands at the name when macOS moves it (swapped after the check), FERB puts it back and refuses."""
+    import socket
+    import ferb.act.fs.files as files
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    ws = ferb / "workspace"
+    ws.mkdir(parents=True)
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    swap = {"on": False}
+
+    def fake_trash(p: Path) -> str:
+        if swap["on"]:                                    # an attacker swaps the item just before macOS moves it
+            p.unlink()
+            p.write_text("something else")
+        dest = trash / p.name
+        p.rename(dest)
+        return str(dest)
+    monkeypatch.setattr(files, "move_to_trash", fake_trash)
+    ctx = _ctx(ws, Protection(home, ferb, [], [], []))
+
+    def go(path: Path) -> ToolResult:
+        return asyncio.run(FsTrash().run(FsTrash.Input(path=str(path)), ctx))
+    victim = ws / "notes.txt"
+    victim.write_text("mine")
+    swap["on"] = True
+    r = go(victim)
+    assert r.is_error and "changed" in r.content["error"]
+    assert victim.read_text() == "something else" and not (trash / "notes.txt").exists()   # put back where it was
+    swap["on"] = False
+    locked = ws / "locked.txt"
+    locked.write_text("x")
+    locked.chmod(0o000)                                    # FERB never opens the item itself to check it
+    sock_path = ws / "s.sock"
+    server = socket.socket(socket.AF_UNIX)
+    monkeypatch.chdir(ws)
+    server.bind("s.sock")                                  # relative: the full path is longer than AF_UNIX allows
+    try:
+        for item in (locked, sock_path):
+            r = go(item)
+            assert not r.is_error, (item, r.content)
+            assert (trash / item.name).exists() or (trash / item.name).is_socket()
+    finally:
+        server.close()
+        (trash / "locked.txt").chmod(0o600)
+
+
+def test_the_kernel_lookup_opens_only_folders_and_regular_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A model can name any path: a device node, a FIFO or a socket is never opened to learn its name (its folder is),
+    and a file FERB can't open still gets the kernel's spelling through its folder."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    p = Protection(home, ferb, [], [], [])
+    fifo = ferb / "workspace" / "pipe"
+    os.mkfifo(fifo)
+    locked = ferb / "secret"
+    locked.write_text("x")
+    locked.chmod(0o000)
+    opened: list[str] = []
+    real_open = os.open
+
+    def spy(path: Any, *args: Any, **kwargs: Any) -> int:
+        opened.append(os.fsdecode(path))
+        return real_open(path, *args, **kwargs)
+    monkeypatch.setattr(protection.os, "open", spy)
+    try:
+        assert p.fs_denied(Path("/dev/null"), "write") is None and "/dev/null" not in opened
+        assert p.fs_denied(fifo, "write") is None and str(fifo) not in opened
+        st = os.stat(ferb)
+        assert p.fs_denied(Path(f"/.vol/{st.st_dev}/{st.st_ino}/secret"), "write") == "ferb_state"   # through its folder
+    finally:
+        locked.chmod(0o600)
+
+
+def test_building_the_lists_never_opens_other_apps_folders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opening another app's data folder can raise macOS's "access data from other apps" prompt: the never-read and
+    never-write entries are resolved without opening them; only FERB's own home and FERB.app are opened."""
+    home, ferb = tmp_path / "home", tmp_path / "home" / ".ferb"
+    (ferb / "workspace").mkdir(parents=True)
+    group = home / "Library" / "Group Containers" / "group.com.apple.usernoted"
+    group.mkdir(parents=True)
+    opened: list[str] = []
+    real_open = os.open
+
+    def spy(path: Any, *args: Any, **kwargs: Any) -> int:
+        opened.append(os.fsdecode(path))
+        return real_open(path, *args, **kwargs)
+    monkeypatch.setattr(protection.os, "open", spy)
+    app = _app(tmp_path / "Applications")
+    p = Protection(home, ferb, ["~/Library/Group Containers/group.com.apple.usernoted"], ["~/Library"], [],
+                   app_bundle=app)
+    assert not [o for o in opened if "Library" in o], opened
+    alias = Path("/System/Volumes/Data" + os.path.realpath(group)) / "db"
+    assert p.fs_denied(alias, "read") == "read:~/Library/Group Containers/group.com.apple.usernoted"

@@ -281,3 +281,80 @@ def test_a_recording_checks_the_folder_it_really_writes_into(tmp_path, monkeypat
                 await m.start('task', {'tab': 1}, alias, capture, closed=closed)
         assert list(protected.iterdir()) == [] and m.records == {}
     asyncio.run(check())
+
+
+def _protected(tmp_path):
+    """A stand-in for one of FERB's own files, which a swap must never reach."""
+    protected = tmp_path / 'ferb-home'
+    protected.mkdir()
+    (protected / 'config.toml').write_text('owner settings')
+    return protected
+
+
+def test_a_receipt_swapped_for_a_link_after_the_check_is_replaced_not_written_through(tmp_path, colours):
+    """Everything a recording writes goes through the output folder it checked and keeps open: a receipt turned into
+    a link to FERB's own file mid-recording is replaced by the finished receipt; the linked file is untouched."""
+    from ferb.act.recording import RecordingManager
+    protected = _protected(tmp_path)
+    out = tmp_path / 'out'
+    out.mkdir()
+
+    async def check():
+        async def capture(): return colours[0]
+        m = RecordingManager(sanitize=lambda image: image, staging=tmp_path / 'staging')
+        r = await m.start('task', {'tab': 1}, out / 'v.mp4', capture, fps=1)
+        receipt = out / 'v.mp4.json'
+        receipt.unlink()
+        receipt.symlink_to(protected / 'config.toml')
+        result = await m.stop(r['id'], 'task')
+        assert result['capture_complete'], result
+        assert (protected / 'config.toml').read_text() == 'owner settings'
+        assert not receipt.is_symlink() and json.loads(receipt.read_text())['id'] == r['id']
+    asyncio.run(check())
+
+
+def test_an_output_folder_swapped_after_the_check_never_takes_frames_or_the_video_elsewhere(tmp_path, colours):
+    """Frames are staged in FERB's own folder, never beside the output; the video and receipt go into the folder that
+    was checked even if a link now stands at its old path."""
+    from ferb.act.recording import RecordingManager
+    protected = _protected(tmp_path)
+    out = tmp_path / 'out'
+    out.mkdir()
+
+    async def check():
+        async def capture(): return colours[1]
+        m = RecordingManager(sanitize=lambda image: image, staging=tmp_path / 'staging')
+        r = await m.start('task', {'tab': 2}, out / 'v.mp4', capture, fps=1)
+        assert sorted(p.name for p in out.iterdir()) == ['v.mp4.json']       # no frames beside the output
+        await m.sample(r['id'], 'task')
+        out.rename(tmp_path / 'moved')
+        out.symlink_to(protected)
+        result = await m.end_task('task')                                    # the task ends: same checked folder
+        assert result[0]['bytes'] > 0 and 'task ended' in result[0]['error'], result
+        assert sorted(p.name for p in protected.iterdir()) == ['config.toml']
+        assert (tmp_path / 'moved' / 'v.mp4').stat().st_size > 0 and (tmp_path / 'moved' / 'v.mp4.json').exists()
+        assert not list((tmp_path / 'staging').iterdir())                    # staging cleaned up
+    asyncio.run(check())
+
+
+def test_an_output_file_planted_as_a_link_is_never_written_through(tmp_path, colours):
+    from ferb.act.recording import RecordingManager
+    protected = _protected(tmp_path)
+    out = tmp_path / 'out'
+    out.mkdir()
+
+    async def check():
+        async def capture(): return colours[0]
+        m = RecordingManager(sanitize=lambda image: image, staging=tmp_path / 'staging')
+        r = await m.start('task', {'tab': 3}, out / 'v.mp4', capture, fps=1)
+        (out / 'v.mp4').symlink_to(protected / 'config.toml')
+        result = await m.stop(r['id'], 'task')
+        assert not result['capture_complete'] and 'exists' in result['error'].lower()
+        assert (protected / 'config.toml').read_text() == 'owner settings'
+    asyncio.run(check())
+
+
+def test_the_daemon_stages_recording_frames_in_ferbs_own_folder(home):
+    from ferb.daemon.main import Daemon
+    d = Daemon(home)
+    assert d.recordings.staging == home / 'run' / 'recordings'

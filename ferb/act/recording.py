@@ -8,10 +8,16 @@ not transcribed; its sound is deleted.
 
 Each frame comes from its driver with its secret fields painted over (L13); a frame that couldn't be is withheld
 (Withheld) and skipped, and the recording goes on: its result counts the withheld frames and says why, and repeats
-any note a driver gave about how frames were masked (a browser page masked from Accessibility alone)."""
+any note a driver gave about how frames were masked (a browser page masked from Accessibility alone).
+
+Frames are staged in FERB's own folder (the daemon's ~/.ferb/run/recordings), never beside the output. The output
+folder is checked against the protection lists as macOS opened it and kept open for the recording's life: the receipt,
+the video and the final receipt are written only through that open folder, never following or replacing a link that
+appears there later (rule 10)."""
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import errno
 import json
 import math
 import os
@@ -24,7 +30,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from ferb.act.fs.files import PathRefused, destination_closed, make_folders, resolve
+from ferb.act.fs.files import PathRefused, destination_closed, make_folders, opened_path, resolve
 from ferb.core.errors import Refused, Withheld
 from ferb.core.types import ActionSpec, FileAccess, Identity, RiskLevel, Target, ToolContext, ToolResult
 
@@ -84,15 +90,56 @@ class _Recording:
     audio_at: float = 0.0                    # when that sound starts, in seconds of the video
     language: str | None = None
     sources: tuple[tuple[str, str], ...] = ()   # where the sound came from: ('audio', bundle), a tab's page
+    out: int = -1                  # the output folder as checked, open until the recording is finished
 
     @property
     def receipt(self) -> Path:
         return self.path.with_suffix(self.path.suffix + '.json')
 
 
+_NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC     # a new file, never through a link
+
+
+def _publish(video: Path, out: int, name: str) -> None:
+    """The video into the checked output folder: a hard link (atomic), or an exclusive copy across volumes; never
+    replacing or following anything already at `name`."""
+    try:
+        os.link(video, name, dst_dir_fd=out)
+        return
+    except OSError as e:
+        if e.errno != errno.EXDEV:
+            raise
+    fd = os.open(name, _NEW, 0o644, dir_fd=out)
+    try:
+        with open(video, 'rb') as src, os.fdopen(fd, 'wb') as dst:
+            shutil.copyfileobj(src, dst)
+    except BaseException:
+        os.unlink(name, dir_fd=out)
+        raise
+
+
+def _replace_receipt(out: int, name: str, text: str) -> None:
+    """The finished receipt, written to a new temporary file in the checked folder and renamed over `name`: whatever
+    stands there now (even a link) is replaced, never written through."""
+    temp = f'.{name}.{uuid4().hex[:8]}.ferb-tmp'
+    fd = os.open(temp, _NEW, 0o644, dir_fd=out)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(text)
+        os.replace(temp, name, src_dir_fd=out, dst_dir_fd=out)
+    except BaseException:
+        try:
+            os.unlink(temp, dir_fd=out)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 class RecordingManager:
     def __init__(self, now: Callable[[], float] = time.monotonic, *, sanitize: Callable[[bytes], bytes] | None = None,
-                 hearing: Any = None) -> None:
+                 hearing: Any = None, staging: Path | None = None) -> None:
+        """`hearing`: ferb/act/listen.py's Hearing, for recordings with sound. `staging`: where frames are staged, a
+        folder only FERB writes (the daemon passes ~/.ferb/run/recordings); None: a private temporary folder."""
         from ferb.sanitize.images import ImageRedactor
         from ferb.sanitize.redact import Redactor
         self.sanitize = sanitize or ImageRedactor(Redactor())
@@ -100,6 +147,13 @@ class RecordingManager:
         self.hearing = hearing                   # ferb/act/listen.py's Hearing: recordings with sound
         self.records: dict[str, _Recording] = {}
         self._starts = asyncio.Lock()
+        self.staging = staging
+
+    def _staging(self) -> Path:
+        if self.staging is None:
+            self.staging = Path(tempfile.mkdtemp(prefix='ferb-recordings-'))
+        self.staging.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return self.staging
 
     def _get(self, rid: str, owner: str) -> _Recording:
         rec = self.records.get(rid)
@@ -152,28 +206,46 @@ class RecordingManager:
                 make_folders(path.parent, closed)          # each folder made inside one FERB opened and checked
             except PathRefused as e:
                 raise Refused(str(e)) from None
-            refusal = destination_closed(path, closed)     # and the folder it now writes into, as opened
-            if refusal:
-                raise Refused(refusal)
-            listening = await self.hearing.start(owner, *audio) if audio is not None else None
+            out = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)   # kept for the recording's life
+            folder: Path | None = None
+            receipt = False
+            listening = None
             try:
-                folder = Path(tempfile.mkdtemp(prefix='.ferb-recording-', dir=path.parent))
-            except BaseException:
-                if listening is not None:
-                    await self.hearing.discard(listening)
-                raise
-            audio_at = max(0.0, self.now() - began - self.hearing.lag(listening)) if listening is not None else 0.0
-            r = _Recording('rec-' + uuid4().hex[:12], owner, dict(target), path, folder, capture, fps, began,
-                           listening=listening, audio_at=audio_at, language=language,
-                           sources=tuple(sources) + (('audio', audio[0]),) if audio is not None else ())
-            r.masking.update({note} - {''})
-            try:
+                if closed is not None:                     # the folder it writes into, as macOS opened it
+                    where = opened_path(out)
+                    refusal = closed(where / path.name) or closed(where / (path.name + '.json'))
+                    if refusal:
+                        raise Refused(refusal)
+                try:
+                    os.stat(path.name, dir_fd=out, follow_symlinks=False)
+                    raise Refused('recording path or receipt already exists; choose a new path')
+                except FileNotFoundError:
+                    pass
+                try:
+                    receipt_fd = os.open(path.name + '.json', _NEW, 0o644, dir_fd=out)
+                except FileExistsError:
+                    raise Refused('recording path or receipt already exists; choose a new path') from None
+                receipt = True
+                folder = Path(tempfile.mkdtemp(prefix='rec-', dir=self._staging()))
+                listening = await self.hearing.start(owner, *audio) if audio is not None else None
+                audio_at = max(0.0, self.now() - began - self.hearing.lag(listening)) if listening is not None else 0.0
+                r = _Recording('rec-' + uuid4().hex[:12], owner, dict(target), path, folder, capture, fps, began,
+                               out=out, listening=listening, audio_at=audio_at, language=language,
+                               sources=tuple(sources) + (('audio', audio[0]),) if audio is not None else ())
+                r.masking.update({note} - {''})
                 (folder/'00000000.jpg').write_bytes(first)
                 r.times.append(0.0)
-                with r.receipt.open('x') as out:
-                    json.dump(self._info(r) | {'sample_times_s': r.times}, out, indent=2)
+                with os.fdopen(receipt_fd, 'w') as stream:
+                    json.dump(self._info(r) | {'sample_times_s': r.times}, stream, indent=2)
             except BaseException:
-                shutil.rmtree(folder)
+                if folder is not None:
+                    shutil.rmtree(folder, ignore_errors=True)
+                if receipt:
+                    try:
+                        os.unlink(path.name + '.json', dir_fd=out)
+                    except FileNotFoundError:
+                        pass
+                os.close(out)
                 if listening is not None:
                     await self.hearing.discard(listening)
                 raise
@@ -245,9 +317,9 @@ class RecordingManager:
                                   f'fps=25,tpad=stop_mode=clone:stop_duration={end}',
                                   '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-fps_mode', 'cfr', '-r', '25',
                                   '-t', str(end), '-movflags', '+faststart', str(video))
-                    os.link(video, r.path)              # atomic publication, never replaces an owner's existing file
+                    _publish(video, r.out, r.path.name)    # through the checked folder; never replaces anything
                     result.update(capture_complete=r.error is None and not (heard or {}).get('error'),
-                                  bytes=r.path.stat().st_size)
+                                  bytes=os.stat(r.path.name, dir_fd=r.out, follow_symlinks=False).st_size)
                 except Exception as exc:
                     result.update(error=f'{r.error + "; " if r.error else ""}{type(exc).__name__}: {exc}', capture_complete=False)
                 finally:
@@ -258,9 +330,12 @@ class RecordingManager:
                                                             'and its sound was deleted'})
                 r.result = result
                 try:
-                    r.receipt.write_text(json.dumps(result | {'sample_times_s': r.times}, indent=2))
+                    _replace_receipt(r.out, r.receipt.name, json.dumps(result | {'sample_times_s': r.times}, indent=2))
                 except OSError as exc:
                     result.update(error=f'recording receipt could not be finalized: {exc}', capture_complete=False)
+                finally:
+                    os.close(r.out)
+                    r.out = -1
                 return result
             finally:                                # owner decision: the sound goes once no longer needed,
                 if r.listening is not None:         # however stop() ends (a cancelled encode included)

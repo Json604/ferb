@@ -395,26 +395,38 @@ class FsTrash(_Base):
             p = resolve(str(getattr(args, "path")), ctx, must_exist=True)
         except PathRefused as e:
             return _err(str(e))
+        # The Trash takes a path, not an open file. Check the item in its folder as macOS opened the folder
+        # (F_GETPATH: the kernel's own spelling, never an alias), note what stands there (device and inode, without
+        # opening it), move that path, then make sure what moved is what was checked: otherwise put it back
+        try:
+            folder = os.open(p.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        except OSError as e:
+            return _err(f"FERB couldn't open the folder of {p.name} ({e.strerror or e}); nothing was moved")
+        try:
+            where = opened_path(folder) / p.name
+            checked = os.stat(p.name, dir_fd=folder, follow_symlinks=False)
+        except OSError as e:
+            return _err(f"FERB couldn't tell what it would move ({e.strerror or e}); nothing was moved")
+        finally:
+            os.close(folder)
         if ctx.path_closed is not None:
-            # The Trash takes a path, not an open file: check the item as macOS opens it (F_GETPATH; opened for its
-            # name only), so the lists see the kernel's own spelling of what moves, never an alias of it
-            try:
-                item = os.open(p, getattr(os, "O_EVTONLY", 0x8000) | os.O_NONBLOCK | os.O_CLOEXEC)
-            except OSError as e:
-                return _err(f"FERB couldn't open {p.name} to check it ({e.strerror or e}); nothing was moved")
-            try:
-                where = opened_path(item)
-            except OSError as e:
-                return _err(f"FERB couldn't tell which file it opened ({e.strerror or e}); nothing was moved")
-            finally:
-                os.close(item)
             refusal = ctx.path_closed(where, self.access)
             if refusal:
                 return _err(refusal)
         try:
-            trashed_to = move_to_trash(p)
+            trashed_to = move_to_trash(where)
         except TrashRefused as e:
             return _err(f"couldn't move to Trash: {e}")
+        if trashed_to is None:
+            return _err(f"macOS moved {where} to the Trash without saying where, so FERB can't confirm it moved what "
+                        "it checked; look for it in the Trash")
+        moved = os.lstat(trashed_to)
+        if (moved.st_dev, moved.st_ino) != (checked.st_dev, checked.st_ino):
+            if not os.path.lexists(where):
+                os.rename(trashed_to, where)              # not what was checked: back where it was
+                return _err(f"{where} changed while FERB checked it, so FERB put it back; nothing was moved")
+            return _err(f"{where} changed while FERB checked it; what moved is in the Trash at {trashed_to}")
+        p = where
         return ToolResult({"path": str(p), "trashed_to": trashed_to})
 
 

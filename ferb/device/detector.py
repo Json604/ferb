@@ -1,8 +1,8 @@
 """Own the background test's detector process: what macOS itself says happened (space changes, app activations),
 appended as JSON lines to the log it is given. Must not act on the Mac.
 
-`python -I -m ferb.device.detector <log>`: a module, not code passed on a command line, so FERB.app's agent (which
-runs only FERB's own entry points) can start it too."""
+`python -I -m ferb.device.detector <log>`, started by `ferb watch` (the command line's own interpreter, never FERB.app's
+agent): a module rather than code passed on a command line."""
 import json
 import sys
 import time

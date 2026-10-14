@@ -295,7 +295,9 @@ def test_real_bundle_structure_signature_and_embedded_cli(tmp_path_factory: pyte
                           text=True, env=env)
     assert seen.returncode == 0 and seen.stdout.strip() == str(app.resolve()), seen.stderr
     stub = c / "Helpers/FERB.app/Contents/MacOS/FERB"                        # the daemon's executable
-    for argv in (["-c", "print('ran')"], ["-m", "os"], [], ["-m", "ferb.daemon", "x"]):   # only FERB's entry points
+    for argv in (["-c", "print('ran')"], ["-m", "os"], [], ["-m", "ferb.daemon", "x"],   # only FERB's entry points
+                 ["-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")],
+                 ["-I", "-m", "ferb.memory.card_reader", "/etc/passwd"]):
         refused = subprocess.run([str(stub), *argv], capture_output=True, text=True, env=env)
         assert refused.returncode == 64 and "ran" not in refused.stdout, argv
     foreign = tmp_path / "foreign-ferb"
@@ -303,22 +305,8 @@ def test_real_bundle_structure_signature_and_embedded_cli(tmp_path_factory: pyte
     refused = subprocess.run([str(stub), "-m", "ferb.daemon"], capture_output=True, text=True,
                              env={**env, "FERB_HOME": str(foreign)})
     assert refused.returncode == 64 and "FERB_HOME" in refused.stderr          # never another FERB home
-    log = tmp_path / "events.jsonl"                                           # FERB's detector, through the agent
-    detector = subprocess.Popen([str(stub), "-I", "-m", "ferb.device.detector", str(log)], cwd=tmp_path,
-                                env={k: v for k, v in env.items() if k != "FERB_HOME"} |
-                                {"PYTHONEXECUTABLE": str(tmp_path / "evil-shim"), "PYTHONPATH": str(tmp_path)},
-                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    try:
-        import json
-        import time
-        deadline = time.monotonic() + 30
-        while not (log.exists() and log.read_text().strip()) and time.monotonic() < deadline:
-            time.sleep(0.1)
-        started = json.loads(log.read_text().splitlines()[0])
-    finally:
-        detector.terminate()
-        detector.wait(timeout=10)
-    assert started["event"] == "started" and Path(started["executable"]).resolve() == stub.resolve()
+    # The shipped agent is built from ui/mac/FERBAgent/main.c, whose clean environment and real sys.executable the
+    # agent_stub tests above check; running its allowed entry points here would reach the owner's real ~/.ferb.
     from ferb.act.shell.local import WATCH                                  # L24's kernel-report stream watcher
     from ferb.paths import helper_python
     helper = helper_python(c / "Resources" / "python")
@@ -362,13 +350,14 @@ def agent_stub(tmp_path_factory: pytest.TempPathFactory) -> Path:
         if entry.name != "site-packages":
             (stdlib / entry.name).symlink_to(entry)
     site = stdlib / "site-packages"
-    for rel in ("ferb/__init__.py", "ferb/cli/__init__.py", "ferb/device/__init__.py", "ferb/daemon/__init__.py"):
+    for rel in ("ferb/__init__.py", "ferb/cli/__init__.py", "ferb/device/__init__.py", "ferb/daemon/__init__.py",
+                "ferb/memory/__init__.py"):
         (site / rel).parent.mkdir(parents=True, exist_ok=True)
         (site / rel).write_text("")
     report = ("import json, os, sys\nprint(json.dumps({'module': __name__, 'argv': sys.argv[1:], "
               "'executable': sys.executable, 'isolated': sys.flags.isolated, 'ferb_home': os.environ.get('FERB_HOME'), "
-              "'python_env': sorted(k for k in os.environ if k.startswith('PYTHON') or k == '__PYVENV_LAUNCHER__')}))\n")
-    for module in ("ferb/cli/mcp.py", "ferb/device/detector.py", "ferb/daemon/__main__.py"):
+              "'environ': dict(os.environ)}))\n")
+    for module in ("ferb/cli/mcp.py", "ferb/device/detector.py", "ferb/daemon/__main__.py", "ferb/memory/card_reader.py"):
         (site / module).write_text(report)
     exe = app / "Contents" / "Helpers" / "FERB.app" / "Contents" / "MacOS" / "FERB"
     exe.parent.mkdir(parents=True)
@@ -385,26 +374,55 @@ def _stub(exe: Path, *args: str, **env: str) -> subprocess.CompletedProcess[str]
 
 def test_the_agent_runs_only_ferbs_own_entry_points(agent_stub: Path, tmp_path: Path) -> None:
     import json
-    for argv in (["-I", "-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")]):
+    for argv in (["-m", "ferb.daemon"], ["-I", "-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.memory.card_reader"]):
         seen = json.loads(_stub(agent_stub, *argv).stdout)
         assert seen["module"] == "__main__" and seen["isolated"] == 1
-    refused = (["-c", "print('ran')"], ["-m", "os"], ["-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.cli"],
-               [str(tmp_path / "script.py")], ["-m", "ferb.daemon", "--extra"], ["-I", "-m", "ferb.device.detector"],
-               ["-I", "-m", "ferb.cli.mcp", "x"], ["-i", "-m", "ferb.daemon"], [])
     (tmp_path / "script.py").write_text("print('ran')\n")
+    refused = (["-c", "print('ran')"], ["-m", "os"], ["-m", "ferb.cli.mcp"], ["-I", "-m", "ferb.cli"],
+               [str(tmp_path / "script.py")], ["-m", "ferb.daemon", "--extra"],
+               ["-I", "-m", "ferb.device.detector", str(tmp_path / "e.jsonl")],   # `ferb watch` runs it, not the agent
+               ["-I", "-m", "ferb.cli.mcp", "x"], ["-i", "-m", "ferb.daemon"], [],
+               ["-m", "ferb.memory.card_reader"], ["-I", "-m", "ferb.memory.card_reader", "/etc/passwd"],
+               ["-I", "-m", "ferb.memory"])                                # the card reader: exactly, no path
     for argv in refused:
         r = _stub(agent_stub, *argv)
         assert r.returncode == 64 and "ran" not in r.stdout and "FERB" in r.stderr, argv
 
 
-def test_the_agent_scrubs_python_variables_and_keeps_its_own_executable(agent_stub: Path, tmp_path: Path) -> None:
+def test_the_agent_starts_from_a_clean_environment_and_names_itself(agent_stub: Path, tmp_path: Path) -> None:
+    """Only what FERB needs reaches Python and the processes it starts: no PYTHON* variable, no proxy or certificate
+    override, the owner's HOME and a fixed PATH; sys.executable is the agent's real path however it was started."""
     import json
-    r = _stub(agent_stub, "-I", "-m", "ferb.cli.mcp", PYTHONEXECUTABLE=str(tmp_path / "evil-shim"),
-              __PYVENV_LAUNCHER__=str(tmp_path / "evil"), PYTHONPATH=str(tmp_path), PYTHONHOME=str(tmp_path),
-              PYTHONINSPECT="1")
+    import pwd
+    owner = pwd.getpwuid(os.getuid())
+    link = tmp_path / "shim-link"
+    link.symlink_to(agent_stub)
+    evil = str(tmp_path / "evil")
+    r = _stub(link, "-I", "-m", "ferb.cli.mcp", PYTHONEXECUTABLE=evil, __PYVENV_LAUNCHER__=evil, PYTHONPATH=evil,
+              PYTHONHOME=evil, PYTHONINSPECT="1", HTTPS_PROXY="http://127.0.0.1:9", SSL_CERT_FILE=evil,
+              CODEX_HOME=evil, TIKTOKEN_CACHE_DIR=evil, TMPDIR=evil, HOME=evil, PATH=evil, DYLD_PRINT_LIBRARIES_X=evil,
+              FERB_RUN_TOKEN="token-for-the-shim", LANG="en_US.UTF-8")   # DYLD_*: the signed agent's hardened runtime
     seen = json.loads(r.stdout)
-    assert Path(seen["executable"]).resolve() == agent_stub.resolve()
-    assert seen["python_env"] == []                         # none reaches FERB or the processes it starts
+    assert seen["executable"] == os.path.realpath(agent_stub)               # not the link it was started through
+    env = seen["environ"]
+    assert env["HOME"] == owner.pw_dir and env["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin"
+    assert env["USER"] == env["LOGNAME"] == owner.pw_name and env["TMPDIR"] != evil
+    assert env["FERB_RUN_TOKEN"] == "token-for-the-shim" and env["LANG"] == "en_US.UTF-8"   # what FERB needs stays
+    assert not {"HTTPS_PROXY", "SSL_CERT_FILE", "CODEX_HOME", "TIKTOKEN_CACHE_DIR", "DYLD_PRINT_LIBRARIES_X",
+                "__PYVENV_LAUNCHER__"} & set(env) and not [k for k in env if k.startswith("PYTHON")]
+
+
+def test_an_environment_entry_without_a_value_is_dropped_not_spun_on(agent_stub: Path, tmp_path: Path) -> None:
+    import json
+    launcher = tmp_path / "launch"
+    src = tmp_path / "launch.c"
+    src.write_text('#include <unistd.h>\nint main(int c, char **v) { char *env[] = {"PYTHONFOO", "FERB_RUN_TOKEN=t", 0};'
+                   ' char *args[] = {v[1], "-I", "-m", "ferb.cli.mcp", 0}; execve(v[1], args, env); return 99; }\n')
+    cmd = ["clang"] if shutil.which("clang") else ["xcrun", "clang"]
+    subprocess.run([*cmd, str(src), "-o", str(launcher)], check=True)
+    r = subprocess.run([str(launcher), str(agent_stub)], capture_output=True, text=True, timeout=20)
+    seen = json.loads(r.stdout)
+    assert "PYTHONFOO" not in seen["environ"] and seen["environ"]["FERB_RUN_TOKEN"] == "t"
 
 
 def test_the_agent_runs_only_with_the_owners_ferb_home(agent_stub: Path, tmp_path: Path) -> None:
@@ -418,10 +436,10 @@ def test_the_agent_runs_only_with_the_owners_ferb_home(agent_stub: Path, tmp_pat
     r = _stub(agent_stub, "-m", "ferb.daemon", FERB_HOME=str(foreign))
     assert r.returncode == 64 and "FERB_HOME" in r.stderr and r.stdout == ""
     link = tmp_path / "link-to-owner"
-    if owner.is_dir():                                      # the same folder by another path is the owner's
+    if owner.is_dir():                                      # the same folder by another path: Python sees the owner's
         link.symlink_to(owner)
         seen = json.loads(_stub(agent_stub, "-I", "-m", "ferb.cli.mcp", FERB_HOME=str(link)).stdout)
-        assert seen["ferb_home"] == str(link)
+        assert seen["ferb_home"] == str(owner)
 
 
 def test_the_detector_runs_as_a_ferb_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

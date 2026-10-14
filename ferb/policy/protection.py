@@ -17,12 +17,15 @@ closed to writes and removal by FERB's tools and its shell, wherever the app sit
 (rule 10). Reading it stays open.
 
 A path is checked as typed, as the OS reaches it now (links first, then `..`) and as the kernel names the file it
-reaches (F_GETPATH on its deepest existing part: the Data volume's /System/Volumes/Data/… and volfs's /.vol/<dev>/<ino>
-spellings become FERB's own), against each entry as written, as it resolved when FERB started and as the kernel names
-it: a rule matching any of them applies. A volfs path FERB can't map is closed. FERB's workspace is the literal folder in FERB's
+reaches (F_GETPATH on its deepest existing folder or regular file, opened for its name only: the Data volume's
+/System/Volumes/Data/… and volfs's /.vol/<dev>/<ino> spellings become FERB's own), against each entry as written, as
+it resolved when FERB started and in its firmlinked spelling: a rule matching any of them applies. Entries are never
+opened (another app's data folder can raise a macOS prompt); FERB's own home and FERB.app are. A volfs path FERB can't
+map is closed. FERB's workspace is the literal folder in FERB's
 home: a link planted there never moves the exception (and the daemon won't start with one)."""
 
 import os
+import stat
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,7 +85,7 @@ class Entry:
     path: Path       # resolved when FERB started
     shown: str       # as the owner wrote it, the home as ~
     typed: Path      # as written, absolute, `..` folded: still matched if the entry later becomes a link
-    kernel: Path | None = None   # as the kernel named it when FERB started (another spelling of the same folder)
+    kernel: Path | None = None   # its firmlinked spelling when written through the Data volume (never opened)
 
 
 @dataclass(frozen=True)
@@ -136,29 +139,55 @@ _VOLFS = Path("/.vol")                            # /.vol/<device>/<inode>/…: 
 _O_EVTONLY = getattr(os, "O_EVTONLY", 0x8000)     # open for a name only: no read access needed, no data touched
 
 
+def _opened_name(path: Path, folder: bool) -> Path | None:
+    """F_GETPATH of a folder or regular file, opened for its name only (no data read); None if it can't be opened."""
+    flags = _O_EVTONLY | os.O_NONBLOCK | os.O_CLOEXEC | (os.O_DIRECTORY if folder else 0)
+    try:
+        fd = os.open(path, flags)
+    except (OSError, ValueError):
+        return None
+    try:
+        return opened_path(fd)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
 def _kernel(path: Path) -> Path | None:
-    """The path as the kernel names what it reaches (F_GETPATH on the deepest part that exists, then the rest), so
-    another spelling of the same file is the spelling FERB's rules use; None when nothing along it can be opened."""
+    """The path as the kernel names what it reaches, so another spelling of the same file is the spelling FERB's rules
+    use: F_GETPATH on the deepest part that exists, then the rest. Only a folder or a regular file is ever opened (for
+    its name only); a device node, FIFO, socket, or a file FERB can't open is named through its folder. None when
+    nothing along it can be named."""
     tail: list[str] = []
     p = _absolute(path)
     while True:
         try:
-            fd = os.open(p, _O_EVTONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-        except (FileNotFoundError, NotADirectoryError):
-            if p == p.parent:
-                return None
-            tail.append(p.name)
-            p = p.parent
-            continue
+            st = os.stat(p)
+        except (FileNotFoundError, NotADirectoryError, PermissionError):
+            st = None
         except (OSError, ValueError):                 # ValueError: a NUL in the path, which no file can have
             return None
-        try:
-            base = opened_path(fd)
-        except OSError:
-            return None
-        finally:
-            os.close(fd)
-        return Path(os.path.normpath(base.joinpath(*reversed(tail))))
+        if st is not None and stat.S_ISDIR(st.st_mode):
+            named = _opened_name(p, folder=True)
+        elif st is not None and stat.S_ISREG(st.st_mode):
+            named = _opened_name(p, folder=False)
+        else:
+            named = None
+        if named is not None:
+            return Path(os.path.normpath(named.joinpath(*reversed(tail))))
+        if (st is not None and stat.S_ISDIR(st.st_mode)) or p == p.parent:
+            return None                               # a folder that can't be opened, or nothing up to the root
+        tail.append(p.name)
+        p = p.parent
+
+
+def _firmlinked(path: Path) -> Path | None:
+    """The firmlinked spelling of a path written through the Data volume (/System/Volumes/Data/Users/… is /Users/…),
+    found from the text alone: for entries in other apps' folders, which FERB never opens to learn their names."""
+    typed = _typed(path)
+    return Path("/") / typed.relative_to(_DATA_VOLUME) if typed.is_relative_to(_DATA_VOLUME) and typed != _DATA_VOLUME \
+        else None
 
 
 def _forms(path: Path) -> tuple[Path, ...]:
@@ -167,8 +196,9 @@ def _forms(path: Path) -> tuple[Path, ...]:
     kernel = _kernel(path)
     if kernel is not None:
         forms.append(kernel)
-    if typed.is_relative_to(_DATA_VOLUME) and typed != _DATA_VOLUME:
-        forms.append(Path("/") / typed.relative_to(_DATA_VOLUME))      # the firmlinked spelling, even when missing
+    firmlinked = _firmlinked(typed)
+    if firmlinked is not None:
+        forms.append(firmlinked)                      # the firmlinked spelling, even when missing
     return tuple(dict.fromkeys(forms))
 
 
@@ -283,7 +313,8 @@ class Protection:
         for item in items:                               # one rule per id: the first spelling of an entry is kept
             raw = _entry_path(self.home, item)
             shown = _shown(self.home, raw)
-            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", _real(raw), shown, _typed(raw), _kernel(raw)))
+            out.setdefault(f"{prefix}:{shown}", Entry(f"{prefix}:{shown}", _real(raw), shown, _typed(raw),
+                                                      _firmlinked(_real(raw)) or _firmlinked(raw)))
         return list(out.values())
 
     def _forms(self, path: Path) -> tuple[Path, ...]:
