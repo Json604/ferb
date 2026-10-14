@@ -1237,13 +1237,17 @@ remain a process-cleanup residual. No unsandboxed command fallback exists.
 `Redactor.field` owns secure-field, Secure Input and concealed-clipboard handling; text scanning adds contextual OTPs
 and Luhn-valid payment cards to existing credential classes. The labelled classes (C1, owner decision 2026-10-15,
 `labelled_secret_spans`): a 4–8 digit code (`482-913`, `48 29 13`, `G-482913`) with a code word (code, OTP, passcode,
-PIN, one-time password, verification/verify) within `CODE_REACH` (8) words before it, or after it when a link joins
-them ("is", "to", ":", "("), so "2024 code review" stays; and the value after a secret word (password, passcode, PIN,
-secret, API key, token, private key): any value after ":"/"=", one with a digit or symbol after "is"/"was" (any after
+PIN, one-time password, verification/verify) within `CODE_REACH` (8) words on the same line: before it, joined
+directly (`OTP 482913`, `Code: 482913`, or alone on the next line), after a link (`… is 482913`, `login: 482913`) or in
+parentheses; or after it, joined by a link ("is", "to", ":", "("). So "2024 code review", "code review on 12 Oct 2024"
+and "Code (3733 recorded uses)" stay. The value after a secret word (password, passcode, PIN, secret, API key, token,
+private key): any value after ":"/"=" (also on the next line), one with a digit or symbol after "is"/"was" (any after
 "my/our … is"), one with a digit right after the word. A text field named by a secret word hides its whole value; a
-code word hides a code-shaped one. `RedactionStream` never emits text within that reach of a class word or code (it
-holds the whole run of nearby ones). URL words never count (query credentials are the URL rule's).
-`ImageRedactor` uses local Vision OCR and Quartz masking; the labelled classes reach from one OCR line to the next.
+code word hides a code-shaped one. Masking is idempotent. `RedactionStream` holds the current line from its first
+class word (or a code a link follows) and a line ending in a label until the line under it completes, so a dev
+server's "port 54321" line is never held. URL words never count (query credentials are the URL rule's).
+`ImageRedactor` uses local Vision OCR and Quartz masking; `neighbour_spans` extends the labelled classes to the next
+OCR line (a code alone under its code word, a value beside a line ending in a secret word).
 The gateway sanitizes every model/evidence image; RecordingManager sanitizes each frame before disk. Native capture
 masks AX rectangles before returning bytes (section 16 has the L13 masking rules: a capture is withheld only when
 masking fails). The model-bound start image is the front window captured at send (L12); the first actual app/tab

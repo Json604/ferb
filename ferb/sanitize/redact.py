@@ -93,19 +93,26 @@ CODE_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:one[ _-]?time[ _-]?(?:password|p
 # longer token or digit group (an id, a phone number); a JSON escape before it still separates it.
 CODE_VALUE = re.compile(rf"(?:(?<![0-9A-Za-z_-])|(?<=\\[ntrbf])|(?<=\\u[0-9a-fA-F]{{4}}))(?<!\d[ -])"
                         rf"(?:[A-Z]-)?\d(?:[ -]?\d){{3,7}}(?![0-9A-Za-z_]|[ -]\d)")
+# Each relation lies on one line, except a label or a secret word ending its line with its value on the next one.
 # A code before its word is joined to it the way providers write it: "482913 is your code", "Use 482913 to verify",
 # "482913: your code", "739201 (OTP)". A bare "2024 code review" has no value: nothing joins the number to the word.
-CODE_LINK = re.compile(r"(?i)\s*(?:(?:is|are|was|as|to)(?![A-Za-z0-9])|[:=(]|[-–—])")
+CODE_LINK = re.compile(r"(?i)[ \t]*(?:(?:is|are|was|as|to)(?![A-Za-z0-9])|[:=(]|[-–—])")
+# A code after its word comes right after it ("OTP 482913", "Code: 482913", or on the next line under it), after a
+# link on the same line ("… is 482913", "for login: 482913") or in parentheses ("code (482913)"): never after another
+# word, so "code review on 12 Oct 2024" and "Code (3733 recorded uses)" keep their numbers.
+LABEL_DIRECT = re.compile(r"[ \t:=#\-–—]*(?:\r\n|\r|\n)?[ \t]*")
+LABEL_LINK = re.compile(r"(?i)(?:(?<![A-Za-z0-9])(?:is|are|was)|[:=#\-–—])[ \t]*$")
+LINE_BREAK = re.compile(r"\r\n|\r|\n")
 SECRET_WORD = re.compile(r"(?i)(?<![A-Za-z0-9])(?:pass(?:word|wd|phrase|code)|pwd|pin|secret(?:[ _-]?key)?|"
                          r"api[ _-]?key|(?:(?:access|auth|api|refresh)[ _-]?)?token|private[ _-]?key)"
                          r"(?![A-Za-z0-9])")
 # What follows a secret word: an optional "for gmail" / "to the wifi", a link (":", "=", "is", "was", " - ") or none.
-SECRET_AFTER = re.compile(r"""(?ix)(?P<qual>\s+(?:for|to|of|on|at)\s+(?:the\s+|my\s+|your\s+)?[^\s:=]+)?
-                              (?P<link>(?:\\?["'])?[ \t]*[:=][ \t]*\n?[ \t]*|\s+(?:is|was)(?![A-Za-z0-9])[ \t]*:?\s*|
-                                       \s+[-–—]\s+)""")
-SECRET_DIRECT = re.compile(r"\s+")
+SECRET_AFTER = re.compile(r"""(?ix)(?P<qual>[ \t]+(?:for|to|of|on|at)[ \t]+(?:the[ \t]+|my[ \t]+|your[ \t]+)?[^\s:=]+)?
+                              (?P<link>(?:\\?["'])?[ \t]*[:=][ \t]*(?:\r\n|\r|\n)?[ \t]*|
+                                       [ \t]+(?:is|was)(?![A-Za-z0-9])[ \t]*:?[ \t]*|[ \t]+[-–—][ \t]+)""")
+SECRET_DIRECT = re.compile(r"[ \t]+")
 # The owner's own: "my password is sunshine" hides a plain word too (a page's "Your password is incorrect" doesn't).
-MINE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:my|our)\s+(?:[A-Za-z-]+\s+)?$")
+MINE = re.compile(r"(?i)(?<![A-Za-z0-9])(?:my|our)[ \t]+(?:[A-Za-z-]+[ \t]+)?$")
 # "A few words": how many words may lie between a code word and its code. Eight reaches the farthest code in the
 # owner's provider corpus ("Your OTP for HDFC Bank txn of Rs 2,000 is 482913").
 CODE_REACH = 8
@@ -150,7 +157,7 @@ def _secret_value(s: str, word: re.Match[str]) -> tuple[int, int] | None:
         if s.startswith("\\", stop - 1):
             stop -= 1
     value = s[start:stop]
-    if not value or value == REDACTED:
+    if not value or REDACTED[:-1] in s[end:stop + 1]:      # already masked: masking is idempotent
         return None
     digit = any(c.isdigit() for c in value)
     symbol = any(not c.isalnum() for c in value)
@@ -180,11 +187,21 @@ def labelled_secret_spans(s: str) -> list[tuple[int, int]]:
         for code in codes:
             before = bisect.bisect_right(ends, code.start()) - 1
             after = bisect.bisect_left(begins, code.end())
-            if (before >= 0 and _words_between(starts, ends[before], code.start()) <= CODE_REACH) or (
+            if (before >= 0 and _words_between(starts, ends[before], code.start()) <= CODE_REACH
+                    and _label_joined(s, ends[before], code)) or (
                     after < len(labels) and CODE_LINK.match(s, code.end()) is not None
+                    and LINE_BREAK.search(s, code.end(), begins[after]) is None
                     and _words_between(starts, code.end(), begins[after]) <= CODE_REACH):
                 spans.append(code.span())
     return spans
+
+
+def _label_joined(s: str, label_end: int, code: re.Match[str]) -> bool:
+    gap = s[label_end:code.start()]
+    if LABEL_DIRECT.fullmatch(gap):
+        return True
+    return LINE_BREAK.search(gap) is None and (LABEL_LINK.search(gap) is not None or (
+        gap.rstrip(" \t").endswith("(") and s.startswith(")", code.end())))
 
 
 def _mask_spans(s: str, spans: list[tuple[int, int]]) -> str:
@@ -508,30 +525,35 @@ class RedactionStream:
         return self._labelled_cut(cut)
 
     def _labelled_cut(self, cut: int) -> int:
-        """C1: a code, a code word or a secret word pairs with text up to CODE_REACH words away, so the emitted part
-        never ends within that reach of one: the cut moves back to the start of its run of nearby class words (each
-        within reach of the next), and the rest is decided once together. A secret word's run starts at the "my"/"our"
-        before it, and a trailing "my"/"our" with up to two words after it is kept, since it can still become "my wifi
-        password is …"."""
+        """C1: the labelled classes relate words on one line (a label or a secret word ending its line may take its
+        value from the next line's first word). So the current line is kept from its first class word, the "my"/"our"
+        before a secret word, a code a link follows (or that ends the text so far) or a trailing "my"/"our" (it can
+        still become "my wifi password is …"); and a line ending in a label or a secret word and its ":" is kept until
+        the line under it is complete. A dev server's "port 54321" line, or one naming "code" with no value
+        following, is never held past its line."""
         pending = self.pending
-        mine = re.search(r"(?i)(?<![A-Za-z0-9])(?:my|our)(?:\s+[A-Za-z-]+){0,2}\s*$", pending)
-        if mine:
-            cut = min(cut, mine.start())
-        found = [m.span() for m in CODE_WORD.finditer(pending)] + [m.span() for m in CODE_VALUE.finditer(pending)]
-        for m in SECRET_WORD.finditer(pending):
-            own = MINE.search(pending, max(0, m.start() - 40), m.start())
-            found.append((own.start() if own else m.start(), m.end()))
-        before = sorted(span for span in found if span[0] < cut)
-        if not before:
+        breaks = [m.end() for m in LINE_BREAK.finditer(pending)]
+        line = breaks[-1] if breaks else 0
+        tail = pending[line:]
+        starts = [m.start() for m in CODE_WORD.finditer(tail)]
+        for m in SECRET_WORD.finditer(tail):
+            own = MINE.search(tail, max(0, m.start() - 40), m.start())
+            starts.append(own.start() if own else m.start())
+        starts += [m.start() for m in CODE_VALUE.finditer(tail)            # a link follows, or may still follow
+                   if CODE_LINK.match(tail, m.end()) is not None or re.fullmatch(r"[ \t]*\S*", tail[m.end():])]
+        trailing = re.search(r"(?i)(?<![A-Za-z0-9])(?:my|our)(?:[ \t]+[A-Za-z-]+){0,2}[ \t]*$", tail)
+        if trailing:
+            starts.append(trailing.start())
+        if breaks:                                     # the line under it isn't complete yet
+            previous = breaks[-2] if len(breaks) > 1 else 0
+            before = pending[previous:line]
+            words = [m for m in CODE_WORD.finditer(before)] + [m for m in SECRET_WORD.finditer(before)]
+            ending = [m for m in words if re.fullmatch(r"[ \t:=#\-–—]*(?:\r\n|\r|\n)", before[m.end():])]
+            if ending:
+                starts.append(previous + min(m.start() for m in ending) - line)
+        if not starts:
             return cut
-        starts = _word_starts(pending)
-        reach = CODE_REACH + 1
-        if _words_between(starts, before[-1][1], cut) > reach:
-            return cut
-        first = len(before) - 1
-        while first > 0 and _words_between(starts, before[first - 1][1], before[first][0]) <= reach:
-            first -= 1
-        start = before[first][0]
+        start = line + min(starts)
         while start > 0 and not pending[start - 1].isspace():
             start -= 1
         return min(cut, start)

