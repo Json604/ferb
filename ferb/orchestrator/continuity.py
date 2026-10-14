@@ -13,6 +13,18 @@ from ferb.policy.targets import Request
 from ferb.sanitize.untrusted import mark, without_ferb_question
 from ferb.store.db import Database
 
+SCHEDULE_SESSION = "schedule:"   # a scheduled run's planner session (`Supervisor.run_scheduled`), not an owner chat
+
+
+def in_conversation(kind: str, data: dict[str, Any], conversation: str) -> bool:
+    """Whether a journaled chat entry (a message, reply, question or notice; never a task answer) belongs to a
+    conversation: by its session id, a missing one being the daily "owner" conversation. A notice is posted to the
+    owner, not to one chat, so it belongs to every conversation the owner chats in (the notch's, voice, `ferb chat`'s),
+    never to a scheduled run's planner session (final review M3)."""
+    if kind == "chat.notice" and "session_id" not in data:
+        return not conversation.startswith(SCHEDULE_SESSION)
+    return bool(data.get("session_id", "owner") == conversation)
+
 
 class Continuity:
     def __init__(self, db: Database, redact: Callable[..., Any], task_origins: Callable[[str], set[str]]) -> None:
@@ -120,7 +132,8 @@ class Continuity:
         records = []
         for row in self.db.conn.execute("SELECT * FROM journal ORDER BY seq"):
             data = json.loads(row["data_json"])
-            belongs = data.get("task_id") in tasks if row["kind"] == "task.answer" else data.get("session_id", "owner") == conversation
+            belongs = (data.get("task_id") in tasks if row["kind"] == "task.answer" else
+                       in_conversation(row["kind"], data, conversation))
             if belongs and row["kind"] in ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice"):
                 records.append({"id": row["id"], "at": row["at"], "kind": row["kind"], "data": data,
                                 "origin": row["origin"] or journal_origin(row["kind"], data)})

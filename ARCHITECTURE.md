@@ -1566,7 +1566,10 @@ protected FERB state (16.9).
 - **Delivery (L9).** `_post_notice` journals `chat.notice {id, text, quotes}` (origin `external:observation,inferred`),
   writes told receipts, and publishes `attention.notice`. A macOS banner is sent only when no `logs.subscribe` stream
   wants that topic (`_client_shows`, from `_log_subscriptions`); a waiting question's banner (`_approval_notice`)
-  follows the same rule and names the question only. `chat.status.notices` lists unacknowledged notices.
+  follows the same rule and names the question only. `chat.status.notices` lists unacknowledged notices. A notice has
+  no session id: it belongs to every conversation the owner chats in (`continuity.in_conversation`: the notch's
+  `chat-…`, voice, the daily one), so the planner and `chat.history` see it there; never a scheduled run's
+  `schedule:<id>` session (final review M3).
   Migration 0035 marked the 73 legacy notices delivered and records an install floor (`perception_floor`, the highest
   trail `seq` then) so old trail rows never flood Jev; Notification Center records already there at the first read are
   marked seen and not recorded (`Perception.notification_floor`).

@@ -32,7 +32,7 @@ from ferb.daemon.auth import RunGrant, RunTokens
 from ferb.daemon.gateway import FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, TASK
-from ferb.orchestrator.continuity import Continuity
+from ferb.orchestrator.continuity import SCHEDULE_SESSION, Continuity, in_conversation
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.steering import (CONVERSATION_ASK, FERB_CHECKS, Steering, apply as apply_steering,
                                        grant_stated, not_covered, not_typed)
@@ -588,7 +588,7 @@ class Supervisor(WorkerRuns):
             "consecutive_failures": sched.failures,
             # D30: the standing scope the owner was shown when making the schedule, in force for every run
             "standing_sends": [scope.model_dump() for scope in recorded_scopes]})
-        session = ChatSession("schedule:" + sched.id)
+        session = ChatSession(SCHEDULE_SESSION + sched.id)
         self._env.setdefault(request_id, {})["message_origin"] = self._schedule_origins(sched.id)
         self._env[request_id]["request_origins"] = self._schedule_sink_origins(sched.id)   # S4 (L4)
         try:
@@ -1265,7 +1265,7 @@ class Supervisor(WorkerRuns):
                 if entry.kind == "task.answer":
                     if task_ids is None or data.get("task_id") not in task_ids:
                         continue
-                elif data.get("session_id", "owner") != conversation:
+                elif not in_conversation(entry.kind, data, conversation):   # a notice: every owner chat (M3)
                     continue
             who = "Owner" if entry.kind == "chat.message" else "FERB"
             said = str(data.get("text", ""))

@@ -332,6 +332,35 @@ def test_chat_history_reads_a_notice_entry_by_its_id(daemon: RunningDaemon) -> N
     assert UPGRADE in read[0]["text"] and '"chat.notice"' in read[0]["text"]
 
 
+def test_a_notice_reaches_the_planner_in_whichever_conversation_the_owner_uses(daemon: RunningDaemon) -> None:
+    """Final review M3: a notice is posted to the owner, not to one chat. The notch's saved conversation (a `chat-…` id
+    after any `ferb chat --new`) and voice see it like the daily one, and a worker there can read it whole; a scheduled
+    run's planner session never does."""
+    from tests.conftest import done, outcome, task, tool
+    d = daemon.daemon
+    _notes(daemon)
+    row = _record(daemon, _ax("7", "AXValueChanged", "AXButton", PRICE))
+    install(daemon, [json.dumps({"tell": True, "text": UPGRADE, "source_refs": ["trail:" + row.id], "quotes": []})])
+    daemon.run(d._consider_attention({"batch_id": "b-any-chat", "source_refs": ["trail:" + row.id]}))
+    entry = _journal(daemon, "chat.notice")[0]
+    for session in ("chat-0a1b2c3d4e5f", "voice"):
+        script = install(daemon, [sup("reply", "That was your Claude upgrade.")])
+        chat(daemon, "what's that about?", session=session)
+        planner = next(c for mode, key, c, _ in script.contexts if key == "supervisor")
+        assert json.dumps(UPGRADE) in planner, session
+    read: list[Any] = []
+
+    def worker(token: str) -> str:
+        read.append(tool(daemon.sock, token, "chat.history", entry_id=entry.id)["content"])
+        return done("Read the notice")
+    install(daemon, [sup("task", "Reading", task())], {"worker": worker})
+    assert outcome(chat(daemon, "read that notice", session="chat-0a1b2c3d4e5f"))["status"] == "done"
+    assert UPGRADE in read[0]["text"]
+    assert d.supervisor is not None
+    scheduled = _on_loop(daemon, lambda: [e.kind for e in d.supervisor._timeline("", "schedule:s1")[0]])  # type: ignore[union-attr]
+    assert "chat.notice" not in scheduled
+
+
 # ---------- C: FERB's own banners ----------
 
 def test_a_notification_center_row_of_ferbs_own_banner_is_ferbs_and_never_reaches_jev(daemon: RunningDaemon) -> None:

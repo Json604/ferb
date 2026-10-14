@@ -113,6 +113,8 @@ Final review fixes (2026-10-14):
   does both; before, everything but the answer was dropped silently.
 - A question no longer raises a macOS banner while the app is connected and showing it; a banner, when one is sent,
   names the question without telling you to "open ferb chat".
+- A notice is part of whichever conversation you then chat in (the app's, voice), so "what's that about?" works there,
+  not only in the daily conversation.
 
 Licensed under Apache-2.0.
 
