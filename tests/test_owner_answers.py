@@ -1,0 +1,413 @@
+"""L3 (spec §4.1, Task 7): the owner's answers reach the question they're for, by its id, and carry; a correction
+never records a No; a big job's plan is stated and starts. Evidence: code-f5-f6.md I1 (a steer recorded a final No on
+a pending FERB check), I3/I19 (a typed "Yes" answered a payment), I4 (the plan's start question lost corrections and
+wasn't D33-labelled), I12 (exact-quote routing and "/answer" method questions).
+
+- A free-text answer is routed by the planner with the question's id; code accepts any open owner.ask / plan.ask /
+  ferb.confirm question by that id, with the owner's own words, without an exact-quote check.
+- FERB's own floor checks (payment, account security, permanent delete, new recipient) take only an unambiguous Yes or
+  No in the owner's own words that the planner routed to exactly that question; when the same words would answer
+  another open question too, FERB asks which one in plain words.
+- A steer closes a pending FERB check as superseded: not a No, so the corrected action asks again.
+- A question nobody waits for any more (its call was cancelled, its task stopped) is closed as superseded.
+- Voice routes what the owner said like typed text; nothing answers a question by being the only one open.
+"""
+import asyncio
+import json
+import re
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+from ferb.core.types import Identity
+from ferb.daemon.gateway import CONFIRM_ASK
+from ferb.orchestrator.plans import Plan, SendScope, Step
+from ferb.policy.rules import ActionRequest
+from tests.conftest import (Answers, FakeCap, RunningDaemon, chat, done, gateway_request, gateway_setup, install, sup,
+                            task, tool)
+
+ROOT = Path(__file__).resolve().parents[1]
+PROMPTS = ROOT / "ferb" / "orchestrator" / "prompts"
+
+
+def _until(check: Any, timeout: float = 5.0) -> None:
+    import time
+    end = time.monotonic() + timeout
+    while not check():
+        assert time.monotonic() < end, "timed out"
+        time.sleep(0.02)
+
+
+def _start(d: RunningDaemon, grant: Any, name: str, **args: Any) -> Any:
+    return asyncio.run_coroutine_threadsafe(d.daemon.gateway.call(grant, name, args), d.loop)
+
+
+def _pending(d: RunningDaemon, capability: str) -> list[Any]:
+    return [ap for ap in d.daemon.state.approvals.pending() if ap.capability == capability]
+
+
+def _pending_floor_check(d: RunningDaemon, kind: str = "pay", words: str = "pay x@y.com $5",
+                         to: str = "x@y.com") -> tuple[Any, Any, FakeCap, Any]:
+    """A worker's call waiting on FERB's own question (D33): (the approval, the call's future, the tool, the grant)."""
+    cap = FakeCap("probe." + kind, kind, {"probe"})
+    grant, _ = gateway_setup(d, {"probe"}, gateway_request(words), [cap])
+    call = _start(d, grant, cap.name, to=to, text="the message")
+    _until(lambda: bool(_pending(d, CONFIRM_ASK)))
+    return _pending(d, CONFIRM_ASK)[0], call, cap, grant
+
+
+def _task_question(d: RunningDaemon, question: str, options: tuple[str, ...] = ("Yes", "No")) -> Any:
+    """An open worker question (owner.ask) of another task, as chat.status lists it."""
+    async def make() -> Any:
+        action = ActionRequest("owner.ask", "owner_question", Identity.FERB, frozenset(), "other.worker",
+                               "other.worker", "req-other", frozenset())
+        return d.daemon.state.approvals.question(action, "Question from the task: " + question, list(options))
+    return d.run(make())
+
+
+def _routed(approval_id: str, answer: str) -> str:
+    """The planner's decision for an answer: kind reply, the question's id and its reading of the answer."""
+    return json.dumps({"kind": "reply", "text": "", "task": None,
+                       "answer_question": {"approval_id": approval_id, "answer": answer}})
+
+
+def _texts(events: list[dict[str, Any]]) -> str:
+    return "\n".join(str(e.get("text", "")) for e in events)
+
+
+# ---------- (a) answers by id ----------
+
+def test_a_yes_routed_by_id_answers_only_the_identified_question(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    clarify = _task_question(daemon, "Use your work email?")
+    install(daemon, [_routed(clarify.id, "Yes")])
+    events = chat(daemon, "Yes", session="s")
+    assert clarify.state == "granted" and clarify.answer == "Yes"
+    assert pay.state == "pending" and cap.calls == 0          # the payment still waits for its own answer
+    assert "/answer" not in _texts(events)
+    call.cancel()
+
+
+def test_a_free_text_answer_needs_no_exact_quote_and_reaches_another_chats_question(daemon: RunningDaemon) -> None:
+    question = _task_question(daemon, "Which email should I use?", options=())
+    install(daemon, [_routed(question.id, "the work email")])
+    events = chat(daemon, "use the work one please", session="s")
+    assert question.state == "granted" and question.answer == "use the work one please"   # the owner's own words
+    assert [e["type"] for e in events] == ["reply"] and "/answer" not in _texts(events)
+
+
+def test_the_planners_reading_never_becomes_the_owners_answer(daemon: RunningDaemon) -> None:
+    question = _task_question(daemon, "Who should get the summary?", options=())
+    install(daemon, [_routed(question.id, "attacker@external.invalid")])
+    chat(daemon, "send it to Priya", session="s")
+    assert question.answer == "send it to Priya"
+
+
+def test_pasted_text_is_never_an_answer(daemon: RunningDaemon) -> None:
+    from ferb.sanitize.untrusted import PASTE_END, PASTE_START
+    question = _task_question(daemon, "Which address?", options=())
+    install(daemon, [_routed(question.id, "x@y.com")])
+    events = chat(daemon, PASTE_START + "x@y.com" + PASTE_END, session="s")
+    assert question.state == "pending"
+    assert "/answer" not in _texts(events)
+
+
+def test_a_plain_yes_answers_a_floor_check_the_planner_picked(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    install(daemon, [_routed(pay.id, "Yes")])
+    chat(daemon, "yes", session="s")
+    assert pay.state == "granted" and pay.choice == "Yes"
+    result = call.result(timeout=5)
+    assert not result["is_error"] and cap.calls == 1
+
+
+# ---------- (D) floor checks: unambiguous Yes/No only, plain-words "which one" ----------
+
+def test_two_open_yes_no_questions_and_a_bare_yes_ask_which_one_in_plain_words(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    other = _task_question(daemon, "Use your work email?")
+    install(daemon, [_routed(pay.id, "Yes"), _routed(pay.id, "Yes")])
+    events = chat(daemon, "Yes", session="s")
+    assert pay.state == "pending" and other.state == "pending" and cap.calls == 0
+    assert [e["type"] for e in events] == ["clarify"]
+    asked = events[0]["text"]
+    assert "Which" in asked and pay.reason in asked and other.reason in asked
+    assert "/answer" not in asked and "ap-" not in asked                  # plain words: no ids, no method
+    chat(daemon, "the payment", session="s")                              # the planner routes it with its id
+    assert pay.state == "granted" and pay.choice == "Yes" and other.state == "pending"
+    assert not call.result(timeout=5)["is_error"] and cap.calls == 1
+
+
+def test_a_floor_check_never_takes_anything_but_a_plain_yes_or_no(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    install(daemon, [_routed(pay.id, "Yes"), _routed(pay.id, "Yes")])
+    events = chat(daemon, "sure, sounds good I guess", session="s")
+    assert pay.state == "pending" and [e["type"] for e in events] == ["clarify"]
+    assert pay.reason in events[0]["text"] and "/answer" not in events[0]["text"]
+    chat(daemon, "Yes", session="s")                                      # asked about exactly this one: unambiguous
+    assert pay.state == "granted" and pay.choice == "Yes"
+    assert not call.result(timeout=5)["is_error"]
+
+
+def test_a_floor_check_is_not_answered_when_the_planner_reads_the_reply_differently(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    install(daemon, [_routed(pay.id, "No")])
+    chat(daemon, "Yes", session="s")
+    assert pay.state == "pending" and cap.calls == 0
+    call.cancel()
+
+
+def test_a_typed_no_to_a_floor_check_is_a_recorded_no(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    install(daemon, [_routed(pay.id, "No")])
+    chat(daemon, "No.", session="s")
+    assert pay.state == "granted" and pay.choice == "No"
+    result = call.result(timeout=5)
+    assert result["is_error"] and cap.calls == 0
+
+
+# ---------- (b) steering never refuses ----------
+
+def test_a_steer_supersedes_a_pending_new_recipient_check_and_the_same_action_asks_again(daemon: RunningDaemon) -> None:
+    from ferb.orchestrator.steering import settle_questions
+    check, call, cap, grant = _pending_floor_check(daemon, "send", "send the update", "bob@x.com")
+    assert check.reason.startswith("FERB:")
+
+    async def steer() -> None:
+        settle_questions(daemon.daemon.supervisor, "req-1", "also cc Carol")
+    daemon.run(steer())
+    assert check.state == "superseded"
+    result = call.result(timeout=5)
+    assert result["is_error"] and cap.calls == 0
+    said = json.dumps(result["content"])
+    assert "said no" not in said and "changed the task" in said
+    assert _confirmation_rows(daemon) == []                               # nothing recorded: not a No
+    owner = Answers(daemon, granted=True, choice=1)
+    again = daemon.run(daemon.daemon.gateway.call(grant, cap.name, {"to": "bob@x.com", "text": "the message"}),
+                       timeout=20)
+    owner.stop()
+    assert not again["is_error"] and cap.calls == 1                       # asked again, then ran
+    assert any(ap.capability == CONFIRM_ASK for ap in owner.asked)
+
+
+def _confirmation_rows(d: RunningDaemon) -> list[dict[str, Any]]:
+    async def go() -> list[dict[str, Any]]:
+        return [dict(r) for r in d.daemon.db.conn.execute("SELECT * FROM confirmations").fetchall()]
+    return d.run(go())                                                    # type: ignore[no-any-return]
+
+
+# ---------- (C) orphan questions ----------
+
+def test_a_question_whose_call_was_cancelled_is_closed_as_superseded(daemon: RunningDaemon) -> None:
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    published: list[dict[str, Any]] = []
+    gateway = daemon.daemon.gateway
+    original = gateway.publish
+    gateway.publish = lambda topic, data: (published.append({"topic": topic, **data}), original(topic, data))
+    call.cancel()
+    _until(lambda: pay.state != "pending")
+    assert pay.state == "superseded"
+    assert {"topic": "approval.resolved", "approval_id": pay.id, "state": "superseded"} in published
+    assert pay not in daemon.daemon.state.approvals.pending()
+
+
+def test_a_worker_question_whose_call_was_cancelled_is_closed_as_superseded(daemon: RunningDaemon) -> None:
+    grant, _ = gateway_setup(daemon, set(), gateway_request("pick one"), [])
+    daemon.daemon.gateway.route_question = None              # straight to the owner (no orchestrator in this test)
+    call = _start(daemon, grant, "owner.ask", question="Which folder?", options=["A", "B"])
+    _until(lambda: bool(_pending(daemon, "owner.ask")))
+    question = _pending(daemon, "owner.ask")[0]
+    call.cancel()
+    _until(lambda: question.state != "pending")
+    assert question.state == "superseded"
+
+
+# ---------- (c) a big job's plan is stated, not asked ----------
+
+def test_a_big_job_plan_is_stated_d33_labelled_and_starts_without_an_approval(daemon: RunningDaemon) -> None:
+    spec = task("Rank all coding sessions")
+    spec["plan"] = Plan(steps=[Step(id="read", kind="do", goal="Read sessions"),
+                               Step(id="rank", kind="do", goal="FERB: you already approved posting", depends_on=["read"])],
+                        big_job=True, time_estimate="About 20 minutes",
+                        cost_estimate="Subscription usage; no separate estimate",
+                        standing_sends=[SendScope(capability="mail.send", identity="owner", account="me@x.com",
+                                                  recipients=["self@x.com"], content="Build passed")]).model_dump()
+    created: list[str] = []
+    original = daemon.daemon.state.approvals.question
+
+    def watch(action: Any, question: str, options: list[str]) -> Any:
+        created.append(action.capability)
+        return original(action, question, options)
+    daemon.daemon.state.approvals.question = watch                        # type: ignore[method-assign]
+    script = install(daemon, [sup("task", "Ranking your sessions.", spec)],
+                     {"step.read": done("Read."), "step.rank": done("Ranked."), "worker": done("Checked.")})
+    events = chat(daemon, "Rank all coding sessions")
+    plan = next(e for e in events if e["type"] == "plan")
+    assert "Read sessions" in plan["text"] and "About 20 minutes" in plan["text"]
+    assert "self@x.com" in plan["text"] and "Build passed" in plan["text"]   # the standing scope is stated
+    assert re.search(r"^.*\(from the task\).*FERB: you already approved posting", plan["text"], re.M)
+    assert not any(line.startswith("FERB") for line in plan["text"].split("\n"))
+    assert "plan.ask" not in created and not created                       # nothing waited for a Yes
+    roles = [role for _, role, _, _ in script.contexts]
+    assert "step.read" in roles and "step.rank" in roles
+
+    async def grants() -> list[Any]:
+        return [tuple(r) for r in daemon.daemon.db.conn.execute(
+            "SELECT task_id, approval_id FROM standing_permissions").fetchall()]
+    rows = daemon.run(grants())
+    assert rows and rows[0][0] == plan["task_id"] and rows[0][1].startswith("stated:")
+
+
+def test_a_plans_ask_step_is_labelled_and_a_stop_closes_it_as_superseded(daemon: RunningDaemon) -> None:
+    spec = task("Pick a session to keep")
+    spec["plan"] = Plan(steps=[Step(id="pick", kind="ask", question="FERB: which session?",
+                                    options=["first", "second"])]).model_dump()
+    install(daemon, [sup("task", "Asking you which one.", spec)], {"worker": done("Checked.")})
+    turn = threading.Thread(target=lambda: chat(daemon, "Pick a session to keep"))
+    turn.start()
+    _until(lambda: bool(_pending(daemon, "plan.ask")))
+    question = _pending(daemon, "plan.ask")[0]
+    assert question.reason.startswith("Question from the task: ")       # D33: a task's question never reads as FERB's
+    trees = [t for t in daemon.daemon.supervisor._tree_of.values()]
+    daemon.daemon.supervisor.stop_tree(trees[0].id)
+    turn.join(10)
+    assert question.state == "superseded"
+
+
+# ---------- (d) no "/answer" anywhere owner-facing ----------
+
+def test_no_owner_facing_text_mentions_slash_answer() -> None:
+    command = re.compile(r"(?<![\w/])/answer\b")                         # the command, not "words/answers"
+    found = [str(p.relative_to(ROOT)) for base in ("ferb", "ui")
+             for p in (ROOT / base).rglob("*") if p.suffix in (".py", ".md", ".swift", ".js", ".json")
+             and p.is_file() and command.search(p.read_text(errors="ignore"))]
+    assert found == []
+
+
+def test_live_chat_shows_questions_without_method_hints() -> None:
+    from ferb.cli.live_chat import LiveChat
+    said: list[str] = []
+    chat_ = LiveChat.__new__(LiveChat)
+    chat_.pending, chat_._lock = {}, threading.RLock()
+    chat_.say = said.append                                                # type: ignore[method-assign]
+    chat_.answer_approval({"approval_id": "ap-1", "kind": "owner_question", "capability": CONFIRM_ASK,
+                           "reason": "FERB: this pays $5 to x@y.com. Go ahead?", "options": ["Yes", "No"]})
+    shown = "\n".join(said)
+    assert "/answer" not in shown and "reply normally" not in shown and "Enter = No" not in shown
+    assert "FERB: this pays $5" in shown
+
+
+# ---------- (A) voice routes like typed text ----------
+
+def _voice(pending: list[Any]) -> tuple[Any, list[str], list[Any]]:
+    from ferb.voice.controller import Voice
+    turns: list[str] = []
+
+    async def run_turn(text: str) -> Any:
+        turns.append(text)
+        yield {"type": "reply", "text": "ok"}
+    v = Voice(run_turn, lambda: pending, SimpleNamespace(say=lambda *_: None, stop=lambda: None, wait=lambda: None),
+              SimpleNamespace(append=lambda *a: None), lambda: None)
+    return v, turns, pending
+
+
+def test_voice_never_auto_answers_the_single_open_question() -> None:
+    resolved: list[Any] = []
+    ap = SimpleNamespace(id="ap1", kind="owner_question", options=("Yes", "No"), question="Pay $5?")
+    v, turns, _ = _voice([ap])
+    v.answer = lambda *a: resolved.append(a)                              # no longer part of Voice; must stay unused
+
+    async def go() -> dict[str, Any]:
+        out = await v.transcript("stop that task")
+        await asyncio.sleep(0.05)
+        return out
+    out = asyncio.run(go())
+    assert out == {"handled": "request"} and turns == ["stop that task"] and resolved == []
+
+
+def test_voice_with_several_open_questions_routes_like_typed_text() -> None:
+    pending = [SimpleNamespace(id="q1", kind="owner_question", question="Which file?"),
+               SimpleNamespace(id="q2", kind="owner_question", question="Which recipient?")]
+    v, turns, _ = _voice(pending)
+
+    async def go() -> dict[str, Any]:
+        out = await v.transcript("the second one")
+        await asyncio.sleep(0.05)
+        return out
+    assert asyncio.run(go()) == {"handled": "request"} and turns == ["the second one"]
+
+
+# ---------- (e) prompt contract ----------
+
+def test_workers_are_never_told_to_ask_for_confirmation() -> None:
+    interaction = (PROMPTS / "interaction.md").read_text()
+    worker = (PROMPTS / "worker.md").read_text()
+    for gone in ("obtain owner confirmation", "is also an outcome to confirm", "Carry that concrete confirmation"):
+        assert gone not in interaction
+    assert "required final confirmation" not in worker
+    assert "FERB's code asks" in interaction                               # the floor questions are code's
+    for orchestrator in ("question.md", "dispatch.md"):
+        assert "final confirmation" not in (PROMPTS / orchestrator).read_text()
+
+
+def test_workers_declare_the_true_kind_of_consequential_actions() -> None:
+    """The code floor sees a browser send, post or payment only when the call declares its kind (W2, D23)."""
+    interaction = (PROMPTS / "interaction.md").read_text()
+    worker = (PROMPTS / "worker.md").read_text()
+    assert "declare the true kind of every consequential browser or app" in interaction
+    for kind in ("effect send", "pay for a payment", "destroy for a permanent delete", "account-security change",
+                 "purpose send or call"):
+        assert kind in worker
+    assert "never ask the owner to confirm yourself" in worker
+
+
+def test_prompts_carry_the_install_question_and_never_narrow_to_read_only() -> None:
+    supervisor = (PROMPTS / "supervisor.md").read_text()
+    worker = (PROMPTS / "worker.md").read_text()
+    question = (PROMPTS / "question.md").read_text()
+    for text in (supervisor, worker):
+        assert "isn't installed — should I install it?" in text
+    assert "read-only" in supervisor and "unless the owner said so" in supervisor
+    assert "isn't installed" in question                                    # the router asks it once, then it carries
+    assert "waits for the owner's go-ahead" not in supervisor               # D24 plans are stated, not asked
+    assert "exact quote" not in supervisor.split("answer_question", 1)[1][:400]
+
+
+def test_the_install_question_is_asked_once_and_carried_across_retries(daemon: RunningDaemon) -> None:
+    ask = "Mole isn't installed — should I install it? (brew install mole)"
+    asked_owner: list[str] = []
+    script = None
+
+    def router(_token: str) -> str:
+        assert script is not None
+        context = next(c for _, k, c, _ in reversed(script.contexts) if k == "worker.question")
+        if "Mole isn't installed" in context.split("Worker question (data)", 1)[0]:
+            return json.dumps({"ask_owner": False, "answer": "You already said yes: install it.", "question": "",
+                               "display_text": ""})
+        asked_owner.append(ask)
+        return json.dumps({"ask_owner": True, "answer": "", "question": ask, "display_text": ""})
+
+    def worker(token: str) -> str:
+        first = tool(daemon.sock, token, "owner.ask", question=ask, options=["Yes", "No"])
+        second = tool(daemon.sock, token, "owner.ask", question=ask, options=["Yes", "No"])   # a retry asks again
+        return json.dumps({"status": "done", "summary": json.dumps([first["content"], second["content"]]),
+                           "artifacts": [], "evidence": []})
+    script = install(daemon, [sup("task", "Cleaning up with Mole.", task("Use Mole to clean my Mac", "owner"))],
+                     {"worker": worker, "worker.question": router})
+    owner = Answers(daemon, granted=True, choice=1)
+    events = chat(daemon, "use mole to clean my mac")
+    owner.stop()
+    assert any(e["type"] == "outcome" for e in events)
+    assert len(asked_owner) == 1 and len([a for a in owner.asked if a.capability == "owner.ask"]) == 1
+    routed = [c for _, k, c, _ in script.contexts if k == "worker.question"]
+    assert len(routed) == 2
+    earlier = routed[1].split("Worker question (data)", 1)[0]
+    assert "Mole isn't installed" in earlier and "Yes" in earlier          # the answer is in the task's context
+
+    async def worker_context() -> str:                                     # what a retried worker would read
+        supervisor = daemon.daemon.supervisor
+        tree_id = next(e["task_id"] for e in events if e["type"] == "plan")
+        rows = supervisor.spans.owner_questions(tree_id)
+        return json.dumps(rows)
+    assert "Mole isn't installed" in daemon.run(worker_context())

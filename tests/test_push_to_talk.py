@@ -118,8 +118,7 @@ def test_the_daemon_checks_the_voice_peer(daemon: RunningDaemon) -> None:
 
 # ---------- the daemon side ----------
 
-def _voice(pending: list[Any] | None = None, answers: list[Any] | None = None,
-           turns: list[str] | None = None) -> tuple[Voice, FakeSpeaker, list[str]]:
+def _voice(pending: list[Any] | None = None, turns: list[str] | None = None) -> tuple[Voice, FakeSpeaker, list[str]]:
     speaker, launched = FakeSpeaker(), []
 
     async def run_turn(text: str) -> Any:
@@ -129,8 +128,7 @@ def _voice(pending: list[Any] | None = None, answers: list[Any] | None = None,
     class J:
         def append(self, *a: Any) -> None:
             return None
-    v = Voice(run_turn, lambda: pending or [], lambda *a: (answers if answers is not None else []).append(a),
-              speaker, J(), lambda: launched.append("open"))
+    v = Voice(run_turn, lambda: pending or [], speaker, J(), lambda: launched.append("open"))
     return v, speaker, launched
 
 
@@ -161,39 +159,32 @@ def test_only_bluetooth_means_no_listening() -> None:
     assert q.empty() and "can't identify one microphone" in speaker.said[0]
 
 
-def test_spoken_answers_go_to_the_waiting_question() -> None:
-    class Ap:
-        def __init__(self, options: tuple[str, ...] = ()) -> None:
-            self.id, self.options = "ap1", options
-    answers: list[Any] = []
-    v, speaker, _ = _voice([Ap()], answers)
-    assert asyncio.run(v.transcript("yes go ahead"))["handled"] == "answer" and answers == [("ap1", True, None, "yes go ahead")]
-    asyncio.run(v.transcript("no"))
-    assert answers[-1] == ("ap1", True, None, "no")
-    v2, _, _ = _voice([Ap(("Rahul Sharma", "Rahul (work)"))], answers)
-    assert asyncio.run(v2.transcript("the second one"))["handled"] == "answer"
-    assert answers[-1] == ("ap1", True, None, "the second one")
-
-
-@pytest.mark.parametrize("words", ["Use the saved address", "not the first one, use the second", "stop that task"])
-def test_voice_preserves_the_complete_owner_answer(words):
+@pytest.mark.parametrize("words", ["Use the saved address", "not the first one, use the second", "stop that task",
+                                   "yes go ahead"])
+def test_spoken_words_with_a_question_open_are_a_complete_chat_turn(words):
+    """L3: what the owner said routes like typed text (the planner matches an answer to its question by id); it never
+    answers the only open question by itself, so a correction or "stop that task" stays one."""
     from types import SimpleNamespace
-    answers, turns = [], []
+    turns: list[str] = []
     ap = SimpleNamespace(id="ap1", kind="owner_question", options=("first", "second"))
-    voice, _, _ = _voice([ap], answers, turns)
-    assert asyncio.run(voice.transcript(words)) == {"handled": "answer"}
-    assert answers == [("ap1", True, None, words)] and turns == []
+    voice, _, _ = _voice([ap], turns)
+
+    async def go() -> dict[str, Any]:
+        out = await voice.transcript(words)
+        await asyncio.sleep(0.05)
+        return out
+    assert asyncio.run(go()) == {"handled": "request"} and turns == [words]
 
 
 @pytest.mark.parametrize('kind', ['owner_login_code', 'owner_secret', 'owner_admin_password'])
 def test_voice_does_not_publish_or_route_hidden_input(kind):
     from types import SimpleNamespace
-    answers, published = [], []
+    turns, published = [], []
     ap = SimpleNamespace(id="hidden", kind=kind, options=())
-    voice, speaker, _ = _voice([ap], answers)
+    voice, speaker, _ = _voice([ap], turns)
     voice.publish = lambda *args: published.append(args)
     assert asyncio.run(voice.transcript("123456")) == {"handled": "secure_input_required"}
-    assert not answers and "123456" not in repr(published) and "123456" not in repr(speaker.said)
+    assert not turns and "123456" not in repr(published) and "123456" not in repr(speaker.said)
 
 
 @pytest.mark.parametrize('kind', ['owner_login_code', 'owner_secret', 'owner_admin_password'])
@@ -207,22 +198,28 @@ def test_hidden_question_does_not_start_voice_capture(kind):
 
 
 def test_spoken_otp_in_ordinary_question_is_redacted_before_event_and_resolution(daemon, monkeypatch):
+    """Rule 14 with L3 routing: a code said to a question that asks for one is hidden before it is published or any
+    model (the planner) sees it; the planner routes the hidden reply by id."""
     from ferb.core.types import Identity
     from ferb.policy.rules import ActionRequest
     from ferb.sanitize.redact import REDACTED
     published = []
     monkeypatch.setattr(daemon.daemon.bus, 'publish', lambda topic, data: published.append((topic, data)))
 
-    async def answer():
+    async def ask():
         action = ActionRequest('owner.ask', 'owner_question', Identity.OWNER, frozenset(), 't', 'w', 'r', frozenset())
-        ap = daemon.daemon.state.approvals.question(action, 'Enter the OTP in the Zomato modal.', ['Done', 'Cancel'])
-        result = await daemon.daemon.voice.transcript('314159')
-        return result, ap.answer
-
-    result, answer = daemon.run(answer())
-    assert result == {'handled': 'answer'} and answer == REDACTED
+        return daemon.daemon.state.approvals.question(action, 'Enter the OTP in the Zomato modal.', ['Done', 'Cancel'])
+    ap = daemon.run(ask())
+    script = install(daemon, [json.dumps({"kind": "reply", "text": "", "task": None,
+                                          "answer_question": {"approval_id": ap.id, "answer": REDACTED}})])
+    daemon.daemon.voice.speaker = FakeSpeaker()
+    result = daemon.run(daemon.daemon.voice.transcript('314159'))
+    deadline = time.time() + 10
+    while ap.state == 'pending' and time.time() < deadline:
+        time.sleep(0.05)
+    assert result == {'handled': 'request'} and ap.answer == REDACTED
     assert ('voice.heard', {'text': REDACTED}) in published
-    assert '314159' not in repr(published)
+    assert '314159' not in repr(published) and '314159' not in repr(script.contexts)
     # L18: a spoken answer isn't sealed input, so it never becomes a remembered secret that rewrites later text.
     assert daemon.daemon.redact.text('freed 1.5 GB in 11 files') == 'freed 1.5 GB in 11 files'
 
@@ -284,7 +281,7 @@ def test_questions_are_shown_and_spoken_in_voice_words() -> None:
     class J:
         def append(self, *a: Any) -> None:
             return None
-    v = Voice(run_turn, lambda: [], lambda *a: None, speaker, J(), lambda: None, render=render, question=question,
+    v = Voice(run_turn, lambda: [], speaker, J(), lambda: None, render=render, question=question,
               publish=lambda t, d: published.append((t, d["text"])))
 
     async def go() -> None:

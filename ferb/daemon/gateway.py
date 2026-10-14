@@ -111,6 +111,10 @@ YES, NO = "Yes", "No"
 SAID_NO = "the owner said no to this: {line}"
 ALREADY_NO = "the owner already said no to this in this task: {line}"
 NO_ANSWER = "the owner didn't answer FERB's question, so it didn't run: {line}"
+SUPERSEDED = ("the owner changed the task while FERB was asking, so this didn't run and no answer was recorded: "
+              "{line}")
+SUPERSEDED_NEXT = ("Apply the owner's correction first. If this action is still needed as corrected, prepare it and call "
+                   "it again; FERB asks again.")
 UNATTENDED = "{line} This needs you, and nobody is at chat (a scheduled run); not done."
 NOT_RECORDED = "{line} FERB can't record your answer here, so it didn't ask; not done."
 OWNER_DECIDED_NEXT = "The owner decided; don't do this another way. Report that it wasn't done."
@@ -961,7 +965,8 @@ class Gateway:
         span marked `ferb_question` whose args carry the needs it confirms (`confirm`), and, when given, the call
         span it is about (`for_span`). Yes or No is recorded per need for this task tree (a skipped question is a
         No); a Yes also makes each need's destinations known to later tasks (SQ6). A scheduled run, a question
-        closed by the end of its task, or an answer that is neither Yes nor No records nothing and isn't Yes."""
+        closed by the end of its task, one a correction superseded (L3) or an answer that is neither Yes nor No
+        records nothing and isn't Yes."""
         root = rec.tree_id or grant.task_id
         text = self._ferb_line(needs, call, why)
         if self.confirmations is None:
@@ -995,6 +1000,10 @@ class Gateway:
         finally:
             self.observer.tool_call(grant, done=True)
         yes = state == "granted" and ap.choice == YES
+        if state == "superseded":                        # L3: a correction set it aside; not a No, nothing recorded
+            set_aside = {"declined": True, "state": state}
+            self._finish_call(q_span, OWNER_ASK, set_aside, False, output=set_aside, origins=ask_origins(set_aside))
+            return Answer(False, error=SUPERSEDED.format(line=text), next=SUPERSEDED_NEXT)
         if not yes and not ((state == "granted" and ap.choice == NO) or state == "denied"):
             unclear = {"declined": True, "state": state if state != "granted" else "neither Yes nor No"}
             self._finish_call(q_span, OWNER_ASK, unclear, False, output=unclear, origins=ask_origins(unclear))
@@ -1773,6 +1782,12 @@ class Gateway:
                     ap.taken = True
                     return ap.state
                 await asyncio.sleep(self.hold_poll_s)
+        except asyncio.CancelledError:
+            # Nobody waits for this question any more (the call was cancelled, its task stopped): it closes as
+            # superseded instead of staying open until the tree ends (L3). Not a No.
+            if self.state.approvals.supersede(approval_id) is not None:
+                self.publish("approval.resolved", {"approval_id": approval_id, "state": "superseded"})
+            raise
         finally:
             self._waiting[approval_id] -= 1
             if not self._waiting[approval_id]:

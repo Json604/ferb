@@ -29,9 +29,13 @@ class LiveChat(Chat):
             if data['approval_id'] in self.pending:
                 return
             self.pending[data['approval_id']] = data
-        self.say(question(data).rstrip())
-        self.say('   Press Enter on an empty line to enter this privately.' if data.get('kind') in SECRETS else
-                 f"   /answer {data['approval_id']} <your answer> (or reply normally)")
+        if data.get('kind') in SECRETS:
+            self.say(question(data).rstrip())
+            self.say('   Press Enter on an empty line to enter this privately.')
+            return
+        # Typed text answers it: FERB matches a reply to its question (L3); its own checks take a plain Yes or No
+        self.say(question(data, prompt=False).rstrip())
+        self.say('   Reply Yes or No.' if data.get('capability') == 'ferb.confirm' else '   Reply here to answer.')
 
     def opening(self) -> None:
         super().opening()                         # dynamic answer_approval queues questions, never steals input
@@ -152,22 +156,8 @@ class LiveChat(Chat):
             self.call('task.stop', {'task_ids': ids})
             self.say('ferb> Stop requested.')
             return
-        if text.startswith('/answer '):
-            parts = text.split(' ', 2)
-            if len(parts) != 3:
-                self.say('Use /answer <question number> <your answer>.')
-                return
-            with self._lock:
-                pending = self.pending.get(parts[1])
-            if pending and pending.get('kind') in SECRETS:
-                self.say('Press Enter on an empty line to enter that privately.')
-                return
-            self.call('chat.answer', {'approval_id': parts[1], 'text': parts[2]})
-            with self._lock:
-                self.pending.pop(parts[1], None)
-            return
-        # Typed text is a message, even with a question open: the planner decides what it answers (L19). The
-        # daemon acknowledges it on receipt (L7).
+        # Typed text is a message, even with a question open: the planner routes an answer to its question by id
+        # (L3, L19). The daemon acknowledges it on receipt (L7).
         with self._lock:
             self._thinking += 1
             ticket = self._next_ticket

@@ -40,6 +40,26 @@ async def deliver(supervisor: Any, tree: Any, runtime: Any, run: RunHandle) -> b
     return True
 
 
+def settle_questions(supervisor: Any, request_id: str, words: str) -> None:
+    """What a correction does to the request's open questions. A worker's ordinary question is released with the
+    owner's exact words. FERB's own checks and hidden inputs are closed as superseded: the correction may change the
+    prepared action, which the worker can only re-prepare once its call returns. Superseded is never a No (L3, I1):
+    nothing is recorded, so the corrected action asks again if it still needs to. A plan's ask step stays open."""
+    for approval in supervisor.state.approvals.pending():
+        if approval.request_id != request_id or approval.capability == 'plan.ask':
+            continue
+        ordinary = approval.kind == 'owner_question' and approval.capability == 'owner.ask'
+        if ordinary and not words.strip():
+            continue
+        if ordinary:
+            supervisor.state.approvals.resolve(approval.id, True, text=words)
+        else:
+            supervisor.state.approvals.supersede(approval.id)
+        event = {'approval_id': approval.id, 'state': approval.state, 'capability': approval.capability}
+        supervisor.journal.append('approval.resolved', event)
+        supervisor.publish('approval.resolved', event)
+
+
 async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, words: str,
                 payload: str, spec: Any, source_ref: str) -> dict[str, Any] | None:
     """Persist first, then steer every live member of the named tree. New members read the same request."""
@@ -101,18 +121,7 @@ async def apply(supervisor: Any, tree: Any, session_id: str, request_id: str, wo
             origin=origin.join(made | shown | set(envelope.get('turn_origins', ())) | {origin.INFERRED}))
         supervisor.journal.append('task.steered', {'task_id': tree.id, 'session_id': session_id,
             'request_id': request_id, 'revision': revision, 'source_ref': source_ref})
-        # Release ordinary question waits with the owner's exact words. Changed instructions never approve
-        # an old consequential action or fill a secret. A plan's explicit start approval still needs an answer.
-        for approval in supervisor.state.approvals.pending():
-            if approval.request_id != prior.request_id or approval.capability == 'plan.ask':
-                continue
-            ordinary = approval.kind == 'owner_question' and approval.capability == 'owner.ask'
-            if ordinary and not clean['words'].strip():
-                continue
-            supervisor.state.approvals.resolve(approval.id, ordinary, text=clean['words'] if ordinary else None)
-            event = {'approval_id': approval.id, 'state': approval.state, 'capability': approval.capability}
-            supervisor.journal.append('approval.resolved', event)
-            supervisor.publish('approval.resolved', event)
+        settle_questions(supervisor, prior.request_id, clean['words'])
         active = [(runtime, run) for runtime, run in list(supervisor._worker_runs.values())
                   if (member := supervisor._tree_of.get(run.task_id)) is not None and member.id == tree.id]
         accepted = await asyncio.gather(*(deliver(supervisor, tree, runtime, run) for runtime, run in active))

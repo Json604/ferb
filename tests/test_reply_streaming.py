@@ -43,7 +43,7 @@ def test_conversation_words_arrive_before_final_validation():
 @pytest.mark.parametrize('changes', [
     {'kind': 'task'}, {'control': {'task_id': 'mail', 'action': 'stop'}},
     {'remember': [{'text': 'secret'}]}, {'timers': [{'message': 'Ping'}]},
-    {'answer_question': {'approval_id': 'mail', 'quote': 'yes'}},
+    {'answer_question': {'approval_id': 'mail', 'answer': 'yes'}},
     {'schedule': {}}, {'notification_rules': [{}]}, {'conversation_changes': [{}]},
     {'schedule_changes': [{}]}, {'reminder_cancels': [{}]}, {'task': {}},
 ])

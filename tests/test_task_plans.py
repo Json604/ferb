@@ -87,25 +87,19 @@ def test_plan_steps_use_normal_workers_and_final_inspection(daemon):
     assert Path(states['read']['output']['notes_file']).is_file()
 
 
-def test_big_job_waits_for_owner_before_any_step(daemon):
-    from tests.conftest import chat, install, sup, task
+def test_big_job_plan_is_stated_and_starts_without_waiting(daemon):
+    """D24 as amended (L3, spec §5): the plan and its estimates are stated in the plan line; nothing waits for a Yes."""
+    from tests.conftest import chat, done, install, sup, task
     spec = task('Rank all coding sessions')
     spec['plan'] = Plan(steps=[Step(id='read', kind='do', goal='Read sessions')], big_job=True,
                         time_estimate='About 20 minutes', cost_estimate='Subscription usage; no separate estimate').model_dump()
-    script = install(daemon, [sup('task', 'Here is the plan.', spec)], {})
-    async def decline():
-        while not daemon.daemon.state.approvals.pending():
-            await asyncio.sleep(0)
-        question = daemon.daemon.state.approvals.pending()[0]
-        assert question.capability == 'plan.ask'
-        assert '20 minutes' in question.reason
-        assert not any(role.startswith('step.') for _, role, _, _ in script.contexts)
-        daemon.daemon.state.approvals.resolve(question.id, True, choice=2)
-    import asyncio as aio
-    answering = aio.run_coroutine_threadsafe(decline(), daemon.loop)
-    chat(daemon, 'Rank all coding sessions')
-    answering.result(timeout=2)
-    assert not any(role.startswith('step.') for _, role, _, _ in script.contexts)
+    script = install(daemon, [sup('task', 'Here is the plan.', spec)],
+                     {'step.read': done('Sessions read.'), 'worker': done('Checked.')})
+    events = chat(daemon, 'Rank all coding sessions')
+    plan = next(e for e in events if e['type'] == 'plan')
+    assert '20 minutes' in plan['text'] and 'Read sessions' in plan['text']
+    assert not daemon.daemon.state.approvals.pending()
+    assert any(role.startswith('step.') for _, role, _, _ in script.contexts)
 
 
 def test_independent_steps_run_together_and_missing_map_notes_block_reduce(tmp_path):

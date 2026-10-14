@@ -19,7 +19,7 @@ class Approval:
     reason: str
     request_id: str
     kind: str = "owner_question"
-    state: Literal["pending", "granted", "denied", "used"] = "pending"
+    state: Literal["pending", "granted", "denied", "used", "superseded"] = "pending"
     options: tuple[str, ...] = ()
     choice: str | None = None
     answer: str | None = None
@@ -67,6 +67,16 @@ class Approvals:
         if granted:
             ap.answer = text
         ap.state = "granted" if granted else "denied"
+        return ap
+
+    def supersede(self, approval_id: str) -> Approval | None:
+        """Close a pending question nobody can use any more: the owner changed the task while it was asked, or its
+        waiting call was cancelled (L3). Superseded is not a No and grants nothing. The question, else None when it
+        isn't pending."""
+        ap = self._items.get(approval_id)
+        if ap is None or ap.state != "pending":
+            return None
+        ap.state = "superseded"
         return ap
 
     def pending(self) -> list[Approval]:

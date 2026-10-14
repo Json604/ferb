@@ -137,16 +137,24 @@ def test_doctor_never_posts_a_global_mouse_event(monkeypatch):
 
 
 def test_voice_cannot_answer_the_first_of_two_pending_questions():
+    """L3: with two questions open, what was said is a chat turn; the planner routes it by question id."""
     from ferb.voice.controller import Voice
-    answers, said = [], []
-    voice = Voice(lambda text: None,
+    turns, said = [], []
+
+    async def run_turn(text):
+        turns.append(text)
+        yield {'type': 'reply', 'text': 'ok'}
+    voice = Voice(run_turn,
                   lambda: [SimpleNamespace(id='q1', kind='owner', question='Which file?'),
                            SimpleNamespace(id='q2', kind='owner', question='Which recipient?')],
-                  lambda *args: answers.append(args), SimpleNamespace(say=said.append),
+                  SimpleNamespace(say=said.append, wait=lambda: None),
                   SimpleNamespace(append=lambda *args: None), lambda: None)
-    result = asyncio.run(voice.transcript('the second one'))
-    assert not answers and result['handled'] == 'question_selection_required'
-    assert [q['id'] for q in result['questions']] == ['q1', 'q2']
+
+    async def go():
+        out = await voice.transcript('the second one')
+        await asyncio.sleep(0.05)
+        return out
+    assert asyncio.run(go()) == {'handled': 'request'} and turns == ['the second one']
 
 
 def test_explicit_foreground_has_no_restore_and_stops_on_owner_input(monkeypatch):

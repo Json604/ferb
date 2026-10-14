@@ -61,7 +61,7 @@ from ferb.policy.destinations import Confirmations, KnownDestinations
 from ferb.policy.protection import Protection
 from ferb.orchestrator.tree import ExecutionState
 from ferb.identity.secrets import KeychainSecretStore, specs_from_config
-from ferb.sanitize.redact import Redactor
+from ferb.sanitize.redact import REDACTED, Redactor
 from ferb.store import retention
 from ferb.store.db import Database
 from ferb.store.spans import SpanStore
@@ -466,11 +466,10 @@ class Daemon:
         from ferb.cli.chat import question, render
         from ferb.voice.controller import Voice
         from ferb.voice.speak import SaySpeaker
-        self.voice = Voice(self._voice_turn, self.state.approvals.pending, self._resolve_approval,
-                           self.voice_speaker or SaySpeaker(),
+        self.voice = Voice(self._voice_turn, self.state.approvals.pending, self.voice_speaker or SaySpeaker(),
                            self._journal(), self._launch_voice_app,
                            mode=lambda: str(self.config.get("voice", "mic", "auto")), render=render, question=question,
-                           publish=self._publish,
+                           publish=self._publish, hide=self._hide_code_reply,
                            enabled=lambda: self._ptt, sounds=lambda: bool(self.config.get("voice", "sounds", True)))
         loop = asyncio.get_running_loop()
 
@@ -531,6 +530,18 @@ class Daemon:
         if self.voice_bundle.exists():
             subprocess.Popen(["/usr/bin/open", "-g", str(self.voice_bundle)], stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL)
+
+    def _hide_code_reply(self, text: str) -> str:
+        """Rule 14 for a chat message (typed or spoken) while a question is open: a reply that is wholly a code, to a
+        question that explicitly asks for one, is hidden before any model sees it, as chat.answer hides it
+        (`Redactor.answer`). The planner routes answers now (L3), so the code must not travel with the message."""
+        if not isinstance(self.redact, Redactor):
+            return text
+        for ap in self.state.approvals.pending():
+            if ap.kind == "owner_question" and ap.option_for(text.strip()) is None:
+                if self.redact.answer(text, question=ap.reason) == REDACTED:
+                    return REDACTED
+        return text
 
     async def _voice_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:
         async for ev in self._chat_send(None, {"session_id": "voice", "text": text}):     # type: ignore[arg-type]
@@ -3018,7 +3029,7 @@ class Daemon:
         if self.redact(input_paths) != input_paths:
             raise FerbError('input_paths contains protected secret text; rename the attachment before sharing its path')
         session_id = str(params.get("session_id", "default"))
-        text = self.redact(str(params.get("text", "")))
+        text = self._hide_code_reply(self.redact(str(params.get("text", ""))))
         request_id = self.supervisor.ids.new_id()
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         # Before the per-session routing lock: a message is acknowledged while an earlier one is still planning (P29)

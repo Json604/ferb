@@ -196,7 +196,13 @@ include `display_text`; retain the complete reason under Details. Secret, retry 
 keep their concrete full text; clients must not compress them. Keep full option labels and free-text answers;
 duplicate labels must not become a first-match selection. Ordinary typed chat text is a message, never an answer:
 even when it matches an option of the only open question (a lone "Yes"), send it with `chat.send` and let the planner
-route it. Only an explicit answer to a shown question uses `chat.answer`/`chat.approve`. Pending questions never
+route it. The planner routes an answer by the question's id to any open `owner.ask`, `plan.ask` or `ferb.confirm`
+question (L3); the answer recorded is the owner's own words. FERB's own checks (`ferb.confirm`) take only a plain Yes or
+No; when the reply could answer more than one open question, FERB asks which one in plain words (a `clarify`). A
+spoken transcript (`voice.transcript`) is a chat turn the same way (`{"handled": "request"}`), except while a secret
+question waits. `approval.resolved` may carry `state: "superseded"`: the owner's correction set the question aside, or
+nothing waits for it any more (its call was cancelled, its task stopped). Superseded is not a No; clients remove the
+question. Only an explicit answer to a shown question uses `chat.answer`/`chat.approve`. Pending questions never
 expire (L3): a question stays open while its task waits and closes when it is answered or its task ends; silence is
 never consent. Scheduled unattended work cannot wait indefinitely for an answer and reports what remains unresolved.
 

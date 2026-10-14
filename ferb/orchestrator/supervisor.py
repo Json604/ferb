@@ -29,14 +29,15 @@ from ferb.core.context import Assembly, ContextBlock, count_tokens
 from ferb.core.prompts import load_prompt
 from ferb.core.types import Identity, ModelImage, Outcome, RunHandle, Task, ToolContext
 from ferb.daemon.auth import RunGrant, RunTokens
-from ferb.daemon.gateway import FsRoots, Gateway, Observer
+from ferb.daemon.gateway import CONFIRM_ASK, FsRoots, Gateway, Observer
 from ferb.memory.journal import Journal, JournalEntry
 from ferb.memory.lineage import ENTRY, TASK
 from ferb.orchestrator.continuity import Continuity
 from ferb.orchestrator.reply_stream import ReplyDraft
 from ferb.orchestrator.steering import Steering, apply as apply_steering
 from ferb.sanitize.redact import Redactor
-from ferb.orchestrator.plans import Step, inventory, problems as plan_problems
+from ferb.sanitize.terminal import printable
+from ferb.orchestrator.plans import Plan, Step, inventory, problems as plan_problems
 from ferb.orchestrator.plan_store import PlanStore
 from ferb.orchestrator.plan_executor import PlanExecutor
 from ferb.orchestrator import episodes
@@ -44,8 +45,8 @@ from ferb.orchestrator.availability import Availability, build as build_availabi
 from ferb.orchestrator.evidence import memory_origin
 from ferb.orchestrator.guards import STALL_S, Activity
 from ferb.orchestrator.schemas import (DISPATCH_SCHEMA, QUESTION_SCHEMA, SUMMARY_SCHEMA, SUPERVISOR_SCHEMA, VERIFIER_SCHEMA,
-                                       WORKER_SCHEMA, Check, Condition, DispatchOutcome, QuestionOutcome, SummaryOutcome,
-                                       SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
+                                       WORKER_SCHEMA, AnswerQuestion, Check, Condition, DispatchOutcome, QuestionOutcome,
+                                       SummaryOutcome, SupervisorOutcome, TaskSpec, VerifierOutcome, WorkerOutcome)
 from ferb.orchestrator.tree import TaskRecord, TaskTree
 from ferb.orchestrator.verify import UNCHECKED, Checks, ConditionResult
 from ferb.orchestrator.worker import InvalidAnswer, RuntimeViolation, ServiceError, WorkerRuns, model_limits, service_problem
@@ -103,6 +104,17 @@ SCHEDULED_SORRY = "Something went wrong on my side before this scheduled run cou
 ATTEMPTS_TOKENS = 2000      # resumable attempts: newest that fit
 CONVERSATION_KINDS = ("chat.message", "chat.reply", "chat.clarify", "task.answer", "chat.notice")   # notices: L10
 SUMMARY_KIND = "chat.summary"      # FERB's running summary of the older conversation (L28)
+# L3: what the owner's chat message can answer, by the question's id from the planner's context, and FERB's own words
+# when it can't be used as an answer. Plain words: never an id, a command or a method (I12).
+ROUTABLE_QUESTIONS = ("owner.ask", "plan.ask", CONFIRM_ASK)
+ANSWERED = "Got your answer."
+NOT_WAITING = "That question isn't waiting for an answer any more, so I didn't count your message as one."
+WHICH_QUESTION = "I couldn't tell which question that answers. Which one is it for?"
+NO_QUESTION = "No question is waiting for your answer right now."
+PASTED_ANSWER = "I take an answer only in your own words, not pasted text. What's your answer?"
+PLAIN_YES_NO = "Is that a Yes or a No to this? {question}"
+WHICH_ONE = "More than one question is waiting, and “{words}” could answer either. Which one is it for?"
+PLAN_STATED = "Here's the plan; I'm starting now. Reply to change anything:"
 TASK_STATE = {"running": "still running", "planned": "about to start", "done": "done",
               "done_unverified": "done but not confirmed", "failed": "failed",
               "needs_user": "waiting for the owner", "cancelled": "cancelled", "interrupted": "interrupted by a restart",
@@ -157,6 +169,11 @@ class ChatSession:
     pending: str = ""          # the owner's words of a request FERB asked a question about (an answer continues it)
     asked: str = ""            # that question, as the owner saw it
     payload: str = ""          # complete prior request, including marked source data
+
+
+def _bare(text: str) -> str:
+    """A reply as an option pick reads it: without surrounding space or a closing full stop or exclamation mark."""
+    return text.strip().rstrip(".!").strip()
 
 
 def _labeled(value: Any) -> tuple[str, str]:
@@ -310,6 +327,9 @@ class Supervisor(WorkerRuns):
         self._episode_jobs: set[asyncio.Task[None]] = set()           # learning captures after an outcome (L28)
         self._capture_lock = asyncio.Lock()
         self._chat_locks: dict[str, asyncio.Lock] = {}
+        # L3: what FERB itself just asked a chat about an answer, used by that chat's next message only: the owner's
+        # earlier words (a "which one is it for?") or None (a "Yes or No?"), and the questions it named.
+        self._answer_focus: dict[str, tuple[str | None, frozenset[str]]] = {}
         self._suspending = False
         self.procedure_context: Callable[[str], str] = lambda words: ''
         self.memory_candidates: Callable[[str], Any] | None = None      # ranked items, or an awaitable of them
@@ -657,6 +677,64 @@ class Supervisor(WorkerRuns):
             else None
         return {"front_window": front, "front_image": image}
 
+    def _answer(self, session: ChatSession, request_id: str, m: Any, routed: AnswerQuestion,
+                focus: tuple[str | None, frozenset[str]] | None, owner_words: str, payload: str) -> dict[str, Any]:
+        """L3: the owner's message, routed by the planner to one open question by its id (any chat's owner.ask,
+        plan.ask or FERB check). The answer recorded is the owner's own words, never the planner's reading (MP2). FERB's
+        floor checks (D33) take only a plain Yes or No in the owner's words that the planner's reading agrees with; when
+        those words would also answer another open question, FERB asks which one, in plain words (I3). When the
+        routing can't be used, FERB says so plainly: never an id, a command or a method (I12)."""
+        ap = self.state.approvals.get(routed.approval_id)
+        if ap is None or ap.kind != 'owner_question' or ap.capability not in ROUTABLE_QUESTIONS:
+            listed = self._listed(q for q in self.state.approvals.pending()
+                                  if q.kind == 'owner_question' and q.capability in ROUTABLE_QUESTIONS)
+            if not listed:
+                return self._code_turn(session, request_id, 'reply', NO_QUESTION)
+            return self._code_turn(session, request_id, 'clarify', WHICH_QUESTION + '\n' + listed, owner_words, payload)
+        if ap.state != 'pending':
+            return self._code_turn(session, request_id, 'reply', NOT_WAITING)
+        words = m.own_words.strip()
+        if m.untrusted or not words:                  # pasted text is data (MP2): never the owner's answer
+            return self._code_turn(session, request_id, 'clarify', PASTED_ANSWER, owner_words, payload)
+        earlier, named = focus if focus is not None else (None, frozenset())
+        # the owner's reply to FERB's "which one is it for?": the earlier words answer the question they now name
+        carried = earlier is not None and ap.id in named and ap.option_for(_bare(words)) is None
+        text = earlier if carried and earlier is not None else words
+        choice = None
+        if ap.capability == CONFIRM_ASK:
+            choice = ap.option_for(_bare(text))
+            if choice is None or ap.option_for(_bare(routed.answer)) != choice:
+                self._answer_focus[session.id] = (None, frozenset({ap.id}))
+                return self._code_turn(session, request_id, 'clarify', PLAIN_YES_NO.format(question=ap.reason),
+                                       owner_words, payload)
+            if not carried and named != {ap.id}:     # FERB didn't just ask about exactly this one
+                others = [q for q in self.state.approvals.pending() if q.id != ap.id and q.kind == 'owner_question'
+                          and q.option_for(_bare(text)) is not None]
+                if others:
+                    self._answer_focus[session.id] = (text, frozenset({ap.id, *(q.id for q in others)}))
+                    return self._code_turn(session, request_id, 'clarify', WHICH_ONE.format(words=printable(text)) +
+                                           '\n' + self._listed([ap, *others]), owner_words, payload)
+            text = ap.options[choice - 1]
+        self.state.approvals.resolve(ap.id, True, choice=choice, text=text)
+        self.journal.append('approval.resolved', {'approval_id': ap.id, 'state': ap.state, 'capability': ap.capability})
+        self.publish('approval.resolved', {'approval_id': ap.id, 'state': ap.state})
+        return self._code_turn(session, request_id, 'reply', ANSWERED)
+
+    @staticmethod
+    def _listed(questions: Any) -> str:
+        """Open questions as the owner saw them, one per line (each already one labelled paragraph, D33)."""
+        return '\n'.join('- ' + " ".join(printable(q.reason).split()) for q in questions)
+
+    def _code_turn(self, session: ChatSession, request_id: str, kind: str, text: str, owner_words: str = '',
+                   payload: str = '') -> dict[str, Any]:
+        """FERB's own reply or question about an answer, in the conversation record like the planner's. A question
+        continues the owner's message, so their next reply is read with it."""
+        if kind == 'clarify':
+            session.pending, session.asked, session.payload = owner_words, text, payload
+            self.continuity.save_pending(session.id, session.pending, session.asked, session.payload)
+        self.journal.append(f'chat.{kind}', {'session_id': session.id, 'request_id': request_id, 'text': text})
+        return {'type': kind, 'text': text}
+
     def _failure_reply(self, session_id: str, request_id: str, text: str) -> dict[str, Any]:
         """A turn that failed before routing still answers its request, in the conversation record too, so the next
         turn's history shows what FERB told the owner and "retry" has something to refer to (L21)."""
@@ -676,6 +754,7 @@ class Supervisor(WorkerRuns):
     async def _send(self, session_id: str, text: str, input_paths: list[str],
                     request_id: str, screen: Awaitable[Any] | None = None) -> AsyncIterator[dict[str, Any]]:
         session = self.sessions.setdefault(session_id, ChatSession(session_id))
+        focus = self._answer_focus.pop(session_id, None)     # FERB's own answer question applies to this message only
         session.pending, session.asked = self.continuity.pending(session_id)
         session.payload = self.continuity.pending_payload(session_id)
         paths = list(dict.fromkeys([*(self._pending_input_paths(session_id) if session.payload else []),
@@ -744,21 +823,10 @@ class Supervisor(WorkerRuns):
         resumed_payload = ""
         resumed_prior: str | None = None
         if out.answer_question:
-            routed = out.answer_question
-            ap = self.state.approvals.get(routed.get('approval_id', ''))
-            chat_tasks = self.continuity.task_ids(session_id)
-            request_ids = {t.worker.request_id for t in self._tree_of.values() if t.id in chat_tasks}
-            if (ap is None or ap.request_id not in request_ids or ap.kind != 'owner_question' or
-                ap.capability not in ('owner.ask', 'plan.ask') or
-                routed.get('quote', '').strip() != m.own_words.strip() or not m.own_words.strip() or m.untrusted):
-                yield {'type': 'clarify', 'text': 'Which question are you answering? You can use /answer followed by its number and your answer.'}
+            try:
+                yield self._answer(session, request_id, m, out.answer_question, focus, owner_words, payload)
+            finally:
                 self._env.pop(request_id, None)
-                return
-            self.state.approvals.resolve(ap.id, True, text=m.own_words)
-            self.journal.append('approval.resolved', {'approval_id': ap.id, 'state': ap.state, 'capability': ap.capability})
-            self.publish('approval.resolved', {'approval_id': ap.id, 'state': ap.state})
-            yield {'type': 'reply', 'text': 'Got your answer.'}
-            self._env.pop(request_id, None)
             return
         if out.control is not None:
             control = out.control
@@ -997,7 +1065,8 @@ class Supervisor(WorkerRuns):
             state.append((ContextBlock('Layer 6 — resumable task state:\n' + attempts, "chat.history include_tasks=true", protected=True,
                                        source_refs=tuple(TASK + t for t in shown), payload=attempts),
                           {o for t in shown for o in self._task_line_origins(t)} | {origins_.INFERRED}))
-        open_questions = [{'approval_id': a.id, 'question': a.reason, 'options': list(a.options), 'kind': a.kind}
+        open_questions = [{'approval_id': a.id, 'question': a.reason, 'options': list(a.options), 'kind': a.kind,
+                           'ferb_check': a.capability == CONFIRM_ASK}
                           for a in self.state.approvals.pending() if a.kind not in ('owner_login_code', 'owner_admin_password', 'owner_secret')]
         state.append((ContextBlock('Layer 6 — running tasks and open questions (data):\n' + wrap_untrusted(json.dumps({
             'tasks': self.running_trees(), 'questions': open_questions,
@@ -1395,8 +1464,13 @@ class Supervisor(WorkerRuns):
             # L8: the plan line as soon as the planner returned, before the disturbance baseline below. Journaled
             # (when, for which request) so `ferb baseline` can time it; its text stays in the planner's span.
             self.journal.append("chat.plan", {"request_id": request_id, "task_id": tree_id})
+            # D24/D30 (L3): a big job's plan and any standing scope are stated here, never asked; work starts and a
+            # reply corrects it (a steer)
+            stated = ""
+            if spec.plan and (spec.plan.big_job or spec.plan.standing_sends) and not self.plans.load(tree_id)['approved']:
+                stated = "\n" + self.gateway.redact(self._plan_statement(spec.plan))
             # the planner's words: a line of them that reads like FERB's own check is marked as the task's (D33)
-            yield {"type": "plan", "text": confirm.from_task_lines(text), "task_id": tree_id, "goal": spec.goal,
+            yield {"type": "plan", "text": confirm.from_task_lines(text + stated), "task_id": tree_id, "goal": spec.goal,
                    "identity": spec.identity,
                    "subtasks": [{"id": WORKER, "task_id": worker.id, "role": "worker", "goal": spec.goal,
                                  "depends_on": []}]}
@@ -1534,19 +1608,29 @@ class Supervisor(WorkerRuns):
             self.spans.finish(captured, output={'text': exposure['text'], 'payload': exposure.get('payload', exposure['text'])}, origin=exposure['origin'])
 
     async def _plan_question(self, tree: _Tree, question: str, options: list[str]) -> dict[str, Any]:
+        """A plan's ask step (D30): the planner's question, labelled as the task's (D33). A stopped or cancelled
+        wait closes it as superseded, never a No (L3)."""
         task = tree.worker
         if task.request_id in self.state.approvals.unattended:
             return {'status': 'blocked', 'summary': "You need to answer this before I continue: " + question}
+        question = confirm.task_question(printable(question))
+        options = [confirm.from_task(" ".join(printable(o).split())) for o in options]
         action = ActionRequest('plan.ask', 'owner_question', task.identity, frozenset(), task.id, task.id,
                                task.request_id, frozenset(task.scopes), content=question)
         approval = self.state.approvals.question(action, question, options)
         self.journal.append('plan.question', {'task_id': tree.id, 'approval_id': approval.id, 'question': question})
         self.publish('approval.requested', {'approval_id': approval.id, 'capability': 'plan.ask',
-                     'kind': 'owner_question', 'reason': question, 'options': options, 'task_id': task.id})
-        while approval.state == 'pending' and not tree.stop:          # no expiry: it waits for the owner (§8.1)
-            await asyncio.sleep(self.gateway.hold_poll_s)
-        if tree.stop and approval.state == 'pending':
-            approval.state = 'denied'
+                     'kind': 'owner_question', 'reason': question, 'options': options, 'task_id': task.id,
+                     'request_id': task.request_id})
+        try:
+            while approval.state == 'pending' and not tree.stop:          # no expiry: it waits for the owner (§8.1)
+                await asyncio.sleep(self.gateway.hold_poll_s)
+        except asyncio.CancelledError:
+            if self.state.approvals.supersede(approval.id) is not None:
+                self.publish('approval.resolved', {'approval_id': approval.id, 'state': 'superseded'})
+            raise
+        if tree.stop and self.state.approvals.supersede(approval.id) is not None:
+            self.publish('approval.resolved', {'approval_id': approval.id, 'state': 'superseded'})
         if approval.state != 'granted':
             return {'status': 'blocked', 'summary': 'I need your answer before I continue.'}
         answer = approval.choice or approval.answer or ''
@@ -1554,27 +1638,36 @@ class Supervisor(WorkerRuns):
                             origin=origins_.OWNER)
         return {'status': 'done', 'summary': answer, 'answer': answer, 'approval_id': approval.id}
 
+    @staticmethod
+    def _plan_statement(plan: Plan) -> str:
+        """D24/D30 (L3): a big job's plan, its estimates and any standing scope as the plan line states them; a
+        statement, never a question. Each step and scope is one line (the planner's text; D33 marks a line that reads
+        as FERB's)."""
+        def one(text: str) -> str:
+            return " ".join(printable(text).split())
+        lines = [PLAN_STATED, *(f"- {one(s.goal or s.question or s.kind)}" for s in plan.steps)]
+        if plan.big_job:
+            lines.append(f"Estimated time: {one(plan.time_estimate)}. Estimated cost: {one(plan.cost_estimate)}.")
+        if plan.standing_sends:
+            lines.append("For this task I'll send these without asking each time:")
+            lines += [one(f"- Send using {s.identity}'s account {s.account or ''} at {s.site or ''}, to "
+                          f"{', '.join(s.recipients) or s.site}, through {s.capability}: " +
+                          ('any message body' if s.content is None else s.content)) for s in plan.standing_sends]
+        return "\n".join(lines)
+
     async def _execute_plan(self, tree: _Tree, span: str, queue: asyncio.Queue[dict[str, Any]]) -> Outcome:
         plan = tree.spec.plan
         assert plan is not None
         plan_revision = len(tree.steering.messages)
         if (plan.big_job or plan.standing_sends) and not self.plans.load(tree.id)['approved']:
-            outline = '\n'.join(f'- {s.goal or s.question or s.kind}' for s in plan.steps)
-            permissions = '\n'.join(f"Send using {s.identity}'s account {s.account or ''} at {s.site or ''}, "
-                f"to {', '.join(s.recipients) or s.site}, through {s.capability}: " +
-                ('any message body' if s.content is None else s.content) for s in plan.standing_sends)
-            answer = await self._plan_question(tree, 'Here is the plan:\n' + outline +
-                (f'\nEstimated time: {plan.time_estimate}. Estimated cost: {plan.cost_estimate}.' if plan.big_job else '') +
-                ('\nFor this task, may I send these messages without asking again?\n' + permissions if permissions else '') +
-                '\nStart? You can correct the plan before saying Yes.', ['Yes', 'No'])
-            if answer.get('answer') != 'Yes':
-                self.plans.set_status(tree.id, 'blocked')
-                # an unfinished task is failed: "blocked" is a step state, never a task's (the records refuse it)
-                return Outcome(tree.worker.id, 'failed', 'I have not started the plan.', [], [])
+            # D24/D30 (L3): the plan line stated the plan and its standing scope; work starts at once and the owner
+            # corrects by replying (a steer). Nothing waits for a Yes. The grant names the recorded statement.
+            stated = self.journal.append('plan.stated', {'task_id': tree.id,
+                                                         'text': self.gateway.redact(self._plan_statement(plan))})
             self.plans.db.conn.execute('UPDATE task_plans SET approved=1 WHERE task_id=?', (tree.id,))
             from ferb.orchestrator.plans import SendScope
             safe_scopes = [SendScope.model_validate(self.gateway.redact(s.model_dump())) for s in plan.standing_sends]
-            self.standing.grant(tree.id, safe_scopes, answer['approval_id'])
+            self.standing.grant(tree.id, safe_scopes, 'stated:' + stated.id)
         async def execute(step: Step, inputs: list[str], prior: dict[str, Any]) -> dict[str, Any]:
             if step.kind == 'ask':
                 return await self._plan_question(tree, step.question, step.options)
@@ -2108,6 +2201,11 @@ class Supervisor(WorkerRuns):
             parts.append(ContextBlock("Layer 6 — this task's earlier plan and its step results (data; the current "
                                       "task replaces that plan, and none of its steps runs again):\n" +
                                       wrap_untrusted(json.dumps(saved)), 'task.evidence', protected=True))
+        answered = self.spans.owner_questions(tree.id)
+        if answered:                 # rule 9: an answer carries across this task's retries; never ask it again
+            parts.append(ContextBlock("Layer 6 — your questions in this task and the owner's answers (data):\n" +
+                                      wrap_untrusted(json.dumps(answered, ensure_ascii=False)), 'task.evidence',
+                                      protected=True))
         reopened = self.spans.reopened_answers(tree.id)
         confirmations = [{key: row[key] for key in ('rule', 'granted', 'used', 'at')} |
                          ({'reopened': True} if row['id'] in reopened else {})

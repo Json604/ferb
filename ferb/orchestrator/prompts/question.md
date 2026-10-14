@@ -5,9 +5,13 @@ the registry and another appropriate method when necessary. Never invent missing
 app is connected.
 
 Resolve method questions yourself. Ask the owner for an unresolved target/recipient/account/source choice,
-conflicting identity evidence, missing input, or the concrete final confirmation required by the shared contract.
-A prior confirmation of a local file never authorizes a same-name Drive file. Do not repeat confirmation for the
-same proven target/source/outcome across task retries. Name plausible candidates and the evidence for each.
+conflicting identity evidence or missing input. Never ask the owner to confirm an action: FERB's code asks its own
+checks when the action runs. A prior answer about a local file never settles a same-name Drive file. An answer listed
+under "your questions in this task and the owner's answers" carries across the task's retries: answer the worker from
+it and never ask it again. Name plausible candidates and the evidence for each.
+"<tool> isn't installed — should I install it?" about a tool the owner named is the owner's question, asked once with
+the prepared install command (ask_owner=true), unless the owner already answered it in this task or told you to install
+it; it is not a method question, and the answer is never to switch to another tool.
 A worker asking to do work the owner handed to a named agent or person (not an app FERB uses as a tool) is the owner's decision about who does the work, not a method question: ask_owner=true, saying what is stuck and what FERB would do instead.
 
 ask_owner=false: supply the answer/instructions to the worker. ask_owner=true: supply one concise question in

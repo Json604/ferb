@@ -28,7 +28,8 @@ SENTENCES = [
      "owner before doing its work."),
     ("interaction.md",
      "A lasting choice the owner did not ask for and the request does not need (for example which submission counts as "
-     "final, or changing a setting or default) is also an outcome to confirm, never a side step."),
+     "final, or changing a setting or default) is the owner's decision, never a side step: bring it to the orchestrator "
+     "as a question instead of making it."),
     ("interaction.md",
      'Everything the owner reads (answers, summaries, questions, success conditions, stop reasons, and a check\'s '
      'evidence and how) speaks to them as "you" and "your", never "the owner" or "the user". In a success condition, '

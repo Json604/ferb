@@ -130,8 +130,9 @@ def test_correction_releases_ordinary_question_but_never_approves_payment_secret
     correction(active, 'Keep the total under 300')
     assert pending['ordinary'].state == 'granted'
     assert pending['ordinary'].answer == 'Keep the total under 300'
-    assert pending['payment'].state != 'granted'
-    assert pending['secret'].state != 'granted' and pending['secret'].answer is None
+    # L3 (I1): a correction sets FERB's checks and hidden inputs aside as superseded, never a recorded No
+    assert pending['payment'].state == 'superseded'
+    assert pending['secret'].state == 'superseded' and pending['secret'].answer is None
     assert pending['plan'].state == 'pending'
 
 

@@ -23,7 +23,7 @@ CRITICAL = {"task.created", "task.started", "task.finished", "task.retried", "ta
             "stop.engaged", "stop.lifted", "sense.paused", "sense.resumed", "sense.watcher_failed",
             "voice.heard", "voice.said", "browser.debugger_detached",
             "task.result", "task.resumed_event", "conversation.paused", "attention.notice",
-            "voice.device_unresolved", "voice.question_selection_required",
+            "voice.device_unresolved",
             "memory.confirmed_derived", "memory.forgot_derived", "memory.rollback"}
 TELEMETRY = {"tool.called", "tool.finished", "trail.event", "action.observed", "browser.connected", "browser.disconnected", "browser.profiles_changed",
              "memory.proposed", "browser.dialog", "browser.file_chooser", "browser.download", "browser.cleanup_failed",

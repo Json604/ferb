@@ -92,7 +92,7 @@ REMINDER_CHANGE_SCHEMA = _obj({"id": {"type": "string"}, "quote": {"type": "stri
 SUPERVISOR_SCHEMA: dict[str, Any] = _obj({
     "kind": {"type": "string", "enum": ["reply", "clarify", "task"]},
     "answer_question": {"anyOf": [{"type": "null"}, _obj({"approval_id": {"type": "string"},
-                         "quote": {"type": "string"}})]},
+                         "answer": {"type": "string"}})]},
     "task": {"anyOf": [{"type": "null"}, TASK_SCHEMA]},
     "control": {"anyOf": [{"type": "null"}, _obj({"task_id": {"type": "string"},
                   "action": {"type": "string", "enum": ["stop", "retry", "continue"]},
@@ -211,6 +211,14 @@ class Remember(BaseModel):
     quote: str
 
 
+class AnswerQuestion(BaseModel):
+    """The planner's routing of the owner's message to one open question (L3): its id, from the planner's context,
+    and the planner's reading of the answer. The answer recorded is always the owner's own words; for FERB's floor
+    checks the reading must agree with the owner's plain Yes or No."""
+    approval_id: str
+    answer: str
+
+
 class TaskControl(BaseModel):
     task_id: str
     action: Literal["stop", "retry", "continue", "steer"]
@@ -224,7 +232,7 @@ class SupervisorOutcome(BaseModel):
     kind: Literal["reply", "clarify", "task"]
     text: str
     display_text: str = ""
-    answer_question: dict[str, str] | None = None
+    answer_question: AnswerQuestion | None = None
     task: TaskSpec | None = None
     remember: list[Remember] = []
     timers: list["TimerRequest"] = []

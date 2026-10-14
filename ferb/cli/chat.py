@@ -135,9 +135,13 @@ def render(ev: dict[str, Any], verbose: bool = False) -> str | None:
     return None
 
 
-def question(d: dict[str, Any]) -> str:
-    """An approval in plain words, without terminal control characters (the question and options are model text)."""
-    return printable(_question(d))
+def question(d: dict[str, Any], prompt: bool = True) -> str:
+    """An approval in plain words, without terminal control characters (the question and options are model text).
+    `prompt=False`: without the answer prompt line, for live chat, where the owner answers by replying (L3)."""
+    text = printable(_question(d))
+    if prompt or d.get("kind") in {"owner_login_code", "owner_admin_password", "owner_secret"}:
+        return text
+    return text.rstrip().rsplit("\n", 1)[0] if "\n" in text.rstrip() else text
 
 
 def _question(d: dict[str, Any]) -> str:
