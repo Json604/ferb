@@ -35,7 +35,6 @@ from ferb.policy.rules import Kind
 
 TRASH_UNVERIFIED = "trash-unverified"     # a trash record whose item isn't (or can't be shown to be) what FERB checked
 TRASH_RECORD_MAX_DAYS = 90                # a trash record stays while its item is in the Trash, at most this long
-RENAME_EXCL = 0x00000004                  # renamex_np: fail rather than replace an existing destination
 SNAPSHOT_TIMEOUT_S = 30.0
 SNAPSHOT_DELETE_TIMEOUT_S = 120.0         # measured 15.5 s for one delete (2026-10-09)
 SNAPSHOT_EVERY_S = 15 * 60                # at most one snapshot per 15 minutes, across all tasks
@@ -56,15 +55,13 @@ try:
     _libc: Any = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
     _libc.clonefile.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32)
     _libc.clonefile.restype = ctypes.c_int
-    _libc.renamex_np.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
-    _libc.renamex_np.restype = ctypes.c_int
-except (OSError, AttributeError):        # not macOS: no clonefile / renamex_np; the byte copy and rename still work
+except (OSError, AttributeError):        # not macOS: no clonefile; the byte copy still works
     _libc = None
 
 
 def _optional(name: str, *argtypes: Any) -> Any:
     """A libc function upload staging uses, or None where this system lacks it: only that path falls back (a byte copy
-    for fclonefileat); S1's clonefile and renamex_np above are unaffected."""
+    for fclonefileat); S1's clonefile above is unaffected."""
     try:
         fn = getattr(ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True), name)
     except (OSError, AttributeError):
@@ -512,10 +509,16 @@ def _restore_trashed(r: dict[str, Any], original: Path, closed: Closed = None) -
             raise NotRestorable(f"what is in the Trash under that name now isn't the {short(original)} FERB moved "
                                 "there, so FERB left it alone")
         folder = original.parent
+        try:                                     # nothing is made through a link standing above the folder
+            make_folders(folder, (lambda p: closed(p, "write")) if closed is not None else None, exact=True)
+        except PathRefused as e:
+            why = f"{e}, so FERB won't put {original.name} back through it; it stays in the Trash"
+            raise NotRestorable(why) from None
+        except OSError as e:
+            raise NotRestorable(f"FERB couldn't make {short(folder)} to put {original.name} back ({e})") from None
         try:
-            make_folders(folder, (lambda p: closed(p, "write")) if closed is not None else None)
             out = os.open(folder, O_SEARCH | os.O_DIRECTORY | os.O_CLOEXEC)
-        except (OSError, PathRefused) as e:
+        except OSError as e:
             raise NotRestorable(f"FERB couldn't open {short(folder)} to put {original.name} back ({e})") from None
         try:
             try:

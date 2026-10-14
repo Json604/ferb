@@ -475,7 +475,8 @@ def test_concurrent_cleanups_report_no_failure_that_didnt_happen(tmp_path: Path)
 
 def test_a_missing_staging_function_only_disables_its_own_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert recovery._optional("ferb_no_such_libc_function") is None
-    assert recovery._libc is not None and recovery._libc.clonefile and recovery._libc.renamex_np   # S1 unaffected
+    assert recovery._libc is not None and recovery._libc.clonefile                                # S1 unaffected
+    assert not hasattr(recovery, "RENAME_EXCL")            # restore moves through files.move_excl (renameatx_np) now
     monkeypatch.setattr(recovery, "_fclonefileat", None)        # no fclonefileat: a byte copy, never a failure
     src = tmp_path / "cv.pdf"
     src.write_bytes(b"%PDF")

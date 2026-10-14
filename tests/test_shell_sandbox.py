@@ -530,14 +530,18 @@ def test_ferb_app_stays_closed_to_the_shell_even_when_its_folder_is_lifted(tmp_p
 
 def test_the_shell_cannot_move_anything_into_or_out_of_a_trash(tmp_path: Path) -> None:
     """Only FERB's fs.trash and `ferb restore` move items in or out of a Trash, through folders they hold open (rule
-    10, fix round 5): the shell can't write the owner's Trash or any volume's .Trashes, under any spelling or lift,
-    and can't plant the Trash as a link. Otherwise it could swap what FERB just moved there."""
+    10, fix round 5): the shell can't write any folder FERB would move into as a Trash (any .Trash or .Trashes: the
+    owner's, iCloud Drive's, any volume's), under any spelling or lift, and can't plant the Trash as a link. Otherwise
+    it could swap what FERB just moved there."""
     home, ferb = tmp_path / "h", tmp_path / "h" / ".ferb"
     ws = ferb / "workspace"
     ws.mkdir(parents=True)
     trash = home / ".Trash"
     trash.mkdir()
     (trash / "old.txt").write_text("trashed by the owner")
+    icloud = home / "Library" / "Mobile Documents" / ".Trash"       # NSFileManager's Trash for iCloud Drive items
+    icloud.mkdir(parents=True)
+    (icloud / "synced.txt").write_text("trashed from iCloud Drive")
     (ws / "evil").write_text("payload")
     plain = Sandbox(Protection(home, ferb, [], [], []), tmp_path / "p")
     lifted = Sandbox(Protection(home, ferb, [], ["~"], []), tmp_path / "p")   # a lift that reopens the whole home
@@ -547,8 +551,11 @@ def test_the_shell_cannot_move_anything_into_or_out_of_a_trash(tmp_path: Path) -
         assert prof.rindex(f'(deny file-write* (subpath "{os.path.realpath(trash)}"))') > prof.rfind("(allow file-write*")
         assert r'(deny file-write* (regex #"^/Volumes/[^/]+/\.Trashes(/|$)"))' in prof
         assert r'(deny file-write* (regex #"^(/System/Volumes/Data)?/\.Trashes(/|$)"))' in prof
+        assert prof.rindex(r'(deny file-write* (regex #"/\.Trash(es)?(/|$)"))') > prof.rfind("(allow file-write*")
         for command in (f"mv '{ws}/evil' '{trash}/evil'", f"mv '{trash}/old.txt' '{ws}/stolen'",
-                        f"mv '{ws}/evil' '{data}/evil'", f"rm -rf '{trash}'", f"mv '{trash}' '{home}/bin'"):
+                        f"mv '{ws}/evil' '{data}/evil'", f"rm -rf '{trash}'", f"mv '{trash}' '{home}/bin'",
+                        f"mv '{ws}/evil' '{icloud}/evil'", f"mv '{icloud}/synced.txt' '{ws}/stolen'",
+                        f"mv '{icloud}' '{home}/icloud-bin'"):
             argv = sb.wrap(["/bin/sh", "-c", command], lift)
             try:
                 r = subprocess.run(argv, capture_output=True, text=True, timeout=10)
@@ -556,6 +563,7 @@ def test_the_shell_cannot_move_anything_into_or_out_of_a_trash(tmp_path: Path) -
                 sb.cleanup(sb.profile_path(argv))
             assert r.returncode != 0 and "Operation not permitted" in r.stderr, (lift, command, r.stderr)
         assert (ws / "evil").read_text() == "payload" and sorted(p.name for p in trash.iterdir()) == ["old.txt"]
+        assert sorted(p.name for p in icloud.iterdir()) == ["synced.txt"] and not (ws / "stolen").exists()
         argv = sb.wrap(["/bin/sh", "-c", f"echo ok > '{home}/ok-{lift}'"], lift)   # everything else still runs
         try:
             subprocess.run(argv, capture_output=True, text=True, timeout=10)

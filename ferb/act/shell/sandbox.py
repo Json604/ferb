@@ -14,8 +14,10 @@ Seatbelt (`sandbox-exec`) profiles, as measured on this Mac (F5a Task 2 report, 
   hardlink made before (outside FERB) is a different path and is not covered.
 - Renaming a folder above a protected path would carry it to a path no rule names, so each such folder, and the
   workspace itself, is denied as a literal (the folder, not its contents): files can still be made inside them.
-- No Trash folder can be written (~/.Trash, /.Trashes, /Volumes/*/.Trashes), even after a lift: only fs.trash and
-  `ferb restore` move items in or out (rule 10).
+- No Trash folder can be written, even after a lift: any folder named .Trash or .Trashes and everything in it (the
+  owner's ~/.Trash, iCloud Drive's ~/Library/Mobile Documents/.Trash, a File Provider's or a volume's .Trashes), the
+  same rule fs.trash uses for a folder it moves into (files.in_trash). Only fs.trash and `ferb restore` move items in
+  or out (rule 10).
 - The Keychain's service (com.apple.SecurityServer) is unreachable, so `security` fails at once and no Keychain prompt
   can appear (E4). Trust evaluation through trustd is also denied (owner, 2026-10-10); one approved command can lift
   only that rule. Go TLS may need the lift. Programs that
@@ -106,9 +108,9 @@ def _forms(path: Path) -> list[Path]:
     return list(dict.fromkeys((path, Path(os.path.realpath(path)))))
 
 
-# Every volume's Trash folders (the startup disk's and other disks'), whatever their owner; the owner's ~/.Trash is
-# named from the home (_trash_forms)
-TRASHES = (r"^(/System/Volumes/Data)?/\.Trashes(/|$)", r"^/Volumes/[^/]+/\.Trashes(/|$)")
+# Every Trash folder: any .Trash or .Trashes anywhere (exactly files.in_trash: a Trash FERB moves into is a Trash the
+# shell can't write), plus every volume's .Trashes and the owner's ~/.Trash named outright (_trash_forms)
+TRASHES = (r"/\.Trash(es)?(/|$)", r"^(/System/Volumes/Data)?/\.Trashes(/|$)", r"^/Volumes/[^/]+/\.Trashes(/|$)")
 
 
 def _trash_forms(home: Path) -> list[Path]:

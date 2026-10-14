@@ -74,10 +74,12 @@ def _check_in(folder: int, name: str, closed: Callable[[Path], str | None] | Non
         raise PathRefused(refusal)
 
 
-def make_folders(folder: Path, closed: Callable[[Path], str | None] | None = None) -> None:
+def make_folders(folder: Path, closed: Callable[[Path], str | None] | None = None, *, exact: bool = False) -> None:
     """`folder` and any missing folders above it (as mkdir -p), each made inside a folder FERB opened and checked
     (`closed`: the protection lists), so no folder is made inside FERB's own state through a link swapped in after the
-    gateway's check. Raises PathRefused when the lists close one."""
+    gateway's check. `exact`: the deepest folder that exists must be where `folder` says, as macOS opened it (no link
+    anywhere above), before anything is made (restore). Raises PathRefused when the lists close one, or on such a
+    link."""
     missing: list[str] = []
     top = folder
     while not top.exists() and top != top.parent:
@@ -87,6 +89,13 @@ def make_folders(folder: Path, closed: Callable[[Path], str | None] | None = Non
         return
     fd = os.open(top, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
+        if exact:
+            try:
+                here = opened_path(fd)
+            except OSError as e:
+                raise PathRefused(f"FERB couldn't tell which folder it opened ({e.strerror or e})") from None
+            if str(here).casefold() != str(top).casefold():
+                raise PathRefused(f"{top} isn't where it was (it now leads to {here})")
         for name in reversed(missing):
             _check_in(fd, name, closed)
             try:

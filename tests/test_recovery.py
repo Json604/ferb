@@ -831,6 +831,24 @@ def test_a_restore_never_goes_through_a_folder_swapped_for_a_link(daemon: Runnin
     assert not (daemon.daemon.home / "config.toml").exists() and (trash / "config.toml").exists()
 
 
+def test_a_restore_makes_no_folder_through_a_link(daemon: RunningDaemon, trash: Path) -> None:
+    """The item's folder is gone and a link stands where a folder above it was: restore refuses before making any
+    folder, so nothing is created where the link points (measured before the fix: empty folders inside the target)."""
+    proj = _ws(daemon) / "proj"
+    (proj / "sub").mkdir(parents=True)
+    f = proj / "sub" / "notes.txt"
+    f.write_text("mine")
+    gateway_tool_call(daemon, _fs_grant(daemon), "fs.trash", path=str(f))
+    rid = _recovery_rows(daemon)[-1]["id"]
+    agents = daemon.daemon.home.parent / "LaunchAgents"                 # a stand-in for a folder the shell can't write
+    agents.mkdir()
+    proj.rename(_ws(daemon) / "proj-moved")
+    proj.symlink_to(agents)
+    with pytest.raises(recovery.NotRestorable, match="isn't where it was"):
+        _restore(daemon, rid)
+    assert list(agents.iterdir()) == [] and (trash / "notes.txt").read_text() == "mine"
+
+
 def test_a_restore_checks_what_came_out_of_the_trash(daemon: RunningDaemon, trash: Path,
                                                      monkeypatch: pytest.MonkeyPatch) -> None:
     f = _ws(daemon) / "after.txt"
