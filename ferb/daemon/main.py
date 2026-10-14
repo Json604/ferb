@@ -343,7 +343,7 @@ class Daemon:
                          ("recovery.list", self._recovery_list), ("recovery.restore", self._recovery_restore),
                          ("sense.resume", self._sense_resume), ("sense.status", self._sense_status), ("trace.get", self._trace), ("verdict.set", self._verdict_set), ("stop.engage", self._stop_engage),
                          ("stop.lift", self._stop_lift),
-                         ("doctor.check", self._doctor_check),
+                         ("doctor.check", self._doctor_check), ("clipboard.request", self._clipboard_request),
                          ("automation.request", self._automation_request), ("tools.list", self._tools_list),
                          ("tools.call", self._tools_call), ("chat.approve", self._chat_approve),
                          ("chat.answer", self._chat_answer),
@@ -3411,6 +3411,7 @@ class Daemon:
                               # OPEN QUESTION 3: shell commands run without a snapshot when one can't be taken
                               "snapshot_failure": self.snapshots.last_failure() if self.snapshots else None}
         out["hearing"] = await self._hearing_status(bool(params.get("hearing", params.get("selftest", True))))
+        out["clipboard"] = await asyncio.to_thread(self._clipboard_access)     # I3: never reads the contents
         out["voice"] = {"push_to_talk": self._ptt, "installed": self.voice_bundle.exists(),
                         "connected": self.voice is not None and self.voice.app is not None,
                         "permissions": self.voice.permissions if self.voice is not None else {}}
@@ -3418,6 +3419,23 @@ class Daemon:
                     "version": ferb.__version__, "code_hash": code_hash(Path(ferb.__file__).parent),
                     "home": str(self.home), "stopped": self.state.stopped})
         return out
+
+    @staticmethod
+    def _clipboard_access() -> str | None:
+        """How macOS treats this daemon reading the clipboard (I3): accessBehavior, read without the contents."""
+        try:
+            from ferb.sense.watchers.clipboard import access, general_board
+            return access(general_board())
+        except Exception:
+            return None
+
+    async def _clipboard_request(self, session: Session, params: dict[str, Any]) -> dict[str, Any]:
+        """`ferb setup` only, with the owner's yes (I3): one read by this daemon, so macOS shows its paste alert now
+        and lists FERB in Paste from Other Apps. Nothing read is kept; journaled."""
+        from ferb.sense.watchers.clipboard import request_access
+        state = await asyncio.to_thread(request_access)
+        self._journal().append("clipboard.access", {"access": state, "requested": True})
+        return {"access": state}
 
     async def _dump_codex_catalog(self) -> None:
         """L28, final review M8: when a role runs on Codex, the catalog shipped with the pinned binary is dumped (once

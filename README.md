@@ -351,7 +351,10 @@ Memory retrieval, activity search and registry search supply relevant context ea
 memory removes its corresponding daily-log copies too. This is single-device context, not cross-device sync.
 
 Sensing records app/window/tab metadata, configured folder events, typed text per field and clipboard text (both
-redacted, kept seven days), never continuous screenshots. Exclusions and pause apply before storage.
+redacted, kept seven days), never continuous screenshots. Exclusions and pause apply before storage. On macOS 15.4
+and later, FERB reads the clipboard only when macOS lets it without asking: set FERB to Allow in System Settings →
+Privacy & Security → Paste from Other Apps (setup offers to let macOS ask once so FERB appears there; until then
+`ferb doctor` says clipboard capture is off). FERB never triggers macOS's paste alert in the background.
 With every message you send, FERB captures your front window (the topmost window that isn't FERB's own): the app,
 its title, a browser's front tab, and one redacted screenshot of that window. The planner sees it with your message
 and can answer a question about your screen from it; the worker for that message starts from the same picture. The

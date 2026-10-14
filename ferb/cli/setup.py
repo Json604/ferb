@@ -227,6 +227,7 @@ def setup(env: Env, update: bool = False) -> int:
         client = _grant(env, client, perm, binary, required=perm in REQUIRED_PERMISSIONS)
     _automation(env, client, profile)
     hearing_setup(env, client)
+    clipboard_setup(env, client)
     config.set('setup', 'permissions_version', 27)
 
     env.say("4/4  Self-test through the daemon")
@@ -412,6 +413,45 @@ def codex_login(env: Env, run: Callable[..., Any] = subprocess.run) -> int:
     return 0 if ok else 1
 
 
+PASTE_PANE = "System Settings → Privacy & Security → Paste from Other Apps"
+
+
+def clipboard_check(state: str | None) -> Check | None:
+    """I3: whether macOS lets FERB's daemon read the clipboard without asking. FERB never reads it otherwise (no
+    surprise alert), so clipboard capture is off until the owner sets FERB to Allow."""
+    if state is None:
+        return None
+    if state in ("allow", "unrestricted"):
+        return Check("clipboard", "ok", "FERB may read what you copy (kept on this Mac for 7 days)")
+    why = {"default": "macOS hasn't asked you yet", "ask": "macOS would ask you every time",
+           "deny": "you set FERB to Deny"}.get(state, f"macOS reports {state}")
+    fix = (f"run `ferb setup` to let macOS ask once, then set FERB to Allow in {PASTE_PANE}" if state == "default"
+           else f"set FERB to Allow in {PASTE_PANE}")
+    return Check("clipboard", "warn", f"FERB doesn't record what you copy: {why}", fix)
+
+
+def clipboard_setup(env: Env, client: Any) -> None:
+    """I3: on macOS 15.4+, an app reading the clipboard makes macOS ask unless it's set to Allow; an app that never
+    asked isn't even listed in that pane. With the owner's yes, the daemon reads it once now, so macOS asks here (an
+    alert the owner expects) instead of never, and the owner can then set FERB to Allow."""
+    state = client.call("doctor.check", {"selftest": False}).get("clipboard")
+    if state not in ("default", "ask"):
+        return
+    env.say("     Clipboard: FERB records text you copy (kept on this Mac for 7 days) only if macOS lets it read the "
+            "clipboard without asking.")
+    if state == "default":
+        if env.ask("     Let macOS ask now whether FERB may read the clipboard? You'll see its alert once [y/N] "
+                   ).strip().lower() not in (
+                "y", "yes"):
+            env.say("     Clipboard capture stays off; `ferb doctor` says how to turn it on.")
+            return
+        state = client.call("clipboard.request").get("access", state)
+    if state in ("allow", "unrestricted"):
+        env.say("     Clipboard: allowed ✓")
+        return
+    env.say(f"     To let FERB record what you copy without asking each time, set FERB to Allow in {PASTE_PANE}.")
+
+
 def protection_check(home: Path) -> Check:
     """[protection] and FERB's workspace as the daemon reads them at start (rule 10): when this fails, FERB doesn't
     start, and this says why."""
@@ -569,6 +609,8 @@ def doctor(env: Env) -> int:
             add(local_reports)
         add(snapshot_check(report.get("containment")))
         add_hearing_check(add, report.get("hearing"))
+        if (clipboard := clipboard_check(report.get("clipboard"))) is not None:
+            add(clipboard)
         voice = report.get("voice", {})
         if voice.get("push_to_talk"):
             perms = voice.get("permissions", {})

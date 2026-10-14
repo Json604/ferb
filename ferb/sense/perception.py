@@ -38,10 +38,15 @@ class Perception:
         d = self.daemon
         excluded = lambda bundle, name: d._exclusions().app(bundle, name)
         return [WorkspaceWatcher(d.redact, excluded), AccessibilityWatcher(d.redact, excluded),
-                ClipboardWatcher(d.redact, excluded), TextInputWatcher(d.owner_input, d.redact, excluded),
+                ClipboardWatcher(d.redact, excluded, report=self.clipboard_access),
+                TextInputWatcher(d.owner_input, d.redact, excluded),
                 NotificationWatcher(NotificationDatabase(DATABASE, d.redact, excluded), self.seen, self.notification,
                                     floor=self.notification_floor),
                 SoftwareWatcher(self.installed, d.redact)]
+
+    def clipboard_access(self, state: str) -> None:
+        """I3: how macOS treats FERB reading the clipboard changed (or was first seen): journaled once per change."""
+        self.daemon._journal().append("clipboard.access", {"access": state})
 
     def seen(self, external_id: str) -> bool:
         return self.daemon.db.conn.execute("SELECT 1 FROM perception_seen WHERE source='notification' AND external_id=?",

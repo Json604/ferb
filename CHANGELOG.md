@@ -171,6 +171,9 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
 - Screen-capture failures keep ScreenCaptureKit's error domain and code (and its stated reason) in the result, trace
   and journal, so "Failed to start stream due to audio/video capture failure" can be diagnosed; a minimized window
   is reported as minimized (FERB leaves it minimized); a hearing capture whose start timed out is stopped.
+- Clipboard capture respects macOS 15.4+ pasteboard privacy: FERB reads what you copy only when macOS allows it
+  without asking (FERB set to Allow in Paste from Other Apps), so it never raises a surprise alert; setup offers to let
+  macOS ask once, and `ferb doctor` says when clipboard capture is off and how to allow it.
 
 Licensed under Apache-2.0.
 

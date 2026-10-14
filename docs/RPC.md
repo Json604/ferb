@@ -57,6 +57,10 @@ probed `signed` (matches the signature
 setup recorded) and FERB.app's own `speech` permission state, `on_device` support and `locale`. It probes by default,
 or with `selftest: false` only when `hearing: true` is passed; probing starts FERB.app in the background and never
 prompts.
+`doctor.check` also returns `clipboard` (I3): how macOS treats the daemon reading the clipboard (`default`, `ask`,
+`allow`, `deny`; `unrestricted` before macOS 15.4), read without the contents, or null. `clipboard.request` (CLI;
+`ferb setup` only, with the owner's yes) reads the clipboard once so macOS shows its paste alert now, journals
+`clipboard.access` and returns `{access}`; nothing read is kept.
 
 ## Conversation and results
 

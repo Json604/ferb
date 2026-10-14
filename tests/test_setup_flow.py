@@ -27,6 +27,8 @@ class FakeDaemon:
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
         # FERB.app's Speech Recognition state as the daemon reports it (L26: FERB hears app sound during tasks)
         self.hearing = {"installed": True, "signed": True, "speech": "granted", "on_device": True, "locale": "en-US"}
+        self.clipboard = "allow"         # macOS lets the daemon read the clipboard without asking (I3)
+        self.clipboard_requests = 0
 
     def client(self) -> "FakeClient":
         return FakeClient(self)
@@ -50,8 +52,13 @@ class FakeClient:
             return {"permissions": dict(self.d.perms), "selftest": st, "executable": "/x/python3.12",
                     "code_hash": "h", "stopped": False, "pid": self.d.pid,
                     "hearing": dict(self.d.hearing) if probe else {"installed": self.d.hearing["installed"]},
+                    "clipboard": self.d.clipboard,
                     "containment": {"sandbox_exec": True, "profile_ok": True, "reason": "ok", "shell": True,
                                     "shell_reason": "ok", "proxy": True, "proxy_alive": True, "snapshots": False}}
+        if method == "clipboard.request":            # macOS shows its alert once; the owner then sets Allow
+            self.d.clipboard_requests += 1
+            self.d.clipboard = "ask"
+            return {"access": "ask"}
         if method == "jev.stats":
             return {"configured": False, "stats": []}
         if method == "sense.status":
@@ -602,3 +609,37 @@ def test_doctor_fails_without_ferbs_own_codex_sign_in(world: dict[str, Any]) -> 
     text = out.getvalue()
     assert "✗ codex home" in text and "ferb setup --codex-login" in text
     assert "using your personal Codex setup" not in text          # the daemon never falls back to ~/.codex
+
+
+# ---------- I3: macOS pasteboard privacy ----------
+
+def test_setup_asks_before_letting_macos_ask_about_the_clipboard(world: dict[str, Any]) -> None:
+    world["daemon"].clipboard = "default"
+    asked: list[str] = []
+    env, out = make_env(world, ["", "", "", "1,2,3", "y"], daemon_up=False)
+    plain = env.ask
+    env.ask = lambda prompt: (asked.append(prompt), plain(prompt))[1]   # type: ignore[method-assign]
+    assert S.setup(env) == 0, out.getvalue()
+    assert any("Paste from Other Apps" in p or "clipboard" in p.lower() for p in asked)
+    assert world["daemon"].clipboard_requests == 1
+    assert "Paste from Other Apps" in out.getvalue() and "Allow" in out.getvalue()
+
+
+def test_setup_never_requests_clipboard_access_without_a_yes(world: dict[str, Any]) -> None:
+    world["daemon"].clipboard = "default"
+    env, out = make_env(world, ["", "", "", "1,2,3", ""], daemon_up=False)
+    assert S.setup(env) == 0, out.getvalue()
+    assert world["daemon"].clipboard_requests == 0
+
+
+def test_doctor_says_how_to_let_ferb_read_the_clipboard(world: dict[str, Any]) -> None:
+    world["inst"].install()
+    for state, line in (("default", "! clipboard"), ("ask", "! clipboard"), ("deny", "! clipboard"),
+                        ("allow", "✓ clipboard")):
+        world["daemon"].clipboard = state
+        env, out = make_env(world, [])
+        S.doctor(env)
+        text = out.getvalue()
+        assert line in text, (state, text)
+        if state != "allow":
+            assert "Paste from Other Apps" in text

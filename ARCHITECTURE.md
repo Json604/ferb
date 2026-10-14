@@ -453,7 +453,11 @@ listen-only keyboard tap with per-field text aggregation, general-pasteboard cha
 Center SQLite, and installed-software security facts. Native metadata and text are redacted before crossing the
 callback/thread boundary. Secure Input, unknown/secure AX roles and concealed/transient pasteboard types drop
 capture before release. Held input is cleared on pause. Exact successful `mac.clipboard` change counts mark FERB's
-writes; a frontmost app is context, not proof of the clipboard writer. Typed/clipboard content expires after seven
+writes; a frontmost app is context, not proof of the clipboard writer. On macOS 15.4+ the clipboard watcher reads
+contents only when `NSPasteboard.accessBehavior` is `alwaysAllow` (I3; reading `changeCount` and `types` never asks), so
+it never raises a surprise paste alert; any other state is journaled once per change (`clipboard.access`), `ferb doctor`
+warns with the fix, and `ferb setup` offers one owner-approved read (`clipboard.request`) so macOS asks once and lists
+FERB in Paste from Other Apps, where the owner sets Allow. Typed/clipboard content expires after seven
 days in Trail, its FTS index and the activity copy, while source IDs remain; this automatic expiry does not retract
 derived memory. Native schemas and two-app subscriptions await owner acceptance.
 AX observer callbacks use PyObjC's explicit retained-callback bridge and remain strongly referenced until their
