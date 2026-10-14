@@ -124,3 +124,24 @@ final class PinnedNotchTests: XCTestCase {
         model.collapse()
     }
 }
+
+@MainActor
+final class FilePickerVisibilityTests: XCTestCase {
+    func testPickerStateNotifiesCoordinatorAndKeepsDraft() {
+        let model = NotchModel()
+        model.expand()
+        model.session.draft = "Keep my draft"
+        var changes: [Bool] = []
+        model.onFilePickerChange = { changes.append($0) }
+        model.setFilePickerOpen(true)
+        model.setFilePickerOpen(true)
+        XCTAssertTrue(model.filePickerOpen)
+        XCTAssertTrue(model.blocksAutomaticDismissal)
+        model.dismissAutomatically()
+        XCTAssertTrue(model.expanded)
+        model.setFilePickerOpen(false)
+        XCTAssertEqual(changes, [true, false])
+        XCTAssertFalse(model.filePickerOpen)
+        XCTAssertEqual(model.session.draft, "Keep my draft")
+    }
+}

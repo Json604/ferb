@@ -78,6 +78,7 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
             self.pointerExited()
         }
         model.onInteraction = { [weak self] in self?.beginInteraction() }
+        model.onFilePickerChange = { [weak self] open in self?.setWindowsHiddenForPicker(open) }
         model.onOpenDocument = { [weak self] url in
             if NSWorkspace.shared.open(url) { self?.model.dismissAutomatically() }
             else {
@@ -305,6 +306,16 @@ final class PanelCoordinator: NSObject, NSWindowDelegate, @preconcurrency QLPrev
     private func updateTracerVisibility() {
         if model.showsTraceGlow { tracerPanel.orderFrontRegardless() }
         else { tracerPanel.orderOut(nil) }
+    }
+
+    /// The notch windows sit in an unmanaged overlay space above all ordinary windows, so no
+    /// level given to the open panel can beat them. Make them invisible and click-through while
+    /// the picker is open; content, draft and attachments are untouched.
+    private func setWindowsHiddenForPicker(_ hidden: Bool) {
+        panel.alphaValue = hidden ? 0 : 1
+        panel.ignoresMouseEvents = hidden
+        tracerPanel.alphaValue = hidden ? 0 : 1
+        if !hidden, model.bodyVisible { panel.makeKey() }
     }
 
     private func beginInteraction() {

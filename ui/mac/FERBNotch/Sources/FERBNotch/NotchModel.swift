@@ -111,7 +111,11 @@ final class NotchModel: ObservableObject {
     private var attentionTask: Task<Void, Never>?
     private var pendingPinnedFold = false
     private var profileMenuOpen = false
-    private var filePickerOpen = false
+    private(set) var filePickerOpen = false
+    /// True while the system file picker is up. The coordinator hides FERB's windows for that
+    /// duration: they live in an overlay space above every ordinary window, so the picker can't
+    /// be raised over them by window level and would otherwise be covered.
+    var onFilePickerChange: ((Bool) -> Void)?
     private var heldVoiceSnapshot: (session: NotchSession, sources: Bool, history: Bool, activity: Bool, headerOnly: Bool)?
 
     var expanded: Bool { session.isExpanded }
@@ -386,8 +390,14 @@ final class NotchModel: ObservableObject {
         onPresentationChange?(true)
     }
 
+    func setFilePickerOpen(_ open: Bool) {
+        guard filePickerOpen != open else { return }
+        filePickerOpen = open
+        onFilePickerChange?(open)
+    }
+
     func chooseFiles() {
-        filePickerOpen = true
+        setFilePickerOpen(true)
         cancelPinnedFold()
         let picker = NSOpenPanel()
         picker.allowsMultipleSelection = true
@@ -398,7 +408,7 @@ final class NotchModel: ObservableObject {
         picker.begin { [weak self] response in
             Task { @MainActor in
                 guard let self else { return }
-                self.filePickerOpen = false
+                self.setFilePickerOpen(false)
                 if response == .OK { self.attach(picker.urls) }
                 self.resumePendingPinnedFold()
                 self.onInteractionEnded?()
