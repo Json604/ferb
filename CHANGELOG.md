@@ -106,6 +106,9 @@ Packaging and setup (L15, L25, L27):
   a post as `"SITE @ACCOUNT"`.
 
 Final review fixes (2026-10-14):
+- The background "should I tell you?" check reads only the chat since FERB's last notice in that conversation, plus
+  FERB's running summary of older chat (with your memory, running tasks, notices already told and the observations),
+  instead of the whole conversation that fits the model's window (owner decision I2, 2026-10-14).
 - A standing permission stated in a plan or a correction covers a send only when its site, account and recipients are
   in words you typed (this request, its corrections, your answers, or when you told FERB to remember them). Any other
   is stated as not covered, so a send to someone you didn't name asks, as for a schedule.

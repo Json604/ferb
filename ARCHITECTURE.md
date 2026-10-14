@@ -1582,8 +1582,11 @@ protected FERB state (16.9).
 - **One moment, one notice (L10).** At most one consideration runs per app (`app_of`: a bundle id, or a tab's browser);
   yes batches arriving meanwhile merge into the next one, and a flush publishes each app's yes answers together.
 - **Understanding.** The prompt (`prompts/attention.md`) gets the merged rows (time, actor, task), the owner's memory,
-  the recent chat, running tasks and the notices already told about that app (`told(apps)`). It is budgeted from the
-  model's window like the planner. Quotes come back separately and their origin is assigned by code.
+  the recent chat, running tasks and the notices already told about that app (`told(apps)`). The recent chat is the
+  current conversation since its last notice, after FERB's running summary of the older chat; with no notice after
+  the summary's watermark, every entry the summary hasn't folded in (`_conversation_blocks(since_last_notice=True)`;
+  I2, owner 2026-10-14). It is still budgeted from the model's window like the planner, as a safety, with no other
+  cap. Quotes come back separately and their origin is assigned by code.
 - **FERB's own actions.** Events in an app while a FERB action runs there are actor FERB (`Attribution.acting`).
   FERB's own banners are recognised by exact title, body and poster (`banner_posted`, `com.apple.ScriptEditor2`).
 - **Audit.** `trail.attention` is live; its decision rows record the effect ("told in chat: notice …").

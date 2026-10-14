@@ -234,8 +234,9 @@ def test_the_consideration_sees_memory_chat_running_tasks_and_the_apps_told_noti
 
 def test_the_consideration_fits_the_attention_models_window_with_a_huge_chat(daemon: RunningDaemon,
                                                                             monkeypatch: Any) -> None:
-    """Task 22b (L28 with L10): the consideration is built with the planner's budgeted builders, within the attention
-    model's real window. The observations, the told notices, running tasks and memory always go in; the chat fills
+    """Task 22b (L28 with L10), with I2 (owner, 2026-10-14): the consideration reads the chat since the last notice
+    (here none yet: everything after the running summary), and that is still budgeted within the attention model's
+    real window as a safety. The observations, the told notices, running tasks and memory always go in; the chat fills
     what is left newest-first and the older entries become one note (chat.history keeps them)."""
     from ferb.core.types import ModelLimits
     from tests.conftest import FakeRuntime
@@ -269,6 +270,64 @@ def test_the_consideration_fits_the_attention_models_window_with_a_huge_chat(dae
     considered = _on_loop(daemon, lambda: json.loads(d.db.conn.execute(  # type: ignore[union-attr]
         "SELECT input_json FROM spans WHERE kind='attention.consider' ORDER BY rowid DESC").fetchone()[0]))
     assert considered["context_budget_tokens"] == limits.context_budget
+
+
+def test_the_consideration_reads_only_the_chat_since_the_last_notice_and_the_running_summary(
+        daemon: RunningDaemon) -> None:
+    """I2 (owner, 2026-10-14): the background check reads the conversation since the last notice in it, plus FERB's
+    running summary of older chat, with its always-in blocks (memory, running tasks, told notices, observations);
+    never the planner's full-window conversation."""
+    from ferb.orchestrator.supervisor import SUMMARY_KIND
+    d = daemon.daemon
+    sup_ = d.supervisor
+    assert sup_ is not None
+    _notes(daemon)
+
+    def history() -> None:
+        d._journal().append(SUMMARY_KIND, {"session_id": "owner", "text": "uniquesummarytext of older chat",
+                                           "covered": [], "source_refs": []}, origin="inferred")
+        d._journal().append("chat.message", {"session_id": "owner", "request_id": "r-before",
+                                             "text": "uniquebeforeline from before the notice"}, origin="owner")
+        d._journal().append("chat.notice", {"id": "n-earlier", "text": "uniqueearliernotice", "quotes": []},
+                            origin="external:observation,inferred")
+        d._journal().append("chat.message", {"session_id": "owner", "request_id": "r-after",
+                                             "text": "uniqueafterline since the notice"}, origin="owner")
+    _on_loop(daemon, history)
+    sup_.memory_candidates = lambda w: [{                         # type: ignore[assignment]
+        "text": "m1 [fact, confirmed, owner; data, not authorization] Claude plan — uniquememoryfact Max 5x",
+        "reference": "memory.learned item_id=m1", "origin": "owner", "source_refs": ["m1"]}]
+    sup_.running_trees = lambda: [("t-run", "uniquerunninggoal summarise the invoice")]  # type: ignore[method-assign]
+    script = install(daemon, [json.dumps({"tell": False, "text": "", "source_refs": [], "quotes": []})])
+    now = _record(daemon, _tab(SUCCESS, "Settings - Claude"))
+    daemon.run(d._consider_attention({"batch_id": "b-since", "source_refs": ["trail:" + now.id]}))
+    context = script.requests[-1][2].context
+    assert "uniqueafterline" in context and "uniquesummarytext" in context
+    assert "uniquebeforeline" not in context and "uniqueearliernotice" not in context
+    for always in ("uniquememoryfact", "uniquerunninggoal", "max_payment_success=true", "already_told"):
+        assert always in context, always
+
+
+def test_with_no_notice_yet_the_consideration_reads_the_summary_and_the_chat_after_it(daemon: RunningDaemon) -> None:
+    """I2: with no earlier notice, the running summary and the chat after its watermark (the entries it hasn't
+    folded in)."""
+    from ferb.orchestrator.supervisor import ENTRY, SUMMARY_KIND
+    d = daemon.daemon
+    _notes(daemon)
+
+    def history() -> None:
+        folded = d._journal().append("chat.message", {"session_id": "owner", "request_id": "r-old",
+                                                      "text": "uniquefoldedline"}, origin="owner")
+        d._journal().append(SUMMARY_KIND, {"session_id": "owner", "text": "uniquesummarytext",
+                                           "covered": [ENTRY + folded.id], "source_refs": [ENTRY + folded.id]},
+                            origin="owner,inferred")
+        d._journal().append("chat.message", {"session_id": "owner", "request_id": "r-new",
+                                             "text": "uniquenewline"}, origin="owner")
+    _on_loop(daemon, history)
+    script = install(daemon, [json.dumps({"tell": False, "text": "", "source_refs": [], "quotes": []})])
+    now = _record(daemon, _tab(SUCCESS, "Settings - Claude"))
+    daemon.run(d._consider_attention({"batch_id": "b-watermark", "source_refs": ["trail:" + now.id]}))
+    context = script.requests[-1][2].context
+    assert "uniquesummarytext" in context and "uniquenewline" in context and "uniquefoldedline" not in context
 
 
 def test_outside_text_reaches_the_owner_only_as_a_quote_with_its_origin(daemon: RunningDaemon) -> None:
