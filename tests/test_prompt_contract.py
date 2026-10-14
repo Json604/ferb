@@ -65,3 +65,20 @@ def test_owner_report_audit_contract(name, sentence):
     # Real owner traces: session review 726ab98b and ticket list 6eb4bffd.
     # These guard executable instructions; live model adherence remains separately audited.
     assert sentence in _words(name)
+
+
+def test_a_declared_post_names_no_audience_in_its_destination() -> None:
+    """`destination` holds recipients, account, amount and item, and no audience field. A post's audience
+    ("public", "followers") put into recipients would ask the new-recipient question, which a campaign scope with
+    recipients [] never covers, so a scheduled post would be declined (D30). Every text that tells the worker what goes
+    in `destination` says the same: no recipients for a public post, and the account it goes out from."""
+    from ferb.daemon.gateway import DESTINATION_SCHEMA
+    interaction, worker = _words("interaction.md"), _words("worker.md")
+    assert ("with its recipients (none for a public post) and the account it goes out from in `destination`"
+            in interaction)
+    assert "audience in `destination`" not in interaction
+    assert "`recipients` for a message or email (none for a public post)" in worker
+    assert "`account` the post, message or payment goes out from" in worker
+    described = " ".join(str(DESTINATION_SCHEMA["description"]).split())
+    assert "recipients: the people a message or email goes to (none for a public post)" in described
+    assert "audience" not in described and "audience" not in DESTINATION_SCHEMA["properties"]
