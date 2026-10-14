@@ -1310,3 +1310,61 @@ async def _on_loop(fn: Any) -> Any:
 def test_the_planner_is_told_only_typed_destinations_are_covered() -> None:
     text = " ".join((PROMPTS / "supervisor.md").read_text().split())
     assert "FERB covers a scope only when its site, account and recipients appear in words the owner typed" in text
+
+
+# ========== final review M1 ==========
+# A message the planner routes as an answer can carry more: a stop, a memory, a reminder. FERB records the answer
+# first, then does the rest of the turn; nothing in it is dropped.
+
+def test_an_answer_and_a_stop_in_one_message_both_happen(daemon: RunningDaemon) -> None:
+    run = _running_plan(daemon, [], [])
+    question = _task_question(daemon, "Which account should I use?", options=())
+    decision = json.loads(_routed(question.id, "the work one"))
+    decision["control"] = {"task_id": run.tree, "action": "stop", "standing_sends": "unchanged", "supersedes": []}
+    run.script.sup.append(json.dumps(decision))
+    tree = daemon.daemon.supervisor._tree_of[run.tree]
+
+    def release_on_stop() -> None:                       # the held step returns once the stop is requested
+        _until(lambda: tree.stop is not None, 10)
+        run.proceed.set()
+    threading.Thread(target=release_on_stop, daemon=True).start()
+    events = chat(daemon, "the work one, and stop the other task", session="s1")
+    assert question.state == "granted" and question.answer == "the work one, and stop the other task"
+    assert "Got your answer" in _texts(events) and "Stopped, as you asked." in _texts(events)
+    run.proceed.set()
+    run.turn.join(20)
+    assert not run.turn.is_alive()
+
+    async def status() -> str:
+        return str(daemon.daemon.db.conn.execute("SELECT status FROM tasks WHERE id=?", (run.tree,)).fetchone()[0])
+    assert daemon.run(status()) == "cancelled" and tree.stop
+
+
+def test_an_answer_and_a_memory_in_one_message_both_happen(daemon: RunningDaemon) -> None:
+    question = _task_question(daemon, "Which email should I use?", options=())
+    decision = json.loads(_routed(question.id, "the work email"))
+    decision["remember"] = [{"kind": "fact", "subject": "owner", "key": "work-email", "content": "work email: w@x.com",
+                             "quote": "my work email is w@x.com"}]
+    install(daemon, [json.dumps(decision)])
+    events = chat(daemon, "use the work one; my work email is w@x.com", session="s")
+    assert question.state == "granted"
+    assert [e["type"] for e in events][0] == "reply" and any(e["type"] == "memory" for e in events)
+    assert "w@x.com" in json.dumps(daemon.run(_on_loop(lambda: [i.content for i in daemon.daemon.memory.items()])))
+
+
+def test_an_answer_that_needs_a_which_one_question_leaves_the_rest_for_the_reply(daemon: RunningDaemon) -> None:
+    """When FERB has to ask which question the answer is for, the whole message comes back with the owner's reply, so
+    nothing else in it runs twice."""
+    pay, call, cap, _ = _pending_floor_check(daemon)
+    other = _task_question(daemon, "Use your work email?")
+    decision = json.loads(_routed(pay.id, "Yes"))
+    decision["remember"] = [{"kind": "fact", "subject": "owner", "key": "k", "content": "likes tea", "quote": "Yes"}]
+    install(daemon, [json.dumps(decision)])
+    events = chat(daemon, "Yes", session="s")
+    assert [e["type"] for e in events] == ["clarify"] and daemon.run(_on_loop(daemon.daemon.memory.items)) == []
+    call.cancel()
+
+
+def test_the_planner_is_told_an_answer_can_come_with_other_requests() -> None:
+    text = " ".join((PROMPTS / "supervisor.md").read_text().split())
+    assert "return that too: FERB records the answer first, then does the rest" in text

@@ -183,7 +183,9 @@ An applicable verified procedure can save exploration; it never skips gateway ch
 You receive all active tasks and open questions. Route each new message as a new task, a correction/stop/continuation,
 an answer, or conversation. When the message answers an open question, return answer_question with that question's
 approval_id from the list and your reading of the answer (for a Yes/No question, exactly "Yes" or "No"); otherwise
-null. A plain "Yes" or "No" counts. FERB records the owner's own words as the answer, never your reading. A question
+null. A plain "Yes" or "No" counts. FERB records the owner's own words as the answer, never your reading. When the
+same message also asks for something else (stop or correct a task, a reminder, something to remember, a new task),
+return that too: FERB records the answer first, then does the rest. A question
 with ferb_check true is FERB's own check: route only a plain Yes or No meant for it. If the answer could be for more
 than one open question or task, ask in plain words which one ("the payment or the email draft?"), never with ids or
 commands. Passwords and login codes are never answered here.

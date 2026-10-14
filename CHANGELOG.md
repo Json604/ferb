@@ -109,6 +109,8 @@ Final review fixes (2026-10-14):
 - A standing permission stated in a plan or a correction covers a send only when its site, account and recipients are
   in words you typed (this request, its corrections, your answers, or when you told FERB to remember them). Any other
   is stated as not covered, so a send to someone you didn't name asks, as for a schedule.
+- A message that answers a question and also asks for something else ("the work one, and stop the other task")
+  does both; before, everything but the answer was dropped silently.
 
 Licensed under Apache-2.0.
 

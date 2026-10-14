@@ -187,6 +187,14 @@ def _bare(text: str) -> str:
     return text.strip().rstrip(".!").strip()
 
 
+def _carries_more(out: SupervisorOutcome) -> bool:
+    """Whether a planner turn carries anything besides an answer: a control (stop, steer, retry, continue), a new
+    task, or a side output (memory, reminders, schedules, conversation or notification changes)."""
+    return bool(out.control is not None or (out.kind == "task" and out.task is not None) or out.remember or
+                out.timers or out.schedule is not None or out.schedule_changes or out.reminder_cancels or
+                out.conversation_changes or out.notification_rules)
+
+
 def _labeled(value: Any) -> tuple[str, str]:
     """A context hook's (text, origin). A hook that returns bare text didn't say where it came from: unlabeled."""
     if isinstance(value, tuple):
@@ -877,12 +885,22 @@ class Supervisor(WorkerRuns):
         resumed_payload = ""
         resumed_prior: str | None = None
         if out.answer_question:
+            # The answer is recorded first; the rest of the turn (a stop or correction, a new task, memory, reminders,
+            # schedules) then runs as in any turn (final review M1). When FERB has to ask which question the answer is
+            # for, the whole message comes back with the owner's reply, so nothing else in it runs now (or twice).
+            answered = self._answer(session, request_id, m, out.answer_question, focus, clarified, owner_words,
+                                    payload)
+            out = out.model_copy(update={"answer_question": None})
+            more = answered["type"] != "clarify" and _carries_more(out)
+            sent = False
             try:
-                yield self._answer(session, request_id, m, out.answer_question, focus, clarified, owner_words,
-                                   payload)
+                yield answered
+                sent = True
             finally:
-                self._env.pop(request_id, None)
-            return
+                if not (sent and more):
+                    self._env.pop(request_id, None)
+            if not more:
+                return
         if out.control is not None:
             control = out.control
             prior = self.continuity.load(control.task_id, session.id)

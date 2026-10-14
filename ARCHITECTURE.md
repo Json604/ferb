@@ -1400,7 +1400,9 @@ recoverable. The fuller prevention design is after launch (spec section 6).
 **Answers, steering and plans (L3).**
 - The planner routes a free-text answer by question id (`AnswerQuestion {approval_id, answer}`) to any open
   `owner.ask`, `plan.ask` or FERB check, from any chat. The answer recorded is the owner's own words, never the
-  planner's reading; pasted text is never an answer.
+  planner's reading; pasted text is never an answer. The rest of that turn (a control, a new task, memory, reminders,
+  schedules) then runs as in any turn (`_carries_more`); when FERB asks "which one?", the whole message waits for the
+  reply instead (final review M1).
 - FERB's checks (`FERB_CHECKS`: `ferb.confirm`, `ferb.retry` for P19, `conversation.approve` for F9) resolve only on a
   plain Yes or No routed to that id that the planner's reading agrees with. A reply that could answer another open
   question, or the planner's own pending clarify, gets "Which one is it for?" (`_Focus` carries the earlier Yes).
