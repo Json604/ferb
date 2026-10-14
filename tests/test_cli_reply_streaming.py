@@ -180,4 +180,3 @@ def test_small_terminal_renders_owner_input_and_newest_long_draft_together(monke
         assert len(chat._drafts[0]) > 1000  # The viewport scrolls; retained content is not truncated.
 
     asyncio.run(render_fixture())
-
