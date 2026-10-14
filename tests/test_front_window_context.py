@@ -179,9 +179,10 @@ def test_a_site_found_excluded_only_after_the_shot_is_labelled_excluded() -> Non
 def test_ferbs_own_app_ids_are_the_ones_their_bundles_declare() -> None:
     import re
     declared = {plistlib.loads((REPO / p).read_bytes())["CFBundleIdentifier"]
-                for p in ("ui/mac/FERBNotch/Info.plist", "macapp/FERB/Info.plist")}
+                for p in ("ui/mac/FERBNotch/Info.plist", "macapp/FERB/Info.plist", "ui/mac/FERBAgent/Info.plist")}
     # integrated with L27: Info.plist names the packaged FERB.app (com.ferb.FERB); the development build that
-    # ui/mac/FERBNotch/build.sh makes from it keeps its own id, and both are FERB's own windows
+    # ui/mac/FERBNotch/build.sh makes from it keeps its own id, and both are FERB's own windows; so is anything the
+    # daemon's agent app (com.ferb.daemon) shows
     dev = re.search(r"CFBundleIdentifier (\S+)", (REPO / "ui/mac/FERBNotch/build.sh").read_text())
     assert dev is not None
     assert {i.lower() for i in declared | {dev.group(1)}} == set(fw.FERB_APPS)     # matched case-insensitively
