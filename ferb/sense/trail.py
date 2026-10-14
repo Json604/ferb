@@ -80,7 +80,7 @@ class Attribution:
         if h.get("actor") in ("owner", "ferb"):          # the watcher knows (idle, the owner-input tap)
             return h["actor"], h.get("task_id")
         if h.get("ferb_identity"):                       # FERB's own browser profile: all of it is FERB's
-            return "ferb", h.get("task_id")
+            return "ferb", h.get("task_id") or h.get("tab_task")      # a task's tab there is that task's (I6)
         if h.get("tab_task"):                            # a tab FERB opened for a task
             return "ferb", h["tab_task"]
         bundle = o.data.get("bundle_id")

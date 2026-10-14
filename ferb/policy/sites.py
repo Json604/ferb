@@ -1,12 +1,15 @@
 """Own the list of sites a task tree contacted, built from FERB's own records (L2). Must not take a host from a
 model's words, and must not judge a site.
 
-`sites_contacted(spans, tree_id)` reads two records:
+`sites_contacted(spans, tree_id)` reads three records:
 - each finished shell process's `shell.network` journal row (what FERB's egress proxy recorded it reaching, the row
   `ferb timeline` shows), for the processes of the tree's tasks;
 - the browser calls that asked to load an address in one of the tree's own tabs (an open or a navigate that ran, or
   whose outcome is unknown, so it may have reached the site): the http(s) address asked for and the address the tab
-  reported. A borrowed owner tab whose address FERB didn't ask for is not counted.
+  reported. A borrowed owner tab whose address FERB didn't ask for is not counted;
+- each page load the browser extension reported in one of the tree's own tabs (the trail's `browser_tab` rows FERB
+  made for a task, I6): where a click, a redirect, a form or a popup the task adopted took it. It reports the page a
+  tab finished loading, not each request a page makes, and nothing while sensing is paused.
 
 The answer's "Sites contacted" line is built from it by code. A host on the owner's exclusion list is already recorded
 as excluded (the proxy's host and the stored address both), so it never appears. A process still running is journaled
@@ -41,6 +44,11 @@ def sites_contacted(spans: SpanStore, tree_id: str) -> list[str]:
             continue
         shown = json.loads(row["output_json"] or "{}").get("url")
         hosts.update(_web_host(u) for u in (asked, shown))
+    for row in spans.db.conn.execute(                     # pages the tree's own tabs loaded (I6)
+            "SELECT data_json FROM (SELECT data_json, task_id FROM trail WHERE source = 'browser_tab' "
+            f"AND actor = 'ferb') WHERE {where}", params):
+        data = json.loads(row["data_json"])
+        hosts.add(_web_host(data.get("url")) or str(data.get("host") or ""))
     return sorted({h for h in (KnownDestinations.normalize("host", h) for h in hosts) if h and h != EXCLUDED})
 
 

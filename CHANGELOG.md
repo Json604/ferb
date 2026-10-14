@@ -176,6 +176,8 @@ Fix wave 2 (2026-10-15, after the whole-codebase shippability review):
   macOS ask once, and `ferb doctor` says when clipboard capture is off and how to allow it.
 - The front tab's URL and title are read for Edge, Arc, Vivaldi, Chromium and Chrome's Beta/Dev/Canary too (not only
   Safari, Chrome and Brave), and a title with commas or quotes comes back whole.
+- "Sites contacted" also lists the pages a task's own tabs loaded (search results it clicked, where a redirect or
+  form took it, a popup it adopted), not only the addresses it asked to open.
 
 Licensed under Apache-2.0.
 

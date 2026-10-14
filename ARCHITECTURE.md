@@ -1407,8 +1407,12 @@ recoverable. The fuller prevention design is after launch (spec section 6).
   the shell, and the TLS server name is always checked against it.
 - A background process that ends after its task is journaled (`shell.network`) when it exits.
 - `ferb/policy/sites.py` `sites_contacted(spans, tree_id)` lists hosts from the tree's `shell.network` rows and its
-  browser open/navigate calls that asked for an http(s) URL (unknown outcomes included; `use_tab` excluded). The
-  supervisor appends "Sites contacted: …" to the full answer, never to `display_text`.
+  browser open/navigate calls that asked for an http(s) URL (unknown outcomes included; `use_tab` excluded), and
+  every page load the extension reported in the tree's own tabs (trail `browser_tab` rows FERB made for the tree's
+  tasks: a click, a redirect's landing page, a form, an adopted popup; I6). A tab in FERB's identity profile is
+  attributed to its task too (`Attribution.decide`). Not counted: requests a page makes without loading a new page,
+  native apps' network use, and page loads while sensing is paused. The supervisor appends "Sites contacted: …" to
+  the full answer, never to `display_text`.
 - Accepted residual: after reading a malicious page, the shell could send one of the owner's files somewhere.
 
 **What asks (L3).**

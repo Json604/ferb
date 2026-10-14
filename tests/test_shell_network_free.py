@@ -262,6 +262,37 @@ def test_sites_contacted_lists_each_host_once_sorted_from_shell_records_and_brow
     assert daemon.run(none()) == []
 
 
+def test_pages_a_tasks_own_tabs_loaded_are_sites_it_contacted(daemon: RunningDaemon) -> None:
+    """I6: "Research X" opened google.com and clicked three results; the answer said "Sites contacted: google.com".
+    The extension reports every page load in a task's own tab (a click, a redirect's landing page, a popup the task
+    adopted): those hosts count too. The owner's own tabs and other trees' tabs never do."""
+    from ferb.policy.sites import sites_contacted
+    from ferb.sense.watchers.browser_tabs import tab_observation
+    d = daemon.daemon
+    tree = "tree-research"
+
+    def loads() -> None:
+        assert d.trail is not None
+        for task, url in ((tree + ".worker", "https://www.google.com/search?q=x"),
+                          (tree + ".worker", "https://en.wikipedia.org/wiki/X"),        # a clicked result
+                          (tree + ".worker", "https://news.example/story"),            # where a redirect landed
+                          ("another-tree.worker", "https://elsewhere.example/"),
+                          (None, "https://owners-own-tab.example/")):                  # the owner browsing
+            o = tab_observation("chrome", "Default", False, "updated", url, "t", False, task)
+            assert o is not None
+            d.trail.record(o)
+        # a task tab in FERB's own identity profile belongs to its task too
+        o = tab_observation("chrome", "Profile 22", True, "updated", "https://mail.example/inbox", "t", False,
+                            tree + ".worker")
+        assert o is not None
+        d.trail.record(o)
+    daemon.call_soon(loads)
+
+    async def sites() -> list[str]:
+        return sites_contacted(d.spans, tree)
+    assert daemon.run(sites()) == ["en.wikipedia.org", "mail.example", "news.example", "www.google.com"]
+
+
 @SANDBOX
 def test_a_host_a_shell_command_reached_is_listed_once_its_task_ends(daemon: RunningDaemon, origin: int) -> None:
     from ferb.policy.sites import sites_contacted
