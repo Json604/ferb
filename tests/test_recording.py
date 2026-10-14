@@ -216,12 +216,12 @@ def test_recording_frame_masks_cover_every_embedded_frame():
     out=worker('''(async()=>{
       inject=async()=>{};
       let rows=[{frameId:0,result:{documentId:'top',own:null,viewport:[0,0,100,100],rects:[],
-        frames:[{id:'e',heard:[],rect:[10,10,20,20],inner:[10,10],scaled:false}]}}];
+        frames:[{id:'e',heard:[],rect:[10,10,20,20],reflected:false}]}}];
       chrome.scripting={executeScript:async args=>args.func.toString().includes('captureState')?rows:[]};
-      const unread=await maskState(9);
+      const unread=await maskState(9,Date.now()+5000);
       rows[0].result.frames[0].heard=['t'];
       rows.push({frameId:2,result:{documentId:'child',own:'t',viewport:[0,0,20,20],rects:[],frames:[]}});
-      return {unread,read:await maskState(9)};
+      return {unread,read:await maskState(9,Date.now()+5000)};
     })()''')
     assert [i['rect'] for i in out['unread']['items'] if i['paint']] == [[10,10,20,20]]
     assert out['read']['items'] == [{'key':'frame|top|e','rect':[10,10,20,20],'paint':False,'child':'child'}]

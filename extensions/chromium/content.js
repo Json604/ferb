@@ -329,9 +329,10 @@
   // chrome.runtime.getFrameId), so each child frame announces itself: a fresh token for this round, posted to its
   // parent (announceFrame). The parent hears it only as a real message (isTrusted: no page script can synthesize one)
   // whose source is the window of one of its frame hosts, any element with a contentWindow (listenForFrames, then
-  // captureState). The background places a frame only when its host heard exactly one token, nothing else heard that
-  // token, and exactly one frame owns it; anything else paints the host whole. Only code running inside a child frame
-  // can speak as that frame, so what a page forges (dropped, added or repeated messages) only adds black.
+  // captureState). The background links a host to a frame only when it heard exactly one token, nothing else heard
+  // that token, and exactly one frame owns it; it leaves a host unpainted only when that frame, and every frame in
+  // it, is linked so and shows no secret field. Anything else paints the host whole. Only code running inside a child
+  // frame can speak as that frame, so what a page forges (dropped, added or repeated messages) only adds black.
   const ROUND = "frameLinkRound", TOKEN = "frameLinkToken";   // neutral message keys
   const FRAME_TAGS = new Set(["IFRAME", "FRAME", "OBJECT", "EMBED", "FENCEDFRAME"]);
   const hostIds = new WeakMap();                   // frame host -> id, stable while this document lives
@@ -379,22 +380,27 @@
     if (window !== top) parent.postMessage({[ROUND]: round, [TOKEN]: r.own}, "*");
     return true;
   }
-  // A transform that isn't a pure move (a flip, a turn, a scale), on the host or any ancestor, puts the frame's
-  // content somewhere its offset doesn't say, even at the same size: such a host can only be painted whole.
-  const unmoved = (m) => {                         // a computed transform's linear part is the identity
-    if (!m || m === "none") return true;
-    const v = (m.slice(m.indexOf("(") + 1).match(/-?[\d.]+(?:e-?\d+)?/g) || []).map(Number);
-    if (m.startsWith("matrix3d(")) return v.length === 16 && [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0].every((x, i) =>
-      v[i] === x) && v[15] === 1;
-    return m.startsWith("matrix(") && v.length === 6 && v[0] === 1 && v[1] === 0 && v[2] === 0 && v[3] === 1;
-  };
-  function turned(el) {
-    for (let a = el; a; ) {
-      const cs = getComputedStyle(a);
-      if (!unmoved(cs.transform) || (cs.rotate && cs.rotate !== "none") || (cs.scale && cs.scale !== "none"))
-        return true;
-      const root = a.getRootNode ? a.getRootNode() : null;
-      a = a.parentElement || (root && root.host) || null;
+  // An element's parent as the page is drawn (the flat tree): the <slot> it is drawn through when its parent holds a
+  // shadow root (closed too: content scripts can open it, though a closed root hides assignedSlot), the shadow
+  // root's host at the top of a shadow tree, else its parent element.
+  function drawnParent(el) {
+    const p = el.parentElement;
+    if (p) {
+      const sr = shadowOf(p);
+      if (!sr) return p;
+      if (el.assignedSlot) return el.assignedSlot;
+      for (const slot of sr.querySelectorAll("slot")) if (slot.assignedElements().includes(el)) return slot;
+      return p;                                    // no slot found (a browser's own shadow tree): its parent
+    }
+    const root = el.getRootNode ? el.getRootNode() : null;
+    return (root && root.host) || null;
+  }
+  // -webkit-box-reflect on the element or anything it is drawn inside draws a mirrored copy of it outside its box,
+  // where no mask goes.
+  function reflected(el) {
+    for (let a = el; a; a = drawnParent(a)) {
+      const v = getComputedStyle(a).webkitBoxReflect;
+      if (v && v !== "none") return true;
     }
     return false;
   }
@@ -402,26 +408,23 @@
   // What a screenshot or recording frame must paint over in this frame (L13), in its viewport CSS px: every secret
   // field isSecret marks (password and code fields, sealed fills), keyed so a field is known again after the capture,
   // and, after a split sealed fill, every editable field of this document; each frame host with the tokens it heard
-  // this round, its box and content origin; this frame's own token; and the visual viewport (what a capture shows,
-  // pinch zoom included). Geometry only, never a value. A separate inventory: a capture never replaces the
-  // snapshot/point bindings the worker acts with.
+  // this round and its box (getBoundingClientRect: every transform, zoom and motion path applied); whether a field or
+  // host is mirrored (reflected); this frame's own token; and the visual viewport (what a capture shows, pinch zoom
+  // included). Geometry only, never a value. A separate inventory: a capture never replaces the snapshot/point
+  // bindings the worker acts with.
   function captureState(round) {
     const rects = [], frames = [];
     const state = rounds.get(round) || {tokens: new Map(), own: null};
     rounds.delete(round);
     eachElement(document, (el) => {
       if (isHost(el)) {
-        const b = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        const b = el.getBoundingClientRect();
         frames.push({id: stableId(hostIds, el), heard: state.tokens.get(el) || [], rect: [b.x, b.y, b.width, b.height],
-                     inner: [b.x + el.clientLeft + (parseFloat(cs.paddingLeft) || 0),
-                             b.y + el.clientTop + (parseFloat(cs.paddingTop) || 0)],
-                     // resized or turned: its content can't be placed by offset (frameRect): painted whole
-                     scaled: Math.abs(b.width - el.offsetWidth) > 1 || Math.abs(b.height - el.offsetHeight) > 1
-                             || turned(el)});
+                     reflected: reflected(el)});
       } else if (isSecret(el) || maskedEditable(el)) {
         const b = el.getBoundingClientRect();     // painted, even when aria-hidden: masking errs on the safe side
         if (b.width > 0 && b.height > 0 && (!el.checkVisibility || el.checkVisibility({visibilityProperty: true})))
-          rects.push({id: stableId(fieldIds, el), rect: [b.x, b.y, b.width, b.height]});
+          rects.push({id: stableId(fieldIds, el), rect: [b.x, b.y, b.width, b.height], reflected: reflected(el)});
       }
     });
     const vv = window.visualViewport;

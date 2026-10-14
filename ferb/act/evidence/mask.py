@@ -18,9 +18,10 @@ Rect = tuple[float, float, float, float]              # x, y, w, h in points or 
 
 @dataclass(frozen=True)
 class PageItem:
-    """One thing a page's mask state names (the extension's maskState): a secret field (`field|…`) or a frame element
-    (`frame|…`), by a key that stays the same while it lives; `paint` False: a frame placed through its child, whose
-    document is `child`."""
+    """One thing a page's mask state names (the extension's maskState): a secret field of the top document
+    (`field|…`) or a frame element in it (`frame|…`), by a key that stays the same while it lives. A frame element is
+    painted whole unless its linked frame (`child`, the document it holds) and every frame inside that show no secret
+    field (`paint` False); a child frame's fields are never placed one by one."""
     key: str
     rect: Rect
     paint: bool
@@ -62,10 +63,10 @@ def _rect(v: Any) -> Rect | None:
 
 def page_masks(before: PageState, after: PageState) -> tuple[list[Rect], Rect]:
     """What one capture of a page must paint over (L13), from the looks before and after it, and the viewport the
-    rects are in. Something at the same place in both looks is painted (a frame whose document changed, a reload, is
-    painted whole). The capture is withheld when a secret field's place in it is unknown: something moved, or appeared
-    or went outside what is painted in both looks (a frame linked only in one look is inside its element's box,
-    painted in the other), or the page navigated or resized."""
+    rects are in. Something at the same place in both looks is painted (a frame element painted in either look, or
+    whose document changed, a reload, is painted whole). The capture is withheld when a secret field's place in it is
+    unknown: something moved, or appeared or went outside what is painted in both looks, or the page navigated or
+    resized."""
     if before.top != after.top or before.viewport != after.viewport:
         raise Withheld("pixels withheld: the page changed during capture")
     b, a = {i.key: i for i in before.items}, {i.key: i for i in after.items}

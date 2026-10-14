@@ -197,10 +197,13 @@ def _merge(before: dict[str, Any], after: dict[str, Any]) -> Any:
 
 
 def test_a_still_page_is_masked_with_its_fields() -> None:
-    frame = {"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": False, "child": "kid"}
-    field = {"key": "field|kid|f", "rect": [5, 35, 10, 5], "paint": True}
-    rects, viewport = _merge(_state((1, 1, 5, 5), frames=[frame, field]), _state((1, 1, 5, 5), frames=[frame, field]))
-    assert sorted(rects) == [(1.0, 1.0, 5.0, 5.0), (5.0, 35.0, 10.0, 5.0)] and viewport == (0.0, 0.0, 100.0, 50.0)
+    """The top document's fields one by one; a frame element whose frame shows a secret field whole; one whose frame
+    shows none is left as it is."""
+    clean = {"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": False, "child": "kid"}
+    secret = {"key": "frame|doc|t2", "rect": [50, 30, 40, 20], "paint": True, "child": "login"}
+    page = _state((1, 1, 5, 5), frames=[clean, secret])
+    rects, viewport = _merge(page, page)
+    assert sorted(rects) == [(1.0, 1.0, 5.0, 5.0), (50.0, 30.0, 40.0, 20.0)] and viewport == (0.0, 0.0, 100.0, 50.0)
 
 
 @pytest.mark.parametrize("before, after", [
@@ -215,22 +218,21 @@ def test_a_field_whose_place_during_capture_is_unknown_withholds_the_capture(bef
         _merge(before, after)
 
 
-def test_a_frame_linked_only_after_the_first_look_is_covered_by_its_whole_box() -> None:
-    """The link handshake landed between the two looks: before, the frame is painted whole; after, its fields."""
-    whole = {"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": True}
-    linked = {"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": False, "child": "kid"}
-    field = {"key": "field|kid|f", "rect": [5, 35, 10, 5], "paint": True}
-    rects, _ = _merge(_state(frames=[whole]), _state(frames=[linked, field]))
-    assert (0.0, 30.0, 40.0, 20.0) in rects
+@pytest.mark.parametrize("before, after", [
+    ({"paint": True}, {"paint": False, "child": "kid"}),                  # the link landed between the looks
+    ({"paint": False, "child": "kid"}, {"paint": True, "child": "kid"}),  # a secret field appeared in the frame
+])
+def test_a_frame_whose_link_or_secret_changed_during_capture_is_painted_whole(before: Any, after: Any) -> None:
+    host = {"key": "frame|doc|t1", "rect": [0, 30, 40, 20]}
+    rects, _ = _merge(_state(frames=[host | before]), _state(frames=[host | after]))
+    assert rects == [(0.0, 30.0, 40.0, 20.0)]
 
 
 def test_an_iframe_reloading_during_capture_is_painted_whole_not_withheld() -> None:
-    old = [{"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": False, "child": "old"},
-           {"key": "field|old|f", "rect": [5, 35, 10, 5], "paint": True}]
-    new = [{"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": False, "child": "new"},
-           {"key": "field|new|g", "rect": [20, 40, 10, 5], "paint": True}]
+    old = [{"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": False, "child": "old"}]
+    new = [{"key": "frame|doc|t1", "rect": [0, 30, 40, 20], "paint": False, "child": "new"}]
     rects, _ = _merge(_state(frames=old), _state(frames=new))
-    assert (0.0, 30.0, 40.0, 20.0) in rects
+    assert rects == [(0.0, 30.0, 40.0, 20.0)]
 
 
 # ---------- native window captures: AX secret fields and the extension's rects ----------
@@ -432,8 +434,7 @@ function frameWindow(opts) {
   const listeners = {};
   const g = {console, crypto: globalThis.crypto, innerWidth: opts.viewport[0], innerHeight: opts.viewport[1],
     visualViewport: opts.visual || null,
-    getComputedStyle: el => ({paddingLeft: "0px", paddingTop: "0px", transform: el.transform || "none",
-                              rotate: el.rotate || "none", scale: el.scale || "none"}),
+    getComputedStyle: el => Object.assign({webkitBoxReflect: "none"}, el.style),   // as Chromium computes it
     MutationObserver: class { observe() {} }, location: {origin: "https://example.test", href: "https://example.test/"},
     addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
     chrome: {runtime: {sendMessage() {}}, dom: {openOrClosedShadowRoot: el => el.closedRoot || el.shadowRoot || null}},
@@ -464,6 +465,15 @@ function capture(frames) {                            // the background's three 
 const el = (tag, r, extra) => Object.assign({tagName: tag, type: "text", clientLeft: 0, clientTop: 0,
   offsetWidth: r[2], offsetHeight: r[3], checkVisibility: () => true,
   getBoundingClientRect: () => ({x: r[0], y: r[1], width: r[2], height: r[3]})}, extra || {});
+function slotted(host, style, open) {    // `host` is a light child of x, drawn through x's shadow tree: wrapper > slot
+  const x = el("DIV", [0, 0, 1000, 800]), wrapper = el("DIV", [0, 0, 1000, 800], {style, parentElement: null});
+  const slot = el("SLOT", [0, 0, 0, 0], {parentElement: wrapper, assignedElements: () => [host]});
+  const root = {host: x, querySelectorAll: sel => sel === "slot" ? [slot] : [wrapper, slot]};
+  wrapper.getRootNode = () => root;
+  Object.assign(host, {parentElement: x, assignedSlot: open ? slot : null});   // a closed root hides assignedSlot
+  Object.assign(x, open ? {shadowRoot: root} : {closedRoot: root, shadowRoot: null});
+  return x;
+}
 ''' + "\n"
 
 
@@ -481,7 +491,7 @@ def _mask_state(rows: Any) -> Any:
       const rows = ROWS;
       chrome.scripting = {executeScript: async args => args.func.toString().includes("captureState") ? rows :
         rows.map(r => ({frameId: r.frameId, result: true}))};
-      return await maskState(9);
+      return await maskState(9, Date.now() + 5000);
     })()'''.replace("ROWS", json.dumps(rows)))
 
 
@@ -519,18 +529,21 @@ console.log(JSON.stringify({rows, posted}));
     assert [f["heard"] for f in page["frames"]] == [[rows[1]["result"]["own"]], [rows[2]["result"]["own"]], []]
     assert all("ferb" not in json.dumps(m).lower() for m in out["posted"])                  # neutral message keys
     state = _mask_state(rows)
-    assert _painted(state) == sorted([[10, 20, 100, 30], [30, 40, 20, 10], [205, 305, 40, 10], [601, 502, 30, 10],
+    # the top document's own fields exactly (a closed shadow root's too); a child frame's never one by one: the
+    # <iframe> and <object> holding a password field are painted whole, as is the host nothing loaded in
+    assert _painted(state) == sorted([[10, 20, 100, 30], [30, 40, 20, 10], [200, 300, 400, 200], [600, 500, 300, 100],
                                       [700, 100, 50, 50]])
+    assert [i.get("child") for i in state["items"] if i["key"].startswith("frame|")] == [
+        rows[1]["result"]["documentId"], rows[2]["result"]["documentId"], None]          # which frame each holds
     assert state["top"] == page["documentId"] and state["viewport"] == [0, 0, 1000, 800]
 
 
 def _frames(*heard: Any, rects: Any = None) -> list[dict[str, Any]]:
     """Top-frame rows: frame elements E0, E1, ... at x = 0, 200, ... that heard these tokens, and their children."""
     top = {"documentId": "top", "own": None, "viewport": [0, 0, 1400, 800], "rects": [], "frames": [
-        {"id": f"E{i}", "heard": h, "rect": [200 * i, 0, 100, 100], "inner": [200 * i, 0], "scaled": False}
-        for i, h in enumerate(heard)]}
-    kids = [{"documentId": doc, "own": own, "viewport": [0, 0, 100, 100], "rects": [{"id": "f", "rect": r}],
-             "frames": []} for doc, own, r in (rects or [])]
+        {"id": f"E{i}", "heard": h, "rect": [200 * i, 0, 100, 100], "reflected": False} for i, h in enumerate(heard)]}
+    kids = [{"documentId": doc, "own": own, "viewport": [0, 0, 100, 100], "frames": [],
+             "rects": [{"id": "f", "rect": r, "reflected": False}] if r else []} for doc, own, r in (rects or [])]
     return [{"frameId": i, "result": f} for i, f in enumerate([top] + kids)]
 
 
@@ -554,13 +567,14 @@ def test_a_forged_link_can_only_add_black(heard: Any, withheld: bool) -> None:
 def test_unlinked_or_doubly_heard_frames_are_painted_whole() -> None:
     rows = _frames(["tA"], ["tA"], [], ["tD", "tD"], ["tE"], ["tF"],
                    rects=[("A1", "tA", [1, 1, 5, 5]), ("D", "tD", [1, 1, 5, 5]), ("E", "tE", [2, 2, 5, 5]),
-                          ("F", "tF", [3, 3, 5, 5])])
-    rows[0]["result"]["frames"][4]["scaled"] = True
+                          ("F", "tF", None)])
     state = _mask_state(rows)
-    # E0/E1 heard the same token: both whole; E2 heard nothing: whole; E3 heard one token twice: whole; E4 transformed;
-    # E5 heard exactly one token nobody else heard, which exactly one frame owns: F is placed, its field painted
+    # E0/E1 heard the same token: both whole; E2 heard nothing: whole; E3 heard one token twice: whole; E4 and E5
+    # each heard exactly one token nobody else heard, which exactly one frame owns: E4's frame shows a secret field,
+    # so E4 is painted whole; E5's shows none, so E5 is left showing it
     assert _painted(state) == sorted([[0, 0, 100, 100], [200, 0, 100, 100], [400, 0, 100, 100], [600, 0, 100, 100],
-                                      [800, 0, 100, 100], [1003, 3, 5, 5]])
+                                      [800, 0, 100, 100]])
+    assert {"key": "frame|top|E5", "rect": [1000, 0, 100, 100], "paint": False, "child": "F"} in state["items"]
     assert "withheld" not in state
 
 
@@ -592,9 +606,9 @@ def test_the_mask_state_is_withheld_only_when_the_page_cant_be_read() -> None:
       inject = async () => {};
       chrome.scripting = {executeScript: async args => args.func.toString().includes("captureState") ?
         [{frameId: 3, result: {documentId: 'kid', own: 't', viewport: [0, 0, 1, 1], rects: [], frames: []}}] : []};
-      const noTop = await maskState(9);
+      const noTop = await maskState(9, Date.now() + 5000);
       chrome.scripting = {executeScript: async () => { throw Error('Cannot access contents of the page'); }};
-      return {noTop, unreadable: await maskState(9)};
+      return {noTop, unreadable: await maskState(9, Date.now() + 5000)};
     })()''')
     assert "withheld" in out["noTop"] and "withheld" in out["unreadable"]
 
@@ -618,7 +632,9 @@ console.log(JSON.stringify({looks, again}));
     for rows in out["looks"]:
         page, kid = rows[0]["result"], rows[1]["result"]
         assert page["frames"][0]["heard"] == [kid["own"]] and kid["own"]
-        assert _painted(_mask_state(rows)) == [[205, 305, 40, 10]]       # placed exactly, no spurious black box
+        assert _mask_state(rows)["items"] == [{"key": f"frame|{page['documentId']}|{page['frames'][0]['id']}",
+                                               "rect": [200, 300, 400, 200], "paint": True,
+                                               "child": kid["documentId"]}]    # linked exactly: no second black box
     assert out["looks"][0][1]["result"]["own"] != out["looks"][1][1]["result"]["own"]
     assert out["again"]["frames"][0]["heard"] == []
 
@@ -634,12 +650,62 @@ def test_looks_at_one_tab_run_one_at_a_time() -> None:
         return step === "captureState" ? [{frameId: 0, result: {documentId: 'top', own: null,
           viewport: [0, 0, 10, 10], rects: [], frames: []}}] : [];
       }};
-      const [one, two] = await Promise.all([maskState(4), maskState(4)]);
+      const [one, two] = await Promise.all([maskState(4, Date.now() + 5000), maskState(4, Date.now() + 5000)]);
       return {order, one, two};
     })()''')
     rounds = [step.split(":")[1] for step in out["order"]]
     assert len(out["order"]) == 6 and rounds[:3] == [rounds[0]] * 3 and rounds[3:] == [rounds[3]] * 3
     assert rounds[0] != rounds[3] and "withheld" not in out["one"] and "withheld" not in out["two"]
+
+
+def test_a_stuck_look_holds_its_tab_only_until_its_deadline() -> None:
+    """A look that never finishes (a frame that never answers) holds its tab only until its command's deadline; a look
+    waits for its turn only until its own deadline and is skipped, never run late, when that passes first."""
+    out = worker('''(async () => {
+      inject = async () => {};
+      const calls = {4: [], 5: [], 6: []}, first = {};
+      chrome.scripting = {executeScript: args => {
+        const tab = args.target.tabId, round = args.args[0];
+        calls[tab].push(round);
+        if (!(tab in first)) first[tab] = round;
+        if (round === first[tab]) return new Promise(() => {});              // each tab's first look never comes back
+        const step = ["listenForFrames", "announceFrame", "captureState"].find(n => args.func.toString().includes(n));
+        return Promise.resolve(step === "captureState" ? [{frameId: 0, result: {documentId: 'top', own: null,
+          viewport: [0, 0, 10, 10], rects: [], frames: []}}] : []);
+      }};
+      const now = Date.now(), gaveUp = new Promise(resolve => setTimeout(() => resolve('still waiting'), 3000));
+      maskState(4, now + 100);                                                // stuck
+      const next = maskState(4, now + 5000);                                  // its turn: the stuck look's deadline
+      maskState(5, now + 2000);                                               // stuck
+      const skipped = maskState(5, now + 50).then(r => ({r, after: Date.now() - now}));   // its deadline comes first
+      const late = await maskState(6, now - 1);                               // already past its deadline
+      return {late, skipped: await Promise.race([skipped, gaveUp]), next: await Promise.race([next, gaveUp]),
+              calls: [calls[4].length, new Set(calls[4]).size, calls[5].length, calls[6].length]};
+    })()''')
+    assert out["next"] == {"top": "top", "viewport": [0, 0, 10, 10], "items": []}, out
+    assert "withheld" in out["skipped"]["r"] and out["skipped"]["after"] < 1000, out    # not the stuck look's 2 s
+    assert "withheld" in out["late"], out
+    assert out["calls"] == [4, 2, 1, 0]          # a skipped look never touches the page; the next one runs whole
+
+
+def test_every_look_waits_only_until_its_commands_deadline() -> None:
+    """The deadline is the command's own (executeCommand's _timeout_ms), not a new number."""
+    out = worker('''(async () => {
+      attach = async id => tabState(id);
+      cdp = async () => ({data: 'jpeg'});
+      const left = [];
+      maskState = async (tab, deadline) => {
+        left.push(deadline - Date.now());
+        return {top: 'd', viewport: [0, 0, 10, 10], items: []};
+      };
+      chrome.windows = {getAll: async () => [{id: 1, left: 0, top: 0, width: 10, height: 10, state: 'normal'}]};
+      chrome.tabs.query = async () => [{id: 7}];
+      await commands.screenshot({tab_id: 3, _timeout_ms: 4000});
+      await commands.record_frame({tab_id: 3, _timeout_ms: 4000});
+      await commands.window_secrets({bounds: [0, 0, 10, 10], _timeout_ms: 4000});
+      return left;
+    })()''')
+    assert len(out) == 5 and all(3000 < ms <= 4000 for ms in out), out
 
 
 def test_a_message_without_a_source_is_nobodys_announcement() -> None:
@@ -653,31 +719,136 @@ console.log(JSON.stringify(page.__ferb.captureState("round-1")));
     assert out["frames"][0]["heard"] == []                        # not the empty host's: it has no window to send
 
 
-@pytest.mark.parametrize("transform, placed", [
-    ({"transform": "matrix(-1, 0, 0, 1, 0, 0)"}, False),                       # flipped: same size, mirrored
-    ({"transform": "matrix(-1, 0, 0, -1, 0, 0)"}, False),                      # turned 180 degrees
-    ({"rotate": "90deg"}, False),                                              # a square turned 90 degrees
-    ({"scale": "-1 1"}, False),
-    ({"transform": "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 30, 40, 0, 1)"}, True),   # moved only: placeable
-    ({"transform": "matrix(1, 0, 0, 1, 10, 20)"}, True),
-])
-@pytest.mark.parametrize("on", ["host", "ancestor"])
-def test_a_host_transformed_on_itself_or_an_ancestor_is_painted_whole(transform: Any, placed: bool, on: str) -> None:
-    """A size-preserving transform (a flip, a half turn, a quarter turn of a square) would put the field's mask where
-    the field isn't; only a pure move keeps the offset right."""
-    style = json.dumps(transform)
-    out = _content(r'''
+def _scene(build: str, kid: str = 'el("INPUT", [5, 5, 40, 10], {type: "password"})') -> Any:
+    """The top frame's and its one child's captureState rows. `build` puts the child's frame element (`host`, holding
+    `a.proxy`) and whatever surrounds it into topNodes; rects are what getBoundingClientRect reports in the browser,
+    every transform, zoom and motion path already applied."""
+    return _content(r'''
 const topNodes = [];
 const page = frameWindow({viewport: [1000, 800], nodes: topNodes});
-const a = child(page, [el("INPUT", [5, 5, 40, 10], {type: "password"})], [200, 200]);
-const box = Object.assign({tagName: "DIV", parentElement: null}, __ON__ === "ancestor" ? __STYLE__ : {});
-topNodes.push(el("IFRAME", [200, 300, 200, 200], Object.assign({contentWindow: a.proxy, parentElement: box},
-                                                              __ON__ === "host" ? __STYLE__ : {})));
+const a = child(page, [__KID__], [200, 200]);
+__BUILD__
 console.log(JSON.stringify(capture([page, a.kid])));
-'''.replace("__STYLE__", style).replace("__ON__", json.dumps(on)))
-    assert out[0]["result"]["frames"][0]["scaled"] is (not placed)
-    painted = _painted(_mask_state(out))
-    assert painted == ([[205, 305, 40, 10]] if placed else [[200, 300, 200, 200]])
+'''.replace("__KID__", kid).replace("__BUILD__", build))
+
+
+@pytest.mark.parametrize("build, painted", [
+    # round-3 re-review: a flip on a shadow-tree wrapper around the <slot> the iframe is drawn through
+    ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy});'
+     'topNodes.push(slotted(host, {transform: "matrix(-1, 0, 0, 1, 0, 0)"}, false), host);', [200, 300, 200, 200]),
+    ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy});'
+     'topNodes.push(slotted(host, {transform: "matrix(-1, 0, 0, 1, 0, 0)"}, true), host);', [200, 300, 200, 200]),
+    # a CSS motion path turns the host; computed `transform` stays none
+    ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy,'
+     ' style: {offsetPath: "path(\'M 0 0 H 100\')", offsetRotate: "auto 90deg"}}); topNodes.push(host);',
+     [200, 300, 200, 200]),
+    # CSS zoom on an ancestor: the host's box is drawn twice as big, its offset size agrees with it
+    ('const box = el("DIV", [0, 0, 1000, 800], {style: {zoom: "2"}});'
+     'const host = el("IFRAME", [200, 300, 400, 400], {contentWindow: a.proxy, parentElement: box});'
+     'topNodes.push(box, host);', [200, 300, 400, 400]),
+    ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy,'
+     ' style: {transform: "matrix(-1, 0, 0, 1, 0, 0)"}}); topNodes.push(host);', [200, 300, 200, 200]),
+    ('const host = el("IFRAME", [210, 320, 200, 200], {contentWindow: a.proxy,'
+     ' style: {transform: "matrix(1, 0, 0, 1, 10, 20)"}}); topNodes.push(host);', [210, 320, 200, 200]),
+    # partly out of view: the part of the host the viewport shows
+    ('const host = el("IFRAME", [900, 700, 400, 400], {contentWindow: a.proxy}); topNodes.push(host);',
+     [900, 700, 100, 100]),
+], ids=["slot-flipped-closed", "slot-flipped-open", "motion-path", "zoomed-ancestor", "flipped-host", "moved-host",
+        "partly-in-view"])
+def test_a_secret_field_in_a_child_frame_paints_its_whole_host(build: str, painted: list[int]) -> None:
+    """Controller ruling, round 4: a child frame's fields are never placed one by one (CSS on the host's ancestors can
+    move the frame where no offset says: a transform around a <slot>, a motion path, zoom). Its host's own box, which
+    already includes everything the browser applies, is painted whole instead."""
+    rows = _scene(build)
+    state = _mask_state(rows)
+    assert "withheld" not in state and _painted(state) == [painted]
+    host = state["items"][0]
+    assert host["child"] == rows[1]["result"]["documentId"]       # the link still names the frame inside
+
+
+def test_a_secret_field_deeper_in_frames_paints_the_top_documents_host_whole() -> None:
+    out = _content(r'''
+function nest(inner) {                     // top > iframe H1 > frame C1 > (iframe H2 > frame C2) + `inner` elements
+  const topNodes = [], midNodes = [];
+  const page = frameWindow({viewport: [1000, 800], nodes: topNodes});
+  const c1 = child(page, midNodes, [500, 400]);
+  const c2 = child(c1.kid, inner.c2, [200, 100]);
+  topNodes.push(el("IFRAME", [100, 100, 500, 400], {contentWindow: c1.proxy}));
+  midNodes.push(el("IFRAME", [10, 10, 200, 100], {contentWindow: c2.proxy}), ...inner.c1);
+  return capture([page, c1.kid, c2.kid]);
+}
+const secret = () => el("INPUT", [1, 1, 30, 10], {type: "password"});
+console.log(JSON.stringify({
+  deep: nest({c1: [], c2: [secret()]}),                                       // the field two frames down
+  middle: nest({c1: [secret()], c2: []}),                                     // in the frame between
+  clean: nest({c1: [], c2: []}),                                              // nothing to hide anywhere
+  unlinked: nest({c1: [el("IFRAME", [300, 10, 50, 50], {contentWindow: null})], c2: []}),   // nothing linked in it
+  hidden: nest({c1: [el("IFRAME", [300, 10, 0, 0], {contentWindow: null})], c2: []}),       // ... but it has no area
+}));
+''')
+    whole = [[100, 100, 500, 400]]
+    for case in ("deep", "middle", "unlinked"):
+        state = _mask_state(out[case])
+        assert "withheld" not in state and _painted(state) == whole, case     # never placed in a frame's frame
+    for case in ("clean", "hidden"):
+        state = _mask_state(out[case])
+        assert state["items"] == [{"key": state["items"][0]["key"], "rect": [100, 100, 500, 400], "paint": False,
+                                   "child": out[case][1]["result"]["documentId"]}], case
+
+
+def test_a_top_document_field_is_masked_exactly_whatever_its_ancestors_do() -> None:
+    """The top document's own fields keep precise masks: getBoundingClientRect is already the box the field is drawn
+    in, in viewport px, whatever transforms its ancestors or a shadow tree apply."""
+    rows = _scene('''
+const turned = el("DIV", [0, 0, 600, 600], {style: {transform: "matrix(0.7, 0.7, -0.7, 0.7, 0, 0)"}});
+const wrapper = el("DIV", [0, 0, 600, 600], {style: {transform: "matrix(-1, 0, 0, 1, 0, 0)"}, parentElement: null});
+const shadowed = el("INPUT", [400, 50, 120, 20], {type: "password", parentElement: wrapper});
+const root = {host: null, querySelectorAll: () => [wrapper, shadowed]};
+wrapper.getRootNode = () => root;
+const x = el("DIV", [0, 0, 1000, 800], {closedRoot: root, shadowRoot: null});
+root.host = x;
+topNodes.push(turned, el("INPUT", [37, 61, 141, 141], {type: "password", parentElement: turned}), x);
+''', kid="")
+    state = _mask_state(rows)
+    assert "withheld" not in state and _painted(state) == [[37, 61, 141, 141], [400, 50, 120, 20]]
+
+
+REFLECT = '{webkitBoxReflect: "below 0px"}'
+
+
+@pytest.mark.parametrize("build, kid, withheld", [
+    # the secret-bearing frame's host, drawn through a shadow tree whose wrapper around the <slot> reflects
+    ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy});'
+     f'topNodes.push(slotted(host, {REFLECT}, false), host);', None, True),
+    ('const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy});'
+     f'topNodes.push(slotted(host, {REFLECT}, true), host);', None, True),
+    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+     'const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy, parentElement: box});'
+     'topNodes.push(box, host);', None, True),
+    # a host nothing is linked in (painted whole: it may hold anything), under a reflecting ancestor
+    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+     'topNodes.push(box, el("IFRAME", [700, 100, 50, 50], {contentWindow: null, parentElement: box}));', "", True),
+    # a top-document field: its reflecting ancestor, itself, or the host of the shadow tree it is in
+    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+     'topNodes.push(box, el("INPUT", [10, 20, 100, 30], {type: "password", parentElement: box}));', "", True),
+    (f'topNodes.push(el("INPUT", [10, 20, 100, 30], {{type: "password", style: {REFLECT}}}));', "", True),
+    ('const field = el("INPUT", [10, 20, 100, 30], {type: "password", parentElement: null});'
+     f'const x = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}, shadowRoot: null}});'
+     'const root = {host: x, querySelectorAll: () => [field]}; field.getRootNode = () => root; x.closedRoot = root;'
+     'topNodes.push(x);', "", True),
+    # nothing to hide is mirrored: a host whose frame shows no secret field, a reflecting box beside the field
+    (f'const box = el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}});'
+     'const host = el("IFRAME", [200, 300, 200, 200], {contentWindow: a.proxy, parentElement: box});'
+     'topNodes.push(box, host);', "", False),
+    (f'topNodes.push(el("DIV", [0, 0, 600, 600], {{style: {REFLECT}}}),'
+     'el("INPUT", [610, 20, 100, 30], {type: "password"}));', "", False),
+], ids=["slot-closed", "slot-open", "host-ancestor", "unlinked-host", "field-ancestor", "field-itself",
+        "field-in-shadow-tree", "clean-host", "beside-the-field"])
+def test_a_mirrored_secret_withholds_the_capture(build: str, kid: str | None, withheld: bool) -> None:
+    """-webkit-box-reflect draws a mirrored copy of an element and everything in it outside its box, where no mask
+    goes: a secret field or a host painted whole under one withholds the capture."""
+    state = _mask_state(_scene(build) if kid is None else _scene(build, kid))
+    assert ("withheld" in state) is withheld, state
 
 
 def test_a_pinch_zoom_reports_the_visual_viewport() -> None:

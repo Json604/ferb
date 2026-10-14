@@ -381,11 +381,17 @@ async function inFrame(tabId, frameId, func, args) {
 }
 
 // One look at a time per tab: a recording's frames (two looks each) and a worker's screenshot or a native capture
-// of the same tab can overlap, and their rounds must not interleave in the page.
+// of the same tab can overlap, and their rounds must not interleave in the page. `deadline` is the command's own
+// (Date.now() + its _timeout_ms): a look holds its tab until it ends or its deadline passes, waits for its turn only
+// until its deadline, and is skipped (withheld, the page never touched) when that passes first.
 const maskLooks = new Map();                       // tabId -> the end of that tab's chain of looks
-function maskState(tabId) {
-  const look = (maskLooks.get(tabId) || Promise.resolve()).then(() => readMaskState(tabId));
-  const done = look.catch(() => {});
+function maskState(tabId, deadline) {
+  let timer;
+  const expired = new Promise(resolve => { timer = setTimeout(resolve, Math.max(0, deadline - Date.now())); });
+  const turn = Promise.race([(maskLooks.get(tabId) || Promise.resolve()).then(() => true), expired.then(() => false)]);
+  const look = turn.then(mine => mine && Date.now() < deadline ? readMaskState(tabId)
+    : {withheld: "this look at the page ran out of time waiting for its turn, so its secret fields can't be found"});
+  const done = Promise.race([look.catch(() => {}), expired]).then(() => clearTimeout(timer));
   maskLooks.set(tabId, done);
   done.then(() => { if (maskLooks.get(tabId) === done) maskLooks.delete(tabId); });
   return look;
@@ -393,12 +399,18 @@ function maskState(tabId) {
 
 // What a capture of this tab must paint over (L13), in top-viewport CSS px. Three rounds over every frame: all listen,
 // each child announces a fresh token to its parent, each reports its secret fields, its frame hosts with the tokens
-// they heard, and its own token (content.js). A child frame is placed, through its host and clipped to it, only when
-// that host heard exactly one token, nothing else heard that token, and exactly one frame owns it; any other host
-// (nothing loaded, out of reach, transformed, a token missing, repeated or shared) is painted whole, so a forged
-// message only adds black. Withheld when a frame with secret fields is accounted for by no host (it can't be placed
-// or covered: an <embed>, a host made mid-capture) or the page can't be read. Items carry keys, so the daemon can
-// tell what moved between the looks before and after a capture. Geometry only, never page content.
+// they heard, and its own token (content.js). Only the top document's own secret fields (its shadow roots' too) are
+// masked one by one: their getBoundingClientRect is already where they are drawn. A child frame's content is never
+// placed (CSS on the host's ancestors can move it where no offset says). A host is linked to a frame when it heard
+// exactly one token, nothing else heard that token, and exactly one frame owns it; a top-document host is left
+// unpainted only when it is linked to a frame that is clean: no secret field, and every host in it with any area is
+// linked to a clean frame. Any other host (holding a secret at any depth, nothing loaded, out of reach, a token
+// missing, repeated or shared) is painted whole: its box, clipped to the viewport, already includes every transform
+// the browser applies, and a forged message only adds black. Withheld when a frame with secret fields is accounted
+// for by no host (it can't be covered: an <embed>, a host made mid-capture), when a top-document secret field or a
+// host painted whole is mirrored (-webkit-box-reflect draws the copy outside the mask), or the page can't be read.
+// Items carry keys, so the daemon can tell what moved between the looks before and after a capture. Geometry only,
+// never page content.
 async function readMaskState(tabId) {
   const round = crypto.randomUUID();
   let results;
@@ -415,9 +427,8 @@ async function readMaskState(tabId) {
   const times = new Map(), owners = new Map();     // token -> how often any host heard it; -> the frame owning it
   for (const f of frames) for (const c of f.frames) for (const t of c.heard) times.set(t, (times.get(t) || 0) + 1);
   for (const f of frames) if (f !== top && f.own) owners.set(f.own, owners.has(f.own) ? null : f);
-  const linked = c =>
-    c.heard.length === 1 && times.get(c.heard[0]) === 1 && !c.scaled && owners.get(c.heard[0]) || null;
-  const accounted = new Set([top]);                // placed, or inside a host that is painted whole or out of view
+  const linked = c => c.heard.length === 1 && times.get(c.heard[0]) === 1 && owners.get(c.heard[0]) || null;
+  const accounted = new Set([top]);                // heard by a host in an accounted frame, linked or not
   for (const queue = [top]; queue.length;) {
     for (const c of queue.shift().frames) for (const t of c.heard) {
       const f = owners.get(t);
@@ -425,30 +436,38 @@ async function readMaskState(tabId) {
     }
   }
   if (frames.some(f => !accounted.has(f) && f.rects.length))
-    return {withheld: "a frame's secret fields can't be placed on the page or covered"};
+    return {withheld: "a frame's secret fields can't be covered: no frame element on the page is known to hold it"};
   const cut = (r, c) => {
     const x = Math.max(r[0], c[0]), y = Math.max(r[1], c[1]);
     const right = Math.min(r[0] + r[2], c[0] + c[2]), bottom = Math.min(r[1] + r[3], c[1] + c[3]);
     return right > x && bottom > y ? [x, y, right - x, bottom - y] : null;
   };
-  const items = [], placed = new Set([top]);
-  const place = (f, ox, oy, clip) => {
-    for (const r of f.rects) {
-      const m = cut([r.rect[0] + ox, r.rect[1] + oy, r.rect[2], r.rect[3]], clip);
-      if (m) items.push({key: `field|${f.documentId}|${r.id}`, rect: m, paint: true});
+  const clean = new Map();                          // frame -> nothing in it or in any frame below it to paint
+  const isClean = f => {
+    if (!clean.has(f)) {
+      clean.set(f, false);                            // met again inside itself: not clean
+      clean.set(f, !f.rects.length && f.frames.every(c => {
+        if (!(c.rect[2] > 0 && c.rect[3] > 0)) return true;          // a host with no area shows nothing of its frame
+        const k = linked(c);
+        return !!k && isClean(k);
+      }));
     }
-    for (const c of f.frames) {
-      const box = cut([c.rect[0] + ox, c.rect[1] + oy, c.rect[2], c.rect[3]], clip);
-      if (!box) continue;                                 // off the page or clipped away: nothing of it shows
-      const key = `frame|${f.documentId}|${c.id}`, child = linked(c);
-      if (child && !placed.has(child)) {
-        placed.add(child);
-        items.push({key, rect: box, paint: false, child: child.documentId});
-        place(child, c.inner[0] + ox, c.inner[1] + oy, box);
-      } else items.push({key, rect: box, paint: true});
-    }
+    return clean.get(f);
   };
-  place(top, 0, 0, top.viewport);
+  const shown = c => { const k = linked(c); return !!k && isClean(k); };
+  if (top.rects.some(r => r.reflected) || top.frames.some(c => c.reflected && !shown(c)))
+    return {withheld: "a secret field is mirrored on the page (-webkit-box-reflect), outside where it can be painted"};
+  const items = [];
+  for (const r of top.rects) {
+    const m = cut(r.rect, top.viewport);
+    if (m) items.push({key: `field|${top.documentId}|${r.id}`, rect: m, paint: true});
+  }
+  for (const c of top.frames) {
+    const box = cut(c.rect, top.viewport);
+    if (!box) continue;                                   // off the page: nothing of it shows
+    const key = `frame|${top.documentId}|${c.id}`, child = linked(c);
+    items.push(child ? {key, rect: box, paint: !isClean(child), child: child.documentId} : {key, rect: box, paint: true});
+  }
   return {top: top.documentId, viewport: top.viewport, items};
 }
 
@@ -1385,15 +1404,16 @@ const commands = {
   // what the page shows (L13): the reply's `mask` is the page's mask state before and after the capture (maskState)
   // and the daemon paints the secret fields over before anything else sees the picture, or withholds it when it
   // can't tell where they were. `withheld` (no picture) only when the page can't be read.
-  async screenshot({ tab_id, format, quality, snap }) {
+  async screenshot({ tab_id, format, quality, snap, _timeout_ms }) {
+    const deadline = Date.now() + _timeout_ms;
     await attach(tab_id);
     const st = tabState(tab_id);
     st.shot = null; st.visual = null;
-    const first = await maskState(tab_id);
+    const first = await maskState(tab_id, deadline);
     if (first.withheld) return {withheld: first.withheld};
     const before = snap == null ? null : JSON.stringify(await visualStates(tab_id));
     const { data } = await cdp(tab_id, "Page.captureScreenshot", { format: format || "jpeg", quality: quality || 70 });
-    const last = await maskState(tab_id);
+    const last = await maskState(tab_id, deadline);
     if (last.withheld) return {withheld: last.withheld};
     const mask = {before: first, after: last};
     if (before !== null) {
@@ -1404,7 +1424,8 @@ const commands = {
     st.shot = data;
     return { parts: Math.ceil(data.length / SHOT_PART), size: data.length, format: format || "jpeg", mask };
   },
-  async record_frame({tab_id, part, capture_id}) {
+  async record_frame({tab_id, part, capture_id, _timeout_ms}) {
+    const deadline = Date.now() + _timeout_ms;
     const st = tabState(tab_id);
     if (part !== undefined) {
       const saved = st.recordFrame;
@@ -1415,11 +1436,11 @@ const commands = {
       return {data};
     }
     await attach(tab_id);
-    const first = await maskState(tab_id);     // as a screenshot (L13): the page before and after, or withheld
+    const first = await maskState(tab_id, deadline);   // as a screenshot (L13): the page before and after, or withheld
     if (first.withheld) return {withheld: first.withheld};
     const {data} = await cdp(tab_id, 'Page.captureScreenshot',
       {format:'jpeg', quality:70, fromSurface:true, captureBeyondViewport:false});
-    const last = await maskState(tab_id);
+    const last = await maskState(tab_id, deadline);
     if (last.withheld) return {withheld: last.withheld};
     const mask = {before: first, after: last};
     if (data.length <= SHOT_PART) return {data, mask};
@@ -1472,7 +1493,8 @@ const commands = {
   // A native capture of this browser's window (L13): the mask state (maskState) of the active tab of this profile's
   // window at exactly these screen bounds, for the daemon to paint over. A minimized window is never the one on
   // screen. Geometry only, never page content. complete:false: the page can't be read.
-  async window_secrets({ bounds }) {
+  async window_secrets({ bounds, _timeout_ms }) {
+    const deadline = Date.now() + _timeout_ms;
     const [x, y, w, h] = bounds;
     const wins = await chrome.windows.getAll({ windowTypes: ["normal", "popup"] });
     const matches = wins.filter((v) => v.state !== "minimized" && Math.abs(v.left - x) <= 2 &&
@@ -1480,7 +1502,7 @@ const commands = {
     if (matches.length !== 1) return {matched: false, reason: matches.length ? "ambiguous_window" : "window_not_found"};
     const [tab] = await chrome.tabs.query({ active: true, windowId: matches[0].id });
     if (!tab) return {matched: true, complete: false, reason: "no_active_tab"};
-    const state = await maskState(tab.id);
+    const state = await maskState(tab.id, deadline);
     if (state.withheld) return {matched: true, complete: false, reason: state.withheld};
     return {matched: true, complete: true, state};
   },
