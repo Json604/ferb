@@ -111,6 +111,8 @@ Final review fixes (2026-10-14):
   is stated as not covered, so a send to someone you didn't name asks, as for a schedule.
 - A message that answers a question and also asks for something else ("the work one, and stop the other task")
   does both; before, everything but the answer was dropped silently.
+- A question no longer raises a macOS banner while the app is connected and showing it; a banner, when one is sent,
+  names the question without telling you to "open ferb chat".
 
 Licensed under Apache-2.0.
 

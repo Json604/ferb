@@ -1779,12 +1779,15 @@ class Daemon:
         self._publish('task.result', {**ev, 'at': at, 'shown': shown})
 
     def _approval_notice(self, data: dict[str, Any]) -> None:
-        """An approval is waiting and no chat is open for that task: tell the owner (notification). The setup profile
-        question is never a banner (L3): an open client (`chat.attach`, `ferb setup`) started it and shows it inline."""
+        """An approval is waiting and no chat is open for that task: tell the owner (notification), only when no
+        connected FERB client receives `approval.requested` to show it (L9, spec 8.4; final review M2). The banner
+        names the question, never a CLI command (spec 4.4). The setup profile question is never a banner (L3): an open
+        client (`chat.attach`, `ferb setup`) started it and shows it inline."""
         tid = str(data.get("task_id") or "")
-        if tid.split(".", 1)[0] in self._attached_trees or data.get("capability") == "setup.persona":
+        if (tid.split(".", 1)[0] in self._attached_trees or data.get("capability") == "setup.persona"
+                or self._client_shows("approval.requested")):
             return
-        text = f"FERB needs your OK: {str(data.get('reason', ''))} — open ferb chat"
+        text = f"FERB needs your OK: {str(data.get('reason', ''))}"
         asyncio.get_running_loop().create_task(self._notify("FERB needs you", text, urgent=True))
 
     async def _notify_safely(self, title: str, text: str) -> None:

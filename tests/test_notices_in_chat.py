@@ -520,3 +520,40 @@ def test_notices_from_rows_that_expired_before_this_purge_reached_them_are_clear
     assert "olduniquecopy" not in daemon.run(_async(lambda: json.dumps(
         [dict(r) for r in d.db.conn.execute("SELECT * FROM attention_notices")] +
         [dict(r) for r in d.db.conn.execute("SELECT * FROM journal WHERE kind='chat.notice'")])))
+
+
+# ---------- final review M2: a question's banner follows the same rule ----------
+
+def _question(d: RunningDaemon) -> None:
+    """A resumed plan's question, published while no chat stream is attached to its task."""
+    d.run(_publish(d, "approval.requested", {"approval_id": "ap-m2", "capability": "plan.ask",
+                                             "kind": "owner_question", "reason": "Post the launch story now?",
+                                             "options": ["Yes", "No"], "task_id": "t-resumed"}))
+
+
+async def _publish(d: RunningDaemon, topic: str, data: dict[str, Any]) -> None:
+    d.daemon._publish(topic, data)
+    await asyncio.sleep(0.05)                      # the banner is posted from a task the publish starts
+
+
+def test_a_question_raises_no_banner_while_a_client_that_shows_questions_is_connected(daemon: RunningDaemon) -> None:
+    notes = _notes(daemon)
+    client = Subscriber(daemon)
+    try:
+        _question(daemon)
+        _until(lambda: client.topic("approval.requested"), "the question to reach the client")
+        assert notes == []                                                  # the notch shows it inline
+    finally:
+        client.close()
+
+
+def test_a_question_banner_with_no_client_never_points_at_the_cli(daemon: RunningDaemon) -> None:
+    notes = _notes(daemon)
+    voice = Subscriber(daemon, ["voice"])                                   # connected, but never shows questions
+    try:
+        _question(daemon)
+        _until(lambda: notes, "the banner")
+    finally:
+        voice.close()
+    [(title, text)] = notes
+    assert text == "FERB needs your OK: Post the launch story now?"         # the question, no CLI command (§4.4)
