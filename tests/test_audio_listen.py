@@ -570,12 +570,15 @@ def test_mac_record_with_audio_hears_the_pinned_windows_own_process(tmp_path: Pa
                                                                   "window_id": 5}, None),
                              apps=SimpleNamespace(find=lambda name: None))
     tool = MacRecord(driver, recordings)  # type: ignore[arg-type]
+    checked: list[tuple[Path, str]] = []
     ctx = ToolContext("task", "w", "r", Identity.OWNER, frozenset({"screen", "fs:write", "audio"}), "device", None,
-                      str(tmp_path), (), ())
+                      str(tmp_path), (), (), path_closed=lambda path, what: checked.append((path, what)))
     r = asyncio.run(tool.run(tool.Input(app="Music", shot="s1", path=str(tmp_path / "m.mp4"), with_audio=True,
                                         language="hi-IN"), ctx))
     assert not r.is_error, r.content
-    assert "closed" in got                         # integrated with L27: the write check goes with the recording
+    assert callable(got["closed"])                 # integrated with L27: the write check goes with the recording
+    got["closed"](tmp_path / "m.mp4")
+    assert checked == [(tmp_path / "m.mp4", "write")]                  # the protection lists' check, for a write
     assert {k: v for k, v in got.items() if k != "closed"} == {"audio": ("com.apple.Music", 77), "language": "hi-IN",
                                                                "sources": ()}
     no_scope = ToolContext("task", "w", "r", Identity.OWNER, frozenset({"screen", "fs:write"}), "device", None,
