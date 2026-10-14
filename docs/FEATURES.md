@@ -335,7 +335,9 @@ All **Shipped** (`ferb --help`):
 - What: a worker can listen to one app (or the browser showing a task's tab) for as long as it chooses, and gets a
   redacted, time-stamped transcript labelled as outside content. Listening ends with the task.
 - How: ScreenCaptureKit captures that app's audio (FERB's own audio excluded); FERB.app transcribes it with Apple's
-  **on-device** speech recognition (no cloud fallback: if on-device isn't available, the tool says so). The sound
+  **on-device** speech recognition (no cloud fallback: if on-device isn't available, the tool says so). It works in
+  the languages your Mac recognizes on-device, which differ per Mac (on the owner's Mac en-US and en-IN do, hi-IN
+  doesn't, measured 2026-10-14). The sound
   file is deleted as soon as it is transcribed; only the transcript is kept (owner decision 2026-10-14).
 - Status: **Landing this week — integrated, not live-tested (L26).** Needs a one-time Speech
   Recognition permission for FERB (setup asks; doctor reports).

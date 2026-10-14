@@ -1107,3 +1107,12 @@ def test_a_capture_error_is_never_told_as_paused_or_muted_media(tmp_path: Path) 
                                            {"audio_s": 0.0, "peak": 0.0, "error": "AttributeError: boom"}, "en-US"))
     assert out["transcript"] == "" and "muted" not in out["note"] and "paused" not in out["note"]
     assert "FERB" in out["note"]
+
+
+def test_the_tool_never_offers_a_language_as_on_device_without_this_mac_saying_so() -> None:
+    """M2: on the owner's Mac hi-IN has no on-device recognizer (supportsOnDeviceRecognition false); the tool text
+    offered it as an example. It now says only this Mac's on-device languages work and that the result says when not."""
+    from ferb.act.listen import AudioListen
+    text = AudioListen.description
+    assert "hi-IN" not in text
+    assert "on-device" in text and "says so" in text
